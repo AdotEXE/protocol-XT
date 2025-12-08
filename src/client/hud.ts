@@ -39,6 +39,10 @@ export class HUD {
     // Kill counter
     private killsText: TextBlock;
     private killsCount = 0;
+    
+    // Currency display
+    private currencyText: TextBlock;
+    private currencyContainer: Rectangle;
 
     // Enemy health summary
     private enemyHealthText: TextBlock;
@@ -73,6 +77,7 @@ export class HUD {
         this.createCrosshair();
         this.createSpeedometer();
         this.createKillCounter();
+        this.createCurrencyDisplay();
         this.createEnemyHealth();
         this.createCompass();
         this.createMinimap();
@@ -311,6 +316,39 @@ export class HUD {
         this.killsText.fontFamily = "Courier New, monospace";
         this.killsText.top = "5px";
         container.addControl(this.killsText);
+    }
+    
+    private createCurrencyDisplay() {
+        // Container - SOLID BLACK
+        this.currencyContainer = new Rectangle("currencyContainer");
+        this.currencyContainer.width = "120px";
+        this.currencyContainer.height = "40px";
+        this.currencyContainer.cornerRadius = 0;
+        this.currencyContainer.thickness = 2;
+        this.currencyContainer.color = "#ff0";
+        this.currencyContainer.background = "#000";
+        this.currencyContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.currencyContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.currencyContainer.left = "-20px";
+        this.currencyContainer.top = "70px"; // Под счетчиком убийств
+        this.guiTexture.addControl(this.currencyContainer);
+        
+        // Label
+        const label = new TextBlock("currencyLabel");
+        label.text = "CREDITS";
+        label.color = "#ff0";
+        label.fontSize = 10;
+        label.top = "-10px";
+        this.currencyContainer.addControl(label);
+        
+        // Currency amount
+        this.currencyText = new TextBlock("currencyText");
+        this.currencyText.text = "0";
+        this.currencyText.color = "#ff0";
+        this.currencyText.fontSize = 20;
+        this.currencyText.fontFamily = "Courier New, monospace";
+        this.currencyText.top = "5px";
+        this.currencyContainer.addControl(this.currencyText);
     }
 
     private createEnemyHealth() {
@@ -660,6 +698,15 @@ export class HUD {
         // Color based on cardinal directions
         const isCardinal = index % 2 === 0;
         this.compassText.color = isCardinal ? "#0f0" : "#0a0";
+        
+        // КРИТИЧЕСКИ ВАЖНО: Обновляем направление стрелки на радаре!
+        if (this.minimapPlayerDir) {
+            // Поворачиваем стрелку направления на радаре
+            // angle в радианах, нужно повернуть стрелку
+            // В GUI угол поворота задаётся в градусах
+            const degrees = (normalizedAngle * 180) / Math.PI;
+            this.minimapPlayerDir.rotation = degrees;
+        }
     }
     
     addKill() {
@@ -667,7 +714,13 @@ export class HUD {
         this.killsText.text = `${this.killsCount}`;
         this.showMessage("KILL!", "#f00");
     }
-
+    
+    setCurrency(amount: number) {
+        if (this.currencyText) {
+            this.currencyText.text = amount.toString();
+        }
+    }
+    
     setEnemyHealth(totalHp: number, count: number) {
         if (!this.enemyHealthText) return;
         this.enemyHealthText.text = `${Math.round(totalHp)} (${count})`;
@@ -677,7 +730,7 @@ export class HUD {
         else this.enemyHealthText.color = "#0f0";
     }
     
-    showMessage(text: string, color: string = "#0f0") {
+    showMessage(text: string, color: string = "#0f0", duration: number = 2000) {
         if (this.messageTimeout) {
             clearTimeout(this.messageTimeout);
         }
@@ -688,9 +741,12 @@ export class HUD {
         this.messageText.text = text;
         this.messageText.color = color;
         
-        this.messageTimeout = setTimeout(() => {
-            msgBg.isVisible = false;
-        }, 2000);
+        // Если duration = 0, не скрываем автоматически (для таймера респавна)
+        if (duration > 0) {
+            this.messageTimeout = setTimeout(() => {
+                msgBg.isVisible = false;
+            }, duration);
+        }
     }
     
     showDeathMessage() {
@@ -703,10 +759,15 @@ export class HUD {
     
     private enemyPulsePhase = 0;
     
-    updateMinimap(enemies: {x: number, z: number, alive: boolean}[] | Vector3[]) {
+    updateMinimap(enemies: {x: number, z: number, alive: boolean}[] | Vector3[], playerPos?: Vector3) {
         // Remove old enemy markers
         this.minimapEnemies.forEach(e => e.dispose());
         this.minimapEnemies = [];
+        
+        // КРИТИЧЕСКИ ВАЖНО: Игрок всегда в центре радара (0, 0)
+        // Все враги вычисляются относительно позиции игрока!
+        const playerX = playerPos ? playerPos.x : 0;
+        const playerZ = playerPos ? playerPos.z : 0;
         
         // Пульсация врагов (для "живости")
         this.enemyPulsePhase = (this.enemyPulsePhase + 0.15) % (Math.PI * 2);
@@ -721,10 +782,14 @@ export class HUD {
             
             if (!alive) return;
             
+            // КРИТИЧЕСКИ ВАЖНО: Вычисляем позицию врага ОТНОСИТЕЛЬНО ИГРОКА!
+            const relativeX = ex - playerX;
+            const relativeZ = ez - playerZ;
+            
             // Scale to minimap (меньший масштаб для большего охвата)
             const scale = 0.4;
-            const x = ex * scale;
-            const z = -ez * scale;
+            const x = relativeX * scale;
+            const z = -relativeZ * scale; // Инвертируем Z для правильной ориентации
             
             // Clamp to minimap bounds
             const maxDist = 60;
@@ -747,6 +812,12 @@ export class HUD {
             this.minimapContainer.addControl(marker);
             this.minimapEnemies.push(marker);
         });
+        
+        // КРИТИЧЕСКИ ВАЖНО: Игрок всегда в центре радара (0, 0)
+        if (this.minimapPlayer) {
+            this.minimapPlayer.left = "0px";
+            this.minimapPlayer.top = "0px";
+        }
     }
     
     setEnemyCount(count: number) {

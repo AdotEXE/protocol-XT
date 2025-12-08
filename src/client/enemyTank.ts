@@ -366,8 +366,16 @@ export class EnemyTank {
         
         this._tick++;
         
-        // AI update every 2 frames
-        if (this._tick % 2 === 0) {
+        // Оптимизация: далёкие враги обновляются реже
+        const distToPlayer = (this.target && this.target.chassis) ? 
+            Vector3.Distance(this.chassis.position, this.target.chassis.position) : 1000;
+        
+        // Далёкие враги (>150) обновляют AI каждые 4 кадра
+        // Средние (50-150) - каждые 2 кадра
+        // Близкие (<50) - каждый кадр
+        const aiUpdateInterval = distToPlayer > 150 ? 4 : (distToPlayer > 50 ? 2 : 1);
+        
+        if (this._tick % aiUpdateInterval === 0) {
             this.updateAI();
         }
         

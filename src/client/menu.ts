@@ -14,6 +14,12 @@ export interface GameSettings {
     mouseSensitivity: number;   // 1-10
     showFPS: boolean;
     showMinimap: boolean;
+    cameraDistance: number;    // 5-25
+    cameraHeight: number;       // 1-10
+    aimFOV: number;            // 0.2-0.6
+    graphicsQuality: number;    // 1-3
+    vsync: boolean;
+    fullscreen: boolean;
 }
 
 const DEFAULT_SETTINGS: GameSettings = {
@@ -22,7 +28,13 @@ const DEFAULT_SETTINGS: GameSettings = {
     musicVolume: 50,
     mouseSensitivity: 5,
     showFPS: true,
-    showMinimap: true
+    showMinimap: true,
+    cameraDistance: 12,
+    cameraHeight: 5,
+    aimFOV: 0.4,
+    graphicsQuality: 2,
+    vsync: false,
+    fullscreen: false
 };
 
 // Tank configuration stored in localStorage
@@ -405,6 +417,52 @@ export class MainMenu {
                     </div>
                 </div>
                 
+                <div class="setting-row">
+                    <span class="setting-label">Расстояние камеры</span>
+                    <div class="setting-value">
+                        <input type="range" class="setting-range" id="set-camera-dist" min="5" max="25" value="${this.settings.cameraDistance}">
+                        <span id="set-camera-dist-val">${this.settings.cameraDistance}</span>
+                    </div>
+                </div>
+                
+                <div class="setting-row">
+                    <span class="setting-label">Высота камеры</span>
+                    <div class="setting-value">
+                        <input type="range" class="setting-range" id="set-camera-height" min="1" max="10" value="${this.settings.cameraHeight}">
+                        <span id="set-camera-height-val">${this.settings.cameraHeight}</span>
+                    </div>
+                </div>
+                
+                <div class="setting-row">
+                    <span class="setting-label">FOV прицеливания</span>
+                    <div class="setting-value">
+                        <input type="range" class="setting-range" id="set-aim-fov" min="0.2" max="0.6" step="0.1" value="${this.settings.aimFOV}">
+                        <span id="set-aim-fov-val">${this.settings.aimFOV.toFixed(1)}</span>
+                    </div>
+                </div>
+                
+                <div class="setting-row">
+                    <span class="setting-label">Качество графики</span>
+                    <div class="setting-value">
+                        <input type="range" class="setting-range" id="set-graphics" min="1" max="3" value="${this.settings.graphicsQuality}">
+                        <span id="set-graphics-val">${this.settings.graphicsQuality === 1 ? 'Низкое' : this.settings.graphicsQuality === 2 ? 'Среднее' : 'Высокое'}</span>
+                    </div>
+                </div>
+                
+                <div class="setting-row">
+                    <span class="setting-label">VSync</span>
+                    <div class="setting-value">
+                        <input type="checkbox" class="setting-checkbox" id="set-vsync" ${this.settings.vsync ? 'checked' : ''}>
+                    </div>
+                </div>
+                
+                <div class="setting-row">
+                    <span class="setting-label">Полноэкранный режим</span>
+                    <div class="setting-value">
+                        <input type="checkbox" class="setting-checkbox" id="set-fullscreen" ${this.settings.fullscreen ? 'checked' : ''}>
+                    </div>
+                </div>
+                
                 <div class="settings-buttons">
                     <button id="settings-save">СОХРАНИТЬ</button>
                     <button id="settings-cancel">ОТМЕНА</button>
@@ -427,6 +485,19 @@ export class MainMenu {
         setupSlider("set-sound", "set-sound-val", "%");
         setupSlider("set-music", "set-music-val", "%");
         setupSlider("set-mouse", "set-mouse-val");
+        setupSlider("set-camera-dist", "set-camera-dist-val");
+        setupSlider("set-camera-height", "set-camera-height-val");
+        setupSlider("set-aim-fov", "set-aim-fov-val");
+        
+        // Special handler for graphics quality
+        const graphicsSlider = document.getElementById("set-graphics") as HTMLInputElement;
+        const graphicsVal = document.getElementById("set-graphics-val");
+        graphicsSlider?.addEventListener("input", () => {
+            if (graphicsVal) {
+                const val = parseInt(graphicsSlider.value);
+                graphicsVal.textContent = val === 1 ? 'Низкое' : val === 2 ? 'Среднее' : 'Высокое';
+            }
+        });
         
         // Save button
         document.getElementById("settings-save")?.addEventListener("click", () => {
@@ -708,7 +779,13 @@ export class MainMenu {
             musicVolume: parseInt((document.getElementById("set-music") as HTMLInputElement).value),
             mouseSensitivity: parseInt((document.getElementById("set-mouse") as HTMLInputElement).value),
             showFPS: (document.getElementById("set-fps") as HTMLInputElement).checked,
-            showMinimap: (document.getElementById("set-minimap") as HTMLInputElement).checked
+            showMinimap: (document.getElementById("set-minimap") as HTMLInputElement).checked,
+            cameraDistance: parseInt((document.getElementById("set-camera-dist") as HTMLInputElement).value),
+            cameraHeight: parseInt((document.getElementById("set-camera-height") as HTMLInputElement).value),
+            aimFOV: parseFloat((document.getElementById("set-aim-fov") as HTMLInputElement).value),
+            graphicsQuality: parseInt((document.getElementById("set-graphics") as HTMLInputElement).value),
+            vsync: (document.getElementById("set-vsync") as HTMLInputElement).checked,
+            fullscreen: (document.getElementById("set-fullscreen") as HTMLInputElement).checked
         };
         
         localStorage.setItem("gameSettings", JSON.stringify(this.settings));

@@ -21,7 +21,9 @@ export class DebugDashboard {
         this.createUI();
         this.setupToggle();
         // Hide dashboard by default, show only FPS
+        this.visible = false;
         this.container.classList.add("hidden");
+        this.container.style.display = "none"; // Дополнительно скрываем через style
     }
     
     setChunkSystem(chunkSystem: ChunkSystem): void {
@@ -160,7 +162,13 @@ export class DebugDashboard {
             if (e.code === "F3") {
                 e.preventDefault();
                 this.visible = !this.visible;
-                this.container.classList.toggle("hidden", !this.visible);
+                if (this.visible) {
+                    this.container.classList.remove("hidden");
+                    this.container.style.display = "";
+                } else {
+                    this.container.classList.add("hidden");
+                    this.container.style.display = "none";
+                }
             }
         });
     }

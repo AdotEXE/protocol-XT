@@ -50,6 +50,12 @@ export class ChunkSystem {
     private materials: Map<string, StandardMaterial> = new Map();
     private lastPlayerChunk = { x: 0, z: 0 };
     
+    // Позиции гаражей для спавна
+    public garagePositions: Vector3[] = [];
+    
+    // Области гаражей (для исключения из генерации других объектов)
+    private garageAreas: Array<{ x: number, z: number, width: number, depth: number }> = [];
+    
     public stats = {
         loadedChunks: 0,
         totalMeshes: 0,
@@ -66,7 +72,11 @@ export class ChunkSystem {
             ...config
         };
         this.createMaterials();
-        console.log("[ChunkSystem] Initialized");
+        
+        // СРАЗУ создаём гараж для спавна игрока!
+        this.createGuaranteedGarage();
+        
+        console.log(`[ChunkSystem] Initialized with garage at (0, 0), spawn pos: ${this.garagePositions[0]?.x}, ${this.garagePositions[0]?.y}, ${this.garagePositions[0]?.z}`);
     }
     
     private createMaterials(): void {
@@ -116,6 +126,14 @@ export class ChunkSystem {
         });
     }
     
+    // Оптимизация меша (freeze + отключение ненужных вычислений)
+    private optimizeMesh(mesh: Mesh): void {
+        mesh.freezeWorldMatrix();
+        mesh.doNotSyncBoundingInfo = true;
+        mesh.cullingStrategy = Mesh.CULLINGSTRATEGY_BOUNDINGSPHERE_ONLY;
+        mesh.isPickable = false;
+    }
+    
     // Helper to get material (with fallback)
     private getMat(name: string): StandardMaterial {
         const mat = this.materials.get(name);
@@ -143,6 +161,8 @@ export class ChunkSystem {
         };
     }
     
+    private guaranteedGarageCreated = false;
+    
     update(playerPos: Vector3): void {
         const startTime = performance.now();
         const { cx, cz } = this.worldToChunk(playerPos.x, playerPos.z);
@@ -153,6 +173,145 @@ export class ChunkSystem {
         }
         
         this.stats.lastUpdateTime = performance.now() - startTime;
+    }
+    
+    // Создаёт гарантированный гараж рядом с точкой старта
+    private createGuaranteedGarage(): void {
+        this.guaranteedGarageCreated = true;
+        
+        // Создаём гараж ПРЯМО В ЦЕНТРЕ (0, 0) - точка старта игрока!
+        const garageX = 0;
+        const garageZ = 0;
+        
+        // РАЗМЕРЫ ГАРАЖА - достаточно большой для танка
+        const garageWidth = 16;   // Ширина (танк ~4 единицы)
+        const garageDepth = 20;   // Глубина (танк ~6 единиц)
+        const wallHeight = 8;     // Высота стен
+        const wallThickness = 0.4;
+        const doorWidth = 8;      // Ширина проёма (танк ~4 единицы)
+        
+        // Используем существующие материалы или создаём новые
+        let garageMat = this.materials.get("building");
+        if (!garageMat) {
+            garageMat = new StandardMaterial("garageMat", this.scene);
+            garageMat.diffuseColor = new Color3(0.35, 0.35, 0.4);
+            garageMat.specularColor = Color3.Black();
+        }
+        
+        let floorMat = this.materials.get("concrete");
+        if (!floorMat) {
+            floorMat = new StandardMaterial("garageFloorMat", this.scene);
+            floorMat.diffuseColor = new Color3(0.25, 0.25, 0.28);
+            floorMat.specularColor = Color3.Black();
+        }
+        
+        // ПОЛ ГАРАЖА (бетонный)
+        const floor = MeshBuilder.CreateBox("garageFloor", { 
+            width: garageWidth - 0.5, 
+            height: 0.15, 
+            depth: garageDepth - 0.5
+        }, this.scene);
+        floor.position = new Vector3(garageX, 0.075, garageZ);
+        floor.material = floorMat;
+        
+        // ЗАДНЯЯ СТЕНА (сплошная)
+        const backWall = MeshBuilder.CreateBox("garageBack", {
+            width: garageWidth,
+            height: wallHeight,
+            depth: wallThickness
+        }, this.scene);
+        backWall.position = new Vector3(garageX, wallHeight / 2, garageZ - garageDepth / 2 + wallThickness / 2);
+        backWall.material = garageMat;
+        new PhysicsAggregate(backWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        
+        // ЛЕВАЯ СТЕНА (сплошная)
+        const leftWall = MeshBuilder.CreateBox("garageLeft", {
+            width: wallThickness,
+            height: wallHeight,
+            depth: garageDepth
+        }, this.scene);
+        leftWall.position = new Vector3(garageX - garageWidth / 2 + wallThickness / 2, wallHeight / 2, garageZ);
+        leftWall.material = garageMat;
+        new PhysicsAggregate(leftWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        
+        // ПРАВАЯ СТЕНА (сплошная)
+        const rightWall = MeshBuilder.CreateBox("garageRight", {
+            width: wallThickness,
+            height: wallHeight,
+            depth: garageDepth
+        }, this.scene);
+        rightWall.position = new Vector3(garageX + garageWidth / 2 - wallThickness / 2, wallHeight / 2, garageZ);
+        rightWall.material = garageMat;
+        new PhysicsAggregate(rightWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        
+        // ПЕРЕДНЯЯ СТЕНА С ПРОЁМОМ
+        // Левая часть передней стены
+        const frontLeftWidth = (garageWidth - doorWidth) / 2;
+        const frontLeftWall = MeshBuilder.CreateBox("garageFrontLeft", {
+            width: frontLeftWidth,
+            height: wallHeight,
+            depth: wallThickness
+        }, this.scene);
+        frontLeftWall.position = new Vector3(
+            garageX - garageWidth / 2 + frontLeftWidth / 2 + wallThickness / 2, 
+            wallHeight / 2, 
+            garageZ + garageDepth / 2 - wallThickness / 2
+        );
+        frontLeftWall.material = garageMat;
+        new PhysicsAggregate(frontLeftWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        
+        // Правая часть передней стены
+        const frontRightWall = MeshBuilder.CreateBox("garageFrontRight", {
+            width: frontLeftWidth,
+            height: wallHeight,
+            depth: wallThickness
+        }, this.scene);
+        frontRightWall.position = new Vector3(
+            garageX + garageWidth / 2 - frontLeftWidth / 2 - wallThickness / 2, 
+            wallHeight / 2, 
+            garageZ + garageDepth / 2 - wallThickness / 2
+        );
+        frontRightWall.material = garageMat;
+        new PhysicsAggregate(frontRightWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        
+        // ПЕРЕМЫЧКА НАД ПРОЁМОМ
+        const lintel = MeshBuilder.CreateBox("garageLintel", {
+            width: doorWidth + 0.5,
+            height: wallHeight * 0.25,
+            depth: wallThickness
+        }, this.scene);
+        lintel.position = new Vector3(
+            garageX, 
+            wallHeight * 0.875, 
+            garageZ + garageDepth / 2 - wallThickness / 2
+        );
+        lintel.material = garageMat;
+        new PhysicsAggregate(lintel, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        
+        // КРЫША
+        const roof = MeshBuilder.CreateBox("garageRoof", {
+            width: garageWidth + 0.5,
+            height: 0.25,
+            depth: garageDepth + 0.5
+        }, this.scene);
+        roof.position = new Vector3(garageX, wallHeight + 0.125, garageZ);
+        roof.material = garageMat;
+        new PhysicsAggregate(roof, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        
+        // ПОЗИЦИЯ СПАВНА - ТОЧНО В ЦЕНТРЕ ГАРАЖА!
+        // Гараж: X=0, Z=0, глубина=20 (от Z=-10 до Z=+10), ширина=16 (от X=-8 до X=+8)
+        // Танк спавнится в центре гаража, немного ближе к задней стене
+        const spawnPos = new Vector3(garageX, 2.0, garageZ);
+        this.garagePositions.push(spawnPos);
+        
+        // Сохраняем область гаража (с запасом чтобы ничего не спавнилось внутри)
+        this.garageAreas.push({
+            x: garageX - garageWidth / 2 - 3,
+            z: garageZ - garageDepth / 2 - 3,
+            width: garageWidth + 6,
+            depth: garageDepth + 6
+        });
+        
     }
     
     private updateChunks(playerCx: number, playerCz: number): void {
@@ -251,6 +410,9 @@ export class ChunkSystem {
         
         // Ground based on biome
         this.createGround(chunk, size, biome, random);
+        
+        // КРИТИЧЕСКИ ВАЖНО: Гаражи генерируем ПЕРВЫМИ, чтобы исключить их области из генерации других объектов
+        this.generateGarages(chunk, worldX, worldZ, size, random);
         
         // Roads
         this.createRoads(chunk, size, random);
@@ -811,8 +973,17 @@ export class ChunkSystem {
         const count = random.int(2, 5); // больше пропсов
         for (let i = 0; i < count; i++) {
             const kind = random.int(0, 4);
-            const x = random.range(6, size - 6);
-            const z = random.range(6, size - 6);
+            let x = random.range(6, size - 6);
+            let z = random.range(6, size - 6);
+            
+            // КРИТИЧЕСКИ ВАЖНО: Пропускаем позиции внутри гаражей
+            // Получаем мировые координаты
+            const worldX = chunk.x * this.config.chunkSize + x;
+            const worldZ = chunk.z * this.config.chunkSize + z;
+            if (this.isPositionInGarageArea(worldX, worldZ, 1)) {
+                continue; // Пропускаем эту позицию
+            }
+            
             if (kind === 0) {
                 // Crate
                 const w = random.range(1.5, 3);
@@ -1453,6 +1624,183 @@ export class ChunkSystem {
     
     getStats() {
         return { ...this.stats, totalChunksInMemory: this.chunks.size };
+    }
+    
+    // Генерация гаражей для спавна
+    private generateGarages(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+        // Генерируем гаражи только в некоторых чанках (не слишком часто)
+        // Вероятность появления гаража в чанке зависит от расстояния от центра
+        const centerX = worldX + size / 2;
+        const centerZ = worldZ + size / 2;
+        const distanceFromCenter = Math.sqrt(centerX * centerX + centerZ * centerZ);
+        
+        // Гаражи появляются на расстоянии 15-400 от центра, с вероятностью 35%
+        // Минимальное расстояние уменьшено для гарантированного гаража рядом со стартом
+        if (distanceFromCenter < 15 || distanceFromCenter > 400) return;
+        if (!random.chance(0.35)) return;
+        
+        // Создаём гараж - ПУСТОЕ здание с проёмом (без ворот)
+        // Размеры достаточные для танка (танк ~4x6 единиц)
+        const garageWidth = random.range(14, 18);
+        const garageHeight = random.range(7, 9);
+        const garageDepth = random.range(18, 22);
+        const wallThickness = 0.4;
+        
+        // Позиция гаража в чанке
+        const gx = random.range(10, size - 10);
+        const gz = random.range(10, size - 10);
+        const worldGarageX = worldX + gx;
+        const worldGarageZ = worldZ + gz;
+        
+        const garageMat = this.getMat(random.pick(["metal", "brick", "concrete", "brickDark"]));
+        const roofMat = this.getMat(random.pick(["roof", "roofRed", "metalRust"]));
+        
+        // Задняя стена
+        const backWall = MeshBuilder.CreateBox("garageBack", { 
+            width: garageWidth, 
+            height: garageHeight, 
+            depth: wallThickness 
+        }, this.scene);
+        backWall.position = new Vector3(worldGarageX, garageHeight / 2, worldGarageZ + garageDepth / 2 - wallThickness / 2);
+        backWall.material = garageMat;
+        backWall.parent = chunk.node;
+        backWall.freezeWorldMatrix();
+        chunk.meshes.push(backWall);
+        new PhysicsAggregate(backWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        
+        // Левая боковая стена
+        const leftWall = MeshBuilder.CreateBox("garageLeft", { 
+            width: wallThickness, 
+            height: garageHeight, 
+            depth: garageDepth 
+        }, this.scene);
+        leftWall.position = new Vector3(worldGarageX - garageWidth / 2 + wallThickness / 2, garageHeight / 2, worldGarageZ);
+        leftWall.material = garageMat;
+        leftWall.parent = chunk.node;
+        leftWall.freezeWorldMatrix();
+        chunk.meshes.push(leftWall);
+        new PhysicsAggregate(leftWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        
+        // Правая боковая стена
+        const rightWall = MeshBuilder.CreateBox("garageRight", { 
+            width: wallThickness, 
+            height: garageHeight, 
+            depth: garageDepth 
+        }, this.scene);
+        rightWall.position = new Vector3(worldGarageX + garageWidth / 2 - wallThickness / 2, garageHeight / 2, worldGarageZ);
+        rightWall.material = garageMat;
+        rightWall.parent = chunk.node;
+        rightWall.freezeWorldMatrix();
+        chunk.meshes.push(rightWall);
+        new PhysicsAggregate(rightWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        
+        // Передняя стена с проёмом (две части по бокам)
+        const openingWidth = garageWidth * 0.7; // Ширина проёма 70% от ширины гаража
+        const openingHeight = garageHeight * 0.85; // Высота проёма 85% от высоты гаража
+        const sideWallWidth = (garageWidth - openingWidth) / 2;
+        
+        // Левая часть передней стены
+        const frontLeft = MeshBuilder.CreateBox("garageFrontLeft", { 
+            width: sideWallWidth, 
+            height: garageHeight, 
+            depth: wallThickness 
+        }, this.scene);
+        frontLeft.position = new Vector3(
+            worldGarageX - openingWidth / 2 - sideWallWidth / 2, 
+            garageHeight / 2, 
+            worldGarageZ - garageDepth / 2 + wallThickness / 2
+        );
+        frontLeft.material = garageMat;
+        frontLeft.parent = chunk.node;
+        frontLeft.freezeWorldMatrix();
+        chunk.meshes.push(frontLeft);
+        new PhysicsAggregate(frontLeft, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        
+        // Правая часть передней стены
+        const frontRight = MeshBuilder.CreateBox("garageFrontRight", { 
+            width: sideWallWidth, 
+            height: garageHeight, 
+            depth: wallThickness 
+        }, this.scene);
+        frontRight.position = new Vector3(
+            worldGarageX + openingWidth / 2 + sideWallWidth / 2, 
+            garageHeight / 2, 
+            worldGarageZ - garageDepth / 2 + wallThickness / 2
+        );
+        frontRight.material = garageMat;
+        frontRight.parent = chunk.node;
+        frontRight.freezeWorldMatrix();
+        chunk.meshes.push(frontRight);
+        new PhysicsAggregate(frontRight, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        
+        // Верхняя часть передней стены (над проёмом)
+        const frontTop = MeshBuilder.CreateBox("garageFrontTop", { 
+            width: openingWidth, 
+            height: garageHeight - openingHeight, 
+            depth: wallThickness 
+        }, this.scene);
+        frontTop.position = new Vector3(
+            worldGarageX, 
+            garageHeight - (garageHeight - openingHeight) / 2, 
+            worldGarageZ - garageDepth / 2 + wallThickness / 2
+        );
+        frontTop.material = garageMat;
+        frontTop.parent = chunk.node;
+        frontTop.freezeWorldMatrix();
+        chunk.meshes.push(frontTop);
+        new PhysicsAggregate(frontTop, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        
+        // Крыша
+        const roof = MeshBuilder.CreateBox("garageRoof", { 
+            width: garageWidth + 0.5, 
+            height: 0.3, 
+            depth: garageDepth + 0.5 
+        }, this.scene);
+        roof.position = new Vector3(worldGarageX, garageHeight + 0.15, worldGarageZ);
+        roof.material = roofMat;
+        roof.parent = chunk.node;
+        roof.freezeWorldMatrix();
+        chunk.meshes.push(roof);
+        new PhysicsAggregate(roof, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        
+        // Пол гаража (для визуального эффекта)
+        const floor = MeshBuilder.CreateBox("garageFloor", { 
+            width: garageWidth - wallThickness * 2, 
+            height: 0.1, 
+            depth: garageDepth - wallThickness * 2 
+        }, this.scene);
+        floor.position = new Vector3(worldGarageX, 0.05, worldGarageZ);
+        floor.material = this.getMat("concrete");
+        floor.parent = chunk.node;
+        floor.freezeWorldMatrix();
+        chunk.meshes.push(floor);
+        
+        // Сохраняем область гаража для исключения из генерации других объектов
+        const garageArea = {
+            x: worldGarageX - garageWidth / 2 - 2, // Добавляем запас 2 единицы
+            z: worldGarageZ - garageDepth / 2 - 2,
+            width: garageWidth + 4,
+            depth: garageDepth + 4
+        };
+        this.garageAreas.push(garageArea);
+        
+        // Сохраняем позицию гаража для спавна (внутри гаража, по центру, ближе к задней стене)
+        // Y = 1.5 чтобы танк спавнился на полу гаража
+        const spawnPos = new Vector3(worldGarageX, 1.5, worldGarageZ + garageDepth * 0.2);
+        this.garagePositions.push(spawnPos);
+        
+        console.log(`[ChunkSystem] Garage created at ${worldGarageX.toFixed(1)}, ${worldGarageZ.toFixed(1)} (spawn: ${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
+    }
+    
+    // Проверить, не попадает ли позиция в область гаража
+    isPositionInGarageArea(x: number, z: number, margin: number = 0): boolean {
+        for (const area of this.garageAreas) {
+            if (x >= area.x - margin && x <= area.x + area.width + margin &&
+                z >= area.z - margin && z <= area.z + area.depth + margin) {
+                return true;
+            }
+        }
+        return false;
     }
     
     dispose(): void {

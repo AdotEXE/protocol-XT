@@ -30,6 +30,13 @@ export class TankController {
     enemyManager: EnemyManager | null = null;
     enemyTanks: any[] = []; // Reference to enemy tanks for hit detection
     
+    // Callback для получения позиции респавна (гараж)
+    private respawnPositionCallback: (() => Vector3 | null) | null = null;
+    
+    // Респавн с таймером
+    private respawnCountdown = 0; // Секунды до респавна
+    private respawnIntervalId: number | null = null;
+    
     // Config
     mass = 1500;
     hoverHeight = 1.0;  // Hover height
@@ -186,6 +193,60 @@ export class TankController {
     setEnemyTanks(enemyTanks: any[]) {
         this.enemyTanks = enemyTanks;
     }
+    
+    // Установить callback для получения позиции респавна (гараж)
+    setRespawnPositionCallback(callback: () => Vector3 | null) {
+        this.respawnPositionCallback = callback;
+    }
+
+    // Запуск обратного отсчёта респавна
+    startRespawnCountdown() {
+        // Очищаем предыдущий таймер если есть
+        if (this.respawnIntervalId !== null) {
+            clearInterval(this.respawnIntervalId);
+        }
+        
+        // Показываем начальное сообщение (duration = 0 - не скрывать автоматически)
+        if (this.hud) {
+            const minutes = Math.floor(this.respawnCountdown / 60);
+            const seconds = this.respawnCountdown % 60;
+            this.hud.showMessage(`DESTROYED! RESPAWN IN ${minutes}:${seconds.toString().padStart(2, '0')}`, "#f00", 0);
+        }
+        
+        // Обратный отсчёт каждую секунду
+        this.respawnIntervalId = window.setInterval(() => {
+            this.respawnCountdown--;
+            
+            if (this.respawnCountdown <= 0) {
+                // Останавливаем таймер
+                if (this.respawnIntervalId !== null) {
+                    clearInterval(this.respawnIntervalId);
+                    this.respawnIntervalId = null;
+                }
+                
+                // Респавн!
+                console.log("[TANK] Respawn timer complete!");
+                if (!this.isAlive) {
+                    this.respawn();
+                }
+            } else {
+                // Обновляем сообщение
+                if (this.hud) {
+                    const minutes = Math.floor(this.respawnCountdown / 60);
+                    const seconds = this.respawnCountdown % 60;
+                    // Меняем цвет в зависимости от времени
+                    let color = "#f00"; // Красный
+                    if (this.respawnCountdown <= 30) {
+                        color = "#ff0"; // Жёлтый - скоро респавн
+                    }
+                    if (this.respawnCountdown <= 10) {
+                        color = "#0f0"; // Зелёный - почти респавн
+                    }
+                    this.hud.showMessage(`RESPAWN IN ${minutes}:${seconds.toString().padStart(2, '0')}`, color, 0);
+                }
+            }
+        }, 1000);
+    }
 
     takeDamage(amount: number) {
         if (!this.isAlive) return;
@@ -288,7 +349,73 @@ export class TankController {
         }
         
         // Сбрасываем позицию и физику
-        this.reset();
+        // КРИТИЧЕСКИ ВАЖНО: Респавн ВСЕГДА в гараже (0, 2, 0)!
+        // Гараж находится в центре: X=0, Z=0, внутри от X=-8 до X=+8, Z=-10 до Z=+10
+        
+        // ПРИНУДИТЕЛЬНО используем центр гаража!
+        const respawnPos = new Vector3(0, 2.0, 0);
+        console.log(`[TANK] === RESPAWN TO GARAGE CENTER: (0, 2, 0) ===`);
+        
+        // ТЕЛЕПОРТИРУЕМ ТАНК В ГАРАЖ - ЖЁСТКО И ПРИНУДИТЕЛЬНО!
+        if (this.chassis && this.physicsBody) {
+            const targetX = respawnPos.x;
+            const targetY = respawnPos.y;
+            const targetZ = respawnPos.z;
+            
+            
+            // 1. ОТКЛЮЧАЕМ физику временно
+            this.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
+            
+            // 2. Сбрасываем ВСЕ скорости
+            this.physicsBody.setLinearVelocity(Vector3.Zero());
+            this.physicsBody.setAngularVelocity(Vector3.Zero());
+            
+            // 3. Устанавливаем позицию НАПРЯМУЮ
+            this.chassis.position.x = targetX;
+            this.chassis.position.y = targetY;
+            this.chassis.position.z = targetZ;
+            
+            // 4. Сбрасываем вращение
+            this.chassis.rotationQuaternion = Quaternion.Identity();
+            this.chassis.rotation.set(0, 0, 0);
+            this.turret.rotation.set(0, 0, 0);
+            this.barrel.rotation.set(0, 0, 0);
+            
+            // 5. Обновляем матрицы
+            this.chassis.computeWorldMatrix(true);
+            this.turret.computeWorldMatrix(true);
+            this.barrel.computeWorldMatrix(true);
+            
+            // 6. Включаем физику обратно через небольшую задержку
+            setTimeout(() => {
+                if (this.physicsBody && this.chassis) {
+                    // Ещё раз устанавливаем позицию
+                    this.chassis.position.x = targetX;
+                    this.chassis.position.y = targetY;
+                    this.chassis.position.z = targetZ;
+                    this.chassis.rotationQuaternion = Quaternion.Identity();
+                    this.chassis.computeWorldMatrix(true);
+                    
+                    // Сбрасываем скорости
+                    this.physicsBody.setLinearVelocity(Vector3.Zero());
+                    this.physicsBody.setAngularVelocity(Vector3.Zero());
+                    
+                    // Включаем физику
+                    this.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
+                    
+                }
+            }, 100);
+            
+            // 7. Ещё один сброс через 200мс для надёжности
+            setTimeout(() => {
+                if (this.physicsBody && this.chassis) {
+                    this.physicsBody.setLinearVelocity(Vector3.Zero());
+                    this.physicsBody.setAngularVelocity(Vector3.Zero());
+                }
+            }, 200);
+        } else {
+            console.error("[TANK] Cannot respawn - chassis or physics body missing!");
+        }
         
         // Обновляем HUD
         if (this.hud) {
@@ -512,7 +639,7 @@ export class TankController {
         this.physicsBody.setLinearVelocity(Vector3.Zero());
         this.physicsBody.setAngularVelocity(Vector3.Zero());
         
-        // Полный сброс позиции
+        // Полный сброс позиции (будет установлена из гаража при респавне)
         const spawnPos = new Vector3(0, 3, 0);
         this.chassis.position.copyFrom(spawnPos);
         
@@ -717,7 +844,7 @@ export class TankController {
                 }
                 
                 // === РИКОШЕТ ОТ ГРАНИЦ КАРТЫ (стены) ===
-                const mapBorder = 480;
+                const mapBorder = 1000; // Увеличено максимальное расстояние для выстрела
                 if (Math.abs(bulletPos.x) > mapBorder || Math.abs(bulletPos.z) > mapBorder) {
                     if (ricochetCount < maxRicochets) {
                         const velocity = body.getLinearVelocity();
@@ -743,9 +870,9 @@ export class TankController {
                     }
                 }
                 
-                // Удаление за границами
+                // Удаление за границами (увеличено максимальное расстояние)
                 if (bulletPos.y < -10 || bulletPos.y > 100 || 
-                    Math.abs(bulletPos.x) > 550 || Math.abs(bulletPos.z) > 550) {
+                    Math.abs(bulletPos.x) > 1200 || Math.abs(bulletPos.z) > 1200) {
                     ball.dispose();
                     return;
                 }
@@ -812,17 +939,32 @@ export class TankController {
             const hoverForce = (deltaY * this.hoverStiffness) - (velY * this.hoverDamping);
             body.applyForce(new Vector3(0, hoverForce, 0), pos);
 
-            // --- 2. KEEP UPRIGHT (Strong anti-tilt) ---
+            // --- 2. KEEP UPRIGHT (ОЧЕНЬ СИЛЬНАЯ система выравнивания!) ---
             const tiltX = Math.asin(Math.max(-1, Math.min(1, up.z)));  // Forward/back tilt
             const tiltZ = Math.asin(Math.max(-1, Math.min(1, -up.x))); // Left/right tilt
             
-            // STRONG corrective torque to prevent wheelies
-            const uprightForce = 8000;   // Much stronger!
-            const uprightDamp = 5000;    // More damping
+            // ОЧЕНЬ СИЛЬНАЯ корректирующая сила для предотвращения опрокидывания
+            const uprightForce = 15000;   // УВЕЛИЧЕНО с 8000 до 15000!
+            const uprightDamp = 8000;     // УВЕЛИЧЕНО с 5000 до 8000!
             const correctiveX = -tiltX * uprightForce - angVel.x * uprightDamp;
             const correctiveZ = -tiltZ * uprightForce - angVel.z * uprightDamp;
             
             this.applyTorque(new Vector3(correctiveX, 0, correctiveZ));
+            
+            // ДОПОЛНИТЕЛЬНО: Если танк сильно наклонён, применяем экстренное выравнивание
+            if (up.y < 0.7 || Math.abs(tiltX) > 0.3 || Math.abs(tiltZ) > 0.3) {
+                // Экстренное выравнивание - очень сильная сила
+                const emergencyForce = 25000;
+                const emergencyX = -tiltX * emergencyForce;
+                const emergencyZ = -tiltZ * emergencyForce;
+                this.applyTorque(new Vector3(emergencyX, 0, emergencyZ));
+                
+                // Также применяем вертикальную силу для поднятия
+                if (up.y < 0.5) {
+                    const liftForce = (0.9 - up.y) * 50000;
+                    body.applyForce(new Vector3(0, liftForce, 0), pos);
+                }
+            }
 
             // --- 3. MOVEMENT (Smooth acceleration) ---
         // Smooth throttle/steer (even gentler start)
@@ -860,8 +1002,9 @@ export class TankController {
                 body.applyForce(forward.scale(dragForce), pos);
             }
 
-            // --- AUTO RESET if fallen ---
-            if (pos.y < -10 || up.y < 0.3) {
+            // --- AUTO RESET if fallen или сильно наклонён ---
+            if (pos.y < -10 || up.y < 0.3 || Math.abs(tiltX) > 1.0 || Math.abs(tiltZ) > 1.0) {
+                console.log(`[TANK] Auto-reset triggered: y=${pos.y.toFixed(1)}, up.y=${up.y.toFixed(2)}, tiltX=${tiltX.toFixed(2)}, tiltZ=${tiltZ.toFixed(2)}`);
                 this.reset();
             }
 

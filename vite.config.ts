@@ -14,7 +14,23 @@ export default defineConfig({
   },
   build: {
     target: 'esnext',
+    // Оптимизация бандла
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        // Code splitting - разделяем большие библиотеки
+        manualChunks: {
+          'babylon-core': ['@babylonjs/core'],
+          'babylon-gui': ['@babylonjs/gui'],
+          'havok': ['@babylonjs/havok'],
+        },
+      },
+    },
+    // Минификация (esbuild - быстрее и встроен в Vite)
+    minify: 'esbuild',
+  },
+  // Оптимизация dev сервера
+  optimizeDeps: {
+    include: ['@babylonjs/core', '@babylonjs/gui', '@babylonjs/havok'],
   },
 });
-
-
