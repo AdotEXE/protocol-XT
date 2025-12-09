@@ -56,6 +56,9 @@ export class ChunkSystem {
     // Области гаражей (для исключения из генерации других объектов)
     private garageAreas: Array<{ x: number, z: number, width: number, depth: number }> = [];
     
+    // Припасы на карте (для подбора)
+    public consumablePickups: Array<{ mesh: Mesh, type: string, position: Vector3 }> = [];
+    
     public stats = {
         loadedChunks: 0,
         totalMeshes: 0,
@@ -373,7 +376,7 @@ export class ChunkSystem {
         
         // Средняя зона - смешанная застройка
         if (dist < 200) {
-            const noiseVal = random.next();
+        const noiseVal = random.next();
             // Более реалистичное распределение
             if (noiseVal < 0.35) return "city";        // Город продолжается
             if (noiseVal < 0.55) return "residential"; // Жилые районы
@@ -432,6 +435,9 @@ export class ChunkSystem {
 
         // Scatter generic props for uniqueness
         this.addScatteredProps(chunk, size, random);
+        
+        // Генерируем припасы
+        this.generateConsumables(chunk, worldX, worldZ, size, random);
     }
     
     private createGround(chunk: ChunkData, size: number, biome: BiomeType, _random: SeededRandom): void {
@@ -1172,10 +1178,10 @@ export class ChunkSystem {
                     // Маленький мост
                     const br = MeshBuilder.CreateBox("bridge", { width: 8, height: 0.8, depth: 3 }, this.scene);
                     br.position = new Vector3(x, 1.5, z);
-                    br.material = this.getMat("concrete");
-                    br.parent = chunk.node;
-                    br.freezeWorldMatrix();
-                    chunk.meshes.push(br);
+                br.material = this.getMat("concrete");
+                br.parent = chunk.node;
+                br.freezeWorldMatrix();
+                chunk.meshes.push(br);
                     new PhysicsAggregate(br, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
                 } else if (bridgeType === 1) {
                     // Большой мост с опорами
@@ -1250,11 +1256,11 @@ export class ChunkSystem {
                     const wallH = random.range(2, 4);
                     const wall = MeshBuilder.CreateBox("wall", { width: wallLen, height: wallH, depth: 0.5 }, this.scene);
                     wall.position = new Vector3(x, wallH / 2 + 0.01, z);
-                    wall.rotation.y = random.pick([0, Math.PI / 2]);
+                wall.rotation.y = random.pick([0, Math.PI / 2]);
                     wall.material = this.getMat(random.pick(["concrete", "brick", "brickDark"]));
-                    wall.parent = chunk.node;
-                    wall.freezeWorldMatrix();
-                    chunk.meshes.push(wall);
+                wall.parent = chunk.node;
+                wall.freezeWorldMatrix();
+                chunk.meshes.push(wall);
                     new PhysicsAggregate(wall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
                 }
             } else if (kind === 8) {
@@ -1359,7 +1365,7 @@ export class ChunkSystem {
                         chunk.meshes.push(pole);
                         new PhysicsAggregate(pole, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
                     }
-                } else {
+            } else {
                     // Разрушенные стены
                     const ruinCount = random.int(2, 4);
                     for (let ru = 0; ru < ruinCount; ru++) {
@@ -1385,17 +1391,17 @@ export class ChunkSystem {
                 if (forestSize === 0) {
                     // Маленькая роща
                     const treeCount = random.int(3, 6);
-                    for (let t = 0; t < treeCount; t++) {
+                for (let t = 0; t < treeCount; t++) {
                         const tx = x + random.range(-5, 5);
                         const tz = z + random.range(-5, 5);
-                        const th = random.range(3, 6);
+                    const th = random.range(3, 6);
                         const tw = random.range(1.5, 2.5);
                         const tree = MeshBuilder.CreateBox("t", { width: tw, height: th, depth: tw }, this.scene);
-                        tree.position = new Vector3(tx, th / 2 + 0.01, tz);
-                        tree.material = this.getMat("leaves");
-                        tree.parent = chunk.node;
-                        tree.freezeWorldMatrix();
-                        chunk.meshes.push(tree);
+                    tree.position = new Vector3(tx, th / 2 + 0.01, tz);
+                    tree.material = this.getMat("leaves");
+                    tree.parent = chunk.node;
+                    tree.freezeWorldMatrix();
+                    chunk.meshes.push(tree);
                         new PhysicsAggregate(tree, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
                     }
                 } else if (forestSize === 1) {
@@ -1801,6 +1807,108 @@ export class ChunkSystem {
             }
         }
         return false;
+    }
+    
+    // Генерация припасов на карте
+    private generateConsumables(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+        // Генерируем 1-3 припаса на чанк
+        const count = random.int(1, 3);
+        
+        for (let i = 0; i < count; i++) {
+            let attempts = 0;
+            let x: number, z: number;
+            
+            // Ищем свободное место (не в гараже, не в зданиях)
+            do {
+                x = worldX + random.range(5, size - 5);
+                z = worldZ + random.range(5, size - 5);
+                attempts++;
+            } while (this.isPositionInGarageArea(x, z, 3) && attempts < 10);
+            
+            if (attempts >= 10) continue; // Пропускаем если не нашли место
+            
+            // Выбираем случайный тип припаса
+            const consumableTypes = ["health", "speed", "armor", "ammo", "damage"];
+            const type = random.pick(consumableTypes);
+            
+            const position = new Vector3(x, 1.0, z);
+            
+            // Создаём визуализацию припаса
+            const consumable = MeshBuilder.CreateBox(`consumable_${type}`, {
+                width: 0.8,
+                height: 0.8,
+                depth: 0.8
+            }, this.scene);
+            
+            consumable.position.copyFrom(position);
+            
+            // Материал с цветом припаса и свечением
+            const colors: { [key: string]: Color3 } = {
+                "health": new Color3(1, 0, 0),
+                "speed": new Color3(1, 1, 0),
+                "armor": new Color3(0, 1, 1),
+                "ammo": new Color3(1, 0.5, 0),
+                "damage": new Color3(1, 0, 0)
+            };
+            
+            const mat = new StandardMaterial(`consumableMat_${type}`, this.scene);
+            const color = colors[type] || Color3.White();
+            mat.diffuseColor = color;
+            mat.emissiveColor = color.scale(0.8); // Яркое свечение
+            mat.specularColor = Color3.Black();
+            mat.disableLighting = true; // Всегда светится
+            consumable.material = mat;
+            
+            // Добавляем анимацию пульсации свечения
+            let pulseTime = 0;
+            this.scene.onBeforeRenderObservable.add(() => {
+                if (consumable.isDisposed()) return;
+                pulseTime += this.scene.getEngine().getDeltaTime() / 1000;
+                const pulse = 0.5 + Math.sin(pulseTime * 3) * 0.3; // Пульсация от 0.2 до 0.8
+                mat.emissiveColor = color.scale(pulse);
+            });
+            
+            consumable.parent = chunk.node;
+            // Не замораживаем матрицу для анимации вращения
+            chunk.meshes.push(consumable);
+            
+            // Улучшенная анимация вращения и покачивания
+            let animTime = 0;
+            const initialY = consumable.position.y;
+            const rotationSpeed = 0.03; // Быстрее вращение
+            const bobSpeed = 2.5; // Быстрее покачивание
+            const bobAmplitude = 0.4; // Больше амплитуда
+            
+            this.scene.onBeforeRenderObservable.add(() => {
+                if (consumable.isDisposed()) return;
+                const deltaTime = this.scene.getEngine().getDeltaTime() / 1000;
+                animTime += deltaTime;
+                
+                // Плавное вращение
+                consumable.rotation.y += rotationSpeed * deltaTime * 60; // Нормализация по FPS
+                
+                // Покачивание вверх-вниз с параболической траекторией
+                consumable.position.y = initialY + Math.sin(animTime * bobSpeed) * bobAmplitude;
+                
+                // Легкое покачивание в стороны для реалистичности
+                const sideBob = Math.sin(animTime * bobSpeed * 0.7) * 0.1;
+                consumable.rotation.z = sideBob;
+            });
+            
+            // Metadata для подбора
+            consumable.metadata = { 
+                type: "consumable", 
+                consumableType: type,
+                position: position.clone()
+            };
+            
+            // Сохраняем в список
+            this.consumablePickups.push({
+                mesh: consumable,
+                type: type,
+                position: position
+            });
+        }
     }
     
     dispose(): void {

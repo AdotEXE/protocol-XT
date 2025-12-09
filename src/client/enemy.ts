@@ -267,9 +267,10 @@ export class EnemyTurret {
                 this.effectsManager.createMuzzleFlash(muzzlePos.add(forward.scale(1)), forward);
             }
             
-            // Play sound
+            // Play sound with 3D positioning
             if (this.soundManager) {
-                this.soundManager.playShoot();
+                const shootPos = muzzlePos.add(forward.scale(1));
+                this.soundManager.playShoot("standard", shootPos);
             }
             
             // Create projectile
@@ -375,12 +376,13 @@ export class EnemyTurret {
         this.isAlive = false;
         console.log("[TURRET] Destroyed!");
         
+        const explosionPos = this.base.absolutePosition.clone();
         if (this.effectsManager) {
-            this.effectsManager.createExplosion(this.base.absolutePosition, 1.5);
+            this.effectsManager.createExplosion(explosionPos, 1.5);
         }
         
         if (this.soundManager) {
-            this.soundManager.playExplosion();
+            this.soundManager.playExplosion(explosionPos, 1.5);
         }
         
         // Hide turret

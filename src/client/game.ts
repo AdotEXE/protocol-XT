@@ -32,6 +32,11 @@ import { EnemyTank } from "./enemyTank";
 import { MainMenu, GameSettings } from "./menu";
 import { CurrencyManager } from "./currencyManager";
 import { Garage } from "./garage";
+import { ConsumablesManager, CONSUMABLE_TYPES } from "./consumables";
+import { ChatSystem } from "./chatSystem";
+import { ExperienceSystem } from "./experienceSystem";
+import { PlayerProgressionSystem } from "./playerProgression";
+import { AimingSystem } from "./aimingSystem";
 
 export class Game {
     engine: Engine;
@@ -56,6 +61,24 @@ export class Game {
     // Currency manager
     currencyManager: CurrencyManager | undefined;
     
+    // Consumables manager
+    consumablesManager: ConsumablesManager | undefined;
+    
+    // Chat system
+    chatSystem: ChatSystem | undefined;
+    
+    // Garage system
+    garage: Garage | undefined;
+    
+    // Experience system
+    experienceSystem: ExperienceSystem | undefined;
+    
+    // Player progression system
+    playerProgression: PlayerProgressionSystem | undefined;
+    
+    // Aiming system
+    aimingSystem: AimingSystem | undefined;
+    
     // Позиция гаража игрока для респавна
     playerGaragePosition: Vector3 | null = null;
     
@@ -79,8 +102,17 @@ export class Game {
     centerCameraSpeed = 0.08;   // Скорость центрирования камеры (ТОЧНО такая же как у башни - 0.08!)
     isCenteringActive = false;  // Активно ли центрирование прямо сейчас
     
+    // Camera shake system
+    private cameraShakeIntensity = 0;
+    private cameraShakeDecay = 0.95; // Скорость затухания тряски
+    private cameraShakeOffset = Vector3.Zero();
+    private cameraShakeTime = 0;
+    
     // Input map for camera controls
     private _inputMap: { [key: string]: boolean } = {};
+    
+    // Update tick counter for optimization
+    private _updateTick = 0;
 
     constructor() {
         // Create main menu first
@@ -120,6 +152,37 @@ export class Game {
         window.addEventListener("keydown", (e) => {
             if (e.code === "Escape" && this.gameStarted) {
                 this.togglePause();
+            }
+            
+            // Обработка клавиш 1-5 для припасов
+            if (this.gameStarted && this.tank && this.consumablesManager) {
+                const keyToSlot: { [key: string]: number } = {
+                    "Digit1": 1,
+                    "Digit2": 2,
+                    "Digit3": 3,
+                    "Digit4": 4,
+                    "Digit5": 5
+                };
+                
+                const slot = keyToSlot[e.code];
+                if (slot) {
+                    const used = this.consumablesManager.use(slot, this.tank);
+                    if (this.hud) {
+                        this.hud.updateConsumables(this.consumablesManager.getAll());
+                        if (used) {
+                            const consumable = this.consumablesManager.get(slot);
+                            if (!consumable && this.chatSystem) {
+                                // Припас использован
+                                this.chatSystem.success(`Припас из слота ${slot} использован`);
+                            }
+                        } else {
+                            // Слот пуст
+                            if (this.chatSystem) {
+                                this.chatSystem.warning(`Слот ${slot} пуст`);
+                            }
+                        }
+                    }
+                }
             }
         });
         
@@ -271,11 +334,86 @@ export class Game {
             this.effectsManager = new EffectsManager(this.scene);
             this.tank.setEffectsManager(this.effectsManager);
             
+            // Подключаем тряску камеры
+            this.tank.setCameraShakeCallback((intensity: number) => {
+                this.addCameraShake(intensity);
+            });
+            
             // Create Currency Manager
             this.currencyManager = new CurrencyManager();
             
+            // Create Consumables Manager
+            this.consumablesManager = new ConsumablesManager();
+            
+            // Create Chat System
+            this.chatSystem = new ChatSystem(this.scene);
+            // Подключаем звуковой менеджер к чату
+            if (this.soundManager) {
+                this.chatSystem.setSoundManager(this.soundManager);
+            }
+            
+            // Create Experience System
+            this.experienceSystem = new ExperienceSystem();
+            this.experienceSystem.setChatSystem(this.chatSystem);
+            if (this.hud) {
+                this.experienceSystem.setHUD(this.hud);
+            }
+            if (this.effectsManager) {
+                this.experienceSystem.setEffectsManager(this.effectsManager);
+            }
+            if (this.soundManager) {
+                this.experienceSystem.setSoundManager(this.soundManager);
+            }
+            
+            // Create Player Progression System
+            this.playerProgression = new PlayerProgressionSystem();
+            this.playerProgression.setChatSystem(this.chatSystem);
+            this.playerProgression.setSoundManager(this.soundManager);
+            
+            // Connect to menu
+            if (this.mainMenu) {
+                this.mainMenu.setPlayerProgression(this.playerProgression);
+            }
+            
+            // Create Aiming System
+            this.aimingSystem = new AimingSystem(this.scene);
+            
+            this.chatSystem.success("Система инициализирована");
+            
             // Create Garage System
             this.garage = new Garage(this.scene, this.currencyManager);
+            if (this.chatSystem) {
+                this.garage.setChatSystem(this.chatSystem);
+            }
+            if (this.soundManager) {
+                this.garage.setSoundManager(this.soundManager);
+            }
+            if (this.tank) {
+                this.garage.setTankController(this.tank);
+            }
+            if (this.experienceSystem) {
+                this.garage.setExperienceSystem(this.experienceSystem);
+            }
+            
+            // Connect chat system to tank
+            if (this.tank && this.chatSystem) {
+                this.tank.chatSystem = this.chatSystem;
+            }
+            
+            // Connect experience system to tank
+            if (this.tank && this.experienceSystem) {
+                this.tank.experienceSystem = this.experienceSystem;
+            }
+            
+            // Connect aiming system to tank
+            if (this.tank && this.aimingSystem) {
+                this.aimingSystem.setTank(this.tank);
+            }
+            
+            // Connect player progression to tank
+            if (this.tank && this.playerProgression) {
+                this.tank.playerProgression = this.playerProgression;
+            }
             
             // Create Enemy Manager (for turrets)
             this.enemyManager = new EnemyManager(this.scene);
@@ -293,9 +431,26 @@ export class Game {
                 }
                 // Начисляем валюту за уничтожение турели
                 if (this.currencyManager) {
-                    this.currencyManager.addCurrency(50); // 50 валюты за турель
+                    const reward = 50;
+                    this.currencyManager.addCurrency(reward);
                     if (this.hud) {
                         this.hud.setCurrency(this.currencyManager.getCurrency());
+                    }
+                    if (this.chatSystem) {
+                        this.chatSystem.economy(`+${reward} кредитов (уничтожена турель)`);
+                    }
+                    // Добавляем опыт за убийство турели
+                    if (this.experienceSystem && this.tank) {
+                        this.experienceSystem.recordKill(
+                            this.tank.chassisType.id,
+                            this.tank.cannonType.id,
+                            true // isTurret
+                        );
+                    }
+                    // Записываем в прогресс игрока
+                    if (this.playerProgression) {
+                        this.playerProgression.recordKill();
+                        this.playerProgression.addCredits(reward);
                     }
                 }
             });
@@ -522,6 +677,7 @@ export class Game {
         
         // Сохраняем позицию гаража для респавна (ВСЕГДА в этом же гараже!)
         this.playerGaragePosition = playerGarage.clone(); // Клонируем чтобы избежать проблем с ссылками
+        console.log(`[Game] Garage position saved for respawn: (${this.playerGaragePosition.x.toFixed(2)}, ${this.playerGaragePosition.y.toFixed(2)}, ${this.playerGaragePosition.z.toFixed(2)})`);
         
         // Перемещаем танк в гараж
         if (this.tank.chassis && this.tank.physicsBody) {
@@ -557,6 +713,7 @@ export class Game {
     getPlayerGaragePosition(): Vector3 | null {
         // КРИТИЧЕСКИ ВАЖНО: Респавн ВСЕГДА в том же гараже, где началась игра!
         if (this.playerGaragePosition) {
+            console.log(`[Game] Using saved garage position: (${this.playerGaragePosition.x.toFixed(2)}, ${this.playerGaragePosition.y.toFixed(2)}, ${this.playerGaragePosition.z.toFixed(2)})`);
             return this.playerGaragePosition.clone(); // Возвращаем копию
         }
         
@@ -564,10 +721,15 @@ export class Game {
         if (this.chunkSystem && this.chunkSystem.garagePositions.length > 0) {
             const garage = this.chunkSystem.garagePositions[0].clone();
             this.playerGaragePosition = garage; // Сохраняем для будущих респавнов
+            console.log(`[Game] Using first available garage: (${garage.x.toFixed(2)}, ${garage.y.toFixed(2)}, ${garage.z.toFixed(2)})`);
             return garage;
         }
         
-        return null;
+        // Последний fallback: центр гаража по умолчанию
+        console.warn(`[Game] No garage found, using default position (0, 2, 0)`);
+        const defaultPos = new Vector3(0, 2.0, 0);
+        this.playerGaragePosition = defaultPos.clone();
+        return defaultPos;
     }
     
     // Спавн врагов в гаражах
@@ -610,9 +772,26 @@ export class Game {
                 if (this.hud) this.hud.addKill();
                 // Начисляем валюту за уничтожение танка
                 if (this.currencyManager) {
-                    this.currencyManager.addCurrency(100); // 100 валюты за танк
+                    const reward = 100;
+                    this.currencyManager.addCurrency(reward);
                     if (this.hud) {
                         this.hud.setCurrency(this.currencyManager.getCurrency());
+                    }
+                    if (this.chatSystem) {
+                        this.chatSystem.economy(`+${reward} кредитов (уничтожен вражеский танк)`);
+                    }
+                    // Добавляем опыт за убийство танка
+                    if (this.experienceSystem && this.tank) {
+                        this.experienceSystem.recordKill(
+                            this.tank.chassisType.id,
+                            this.tank.cannonType.id,
+                            false // not turret
+                        );
+                    }
+                    // Записываем в прогресс игрока
+                    if (this.playerProgression) {
+                        this.playerProgression.recordKill();
+                        this.playerProgression.addCredits(reward);
                     }
                 }
                 const idx = this.enemyTanks.indexOf(enemyTank);
@@ -641,9 +820,11 @@ export class Game {
             if (this.hud) this.hud.addKill();
             // Начисляем валюту за уничтожение танка
             if (this.currencyManager) {
-                this.currencyManager.addCurrency(100); // 100 валюты за танк
+                const reward = 100;
+                this.currencyManager.addCurrency(reward);
                 if (this.hud) {
                     this.hud.setCurrency(this.currencyManager.getCurrency());
+                    this.hud.showMessage(`+${reward} кредитов!`, "#ff0", 2000);
                 }
             }
             const idx = this.enemyTanks.indexOf(enemyTank);
@@ -737,6 +918,14 @@ export class Game {
         // Update camera
         this.updateCamera();
         
+        // Update 3D audio listener position (camera position)
+        if (this.soundManager && this.scene.activeCamera) {
+            const camPos = this.scene.activeCamera.position;
+            const forward = this.scene.activeCamera.getForwardRay().direction;
+            const up = this.scene.activeCamera.upVector || new Vector3(0, 1, 0);
+            this.soundManager.updateListenerPosition(camPos, forward, up);
+        }
+        
         // Update chunk system based on player position
         if (this.chunkSystem && this.tank) {
             this.chunkSystem.update(this.tank.chassis.absolutePosition);
@@ -754,18 +943,160 @@ export class Game {
             this.updateGarageRespawnTimers(deltaTime);
         }
         
-        // Update enemy tanks
+        // Update enemy tanks (оптимизация: обновляем только видимых и близких)
+        if (this.tank) {
+            const playerPos = this.tank.chassis.absolutePosition;
         this.enemyTanks.forEach(enemy => {
             if (enemy.isAlive) {
+                    // Оптимизация: далёкие враги обновляются реже
+                    const distance = Vector3.Distance(playerPos, enemy.chassis.absolutePosition);
+                    const maxUpdateDistance = 200; // Максимальная дистанция обновления
+                    
+                    if (distance < maxUpdateDistance) {
+                        enemy.update();
+                    } else {
+                        // Далёкие враги обновляются только каждые 10 кадров
+                        if (this.engine.getFps() > 0) {
+                            const frameCount = Math.floor(this.engine.getFps() * 0.1); // 10% от FPS
+                            if (this._updateTick % frameCount === 0) {
                 enemy.update();
-            }
-        });
+                            }
+                        }
+                    }
+                }
+            });
+            this._updateTick++;
+        } else {
+            // Если танка нет, обновляем всех врагов
+            this.enemyTanks.forEach(enemy => {
+                if (enemy.isAlive) {
+                    enemy.update();
+                }
+            });
+        }
 
-        // Aim-highlight enemy HP when looking at them
+        // Оптимизация: обновляем некоторые системы реже
+        // Aim-highlight enemy HP when looking at them (каждый кадр)
         this.updateEnemyLookHP();
         
-        // Update HUD
+        // Update HUD (каждые 2 кадра для оптимизации)
+        if (this._updateTick % 2 === 0) {
         this.updateHUD();
+        }
+        
+        // Update aiming system (каждые 3 кадра)
+        if (this.aimingSystem && this._updateTick % 3 === 0) {
+            this.aimingSystem.setEnemies(this.enemyTanks, this.enemyManager?.getEnemies() || []);
+            this.aimingSystem.update();
+        }
+        
+        // Update player progression (auto-save and play time tracking) - каждую секунду
+        if (this.playerProgression && this._updateTick % 60 === 0) {
+            this.playerProgression.autoSave();
+            const deltaTime = this.engine.getDeltaTime() / 1000;
+            this.playerProgression.recordPlayTime(deltaTime);
+        } else if (this.playerProgression) {
+            // Обновляем время игры каждый кадр, но сохраняем реже
+            const deltaTime = this.engine.getDeltaTime() / 1000;
+            this.playerProgression.recordPlayTime(deltaTime);
+        }
+        
+        // Проверка подбора припасов (каждые 2 кадра)
+        if (this._updateTick % 2 === 0) {
+            this.checkConsumablePickups();
+        }
+    }
+    
+    // Проверка подбора припасов
+    private checkConsumablePickups(): void {
+        if (!this.tank || !this.chunkSystem || !this.consumablesManager) return;
+        
+        const tankPos = this.tank.chassis.absolutePosition;
+        const pickupRadius = 2.0; // Радиус подбора
+        
+        // Проверяем все припасы
+        for (let i = this.chunkSystem.consumablePickups.length - 1; i >= 0; i--) {
+            const pickup = this.chunkSystem.consumablePickups[i];
+            if (!pickup.mesh || pickup.mesh.isDisposed()) {
+                this.chunkSystem.consumablePickups.splice(i, 1);
+                continue;
+            }
+            
+            const distance = Vector3.Distance(tankPos, pickup.position);
+            
+            if (distance < pickupRadius) {
+                // Подбираем припас
+                const consumableType = CONSUMABLE_TYPES.find(c => c.id === pickup.type);
+                if (consumableType) {
+                    // Ищем свободный слот (1-5)
+                    let slot = -1;
+                    for (let s = 1; s <= 5; s++) {
+                        if (!this.consumablesManager.get(s)) {
+                            slot = s;
+                            break;
+                        }
+                    }
+                    
+                    if (slot > 0) {
+                        // Подбираем в свободный слот
+                        this.consumablesManager.pickUp(consumableType, slot);
+                        
+                        // Удаляем припас с карты
+                        pickup.mesh.dispose();
+                        this.chunkSystem.consumablePickups.splice(i, 1);
+                        
+                        // Обновляем HUD
+                        if (this.hud) {
+                            this.hud.updateConsumables(this.consumablesManager.getAll());
+                        }
+                        if (this.chatSystem) {
+                            this.chatSystem.success(`Подобран: ${consumableType.icon} ${consumableType.name} (слот ${slot})`);
+                        }
+                        
+                        // Звуковой эффект подбора
+                        if (this.soundManager) {
+                            this.soundManager.playPickup();
+                        }
+                        
+                        // Визуальный эффект подбора
+                        if (this.effectsManager) {
+                            const color = Color3.FromHexString(consumableType.color);
+                            this.effectsManager.createPickupEffect(pickup.position, color, pickup.type);
+                        }
+                        
+                        // Записываем опыт за подбор припаса
+                        if (this.experienceSystem && this.tank) {
+                            this.experienceSystem.recordPickup(this.tank.chassisType.id);
+                        }
+                        
+                        console.log(`[Game] Picked up ${consumableType.name} in slot ${slot}`);
+                    } else {
+                        // Все слоты заняты - заменяем первый
+                        this.consumablesManager.pickUp(consumableType, 1);
+                        pickup.mesh.dispose();
+                        this.chunkSystem.consumablePickups.splice(i, 1);
+                        
+                        if (this.hud) {
+                            this.hud.updateConsumables(this.consumablesManager.getAll());
+                        }
+                        if (this.chatSystem) {
+                            this.chatSystem.success(`Подобран: ${consumableType.icon} ${consumableType.name} (заменён слот 1)`);
+                        }
+                        
+                        if (this.soundManager) {
+                            this.soundManager.playPickup();
+                        }
+                        
+                        // Записываем опыт за подбор припаса
+                        if (this.experienceSystem && this.tank) {
+                            this.experienceSystem.recordPickup(this.tank.chassisType.id);
+                        }
+                        
+                        console.log(`[Game] Picked up ${consumableType.name} (replaced slot 1)`);
+                    }
+                }
+            }
+        }
     }
 
     // Aim mode variables
@@ -940,13 +1271,34 @@ export class Game {
                 const currentTarget = this.aimCamera.getTarget();
                 const lerpedTarget = Vector3.Lerp(currentTarget, lookAtPos, posLerp);
                 this.aimCamera.setTarget(lerpedTarget);
+                
+                // Применяем тряску к камере прицеливания (меньше интенсивность)
+                if (this.cameraShakeIntensity > 0.01) {
+                    const currentPos = this.aimCamera.position.clone();
+                    this.aimCamera.position = currentPos.add(this.cameraShakeOffset.scale(0.5));
+                }
             }
+            
+            // Применяем эффект тряски камеры
+            this.updateCameraShake();
             
             // Плавный возврат FOV к нормальному значению для основной камеры
             if (this.camera && t < 0.99) {
                 const currentFOV = this.camera.fov;
                 const targetFOV = this.normalFOV;
                 this.camera.fov += (targetFOV - currentFOV) * 0.2;
+            }
+            
+            // Применяем смещение от тряски к камере
+            if (this.camera && this.cameraShakeIntensity > 0.01) {
+                const basePos = this.tank.chassis.position.clone();
+                basePos.y += 2;
+                this.camera.position = basePos.add(this.cameraShakeOffset);
+            }
+            
+            if (this.aimCamera && this.cameraShakeIntensity > 0.01) {
+                const currentPos = this.aimCamera.position.clone();
+                this.aimCamera.position = currentPos.add(this.cameraShakeOffset.scale(0.5)); // Меньше тряски в режиме прицеливания
             }
             
             // Third-person smooth follow (для обычного режима, когда не в режиме прицеливания)
@@ -956,6 +1308,12 @@ export class Game {
                 this.camera.radius += (targetRadius - this.camera.radius) * 0.15;
                 this.cameraBeta += (targetBeta - this.cameraBeta) * 0.15;
                 this.cameraBeta = Math.max(0.2, Math.min(Math.PI / 2.2, this.cameraBeta));
+                
+                // Применяем тряску к основной камере
+                if (this.cameraShakeIntensity > 0.01) {
+                    const currentPos = this.camera.position.clone();
+                    this.camera.position = currentPos.add(this.cameraShakeOffset);
+                }
                 
                 const chassisRotY = this.tank.chassis.rotationQuaternion 
                     ? this.tank.chassis.rotationQuaternion.toEulerAngles().y 
@@ -1021,6 +1379,30 @@ export class Game {
         }
     }
     
+    // Обновить эффект тряски камеры
+    private updateCameraShake(): void {
+        if (this.cameraShakeIntensity > 0.01) {
+            // Генерируем случайное смещение
+            this.cameraShakeTime += 0.1;
+            const shakeX = (Math.random() - 0.5) * this.cameraShakeIntensity;
+            const shakeY = (Math.random() - 0.5) * this.cameraShakeIntensity;
+            const shakeZ = (Math.random() - 0.5) * this.cameraShakeIntensity;
+            
+            this.cameraShakeOffset = new Vector3(shakeX, shakeY, shakeZ);
+            
+            // Уменьшаем интенсивность
+            this.cameraShakeIntensity *= this.cameraShakeDecay;
+        } else {
+            this.cameraShakeIntensity = 0;
+            this.cameraShakeOffset = Vector3.Zero();
+        }
+    }
+    
+    // Добавить тряску камеры
+    addCameraShake(intensity: number, duration: number = 0.3): void {
+        this.cameraShakeIntensity = Math.max(this.cameraShakeIntensity, intensity);
+    }
+    
     updateHUD() {
         if (!this.hud || !this.tank || !this.enemyManager) return;
         
@@ -1072,6 +1454,77 @@ export class Game {
         const aliveCount = this.enemyTanks.filter(t => t.isAlive).length + 
                           this.enemyManager.getAliveCount();
         this.hud.setEnemyCount(aliveCount);
+        
+        // Update nearest enemy distance
+        let nearestDistance = Infinity;
+        allEnemies.forEach(enemy => {
+            const dist = Vector3.Distance(playerPos, enemy instanceof Vector3 ? enemy : enemy.position || enemy);
+            if (dist < nearestDistance) {
+                nearestDistance = dist;
+            }
+        });
+        if (nearestDistance < Infinity) {
+            this.hud.setNearestEnemyDistance(nearestDistance);
+        } else {
+            this.hud.setNearestEnemyDistance(0);
+        }
+        
+        // Update FPS
+        const fps = Math.round(1000 / this.engine.getDeltaTime());
+        this.hud.updateFPS(fps);
+        
+        // Update tank stats with experience data
+        if (this.tank) {
+            const chassisType = this.tank.chassisType?.name || "Standard";
+            const cannonType = this.tank.cannonType?.name || "Standard";
+            const damage = this.tank.damage || 50;
+            const fireRate = this.tank.cooldown || 2500;
+            const speed = this.tank.moveSpeed || 10;
+            const maxHealth = this.tank.maxHealth || 100;
+            
+            // Get experience data
+            let chassisLevel = 1, chassisXp = 0, chassisXpToNext = 100, chassisTitle = "Новобранец", chassisTitleColor = "#888";
+            let cannonLevel = 1, cannonXp = 0, cannonXpToNext = 100, cannonTitle = "Новичок", cannonTitleColor = "#888";
+            let armor = 0;
+            
+            if (this.experienceSystem && this.tank.chassisType && this.tank.cannonType) {
+                // Chassis experience
+                const chassisExp = this.experienceSystem.getChassisExperience(this.tank.chassisType.id);
+                if (chassisExp) {
+                    chassisLevel = chassisExp.level;
+                    const progressData = this.experienceSystem.getExperienceToNextLevel(chassisExp);
+                    chassisXp = progressData.current;
+                    chassisXpToNext = progressData.required;
+                    const levelInfo = this.experienceSystem.getLevelInfo(this.tank.chassisType.id, "chassis");
+                    if (levelInfo) {
+                        chassisTitle = levelInfo.title;
+                        chassisTitleColor = levelInfo.titleColor;
+                        armor = levelInfo.armorBonus || 0;
+                    }
+                }
+                
+                // Cannon experience
+                const cannonExp = this.experienceSystem.getCannonExperience(this.tank.cannonType.id);
+                if (cannonExp) {
+                    cannonLevel = cannonExp.level;
+                    const progressData = this.experienceSystem.getExperienceToNextLevel(cannonExp);
+                    cannonXp = progressData.current;
+                    cannonXpToNext = progressData.required;
+                    const levelInfo = this.experienceSystem.getLevelInfo(this.tank.cannonType.id, "cannon");
+                    if (levelInfo) {
+                        cannonTitle = levelInfo.title;
+                        cannonTitleColor = levelInfo.titleColor;
+                    }
+                }
+            }
+            
+            this.hud.setTankStats(
+                chassisType, cannonType, armor, damage, fireRate,
+                chassisLevel, chassisXp, chassisXpToNext, chassisTitle, chassisTitleColor,
+                cannonLevel, cannonXp, cannonXpToNext, cannonTitle, cannonTitleColor,
+                speed, maxHealth
+            );
+        }
     }
 
     private updateEnemyLookHP() {

@@ -250,7 +250,7 @@ export class EnemyTank {
         
         return barrel;
     }
-    
+
     private createTracks(): void {
         const trackMat = new StandardMaterial(`enemyTrackMat_${this.id}`, this.scene);
         trackMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
@@ -310,7 +310,7 @@ export class EnemyTank {
         this.hpBillboard = plane;
         this.hpTexture = tex;
     }
-    
+
     setHpVisible(visible: boolean) {
         if (!this.hpBillboard || !this.hpBarFill) return;
         this.hpBillboard.isVisible = visible;
@@ -328,7 +328,7 @@ export class EnemyTank {
             }
         }
     }
-    
+
     isPartOf(mesh: Mesh): boolean {
         return mesh === this.chassis || mesh === this.turret || mesh === this.barrel || this.wheels.includes(mesh);
     }
@@ -402,59 +402,116 @@ export class EnemyTank {
             const right = Vector3.TransformNormal(Vector3.Right(), rotMatrix).normalize();
             const up = Vector3.TransformNormal(Vector3.Up(), rotMatrix).normalize();
             
-            // --- 1. HOVER (same as player!) ---
+            // --- 1. ENHANCED HOVER (same improvements as player) ---
             const targetY = this.hoverHeight;
             const deltaY = targetY - pos.y;
             const velY = vel.y;
-            const hoverForce = (deltaY * this.hoverStiffness) - (velY * this.hoverDamping);
+            
+            // Адаптивная жесткость
+            const stiffnessMultiplier = 1.0 + Math.abs(deltaY) * 0.5;
+            const hoverForce = (deltaY * this.hoverStiffness * stiffnessMultiplier) - (velY * this.hoverDamping);
             body.applyForce(new Vector3(0, hoverForce, 0), pos);
             
-            // --- 2. KEEP UPRIGHT (same as player!) ---
+            // Дополнительная стабилизация при движении
+            if (Math.abs(Vector3.Dot(vel, forward)) > 2) {
+                const stabilityForce = -velY * 3000;
+                body.applyForce(new Vector3(0, stabilityForce, 0), pos);
+            }
+            
+            // --- 2. ENHANCED KEEP UPRIGHT (same as player!) ---
             const tiltX = Math.asin(Math.max(-1, Math.min(1, up.z)));
             const tiltZ = Math.asin(Math.max(-1, Math.min(1, -up.x)));
             
-            const uprightForce = 8000;
-            const uprightDamp = 5000;
+            // Улучшенные значения как у игрока
+            const uprightForce = 15000;
+            const uprightDamp = 8000;
             const correctiveX = -tiltX * uprightForce - angVel.x * uprightDamp;
             const correctiveZ = -tiltZ * uprightForce - angVel.z * uprightDamp;
             
             this.applyTorque(new Vector3(correctiveX, 0, correctiveZ));
             
-            // --- 3. MOVEMENT (smooth like player!) ---
-            this.smoothThrottle += (this.throttleTarget - this.smoothThrottle) * 0.1;
-            this.smoothSteer += (this.steerTarget - this.smoothSteer) * 0.15;
+            // Экстренное выравнивание
+            if (up.y < 0.7 || Math.abs(tiltX) > 0.3 || Math.abs(tiltZ) > 0.3) {
+                const emergencyForce = 25000;
+                const emergencyX = -tiltX * emergencyForce;
+                const emergencyZ = -tiltZ * emergencyForce;
+                this.applyTorque(new Vector3(emergencyX, 0, emergencyZ));
+                
+                if (up.y < 0.5) {
+                    const liftForce = (0.9 - up.y) * 50000;
+                    body.applyForce(new Vector3(0, liftForce, 0), pos);
+                }
+            }
+            
+            // --- 3. ENHANCED MOVEMENT (same improvements as player) ---
+            const throttleLerpSpeed = Math.abs(this.throttleTarget) > 0 ? 0.12 : 0.08;
+            const steerLerpSpeed = Math.abs(this.steerTarget) > 0 ? 0.18 : 0.12;
+            
+            this.smoothThrottle += (this.throttleTarget - this.smoothThrottle) * throttleLerpSpeed;
+            this.smoothSteer += (this.steerTarget - this.smoothSteer) * steerLerpSpeed;
             
             const targetSpeed = this.smoothThrottle * this.moveSpeed;
             const currentSpeed = Vector3.Dot(vel, forward);
             const speedDiff = targetSpeed - currentSpeed;
             
-            const accel = speedDiff * this.acceleration;
-            const forcePoint = pos.add(new Vector3(0, -0.5, 0));
+            const isAccelerating = Math.sign(speedDiff) === Math.sign(this.smoothThrottle);
+            const accelMultiplier = isAccelerating ? 1.0 : 1.5;
+            const accel = speedDiff * this.acceleration * accelMultiplier;
+            
+            const forcePoint = pos.add(new Vector3(0, -0.6, 0));
             body.applyForce(forward.scale(accel), forcePoint);
             
-            // --- 4. TURN ---
-            const targetTurnRate = this.smoothSteer * this.turnSpeed;
+            if (Math.abs(this.smoothThrottle) > 0.1) {
+                const downForce = Math.abs(this.smoothThrottle) * 2000;
+                body.applyForce(new Vector3(0, -downForce, 0), pos);
+            }
+            
+            // --- 4. ENHANCED TURN (Speed-dependent turning) ---
+            const speedRatio = Math.abs(currentSpeed) / this.moveSpeed;
+            const turnSpeedMultiplier = 1.0 + (1.0 - speedRatio) * 0.5;
+            const effectiveTurnSpeed = this.turnSpeed * turnSpeedMultiplier;
+            
+            const targetTurnRate = this.smoothSteer * effectiveTurnSpeed;
             const currentTurnRate = angVel.y;
-            const turnAccel = (targetTurnRate - currentTurnRate) * 10000;
+            
+            const isTurning = Math.abs(this.smoothSteer) > 0.1;
+            const angularAccelMultiplier = isTurning ? 1.2 : 1.5;
+            const turnAccel = (targetTurnRate - currentTurnRate) * 11000 * angularAccelMultiplier;
             this.applyTorque(new Vector3(0, turnAccel, 0));
             
-            // Yaw damping
-            if (Math.abs(this.steerTarget) < 0.1) {
-                this.applyTorque(new Vector3(0, -angVel.y * 4000, 0));
+            if (Math.abs(speedRatio) > 0.3 && Math.abs(this.smoothSteer) > 0.2) {
+                const stabilityTorque = -angVel.y * 2000 * speedRatio;
+                this.applyTorque(new Vector3(0, stabilityTorque, 0));
             }
             
-            // --- 5. SIDE FRICTION ---
+            if (Math.abs(this.smoothSteer) < 0.05) {
+                this.applyTorque(new Vector3(0, -angVel.y * 4500, 0));
+            }
+            
+            // --- 5. ENHANCED SIDE FRICTION ---
             const sideSpeed = Vector3.Dot(vel, right);
-            body.applyForce(right.scale(-sideSpeed * 12000), pos);
+            const sideFrictionMultiplier = 1.0 + Math.abs(currentSpeed) / this.moveSpeed * 0.5;
+            body.applyForce(right.scale(-sideSpeed * 13000 * sideFrictionMultiplier), pos);
             
-            // --- 6. DRAG ---
-            if (Math.abs(this.throttleTarget) < 0.1) {
-                const dragForce = -Vector3.Dot(vel, forward) * 6000;
-                body.applyForce(forward.scale(dragForce), pos);
+            // --- 6. ENHANCED DRAG ---
+            if (Math.abs(this.throttleTarget) < 0.05) {
+                const sideVel = Vector3.Dot(vel, right);
+                const sideDrag = -sideVel * 8000;
+                body.applyForce(right.scale(sideDrag), pos);
+                
+                const fwdVel = Vector3.Dot(vel, forward);
+                const fwdDrag = -fwdVel * 7000;
+                body.applyForce(forward.scale(fwdDrag), pos);
+                
+                const angularDrag = -angVel.y * 5000;
+                this.applyTorque(new Vector3(0, angularDrag, 0));
             }
             
-            // --- Auto reset if fallen ---
-            if (pos.y < -10 || up.y < 0.3) {
+            // --- Auto reset if fallen (Enhanced detection) ---
+            const isFallen = pos.y < -10 || up.y < 0.3 || Math.abs(tiltX) > 1.0 || Math.abs(tiltZ) > 1.0;
+            const isStuck = Math.abs(vel.length()) < 0.5 && Math.abs(angVel.length()) < 0.1 && up.y < 0.5;
+            
+            if (isFallen || isStuck) {
                 this.reset();
             }
             
@@ -542,9 +599,9 @@ export class EnemyTank {
                 this.lastDecisionTime = now;
                 this.makeDecision(distance);
             }
-        } else {
-            this.state = "patrol";
-        }
+            } else {
+                this.state = "patrol";
+            }
         
         // Execute current state
         this.executeState();
@@ -552,34 +609,60 @@ export class EnemyTank {
     
     private makeDecision(distance: number): void {
         const healthPercent = this.currentHealth / this.maxHealth;
+        const targetHealthPercent = this.target?.currentHealth ? this.target.currentHealth / 100 : 1.0;
         
-        // Priority: Retreat if very low health
-        if (healthPercent < 0.2) {
+        // Улучшенная логика принятия решений
+        // Priority 1: Retreat if very low health (улучшенная логика)
+        if (healthPercent < 0.15) {
             this.state = "retreat";
+            this.stateTimer = 5000; // Отступаем дольше
             return;
         }
         
-        // In range - attack or flank
+        // Priority 2: Evade if taking heavy damage
+        if (healthPercent < 0.4 && distance < 25) {
+            if (Math.random() < 0.3) {
+                this.state = "evade";
+                this.stateTimer = 2000;
+                // Выбираем направление уклонения
+                const angle = Math.random() * Math.PI * 2;
+                this.evadeDirection = new Vector3(Math.cos(angle), 0, Math.sin(angle));
+                return;
+            }
+        }
+        
+        // Priority 3: In range - attack or flank (улучшенная логика)
         if (distance < this.range) {
-            // Random flank maneuver sometimes
-            if (Math.random() < 0.15 && distance > 15) {
+            // Более умный выбор тактики
+            const shouldFlank = distance > 20 && distance < this.optimalRange && healthPercent > 0.5;
+            const flankChance = shouldFlank ? 0.25 : 0.1; // Больше шанс фланга в оптимальной дистанции
+            
+            if (Math.random() < flankChance) {
                 this.state = "flank";
                 this.flankDirection = Math.random() > 0.5 ? 1 : -1;
-                this.stateTimer = 2000; // Flank for 2 seconds
-            } else {
+                this.stateTimer = 3000; // Flank дольше
+        } else {
                 this.state = "attack";
+                // Если цель слабая - агрессивнее атакуем
+                if (targetHealthPercent < 0.3) {
+                    this.stateTimer = 0; // Не переключаемся на другую тактику
+                }
             }
         } 
-        // Detected but not in range - chase
+        // Priority 4: Detected but not in range - chase (улучшенная логика)
         else if (distance < this.detectRange) {
             this.state = "chase";
+            // Если цель далеко и у нас мало здоровья - не преследуем слишком агрессивно
+            if (healthPercent < 0.3 && distance > 60) {
+                this.state = "patrol"; // Возвращаемся к патрулированию
+            }
         } 
-        // Not detected - patrol
+        // Priority 5: Not detected - patrol
         else {
             this.state = "patrol";
         }
-    }
-    
+        }
+        
     private executeState(): void {
         switch (this.state) {
             case "patrol":
@@ -633,33 +716,48 @@ export class EnemyTank {
         const targetPos = this.target.chassis.absolutePosition;
         const myPos = this.chassis.absolutePosition;
         const distance = Vector3.Distance(targetPos, myPos);
+        const healthPercent = this.currentHealth / this.maxHealth;
         
         // Aim at target (with prediction!)
         this.aimAtTarget();
         
-        // Check if we can shoot
+        // Check if we can shoot (улучшенная логика стрельбы)
         const canShoot = this.isAimedAtTarget() && !this.isReloading;
         
         if (canShoot) {
-            const now = Date.now();
-            if (now - this.lastShotTime > this.cooldown) {
-                this.fire();
-                this.lastShotTime = now;
+        const now = Date.now();
+        if (now - this.lastShotTime > this.cooldown) {
+                // Улучшенная логика: более агрессивная стрельба при низком здоровье цели
+                const targetHealthPercent = this.target?.currentHealth ? this.target.currentHealth / 100 : 1.0;
+                const shouldFire = targetHealthPercent < 0.5 || healthPercent > 0.6 || Math.random() < 0.8;
+                
+                if (shouldFire) {
+            this.fire();
+            this.lastShotTime = now;
+                }
             }
         }
         
-        // Maintain optimal range with slight movement
-        if (distance < this.optimalRange * 0.6) {
-            // Too close - back up
-            this.throttleTarget = -0.4;
-            this.steerTarget = 0;
-        } else if (distance > this.optimalRange * 1.3) {
-            // Too far - get closer
-            this.driveToward(targetPos, 0.4);
+        // Улучшенное поддержание оптимальной дистанции
+        if (distance < this.optimalRange * 0.5) {
+            // Слишком близко - отступаем быстрее
+            this.throttleTarget = -0.6;
+            this.steerTarget = Math.sin(this._tick * 0.03) * 0.4; // Зигзаг при отступлении
+        } else if (distance < this.optimalRange * 0.8) {
+            // Близко - медленно отступаем
+            this.throttleTarget = -0.2;
+            this.steerTarget = Math.sin(this._tick * 0.02) * 0.2;
+        } else if (distance > this.optimalRange * 1.5) {
+            // Слишком далеко - приближаемся
+            this.driveToward(targetPos, 0.5);
+        } else if (distance > this.optimalRange * 1.2) {
+            // Немного далеко - медленно приближаемся
+            this.driveToward(targetPos, 0.3);
         } else {
-            // Good range - strafe slightly
-            this.throttleTarget = 0;
-            this.steerTarget = Math.sin(this._tick * 0.02) * 0.3;
+            // Оптимальная дистанция - активное маневрирование
+            const strafeSpeed = healthPercent > 0.5 ? 0.4 : 0.2; // Меньше маневров при низком HP
+            this.throttleTarget = Math.sin(this._tick * 0.015) * strafeSpeed;
+            this.steerTarget = Math.cos(this._tick * 0.02) * 0.4;
         }
     }
     
@@ -716,13 +814,49 @@ export class EnemyTank {
     }
     
     private doEvade(): void {
-        // Move in evade direction
-        const evadePos = this.chassis.absolutePosition.add(this.evadeDirection.scale(10));
+        if (!this.target) {
+            this.state = "patrol";
+            return;
+        }
+        
+        // Улучшенное уклонение - более динамичное
+        const targetPos = this.target.chassis.absolutePosition;
+        const myPos = this.chassis.absolutePosition;
+        
+        // Обновляем направление уклонения периодически
+        if (this._tick % 30 === 0) {
+            const toTarget = targetPos.subtract(myPos);
+            toTarget.y = 0;
+            toTarget.normalize();
+            
+            // Перпендикулярное направление
+            const perpendicular = new Vector3(toTarget.z, 0, -toTarget.x);
+            this.evadeDirection = perpendicular.scale(Math.random() > 0.5 ? 1 : -1);
+        }
+        
+        // Движение в направлении уклонения
+        const evadePos = myPos.add(this.evadeDirection.scale(15));
         this.driveToward(evadePos, 1.0);
+        
+        // Все ещё целимся в цель (боевое уклонение)
+        this.aimAtTarget();
+        
+        // Попытка стрельбы при уклонении
+        if (this.isAimedAtTarget() && !this.isReloading) {
+            const now = Date.now();
+            if (now - this.lastShotTime > this.cooldown * 1.2) { // Немного медленнее при уклонении
+                if (Math.random() < 0.3) { // 30% шанс стрельбы при уклонении
+                    this.fire();
+                    this.lastShotTime = now;
+                }
+            }
+        }
         
         this.stateTimer -= 33;
         if (this.stateTimer <= 0) {
-            this.state = "attack";
+            // Возвращаемся к атаке или отступлению в зависимости от здоровья
+            const healthPercent = this.currentHealth / this.maxHealth;
+            this.state = healthPercent < 0.3 ? "retreat" : "attack";
         }
     }
     
@@ -826,11 +960,13 @@ export class EnemyTank {
         setTimeout(() => { this.isReloading = false; }, this.cooldown);
         
         console.log(`[EnemyTank ${this.id}] FIRE!`);
-        this.soundManager.playShoot();
         
         // === GET MUZZLE POSITION AND DIRECTION FROM BARREL ===
         const barrelDir = this.barrel.getDirection(Vector3.Forward()).normalize();
         const muzzlePos = this.barrel.getAbsolutePosition().add(barrelDir.scale(1.5));
+        
+        // Вражеские танки используют стандартную пушку по умолчанию with 3D positioning
+        this.soundManager.playShoot("standard", muzzlePos);
         
         // Muzzle flash
         this.effectsManager.createMuzzleFlash(muzzlePos, barrelDir);
@@ -887,17 +1023,17 @@ export class EnemyTank {
             
             // Check hit on player
             if (target && target.isAlive && target.chassis && !target.chassis.isDisposed()) {
-                const tankPos = target.chassis.absolutePosition;
-                const dist = Vector3.Distance(bulletPos, tankPos);
-                
+            const tankPos = target.chassis.absolutePosition;
+            const dist = Vector3.Distance(bulletPos, tankPos);
+            
                 if (dist < 3.5) {
                     hasHit = true;
                     console.log(`[EnemyTank ${this.id}] HIT PLAYER! Damage: ${damage}`);
                     (target as any).takeDamage(damage);
                     this.effectsManager.createExplosion(bulletPos, 0.8);
-                    this.soundManager.playHit();
-                    ball.dispose();
-                    return;
+                    this.soundManager.playHit("normal", bulletPos);
+                ball.dispose();
+                return;
                 }
             }
             
@@ -965,8 +1101,9 @@ export class EnemyTank {
         this.isAlive = false;
         console.log(`[EnemyTank ${this.id}] DESTROYED!`);
         
-        this.effectsManager.createExplosion(this.chassis.absolutePosition, 2.5);
-        this.soundManager.playExplosion();
+        const explosionPos = this.chassis.absolutePosition.clone();
+        this.effectsManager.createExplosion(explosionPos, 2.5);
+        this.soundManager.playExplosion(explosionPos, 2.5);
         
         // Stop physics
         this.physicsBody.setMotionType(PhysicsMotionType.STATIC);
@@ -1000,7 +1137,7 @@ export class EnemyTank {
     dispose(): void {
         this.isAlive = false;
         if (this.chassis && !this.chassis.isDisposed()) {
-            this.chassis.dispose();
+        this.chassis.dispose();
         }
         if (this.hpBillboard && !this.hpBillboard.isDisposed()) {
             this.hpBillboard.dispose();
