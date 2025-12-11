@@ -2,7 +2,7 @@
 // AIMING SYSTEM - Улучшенная система прицеливания
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { Scene, Vector3, Ray, Color3, Mesh, MeshBuilder, StandardMaterial, DynamicTexture, TransformNode } from "@babylonjs/core";
+import { Scene, Vector3, Ray, Color3, Mesh, MeshBuilder, StandardMaterial, DynamicTexture, TransformNode, Matrix } from "@babylonjs/core";
 import { AdvancedDynamicTexture, Rectangle, TextBlock, Ellipse, Line, Control } from "@babylonjs/gui";
 
 export interface TargetInfo {
@@ -85,6 +85,9 @@ export class AimingSystem {
         this.createLeadIndicator();
         this.createDistanceMarkers();
         
+        // КРИТИЧЕСКИ ВАЖНО: Убеждаемся, что прицел скрыт по умолчанию
+        this.setAiming(false);
+        
         // Listen for aim mode changes
         window.addEventListener("aimModeChanged", (e: any) => {
             this.setAiming(e.detail?.aiming || false);
@@ -105,12 +108,13 @@ export class AimingSystem {
     // ─────────────────────────────────────────────────────────────────────
     
     private createCrosshair(): void {
-        // Main container
+        // Main container - СКРЫТ ПО УМОЛЧАНИЮ
         this.crosshairContainer = new Rectangle("crosshairContainer");
         this.crosshairContainer.width = "200px";
         this.crosshairContainer.height = "200px";
         this.crosshairContainer.thickness = 0;
         this.crosshairContainer.isHitTestVisible = false;
+        this.crosshairContainer.isVisible = false; // КРИТИЧЕСКИ ВАЖНО: Скрыт по умолчанию!
         this.guiTexture.addControl(this.crosshairContainer);
         
         // Outer ring (shows spread)
@@ -436,9 +440,12 @@ export class AimingSystem {
     }
     
     private updateTargetInfo(): void {
+        // Панель информации о цели перенесена в HUD под компас
+        // Теперь aimingSystem только определяет цель, а HUD её отображает
         if (!this.targetInfoPanel) return;
         
-        if (this.currentTarget && this.settings.showTargetInfo) {
+        // ОТКЛЮЧЕНО - используем HUD для отображения
+        if (false && this.currentTarget && this.settings.showTargetInfo) {
             this.targetInfoPanel.isVisible = true;
             
             // Update name
@@ -551,6 +558,20 @@ export class AimingSystem {
     setAiming(aiming: boolean): void {
         this.isAiming = aiming;
         
+        // КРИТИЧЕСКИ ВАЖНО: Показываем/скрываем прицел только в режиме прицеливания
+        if (this.crosshairContainer) {
+            this.crosshairContainer.isVisible = aiming;
+        }
+        if (this.crosshairCenter) {
+            this.crosshairCenter.isVisible = aiming;
+        }
+        if (this.crosshairOuter) {
+            this.crosshairOuter.isVisible = aiming;
+        }
+        this.crosshairLines.forEach(line => {
+            line.isVisible = aiming;
+        });
+        
         // Reset spread faster when starting to aim
         if (aiming) {
             this.aimSpread *= 0.5;
@@ -621,7 +642,3 @@ export class AimingSystem {
         this.saveSettings();
     }
 }
-
-// Matrix import for projection
-import { Matrix } from "@babylonjs/core";
-

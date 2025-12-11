@@ -61,95 +61,513 @@ export class ChatSystem {
     }
     
     private createChatUI(): void {
-        // Контейнер чата (левый нижний угол)
+        // === SYSTEM TERMINAL - ПРОЗРАЧНЫЙ, ПРЯМОУГОЛЬНЫЙ, СВОРАЧИВАЕМЫЙ ===
+        // Удаляем старый терминал, если он существует
+        const existingTerminal = document.getElementById("system-terminal");
+        if (existingTerminal) {
+            existingTerminal.remove();
+        }
+        
+        // Автоматически очищаем некорректные сохраненные данные
+        try {
+            const key = `window_position_system-terminal`;
+            const saved = localStorage.getItem(key);
+            if (saved) {
+                const data = JSON.parse(saved);
+                const screenWidth = window.innerWidth;
+                const screenHeight = window.innerHeight;
+                
+                // Если размеры больше 80% экрана - это некорректно, очищаем
+                if (data.width && (data.width > screenWidth * 0.8 || data.width > 1200)) {
+                    console.warn("[ChatSystem] Clearing invalid terminal width:", data.width);
+                    localStorage.removeItem(key);
+                } else if (data.height && (data.height > screenHeight * 0.8 || data.height > 800)) {
+                    console.warn("[ChatSystem] Clearing invalid terminal height:", data.height);
+                    localStorage.removeItem(key);
+                }
+            }
+        } catch (e) {
+            // Если ошибка при чтении - очищаем
+            try {
+                localStorage.removeItem(`window_position_system-terminal`);
+            } catch {}
+        }
+        
+        // Загружаем сохраненные позицию и размер
+        const savedPosition = this.loadWindowPosition("system-terminal");
+        
+        // Ограничиваем размеры экраном для предотвращения перекрытия всего экрана
+        const maxWidth = Math.min(window.innerWidth - 20, 1200);
+        const maxHeight = Math.min(window.innerHeight - 40, 800);
+        
+        let defaultLeft = savedPosition?.left ?? 10;
+        let defaultTop = savedPosition?.top ?? 120;
+        let defaultWidth = savedPosition?.width ?? 500;
+        let defaultHeight = savedPosition?.height ?? 250;
+        const defaultCollapsed = savedPosition?.collapsed !== undefined ? savedPosition.collapsed : true;
+        
+        // Проверяем и ограничиваем размеры
+        if (defaultWidth > maxWidth) {
+            defaultWidth = maxWidth;
+            // Сохраняем исправленный размер
+            if (savedPosition) {
+                savedPosition.width = defaultWidth;
+                this.saveWindowPosition("system-terminal", savedPosition);
+            }
+        }
+        if (defaultWidth < 300) defaultWidth = 300;
+        if (defaultHeight > maxHeight) {
+            defaultHeight = maxHeight;
+            // Сохраняем исправленный размер
+            if (savedPosition) {
+                savedPosition.height = defaultHeight;
+                this.saveWindowPosition("system-terminal", savedPosition);
+            }
+        }
+        if (defaultHeight < 150) defaultHeight = 150;
+        
+        // Проверяем позицию, чтобы терминал не выходил за границы экрана
+        if (defaultLeft < 0) defaultLeft = 10;
+        if (defaultLeft + defaultWidth > window.innerWidth) defaultLeft = window.innerWidth - defaultWidth - 10;
+        if (defaultTop < 0) defaultTop = 10;
+        if (defaultTop + defaultHeight > window.innerHeight) defaultTop = window.innerHeight - defaultHeight - 10;
+        
+        // Создаём HTML контейнер для перетаскивания и изменения размера
+        const htmlContainer = document.createElement("div");
+        htmlContainer.id = "system-terminal";
+        htmlContainer.style.cssText = `
+            position: fixed;
+            left: ${defaultLeft}px;
+            top: ${defaultTop}px;
+            width: ${defaultWidth}px;
+            height: ${defaultCollapsed ? '30px' : `${defaultHeight}px`};
+            background: rgba(0, 0, 0, 0.7);
+            border: 2px solid #0f0;
+            border-radius: 0;
+            font-family: 'Courier New', monospace;
+            z-index: 10000;
+            cursor: default;
+            user-select: none;
+            box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+            transform-origin: top;
+            pointer-events: auto;
+            display: none;
+        `;
+        document.body.appendChild(htmlContainer);
+        
+        // Состояние сворачивания
+        let isCollapsed = defaultCollapsed;
+        
+        // Заголовок для перетаскивания
+        const header = document.createElement("div");
+        header.style.cssText = `
+            width: 100%;
+            height: 30px;
+            background: rgba(0, 0, 0, 0.8);
+            border-bottom: 2px solid #0f0;
+            display: flex;
+            align-items: center;
+            padding: 0 10px;
+            cursor: move;
+            position: relative;
+            z-index: 10001;
+            box-sizing: border-box;
+            overflow: hidden;
+        `;
+        htmlContainer.appendChild(header);
+        
+        const headerText = document.createElement("span");
+        headerText.textContent = isCollapsed ? "> SYSTEM TERMINAL [COLLAPSED]" : "> SYSTEM TERMINAL [ACTIVE]";
+        headerText.style.cssText = `
+            color: #0f0;
+            font-size: 13px;
+            font-weight: bold;
+            flex: 1;
+        `;
+        header.appendChild(headerText);
+        
+        // Область сообщений
+        const messagesDiv = document.createElement("div");
+        messagesDiv.id = "terminal-messages";
+        messagesDiv.style.cssText = `
+            width: 100%;
+            height: calc(100% - 30px - 60px);
+            overflow-y: auto;
+            padding: 5px;
+            font-size: 11px;
+            color: #0a0;
+            display: ${isCollapsed ? 'none' : 'block'};
+        `;
+        htmlContainer.appendChild(messagesDiv);
+        (htmlContainer as any)._messagesDiv = messagesDiv;
+        
+        // Область для расходников (внизу терминала)
+        const consumablesArea = document.createElement("div");
+        consumablesArea.id = "terminal-consumables";
+        consumablesArea.style.cssText = `
+            width: 100%;
+            height: 60px;
+            border-top: 2px solid #0f0;
+            display: ${isCollapsed ? 'none' : 'flex'};
+            justify-content: center;
+            align-items: center;
+            gap: 4px;
+            padding: 5px;
+        `;
+        htmlContainer.appendChild(consumablesArea);
+        (htmlContainer as any)._consumablesArea = consumablesArea;
+        
+        // Единая система обработки событий мыши
+        let isDragging = false;
+        let isResizing = false;
+        let dragStart = { x: 0, y: 0 };
+        let resizeStart = { x: 0, y: 0, width: 0, height: 0 };
+        let resizeEdge: 'right' | 'bottom' | 'corner' | null = null;
+        
+        // Создаём элементы для изменения размера ПЕРЕД обработчиком кнопки сворачивания
+        const resizeHandle = document.createElement("div");
+        resizeHandle.style.cssText = `
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 20px;
+            height: 20px;
+            cursor: nwse-resize;
+            z-index: 10002;
+            background: transparent;
+            display: ${isCollapsed ? 'none' : 'block'};
+        `;
+        htmlContainer.appendChild(resizeHandle);
+        
+        // Обработчик изменения размера (правый нижний угол)
+        resizeHandle.addEventListener("mousedown", (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            isResizing = true;
+            resizeEdge = 'corner';
+            const rect = htmlContainer.getBoundingClientRect();
+            resizeStart.x = e.clientX;
+            resizeStart.y = e.clientY;
+            resizeStart.width = rect.width;
+            resizeStart.height = rect.height;
+            document.body.style.cursor = "nwse-resize";
+            document.body.style.userSelect = "none";
+        });
+        
+        // Обработчик изменения размера (правый край)
+        const resizeRightHandle = document.createElement("div");
+        resizeRightHandle.style.cssText = `
+            position: absolute;
+            top: 30px;
+            right: 0;
+            width: 5px;
+            height: calc(100% - 30px);
+            cursor: ew-resize;
+            z-index: 10002;
+            background: transparent;
+            display: ${isCollapsed ? 'none' : 'block'};
+        `;
+        htmlContainer.appendChild(resizeRightHandle);
+        
+        resizeRightHandle.addEventListener("mousedown", (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            isResizing = true;
+            resizeEdge = 'right';
+            const rect = htmlContainer.getBoundingClientRect();
+            resizeStart.x = e.clientX;
+            resizeStart.width = rect.width;
+            document.body.style.cursor = "ew-resize";
+            document.body.style.userSelect = "none";
+        });
+        
+        // Обработчик изменения размера (нижний край)
+        const resizeBottomHandle = document.createElement("div");
+        resizeBottomHandle.style.cssText = `
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: calc(100% - 20px);
+            height: 5px;
+            cursor: ns-resize;
+            z-index: 10002;
+            background: transparent;
+            display: ${isCollapsed ? 'none' : 'block'};
+        `;
+        htmlContainer.appendChild(resizeBottomHandle);
+        
+        resizeBottomHandle.addEventListener("mousedown", (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            isResizing = true;
+            resizeEdge = 'bottom';
+            const rect = htmlContainer.getBoundingClientRect();
+            resizeStart.y = e.clientY;
+            resizeStart.height = rect.height;
+            document.body.style.cursor = "ns-resize";
+            document.body.style.userSelect = "none";
+        });
+        
+        // Кнопка сворачивания/разворачивания (в правом верхнем углу терминала)
+        const collapseBtn = document.createElement("button");
+        collapseBtn.textContent = isCollapsed ? "▼" : "▲";
+        collapseBtn.style.cssText = `
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            background: rgba(0, 255, 0, 0.2);
+            border: 1px solid #0f0;
+            color: #0f0;
+            width: 22px;
+            height: 20px;
+            cursor: pointer;
+            font-size: 10px;
+            line-height: 1;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            flex-shrink: 0;
+            box-sizing: border-box;
+            z-index: 10003;
+        `;
+        collapseBtn.addEventListener("mouseenter", () => {
+            collapseBtn.style.background = "rgba(0, 255, 0, 0.4)";
+            collapseBtn.style.borderColor = "#0ff";
+        });
+        collapseBtn.addEventListener("mouseleave", () => {
+            collapseBtn.style.background = "rgba(0, 255, 0, 0.2)";
+            collapseBtn.style.borderColor = "#0f0";
+        });
+        collapseBtn.addEventListener("mousedown", (e) => {
+            e.stopPropagation();
+        });
+        collapseBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            isCollapsed = !isCollapsed;
+            
+            if (isCollapsed) {
+                messagesDiv.style.display = "none";
+                consumablesArea.style.display = "none";
+                htmlContainer.style.height = "30px";
+                collapseBtn.textContent = "▼";
+                headerText.textContent = "> SYSTEM TERMINAL [COLLAPSED]";
+                // Скрываем элементы изменения размера при сворачивании
+                resizeHandle.style.display = 'none';
+                resizeRightHandle.style.display = 'none';
+                resizeBottomHandle.style.display = 'none';
+            } else {
+                const savedHeight = parseInt(htmlContainer.style.height) || defaultHeight;
+                htmlContainer.style.height = `${savedHeight}px`;
+                messagesDiv.style.display = "block";
+                consumablesArea.style.display = "flex";
+                collapseBtn.textContent = "▲";
+                headerText.textContent = "> SYSTEM TERMINAL [ACTIVE]";
+                // Показываем элементы изменения размера при разворачивании
+                resizeHandle.style.display = 'block';
+                resizeRightHandle.style.display = 'block';
+                resizeBottomHandle.style.display = 'block';
+            }
+            
+            this.saveWindowPosition("system-terminal", {
+                left: parseInt(htmlContainer.style.left) || defaultLeft,
+                top: parseInt(htmlContainer.style.top) || defaultTop,
+                bottom: null,
+                width: parseInt(htmlContainer.style.width) || defaultWidth,
+                height: isCollapsed ? 30 : parseInt(htmlContainer.style.height) || defaultHeight,
+                collapsed: isCollapsed
+            });
+        });
+        // Добавляем кнопку в контейнер терминала (не в header) для absolute positioning
+        htmlContainer.appendChild(collapseBtn);
+        
+        // Перетаскивание за header
+        header.addEventListener("mousedown", (e) => {
+            const target = e.target as HTMLElement;
+            // Не перетаскиваем, если клик по кнопке сворачивания или по элементам изменения размера
+            if (target === collapseBtn || collapseBtn.contains(target) || 
+                target === resizeHandle || target === resizeRightHandle || target === resizeBottomHandle) return;
+            isDragging = true;
+            const rect = htmlContainer.getBoundingClientRect();
+            dragStart.x = e.clientX - rect.left;
+            dragStart.y = e.clientY - rect.top;
+            e.preventDefault();
+        });
+        
+        // Предотвращаем перетаскивание при клике на кнопку
+        collapseBtn.addEventListener("mousedown", (e) => {
+            e.stopPropagation();
+        });
+        
+        // Единый обработчик mousemove
+        const handleMouseMove = (e: MouseEvent) => {
+            if (isResizing && !isCollapsed) {
+                const deltaX = e.clientX - resizeStart.x;
+                const deltaY = e.clientY - resizeStart.y;
+                
+                let newWidth = resizeStart.width;
+                let newHeight = resizeStart.height;
+                
+                const maxWidth = Math.min(window.innerWidth - 20, 1200);
+                const maxHeight = Math.min(window.innerHeight - 40, 800);
+                
+                if (resizeEdge === 'right' || resizeEdge === 'corner') {
+                    newWidth = Math.max(300, Math.min(maxWidth, resizeStart.width + deltaX));
+                }
+                if (resizeEdge === 'bottom' || resizeEdge === 'corner') {
+                    newHeight = Math.max(150, Math.min(maxHeight, resizeStart.height + deltaY));
+                }
+                
+                htmlContainer.style.width = `${newWidth}px`;
+                htmlContainer.style.height = `${newHeight}px`;
+            } else if (isDragging) {
+                // Ограничиваем перетаскивание границами экрана
+                let newLeft = e.clientX - dragStart.x;
+                let newTop = e.clientY - dragStart.y;
+                
+                const rect = htmlContainer.getBoundingClientRect();
+                const minLeft = 0;
+                const minTop = 0;
+                const maxLeft = window.innerWidth - rect.width;
+                const maxTop = window.innerHeight - (isCollapsed ? 30 : rect.height);
+                
+                newLeft = Math.max(minLeft, Math.min(maxLeft, newLeft));
+                newTop = Math.max(minTop, Math.min(maxTop, newTop));
+                
+                htmlContainer.style.left = `${newLeft}px`;
+                htmlContainer.style.top = `${newTop}px`;
+            }
+        };
+        
+        // Единый обработчик mouseup
+        const handleMouseUp = () => {
+            if (isDragging || isResizing) {
+                const rect = htmlContainer.getBoundingClientRect();
+                this.saveWindowPosition("system-terminal", {
+                    left: rect.left,
+                    top: rect.top,
+                    bottom: null,
+                    width: rect.width,
+                    height: rect.height,
+                    collapsed: isCollapsed
+                });
+            }
+            isDragging = false;
+            isResizing = false;
+            resizeEdge = null;
+            document.body.style.cursor = "";
+            document.body.style.userSelect = "";
+        };
+        
+        document.addEventListener("mousemove", handleMouseMove);
+        document.addEventListener("mouseup", handleMouseUp);
+        
+        // Сохраняем ссылку на HTML контейнер
+        (this as any)._htmlContainer = htmlContainer;
+        
+        // Создаём GUI контейнер для совместимости (скрыт)
         this.chatContainer = new Rectangle("chatContainer");
-        this.chatContainer.width = "450px";
-        this.chatContainer.height = "280px";
-        this.chatContainer.cornerRadius = 0;
-        this.chatContainer.thickness = 2;
-        this.chatContainer.color = "#0f0";
-        this.chatContainer.background = "#000000dd"; // Более непрозрачный
-        this.chatContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.chatContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.chatContainer.left = "20px";
-        this.chatContainer.top = "-20px";
+        this.chatContainer.isVisible = false;
         this.guiTexture.addControl(this.chatContainer);
-        
-        // Заголовок чата с индикатором
-        const header = new Rectangle("chatHeader");
-        header.width = 1;
-        header.height = "30px";
-        header.cornerRadius = 0;
-        header.thickness = 0;
-        header.background = "#000000aa";
-        header.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        header.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.chatContainer.addControl(header);
-        
-        const headerText = new TextBlock("chatHeaderText");
-        headerText.text = "> SYSTEM TERMINAL [ACTIVE]";
-        headerText.color = "#0f0";
-        headerText.fontSize = 13;
-        headerText.fontFamily = "Courier New, monospace";
-        headerText.fontWeight = "bold";
-        headerText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        headerText.left = "10px";
-        header.addControl(headerText);
-        
-        // Счётчик сообщений
-        const messageCountText = new TextBlock("messageCountText");
-        messageCountText.text = "0 msgs";
-        messageCountText.color = "#0a0";
-        messageCountText.fontSize = 10;
-        messageCountText.fontFamily = "Courier New, monospace";
-        messageCountText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        messageCountText.left = "-15px";
-        messageCountText.top = "15px";
-        header.addControl(messageCountText);
-        (this.chatContainer as any)._messageCountText = messageCountText;
-        
-        // Индикатор активности (пульсирующий)
-        const activityIndicator = new Rectangle("activityIndicator");
-        activityIndicator.width = "8px";
-        activityIndicator.height = "8px";
-        activityIndicator.cornerRadius = 4;
-        activityIndicator.thickness = 0;
-        activityIndicator.background = "#0f0";
-        activityIndicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        activityIndicator.left = "-10px";
-        activityIndicator.top = "11px";
-        header.addControl(activityIndicator);
-        (this.chatContainer as any)._activityIndicator = activityIndicator;
-        
-        // Кнопки фильтров
-        this.createFilterButtons();
         
         // Область сообщений с прокруткой
         this.scrollViewer = new ScrollViewer("chatScrollViewer");
-        this.scrollViewer.width = 0.95;
-        this.scrollViewer.height = "240px";
-        this.scrollViewer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.scrollViewer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.scrollViewer.top = "35px";
-        this.scrollViewer.barSize = 6;
-        this.scrollViewer.barColor = "#0a0";
-        this.scrollViewer.thumbColor = "#0f0";
-        this.scrollViewer.background = "#00000000";
+        this.scrollViewer.isVisible = false;
         this.chatContainer.addControl(this.scrollViewer);
         
         // Контейнер для сообщений
         this.messagesArea = new Rectangle("messagesArea");
         this.messagesArea.width = 1;
-        this.messagesArea.height = "1px"; // Будет обновляться динамически
+        this.messagesArea.height = "1px";
         this.messagesArea.cornerRadius = 0;
         this.messagesArea.thickness = 0;
         this.messagesArea.background = "#00000000";
-        this.messagesArea.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.messagesArea.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.scrollViewer.addControl(this.messagesArea);
         
         // Запуск анимаций
         this.startAnimations();
+    }
+    
+    // Обновить расходники в System Terminal
+    updateConsumables(consumables: Map<number, any>): void {
+        const htmlContainer = (this as any)._htmlContainer as HTMLDivElement;
+        if (!htmlContainer) return;
+        
+        const consumablesArea = htmlContainer.querySelector("#terminal-consumables") as HTMLDivElement;
+        if (!consumablesArea) return;
+        
+        // Очищаем старые слоты
+        consumablesArea.innerHTML = "";
+        
+        // Создаём слоты расходников
+        for (let i = 1; i <= 5; i++) {
+            const slot = document.createElement("div");
+            slot.style.cssText = `
+                width: 40px;
+                height: 40px;
+                border: 1px solid #555;
+                background: rgba(0, 0, 0, 0.6);
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                position: relative;
+            `;
+            
+            const consumable = consumables.get(i);
+            if (consumable) {
+                slot.style.borderColor = consumable.color || "#0f0";
+                
+                // Номер клавиши
+                const key = document.createElement("div");
+                key.textContent = `${i}`;
+                key.style.cssText = `
+                    position: absolute;
+                    top: 2px;
+                    left: 2px;
+                    color: #666;
+                    font-size: 9px;
+                    font-weight: bold;
+                `;
+                slot.appendChild(key);
+                
+                // Иконка
+                const icon = document.createElement("div");
+                icon.textContent = consumable.icon || "?";
+                icon.style.cssText = `
+                    color: #fff;
+                    font-size: 18px;
+                `;
+                slot.appendChild(icon);
+                
+                // Название
+                const name = document.createElement("div");
+                name.textContent = consumable.name || "";
+                name.style.cssText = `
+                    position: absolute;
+                    bottom: 2px;
+                    font-size: 6px;
+                    color: #888;
+                `;
+                slot.appendChild(name);
+            } else {
+                // Пустой слот
+                const key = document.createElement("div");
+                key.textContent = `${i}`;
+                key.style.cssText = `
+                    position: absolute;
+                    top: 2px;
+                    left: 2px;
+                    color: #333;
+                    font-size: 9px;
+                `;
+                slot.appendChild(key);
+            }
+            
+            consumablesArea.appendChild(slot);
+        }
     }
     
     // Создать кнопки фильтров
@@ -206,23 +624,83 @@ export class ChatSystem {
         });
     }
     
-    // Запуск анимаций
+    // Запуск анимаций (теперь вызывается из централизованного update)
     private startAnimations(): void {
-        this.scene.onBeforeRenderObservable.add(() => {
-            this.animationTime += this.scene.getEngine().getDeltaTime() / 1000;
-            this.updateActivityIndicator();
-        });
+        // Анимации теперь обновляются через update() метод
+    }
+    
+    // Обновление анимаций (вызывается из централизованного update)
+    update(deltaTime: number): void {
+        this.animationTime += deltaTime;
+        this.updateActivityIndicator();
     }
     
     // Обновить индикатор активности
     private updateActivityIndicator(): void {
-        if (!this.chatContainer) return;
-        const indicator = (this.chatContainer as any)._activityIndicator as Rectangle;
-        if (!indicator) return;
-        
-        const pulse = (Math.sin(this.animationTime * 2) + 1) / 2; // 0-1
-        const alpha = 0.5 + pulse * 0.5;
-        indicator.alpha = alpha;
+        // activityIndicator удален
+    }
+    
+    // Сохранение позиции и размера окна
+    private saveWindowPosition(windowId: string, position: { left: number; top: number | null; bottom: number | null; width: number; height: number; collapsed: boolean }): void {
+        try {
+            // Проверяем корректность данных перед сохранением
+            const maxWidth = Math.min(window.innerWidth - 20, 1200);
+            const maxHeight = Math.min(window.innerHeight - 40, 800);
+            
+            // Ограничиваем размеры
+            if (position.width > maxWidth) position.width = maxWidth;
+            if (position.width < 300) position.width = 300;
+            if (position.height > maxHeight) position.height = maxHeight;
+            if (position.height < 150) position.height = 150;
+            
+            // Проверяем позицию
+            if (position.left < 0) position.left = 10;
+            if (position.left + position.width > window.innerWidth) position.left = window.innerWidth - position.width - 10;
+            if (position.top !== null && position.top < 0) position.top = 10;
+            if (position.top !== null && position.top + position.height > window.innerHeight) position.top = window.innerHeight - position.height - 10;
+            
+            const key = `window_position_${windowId}`;
+            localStorage.setItem(key, JSON.stringify(position));
+        } catch (e) {
+            console.warn("[ChatSystem] Failed to save window position:", e);
+        }
+    }
+    
+    // Загрузка позиции и размера окна
+    private loadWindowPosition(windowId: string): { left: number; top: number | null; bottom: number | null; width: number; height: number; collapsed: boolean } | null {
+        try {
+            const key = `window_position_${windowId}`;
+            const saved = localStorage.getItem(key);
+            if (saved) {
+                const data = JSON.parse(saved);
+                
+                // Проверяем корректность данных и сбрасываем, если они некорректны
+                const maxWidth = Math.min(window.innerWidth - 20, 1200);
+                const maxHeight = Math.min(window.innerHeight - 40, 800);
+                
+                // Если размеры слишком большие (больше 80% экрана), сбрасываем
+                if (data.width && (data.width > maxWidth || data.width > window.innerWidth * 0.8)) {
+                    console.warn("[ChatSystem] Invalid saved width, resetting");
+                    localStorage.removeItem(key);
+                    return null;
+                }
+                if (data.height && (data.height > maxHeight || data.height > window.innerHeight * 0.8)) {
+                    console.warn("[ChatSystem] Invalid saved height, resetting");
+                    localStorage.removeItem(key);
+                    return null;
+                }
+                
+                return data;
+            }
+        } catch (e) {
+            console.warn("[ChatSystem] Failed to load window position:", e);
+            // Удаляем некорректные данные
+            try {
+                const key = `window_position_${windowId}`;
+                localStorage.removeItem(key);
+            } catch {}
+        }
+        return null;
     }
     
     // Добавить сообщение с типом
@@ -331,7 +809,11 @@ export class ChatSystem {
     
     // Обновить отображение сообщений
     private updateMessages(): void {
-        if (!this.messagesArea) return;
+        const htmlContainer = (this as any)._htmlContainer as HTMLDivElement;
+        if (!htmlContainer) return;
+        
+        const messagesDiv = htmlContainer.querySelector("#terminal-messages") as HTMLDivElement;
+        if (!messagesDiv) return;
         
         // Фильтруем сообщения
         const filteredMessages = this.messages.filter(msg => {
@@ -344,49 +826,34 @@ export class ChatSystem {
             return true;
         });
         
-        // Очищаем старые элементы
-        this.messageElements.forEach((element, timestamp) => {
-            const message = filteredMessages.find(m => m.timestamp === timestamp);
-            if (!message) {
-                element.dispose();
-                this.messageElements.delete(timestamp);
-            }
+        // Очищаем и пересоздаём сообщения в HTML
+        messagesDiv.innerHTML = "";
+        
+        filteredMessages.forEach((message) => {
+            const time = new Date(message.timestamp);
+            const timeStr = this.showTimestamps 
+                ? `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}:${time.getSeconds().toString().padStart(2, '0')}`
+                : "";
+            
+            const msgDiv = document.createElement("div");
+            msgDiv.style.cssText = `
+                color: ${message.color};
+                font-size: 11px;
+                margin: 2px 0;
+                word-wrap: break-word;
+            `;
+            
+            const prefix = timeStr ? `[${timeStr}]` : "";
+            const priorityMark = message.priority >= 2 ? "!! " : message.priority >= 1 ? "! " : "";
+            msgDiv.textContent = `${prefix} ${message.icon} ${priorityMark}${message.text}`;
+            
+            messagesDiv.appendChild(msgDiv);
         });
-        
-        // Создаём элементы для новых сообщений
-        filteredMessages.forEach((message, index) => {
-            if (!this.messageElements.has(message.timestamp)) {
-                const element = this.createMessageElement(message, index);
-                this.messageElements.set(message.timestamp, element);
-            } else {
-                // Обновляем позицию существующего элемента
-                const element = this.messageElements.get(message.timestamp)!;
-                element.top = `${index * 20}px`;
-            }
-        });
-        
-        // Обновляем высоту контейнера
-        const totalHeight = filteredMessages.length * 20;
-        this.messagesArea.height = `${totalHeight}px`;
-        
-        // Обновляем счётчик сообщений
-        if (this.chatContainer) {
-            const countText = (this.chatContainer as any)._messageCountText as TextBlock;
-            if (countText) {
-                const visibleCount = filteredMessages.length;
-                const totalCount = this.messages.length;
-                countText.text = visibleCount === totalCount 
-                    ? `${totalCount} msgs` 
-                    : `${visibleCount}/${totalCount} msgs`;
-            }
-        }
         
         // Автопрокрутка вниз
-        if (this.autoScroll && this.scrollViewer) {
+        if (this.autoScroll) {
             setTimeout(() => {
-                if (this.scrollViewer) {
-                    this.scrollViewer.verticalBar.value = 1;
-                }
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
             }, 10);
         }
     }
@@ -584,5 +1051,18 @@ export class ChatSystem {
     importMessages(messages: ChatMessage[]): void {
         this.messages = [...this.messages, ...messages];
         this.updateMessages();
+    }
+    
+    // Показать/скрыть System Terminal (F5)
+    toggleTerminal(): void {
+        const htmlContainer = (this as any)._htmlContainer as HTMLDivElement;
+        if (!htmlContainer) return;
+        
+        const currentDisplay = htmlContainer.style.display;
+        if (currentDisplay === "none") {
+            htmlContainer.style.display = "block";
+        } else {
+            htmlContainer.style.display = "none";
+        }
     }
 }

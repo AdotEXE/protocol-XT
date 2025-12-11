@@ -2,7 +2,7 @@
 // EXPERIENCE SYSTEM - Система набора опыта для корпусов и пушек
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { CHASSIS_TYPES, CANNON_TYPES, type ChassisType, type CannonType } from "./tankTypes";
+import { CHASSIS_TYPES, CANNON_TYPES } from "./tankTypes";
 
 // ───────────────────────────────────────────────────────────────────────────
 // ТИПЫ И ИНТЕРФЕЙСЫ
@@ -158,10 +158,29 @@ export class ExperienceSystem {
     private hud: any = null; // HUD для визуальных эффектов
     private effectsManager: any = null; // EffectsManager для эффектов повышения уровня
     private soundManager: any = null; // SoundManager для звуков опыта
+    private playerProgression: any = null; // PlayerProgressionSystem для передачи опыта игроку
     private lastUpdateTime: number = Date.now();
     private lastMinuteCheck: number = Date.now();
     private pendingXP: { chassis: number; cannon: number } = { chassis: 0, cannon: 0 };
-    private xpAccumulator: number = 0;
+    
+    // Система накопления опыта для плавного отображения
+    private xpBatch: { chassis: Map<string, number>; cannon: Map<string, number> } = {
+        chassis: new Map(),
+        cannon: new Map()
+    };
+    private lastXpBatchFlush: number = Date.now();
+    private readonly XP_BATCH_INTERVAL = 500; // Накопление опыта каждые 500мс
+    
+    // Система комбо-бонусов
+    private comboCounter: number = 0;
+    private lastActionTime: number = Date.now();
+    private readonly COMBO_TIMEOUT = 8000; // 8 секунд для комбо (увеличено для большего времени)
+    private readonly MAX_COMBO = 10; // Максимальный комбо-множитель
+    
+    // Система серий убийств (kill streaks)
+    private killStreak: number = 0;
+    private lastKillTime: number = 0;
+    private readonly KILL_STREAK_TIMEOUT = 10000; // 10 секунд между убийствами
     
     constructor() {
         this.loadProgress();
@@ -221,6 +240,10 @@ export class ExperienceSystem {
         this.soundManager = soundManager;
     }
     
+    setPlayerProgression(playerProgression: any): void {
+        this.playerProgression = playerProgression;
+    }
+    
     // ─────────────────────────────────────────────────────────────────────
     // СОХРАНЕНИЕ/ЗАГРУЗКА
     // ─────────────────────────────────────────────────────────────────────
@@ -265,23 +288,35 @@ export class ExperienceSystem {
     // ДОБАВЛЕНИЕ ОПЫТА
     // ─────────────────────────────────────────────────────────────────────
     
-    private addChassisExperience(chassisId: string, amount: number, reason: string = ""): void {
+    private addChassisExperience(chassisId: string, amount: number, _reason: string = ""): void {
         const exp = this.chassisExperience.get(chassisId);
         if (!exp) return;
         
+        // Комбо-множитель (максимум 2x при 10+ комбо)
+        // Комбо теперь увеличивается только при попадании во врага (в recordHit)
+        const comboMultiplier = 1 + Math.min(this.comboCounter / this.MAX_COMBO, 1);
+        const amountWithCombo = amount * comboMultiplier;
+        
         const oldLevel = exp.level;
-        const roundedAmount = Math.round(amount);
+        const roundedAmount = Math.round(amountWithCombo);
         exp.experience += roundedAmount;
         
-        // Визуальная обратная связь при получении опыта
-        if (this.hud && roundedAmount > 0) {
-            this.hud.showExperienceGain(roundedAmount, "chassis");
+        // Накопление опыта для батчинга
+        const currentBatch = this.xpBatch.chassis.get(chassisId) || 0;
+        this.xpBatch.chassis.set(chassisId, currentBatch + roundedAmount);
+        
+        // ПЕРЕДАЕМ ОПЫТ ИГРОКУ (глобальный опыт) - накапливаем для батчинга
+        if (this.playerProgression && roundedAmount > 0) {
+            // Передаём часть опыта игроку (50% от опыта части)
+            const playerXP = Math.round(roundedAmount * 0.5);
+            // Накопление для игрока тоже
+            this.pendingXP.chassis += playerXP;
+        } else if (roundedAmount > 0) {
+            console.warn(`[ExperienceSystem] PlayerProgression not set! Cannot transfer ${roundedAmount} chassis XP`);
         }
         
-        // Звук получения опыта (только для значимых сумм)
-        if (this.soundManager && roundedAmount >= 10) {
-            this.soundManager.playSuccess();
-        }
+        // Визуальная обратная связь будет показана при флаше батча
+        // (не показываем каждый раз, чтобы не спамить)
         
         // Проверяем повышение уровня
         this.checkLevelUp(exp, "chassis");
@@ -313,23 +348,35 @@ export class ExperienceSystem {
         this.saveProgress();
     }
     
-    private addCannonExperience(cannonId: string, amount: number, reason: string = ""): void {
+    private addCannonExperience(cannonId: string, amount: number, _reason: string = ""): void {
         const exp = this.cannonExperience.get(cannonId);
         if (!exp) return;
         
+        // Комбо-множитель (максимум 2x при 10+ комбо)
+        // Комбо теперь увеличивается только при попадании во врага (в recordHit)
+        const comboMultiplier = 1 + Math.min(this.comboCounter / this.MAX_COMBO, 1);
+        const amountWithCombo = amount * comboMultiplier;
+        
         const oldLevel = exp.level;
-        const roundedAmount = Math.round(amount);
+        const roundedAmount = Math.round(amountWithCombo);
         exp.experience += roundedAmount;
         
-        // Визуальная обратная связь при получении опыта
-        if (this.hud && roundedAmount > 0) {
-            this.hud.showExperienceGain(roundedAmount, "cannon");
+        // Накопление опыта для батчинга
+        const currentBatch = this.xpBatch.cannon.get(cannonId) || 0;
+        this.xpBatch.cannon.set(cannonId, currentBatch + roundedAmount);
+        
+        // ПЕРЕДАЕМ ОПЫТ ИГРОКУ (глобальный опыт) - накапливаем для батчинга
+        if (this.playerProgression && roundedAmount > 0) {
+            // Передаём часть опыта игроку (50% от опыта части)
+            const playerXP = Math.round(roundedAmount * 0.5);
+            // Накопление для игрока тоже
+            this.pendingXP.cannon += playerXP;
+        } else if (roundedAmount > 0) {
+            console.warn(`[ExperienceSystem] PlayerProgression not set! Cannot transfer ${roundedAmount} cannon XP`);
         }
         
-        // Звук получения опыта (только для значимых сумм)
-        if (this.soundManager && roundedAmount >= 10) {
-            this.soundManager.playSuccess();
-        }
+        // Визуальная обратная связь будет показана при флаше батча
+        // (не показываем каждый раз, чтобы не спамить)
         
         // Проверяем повышение уровня
         this.checkLevelUp(exp, "cannon");
@@ -383,7 +430,7 @@ export class ExperienceSystem {
         }
     }
     
-    private checkLevelUp(exp: PartExperience, type: "chassis" | "cannon"): void {
+    private checkLevelUp(exp: PartExperience, _type: "chassis" | "cannon"): void {
         while (exp.level < MAX_LEVEL && exp.experience >= LEVEL_EXPERIENCE[exp.level]) {
             exp.level++;
         }
@@ -395,9 +442,28 @@ export class ExperienceSystem {
                 exp.achievements.push(achievement.id);
                 exp.experience += achievement.xpReward;
                 
+                // Визуальный эффект достижения
+                if (this.effectsManager) {
+                    // Можно добавить специальный эффект для достижений
+                }
+                
+                // Звук достижения
+                if (this.soundManager) {
+                    this.soundManager.playSuccess();
+                }
+                
                 if (this.chatSystem) {
-                    this.chatSystem.success(`🏆 ДОСТИЖЕНИЕ: ${achievement.icon} ${achievement.name}`, 1);
-                    this.chatSystem.info(`${achievement.description} (+${achievement.xpReward} XP)`);
+                    this.chatSystem.success(`🏆 ДОСТИЖЕНИЕ: ${achievement.icon} ${achievement.name}`, 2);
+                    this.chatSystem.info(`${achievement.description} (+${achievement.xpReward} XP)`, 1);
+                }
+                
+                // Добавляем опыт от достижения в батч
+                if (type === "chassis") {
+                    const currentBatch = this.xpBatch.chassis.get(exp.id) || 0;
+                    this.xpBatch.chassis.set(exp.id, currentBatch + achievement.xpReward);
+                } else {
+                    const currentBatch = this.xpBatch.cannon.get(exp.id) || 0;
+                    this.xpBatch.cannon.set(exp.id, currentBatch + achievement.xpReward);
                 }
             }
         }
@@ -408,26 +474,99 @@ export class ExperienceSystem {
     // ─────────────────────────────────────────────────────────────────────
     
     recordKill(chassisId: string, cannonId: string, isTurret: boolean = false): void {
-        const xp = isTurret ? XP_REWARDS.KILL_TURRET : XP_REWARDS.KILL_TANK;
+        // Обновляем серию убийств
+        const now = Date.now();
+        if (now - this.lastKillTime > this.KILL_STREAK_TIMEOUT) {
+            this.killStreak = 0; // Сбрасываем серию, если прошло слишком много времени
+        }
+        this.killStreak++;
+        this.lastKillTime = now;
+        
+        // Базовый опыт
+        let baseXp = isTurret ? XP_REWARDS.KILL_TURRET : XP_REWARDS.KILL_TANK;
+        
+        // Бонус за серию убийств (kill streak bonus)
+        let streakBonus = 0;
+        if (this.killStreak >= 10) {
+            streakBonus = baseXp * 2; // +200% за 10+ убийств подряд
+        } else if (this.killStreak >= 7) {
+            streakBonus = baseXp * 1.5; // +150% за 7-9 убийств
+        } else if (this.killStreak >= 5) {
+            streakBonus = baseXp * 1.0; // +100% за 5-6 убийств
+        } else if (this.killStreak >= 3) {
+            streakBonus = baseXp * 0.5; // +50% за 3-4 убийства
+        }
+        
+        const totalXp = baseXp + streakBonus;
         
         // Обновляем статистику корпуса
         const chassisExp = this.chassisExperience.get(chassisId);
         if (chassisExp) {
             chassisExp.kills++;
-            this.addChassisExperience(chassisId, xp, isTurret ? "turret_kill" : "tank_kill");
+            this.addChassisExperience(chassisId, totalXp, isTurret ? "turret_kill" : "tank_kill");
         }
         
         // Обновляем статистику пушки (получает больше XP за убийство)
         const cannonExp = this.cannonExperience.get(cannonId);
         if (cannonExp) {
             cannonExp.kills++;
-            this.addCannonExperience(cannonId, xp * 1.5, isTurret ? "turret_kill" : "tank_kill");
+            this.addCannonExperience(cannonId, totalXp * 1.5, isTurret ? "turret_kill" : "tank_kill");
         }
         
-        // Показываем накопленный опыт
+        // Показываем накопленный опыт с улучшенным форматированием
         if (this.chatSystem) {
-            this.chatSystem.combat(`+${Math.round(xp)} XP (${isTurret ? "турель" : "танк"})`, 2);
+            const comboCount = this.getComboCount();
+            let message = `+${Math.round(totalXp)} XP (${isTurret ? "турель" : "танк"})`;
+            
+            // Добавляем информацию о серии убийств
+            if (this.killStreak >= 3) {
+                message += ` [KILL STREAK x${this.killStreak}]`;
+            }
+            
+            if (comboCount >= 3) {
+                const comboBonus = Math.min(comboCount / this.MAX_COMBO, 1) * 100;
+                message += ` [COMBO x${comboCount.toFixed(0)} +${comboBonus.toFixed(0)}%]`;
+            }
+            
+            // Специальные сообщения для больших серий
+            if (this.killStreak === 5) {
+                this.chatSystem.success(`🔥 KILLING SPREE! x5 (+100% XP)`, 2);
+            } else if (this.killStreak === 7) {
+                this.chatSystem.success(`🔥🔥 RAMPAGE! x7 (+150% XP)`, 2);
+            } else if (this.killStreak === 10) {
+                this.chatSystem.success(`🔥🔥🔥 UNSTOPPABLE! x10 (+200% XP)`, 3);
+            }
+            
+            this.chatSystem.combat(message, comboCount >= 5 || this.killStreak >= 5 ? 2 : 1);
         }
+        
+        // Звуковой эффект при большой серии
+        if (this.soundManager && this.killStreak >= 5) {
+            this.soundManager.playSuccess();
+        }
+    }
+    
+    // Получить текущую серию убийств
+    getKillStreak(): number {
+        const now = Date.now();
+        if (now - this.lastKillTime > this.KILL_STREAK_TIMEOUT) {
+            this.killStreak = 0;
+        }
+        return this.killStreak;
+    }
+    
+    // Сбросить серию убийств (при смерти игрока)
+    resetKillStreak(): void {
+        this.killStreak = 0;
+        this.lastKillTime = 0;
+    }
+    
+    // Записать смерть игрока (сбрасывает серию убийств)
+    recordDeath(): void {
+        if (this.killStreak >= 5 && this.chatSystem) {
+            this.chatSystem.info(`💀 Kill streak ended at x${this.killStreak}`, 1);
+        }
+        this.resetKillStreak();
     }
     
     recordDamageDealt(chassisId: string, cannonId: string, damage: number): void {
@@ -466,6 +605,9 @@ export class ExperienceSystem {
     }
     
     recordHit(cannonId: string, isCritical: boolean = false): void {
+        // Увеличиваем комбо при каждом попадании во врага
+        this.incrementCombo();
+        
         const cannonExp = this.cannonExperience.get(cannonId);
         if (cannonExp) {
             cannonExp.shotsHit++;
@@ -705,5 +847,124 @@ export class ExperienceSystem {
                 accuracy: levelInfo.accuracyBonus
             };
         }
+    }
+    
+    // Флаш накопленного опыта (вызывать периодически)
+    flushXpBatch(): void {
+        const now = Date.now();
+        if (now - this.lastXpBatchFlush < this.XP_BATCH_INTERVAL) return;
+        
+        this.lastXpBatchFlush = now;
+        
+        // Флашим опыт для частей
+        let totalChassisXP = 0;
+        let totalCannonXP = 0;
+        
+        this.xpBatch.chassis.forEach((amount) => {
+            if (amount > 0) {
+                totalChassisXP += amount;
+                // Показываем визуальную обратную связь только для значимых сумм (>= 2 XP)
+                if (this.hud && amount >= 2) {
+                    this.hud.showExperienceGain(amount, "chassis");
+                }
+            }
+        });
+        
+        this.xpBatch.cannon.forEach((amount) => {
+            if (amount > 0) {
+                totalCannonXP += amount;
+                // Показываем визуальную обратную связь только для значимых сумм (>= 2 XP)
+                if (this.hud && amount >= 2) {
+                    this.hud.showExperienceGain(amount, "cannon");
+                }
+            }
+        });
+        
+        // Флашим опыт для игрока
+        if (this.playerProgression) {
+            const totalPlayerXP = this.pendingXP.chassis + this.pendingXP.cannon;
+            if (totalPlayerXP >= 0.1) { // Уменьшили порог до 0.1 для более частого обновления
+                const roundedXP = Math.round(totalPlayerXP * 10) / 10; // Округляем до 0.1
+                this.playerProgression.addExperience(roundedXP, "batch");
+            }
+        } else {
+            if (this.pendingXP.chassis > 0 || this.pendingXP.cannon > 0) {
+                console.warn(`[ExperienceSystem] PlayerProgression not set! Cannot flush ${this.pendingXP.chassis + this.pendingXP.cannon} XP`);
+            }
+        }
+        
+        // Показываем комбо и общий опыт, если накопилось достаточно
+        const totalXP = totalChassisXP + totalCannonXP;
+        const comboCount = this.getComboCount();
+        
+        if (totalXP >= 5 && this.chatSystem) {
+            let message = `+${Math.round(totalXP)} XP`;
+            if (comboCount >= 3) {
+                const comboBonus = Math.min(comboCount / this.MAX_COMBO, 1) * 100;
+                message += ` [COMBO x${comboCount.toFixed(0)} +${comboBonus.toFixed(0)}%]`;
+            }
+            this.chatSystem.combat(message, comboCount >= 5 ? 2 : 1);
+        } else if (comboCount >= 3 && this.chatSystem && totalXP > 0) {
+            // Показываем комбо отдельно, если опыт небольшой, но комбо есть
+            const comboBonus = Math.min(comboCount / this.MAX_COMBO, 1) * 100;
+            // Показываем только при значительных изменениях комбо
+            if (comboCount % 3 === 0 || comboCount === 3 || comboCount === 5 || comboCount === 10) {
+                this.chatSystem.combat(`🔥 COMBO x${comboCount.toFixed(0)} (+${comboBonus.toFixed(0)}% XP)`, comboCount >= 7 ? 2 : 1);
+            }
+        }
+        
+        // Звук получения опыта (только для значимых сумм)
+        if (this.soundManager && totalXP >= 10) {
+            this.soundManager.playSuccess();
+        }
+        
+        // Визуальный эффект при большом опыте
+        if (totalXP >= 50 && this.effectsManager) {
+            // Можно добавить специальный эффект для большого опыта
+        }
+        
+        // Звуковое предупреждение о скором истечении комбо
+        if (this.soundManager && comboCount >= 5) {
+            const timeRemaining = this.getComboTimeRemaining();
+            // Предупреждение при менее 30% времени
+            if (timeRemaining < 0.3 && timeRemaining > 0.25) {
+                // Можно добавить звук предупреждения (тихий)
+            }
+        }
+        
+        // Очищаем батчи
+        this.xpBatch.chassis.clear();
+        this.xpBatch.cannon.clear();
+        this.pendingXP = { chassis: 0, cannon: 0 };
+    }
+    
+    // Увеличить комбо при попадании во врага
+    incrementCombo(): void {
+        const now = Date.now();
+        const timeSinceLastAction = now - this.lastActionTime;
+        
+        if (timeSinceLastAction < this.COMBO_TIMEOUT) {
+            this.comboCounter++;
+        } else {
+            this.comboCounter = 1; // Сбрасываем комбо, начинаем заново
+        }
+        this.lastActionTime = now;
+    }
+    
+    // Получить текущий комбо-счётчик
+    getComboCount(): number {
+        const now = Date.now();
+        if (now - this.lastActionTime > this.COMBO_TIMEOUT) {
+            this.comboCounter = 0;
+        }
+        return this.comboCounter;
+    }
+    
+    // Получить оставшееся время комбо (0-1, где 1 = полное время, 0 = истекло)
+    getComboTimeRemaining(): number {
+        const now = Date.now();
+        const timeSinceLastAction = now - this.lastActionTime;
+        const timeRemaining = Math.max(0, this.COMBO_TIMEOUT - timeSinceLastAction);
+        return Math.min(1, timeRemaining / this.COMBO_TIMEOUT);
     }
 }

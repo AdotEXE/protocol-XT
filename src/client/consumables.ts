@@ -29,8 +29,8 @@ export interface ConsumableType {
 export const CONSUMABLE_TYPES: ConsumableType[] = [
     {
         id: "health",
-        name: "Аптечка",
-        description: "Восстанавливает 50 HP",
+        name: "Medkit",
+        description: "Restores 50 HP",
         icon: "❤️",
         color: "#ff0000",
         effect: (tank: any) => {
@@ -41,7 +41,7 @@ export const CONSUMABLE_TYPES: ConsumableType[] = [
                     tank.hud.heal(healAmount);
                 }
                 if (tank.chatSystem) {
-                    tank.chatSystem.success(`Использована аптечка: +${healAmount} HP`);
+                    tank.chatSystem.success(`Used medkit: +${healAmount} HP`);
                 }
                 if (tank.soundManager) {
                     tank.soundManager.playHit();
@@ -57,8 +57,8 @@ export const CONSUMABLE_TYPES: ConsumableType[] = [
     },
     {
         id: "speed",
-        name: "Ускоритель",
-        description: "+50% скорости на 10 сек",
+        name: "Speed Boost",
+        description: "+50% speed for 10 sec",
         icon: "⚡",
         color: "#ffff00",
         duration: 10000,
@@ -66,10 +66,10 @@ export const CONSUMABLE_TYPES: ConsumableType[] = [
             const originalSpeed = tank.moveSpeed;
             tank.moveSpeed *= 1.5;
             if (tank.hud) {
-                tank.hud.addActiveEffect("Ускоритель", "⚡", "#ff0", 10000);
+                tank.hud.addActiveEffect("Speed Boost", "⚡", "#ff0", 10000);
             }
             if (tank.chatSystem) {
-                tank.chatSystem.success("⚡ Активирован ускоритель скорости");
+                tank.chatSystem.success("⚡ Speed boost activated");
             }
             if (tank.soundManager) {
                 tank.soundManager.playShoot();
@@ -84,10 +84,10 @@ export const CONSUMABLE_TYPES: ConsumableType[] = [
             setTimeout(() => {
                 tank.moveSpeed = originalSpeed;
                 if (tank.hud) {
-                    tank.hud.removeActiveEffect("Ускоритель");
+                    tank.hud.removeActiveEffect("Speed Boost");
                 }
                 if (tank.chatSystem) {
-                    tank.chatSystem.log("Ускоритель скорости закончился");
+                    tank.chatSystem.log("Speed boost ended");
                 }
                 console.log(`[Consumable] Speed boost ended`);
             }, 10000);
@@ -95,8 +95,8 @@ export const CONSUMABLE_TYPES: ConsumableType[] = [
     },
     {
         id: "armor",
-        name: "Броня",
-        description: "+50% защиты на 15 сек",
+        name: "Armor",
+        description: "+50% defense for 15 sec",
         icon: "🛡️",
         color: "#00ffff",
         duration: 15000,
@@ -106,10 +106,10 @@ export const CONSUMABLE_TYPES: ConsumableType[] = [
             tank.currentHealth = Math.floor(tank.currentHealth * 1.5);
             if (tank.hud) {
                 tank.hud.setHealth(tank.currentHealth, tank.maxHealth);
-                tank.hud.addActiveEffect("Броня", "🛡️", "#0ff", 15000);
+                tank.hud.addActiveEffect("Armor", "🛡️", "#0ff", 15000);
             }
             if (tank.chatSystem) {
-                tank.chatSystem.success("🛡️ Активирована усиленная броня");
+                tank.chatSystem.success("🛡️ Enhanced armor activated");
             }
             if (tank.soundManager) {
                 tank.soundManager.playShoot();
@@ -128,10 +128,10 @@ export const CONSUMABLE_TYPES: ConsumableType[] = [
                 }
                 if (tank.hud) {
                     tank.hud.setHealth(tank.currentHealth, tank.maxHealth);
-                    tank.hud.removeActiveEffect("Броня");
+                    tank.hud.removeActiveEffect("Armor");
                 }
                 if (tank.chatSystem) {
-                    tank.chatSystem.log("Усиленная броня закончилась");
+                    tank.chatSystem.log("Enhanced armor ended");
                 }
                 console.log(`[Consumable] Armor boost ended`);
             }, 15000);
@@ -139,8 +139,8 @@ export const CONSUMABLE_TYPES: ConsumableType[] = [
     },
     {
         id: "ammo",
-        name: "Боеприпасы",
-        description: "Мгновенная перезарядка",
+        name: "Ammo",
+        description: "Instant reload",
         icon: "💣",
         color: "#ff8800",
         effect: (tank: any) => {
@@ -150,7 +150,7 @@ export const CONSUMABLE_TYPES: ConsumableType[] = [
                 tank.hud.reloadTime = 0;
             }
             if (tank.chatSystem) {
-                tank.chatSystem.combat("💣 Мгновенная перезарядка");
+                tank.chatSystem.combat("💣 Instant reload");
             }
             if (tank.soundManager) {
                 tank.soundManager.playReloadComplete();
@@ -165,8 +165,8 @@ export const CONSUMABLE_TYPES: ConsumableType[] = [
     },
     {
         id: "damage",
-        name: "Усиление",
-        description: "+50% урона на 20 сек",
+        name: "Damage Boost",
+        description: "+50% damage for 20 sec",
         icon: "🔥",
         color: "#ff0000",
         duration: 20000,
@@ -177,10 +177,10 @@ export const CONSUMABLE_TYPES: ConsumableType[] = [
             }
             tank.damage = Math.floor(tank._originalDamage * 1.5);
             if (tank.hud) {
-                tank.hud.addActiveEffect("Усиление", "🔥", "#f00", 20000);
+                tank.hud.addActiveEffect("Damage Boost", "🔥", "#f00", 20000);
             }
             if (tank.chatSystem) {
-                tank.chatSystem.combat("🔥 Активировано усиление урона");
+                tank.chatSystem.combat("🔥 Damage boost activated");
             }
             if (tank.soundManager) {
                 tank.soundManager.playShoot();
@@ -195,10 +195,10 @@ export const CONSUMABLE_TYPES: ConsumableType[] = [
             setTimeout(() => {
                 tank.damage = tank._originalDamage;
                 if (tank.hud) {
-                    tank.hud.removeActiveEffect("Усиление");
+                    tank.hud.removeActiveEffect("Damage Boost");
                 }
                 if (tank.chatSystem) {
-                    tank.chatSystem.log("Усиление урона закончилось");
+                    tank.chatSystem.log("Damage boost ended");
                 }
                 console.log(`[Consumable] Damage boost ended`);
             }, 20000);
@@ -259,13 +259,14 @@ export class ConsumablePickup {
 
         // Metadata для обнаружения
         this.mesh.metadata = { type: "consumable", consumableType: type.id, pickup: this };
-
-        // Анимация вращения и покачивания
-        scene.onBeforeRenderObservable.add(() => {
-            this.time += scene.getEngine().getDeltaTime() / 1000;
-            this.mesh.rotation.y += this.rotationSpeed;
-            this.mesh.position.y = this.initialY + 0.4 + Math.sin(this.time * this.bobSpeed * 1000) * this.bobAmount;
-        });
+    }
+    
+    // Обновление анимации (вызывается из централизованного update)
+    update(deltaTime: number): void {
+        if (this.mesh.isDisposed()) return;
+        this.time += deltaTime;
+        this.mesh.rotation.y += this.rotationSpeed;
+        this.mesh.position.y = this.initialY + 0.4 + Math.sin(this.time * this.bobSpeed * 1000) * this.bobAmount;
     }
 
     getType(): ConsumableType {

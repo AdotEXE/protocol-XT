@@ -2,6 +2,8 @@
 // PLAYER PROGRESSION SYSTEM - Глобальная система прокачки игрока
 // ═══════════════════════════════════════════════════════════════════════════
 
+import { Observable } from "@babylonjs/core";
+
 export interface PlayerStats {
     // Основные характеристики
     level: number;
@@ -195,7 +197,16 @@ export class PlayerProgressionSystem {
     private stats: PlayerStats;
     private chatSystem: any = null;
     private soundManager: any = null;
+    private menu: any = null;
     private lastSaveTime: number = 0;
+    
+    // Observable для уведомления об изменениях опыта
+    public onExperienceChanged = new Observable<{
+        current: number;
+        required: number;
+        percent: number;
+        level: number;
+    }>();
     
     constructor() {
         this.stats = this.loadStats();
@@ -210,6 +221,10 @@ export class PlayerProgressionSystem {
     
     setSoundManager(sound: any): void {
         this.soundManager = sound;
+    }
+    
+    setMenu(menu: any): void {
+        this.menu = menu;
     }
     
     // ─────────────────────────────────────────────────────────────────────
@@ -255,21 +270,59 @@ export class PlayerProgressionSystem {
         const prestigeBonus = this.stats.prestigeMultiplier;
         const finalAmount = Math.round(amount * resourceBonus * prestigeBonus);
         
+        // Логирование только для значимых сумм опыта (>= 1)
+        if (finalAmount >= 1) {
+            console.log(`[PlayerProgression] Adding ${finalAmount} XP (base: ${amount}, reason: ${reason}), Total: ${this.stats.experience + finalAmount}`);
+        }
+        
         this.stats.experience += finalAmount;
         this.stats.totalExperience += finalAmount;
         
         // Проверка повышения уровня
-        while (this.stats.level < MAX_PLAYER_LEVEL && this.stats.experience >= PLAYER_LEVEL_EXP[this.stats.level]) {
-            const expForNext = PLAYER_LEVEL_EXP[this.stats.level];
-            this.stats.experience -= expForNext;
-            this.stats.level++;
-            this.stats.skillPoints += 1;
+        // ВАЖНО: this.stats.experience содержит остаток опыта после повышения уровня
+        // Чтобы проверить повышение, нужно вычислить общий накопленный опыт
+        const oldLevel = this.stats.level;
+        while (this.stats.level < MAX_PLAYER_LEVEL) {
+            // Вычисляем общий накопленный опыт
+            const currentLevelXP = PLAYER_LEVEL_EXP[this.stats.level - 1] || 0;
+            const totalXP = currentLevelXP + this.stats.experience;
+            const nextLevelXP = PLAYER_LEVEL_EXP[this.stats.level];
             
-            this.onLevelUp();
+            // Проверяем, достигли ли мы порога для следующего уровня
+            if (totalXP >= nextLevelXP) {
+                // Вычитаем опыт, необходимый для достижения следующего уровня
+                this.stats.experience = totalXP - nextLevelXP;
+                this.stats.level++;
+                this.stats.skillPoints += 1;
+                
+                console.log(`[PlayerProgression] Level up! New level: ${this.stats.level}, Remaining XP: ${this.stats.experience}`);
+                
+                this.onLevelUp();
+            } else {
+                // Не достигли порога, выходим из цикла
+                break;
+            }
         }
         
         this.checkAchievements();
         this.saveStats();
+        
+        // Уведомляем подписчиков об изменении опыта (всегда, даже если уровень не изменился)
+        // Это обеспечивает обновление UI даже при малых изменениях опыта
+        this.notifyExperienceChanged();
+    }
+    
+    private notifyExperienceChanged(): void {
+        const xpProgress = this.getExperienceProgress();
+        const data = {
+            current: xpProgress.current,
+            required: xpProgress.required,
+            percent: xpProgress.percent,
+            level: this.stats.level
+        };
+        // Логирование для отладки
+        console.log(`[PlayerProgression] Notifying experience change:`, data);
+        this.onExperienceChanged.notifyObservers(data);
     }
     
     private onLevelUp(): void {
@@ -286,6 +339,14 @@ export class PlayerProgressionSystem {
         if (this.chatSystem) {
             this.chatSystem.economy(`+${levelBonus} кредитов за уровень`);
         }
+        
+        // Обновляем меню при повышении уровня
+        if (this.menu && typeof this.menu.updatePlayerInfo === 'function') {
+            this.menu.updatePlayerInfo();
+        }
+        
+        // Уведомляем подписчиков об изменении опыта (после повышения уровня)
+        this.notifyExperienceChanged();
     }
     
     // ─────────────────────────────────────────────────────────────────────
@@ -533,15 +594,95 @@ export class PlayerProgressionSystem {
     
     getExperienceProgress(): { current: number; required: number; percent: number } {
         if (this.stats.level >= MAX_PLAYER_LEVEL) {
-            return { current: this.stats.experience, required: 0, percent: 100 };
+            return { current: 0, required: 0, percent: 100 };
         }
-        const required = PLAYER_LEVEL_EXP[this.stats.level];
+        
+        // ВАЖНО: this.stats.experience содержит остаток опыта ПОСЛЕ повышения уровня
+        // При повышении уровня вычитается PLAYER_LEVEL_EXP[oldLevel]
+        // Например: если level = 4, значит уже вычли PLAYER_LEVEL_EXP[3] = 2100
+        // this.stats.experience = остаток опыта для уровня 4
+        
+        // Опыт для текущего уровня (порог для повышения)
+        // PLAYER_LEVEL_EXP[level - 1] - это порог для достижения level
+        // PLAYER_LEVEL_EXP[level] - это порог для достижения level + 1
+        const currentLevelXP = PLAYER_LEVEL_EXP[this.stats.level - 1] || 0;
+        const nextLevelXP = PLAYER_LEVEL_EXP[this.stats.level] || PLAYER_LEVEL_EXP[PLAYER_LEVEL_EXP.length - 1];
+        
+        // Текущий опыт - это просто остаток опыта после повышения уровня
+        // Он уже находится в диапазоне [0, required)
+        let current = this.stats.experience;
+        
+        // Убеждаемся, что current не отрицательный
+        current = Math.max(0, current);
+        
+        // Требуемый опыт для следующего уровня (разница между уровнями)
+        const required = nextLevelXP - currentLevelXP;
+        
+        // Ограничиваем current чтобы не превышал required
+        current = Math.min(current, required);
+        
+        // Процент заполнения (округлён до 1 знака после запятой для упрощения)
+        const rawPercent = required > 0 ? Math.min(100, Math.max(0, (current / required) * 100)) : 0;
+        const percent = Math.round(rawPercent * 10) / 10; // Округляем до 1 знака после запятой
+        
+        // Логирование для отладки (только при значительных изменениях)
+        if (Math.abs(this._lastXpLog - current) >= 10) {
+            this._lastXpLog = current;
+            console.log(`[PlayerProgression] XP Progress: Level ${this.stats.level}, Current: ${current}/${required} (${percent.toFixed(1)}%)`);
+        }
+        
+        return { current, required, percent };
+    }
+    
+    private _lastXpLog: number = -1; // Для отслеживания изменений
+    
+    // Получить статистику опыта в реальном времени
+    getRealTimeXpStats(): {
+        level: number;
+        current: number;
+        required: number;
+        percent: number;
+        totalExperience: number;
+        experiencePerMinute: number;
+    } {
+        const xpProgress = this.getExperienceProgress();
+        const now = Date.now();
+        
+        // Вычисляем опыт в минуту (за последнюю минуту)
+        if (!this._xpHistory) {
+            this._xpHistory = [];
+        }
+        
+        // Добавляем текущий опыт в историю
+        this._xpHistory.push({ time: now, xp: this.stats.totalExperience });
+        
+        // Удаляем записи старше минуты
+        const oneMinuteAgo = now - 60000;
+        this._xpHistory = this._xpHistory.filter(entry => entry.time > oneMinuteAgo);
+        
+        // Вычисляем опыт в минуту
+        let experiencePerMinute = 0;
+        if (this._xpHistory.length >= 2) {
+            const oldest = this._xpHistory[0];
+            const newest = this._xpHistory[this._xpHistory.length - 1];
+            const timeDiff = (newest.time - oldest.time) / 1000 / 60; // В минутах
+            const xpDiff = newest.xp - oldest.xp;
+            if (timeDiff > 0) {
+                experiencePerMinute = xpDiff / timeDiff;
+            }
+        }
+        
         return {
-            current: this.stats.experience,
-            required,
-            percent: Math.round((this.stats.experience / required) * 100)
+            level: this.stats.level,
+            current: xpProgress.current,
+            required: xpProgress.required,
+            percent: xpProgress.percent,
+            totalExperience: this.stats.totalExperience,
+            experiencePerMinute: Math.round(experiencePerMinute)
         };
     }
+    
+    private _xpHistory: Array<{ time: number; xp: number }> = [];
     
     getCredits(): number {
         return this.stats.credits;

@@ -10,9 +10,10 @@ import {
     PhysicsShapeType,
     Quaternion,
     Mesh,
-    Observable
+    Observable,
+    Ray
 } from "@babylonjs/core";
-import { AdvancedDynamicTexture, Rectangle } from "@babylonjs/gui";
+import { AdvancedDynamicTexture, Rectangle, TextBlock, Control } from "@babylonjs/gui";
 import { SoundManager } from "./soundManager";
 import { EffectsManager } from "./effects";
 
@@ -35,15 +36,15 @@ export class EnemyTank {
     physicsBody!: PhysicsBody;
     
     // Physics Config (same as TankController)
-    private mass = 1500;
+    private mass = 1875;
     private hoverHeight = 1.0;
     private hoverStiffness = 30000;
     private hoverDamping = 8000;
     
     // Movement (same as TankController)
-    private moveSpeed = 10;        // Slightly slower than player
+    private moveSpeed = 20;        // Slightly slower than player
     private turnSpeed = 2.2;
-    private acceleration = 7000;
+    private acceleration = 8750;
     
     // Smooth inputs (like player)
     private throttleTarget = 0;
@@ -83,10 +84,10 @@ export class EnemyTank {
     private lastShotTime = 0;
     private cooldown = 2500; // 2.5 seconds reload
     private isReloading = false;
-    private range = 50;
-    private detectRange = 80;
-    private optimalRange = 30; // Best fighting distance
-    private aimAccuracy = 0.95; // 95% accuracy (adds slight randomness)
+    private range = 60;           // Дальность атаки
+    private detectRange = 200;    // Радиус обнаружения (200м)
+    private optimalRange = 35;     // Оптимальная дистанция боя
+    private aimAccuracy = 0.95;   // 95% точность
     
     // === Difficulty ===
     private difficulty: "easy" | "medium" | "hard" = "hard"; // По умолчанию сложная сложность
@@ -103,6 +104,16 @@ export class EnemyTank {
     
     // Tick counter
     private _tick = 0;
+    
+    // Raycast caching для оптимизации
+    private raycastCache: { result: boolean, frame: number } | null = null;
+    private readonly RAYCAST_CACHE_FRAMES = 4; // Кэшируем на 4 кадра
+    
+    // Переиспользуемые векторы для оптимизации памяти
+    private _tmpPos?: Vector3;
+    private _tmpForward?: Vector3;
+    private _tmpRight?: Vector3;
+    private _tmpUp?: Vector3;
     
     constructor(
         scene: Scene,
@@ -159,31 +170,34 @@ export class EnemyTank {
                 // Легкая сложность: медленная реакция, низкая точность
                 this.cooldown = 4000; // 4 секунды перезарядка
                 this.aimAccuracy = 0.65; // 65% точность
-                this.detectRange = 50; // Меньший радиус обнаружения
-                this.range = 40;
+                this.detectRange = 150; // Радиус обнаружения
+                this.range = 45;
                 this.optimalRange = 25;
                 this.decisionInterval = 1000; // Решения каждую секунду
                 this.turretSpeed = 0.04; // Медленнее поворачивает башню
+                this.moveSpeed = 8; // Медленнее
                 break;
             case "medium":
                 // Средняя сложность: средняя реакция, средняя точность
                 this.cooldown = 3000; // 3 секунды перезарядка
                 this.aimAccuracy = 0.80; // 80% точность
-                this.detectRange = 65;
-                this.range = 45;
-                this.optimalRange = 28;
+                this.detectRange = 175;
+                this.range = 55;
+                this.optimalRange = 30;
                 this.decisionInterval = 700;
+                this.moveSpeed = 10;
                 this.turretSpeed = 0.05;
                 break;
             case "hard":
-                // Сложная сложность: быстрая реакция, высокая точность (по умолчанию)
+                // Сложная сложность: быстрая реакция, высокая точность
                 this.cooldown = 2500; // 2.5 секунды перезарядка
                 this.aimAccuracy = 0.95; // 95% точность
-                this.detectRange = 80;
-                this.range = 50;
-                this.optimalRange = 30;
+                this.detectRange = 200; // Полный радиус обнаружения
+                this.range = 65;
+                this.optimalRange = 35;
                 this.decisionInterval = 500; // Решения каждые 500мс
                 this.turretSpeed = 0.06;
+                this.moveSpeed = 12; // Быстрее игрока
                 break;
         }
     }
@@ -281,17 +295,19 @@ export class EnemyTank {
     private hpBarFill: Rectangle | null = null;
     
     private createHpBillboard() {
-        const plane = MeshBuilder.CreatePlane(`enemyHp_${this.id}`, { size: 2.2 }, this.scene);
+        // Увеличен размер для лучшей видимости
+        const plane = MeshBuilder.CreatePlane(`enemyHp_${this.id}`, { size: 2.8 }, this.scene);
         plane.parent = this.turret;
-        plane.position = new Vector3(0, 1.4, 0);
+        plane.position = new Vector3(0, 1.6, 0); // Немного выше
         plane.billboardMode = Mesh.BILLBOARDMODE_ALL;
         plane.isVisible = false;
+        plane.renderingGroupId = 3; // В группе рендеринга для видимости через стены
         
-        const tex = AdvancedDynamicTexture.CreateForMesh(plane, 200, 24);
+        const tex = AdvancedDynamicTexture.CreateForMesh(plane, 240, 32); // Увеличен размер текстуры
         
         const container = new Rectangle();
-        container.width = "180px";
-        container.height = "16px";
+        container.width = "220px"; // Увеличена ширина
+        container.height = "20px"; // Увеличена высота
         container.background = "#300";
         container.color = "#f00";
         container.thickness = 2;
@@ -299,13 +315,24 @@ export class EnemyTank {
         tex.addControl(container);
         
         const barFill = new Rectangle();
-        barFill.width = "176px";
-        barFill.height = "12px";
+        barFill.width = "216px"; // Соответствует новой ширине
+        barFill.height = "16px"; // Соответствует новой высоте
         barFill.background = "#f00";
         barFill.thickness = 0;
         barFill.horizontalAlignment = 0;
         container.addControl(barFill);
         this.hpBarFill = barFill;
+        
+        // Добавляем текстовое отображение здоровья
+        const healthText = new TextBlock("hpText");
+        healthText.text = "100/100";
+        healthText.color = "#fff";
+        healthText.fontSize = 10;
+        healthText.fontFamily = "'Press Start 2P', monospace";
+        healthText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        healthText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        container.addControl(healthText);
+        (this as any).hpText = healthText; // Сохраняем ссылку для обновления
         
         this.hpBillboard = plane;
         this.hpTexture = tex;
@@ -316,15 +343,26 @@ export class EnemyTank {
         this.hpBillboard.isVisible = visible;
         if (visible) {
             const healthPercent = Math.max(0, Math.min(100, (this.currentHealth / this.maxHealth) * 100));
-            const fillWidth = (healthPercent / 100) * 176;
+            const fillWidth = (healthPercent / 100) * 216; // Обновлено под новую ширину
             this.hpBarFill.width = `${fillWidth}px`;
             
+            let healthColor = "#0f0";
             if (healthPercent > 60) {
-                this.hpBarFill.background = "#0f0";
+                healthColor = "#0f0"; // Зелёный
             } else if (healthPercent > 30) {
-                this.hpBarFill.background = "#ff0";
+                healthColor = "#ff0"; // Жёлтый
             } else {
-                this.hpBarFill.background = "#f00";
+                healthColor = "#f00"; // Красный
+            }
+            this.hpBarFill.background = healthColor;
+            
+            // Обновляем текстовое отображение здоровья
+            const hpText = (this as any).hpText;
+            if (hpText) {
+                const currentHp = Math.max(0, Math.round(this.currentHealth));
+                const maxHp = Math.round(this.maxHealth);
+                hpText.text = `${currentHp}/${maxHp}`;
+                hpText.color = healthColor; // Цвет текста соответствует цвету здоровья
             }
         }
     }
@@ -346,7 +384,7 @@ export class EnemyTank {
         }, this.scene);
         
         shape.filterMembershipMask = 8; // Enemy tank group
-        shape.filterCollideMask = 2 | 4; // Environment and player bullets
+        shape.filterCollideMask = 2 | 4 | 32; // Environment, player bullets, and protective walls
         
         this.physicsBody = new PhysicsBody(this.chassis, PhysicsMotionType.DYNAMIC, false, this.scene);
         this.physicsBody.shape = shape;
@@ -366,14 +404,20 @@ export class EnemyTank {
         
         this._tick++;
         
-        // Оптимизация: далёкие враги обновляются реже
+        // Боты всегда активны и патрулируют независимо от расстояния
         const distToPlayer = (this.target && this.target.chassis) ? 
             Vector3.Distance(this.chassis.position, this.target.chassis.position) : 1000;
         
-        // Далёкие враги (>150) обновляют AI каждые 4 кадра
-        // Средние (50-150) - каждые 2 кадра
-        // Близкие (<50) - каждый кадр
-        const aiUpdateInterval = distToPlayer > 150 ? 4 : (distToPlayer > 50 ? 2 : 1);
+        // Обновление AI в зависимости от расстояния:
+        // До 400м - полное обновление
+        // 400-600м - каждые 2 кадра
+        // Дальше - каждые 4 кадра (но всё равно патрулируют!)
+        let aiUpdateInterval = 1;
+        if (distToPlayer > 600) {
+            aiUpdateInterval = 4;
+        } else if (distToPlayer > 400) {
+            aiUpdateInterval = 2;
+        }
         
         if (this._tick % aiUpdateInterval === 0) {
             this.updateAI();
@@ -390,17 +434,29 @@ export class EnemyTank {
         
         try {
             const body = this.physicsBody;
-            const pos = this.chassis.position.clone();
+            // Используем переиспользуемый вектор вместо clone() для оптимизации
+            if (!this._tmpPos) this._tmpPos = new Vector3();
+            const pos = this._tmpPos;
+            pos.copyFrom(this.chassis.position);
             const vel = body.getLinearVelocity();
             const angVel = body.getAngularVelocity();
             
             if (!vel || !angVel) return;
             
-            // Get orientation
+            // Get orientation - используем переиспользуемые векторы
             const rotMatrix = this.chassis.getWorldMatrix();
-            const forward = Vector3.TransformNormal(Vector3.Forward(), rotMatrix).normalize();
-            const right = Vector3.TransformNormal(Vector3.Right(), rotMatrix).normalize();
-            const up = Vector3.TransformNormal(Vector3.Up(), rotMatrix).normalize();
+            if (!this._tmpForward) this._tmpForward = new Vector3();
+            if (!this._tmpRight) this._tmpRight = new Vector3();
+            if (!this._tmpUp) this._tmpUp = new Vector3();
+            const forward = Vector3.TransformNormalToRef(Vector3.Forward(), rotMatrix, this._tmpForward);
+            forward.normalize();
+            const right = Vector3.TransformNormalToRef(Vector3.Right(), rotMatrix, this._tmpRight);
+            right.normalize();
+            const up = Vector3.TransformNormalToRef(Vector3.Up(), rotMatrix, this._tmpUp);
+            up.normalize();
+            
+            // Объявляем переиспользуемые векторы для сил один раз
+            let forceVec = this._tmpForward!;
             
             // --- 1. ENHANCED HOVER (same improvements as player) ---
             const targetY = this.hoverHeight;
@@ -410,12 +466,15 @@ export class EnemyTank {
             // Адаптивная жесткость
             const stiffnessMultiplier = 1.0 + Math.abs(deltaY) * 0.5;
             const hoverForce = (deltaY * this.hoverStiffness * stiffnessMultiplier) - (velY * this.hoverDamping);
-            body.applyForce(new Vector3(0, hoverForce, 0), pos);
+            // Используем переиспользуемый вектор для силы (используем _tmpUp который уже создан)
+            this._tmpUp!.set(0, hoverForce, 0);
+            body.applyForce(this._tmpUp!, pos);
             
             // Дополнительная стабилизация при движении
             if (Math.abs(Vector3.Dot(vel, forward)) > 2) {
                 const stabilityForce = -velY * 3000;
-                body.applyForce(new Vector3(0, stabilityForce, 0), pos);
+                this._tmpUp!.set(0, stabilityForce, 0);
+                body.applyForce(this._tmpUp!, pos);
             }
             
             // --- 2. ENHANCED KEEP UPRIGHT (same as player!) ---
@@ -428,18 +487,23 @@ export class EnemyTank {
             const correctiveX = -tiltX * uprightForce - angVel.x * uprightDamp;
             const correctiveZ = -tiltZ * uprightForce - angVel.z * uprightDamp;
             
-            this.applyTorque(new Vector3(correctiveX, 0, correctiveZ));
+            // Используем переиспользуемый вектор для torque
+            const correctiveTorque = this._tmpRight!;
+            correctiveTorque.set(correctiveX, 0, correctiveZ);
+            this.applyTorque(correctiveTorque);
             
             // Экстренное выравнивание
             if (up.y < 0.7 || Math.abs(tiltX) > 0.3 || Math.abs(tiltZ) > 0.3) {
                 const emergencyForce = 25000;
                 const emergencyX = -tiltX * emergencyForce;
                 const emergencyZ = -tiltZ * emergencyForce;
-                this.applyTorque(new Vector3(emergencyX, 0, emergencyZ));
+                correctiveTorque.set(emergencyX, 0, emergencyZ);
+                this.applyTorque(correctiveTorque);
                 
                 if (up.y < 0.5) {
                     const liftForce = (0.9 - up.y) * 50000;
-                    body.applyForce(new Vector3(0, liftForce, 0), pos);
+                    this._tmpUp!.set(0, liftForce, 0);
+                    body.applyForce(this._tmpUp!, pos);
                 }
             }
             
@@ -458,12 +522,19 @@ export class EnemyTank {
             const accelMultiplier = isAccelerating ? 1.0 : 1.5;
             const accel = speedDiff * this.acceleration * accelMultiplier;
             
-            const forcePoint = pos.add(new Vector3(0, -0.6, 0));
-            body.applyForce(forward.scale(accel), forcePoint);
+            // Используем переиспользуемый вектор для forcePoint
+            const forcePoint = this._tmpPos!;
+            forcePoint.copyFrom(pos);
+            forcePoint.y -= 0.6;
+            // Используем переиспользуемый вектор для силы
+            forceVec.copyFrom(forward);
+            forceVec.scaleInPlace(accel);
+            body.applyForce(forceVec, forcePoint);
             
             if (Math.abs(this.smoothThrottle) > 0.1) {
                 const downForce = Math.abs(this.smoothThrottle) * 2000;
-                body.applyForce(new Vector3(0, -downForce, 0), pos);
+                this._tmpUp!.set(0, -downForce, 0);
+                body.applyForce(this._tmpUp!, pos);
             }
             
             // --- 4. ENHANCED TURN (Speed-dependent turning) ---
@@ -477,34 +548,47 @@ export class EnemyTank {
             const isTurning = Math.abs(this.smoothSteer) > 0.1;
             const angularAccelMultiplier = isTurning ? 1.2 : 1.5;
             const turnAccel = (targetTurnRate - currentTurnRate) * 11000 * angularAccelMultiplier;
-            this.applyTorque(new Vector3(0, turnAccel, 0));
+            // Используем переиспользуемый вектор для torque
+            const torqueVec = this._tmpRight!;
+            torqueVec.set(0, turnAccel, 0);
+            this.applyTorque(torqueVec);
             
             if (Math.abs(speedRatio) > 0.3 && Math.abs(this.smoothSteer) > 0.2) {
                 const stabilityTorque = -angVel.y * 2000 * speedRatio;
-                this.applyTorque(new Vector3(0, stabilityTorque, 0));
+                torqueVec.set(0, stabilityTorque, 0);
+                this.applyTorque(torqueVec);
             }
             
             if (Math.abs(this.smoothSteer) < 0.05) {
-                this.applyTorque(new Vector3(0, -angVel.y * 4500, 0));
+                torqueVec.set(0, -angVel.y * 4500, 0);
+                this.applyTorque(torqueVec);
             }
             
             // --- 5. ENHANCED SIDE FRICTION ---
             const sideSpeed = Vector3.Dot(vel, right);
             const sideFrictionMultiplier = 1.0 + Math.abs(currentSpeed) / this.moveSpeed * 0.5;
-            body.applyForce(right.scale(-sideSpeed * 13000 * sideFrictionMultiplier), pos);
+            // Используем переиспользуемый вектор для силы
+            forceVec.copyFrom(right);
+            forceVec.scaleInPlace(-sideSpeed * 13000 * sideFrictionMultiplier);
+            body.applyForce(forceVec, pos);
             
             // --- 6. ENHANCED DRAG ---
             if (Math.abs(this.throttleTarget) < 0.05) {
                 const sideVel = Vector3.Dot(vel, right);
                 const sideDrag = -sideVel * 8000;
-                body.applyForce(right.scale(sideDrag), pos);
+                forceVec.copyFrom(right);
+                forceVec.scaleInPlace(sideDrag);
+                body.applyForce(forceVec, pos);
                 
                 const fwdVel = Vector3.Dot(vel, forward);
                 const fwdDrag = -fwdVel * 7000;
-                body.applyForce(forward.scale(fwdDrag), pos);
+                forceVec.copyFrom(forward);
+                forceVec.scaleInPlace(fwdDrag);
+                body.applyForce(forceVec, pos);
                 
                 const angularDrag = -angVel.y * 5000;
-                this.applyTorque(new Vector3(0, angularDrag, 0));
+                torqueVec.set(0, angularDrag, 0);
+                this.applyTorque(torqueVec);
             }
             
             // --- Auto reset if fallen (Enhanced detection) ---
@@ -561,13 +645,46 @@ export class EnemyTank {
     // === AI SYSTEM ===
     
     private generatePatrolPoints(center: Vector3): void {
-        const radius = 25;
-        for (let i = 0; i < 5; i++) {
-            const angle = (Math.PI * 2 / 5) * i + Math.random() * 0.8;
-            const x = center.x + Math.cos(angle) * radius * (0.6 + Math.random() * 0.4);
-            const z = center.z + Math.sin(angle) * radius * (0.6 + Math.random() * 0.4);
-            this.patrolPoints.push(new Vector3(x, center.y, z));
+        // Генерируем маршрут патрулирования по ВСЕЙ карте
+        // Боты должны выезжать из гаража и ездить везде!
+        
+        const patrolRadius = 150 + Math.random() * 200; // 150-350 единиц от старта
+        const numPoints = 8 + Math.floor(Math.random() * 5); // 8-12 точек маршрута
+        
+        // Добавляем точку выезда из гаража (вперёд от старта)
+        const exitAngle = Math.random() * Math.PI * 2;
+        const exitX = center.x + Math.cos(exitAngle) * 30;
+        const exitZ = center.z + Math.sin(exitAngle) * 30;
+        this.patrolPoints.push(new Vector3(exitX, center.y, exitZ));
+        
+        // Генерируем случайные точки по карте
+        for (let i = 0; i < numPoints; i++) {
+            const angle = (Math.PI * 2 / numPoints) * i + Math.random() * 1.2 - 0.6;
+            const dist = patrolRadius * (0.4 + Math.random() * 0.6);
+            
+            // Смещаем от центра карты, а не от гаража
+            const offsetX = (Math.random() - 0.5) * 200;
+            const offsetZ = (Math.random() - 0.5) * 200;
+            
+            const x = Math.cos(angle) * dist + offsetX;
+            const z = Math.sin(angle) * dist + offsetZ;
+            
+            // Ограничиваем карту
+            const clampedX = Math.max(-400, Math.min(400, x));
+            const clampedZ = Math.max(-400, Math.min(400, z));
+            
+            this.patrolPoints.push(new Vector3(clampedX, center.y, clampedZ));
         }
+        
+        // Перемешиваем точки для непредсказуемости
+        for (let i = this.patrolPoints.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [this.patrolPoints[i], this.patrolPoints[j]] = [this.patrolPoints[j], this.patrolPoints[i]];
+        }
+        
+        // Начинаем патруль сразу!
+        this.state = "patrol";
+        console.log(`[EnemyTank ${this.id}] Generated ${this.patrolPoints.length} patrol points, radius: ${patrolRadius.toFixed(0)}`);
     }
     
     setTarget(target: { chassis: Mesh, isAlive: boolean, currentHealth?: number }): void {
@@ -588,16 +705,74 @@ export class EnemyTank {
             const myPos = this.chassis.absolutePosition;
             const distance = Vector3.Distance(targetPos, myPos);
             
-            // Track target velocity for prediction
-            if (this.lastTargetPos.length() > 0) {
-                this.targetVelocity = targetPos.subtract(this.lastTargetPos).scale(30); // ~30 fps
-            }
-            this.lastTargetPos.copyFrom(targetPos);
+            // Проверка видимости через raycast (оптимизированная)
+            let canSeeTarget = false;
             
-            // Make decisions periodically
-            if (now - this.lastDecisionTime > this.decisionInterval) {
-                this.lastDecisionTime = now;
-                this.makeDecision(distance);
+            // Для дальних врагов (> 100м) используем простую проверку расстояния без raycast
+            if (distance > 100) {
+                // Простая проверка: если в радиусе обнаружения, считаем что видим (для оптимизации)
+                canSeeTarget = distance < this.detectRange;
+            } else if (distance < this.detectRange) {
+                // Для близких врагов (< 100м) используем кэшированный raycast
+                const currentFrame = this._tick;
+                
+                // Проверяем кэш
+                if (this.raycastCache && (currentFrame - this.raycastCache.frame) < this.RAYCAST_CACHE_FRAMES) {
+                    canSeeTarget = this.raycastCache.result;
+                } else {
+                    // Выполняем raycast только если кэш устарел
+                    const turretPos = this.turret.getAbsolutePosition();
+                    const turretHeight = turretPos.y;
+                    const targetHeight = targetPos.y + 1.0;
+                    
+                    const direction = new Vector3(
+                        targetPos.x - turretPos.x,
+                        targetHeight - turretHeight,
+                        targetPos.z - turretPos.z
+                    ).normalize();
+                    
+                    const rayDistance = Vector3.Distance(turretPos, targetPos);
+                    const ray = new Ray(turretPos, direction, rayDistance + 2);
+                    
+                    const pick = this.scene.pickWithRay(ray, (mesh) => {
+                        if (!mesh || !mesh.isEnabled()) return false;
+                        const meta = mesh.metadata;
+                        if (meta && (meta.type === "enemyTank" || meta.type === "bullet" || meta.type === "consumable")) return false;
+                        if (mesh.name.includes("billboard") || mesh.name.includes("hp")) return false;
+                        if (mesh.parent === this.chassis || mesh.parent === this.turret || mesh.parent === this.barrel) return false;
+                        if (mesh === this.target?.chassis || mesh === this.target?.turret || mesh === this.target?.barrel) return false;
+                        if (mesh.parent === this.target?.chassis || mesh.parent === this.target?.turret) return false;
+                        return mesh.isPickable && mesh.visibility > 0.5;
+                    });
+                    
+                    canSeeTarget = !pick || !pick.hit || 
+                        (pick.pickedMesh === this.target?.chassis || 
+                         pick.pickedMesh === this.target?.turret || 
+                         pick.pickedMesh === this.target?.barrel ||
+                         pick.pickedMesh?.parent === this.target?.chassis ||
+                         pick.pickedMesh?.parent === this.target?.turret);
+                    
+                    // Сохраняем в кэш
+                    this.raycastCache = { result: canSeeTarget, frame: currentFrame };
+                }
+            }
+            
+            // Обновляем состояние только если видим цель
+            if (canSeeTarget && distance < this.detectRange) {
+                // Track target velocity for prediction
+                if (this.lastTargetPos.length() > 0) {
+                    this.targetVelocity = targetPos.subtract(this.lastTargetPos).scale(30); // ~30 fps
+                }
+                this.lastTargetPos.copyFrom(targetPos);
+                
+                // Make decisions periodically
+                if (now - this.lastDecisionTime > this.decisionInterval) {
+                    this.lastDecisionTime = now;
+                    this.makeDecision(distance);
+                }
+            } else {
+                // Не видим цель - возвращаемся к патрулированию
+                this.state = "patrol";
             }
             } else {
                 this.state = "patrol";
@@ -649,15 +824,15 @@ export class EnemyTank {
                 }
             }
         } 
-        // Priority 4: Detected but not in range - chase (улучшенная логика)
+        // Priority 4: Detected but not in range - chase (цель уже видна через raycast)
         else if (distance < this.detectRange) {
             this.state = "chase";
             // Если цель далеко и у нас мало здоровья - не преследуем слишком агрессивно
-            if (healthPercent < 0.3 && distance > 60) {
+            if (healthPercent < 0.3 && distance > 100) {
                 this.state = "patrol"; // Возвращаемся к патрулированию
             }
         } 
-        // Priority 5: Not detected - patrol
+        // Priority 5: Not detected - patrol (не должно происходить, так как проверка в updateAI)
         else {
             this.state = "patrol";
         }
@@ -687,19 +862,40 @@ export class EnemyTank {
     }
     
     private doPatrol(): void {
-        if (this.patrolPoints.length === 0) return;
-        
-        const target = this.patrolPoints[this.currentPatrolIndex];
-        const distance = Vector3.Distance(this.chassis.absolutePosition, target);
-        
-        if (distance < 4) {
-            this.currentPatrolIndex = (this.currentPatrolIndex + 1) % this.patrolPoints.length;
-        } else {
-            this.driveToward(target, 0.5); // Half speed patrol
+        if (this.patrolPoints.length === 0) {
+            // Генерируем новые точки если их нет
+            this.generatePatrolPoints(this.chassis.absolutePosition);
+            return;
         }
         
-        // Look forward while patrolling
-        this.turretTargetAngle = 0;
+        const target = this.patrolPoints[this.currentPatrolIndex];
+        const myPos = this.chassis.absolutePosition;
+        const distance = Vector3.Distance(myPos, target);
+        
+        if (distance < 8) {
+            // Достигли точки - переходим к следующей
+            this.currentPatrolIndex = (this.currentPatrolIndex + 1) % this.patrolPoints.length;
+            
+            // Иногда генерируем новую точку для разнообразия
+            if (Math.random() < 0.15) {
+                const newAngle = Math.random() * Math.PI * 2;
+                const newDist = 100 + Math.random() * 200;
+                const newX = Math.cos(newAngle) * newDist;
+                const newZ = Math.sin(newAngle) * newDist;
+                this.patrolPoints[this.currentPatrolIndex] = new Vector3(
+                    Math.max(-400, Math.min(400, newX)),
+                    myPos.y,
+                    Math.max(-400, Math.min(400, newZ))
+                );
+            }
+        } else {
+            // Едем к точке на ПОЛНОЙ скорости
+            this.driveToward(target, 0.85);
+        }
+        
+        // Крутим башню по сторонам во время патруля (сканирование)
+        const scanAngle = Math.sin(Date.now() * 0.001) * 0.5; // ±0.5 радиан
+        this.turretTargetAngle = scanAngle;
     }
     
     private doChase(): void {
@@ -910,7 +1106,7 @@ export class EnemyTank {
         
         // === PREDICTION: Lead the target! ===
         const distance = Vector3.Distance(targetPos, myPos);
-        const bulletSpeed = 120; // Approximate bullet speed
+        const bulletSpeed = 240; // Approximate bullet speed (doubled)
         const flightTime = distance / bulletSpeed;
         
         // Predict where target will be
@@ -988,7 +1184,7 @@ export class EnemyTank {
             parameters: { extents: new Vector3(0.5, 0.5, 2.0) }
         }, this.scene);
         shape.filterMembershipMask = 16; // Enemy bullet
-        shape.filterCollideMask = 1 | 2;  // Player (1) and environment (2)
+        shape.filterCollideMask = 1 | 2 | 32;  // Player (1), environment (2), and protective walls (32)
         
         const body = new PhysicsBody(ball, PhysicsMotionType.DYNAMIC, false, this.scene);
         body.shape = shape;
@@ -996,7 +1192,7 @@ export class EnemyTank {
         body.setLinearDamping(0.01);
         
         // Fire in BARREL direction!
-        body.applyImpulse(barrelDir.scale(1500), ball.position);
+        body.applyImpulse(barrelDir.scale(3000), ball.position);
         
         // === RECOIL (like player!) ===
         const recoilForce = barrelDir.scale(-400);
@@ -1006,7 +1202,10 @@ export class EnemyTank {
         const barrelWorldPos = this.barrel.getAbsolutePosition();
         const chassisPos = this.chassis.absolutePosition;
         const torqueDir = barrelWorldPos.subtract(chassisPos).normalize();
-        this.applyTorque(new Vector3(-torqueDir.z * 2000, 0, torqueDir.x * 2000));
+        // Используем переиспользуемый вектор для torque отдачи
+        const recoilTorque = this._tmpRight!;
+        recoilTorque.set(-torqueDir.z * 2000, 0, torqueDir.x * 2000);
+        this.applyTorque(recoilTorque);
         
         // === HIT DETECTION ===
         const damage = 20;
@@ -1020,6 +1219,53 @@ export class EnemyTank {
             if (hasHit || ball.isDisposed()) return;
             
             const bulletPos = ball.absolutePosition;
+            
+            // === ПРОВЕРКА СТОЛКНОВЕНИЯ СО СТЕНКОЙ ===
+            // Ищем все стенки на сцене
+            const walls = this.scene.meshes.filter(mesh => 
+                mesh.metadata && mesh.metadata.type === "protectiveWall" && !mesh.isDisposed()
+            );
+            for (const wall of walls) {
+                const wallPos = wall.absolutePosition;
+                const wallRotation = wall.rotation.y;
+                
+                // Размеры стенки: width=6, height=4, depth=0.5
+                const wallHalfWidth = 3;
+                const wallHalfHeight = 2;
+                const wallHalfDepth = 0.25;
+                
+                // Переводим позицию пули в локальную систему координат стенки
+                const localPos = bulletPos.subtract(wallPos);
+                const cosY = Math.cos(-wallRotation);
+                const sinY = Math.sin(-wallRotation);
+                
+                // Поворачиваем позицию пули в локальную систему координат стенки
+                const localX = localPos.x * cosY - localPos.z * sinY;
+                const localY = localPos.y;
+                const localZ = localPos.x * sinY + localPos.z * cosY;
+                
+                // Проверяем, находится ли пуля внутри границ стенки
+                if (Math.abs(localX) < wallHalfWidth && 
+                    Math.abs(localY) < wallHalfHeight && 
+                    Math.abs(localZ) < wallHalfDepth) {
+                    hasHit = true;
+                    
+                    // Получаем урон из metadata пули
+                    const bulletDamage = (ball.metadata && (ball.metadata as any).damage) ? (ball.metadata as any).damage : 20;
+                    
+                    // Наносим урон стенке через metadata
+                    const wallMeta = wall.metadata as any;
+                    if (wallMeta && wallMeta.tankController && typeof wallMeta.tankController.damageWall === 'function') {
+                        wallMeta.tankController.damageWall(wall, bulletDamage);
+                    }
+                    
+                    console.log(`[EnemyTank ${this.id}] Bullet hit protective wall! Damage: ${bulletDamage}`);
+                    if (this.effectsManager) this.effectsManager.createHitSpark(bulletPos);
+                    if (this.soundManager) this.soundManager.playHit("armor", bulletPos);
+                    ball.dispose();
+                    return;
+                }
+            }
             
             // Check hit on player
             if (target && target.isAlive && target.chassis && !target.chassis.isDisposed()) {

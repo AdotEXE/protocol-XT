@@ -26,6 +26,10 @@ export class SoundManager {
     private currentEngineSpeed = 0;
     private enginePanner: PannerNode | null = null;
     
+    // Diesel engine oscillators (для реалистичного дизельного звука)
+    private dieselOscillators: OscillatorNode[] = [];
+    private dieselGains: GainNode[] = [];
+    
     // Enhanced Reverb (multi-tap delay for realistic reverb)
     private reverbGain: GainNode | null = null;
     private reverbDelays: DelayNode[] = [];
@@ -33,8 +37,8 @@ export class SoundManager {
     private reverbFilters: BiquadFilterNode[] = [];
     
     // Volume settings
-    public masterVolume = 0.7;
-    public engineVolume = 0.4;
+    public masterVolume = 1.0; // МАКСИМАЛЬНАЯ общая громкость
+    public engineVolume = 1.0; // МАКСИМАЛЬНАЯ громкость мотора для брутального звука
     public shootVolume = 0.75;
     public explosionVolume = 0.85;
     public hitVolume = 0.55;
@@ -68,7 +72,8 @@ export class SoundManager {
     
     constructor() {
         this.initAudio();
-        this.startAmbient();
+        // ОТКЛЮЧЕНО: startAmbient() - фоновый звук
+        // this.startAmbient();
     }
     
     private initAudio() {
@@ -208,66 +213,394 @@ export class SoundManager {
     }
     
     // ═══════════════════════════════════════════════════════════════════════
+    // INTRO & UI SOUNDS
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    // Game opening sound (when menu first appears)
+    playIntroSound() {
+        if (!this.audioContext || !this.masterGain) return;
+        this.resume();
+        
+        // Cinematic intro: rising synth with bass drop
+        const now = this.audioContext.currentTime;
+        
+        // Bass drop
+        const bassOsc = this.audioContext.createOscillator();
+        bassOsc.type = 'sine';
+        bassOsc.frequency.setValueAtTime(80, now);
+        bassOsc.frequency.exponentialRampToValueAtTime(40, now + 0.5);
+        
+        const bassGain = this.audioContext.createGain();
+        bassGain.gain.setValueAtTime(0, now);
+        bassGain.gain.linearRampToValueAtTime(0.5 * this.uiVolume, now + 0.1);
+        bassGain.gain.linearRampToValueAtTime(0.3 * this.uiVolume, now + 0.5);
+        bassGain.gain.linearRampToValueAtTime(0, now + 1.5);
+        
+        // Rising synth
+        const synthOsc = this.audioContext.createOscillator();
+        synthOsc.type = 'sawtooth';
+        synthOsc.frequency.setValueAtTime(100, now);
+        synthOsc.frequency.exponentialRampToValueAtTime(400, now + 0.8);
+        synthOsc.frequency.exponentialRampToValueAtTime(200, now + 1.2);
+        
+        const synthGain = this.audioContext.createGain();
+        synthGain.gain.setValueAtTime(0, now);
+        synthGain.gain.linearRampToValueAtTime(0.15 * this.uiVolume, now + 0.3);
+        synthGain.gain.linearRampToValueAtTime(0.2 * this.uiVolume, now + 0.8);
+        synthGain.gain.linearRampToValueAtTime(0, now + 1.5);
+        
+        // Filter sweep
+        const filter = this.audioContext.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(200, now);
+        filter.frequency.exponentialRampToValueAtTime(2000, now + 0.8);
+        filter.frequency.exponentialRampToValueAtTime(500, now + 1.5);
+        filter.Q.value = 3;
+        
+        // High-pitched beep (like a system boot)
+        const beepOsc = this.audioContext.createOscillator();
+        beepOsc.type = 'square';
+        beepOsc.frequency.value = 880;
+        
+        const beepGain = this.audioContext.createGain();
+        beepGain.gain.setValueAtTime(0, now + 0.5);
+        beepGain.gain.linearRampToValueAtTime(0.1 * this.uiVolume, now + 0.52);
+        beepGain.gain.linearRampToValueAtTime(0, now + 0.6);
+        beepGain.gain.linearRampToValueAtTime(0.1 * this.uiVolume, now + 0.7);
+        beepGain.gain.linearRampToValueAtTime(0, now + 0.8);
+        
+        // Connect
+        bassOsc.connect(bassGain);
+        bassGain.connect(this.masterGain);
+        
+        synthOsc.connect(filter);
+        filter.connect(synthGain);
+        synthGain.connect(this.masterGain);
+        
+        beepOsc.connect(beepGain);
+        beepGain.connect(this.masterGain);
+        
+        // Start and stop
+        bassOsc.start(now);
+        bassOsc.stop(now + 1.5);
+        synthOsc.start(now);
+        synthOsc.stop(now + 1.5);
+        beepOsc.start(now + 0.5);
+        beepOsc.stop(now + 0.8);
+        
+        console.log("[SoundManager] Intro sound played");
+    }
+    
+    // Tank engine starting sound (when clicking play) - Realistic diesel engine
+    playEngineStartSound() {
+        if (!this.audioContext || !this.masterGain) return;
+        this.resume();
+        
+        const now = this.audioContext.currentTime;
+        const duration = 3.5; // Дизель запускается медленнее
+        
+        // Стартер дизельного мотора - медленный, тяжелый звук прокрутки
+        const starterOsc = this.audioContext.createOscillator();
+        starterOsc.type = 'sawtooth';
+        starterOsc.frequency.setValueAtTime(80, now);
+        starterOsc.frequency.linearRampToValueAtTime(120, now + 0.3);
+        starterOsc.frequency.linearRampToValueAtTime(100, now + 0.6);
+        starterOsc.frequency.linearRampToValueAtTime(85, now + 0.9);
+        starterOsc.frequency.linearRampToValueAtTime(70, now + 1.2);
+        starterOsc.frequency.linearRampToValueAtTime(50, now + 1.5);
+        
+        const starterGain = this.audioContext.createGain();
+        starterGain.gain.setValueAtTime(0.35 * this.engineVolume, now);
+        starterGain.gain.linearRampToValueAtTime(0.4 * this.engineVolume, now + 0.5);
+        starterGain.gain.linearRampToValueAtTime(0.3 * this.engineVolume, now + 1.0);
+        starterGain.gain.linearRampToValueAtTime(0.2 * this.engineVolume, now + 1.3);
+        starterGain.gain.linearRampToValueAtTime(0, now + 1.6);
+        
+        // Прокрутка коленвала - медленная, тяжелая (характерно для дизеля)
+        const crankOsc1 = this.audioContext.createOscillator();
+        crankOsc1.type = 'sawtooth';
+        crankOsc1.frequency.setValueAtTime(8, now + 0.2);
+        crankOsc1.frequency.linearRampToValueAtTime(12, now + 0.8);
+        crankOsc1.frequency.linearRampToValueAtTime(16, now + 1.4);
+        crankOsc1.frequency.linearRampToValueAtTime(20, now + 2.0);
+        crankOsc1.frequency.linearRampToValueAtTime(24, now + 2.6);
+        crankOsc1.frequency.linearRampToValueAtTime(28, now + 3.2);
+        
+        const crankOsc2 = this.audioContext.createOscillator();
+        crankOsc2.type = 'sawtooth';
+        crankOsc2.frequency.setValueAtTime(16, now + 0.2);
+        crankOsc2.frequency.linearRampToValueAtTime(24, now + 0.8);
+        crankOsc2.frequency.linearRampToValueAtTime(32, now + 1.4);
+        crankOsc2.frequency.linearRampToValueAtTime(40, now + 2.0);
+        crankOsc2.frequency.linearRampToValueAtTime(48, now + 2.6);
+        crankOsc2.frequency.linearRampToValueAtTime(56, now + 3.2);
+        
+        // Имитация компрессии - пульсирующие "хлопки" при сжатии
+        const compressionOsc = this.audioContext.createOscillator();
+        compressionOsc.type = 'square';
+        compressionOsc.frequency.setValueAtTime(4, now + 0.5); // 4 цилиндра
+        compressionOsc.frequency.linearRampToValueAtTime(5, now + 1.5);
+        compressionOsc.frequency.linearRampToValueAtTime(6, now + 2.5);
+        compressionOsc.frequency.linearRampToValueAtTime(7, now + 3.2);
+        
+        const compressionGain = this.audioContext.createGain();
+        compressionGain.gain.setValueAtTime(0, now + 0.5);
+        compressionGain.gain.linearRampToValueAtTime(0.25 * this.engineVolume, now + 1.0);
+        compressionGain.gain.linearRampToValueAtTime(0.3 * this.engineVolume, now + 1.8);
+        compressionGain.gain.linearRampToValueAtTime(0.25 * this.engineVolume, now + 2.5);
+        compressionGain.gain.linearRampToValueAtTime(0.15 * this.engineVolume, now + duration);
+        
+        // Глубокий бас дизельного мотора
+        const dieselBass1 = this.audioContext.createOscillator();
+        dieselBass1.type = 'sine';
+        dieselBass1.frequency.value = 12; // Очень низкая частота
+        
+        const dieselBass2 = this.audioContext.createOscillator();
+        dieselBass2.type = 'sine';
+        dieselBass2.frequency.value = 24;
+        
+        const dieselBass3 = this.audioContext.createOscillator();
+        dieselBass3.type = 'sine';
+        dieselBass3.frequency.value = 36;
+        
+        const bassGain = this.audioContext.createGain();
+        bassGain.gain.setValueAtTime(0, now + 0.3);
+        bassGain.gain.linearRampToValueAtTime(0.3 * this.engineVolume, now + 1.0);
+        bassGain.gain.linearRampToValueAtTime(0.5 * this.engineVolume, now + 1.8);
+        bassGain.gain.linearRampToValueAtTime(0.6 * this.engineVolume, now + 2.5);
+        bassGain.gain.linearRampToValueAtTime(0.5 * this.engineVolume, now + duration);
+        
+        // Средние частоты - характерный "рычащий" тембр дизеля
+        const midOsc1 = this.audioContext.createOscillator();
+        midOsc1.type = 'sawtooth';
+        midOsc1.frequency.setValueAtTime(60, now + 0.8);
+        midOsc1.frequency.linearRampToValueAtTime(75, now + 1.5);
+        midOsc1.frequency.linearRampToValueAtTime(90, now + 2.2);
+        midOsc1.frequency.linearRampToValueAtTime(105, now + 3.0);
+        
+        const midOsc2 = this.audioContext.createOscillator();
+        midOsc2.type = 'triangle';
+        midOsc2.frequency.setValueAtTime(120, now + 0.8);
+        midOsc2.frequency.linearRampToValueAtTime(150, now + 1.5);
+        midOsc2.frequency.linearRampToValueAtTime(180, now + 2.2);
+        midOsc2.frequency.linearRampToValueAtTime(210, now + 3.0);
+        
+        const midGain = this.audioContext.createGain();
+        midGain.gain.setValueAtTime(0, now + 0.8);
+        midGain.gain.linearRampToValueAtTime(0.2 * this.engineVolume, now + 1.3);
+        midGain.gain.linearRampToValueAtTime(0.35 * this.engineVolume, now + 2.0);
+        midGain.gain.linearRampToValueAtTime(0.4 * this.engineVolume, now + 2.8);
+        midGain.gain.linearRampToValueAtTime(0.35 * this.engineVolume, now + duration);
+        
+        // Основной гейн для двигателя
+        const engineGain = this.audioContext.createGain();
+        engineGain.gain.setValueAtTime(0, now + 0.2);
+        engineGain.gain.linearRampToValueAtTime(0.1 * this.engineVolume, now + 1.0);
+        engineGain.gain.linearRampToValueAtTime(0.25 * this.engineVolume, now + 1.8);
+        engineGain.gain.linearRampToValueAtTime(0.45 * this.engineVolume, now + 2.5);
+        engineGain.gain.linearRampToValueAtTime(0.5 * this.engineVolume, now + 3.0);
+        engineGain.gain.linearRampToValueAtTime(0.42 * this.engineVolume, now + duration);
+        
+        // Низкочастотный фильтр - дизель звучит более приглушенно
+        const lowPass = this.audioContext.createBiquadFilter();
+        lowPass.type = 'lowpass';
+        lowPass.frequency.setValueAtTime(80, now);
+        lowPass.frequency.linearRampToValueAtTime(120, now + 1.5);
+        lowPass.frequency.linearRampToValueAtTime(200, now + 2.5);
+        lowPass.frequency.linearRampToValueAtTime(350, now + duration);
+        lowPass.Q.value = 1.5;
+        
+        // Высокочастотный фильтр - убираем экстремально низкие частоты
+        const highPass = this.audioContext.createBiquadFilter();
+        highPass.type = 'highpass';
+        highPass.frequency.value = 10;
+        highPass.Q.value = 0.7;
+        
+        // Компрессор для реалистичного звука
+        const compressor = this.audioContext.createDynamicsCompressor();
+        compressor.threshold.value = -24;
+        compressor.ratio.value = 6;
+        compressor.attack.value = 0.01;
+        compressor.release.value = 0.2;
+        compressor.knee.value = 8;
+        
+        // Подключение стартера
+        starterOsc.connect(starterGain);
+        starterGain.connect(this.masterGain);
+        
+        // Подключение компрессии (отдельно для эффекта)
+        compressionOsc.connect(compressionGain);
+        compressionGain.connect(lowPass);
+        
+        // Подключение всех компонентов двигателя
+        crankOsc1.connect(lowPass);
+        crankOsc2.connect(lowPass);
+        dieselBass1.connect(bassGain);
+        dieselBass2.connect(bassGain);
+        dieselBass3.connect(bassGain);
+        bassGain.connect(lowPass);
+        midOsc1.connect(midGain);
+        midOsc2.connect(midGain);
+        midGain.connect(lowPass);
+        
+        lowPass.connect(highPass);
+        highPass.connect(compressor);
+        compressor.connect(engineGain);
+        engineGain.connect(this.masterGain);
+        
+        // Запуск всех осцилляторов
+        starterOsc.start(now);
+        starterOsc.stop(now + 1.6);
+        crankOsc1.start(now + 0.2);
+        crankOsc1.stop(now + duration);
+        crankOsc2.start(now + 0.2);
+        crankOsc2.stop(now + duration);
+        compressionOsc.start(now + 0.5);
+        compressionOsc.stop(now + duration);
+        dieselBass1.start(now + 0.3);
+        dieselBass1.stop(now + duration);
+        dieselBass2.start(now + 0.3);
+        dieselBass2.stop(now + duration);
+        dieselBass3.start(now + 0.3);
+        dieselBass3.stop(now + duration);
+        midOsc1.start(now + 0.8);
+        midOsc1.stop(now + duration);
+        midOsc2.start(now + 0.8);
+        midOsc2.stop(now + duration);
+        
+        console.log("[SoundManager] Diesel engine start sound played");
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
     // ENHANCED ENGINE SOUND
     // ═══════════════════════════════════════════════════════════════════════
     
     startEngine() {
-        if (!this.audioContext || !this.masterGain || this.engineRunning) return;
+        if (!this.audioContext || !this.masterGain) {
+            console.warn("[SoundManager] Cannot start engine: audio context not initialized");
+            return;
+        }
+        if (this.engineRunning) {
+            console.log("[SoundManager] Engine already running");
+            return;
+        }
         
         this.resume();
         
-        // Основной осциллятор (низкие частоты)
+        // Убеждаемся, что аудио контекст активен
+        if (this.audioContext.state === 'suspended') {
+            this.audioContext.resume().then(() => {
+                console.log("[SoundManager] Audio context resumed");
+            }).catch(e => {
+                console.error("[SoundManager] Failed to resume audio context:", e);
+            });
+        }
+        
+        // Очищаем старые осцилляторы
+        this.dieselOscillators = [];
+        this.dieselGains = [];
+        
+        // Основной басовый осциллятор (низкие частоты дизеля - 12-30 Гц)
+        const bassOsc1 = this.audioContext.createOscillator();
+        bassOsc1.type = 'sine';
+        bassOsc1.frequency.value = 18;
+        
+        const bassOsc2 = this.audioContext.createOscillator();
+        bassOsc2.type = 'sine';
+        bassOsc2.frequency.value = 24;
+        
+        // Основной "рычащий" осциллятор (характерный звук дизеля - 30-60 Гц)
         this.engineOscillator = this.audioContext.createOscillator();
         this.engineOscillator.type = 'sawtooth';
-        this.engineOscillator.frequency.value = 40;
+        this.engineOscillator.frequency.value = 28;
         
-        // Второй осциллятор (средние частоты)
-        const osc2 = this.audioContext.createOscillator();
-        osc2.type = 'triangle';
-        osc2.frequency.value = 80;
+        // Средние частоты (60-120 Гц) - гармоники дизеля
+        const midOsc1 = this.audioContext.createOscillator();
+        midOsc1.type = 'sawtooth';
+        midOsc1.frequency.value = 56;
         
-        // Третий осциллятор (высокие гармоники)
-        const osc3 = this.audioContext.createOscillator();
-        osc3.type = 'sine';
-        osc3.frequency.value = 20; // Суб-бас
+        const midOsc2 = this.audioContext.createOscillator();
+        midOsc2.type = 'triangle';
+        midOsc2.frequency.value = 84;
         
-        // Четвёртый осциллятор (вибрация)
-        const osc4 = this.audioContext.createOscillator();
-        osc4.type = 'square';
-        osc4.frequency.value = 120;
+        // Высокие гармоники (120-250 Гц) - для реалистичности
+        const highOsc = this.audioContext.createOscillator();
+        highOsc.type = 'square';
+        highOsc.frequency.value = 140;
         
-        // Gain для контроля громкости
+        // Компрессионные "хлопки" (имитация работы цилиндров)
+        const compressionOsc = this.audioContext.createOscillator();
+        compressionOsc.type = 'square';
+        compressionOsc.frequency.value = 7; // ~7 Гц для 4-цилиндрового дизеля
+        
+        // Gain узлы для каждого осциллятора (для индивидуального контроля)
+        // МАКСИМАЛЬНАЯ базовая громкость для БРУТАЛЬНОГО звука
+        const bassGain1 = this.audioContext.createGain();
+        bassGain1.gain.value = 1.2 * this.engineVolume; // МАКСИМАЛЬНЫЙ бас для брутальности
+        
+        const bassGain2 = this.audioContext.createGain();
+        bassGain2.gain.value = 1.1 * this.engineVolume; // МАКСИМАЛЬНЫЙ второй бас
+        
+        const mainGain = this.audioContext.createGain();
+        mainGain.gain.value = 1.3 * this.engineVolume; // МАКСИМАЛЬНЫЙ основной "рычащий" звук
+        
+        const midGain1 = this.audioContext.createGain();
+        midGain1.gain.value = 1.0 * this.engineVolume; // Усиленные средние частоты
+        
+        const midGain2 = this.audioContext.createGain();
+        midGain2.gain.value = 0.95 * this.engineVolume; // Усиленные вторые средние
+        
+        const highGain = this.audioContext.createGain();
+        highGain.gain.value = 0.8 * this.engineVolume; // Усиленные высокие гармоники
+        
+        const compressionGain = this.audioContext.createGain();
+        compressionGain.gain.value = 0.7 * this.engineVolume; // МАКСИМАЛЬНАЯ компрессия для брутальности
+        
+        // Основной gain для общего контроля
         this.engineGain = this.audioContext.createGain();
         this.engineGain.gain.value = this.engineVolume;
         
-        // Low-pass фильтр с динамической частотой
+        // Low-pass фильтр - более яркий звук для брутальности
         this.engineFilter = this.audioContext.createBiquadFilter();
         this.engineFilter.type = 'lowpass';
-        this.engineFilter.frequency.value = 300;
-        this.engineFilter.Q.value = 1.5;
+        this.engineFilter.frequency.value = 400; // Увеличена для более яркого и брутального звука
+        this.engineFilter.Q.value = 1.5; // Увеличен Q для более резкого звука
         
-        // High-pass фильтр
+        // High-pass фильтр - убираем только экстремально низкие частоты (снижена частота среза для лучшей слышимости баса)
         const highPass = this.audioContext.createBiquadFilter();
         highPass.type = 'highpass';
-        highPass.frequency.value = 25;
-        highPass.Q.value = 0.7;
+        highPass.frequency.value = 8; // Снижено с 10 до 8 для лучшей слышимости баса
+        highPass.Q.value = 0.5; // Снижен Q для более плавного среза
         
-        // Компрессор для более реалистичного звука
+        // Компрессор для БРУТАЛЬНОГО дизельного звука
         const compressor = this.audioContext.createDynamicsCompressor();
-        compressor.threshold.value = -24;
-        compressor.knee.value = 30;
-        compressor.ratio.value = 12;
-        compressor.attack.value = 0.003;
-        compressor.release.value = 0.25;
+        compressor.threshold.value = -20; // Более высокий порог для большей громкости
+        compressor.knee.value = 8; // Увеличен knee для более агрессивного звука
+        compressor.ratio.value = 6; // Снижен ratio для более мощного звука
+        compressor.attack.value = 0.005; // Более быстрая атака для резкости
+        compressor.release.value = 0.25; // Более быстрое освобождение
         
         // 3D позиционирование
         this.enginePanner = this.createPanner();
         
-        // Подключаем цепочку
-        this.engineOscillator.connect(this.engineFilter);
-        osc2.connect(this.engineFilter);
-        osc3.connect(this.engineFilter);
-        osc4.connect(this.engineFilter);
+        // Подключаем все осцилляторы
+        bassOsc1.connect(bassGain1);
+        bassOsc2.connect(bassGain2);
+        this.engineOscillator.connect(mainGain);
+        midOsc1.connect(midGain1);
+        midOsc2.connect(midGain2);
+        highOsc.connect(highGain);
+        compressionOsc.connect(compressionGain);
+        
+        // Объединяем все в фильтр
+        bassGain1.connect(this.engineFilter);
+        bassGain2.connect(this.engineFilter);
+        mainGain.connect(this.engineFilter);
+        midGain1.connect(this.engineFilter);
+        midGain2.connect(this.engineFilter);
+        highGain.connect(this.engineFilter);
+        compressionGain.connect(this.engineFilter);
+        
         this.engineFilter.connect(highPass);
         highPass.connect(compressor);
         compressor.connect(this.engineGain);
@@ -276,38 +609,85 @@ export class SoundManager {
             this.engineGain.connect(this.enginePanner);
             this.enginePanner.connect(this.masterGain);
         } else {
-        this.engineGain.connect(this.masterGain);
+            this.engineGain.connect(this.masterGain);
         }
         
-        // Добавляем улучшенную реверберацию
-        this.connectToReverb(this.engineGain, 0.15);
+        // Добавляем реверберацию
+        this.connectToReverb(this.engineGain, 0.12);
         
+        // Запускаем все осцилляторы
+        bassOsc1.start();
+        bassOsc2.start();
         this.engineOscillator.start();
-        osc2.start();
-        osc3.start();
-        osc4.start();
+        midOsc1.start();
+        midOsc2.start();
+        highOsc.start();
+        compressionOsc.start();
+        
         this.engineRunning = true;
         
-        // Сохраняем дополнительные осцилляторы
-        (this.engineOscillator as any)._osc2 = osc2;
-        (this.engineOscillator as any)._osc3 = osc3;
-        (this.engineOscillator as any)._osc4 = osc4;
+        // Сохраняем все осцилляторы и gain узлы для обновления
+        (this.engineOscillator as any)._bassOsc1 = bassOsc1;
+        (this.engineOscillator as any)._bassOsc2 = bassOsc2;
+        (this.engineOscillator as any)._midOsc1 = midOsc1;
+        (this.engineOscillator as any)._midOsc2 = midOsc2;
+        (this.engineOscillator as any)._highOsc = highOsc;
+        (this.engineOscillator as any)._compressionOsc = compressionOsc;
+        (this.engineOscillator as any)._bassGain1 = bassGain1;
+        (this.engineOscillator as any)._bassGain2 = bassGain2;
+        (this.engineOscillator as any)._mainGain = mainGain;
+        (this.engineOscillator as any)._midGain1 = midGain1;
+        (this.engineOscillator as any)._midGain2 = midGain2;
+        (this.engineOscillator as any)._highGain = highGain;
+        (this.engineOscillator as any)._compressionGain = compressionGain;
         
-        console.log("[SoundManager] Enhanced engine started");
+        console.log("[SoundManager] Realistic diesel engine started", {
+            engineVolume: this.engineVolume,
+            masterVolume: this.masterVolume,
+            bassGain1: bassGain1.gain.value,
+            mainGain: mainGain.gain.value,
+            engineGain: this.engineGain.gain.value,
+            audioContextState: this.audioContext.state,
+            engineRunning: this.engineRunning
+        });
     }
     
     stopEngine() {
         if (this.engineOscillator) {
+            // Останавливаем все осцилляторы дизеля
+            const bassOsc1 = (this.engineOscillator as any)._bassOsc1;
+            const bassOsc2 = (this.engineOscillator as any)._bassOsc2;
+            const midOsc1 = (this.engineOscillator as any)._midOsc1;
+            const midOsc2 = (this.engineOscillator as any)._midOsc2;
+            const highOsc = (this.engineOscillator as any)._highOsc;
+            const compressionOsc = (this.engineOscillator as any)._compressionOsc;
+            
             this.engineOscillator.stop();
             this.engineOscillator.disconnect();
             
-            const osc2 = (this.engineOscillator as any)._osc2;
-            const osc3 = (this.engineOscillator as any)._osc3;
-            const osc4 = (this.engineOscillator as any)._osc4;
+            if (bassOsc1) { bassOsc1.stop(); bassOsc1.disconnect(); }
+            if (bassOsc2) { bassOsc2.stop(); bassOsc2.disconnect(); }
+            if (midOsc1) { midOsc1.stop(); midOsc1.disconnect(); }
+            if (midOsc2) { midOsc2.stop(); midOsc2.disconnect(); }
+            if (highOsc) { highOsc.stop(); highOsc.disconnect(); }
+            if (compressionOsc) { compressionOsc.stop(); compressionOsc.disconnect(); }
             
-            if (osc2) { osc2.stop(); osc2.disconnect(); }
-            if (osc3) { osc3.stop(); osc3.disconnect(); }
-            if (osc4) { osc4.stop(); osc4.disconnect(); }
+            // Отключаем gain узлы
+            const bassGain1 = (this.engineOscillator as any)._bassGain1;
+            const bassGain2 = (this.engineOscillator as any)._bassGain2;
+            const mainGain = (this.engineOscillator as any)._mainGain;
+            const midGain1 = (this.engineOscillator as any)._midGain1;
+            const midGain2 = (this.engineOscillator as any)._midGain2;
+            const highGain = (this.engineOscillator as any)._highGain;
+            const compressionGain = (this.engineOscillator as any)._compressionGain;
+            
+            if (bassGain1) bassGain1.disconnect();
+            if (bassGain2) bassGain2.disconnect();
+            if (mainGain) mainGain.disconnect();
+            if (midGain1) midGain1.disconnect();
+            if (midGain2) midGain2.disconnect();
+            if (highGain) highGain.disconnect();
+            if (compressionGain) compressionGain.disconnect();
             
             this.engineOscillator = null;
         }
@@ -324,55 +704,244 @@ export class SoundManager {
             this.enginePanner = null;
         }
         this.engineRunning = false;
+        this.dieselOscillators = [];
+        this.dieselGains = [];
     }
     
-    // Улучшенное обновление звука двигателя с плавными переходами
+    // Enhanced engine sound with speed zones
+    private engineSpeedZone: 'idle' | 'low' | 'medium' | 'high' | 'max' = 'idle';
+    private engineRumblePhase = 0;
+    
     updateEngine(speedRatio: number, throttle: number, position?: Vector3, velocity?: Vector3) {
-        if (!this.engineOscillator || !this.engineGain || !this.engineFilter) return;
+        if (!this.engineOscillator || !this.engineGain || !this.engineFilter) {
+            // Если двигатель не запущен, но должен работать - запускаем его автоматически
+            if (!this.engineRunning && this.audioContext && this.masterGain) {
+                // Автоматический запуск двигателя при первом вызове updateEngine
+                this.startEngine();
+            }
+            return;
+        }
         
         speedRatio = Math.abs(speedRatio);
+        // Clamp speedRatio to prevent extreme values that cause filter frequency to exceed valid range
+        speedRatio = Math.min(speedRatio, 2.0);
         throttle = Math.abs(throttle);
         
-        // Плавные переходы частоты (используем экспоненциальную интерполяцию)
-        const targetFreq = 30 + speedRatio * 110; // 30Hz (idle) to 140Hz (max)
-        const currentFreq = this.engineOscillator.frequency.value;
-        const freqDiff = targetFreq - currentFreq;
-        const newFreq = currentFreq + freqDiff * 0.15; // Плавная интерполяция
+        // Определяем зону скорости для реалистичного дизельного звука
+        let newZone: 'idle' | 'low' | 'medium' | 'high' | 'max' = 'idle';
+        if (speedRatio < 0.05) newZone = 'idle';
+        else if (speedRatio < 0.25) newZone = 'low';
+        else if (speedRatio < 0.5) newZone = 'medium';
+        else if (speedRatio < 0.8) newZone = 'high';
+        else newZone = 'max';
         
-        this.engineOscillator.frequency.value = newFreq;
+        // Параметры для разных зон скорости дизельного мотора
+        let baseFreq = 28; // Основная частота "рычания" дизеля
+        let bassFreq1 = 18; // Глубокий бас
+        let bassFreq2 = 24; // Второй бас
+        let midFreq1 = 56; // Средние частоты
+        let midFreq2 = 84; // Вторые средние
+        let highFreq = 140; // Высокие гармоники
+        let compressionFreq = 7; // Частота компрессии (цилиндры)
+        let volumeMultiplier = 1.0;
+        let filterBase = 180;
+        let rumbleIntensity = 0;
         
-        // Обновляем гармоники с плавными переходами
-        const osc2 = (this.engineOscillator as any)._osc2;
-        const osc3 = (this.engineOscillator as any)._osc3;
-        const osc4 = (this.engineOscillator as any)._osc4;
-        
-        if (osc2) {
-            const target2 = newFreq * 2.1;
-            const current2 = osc2.frequency.value;
-            osc2.frequency.value = current2 + (target2 - current2) * 0.15;
+        switch (newZone) {
+            case 'idle':
+                // Холостой ход - БРУТАЛЬНЫЙ глубокий бас, мощные "хлопки"
+                baseFreq = 28 + Math.sin(Date.now() * 0.002) * 3; // Более агрессивная вибрация
+                bassFreq1 = 18; // Более глубокий бас
+                bassFreq2 = 24; // Более мощный второй бас
+                midFreq1 = 55; // Более выраженные средние
+                midFreq2 = 85; // Более выраженные вторые средние
+                highFreq = 140; // Более яркие высокие
+                compressionFreq = 6.0; // Более быстрая компрессия для брутальности
+                volumeMultiplier = 1.2; // ЕЩЕ БОЛЬШЕ увеличена громкость для брутальности
+                filterBase = 350; // Увеличена частота фильтра для более яркого звука
+                rumbleIntensity = 0.5; // МАКСИМАЛЬНАЯ интенсивность урчания для брутальности
+                break;
+            case 'low':
+                // Низкие обороты - БРУТАЛЬНОЕ "рычание"
+                baseFreq = 38; // Более агрессивная частота
+                bassFreq1 = 24; // Более глубокий бас
+                bassFreq2 = 32; // Более мощный второй бас
+                midFreq1 = 75; // Более выраженные средние
+                midFreq2 = 110; // Более выраженные вторые средние
+                highFreq = 170; // Более яркие высокие
+                compressionFreq = 7.5; // Более быстрая компрессия
+                volumeMultiplier = 0.85; // Увеличена громкость
+                filterBase = 300; // Увеличена частота фильтра
+                rumbleIntensity = 0.45; // Увеличена интенсивность урчания
+                break;
+            case 'medium':
+                // Средние обороты - БРУТАЛЬНЫЙ дизельный рёв
+                baseFreq = 52; // Более агрессивная частота
+                bassFreq1 = 35; // Более глубокий бас
+                bassFreq2 = 45; // Более мощный второй бас
+                midFreq1 = 105; // Более выраженные средние
+                midFreq2 = 155; // Более выраженные вторые средние
+                highFreq = 210; // Более яркие высокие
+                compressionFreq = 9.5; // Более быстрая компрессия
+                volumeMultiplier = 1.0; // МАКСИМАЛЬНАЯ громкость
+                filterBase = 450; // Увеличена частота фильтра
+                rumbleIntensity = 0.55; // Увеличена интенсивность урчания
+                break;
+            case 'high':
+                // Высокие обороты - БРУТАЛЬНЫЙ мощный рёв
+                baseFreq = 75; // Более агрессивная частота
+                bassFreq1 = 45; // Более глубокий бас
+                bassFreq2 = 60; // Более мощный второй бас
+                midFreq1 = 150; // Более выраженные средние
+                midFreq2 = 225; // Более выраженные вторые средние
+                highFreq = 280; // Более яркие высокие
+                compressionFreq = 12; // Более быстрая компрессия
+                volumeMultiplier = 1.15; // Увеличена громкость
+                filterBase = 600; // Увеличена частота фильтра
+                rumbleIntensity = 0.4; // Увеличена интенсивность урчания
+                break;
+            case 'max':
+                // Максимальные обороты - МАКСИМАЛЬНО БРУТАЛЬНЫЙ дизельный рёв
+                baseFreq = 95; // Более агрессивная частота
+                bassFreq1 = 58; // Более глубокий бас
+                bassFreq2 = 78; // Более мощный второй бас
+                midFreq1 = 190; // Более выраженные средние
+                midFreq2 = 285; // Более выраженные вторые средние
+                highFreq = 350; // Более яркие высокие
+                compressionFreq = 14; // Более быстрая компрессия
+                volumeMultiplier = 1.3; // МАКСИМАЛЬНАЯ громкость
+                filterBase = 700; // Увеличена частота фильтра
+                rumbleIntensity = 0.35; // Увеличена интенсивность урчания
+                break;
         }
-        if (osc3) {
-            const target3 = newFreq * 0.45;
-            const current3 = osc3.frequency.value;
-            osc3.frequency.value = current3 + (target3 - current3) * 0.15;
+        
+        // Добавляем плавную модуляцию для реалистичности
+        this.engineRumblePhase += 0.015 + speedRatio * 0.04;
+        const rumble = Math.sin(this.engineRumblePhase) * rumbleIntensity;
+        const rumble2 = Math.sin(this.engineRumblePhase * 1.7) * rumbleIntensity * 0.6;
+        
+        // Плавное изменение частот
+        const smoothFactor = 0.1; // Плавность переходов
+        
+        // Основной "рычащий" осциллятор
+        const currentMainFreq = this.engineOscillator.frequency.value;
+        const targetMainFreq = baseFreq + speedRatio * 25 + rumble * 3;
+        this.engineOscillator.frequency.value = currentMainFreq + (targetMainFreq - currentMainFreq) * smoothFactor;
+        
+        // Бас осцилляторы
+        const bassOsc1 = (this.engineOscillator as any)._bassOsc1;
+        const bassOsc2 = (this.engineOscillator as any)._bassOsc2;
+        
+        if (bassOsc1) {
+            const currentBass1 = bassOsc1.frequency.value;
+            const targetBass1 = bassFreq1 + rumble * 2;
+            bassOsc1.frequency.value = currentBass1 + (targetBass1 - currentBass1) * smoothFactor;
         }
-        if (osc4) {
-            const target4 = newFreq * 3.2;
-            const current4 = osc4.frequency.value;
-            osc4.frequency.value = current4 + (target4 - current4) * 0.15;
+        if (bassOsc2) {
+            const currentBass2 = bassOsc2.frequency.value;
+            const targetBass2 = bassFreq2 + rumble * 2.5;
+            bassOsc2.frequency.value = currentBass2 + (targetBass2 - currentBass2) * smoothFactor;
         }
         
-        // Динамический фильтр с плавными переходами
-        const targetFilterFreq = 250 + speedRatio * 350;
-        const currentFilterFreq = this.engineFilter.frequency.value;
+        // Средние частоты
+        const midOsc1 = (this.engineOscillator as any)._midOsc1;
+        const midOsc2 = (this.engineOscillator as any)._midOsc2;
+        
+        if (midOsc1) {
+            const currentMid1 = midOsc1.frequency.value;
+            const targetMid1 = midFreq1 + rumble2 * 5;
+            midOsc1.frequency.value = currentMid1 + (targetMid1 - currentMid1) * smoothFactor;
+        }
+        if (midOsc2) {
+            const currentMid2 = midOsc2.frequency.value;
+            const targetMid2 = midFreq2 + rumble2 * 7;
+            midOsc2.frequency.value = currentMid2 + (targetMid2 - currentMid2) * smoothFactor;
+        }
+        
+        // Высокие гармоники
+        const highOsc = (this.engineOscillator as any)._highOsc;
+        if (highOsc) {
+            const currentHigh = highOsc.frequency.value;
+            const targetHigh = highFreq + rumble2 * 10;
+            highOsc.frequency.value = currentHigh + (targetHigh - currentHigh) * smoothFactor;
+        }
+        
+        // Компрессионные "хлопки"
+        const compressionOsc = (this.engineOscillator as any)._compressionOsc;
+        if (compressionOsc) {
+            const currentComp = compressionOsc.frequency.value;
+            const targetComp = compressionFreq + speedRatio * 2;
+            compressionOsc.frequency.value = currentComp + (targetComp - currentComp) * smoothFactor;
+        }
+        
+        // Обновляем громкость отдельных компонентов для реалистичности
+        const bassGain1 = (this.engineOscillator as any)._bassGain1;
+        const bassGain2 = (this.engineOscillator as any)._bassGain2;
+        const mainGain = (this.engineOscillator as any)._mainGain;
+        const midGain1 = (this.engineOscillator as any)._midGain1;
+        const midGain2 = (this.engineOscillator as any)._midGain2;
+        const highGain = (this.engineOscillator as any)._highGain;
+        const compressionGain = (this.engineOscillator as any)._compressionGain;
+        
+        // Бас сильнее на низких оборотах
+        if (bassGain1) {
+            const bassVol1 = newZone === 'idle' || newZone === 'low' ? 0.6 : 0.4;
+            bassGain1.gain.value = bassVol1 * this.engineVolume;
+        }
+        if (bassGain2) {
+            const bassVol2 = newZone === 'idle' || newZone === 'low' ? 0.5 : 0.35;
+            bassGain2.gain.value = bassVol2 * this.engineVolume;
+        }
+        
+        // Основной звук
+        if (mainGain) {
+            mainGain.gain.value = (0.5 + speedRatio * 0.3) * this.engineVolume;
+        }
+        
+        // Средние частоты сильнее на средних и высоких оборотах
+        if (midGain1) {
+            const midVol1 = newZone === 'medium' || newZone === 'high' ? 0.45 : 0.3;
+            midGain1.gain.value = midVol1 * this.engineVolume;
+        }
+        if (midGain2) {
+            const midVol2 = newZone === 'medium' || newZone === 'high' ? 0.4 : 0.25;
+            midGain2.gain.value = midVol2 * this.engineVolume;
+        }
+        
+        // Высокие гармоники сильнее на высоких оборотах
+        if (highGain) {
+            const highVol = newZone === 'high' || newZone === 'max' ? 0.3 : 0.15;
+            highGain.gain.value = highVol * this.engineVolume;
+        }
+        
+        // Компрессия более заметна на средних оборотах
+        if (compressionGain) {
+            const compVol = newZone === 'medium' ? 0.2 : 0.12;
+            compressionGain.gain.value = compVol * this.engineVolume;
+        }
+        
+        // Динамический фильтр - дизель звучит приглушенно
+        // Clamp target frequency to valid range
+        const targetFilterFreq = Math.max(0, Math.min(24000, filterBase + speedRatio * 300));
+        // Clamp current frequency to valid range in case it was set incorrectly before
+        const currentFilterFreq = Math.max(0, Math.min(24000, this.engineFilter.frequency.value));
         const filterDiff = targetFilterFreq - currentFilterFreq;
-        this.engineFilter.frequency.value = currentFilterFreq + filterDiff * 0.2;
+        // Clamp final frequency to valid range [0, 24000] to prevent Web Audio API warnings
+        const newFilterFreq = Math.max(0, Math.min(24000, currentFilterFreq + filterDiff * 0.12));
+        this.engineFilter.frequency.value = newFilterFreq;
         
-        // Объём зависит от газа и скорости с плавными переходами
-        const targetVolume = this.engineVolume * (0.35 + throttle * 0.35 + speedRatio * 0.4);
+        // Q-фактор фильтра
+        this.engineFilter.Q.value = 1.0 + speedRatio * 0.8;
+        
+        // Общий объём с учётом зоны и газа (МАКСИМАЛЬНАЯ базовая громкость для брутальности)
+        // На холостом ходу гарантируем максимальную громкость для слышимости
+        const baseVolume = newZone === 'idle' ? 1.2 : 1.0; // Увеличена базовая громкость
+        const targetVolume = this.engineVolume * volumeMultiplier * (baseVolume + throttle * 0.2 + speedRatio * 0.2);
         const currentVolume = this.engineGain.gain.value;
         const volumeDiff = targetVolume - currentVolume;
-        this.engineGain.gain.value = Math.min(currentVolume + volumeDiff * 0.2, this.engineVolume * 1.4);
+        this.engineGain.gain.value = Math.min(currentVolume + volumeDiff * 0.12, this.engineVolume * 2.2); // Увеличена максимальная громкость
+        
+        this.engineSpeedZone = newZone;
         
         // Обновляем 3D позицию и скорость (для допплера)
         if (this.enginePanner && position) {
@@ -968,25 +1537,27 @@ export class SoundManager {
     }
     
     playRespawn() {
-        if (!this.audioContext || !this.masterGain) return;
-        this.resume();
-        
-        const now = this.audioContext.currentTime;
-        
-        const osc = this.audioContext.createOscillator();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(350, now);
-        osc.frequency.exponentialRampToValueAtTime(700, now + 0.6);
-        
-        const gain = this.audioContext.createGain();
-        gain.gain.setValueAtTime(this.uiVolume, now);
-        gain.gain.exponentialDecayTo(0.01, now + 0.6);
-        
-        osc.connect(gain);
-        gain.connect(this.masterGain);
-        
-        osc.start(now);
-        osc.stop(now + 0.6);
+        // ОТКЛЮЧЕНО: playRespawn()
+        return;
+        // if (!this.audioContext || !this.masterGain) return;
+        // this.resume();
+        // 
+        // const now = this.audioContext.currentTime;
+        // 
+        // const osc = this.audioContext.createOscillator();
+        // osc.type = 'sine';
+        // osc.frequency.setValueAtTime(350, now);
+        // osc.frequency.exponentialRampToValueAtTime(700, now + 0.6);
+        // 
+        // const gain = this.audioContext.createGain();
+        // gain.gain.setValueAtTime(this.uiVolume, now);
+        // gain.gain.exponentialDecayTo(0.01, now + 0.6);
+        // 
+        // osc.connect(gain);
+        // gain.connect(this.masterGain);
+        // 
+        // osc.start(now);
+        // osc.stop(now + 0.6);
     }
     
     // ═══════════════════════════════════════════════════════════════════════

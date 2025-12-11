@@ -54,8 +54,7 @@ export class EnemyTurret {
         this.createVisuals();
         this.createPhysics();
         
-        // Update loop
-        scene.onBeforeRenderObservable.add(() => this.update());
+        // Update теперь вызывается из централизованного update в game.ts
     }
     
     private createVisuals() {
@@ -288,8 +287,8 @@ export class EnemyTurret {
                 type: PhysicsShapeType.BOX, 
                 parameters: { extents: new Vector3(0.4, 0.4, 1.0) } 
             }, this.scene);
-            shape.filterMembershipMask = 8;
-            shape.filterCollideMask = 1 | 2;
+            shape.filterMembershipMask = 16; // Enemy bullet group (same as enemy tanks)
+            shape.filterCollideMask = 1 | 2 | 32; // Player (1), environment (2), and protective walls (32)
             
             const body = new PhysicsBody(bullet, PhysicsMotionType.DYNAMIC, false, this.scene);
             body.shape = shape;
@@ -321,6 +320,49 @@ export class EnemyTurret {
                 }
                 
                 const bulletPos = bullet.absolutePosition;
+                
+                // === ПРОВЕРКА СТОЛКНОВЕНИЯ СО СТЕНКОЙ ===
+                const walls = this.scene.meshes.filter(mesh => 
+                    mesh.metadata && mesh.metadata.type === "protectiveWall" && !mesh.isDisposed()
+                );
+                for (const wall of walls) {
+                    const wallPos = wall.absolutePosition;
+                    const wallRotation = wall.rotation.y;
+                    
+                    // Размеры стенки: width=6, height=4, depth=0.5
+                    const wallHalfWidth = 3;
+                    const wallHalfHeight = 2;
+                    const wallHalfDepth = 0.25;
+                    
+                    // Переводим позицию пули в локальную систему координат стенки
+                    const localPos = bulletPos.subtract(wallPos);
+                    const cosY = Math.cos(-wallRotation);
+                    const sinY = Math.sin(-wallRotation);
+                    
+                    // Поворачиваем позицию пули в локальную систему координат стенки
+                    const localX = localPos.x * cosY - localPos.z * sinY;
+                    const localY = localPos.y;
+                    const localZ = localPos.x * sinY + localPos.z * cosY;
+                    
+                    // Проверяем, находится ли пуля внутри границ стенки
+                    if (Math.abs(localX) < wallHalfWidth && 
+                        Math.abs(localY) < wallHalfHeight && 
+                        Math.abs(localZ) < wallHalfDepth) {
+                        // Получаем урон из metadata пули
+                        const bulletDamage = (bullet.metadata && (bullet.metadata as any).damage) ? (bullet.metadata as any).damage : this.damage;
+                        
+                        // Наносим урон стенке через target (TankController)
+                        if (target && typeof (target as any).damageWall === 'function') {
+                            (target as any).damageWall(wall, bulletDamage);
+                        }
+                        
+                        console.log(`[TURRET] Bullet hit protective wall! Damage: ${bulletDamage}`);
+                        if (effects) effects.createHitSpark(bulletPos);
+                        bullet.dispose();
+                        return;
+                    }
+                }
+                
                 const tankPos = target.chassis.absolutePosition;
                 const dist = Vector3.Distance(bulletPos, tankPos);
                 
@@ -482,6 +524,15 @@ export class EnemyManager {
     
     respawnAll() {
         this.turrets.forEach(t => t.respawn());
+    }
+    
+    // Обновление всех турелей (вызывается из централизованного update)
+    update(): void {
+        for (const turret of this.turrets) {
+            if (turret.isAlive) {
+                turret.update();
+            }
+        }
     }
 }
 

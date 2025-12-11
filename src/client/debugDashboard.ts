@@ -3,7 +3,7 @@ import { ChunkSystem } from "./chunkSystem";
 
 export class DebugDashboard {
     private container: HTMLDivElement;
-    private fpsIndicator: HTMLDivElement; // Always visible FPS indicator
+    // FPS indicator removed - using HUD FPS only
     private engine: Engine;
     private scene: Scene;
     private chunkSystem: ChunkSystem | null = null;
@@ -122,40 +122,10 @@ export class DebugDashboard {
         document.head.appendChild(style);
         document.body.appendChild(this.container);
         
-        // Create always-visible FPS indicator
-        this.createFpsIndicator();
+        // FPS indicator removed - using HUD FPS only
     }
     
-    private createFpsIndicator(): void {
-        this.fpsIndicator = document.createElement("div");
-        this.fpsIndicator.id = "fps-indicator";
-        this.fpsIndicator.innerHTML = `<span id="fps-value">-</span> FPS`;
-        
-        const style = document.createElement("style");
-        style.textContent += `
-            #fps-indicator {
-                position: fixed;
-                bottom: 10px;
-                left: 10px;
-                background: rgba(0, 0, 0, 0.7);
-                color: #0f0;
-                font-family: Consolas, Monaco, monospace;
-                font-size: 14px;
-                font-weight: bold;
-                padding: 6px 12px;
-                border: 1px solid #0f0;
-                border-radius: 4px;
-                z-index: 9999;
-                user-select: none;
-            }
-            #fps-indicator .fps-good { color: #0f0 !important; }
-            #fps-indicator .fps-ok { color: #ff0 !important; }
-            #fps-indicator .fps-bad { color: #f00 !important; }
-        `;
-        
-        document.head.appendChild(style);
-        document.body.appendChild(this.fpsIndicator);
-    }
+    // FPS indicator removed - using HUD FPS only
     
     private setupToggle(): void {
         window.addEventListener("keydown", (e) => {
@@ -205,12 +175,7 @@ export class DebugDashboard {
             fpsEl.className = fps >= 55 ? "fps-good" : fps >= 30 ? "fps-ok" : "fps-bad";
         }
         
-        // Update always-visible FPS indicator
-        const fpsValueEl = document.getElementById("fps-value");
-        if (fpsValueEl) {
-            fpsValueEl.textContent = fps.toFixed(0);
-            fpsValueEl.className = fps >= 55 ? "fps-good" : fps >= 30 ? "fps-ok" : "fps-bad";
-        }
+        // FPS indicator removed - using HUD FPS only
         
         set("dbg-frametime", `${deltaTime.toFixed(1)} ms`);
         set("dbg-drawcalls", (perf.renderer?.drawCalls || 0).toString());
@@ -273,7 +238,7 @@ export class DebugDashboard {
     
     dispose(): void {
         this.container.remove();
-        this.fpsIndicator.remove();
+        // FPS indicator removed - using HUD FPS only
     }
 }
 
