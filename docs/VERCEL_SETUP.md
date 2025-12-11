@@ -27,7 +27,7 @@
 
    **Секрет 1:**
    - **Name**: `VERCEL_TOKEN`
-   - **Secret**: `vck_7MIrOjTHRX4AaG3AIySIlcxRzV7lUcwB8Rjv7aKAxeddKjdx3341mS0B`
+   - **Secret**: (ваш Vercel токен из https://vercel.com/account/tokens)
    - Нажмите **Add secret**
 
    **Секрет 2:**
