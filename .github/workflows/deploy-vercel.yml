@@ -26,7 +26,7 @@ jobs:
         run: npm run build
 
       - name: Deploy to Vercel
-        if: ${{ secrets.VERCEL_TOKEN != '' && secrets.VERCEL_ORG_ID != '' && secrets.VERCEL_PROJECT_ID != '' }}
+        if: ${{ secrets.VERCEL_TOKEN != '' }}
         uses: amondnet/vercel-action@v25
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
@@ -35,7 +35,7 @@ jobs:
           vercel-args: '--prod'
       
       - name: Skip Deploy (Secrets not configured)
-        if: ${{ secrets.VERCEL_TOKEN == '' || secrets.VERCEL_ORG_ID == '' || secrets.VERCEL_PROJECT_ID == '' }}
+        if: ${{ secrets.VERCEL_TOKEN == '' }}
         run: |
           echo "⚠️  Vercel deployment skipped: Secrets not configured"
           echo "📖 See docs/DEPLOYMENT.md for setup instructions"
@@ -44,4 +44,9 @@ jobs:
           echo "  - VERCEL_TOKEN"
           echo "  - VERCEL_ORG_ID"
           echo "  - VERCEL_PROJECT_ID"
+          echo ""
+          echo "To configure:"
+          echo "  1. Go to Settings → Secrets and variables → Actions"
+          echo "  2. Add the three secrets listed above"
+          echo "  3. See docs/DEPLOYMENT.md for detailed instructions"
 
