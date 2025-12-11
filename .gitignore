@@ -22,6 +22,12 @@ lerna-debug.log*
 .env.test.local
 .env.production.local
 
+# Vercel API keys and secrets
+*.vercel.token
+vercel.token
+.vercel
+vercel.json.secret
+
 # IDE
 .vscode/
 .idea/
