@@ -3,6 +3,7 @@ name: Deploy to Vercel
 on:
   push:
     branches: [ main ]
+  # Pull requests - только сборка, без деплоя
   pull_request:
     branches: [ main ]
 
@@ -26,7 +27,7 @@ jobs:
         run: npm run build
 
       - name: Deploy to Vercel
-        if: ${{ secrets.VERCEL_TOKEN != '' }}
+        if: ${{ secrets.VERCEL_TOKEN != '' && github.event_name == 'push' }}
         uses: amondnet/vercel-action@v25
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
@@ -34,8 +35,14 @@ jobs:
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
           vercel-args: '--prod'
       
+      - name: Skip Deploy (Pull Request)
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          echo "ℹ️  Deployment skipped: This is a pull request"
+          echo "   Deployment only happens on push to main branch"
+      
       - name: Skip Deploy (Secrets not configured)
-        if: ${{ secrets.VERCEL_TOKEN == '' }}
+        if: ${{ secrets.VERCEL_TOKEN == '' && github.event_name == 'push' }}
         run: |
           echo "⚠️  Vercel deployment skipped: Secrets not configured"
           echo "📖 See docs/DEPLOYMENT.md for setup instructions"
