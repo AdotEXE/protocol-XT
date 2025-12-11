@@ -24,10 +24,18 @@ export default defineConfig({
           'babylon-gui': ['@babylonjs/gui'],
           'havok': ['@babylonjs/havok'],
         },
+        // Оптимизация для production
+        compact: true,
       },
     },
     // Минификация (esbuild - быстрее и встроен в Vite)
     minify: 'esbuild',
+    // Оптимизация размера
+    cssMinify: true,
+    // Отключаем source maps в production для производительности
+    sourcemap: false,
+    // Оптимизация для production
+    reportCompressedSize: false, // Ускоряет сборку
   },
   // Оптимизация dev сервера
   optimizeDeps: {

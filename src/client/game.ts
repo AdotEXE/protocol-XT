@@ -228,15 +228,21 @@ export class Game {
         // Устанавливаем pointer-events в зависимости от видимости меню
         this.updateCanvasPointerEvents();
 
+        // Определяем, находимся ли мы в production
+        const isProduction = import.meta.env.PROD;
+        
         this.engine = new Engine(this.canvas, true, {
             deterministicLockstep: false,
             lockstepMaxSteps: 4,
             useHighPrecisionMatrix: false,
             adaptToDeviceRatio: true, // Адаптация к разрешению устройства
-            antialias: false, // Отключаем антиалиасинг для производительности
+            antialias: !isProduction, // Отключаем антиалиасинг в production для производительности
             stencil: false, // Отключаем stencil buffer если не нужен
             preserveDrawingBuffer: false, // Не сохраняем буфер для производительности
-            powerPreference: "high-performance" // Предпочитаем производительность
+            powerPreference: "high-performance", // Предпочитаем производительность
+            doNotHandleContextLost: true, // Не обрабатываем потерю контекста для производительности
+            premultipliedAlpha: false, // Отключаем premultiplied alpha для производительности
+            alpha: false // Отключаем альфа-канал если не нужен
         });
         
         this.engine.enableOfflineSupport = false;
@@ -257,6 +263,13 @@ export class Game {
         // Временно включаем autoClear для правильного отображения
         this.scene.autoClear = true;
         this.scene.autoClearDepthAndStencil = true;
+        
+        // Дополнительные оптимизации для production
+        const isProduction = import.meta.env.PROD;
+        if (isProduction) {
+            // Блокируем обновления материалов для производительности
+            this.scene.blockMaterialDirtyMechanism = true;
+        }
         
         // Setup ESC for pause and Garage
         window.addEventListener("keydown", (e) => {
@@ -1078,9 +1091,11 @@ export class Game {
             
             // === CHUNK SYSTEM (MAXIMUM OPTIMIZATION!) ===
             console.log(`[Game] Creating ChunkSystem with mapType: ${this.currentMapType}`);
+            // В production используем более агрессивные настройки производительности
+            const isProduction = import.meta.env.PROD;
             this.chunkSystem = new ChunkSystem(this.scene, {
                 chunkSize: 80,          // HUGE chunks = fewer chunks
-                renderDistance: 1.5,       // Уменьшено для оптимизации производительности
+                renderDistance: isProduction ? 1.2 : 1.5,       // Еще меньше в production
                 unloadDistance: 4,       // Уменьшено с 5 до 4
                 worldSeed: Math.floor(Math.random() * 1000000),
                 mapType: this.currentMapType
