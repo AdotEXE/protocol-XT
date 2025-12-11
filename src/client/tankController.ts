@@ -1140,9 +1140,9 @@ export class TankController {
                         detail: { turretRotY: 0 } 
                     }));
                     
-                    window.dispatchEvent(new CustomEvent("centerCamera", { 
-                        detail: { turretRotY: 0, lerpSpeed: 0.06, isActive: false } 
-                    }));
+                    // КРИТИЧЕСКИ ВАЖНО: НЕ центрируем камеру при центрировании башни!
+                    // C должна центрировать ТОЛЬКО башню, камера следует за башней автоматически
+                    // window.dispatchEvent(new CustomEvent("centerCamera", ...)); // ОТКЛЮЧЕНО
                     window.dispatchEvent(new CustomEvent("stopCenterCamera"));
                 }
             } else {
