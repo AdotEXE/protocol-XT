@@ -62,8 +62,9 @@ npm run dev
 - **Escape** - Меню / Пауза
 
 ### Инструменты разработчика
-- **F2** - Debug Dashboard
-- **F3** - Physics Panel
+- **F3** - Dev Dashboard
+- **F4** - Physics Manager
+- **F5** - Dev Console (System Terminal)
 
 ## 📚 Что дальше?
 
