@@ -8,6 +8,7 @@ import {
     TextBlock,
     Control
 } from "@babylonjs/gui";
+import { scalePixels, pxToVw, pxToVh, getScaleFactor, getResponsiveFontSize } from "./utils/uiScale";
 
 // ULTRA SIMPLE HUD - NO gradients, NO shadows, NO alpha, NO transparency
 // Pure solid colors only!
@@ -288,8 +289,46 @@ export class HUD {
         this.setAimMode(false);
         this.startAnimations();
         this.setupMapKeyListener(); // Обработка клавиши M
+        this.setupResizeHandler(); // Обработка изменения размера окна
         
         console.log("HUD initialized (MINIMAL MODE)");
+    }
+    
+    // === UI SCALING HELPERS ===
+    /**
+     * Get scaled pixel value for Babylon.js GUI
+     */
+    private scalePx(px: number): string {
+        return `${scalePixels(px)}px`;
+    }
+    
+    /**
+     * Get scaled font size
+     */
+    private scaleFontSize(baseSize: number, minSize: number = 8, maxSize: number = 48): number {
+        return Math.max(minSize, Math.min(maxSize, scalePixels(baseSize)));
+    }
+    
+    /**
+     * Setup window resize handler to rescale UI elements
+     */
+    private setupResizeHandler(): void {
+        let resizeTimeout: number | null = null;
+        window.addEventListener('resize', () => {
+            if (resizeTimeout) clearTimeout(resizeTimeout);
+            resizeTimeout = window.setTimeout(() => {
+                this.rescaleUI();
+            }, 100);
+        });
+    }
+    
+    /**
+     * Rescale all UI elements when window size changes
+     */
+    private rescaleUI(): void {
+        // This will be called when window is resized
+        // Individual elements will be updated as needed
+        // For now, we rely on percentage-based positioning which auto-scales
     }
     
     // Установить ExperienceSystem для комбо
@@ -341,24 +380,25 @@ export class HUD {
         const text = new TextBlock(`xpGain_${Date.now()}_${Math.random()}`);
         text.text = `+${roundedAmount} XP`;
         text.color = type === "chassis" ? "#0ff" : "#f80";
-        text.fontSize = 28; // Немного больше для лучшей видимости
+        text.fontSize = this.scaleFontSize(28, 20, 40); // Немного больше для лучшей видимости
         text.fontWeight = "bold";
         text.fontFamily = "'Press Start 2P', monospace";
         text.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         text.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        text.top = "-80px";
-        text.shadowBlur = 10;
-        text.shadowOffsetX = 2;
-        text.shadowOffsetY = 2;
+        text.top = this.scalePx(-80);
+        text.shadowBlur = scalePixels(10);
+        text.shadowOffsetX = scalePixels(2);
+        text.shadowOffsetY = scalePixels(2);
         text.shadowColor = "#000";
         
         // Случайное смещение по X для множественных текстов
-        const xOffset = (Math.random() - 0.5) * 100;
+        const xOffset = (Math.random() - 0.5) * scalePixels(100);
         text.left = `${xOffset}px`;
         
         this.guiTexture.addControl(text);
         
         // Улучшенная анимация подъёма и исчезновения
+        const baseFontSize = this.scaleFontSize(28, 20, 40);
         let y = -80;
         let alpha = 1;
         let scale = 1.2; // Начинаем с увеличенного размера
@@ -369,14 +409,14 @@ export class HUD {
             alpha -= 0.015; // Медленнее исчезает
             scale = Math.max(1, scale - 0.008); // Плавно уменьшаемся до нормального размера
             
-            text.top = `${y}px`;
+            text.top = this.scalePx(y);
             text.alpha = alpha;
-            text.fontSize = 28 * scale;
+            text.fontSize = baseFontSize * scale;
             
             // Добавляем пульсацию в начале
             if (frame < 10) {
                 const pulse = 1 + Math.sin(frame * 0.5) * 0.1;
-                text.fontSize = 28 * scale * pulse;
+                text.fontSize = baseFontSize * scale * pulse;
             }
             
             if (alpha > 0) {
@@ -405,35 +445,35 @@ export class HUD {
     // Показать эффект повышения уровня
     showLevelUp(level: number, title: string, type: "chassis" | "cannon"): void {
         const container = new Rectangle(`levelUp_${Date.now()}`);
-        container.width = "400px";
-        container.height = "120px";
+        container.width = this.scalePx(400);
+        container.height = this.scalePx(120);
         container.cornerRadius = 0;
         container.thickness = 4;
         container.color = type === "chassis" ? "#0ff" : "#f80";
         container.background = "#000000ee";
         container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         container.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        container.top = "-200px";
+        container.top = this.scalePx(-200);
         this.guiTexture.addControl(container);
         
         const titleText = new TextBlock("levelUpTitle");
         titleText.text = "🎉 УРОВЕНЬ ПОВЫШЕН! 🎉";
         titleText.color = "#ff0";
-        titleText.fontSize = 28;
+        titleText.fontSize = this.scaleFontSize(28, 20, 36);
         titleText.fontWeight = "bold";
         titleText.fontFamily = "'Press Start 2P', monospace";
         titleText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        titleText.top = "-20px";
+        titleText.top = this.scalePx(-20);
         container.addControl(titleText);
         
         const levelText = new TextBlock("levelUpLevel");
         levelText.text = `Уровень ${level}: ${title}`;
         levelText.color = type === "chassis" ? "#0ff" : "#f80";
-        levelText.fontSize = 22;
+        levelText.fontSize = this.scaleFontSize(22, 16, 28);
         levelText.fontWeight = "bold";
         levelText.fontFamily = "'Press Start 2P', monospace";
         levelText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        levelText.top = "20px";
+        levelText.top = this.scalePx(20);
         container.addControl(levelText);
         
         // Анимация появления и исчезновения
@@ -479,37 +519,37 @@ export class HUD {
     
     private createInvulnerabilityIndicator(): void {
         const container = new Rectangle("invulnerabilityContainer");
-        container.width = "200px";
-        container.height = "35px";
+        container.width = this.scalePx(200);
+        container.height = this.scalePx(35);
         container.cornerRadius = 0;
         container.thickness = 2;
         container.color = "#0ff";
         container.background = "#000000cc";
         container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         container.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        container.top = "150px";
+        container.top = this.scalePx(150);
         container.isVisible = false; // Скрыт по умолчанию
         this.guiTexture.addControl(container);
         
         const icon = new TextBlock("invulnerabilityIcon");
         icon.text = "🛡";
         icon.color = "#0ff";
-        icon.fontSize = 18;
+        icon.fontSize = this.scaleFontSize(18, 14, 24);
         icon.fontFamily = "'Press Start 2P', monospace";
         icon.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        icon.left = "10px";
-        icon.top = "2px";
+        icon.left = this.scalePx(10);
+        icon.top = this.scalePx(2);
         container.addControl(icon);
         
         this.invulnerabilityText = new TextBlock("invulnerabilityText");
         this.invulnerabilityText.text = "ЗАЩИТА";
         this.invulnerabilityText.color = "#0ff";
-        this.invulnerabilityText.fontSize = 14;
+        this.invulnerabilityText.fontSize = this.scaleFontSize(14, 10, 18);
         this.invulnerabilityText.fontWeight = "bold";
         this.invulnerabilityText.fontFamily = "'Press Start 2P', monospace";
         this.invulnerabilityText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.invulnerabilityText.left = "40px";
-        this.invulnerabilityText.top = "2px";
+        this.invulnerabilityText.left = this.scalePx(40);
+        this.invulnerabilityText.top = this.scalePx(2);
         container.addControl(this.invulnerabilityText);
         
         this.invulnerabilityIndicator = container;
@@ -635,8 +675,8 @@ export class HUD {
     private createHealthBar() {
         // === HEALTH BAR - НАД РАСХОДНИКАМИ ===
         const container = new Rectangle("healthContainer");
-        container.width = "200px";
-        container.height = "8px";
+        container.width = this.scalePx(200);
+        container.height = this.scalePx(8);
         container.cornerRadius = 0;
         container.thickness = 1;
         container.color = "#0f03";
@@ -644,7 +684,7 @@ export class HUD {
         container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         container.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         container.left = "0px";
-        container.top = "-78px"; // HP bar above reload bar
+        container.top = this.scalePx(-78); // HP bar above reload bar
         this.guiTexture.addControl(container);
         
         // Основной бар здоровья
@@ -799,8 +839,8 @@ export class HUD {
     private createReloadIndicator() {
         // === RELOAD BAR - VISIBLE AND CLEAR ===
         const container = new Rectangle("reloadContainer");
-        container.width = "200px";
-        container.height = "12px";
+        container.width = this.scalePx(200);
+        container.height = this.scalePx(12);
         container.cornerRadius = 0;
         container.thickness = 2;
         container.color = "#f80";
@@ -808,7 +848,7 @@ export class HUD {
         container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         container.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         container.left = "0px";
-        container.top = "-62px"; // Reload bar above consumables
+        container.top = this.scalePx(-62); // Reload bar above consumables
         this.guiTexture.addControl(container);
         
         // Reload bar background
@@ -846,7 +886,7 @@ export class HUD {
         this.reloadText = new TextBlock("reloadText");
         this.reloadText.text = "READY";
         this.reloadText.color = "#0f0";
-        this.reloadText.fontSize = 9;
+        this.reloadText.fontSize = this.scaleFontSize(9, 7, 14);
         this.reloadText.fontFamily = "'Press Start 2P', monospace";
         container.addControl(this.reloadText);
     }
@@ -856,9 +896,10 @@ export class HUD {
         
         // Внешний круг (только при прицеливании)
         const outerRing = new Rectangle("crosshairOuter");
-        outerRing.width = "60px";
-        outerRing.height = "60px";
-        outerRing.cornerRadius = 30;
+        const outerSize = scalePixels(60);
+        outerRing.width = `${outerSize}px`;
+        outerRing.height = `${outerSize}px`;
+        outerRing.cornerRadius = outerSize / 2;
         outerRing.thickness = 1;
         outerRing.color = "#ff440066";
         outerRing.background = "transparent";
@@ -868,9 +909,10 @@ export class HUD {
         
         // Средний круг
         const middleRing = new Rectangle("crosshairMiddle");
-        middleRing.width = "30px";
-        middleRing.height = "30px";
-        middleRing.cornerRadius = 15;
+        const middleSize = scalePixels(30);
+        middleRing.width = `${middleSize}px`;
+        middleRing.height = `${middleSize}px`;
+        middleRing.cornerRadius = middleSize / 2;
         middleRing.thickness = 1;
         middleRing.color = "#ff8800aa";
         middleRing.background = "transparent";
@@ -880,18 +922,19 @@ export class HUD {
         
         // Center dot - точка прицела
         this.crosshairDot = new Rectangle("crosshairDot");
-        this.crosshairDot.width = "4px";
-        this.crosshairDot.height = "4px";
-        this.crosshairDot.cornerRadius = 2;
+        const dotSize = scalePixels(4);
+        this.crosshairDot.width = `${dotSize}px`;
+        this.crosshairDot.height = `${dotSize}px`;
+        this.crosshairDot.cornerRadius = dotSize / 2;
         this.crosshairDot.thickness = 0;
         this.crosshairDot.background = "#ff3300";
         this.crosshairDot.isVisible = false;
         this.guiTexture.addControl(this.crosshairDot);
         
         // Тактические линии
-        const gap = 8;
-        const length = 15;
-        const thickness = 2;
+        const gap = scalePixels(8);
+        const length = scalePixels(15);
+        const thickness = scalePixels(2);
         
         const createLine = (name: string, w: string, h: string, t: string, l: string) => {
             const line = new Rectangle(name);
@@ -930,8 +973,8 @@ export class HUD {
         createLine("crossRight", `${length}px`, `${thickness}px`, "0", `${gap}px`);
         
         // Угловые маркеры (диагональные акценты)
-        const cornerSize = 8;
-        const cornerDist = 20;
+        const cornerSize = scalePixels(8);
+        const cornerDist = scalePixels(20);
         
         const createCorner = (name: string, top: number, left: number) => {
             const corner = new Rectangle(name);
@@ -955,31 +998,31 @@ export class HUD {
         this.zoomIndicator = new TextBlock("zoomIndicator");
         this.zoomIndicator.text = "1.0x";
         this.zoomIndicator.color = "#ff8800";
-        this.zoomIndicator.fontSize = 14;
+        this.zoomIndicator.fontSize = this.scaleFontSize(14, 10, 20);
         this.zoomIndicator.fontWeight = "bold";
         this.zoomIndicator.fontFamily = "'Press Start 2P', monospace";
         this.zoomIndicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.zoomIndicator.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        this.zoomIndicator.top = "50px"; // Под прицелом
+        this.zoomIndicator.top = this.scalePx(50); // Под прицелом
         this.zoomIndicator.isVisible = false;
         this.guiTexture.addControl(this.zoomIndicator);
         
         // === ШКАЛА ДАЛЬНОСТИ (справа от прицела) ===
         this.rangeScaleContainer = new Rectangle("rangeScaleContainer");
-        this.rangeScaleContainer.width = "50px";
-        this.rangeScaleContainer.height = "120px";
+        this.rangeScaleContainer.width = this.scalePx(50);
+        this.rangeScaleContainer.height = this.scalePx(120);
         this.rangeScaleContainer.thickness = 0;
         this.rangeScaleContainer.background = "transparent";
         this.rangeScaleContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.rangeScaleContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        this.rangeScaleContainer.left = "80px"; // Справа от прицела
+        this.rangeScaleContainer.left = this.scalePx(80); // Справа от прицела
         this.rangeScaleContainer.isVisible = false;
         this.guiTexture.addControl(this.rangeScaleContainer);
         
         // Фон шкалы
         const scaleBg = new Rectangle("rangeScaleBg");
-        scaleBg.width = "8px";
-        scaleBg.height = "100px";
+        scaleBg.width = this.scalePx(8);
+        scaleBg.height = this.scalePx(100);
         scaleBg.thickness = 1;
         scaleBg.color = "#333";
         scaleBg.background = "#00000088";
@@ -988,13 +1031,13 @@ export class HUD {
         
         // Заполнение шкалы (динамическое)
         this.rangeScaleFill = new Rectangle("rangeScaleFill");
-        this.rangeScaleFill.width = "6px";
+        this.rangeScaleFill.width = this.scalePx(6);
         this.rangeScaleFill.height = "50%";
         this.rangeScaleFill.thickness = 0;
         this.rangeScaleFill.background = "#0f0";
         this.rangeScaleFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.rangeScaleFill.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.rangeScaleFill.left = "1px";
+        this.rangeScaleFill.left = this.scalePx(1);
         scaleBg.addControl(this.rangeScaleFill);
         
         // Маркеры дистанции (0-999м)
@@ -1004,23 +1047,23 @@ export class HUD {
             const label = new TextBlock(`rangeLabel${i}`);
             label.text = `${dist}m`;
             label.color = "#0a0";
-            label.fontSize = 9;
+            label.fontSize = this.scaleFontSize(9, 7, 12);
             label.fontFamily = "'Press Start 2P', monospace";
             label.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            label.left = "12px";
-            label.top = `${40 - i * 20}px`; // Снизу вверх (равномерно по 20px для 5 меток)
+            label.left = this.scalePx(12);
+            label.top = this.scalePx(40 - i * 20); // Снизу вверх (равномерно по 20px для 5 меток)
             this.rangeScaleContainer!.addControl(label);
             this.rangeScaleLabels.push(label);
             
             // Линия-маркер
             const tick = new Rectangle(`rangeTick${i}`);
-            tick.width = "4px";
-            tick.height = "1px";
+            tick.width = this.scalePx(4);
+            tick.height = this.scalePx(1);
             tick.thickness = 0;
             tick.background = "#0a0";
             tick.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            tick.left = "8px";
-            tick.top = `${40 - i * 20}px`; // Синхронизировано с метками
+            tick.left = this.scalePx(8);
+            tick.top = this.scalePx(40 - i * 20); // Синхронизировано с метками
             this.rangeScaleContainer!.addControl(tick);
         });
         
@@ -1028,23 +1071,23 @@ export class HUD {
         this.rangeValueText = new TextBlock("rangeValue");
         this.rangeValueText.text = "100m";
         this.rangeValueText.color = "#0f0";
-        this.rangeValueText.fontSize = 16;
+        this.rangeValueText.fontSize = this.scaleFontSize(16, 12, 22);
         this.rangeValueText.fontWeight = "bold";
         this.rangeValueText.fontFamily = "'Press Start 2P', monospace";
         this.rangeValueText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.rangeValueText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.rangeValueText.left = "12px";
-        this.rangeValueText.top = "55px";
+        this.rangeValueText.left = this.scalePx(12);
+        this.rangeValueText.top = this.scalePx(55);
         this.rangeScaleContainer.addControl(this.rangeValueText);
         
         // Индикатор текущей позиции на шкале
         this.rangeIndicator = new Rectangle("rangeIndicator");
-        this.rangeIndicator.width = "12px";
-        this.rangeIndicator.height = "3px";
+        this.rangeIndicator.width = this.scalePx(12);
+        this.rangeIndicator.height = this.scalePx(3);
         this.rangeIndicator.thickness = 0;
         this.rangeIndicator.background = "#fff";
         this.rangeIndicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.rangeIndicator.left = "-2px";
+        this.rangeIndicator.left = this.scalePx(-2);
         this.rangeIndicator.top = "0px";
         scaleBg.addControl(this.rangeIndicator);
         
@@ -1054,8 +1097,8 @@ export class HUD {
     
     // Create hit marker (X shape at center of screen)
     private createHitMarker(): void {
-        const size = 20; // Size of X
-        const thickness = 3;
+        const size = scalePixels(20); // Size of X
+        const thickness = scalePixels(3);
         
         // Diagonal line 1 (top-left to bottom-right)
         const line1 = new Rectangle("hitMarker1");
@@ -1083,8 +1126,8 @@ export class HUD {
         
         // Outline for visibility (slightly larger, darker)
         const outline1 = new Rectangle("hitMarkerOutline1");
-        outline1.width = `${size + 2}px`;
-        outline1.height = `${thickness + 2}px`;
+        outline1.width = `${size + scalePixels(2)}px`;
+        outline1.height = `${thickness + scalePixels(2)}px`;
         outline1.rotation = Math.PI / 4;
         outline1.background = "#000000";
         outline1.thickness = 0;
@@ -1094,8 +1137,8 @@ export class HUD {
         this.hitMarkerLines.push(outline1);
         
         const outline2 = new Rectangle("hitMarkerOutline2");
-        outline2.width = `${size + 2}px`;
-        outline2.height = `${thickness + 2}px`;
+        outline2.width = `${size + scalePixels(2)}px`;
+        outline2.height = `${thickness + scalePixels(2)}px`;
         outline2.rotation = -Math.PI / 4;
         outline2.background = "#000000";
         outline2.thickness = 0;
@@ -1136,8 +1179,9 @@ export class HUD {
         // КРИТИЧЕСКИ ВАЖНО: Прицел ТОЛЬКО в режиме прицеливания (Ctrl)
         if (this.crosshairDot) {
             this.crosshairDot.isVisible = aiming;
-            this.crosshairDot.width = aiming ? "6px" : "0px";
-            this.crosshairDot.height = aiming ? "6px" : "0px";
+            const dotSize = scalePixels(6);
+            this.crosshairDot.width = aiming ? `${dotSize}px` : "0px";
+            this.crosshairDot.height = aiming ? `${dotSize}px` : "0px";
         }
         // Show/hide lines
         this.crosshairElements.forEach(el => {
@@ -1339,8 +1383,8 @@ export class HUD {
     
     private createConsumablesDisplay() {
         // === HOTBAR - ЦЕНТР, ПОД RELOAD BAR, НАД XP BAR (10 слотов: 1-0) ===
-        const slotWidth = 36;
-        const slotGap = 4;
+        const slotWidth = scalePixels(36);
+        const slotGap = scalePixels(4);
         const totalWidth = 10 * slotWidth + 9 * slotGap; // 396px для 10 слотов
         const startX = -totalWidth / 2 + slotWidth / 2;
         
@@ -1356,7 +1400,7 @@ export class HUD {
             container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             container.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
             container.left = `${startX + (i - 1) * (slotWidth + slotGap)}px`;
-            container.top = "-20px"; // Just above XP bar
+            container.top = this.scalePx(-20); // Just above XP bar
             this.guiTexture.addControl(container);
             
             
@@ -1364,13 +1408,13 @@ export class HUD {
             const key = new TextBlock(`consumableKey${slotIndex}`);
             key.text = `${slotIndex}`;
             key.color = slotIndex >= 6 || slotIndex === 0 ? "#0ff" : "#0a0"; // Голубой для модулей
-            key.fontSize = 9;
+            key.fontSize = this.scaleFontSize(9, 7, 12);
             key.fontWeight = "bold";
             key.fontFamily = "'Press Start 2P', monospace";
             key.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
             key.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            key.left = "2px";
-            key.top = "1px";
+            key.left = this.scalePx(2);
+            key.top = this.scalePx(1);
             key.outlineWidth = 1;
             key.outlineColor = "#000";
             container.addControl(key);
@@ -1380,10 +1424,10 @@ export class HUD {
             // Для модулей 6-0 устанавливаем иконку сразу
             if (slotIndex >= 6 || slotIndex === 0) {
                 icon.text = this.moduleIcons[slotIndex] || "";
-                icon.fontSize = 18; // Немного больше для модулей
+                icon.fontSize = this.scaleFontSize(18, 14, 24); // Немного больше для модулей
             } else {
                 icon.text = "";
-                icon.fontSize = 16;
+                icon.fontSize = this.scaleFontSize(16, 12, 20);
             }
             icon.color = "#fff";
             icon.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -1754,21 +1798,21 @@ export class HUD {
     private createCompass() {
         // === ЖИВОЙ КОМПАС БЕЗ БУКВЕННЫХ ОБОЗНАЧЕНИЙ ===
         this.compassContainer = new Rectangle("compassContainer");
-        this.compassContainer.width = "250px";
-        this.compassContainer.height = "25px";
+        this.compassContainer.width = this.scalePx(250);
+        this.compassContainer.height = this.scalePx(25);
         this.compassContainer.cornerRadius = 0;
         this.compassContainer.thickness = 1;
         this.compassContainer.color = "#0f03";
         this.compassContainer.background = "#00000099";
         this.compassContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.compassContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.compassContainer.top = "10px";
+        this.compassContainer.top = this.scalePx(10);
         this.guiTexture.addControl(this.compassContainer);
         
         // Центральный маркер (красный треугольник вниз)
         const centerMarker = new Rectangle("compassCenterMarker");
-        centerMarker.width = "2px";
-        centerMarker.height = "8px";
+        centerMarker.width = this.scalePx(2);
+        centerMarker.height = this.scalePx(8);
         centerMarker.thickness = 0;
         centerMarker.background = "#f00";
         centerMarker.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
@@ -1787,7 +1831,7 @@ export class HUD {
         this.compassDegrees = new TextBlock("compassDeg");
         this.compassDegrees.text = "0°";
         this.compassDegrees.color = "#0f0";
-        this.compassDegrees.fontSize = 14;
+        this.compassDegrees.fontSize = this.scaleFontSize(14, 10, 18);
         this.compassDegrees.fontWeight = "bold";
         this.compassDegrees.fontFamily = "'Press Start 2P', monospace";
         this.compassDegrees.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -1918,22 +1962,22 @@ export class HUD {
         // === RADAR CONTAINER WITH FRAME ===
         // Создаём общий контейнер для радара + блока информации + буквенных обозначений
         this.minimapContainer = new Rectangle("minimapContainer");
-        this.minimapContainer.width = "140px";
-        this.minimapContainer.height = "176px"; // 18px буквенные обозначения + 140px радар + 18px блок информации
+        this.minimapContainer.width = this.scalePx(140);
+        this.minimapContainer.height = this.scalePx(176); // 18px буквенные обозначения + 140px радар + 18px блок информации
         this.minimapContainer.cornerRadius = 0;
         this.minimapContainer.thickness = 1; // Тонкая рамка вокруг всего блока
         this.minimapContainer.color = "#0f0"; // Зелёная рамка
         this.minimapContainer.background = "#0a1520"; // Dark navy background
         this.minimapContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         this.minimapContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.minimapContainer.left = "-10px";
-        this.minimapContainer.top = "-40px";
+        this.minimapContainer.left = this.scalePx(-10);
+        this.minimapContainer.top = this.scalePx(-40);
         this.guiTexture.addControl(this.minimapContainer);
         
         // === БЛОК БУКВЕННОГО ОБОЗНАЧЕНИЯ НАПРАВЛЕНИЯ ДВИЖЕНИЯ НАД РАДАРОМ ===
         this.directionLabelsContainer = new Rectangle("directionLabelsContainer");
-        this.directionLabelsContainer.width = "140px";
-        this.directionLabelsContainer.height = "18px";
+        this.directionLabelsContainer.width = this.scalePx(140);
+        this.directionLabelsContainer.height = this.scalePx(18);
         this.directionLabelsContainer.thickness = 1;
         this.directionLabelsContainer.color = "#0f0";
         this.directionLabelsContainer.background = "#000";
@@ -1945,23 +1989,23 @@ export class HUD {
         this.movementDirectionLabel = new TextBlock("movementDirectionLabel");
         this.movementDirectionLabel.text = "N";
         this.movementDirectionLabel.color = "#0f0";
-        this.movementDirectionLabel.fontSize = 10;
+        this.movementDirectionLabel.fontSize = this.scaleFontSize(10, 8, 14);
         this.movementDirectionLabel.fontWeight = "bold";
         this.movementDirectionLabel.fontFamily = "'Press Start 2P', monospace";
         this.movementDirectionLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.movementDirectionLabel.top = "4px";
+        this.movementDirectionLabel.top = this.scalePx(4);
         this.directionLabelsContainer.addControl(this.movementDirectionLabel);
         
         // Внутренний контейнер для радара (средняя часть)
         const radarInnerContainer = new Rectangle("radarInnerContainer");
-        radarInnerContainer.width = "140px";
-        radarInnerContainer.height = "140px";
+        radarInnerContainer.width = this.scalePx(140);
+        radarInnerContainer.height = this.scalePx(140);
         radarInnerContainer.cornerRadius = 0;
         radarInnerContainer.thickness = 0;
         radarInnerContainer.background = "#0a1520";
         radarInnerContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         radarInnerContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        radarInnerContainer.top = "18px";
+        radarInnerContainer.top = this.scalePx(18);
         this.minimapContainer.addControl(radarInnerContainer);
         
         // Область радара

@@ -10,19 +10,47 @@ import {
     getSkillCost,
     type SkillNode
 } from "./skillTreeConfig";
+import { Scene, Engine } from "@babylonjs/core";
+import { Garage } from "./garage";
+import { CurrencyManager } from "./currencyManager";
 
 // Version tracking
 const VERSION_MAJOR = 0;
 const VERSION_MINOR = 3;
 let buildNumber = parseInt(localStorage.getItem("ptx_build") || "0");
+const previousBuildNumber = buildNumber;
+
 // Добавляем 1500 к текущему buildNumber (1059 -> 2559)
 if (buildNumber < 2559) {
     buildNumber = 2559;
 } else {
     buildNumber += 1;
 }
-localStorage.setItem("ptx_build", buildNumber.toString());
-const VERSION = `v${VERSION_MAJOR}.${VERSION_MINOR}.${buildNumber}`;
+
+// Timestamp для отображения времени выпуска версии
+// Обновляем только если buildNumber изменился
+const formatTimestamp = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+};
+
+let BUILD_TIME: string;
+if (buildNumber !== previousBuildNumber) {
+    // Новая версия - сохраняем текущее время
+    BUILD_TIME = formatTimestamp(new Date());
+    localStorage.setItem("ptx_build_time", BUILD_TIME);
+    localStorage.setItem("ptx_build", buildNumber.toString());
+} else {
+    // Используем сохраненное время выпуска версии
+    BUILD_TIME = localStorage.getItem("ptx_build_time") || formatTimestamp(new Date());
+}
+
+const VERSION = `v${VERSION_MAJOR}.${VERSION_MINOR}.${buildNumber} (${BUILD_TIME})`;
 
 // Debug flag - можно включить через localStorage.setItem("debug", "true")
 const DEBUG = localStorage.getItem("debug") === "true" || false;
@@ -425,7 +453,6 @@ export type MapType = "normal" | "sandbox" | "polygon" | "frontline" | "ruins" |
 export class MainMenu {
     private container!: HTMLDivElement;
     private settingsPanel!: HTMLDivElement;
-    private garagePanel!: HTMLDivElement;
     private statsPanel!: HTMLDivElement;
     private skillsPanel!: HTMLDivElement;
     private mapSelectionPanel!: HTMLDivElement;
@@ -444,7 +471,9 @@ export class MainMenu {
     private playerProgression: any = null;
     private experienceSubscription: any = null;
     private introSoundPlayed = false;
-    private garage: any = null; // Reference to Garage instance (set by game.ts)
+    private garage: Garage | null = null; // Garage instance (created in constructor or set by game.ts)
+    private garageScene: Scene | null = null; // Minimal scene for garage (if created in menu)
+    private garageCurrencyManager: CurrencyManager | null = null; // Currency manager for garage
     private returnToPlayMenuAfterGarage = false;
     
     private canvasObserver: MutationObserver | null = null;
@@ -458,9 +487,12 @@ export class MainMenu {
         this.tankConfig = this.loadTankConfig();
         this.ownedChassisIds = this.loadOwnedIds("ownedChassis", ["medium"]);
         this.ownedCannonIds = this.loadOwnedIds("ownedCannons", ["standard"]);
+        
+        // Create garage immediately so it's always available
+        this.initializeGarageInMenu();
+        
         this.createMenuUI();
         this.createSettingsUI();
-        this.createGarageUI();
         this.createStatsPanel();
         this.createSkillsPanel();
         this.createMapSelectionPanel();
@@ -596,7 +628,6 @@ export class MainMenu {
         const enforceLoop = () => {
             const isMenuOrPanelVisible = !this.container.classList.contains("hidden") ||
                 this.mapSelectionPanel?.classList.contains("visible") ||
-                this.garagePanel?.classList.contains("visible") ||
                 this.statsPanel?.classList.contains("visible") ||
                 this.skillsPanel?.classList.contains("visible") ||
                 this.settingsPanel?.classList.contains("visible");
@@ -619,7 +650,7 @@ export class MainMenu {
         // Запускаем при показе меню
         this.container.addEventListener("mouseenter", startLoop);
         // Также запускаем при показе любой панели
-        const panels = [this.mapSelectionPanel, this.garagePanel, this.statsPanel, this.skillsPanel, this.settingsPanel];
+        const panels = [this.mapSelectionPanel, this.statsPanel, this.skillsPanel, this.settingsPanel];
         panels.forEach(panel => {
             if (panel) {
                 const observer = new MutationObserver(() => {
@@ -655,7 +686,6 @@ export class MainMenu {
             const isMenuVisible = !this.container.classList.contains("hidden");
             const isAnyPanelVisible = 
                 this.mapSelectionPanel?.classList.contains("visible") ||
-                this.garagePanel?.classList.contains("visible") ||
                 this.statsPanel?.classList.contains("visible") ||
                 this.skillsPanel?.classList.contains("visible") ||
                 this.settingsPanel?.classList.contains("visible");
@@ -743,9 +773,24 @@ export class MainMenu {
         }
     }
     
-    setGarage(garage: any): void {
+    setGarage(garage: Garage): void {
+        // Replace menu garage with game garage (which has proper scene and systems)
+        if (this.garage && this.garageScene) {
+            // Cleanup old garage scene
+            try {
+                if (this.garage.isGarageOpen()) {
+                    this.garage.close(); // Close if open
+                }
+                this.garageScene.dispose();
+                if (this.garageScene.getEngine()) {
+                    this.garageScene.getEngine().dispose();
+                }
+            } catch (e) {
+                // Ignore cleanup errors
+            }
+        }
         this.garage = garage;
-        console.log("[MainMenu] Garage reference set");
+        debugLog("[Menu] Garage replaced with game garage");
     }
     
     private createMenuUI(): void {
@@ -887,7 +932,7 @@ export class MainMenu {
                                 <div class="control-item">
                                     <span class="key">Q / E</span>
                                     <span class="control-desc">${L.rotateTurret}</span>
-                                </div>
+                            </div>
                                 <div class="control-item">
                                     <span class="key">МЫШЬ</span>
                                     <span class="control-desc">${L.freeLook}</span>
@@ -1374,12 +1419,19 @@ export class MainMenu {
                 background: #000;
                 border: 2px solid #0f0;
                 padding: 25px;
-                max-width: 500px;
-                max-height: 80vh;
+                max-width: min(90vw, 1600px);
+                max-height: min(90vh, 900px);
+                width: min(90vw, 1600px);
                 overflow-y: auto;
-                width: 90%;
                 position: relative;
                 font-family: 'Press Start 2P', monospace;
+            }
+            
+            /* Меню навыков должно быть ещё шире */
+            #skills-panel .panel-content {
+                max-width: min(95vw, 1700px);
+                width: min(95vw, 1700px);
+                max-height: min(95vh, 956px);
             }
             
             .panel-title {
@@ -1933,7 +1985,7 @@ export class MainMenu {
             }
 
             .skill-tree {
-                transition: transform 0.2s ease;
+                /* Transition убран - используем JS анимацию для плавности */
             }
 
             .skill-node-header {
@@ -1947,7 +1999,7 @@ export class MainMenu {
                 font-size: 20px;
                 width: 28px;
             }
-
+            
             .skill-node-title {
                 flex: 1;
                 font-size: 11px;
@@ -1990,18 +2042,18 @@ export class MainMenu {
                 grid-template-columns: repeat(10, 1fr);
                 gap: 3px;
             }
-
+            
             .skill-pip {
                 height: 8px;
                 background: #021;
                 border: 1px solid #0f0;
             }
-
+            
             .skill-pip.filled {
                 background: linear-gradient(90deg, #0f0, #7f7);
                 box-shadow: 0 0 6px rgba(0,255,80,0.6);
             }
-
+            
             .skill-upgrade-btn {
                 padding: 10px;
                 background: #000;
@@ -2013,13 +2065,13 @@ export class MainMenu {
                 transition: all 0.15s;
                 text-transform: uppercase;
             }
-
+            
             .skill-upgrade-btn:hover:not(:disabled) {
                 background: #0f0;
                 color: #000;
                 box-shadow: 0 0 12px rgba(0,255,80,0.6);
             }
-
+            
             .skill-upgrade-btn:disabled {
                 opacity: 0.25;
                 cursor: not-allowed;
@@ -2535,7 +2587,7 @@ export class MainMenu {
         this.settingsPanel.id = "settings-panel";
         const L = getLang(this.settings);
         this.settingsPanel.innerHTML = `
-            <div class="panel-content" style="max-width: 800px; max-height: 90vh; overflow-y: auto;">
+            <div class="panel-content">
                 <button class="panel-close" id="settings-close">✕</button>
                 <div class="panel-title">${L.options}</div>
                 
@@ -3345,7 +3397,7 @@ export class MainMenu {
                 <!-- 1. Выбор режима игры -->
                 <div class="play-window" id="play-window-mode" data-order="0" data-step="0" style="display: none;">
                     <div class="play-window-header">
-                        <div class="play-window-title">/root (player)/mode</div>
+                        <div class="play-window-title">/[user_id]/mode</div>
                         <div class="window-actions">
                             <button class="window-btn" data-nav="back" data-step="0">⟵</button>
                             <button class="window-btn" data-nav="forward" data-step="0">⟶</button>
@@ -3384,7 +3436,7 @@ export class MainMenu {
                 <!-- 2. Выбор карты -->
                 <div class="play-window" id="play-window-map" data-order="1" data-step="1">
                     <div class="play-window-header">
-                        <div class="play-window-title">/root (player)/mode/map</div>
+                        <div class="play-window-title">/[user_id]/mode/map</div>
                         <div class="window-actions">
                             <button class="window-btn" data-nav="back" data-step="1">⟵</button>
                             <button class="window-btn" data-nav="forward" data-step="1">⟶</button>
@@ -3439,7 +3491,7 @@ export class MainMenu {
                 <!-- 3. Выбор танка -->
                 <div class="play-window" id="play-window-tank" data-order="2" data-step="2">
                     <div class="play-window-header">
-                        <div class="play-window-title">/root (player)/mode/map/preset</div>
+                        <div class="play-window-title">/[user_id]/mode/map/preset</div>
                         <div class="window-actions">
                             <button class="window-btn" data-nav="back" data-step="2">⟵</button>
                             <button class="window-btn" data-nav="forward" data-step="2">⟶</button>
@@ -3770,9 +3822,9 @@ export class MainMenu {
     }
 
     private getUserName(): string {
-        // Try to get from localStorage
-        let storedName = localStorage.getItem("playerName");
-        if (storedName) return storedName;
+        // Try to get user_id from localStorage
+        let storedUserId = localStorage.getItem("userId");
+        if (storedUserId) return storedUserId;
         
         // Try to get from Firebase if available (synchronous check)
         try {
@@ -3782,19 +3834,18 @@ export class MainMenu {
             if (firebaseService && firebaseService.isInitialized && firebaseService.isInitialized()) {
                 const userId = firebaseService.getUserId();
                 if (userId) {
-                    storedName = userId.substring(0, 8);
-                    localStorage.setItem("playerName", storedName);
-                    return storedName;
+                    localStorage.setItem("userId", userId);
+                    return userId;
                 }
             }
         } catch (e) {
             // Firebase not available, ignore
         }
         
-        // Default fallback
-        const defaultName = "player";
-        localStorage.setItem("playerName", defaultName);
-        return defaultName;
+        // Default fallback - use "user_id" as placeholder
+        const defaultUserId = "user_id";
+        localStorage.setItem("userId", defaultUserId);
+        return defaultUserId;
     }
     
     private getModeDisplayName(mode: string): string {
@@ -3827,8 +3878,8 @@ export class MainMenu {
     }
     
     private updateTerminalTitles(): void {
-        const userName = this.getUserName();
-        const basePath = `/root (${userName})`;
+        const userId = this.getUserName();
+        const basePath = `/${userId}`;
         
         // Update mode terminal title
         const modeTitle = document.querySelector("#play-window-mode .play-window-title");
@@ -3863,7 +3914,7 @@ export class MainMenu {
             tankTitle.textContent = path;
         }
     }
-    
+
     private showPlayWindow(id: string, order: number, step?: number): void {
         const el = document.getElementById(id) as HTMLDivElement | null;
         if (!el) return;
@@ -4157,11 +4208,11 @@ export class MainMenu {
             experience: 0,
             experienceToNext: 100
         };
-
+        
         if (skillPointsDisplay) {
             skillPointsDisplay.textContent = `Очков навыков: ${stats.skillPoints}`;
         }
-
+        
         // Обновляем легенду веток
         const legend = document.getElementById("skill-tree-legend");
         if (legend) {
@@ -4382,10 +4433,10 @@ export class MainMenu {
                         if (stats.skillPoints >= cost && nextLevel <= (node.maxLevel || 5)) {
                             // Потратить очки за один уровень
                             for (let i = 0; i < cost && stats.skillPoints > 0; i++) {
-                                this.playerProgression.upgradeSkill(skillId);
+                    this.playerProgression.upgradeSkill(skillId);
                             }
-                            this.updateSkillsPanel();
-                            this.updatePlayerInfo();
+                    this.updateSkillsPanel();
+                    this.updatePlayerInfo();
                         }
                     } else {
                         // Fallback для старых навыков
@@ -4409,42 +4460,109 @@ export class MainMenu {
         const skillTree = document.getElementById("skill-tree");
         if (!skillTree) return;
 
-        // Зум с поддержкой масштабирования относительно курсора
-        let zoomLevel = 1.0;
-        const minZoom = 0.3;
-        const maxZoom = 2.5;
-        const zoomStep = 0.1;
+        // === ЗУМ ЧЕРЕЗ TRANSFORM-ORIGIN (РАБОЧИЙ ПОДХОД) ===
+        let currentZoom = 1.0;
+        const MIN_ZOOM = 0.3;
+        const MAX_ZOOM = 2.5;
+        const ZOOM_STEP = 0.1;
 
-        const applyZoom = (mouseX?: number, mouseY?: number) => {
-            if (mouseX !== undefined && mouseY !== undefined && wrapper) {
-                // Зум относительно позиции курсора
-                const rect = wrapper.getBoundingClientRect();
-                const x = mouseX - rect.left;
-                const y = mouseY - rect.top;
+        // Функция зума к точке с плавной анимацией
+        let zoomAnimationFrame: number | null = null;
+        let pendingZoom: { clientX: number; clientY: number; targetZoom: number } | null = null;
+        
+        const zoomAtPoint = (clientX: number, clientY: number, targetZoom: number, immediate: boolean = false) => {
+            if (!wrapper || !skillTree) return;
+            
+            // Если идёт анимация и это не немедленное выполнение - сохраняем запрос
+            if (zoomAnimationFrame !== null && !immediate) {
+                pendingZoom = { clientX, clientY, targetZoom };
+                return;
+            }
+            
+            // Используем текущий зум (может быть промежуточным во время анимации)
+            const oldZoom = currentZoom;
+            const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, targetZoom));
+            if (Math.abs(newZoom - oldZoom) < 0.001) {
+                // Если зум не изменился, но есть pending - обрабатываем его
+                if (pendingZoom) {
+                    const pending = pendingZoom;
+                    pendingZoom = null;
+                    zoomAtPoint(pending.clientX, pending.clientY, pending.targetZoom, true);
+                }
+                return;
+            }
+            
+            // Отменяем предыдущую анимацию если есть
+            if (zoomAnimationFrame !== null) {
+                cancelAnimationFrame(zoomAnimationFrame);
+                zoomAnimationFrame = null;
+            }
+            
+            // Позиция курсора относительно wrapper
+            const wrapperRect = wrapper.getBoundingClientRect();
+            const mouseX = clientX - wrapperRect.left;
+            const mouseY = clientY - wrapperRect.top;
+            
+            // Текущая позиция скролла
+            const scrollX = wrapper.scrollLeft;
+            const scrollY = wrapper.scrollTop;
+            
+            // Позиция курсора в исходном контенте (без зума)
+            const contentX = (scrollX + mouseX) / oldZoom;
+            const contentY = (scrollY + mouseY) / oldZoom;
+            
+            // Плавная анимация зума - начинаем от текущего значения
+            const startZoom = oldZoom;
+            const endZoom = newZoom;
+            const startTime = performance.now();
+            const duration = 150; // 150ms для плавности
+            
+            const animate = (currentTime: number) => {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / duration, 1);
                 
-                // Текущая позиция скролла
-                const scrollX = wrapper.scrollLeft;
-                const scrollY = wrapper.scrollTop;
+                // Easing функция для плавности
+                const easeOut = 1 - Math.pow(1 - progress, 3);
                 
-                // Позиция курсора относительно контента
-                const contentX = scrollX + x;
-                const contentY = scrollY + y;
+                // Промежуточный зум
+                const interpolatedZoom = startZoom + (endZoom - startZoom) * easeOut;
                 
                 // Применяем зум
-                skillTree.style.transform = `scale(${zoomLevel})`;
+                currentZoom = interpolatedZoom;
+                skillTree.style.transform = `scale(${currentZoom})`;
                 skillTree.style.transformOrigin = "top left";
                 
-                // Вычисляем новую позицию скролла, чтобы курсор оставался на том же месте
-                const newScrollX = contentX * zoomLevel - x;
-                const newScrollY = contentY * zoomLevel - y;
+                // Вычисляем новую позицию скролла
+                const newScrollX = contentX * currentZoom - mouseX;
+                const newScrollY = contentY * currentZoom - mouseY;
                 
+                // Применяем скролл
                 wrapper.scrollLeft = Math.max(0, newScrollX);
                 wrapper.scrollTop = Math.max(0, newScrollY);
-            } else {
-                // Обычный зум без учета курсора
-                skillTree.style.transform = `scale(${zoomLevel})`;
-                skillTree.style.transformOrigin = "top left";
-            }
+                
+                if (progress < 1) {
+                    zoomAnimationFrame = requestAnimationFrame(animate);
+                } else {
+                    zoomAnimationFrame = null;
+                    currentZoom = endZoom; // Убеждаемся что финальное значение точное
+                    skillTree.style.transform = `scale(${currentZoom})`;
+                    skillTree.style.transformOrigin = "top left";
+                    // Финальная позиция скролла
+                    const finalScrollX = contentX * currentZoom - mouseX;
+                    const finalScrollY = contentY * currentZoom - mouseY;
+                    wrapper.scrollLeft = Math.max(0, finalScrollX);
+                    wrapper.scrollTop = Math.max(0, finalScrollY);
+                    
+                    // Если есть pending zoom - обрабатываем его
+                    if (pendingZoom) {
+                        const pending = pendingZoom;
+                        pendingZoom = null;
+                        zoomAtPoint(pending.clientX, pending.clientY, pending.targetZoom, true);
+                    }
+                }
+            };
+            
+            zoomAnimationFrame = requestAnimationFrame(animate);
         };
 
         // Кнопки зума (создаём только один раз)
@@ -4454,25 +4572,30 @@ export class MainMenu {
             zoomControls.className = "skill-zoom-controls";
             zoomControls.innerHTML = `
                 <button class="skill-zoom-btn" id="zoom-out">−</button>
-                <span class="skill-zoom-level">${Math.round(zoomLevel * 100)}%</span>
+                <span class="skill-zoom-level">${Math.round(currentZoom * 100)}%</span>
                 <button class="skill-zoom-btn" id="zoom-in">+</button>
                 <button class="skill-zoom-btn" id="zoom-reset">⌂</button>
             `;
             wrapper.parentElement?.insertBefore(zoomControls, wrapper);
         }
 
-        // Колесико мыши для зума (работает всегда, зум относительно курсора)
+        // Колесико мыши - зум к центру (как кнопки)
         wrapper.addEventListener("wheel", (e: WheelEvent) => {
             e.preventDefault();
-            const delta = e.deltaY > 0 ? -zoomStep : zoomStep;
-            zoomLevel = Math.max(minZoom, Math.min(maxZoom, zoomLevel + delta));
             
-            // Зум относительно позиции курсора
-            applyZoom(e.clientX, e.clientY);
+            const direction = e.deltaY > 0 ? -1 : 1;
+            const newZoom = currentZoom + (direction * ZOOM_STEP);
+            
+            // Зум к центру экрана (как кнопки)
+            const rect = wrapper.getBoundingClientRect();
+            const centerX = rect.left + wrapper.clientWidth / 2;
+            const centerY = rect.top + wrapper.clientHeight / 2;
+            
+            zoomAtPoint(centerX, centerY, newZoom);
             
             const zoomLevelEl = zoomControls.querySelector(".skill-zoom-level") as HTMLElement;
             if (zoomLevelEl) {
-                zoomLevelEl.textContent = `${Math.round(zoomLevel * 100)}%`;
+                zoomLevelEl.textContent = `${Math.round(currentZoom * 100)}%`;
             }
         }, { passive: false });
 
@@ -4485,39 +4608,39 @@ export class MainMenu {
         if (zoomInBtn && !(zoomInBtn as any)._zoomBound) {
             (zoomInBtn as any)._zoomBound = true;
             zoomInBtn.addEventListener("click", () => {
-                zoomLevel = Math.min(maxZoom, zoomLevel + zoomStep);
-                if (wrapper) {
-                    // Зумим относительно центра видимой области
-                    const rect = wrapper.getBoundingClientRect();
-                    const centerX = rect.left + wrapper.clientWidth / 2;
-                    const centerY = rect.top + wrapper.clientHeight / 2;
-                    applyZoom(centerX, centerY);
-                }
-                if (zoomLevelDisplay) zoomLevelDisplay.textContent = `${Math.round(zoomLevel * 100)}%`;
+                if (!wrapper) return;
+                const newZoom = currentZoom + ZOOM_STEP;
+                const rect = wrapper.getBoundingClientRect();
+                const centerX = rect.left + wrapper.clientWidth / 2;
+                const centerY = rect.top + wrapper.clientHeight / 2;
+                zoomAtPoint(centerX, centerY, newZoom, true);
+                if (zoomLevelDisplay) zoomLevelDisplay.textContent = `${Math.round(currentZoom * 100)}%`;
             });
         }
 
         if (zoomOutBtn && !(zoomOutBtn as any)._zoomBound) {
             (zoomOutBtn as any)._zoomBound = true;
             zoomOutBtn.addEventListener("click", () => {
-                zoomLevel = Math.max(minZoom, zoomLevel - zoomStep);
-                if (wrapper) {
-                    // Зумим относительно центра видимой области
-                    const rect = wrapper.getBoundingClientRect();
-                    const centerX = rect.left + wrapper.clientWidth / 2;
-                    const centerY = rect.top + wrapper.clientHeight / 2;
-                    applyZoom(centerX, centerY);
-                }
-                if (zoomLevelDisplay) zoomLevelDisplay.textContent = `${Math.round(zoomLevel * 100)}%`;
+                if (!wrapper) return;
+                const newZoom = currentZoom - ZOOM_STEP;
+                const rect = wrapper.getBoundingClientRect();
+                const centerX = rect.left + wrapper.clientWidth / 2;
+                const centerY = rect.top + wrapper.clientHeight / 2;
+                zoomAtPoint(centerX, centerY, newZoom, true);
+                if (zoomLevelDisplay) zoomLevelDisplay.textContent = `${Math.round(currentZoom * 100)}%`;
             });
         }
 
         if (zoomResetBtn && !(zoomResetBtn as any)._zoomBound) {
             (zoomResetBtn as any)._zoomBound = true;
             zoomResetBtn.addEventListener("click", () => {
-                zoomLevel = 1.0;
-                applyZoom();
-                if (zoomLevelDisplay) zoomLevelDisplay.textContent = `${Math.round(zoomLevel * 100)}%`;
+                if (!wrapper || !skillTree) return;
+                currentZoom = 1.0;
+                skillTree.style.transform = `scale(${currentZoom})`;
+                skillTree.style.transformOrigin = "top left";
+                wrapper.scrollLeft = 0;
+                wrapper.scrollTop = 0;
+                if (zoomLevelDisplay) zoomLevelDisplay.textContent = `${Math.round(currentZoom * 100)}%`;
             });
         }
 
@@ -4579,72 +4702,7 @@ export class MainMenu {
         window.addEventListener("keydown", onKey);
     }
     
-    private createGarageUI(): void {
-        this.garagePanel = document.createElement("div");
-        this.garagePanel.className = "panel-overlay";
-        this.garagePanel.id = "garage-panel";
-        this.garagePanel.innerHTML = `
-            <div class="panel-content">
-                <button class="panel-close" id="garage-close">✕</button>
-                <div class="panel-title">Быстрый гараж</div>
-                <p style="color:#777;text-align:center;margin-bottom:20px;font-size:13px">Для полного гаража нажмите G в игре</p>
-                
-                <div class="setting-row">
-                    <span class="setting-label">Скорость</span>
-                    <div class="setting-value">
-                        <input type="range" class="setting-range" id="tank-speed" min="1" max="3" value="${this.tankConfig.speed}">
-                        <span id="speed-val">${this.tankConfig.speed}</span>
-                    </div>
-                </div>
-                <div class="setting-row">
-                    <span class="setting-label">Броня</span>
-                    <div class="setting-value">
-                        <input type="range" class="setting-range" id="tank-armor" min="1" max="3" value="${this.tankConfig.armor}">
-                        <span id="armor-val">${this.tankConfig.armor}</span>
-                    </div>
-                </div>
-                <div class="setting-row">
-                    <span class="setting-label">Огневая мощь</span>
-                    <div class="setting-value">
-                        <input type="range" class="setting-range" id="tank-firepower" min="1" max="3" value="${this.tankConfig.firepower}">
-                        <span id="firepower-val">${this.tankConfig.firepower}</span>
-                    </div>
-                </div>
-                
-                <div class="panel-buttons">
-                    <button class="panel-btn primary" id="btn-garage-save">Сохранить</button>
-                    <button class="panel-btn" id="btn-garage-back">Назад</button>
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(this.garagePanel);
-        
-        this.setupPanelCloseOnBackground(this.garagePanel, () => this.hideGarage());
-        
-        const setupGarageSlider = (id: string, valId: string, configKey: keyof TankConfig) => {
-            const slider = document.getElementById(id) as HTMLInputElement;
-            slider?.addEventListener("input", () => {
-                (this.tankConfig as any)[configKey] = parseInt(slider.value);
-                const val = document.getElementById(valId);
-                if (val) val.textContent = slider.value;
-            });
-        };
-        
-        setupGarageSlider("tank-speed", "speed-val", "speed");
-        setupGarageSlider("tank-armor", "armor-val", "armor");
-        setupGarageSlider("tank-firepower", "firepower-val", "firepower");
-        
-        document.getElementById("btn-garage-save")?.addEventListener("click", () => {
-            this.saveTankConfig();
-            this.hideGarage();
-        });
-        
-        this.setupCloseButton("btn-garage-back", () => this.hideGarage());
-        this.setupCloseButton("garage-close", () => this.hideGarage());
-    }
-    
-    private showGarage(): void {
+    public showGarage(): void {
         debugLog("[Menu] showGarage() called");
         
         const wantsPlayMenuBack = this.returnToPlayMenuAfterGarage;
@@ -4653,64 +4711,68 @@ export class MainMenu {
         // Garage is initialized by game.ts via setGarage() when game starts
         // If not available, fallback to simple panel
         
-        // If Garage class is available, use it instead of old panel
-        if (this.garage) {
-            debugLog("[Menu] Opening Garage class");
-            const wasVisible = this.isVisible();
-            if (wasVisible) {
-                this.hide();
-            }
-            this.garage.setOnCloseCallback(() => {
-                const shouldReturnToPlay = this.returnToPlayMenuAfterGarage || wantsPlayMenuBack || wasPlayVisible;
-                this.returnToPlayMenuAfterGarage = false;
-                const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
-                if (canvas && canvas.style.display !== "none") {
-                    debugLog("[Menu] Game is running, not showing menu after garage close");
-                    return;
-                }
-                if (shouldReturnToPlay) {
-                    debugLog("[Menu] Returning to play menu after garage close");
-                    this.showPlayMenu();
-                } else if (wasVisible) {
-                    debugLog("[Menu] Showing menu after garage close");
-                    this.show();
-                }
-            });
-            this.garage.open();
+        // Garage should always be available (created in constructor)
+        if (!this.garage) {
+            console.error("[Menu] Garage is null! This should not happen.");
             return;
         }
         
-        // Fallback to old panel if Garage is not available
-        debugLog("[Menu] garagePanel exists:", !!this.garagePanel);
-        if (this.garagePanel) {
-            this.garagePanel.classList.add("visible");
-            // Принудительно устанавливаем стили для гарантии отображения
-            this.garagePanel.style.setProperty("display", "flex", "important");
-            this.garagePanel.style.setProperty("visibility", "visible", "important");
-            this.garagePanel.style.setProperty("opacity", "1", "important");
-            this.garagePanel.style.setProperty("z-index", "100002", "important");
-            debugLog("[Menu] Added 'visible' class, panel has classes:", this.garagePanel.className);
-            debugLog("[Menu] Panel style.display:", window.getComputedStyle(this.garagePanel).display);
-            this.enforceCanvasPointerEvents(); // Блокируем canvas при показе панели
-        } else {
-            debugError("[Menu] garagePanel is null!");
+        debugLog("[Menu] Opening Garage class");
+        const wasVisible = this.isVisible();
+        if (wasVisible) {
+            this.hide();
+        }
+        this.garage.setOnCloseCallback(() => {
+            const shouldReturnToPlay = this.returnToPlayMenuAfterGarage || wantsPlayMenuBack || wasPlayVisible;
+            this.returnToPlayMenuAfterGarage = false;
+            const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
+            if (canvas && canvas.style.display !== "none") {
+                debugLog("[Menu] Game is running, not showing menu after garage close");
+                return;
+            }
+            if (shouldReturnToPlay) {
+                debugLog("[Menu] Returning to play menu after garage close");
+                this.showPlayMenu();
+            } else if (wasVisible) {
+                debugLog("[Menu] Showing menu after garage close");
+                this.show();
+            }
+        });
+        this.garage.open();
+    }
+    
+    private initializeGarageInMenu(): void {
+        try {
+            // Create minimal scene and currency manager for garage
+            this.garageCurrencyManager = new CurrencyManager();
+            
+            // Create a minimal scene for garage (will be replaced by game scene later if needed)
+            const canvas = document.createElement("canvas");
+            canvas.style.display = "none";
+            document.body.appendChild(canvas);
+            const engine = new Engine(canvas, false);
+            this.garageScene = new Scene(engine);
+            
+            // Create garage with minimal scene
+            this.garage = new Garage(this.garageScene, this.garageCurrencyManager);
+            debugLog("[Menu] Garage created in menu constructor");
+        } catch (error) {
+            console.error("[Menu] Failed to create garage in menu:", error);
+            // Garage will be created later by game.ts
         }
     }
     
     private initializeGarage(): void {
-        // Garage will be initialized by game.ts via setGarage() when game starts
-        // This method is kept for future use but currently does nothing
-        debugLog("[Menu] Garage initialization deferred to game.ts");
+        // Garage is already initialized in constructor
+        // This method is kept for compatibility
+        debugLog("[Menu] Garage already initialized");
     }
     
     private hideGarage(): void {
-        debugLog("[Menu] hideGarage() called");
-        if (this.garagePanel) {
-            this.garagePanel.classList.remove("visible");
-            // Сбрасываем inline стили для гарантии скрытия
-            this.garagePanel.style.setProperty("display", "none", "important");
-            this.garagePanel.style.setProperty("visibility", "hidden", "important");
-            this.enforceCanvasPointerEvents(); // Обновляем состояние canvas
+        // Старый метод для совместимости, но теперь гараж закрывается через свой callback
+        debugLog("[Menu] hideGarage() called (deprecated, garage closes via its own callback)");
+        if (this.garage && this.garage.isGarageOpen()) {
+            this.garage.close();
         }
         
         if (this.returnToPlayMenuAfterGarage) {

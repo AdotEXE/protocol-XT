@@ -142,30 +142,30 @@ export class PhysicsPanel {
         style.textContent = `
             #physics-panel {
                 position: fixed;
-                top: 10px;
-                left: 10px;
+                top: clamp(5px, 1vh, 10px);
+                left: clamp(5px, 1vw, 10px);
                 background: rgba(0, 0, 0, 0.85);
                 color: #0f0;
                 font-family: Consolas, Monaco, monospace;
-                font-size: 11px;
-                padding: 8px 12px;
-                border-radius: 4px;
-                border: 1px solid #0f0;
+                font-size: clamp(9px, 1.1vw, 11px);
+                padding: clamp(6px, 0.8vh, 8px) clamp(8px, 1.2vw, 12px);
+                border-radius: clamp(3px, 0.4vw, 4px);
+                border: clamp(1px, 0.1vw, 1px) solid #0f0;
                 z-index: 10001;
-                min-width: 220px;
-                max-width: 280px;
+                min-width: clamp(180px, 22vw, 220px);
+                max-width: min(280px, 30vw);
                 max-height: 90vh;
                 overflow-y: auto;
                 user-select: none;
             }
             #physics-panel.hidden { display: none; }
             .physics-title {
-                font-size: 12px;
+                font-size: clamp(10px, 1.2vw, 12px);
                 font-weight: bold;
                 color: #0ff;
-                border-bottom: 1px solid #0f04;
-                padding-bottom: 4px;
-                margin-bottom: 6px;
+                border-bottom: clamp(1px, 0.1vw, 1px) solid #0f04;
+                padding-bottom: clamp(3px, 0.4vh, 4px);
+                margin-bottom: clamp(4px, 0.6vh, 6px);
             }
             .physics-controls {
                 display: flex;
@@ -175,16 +175,16 @@ export class PhysicsPanel {
             }
             .physics-btn {
                 background: rgba(0, 255, 0, 0.15);
-                border: 1px solid #0f0;
+                border: clamp(1px, 0.1vw, 1px) solid #0f0;
                 color: #0f0;
-                padding: 4px 8px;
+                padding: clamp(3px, 0.4vh, 4px) clamp(6px, 0.8vw, 8px);
                 cursor: pointer;
                 font-family: Consolas, Monaco, monospace;
-                font-size: 10px;
-                border-radius: 2px;
+                font-size: clamp(8px, 1vw, 10px);
+                border-radius: clamp(2px, 0.2vw, 2px);
                 transition: all 0.2s;
                 flex: 1;
-                min-width: 70px;
+                min-width: clamp(60px, 7vw, 70px);
             }
             .physics-btn:hover {
                 background: rgba(0, 255, 0, 0.3);
@@ -235,20 +235,20 @@ export class PhysicsPanel {
             .physics-label {
                 color: #ff0;
                 font-weight: bold;
-                font-size: 10px;
-                margin-bottom: 2px;
+                font-size: clamp(8px, 1vw, 10px);
+                margin-bottom: clamp(1px, 0.2vh, 2px);
             }
             .physics-row {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                padding: 2px 0;
-                gap: 8px;
+                padding: clamp(1px, 0.2vh, 2px) 0;
+                gap: clamp(6px, 0.8vw, 8px);
             }
             .physics-row span:first-child {
                 color: #aaa;
-                font-size: 10px;
-                min-width: 100px;
+                font-size: clamp(8px, 1vw, 10px);
+                min-width: clamp(80px, 10vw, 100px);
             }
             .physics-slider-container {
                 display: flex;
@@ -287,8 +287,8 @@ export class PhysicsPanel {
             .physics-value {
                 color: #0f0;
                 font-weight: bold;
-                font-size: 10px;
-                min-width: 50px;
+                font-size: clamp(8px, 1vw, 10px);
+                min-width: clamp(40px, 5vw, 50px);
                 text-align: right;
             }
             .physics-preset-input {

@@ -96,6 +96,11 @@ export class ChatSystem {
         // Загружаем сохраненные позицию и размер
         const savedPosition = this.loadWindowPosition("system-terminal");
         
+        // Calculate scale factor for responsive sizing
+        const baseWidth = 1920;
+        const baseHeight = 1080;
+        const scaleFactor = Math.min(window.innerWidth / baseWidth, window.innerHeight / baseHeight, 1.5);
+        
         // Ограничиваем размеры экраном для предотвращения перекрытия всего экрана
         const maxWidth = Math.min(window.innerWidth - 20, 1200);
         const maxHeight = Math.min(window.innerHeight - 40, 800);
@@ -135,20 +140,27 @@ export class ChatSystem {
         // Создаём HTML контейнер для перетаскивания и изменения размера
         const htmlContainer = document.createElement("div");
         htmlContainer.id = "system-terminal";
+        // Use relative units for scalable sizing (scaleFactor уже объявлен выше)
+        const scaledWidth = Math.max(300, Math.min(1200, defaultWidth * scaleFactor));
+        const scaledHeight = Math.max(150, Math.min(800, defaultHeight * scaleFactor));
+        const scaledLeft = defaultLeft * scaleFactor;
+        const scaledTop = defaultTop * scaleFactor;
+        
         htmlContainer.style.cssText = `
             position: fixed;
-            left: ${defaultLeft}px;
-            top: ${defaultTop}px;
-            width: ${defaultWidth}px;
-            height: ${defaultCollapsed ? '30px' : `${defaultHeight}px`};
+            left: ${scaledLeft}px;
+            top: ${scaledTop}px;
+            width: ${scaledWidth}px;
+            height: ${defaultCollapsed ? `${30 * scaleFactor}px` : `${scaledHeight}px`};
             background: rgba(0, 0, 0, 0.7);
-            border: 2px solid #0f0;
+            border: ${2 * scaleFactor}px solid #0f0;
             border-radius: 0;
             font-family: 'Courier New', monospace;
+            font-size: clamp(9px, 1vw, 13px);
             z-index: 10000;
             cursor: default;
             user-select: none;
-            box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+            box-shadow: 0 0 ${10 * scaleFactor}px rgba(0, 255, 0, 0.3);
             transform-origin: top;
             pointer-events: auto;
             display: none;
@@ -160,14 +172,15 @@ export class ChatSystem {
         
         // Заголовок для перетаскивания
         const header = document.createElement("div");
+        const headerHeight = 30 * scaleFactor;
         header.style.cssText = `
             width: 100%;
-            height: 30px;
+            height: ${headerHeight}px;
             background: rgba(0, 0, 0, 0.8);
-            border-bottom: 2px solid #0f0;
+            border-bottom: ${2 * scaleFactor}px solid #0f0;
             display: flex;
             align-items: center;
-            padding: 0 10px;
+            padding: 0 ${10 * scaleFactor}px;
             cursor: move;
             position: relative;
             z-index: 10001;
@@ -180,7 +193,7 @@ export class ChatSystem {
         headerText.textContent = isCollapsed ? "> SYSTEM TERMINAL [COLLAPSED]" : "> SYSTEM TERMINAL [ACTIVE]";
         headerText.style.cssText = `
             color: #0f0;
-            font-size: 13px;
+            font-size: clamp(10px, 1.2vw, 13px);
             font-weight: bold;
             flex: 1;
         `;
@@ -191,10 +204,10 @@ export class ChatSystem {
         messagesDiv.id = "terminal-messages";
         messagesDiv.style.cssText = `
             width: 100%;
-            height: calc(100% - 30px - 60px);
+            height: calc(100% - ${headerHeight}px - ${60 * scaleFactor}px);
             overflow-y: auto;
-            padding: 5px;
-            font-size: 11px;
+            padding: ${5 * scaleFactor}px;
+            font-size: clamp(9px, 1vw, 11px);
             color: #0a0;
             display: ${isCollapsed ? 'none' : 'block'};
         `;
@@ -206,13 +219,13 @@ export class ChatSystem {
         consumablesArea.id = "terminal-consumables";
         consumablesArea.style.cssText = `
             width: 100%;
-            height: 60px;
-            border-top: 2px solid #0f0;
+            height: ${60 * scaleFactor}px;
+            border-top: ${2 * scaleFactor}px solid #0f0;
             display: ${isCollapsed ? 'none' : 'flex'};
             justify-content: center;
             align-items: center;
-            gap: 4px;
-            padding: 5px;
+            gap: ${4 * scaleFactor}px;
+            padding: ${5 * scaleFactor}px;
         `;
         htmlContainer.appendChild(consumablesArea);
         (htmlContainer as any)._consumablesArea = consumablesArea;
@@ -498,16 +511,20 @@ export class ChatSystem {
         const consumablesArea = htmlContainer.querySelector("#terminal-consumables") as HTMLDivElement;
         if (!consumablesArea) return;
         
+        // Вычисляем scaleFactor для текущего размера экрана
+        const scaleFactor = Math.min(window.innerWidth / 1920, window.innerHeight / 1080, 1.5);
+        
         // Очищаем старые слоты
         consumablesArea.innerHTML = "";
         
         // Создаём слоты расходников
         for (let i = 1; i <= 5; i++) {
+            const slotSize = 40 * scaleFactor;
             const slot = document.createElement("div");
             slot.style.cssText = `
-                width: 40px;
-                height: 40px;
-                border: 1px solid #555;
+                width: ${slotSize}px;
+                height: ${slotSize}px;
+                border: ${1 * scaleFactor}px solid #555;
                 background: rgba(0, 0, 0, 0.6);
                 display: flex;
                 flex-direction: column;
@@ -525,10 +542,10 @@ export class ChatSystem {
                 key.textContent = `${i}`;
                 key.style.cssText = `
                     position: absolute;
-                    top: 2px;
-                    left: 2px;
+                    top: ${2 * scaleFactor}px;
+                    left: ${2 * scaleFactor}px;
                     color: #666;
-                    font-size: 9px;
+                    font-size: clamp(7px, 0.8vw, 9px);
                     font-weight: bold;
                 `;
                 slot.appendChild(key);
@@ -538,7 +555,7 @@ export class ChatSystem {
                 icon.textContent = consumable.icon || "?";
                 icon.style.cssText = `
                     color: #fff;
-                    font-size: 18px;
+                    font-size: clamp(14px, 1.5vw, 18px);
                 `;
                 slot.appendChild(icon);
                 
@@ -835,11 +852,14 @@ export class ChatSystem {
                 ? `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}:${time.getSeconds().toString().padStart(2, '0')}`
                 : "";
             
+            // Вычисляем scaleFactor для текущего размера экрана
+            const scaleFactor = Math.min(window.innerWidth / 1920, window.innerHeight / 1080, 1.5);
+            
             const msgDiv = document.createElement("div");
             msgDiv.style.cssText = `
                 color: ${message.color};
-                font-size: 11px;
-                margin: 2px 0;
+                font-size: clamp(9px, 1vw, 11px);
+                margin: ${2 * scaleFactor}px 0;
                 word-wrap: break-word;
             `;
             

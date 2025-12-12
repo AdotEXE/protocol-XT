@@ -71,48 +71,49 @@ export class DebugDashboard {
         style.textContent = `
             #debug-dashboard {
                 position: fixed;
-                top: 10px;
-                left: 10px;
+                top: clamp(5px, 1vh, 10px);
+                left: clamp(5px, 1vw, 10px);
                 background: rgba(0, 0, 0, 0.85);
                 color: #0f0;
                 font-family: Consolas, Monaco, monospace;
-                font-size: 11px;
-                padding: 8px 12px;
-                border-radius: 4px;
-                border: 1px solid #0f0;
+                font-size: clamp(9px, 1.1vw, 11px);
+                padding: clamp(6px, 0.8vh, 8px) clamp(8px, 1.2vw, 12px);
+                border-radius: clamp(3px, 0.4vw, 4px);
+                border: clamp(1px, 0.1vw, 1px) solid #0f0;
                 z-index: 10000;
-                min-width: 180px;
+                min-width: clamp(150px, 18vw, 180px);
+                max-width: min(300px, 30vw);
                 user-select: none;
             }
             #debug-dashboard.hidden { display: none; }
             .debug-title {
-                font-size: 12px;
+                font-size: clamp(10px, 1.2vw, 12px);
                 font-weight: bold;
                 color: #0ff;
-                border-bottom: 1px solid #0f04;
-                padding-bottom: 4px;
-                margin-bottom: 6px;
+                border-bottom: clamp(1px, 0.1vw, 1px) solid #0f04;
+                padding-bottom: clamp(3px, 0.4vh, 4px);
+                margin-bottom: clamp(4px, 0.6vh, 6px);
             }
-            .debug-section { margin-bottom: 8px; }
+            .debug-section { margin-bottom: clamp(6px, 0.8vh, 8px); }
             .debug-label {
                 color: #ff0;
                 font-weight: bold;
-                font-size: 10px;
-                margin-bottom: 2px;
+                font-size: clamp(8px, 1vw, 10px);
+                margin-bottom: clamp(1px, 0.2vh, 2px);
             }
             .debug-row {
                 display: flex;
                 justify-content: space-between;
-                padding: 1px 0;
+                padding: clamp(1px, 0.1vh, 1px) 0;
             }
             .debug-row span:first-child { color: #aaa; }
             .debug-row span:last-child { color: #0f0; font-weight: bold; }
             #fps-graph {
                 width: 100%;
-                height: 30px;
+                height: clamp(25px, 3vh, 30px);
                 background: #111;
-                border: 1px solid #333;
-                margin-top: 4px;
+                border: clamp(1px, 0.1vw, 1px) solid #333;
+                margin-top: clamp(3px, 0.4vh, 4px);
             }
             .fps-good { color: #0f0 !important; }
             .fps-ok { color: #ff0 !important; }

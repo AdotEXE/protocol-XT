@@ -374,12 +374,12 @@ export class Game {
         // Setup ESC for pause and Garage
         window.addEventListener("keydown", (e) => {
             // Open/Close garage MENU with B key - В ЛЮБОЙ МОМЕНТ (даже до старта игры)
-            if (e.code === "KeyB" || e.key === "b" || e.key === "B") {
+            if (e.code === "KeyB" || e.key === "b" || e.key === "B" || e.code === "KeyG" || e.key === "g" || e.key === "G") {
                 e.preventDefault(); // Предотвращаем другие обработчики
                 e.stopPropagation(); // Останавливаем распространение события
                 e.stopImmediatePropagation(); // Останавливаем все обработчики
                 
-                logger.debug("===== KeyB pressed =====");
+                logger.debug("===== KeyB/KeyG pressed for Garage =====");
                 logger.debug("Event code:", e.code);
                 logger.debug("Event key:", e.key);
                 logger.debug("Garage exists:", !!this.garage);
@@ -387,44 +387,37 @@ export class Game {
                 
                 // Функция для переключения гаража
                 const toggleGarage = () => {
-                if (!this.garage) {
+                    if (!this.garage) {
                         logger.error("ERROR: Garage is null!");
-                    return;
-                }
+                        // Если гараж не создан, пытаемся открыть через меню
+                        if (this.mainMenu) {
+                            logger.debug("[Game] Garage not available, trying to open via mainMenu...");
+                            this.mainMenu.showGarage();
+                        }
+                        return;
+                    }
                     
                     try {
                         const isCurrentlyOpen = this.garage.isGarageOpen();
                         console.log(`[Game] Garage isOpen: ${isCurrentlyOpen}`);
                         
                         if (isCurrentlyOpen) {
-                    this.garage.close();
+                            this.garage.close();
                             logger.log("✓ Garage menu CLOSED");
-                } else {
+                        } else {
                             // Закрываем карту при открытии гаража
                             if (this.hud && this.hud.isFullMapVisible()) {
                                 this.hud.toggleFullMap();
                             }
                             
-                    this.garage.open();
+                            this.garage.open();
                             logger.log("✓ Garage menu OPENED");
                             
                             // Дополнительная проверка через небольшую задержку
                             setTimeout(() => {
                                 if (this.garage && this.garage.isGarageOpen()) {
                                     logger.debug("✓ Garage confirmed open");
-                                    // Проверяем видимость GUI
-                                    const garageUI = this.garage.getGUI();
-                                    if (garageUI) {
-                                        logger.debug("Garage GUI settings:", {
-                                            isForeground: garageUI.isForeground,
-                                            layerMask: garageUI.layer?.layerMask,
-                                            rootContainerVisible: garageUI.rootContainer?.isVisible,
-                                            rootContainerAlpha: garageUI.rootContainer?.alpha,
-                                            controlsCount: garageUI.rootContainer?.children?.length || 0
-                                        });
-                                    } else {
-                                        logger.error("✗ Garage GUI is null!");
-                                    }
+                                    // Garage uses HTML overlay, not Babylon GUI, so getGUI() returns null - this is normal
                                 } else {
                                     logger.error("✗ Garage failed to open!");
                                 }
@@ -433,29 +426,42 @@ export class Game {
                     } catch (error) {
                         logger.error("✗ Error toggling garage:", error);
                         logger.error("Error stack:", (error as Error).stack);
+                        // Если ошибка, пытаемся открыть через меню
+                        if (this.mainMenu) {
+                            logger.debug("[Game] Error toggling garage, trying via mainMenu...");
+                            this.mainMenu.showGarage();
+                        }
                     }
                 };
                 
-                if (!this.garage) {
-                    console.warn("[Game] Garage not initialized yet! Waiting for initialization...");
-                    // Если garage еще не создан, ждем немного и пробуем снова
-                    setTimeout(() => {
-                        if (this.garage) {
-                            logger.debug("Garage now available, toggling...");
-                            toggleGarage();
-                        } else {
-                            logger.error("Garage still not available after timeout!");
-                        }
-                    }, 300);
+                // Если гараж создан, переключаем его
+                if (this.garage) {
+                    toggleGarage();
+                } else {
+                    // Если гараж еще не создан, открываем через меню (которое покажет старую панель или подождет)
+                    logger.debug("[Game] Garage not initialized yet, opening via mainMenu...");
+                    if (this.mainMenu) {
+                        this.mainMenu.showGarage();
+                    } else {
+                        // Если меню тоже нет, ждем немного и пробуем снова
+                        setTimeout(() => {
+                            if (this.garage) {
+                                logger.debug("Garage now available, toggling...");
+                                toggleGarage();
+                            } else if (this.mainMenu) {
+                                this.mainMenu.showGarage();
+                            } else {
+                                logger.error("Garage and mainMenu still not available after timeout!");
+                            }
+                        }, 300);
+                    }
+                }
                 return;
             }
             
-                toggleGarage();
-                return;
-            }
-            
-            // Ручное управление воротами гаража клавишей G (только во время игры)
-            if (e.code === "KeyG" && this.gameStarted && this.chunkSystem && this.chunkSystem.garageDoors) {
+            // Ручное управление воротами гаража клавишей G (только во время игры, если меню гаража закрыто)
+            if (e.code === "KeyG" && this.gameStarted && this.chunkSystem && this.chunkSystem.garageDoors && 
+                (!this.garage || !this.garage.isGarageOpen())) {
                 e.preventDefault();
                 // Переключаем состояние ворот ближайшего гаража (только той, на которую смотрит пушка)
                 if (this.tank && this.tank.chassis && this.tank.barrel) {

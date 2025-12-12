@@ -18,6 +18,7 @@ import { SoundManager } from "./soundManager";
 import { EffectsManager } from "./effects";
 import type { EnemyManager } from "./enemy";
 import { getChassisById, getCannonById, type ChassisType, type CannonType } from "./tankTypes";
+import { TankHealthModule, TankMovementModule } from "./tank";
 
 export class TankController {
     scene: Scene;
@@ -32,14 +33,14 @@ export class TankController {
     enemyTanks: any[] = []; // Reference to enemy tanks for hit detection
     
     // Callback for camera shake
-    private cameraShakeCallback: ((intensity: number) => void) | null = null;
+    cameraShakeCallback: ((intensity: number) => void) | null = null;
     chatSystem: any = null; // ChatSystem для сообщений
     experienceSystem: any = null; // ExperienceSystem для опыта
     playerProgression: any = null; // PlayerProgressionSystem для глобального прогресса
     achievementsSystem: any = null; // AchievementsSystem для достижений
     
     // Callback для получения позиции респавна (гараж)
-    private respawnPositionCallback: (() => Vector3 | null) | null = null;
+    respawnPositionCallback: (() => Vector3 | null) | null = null;
     
     // Callback для отправки выстрела на сервер (мультиплеер)
     private onShootCallback: ((data: any) => void) | null = null;
@@ -51,18 +52,16 @@ export class TankController {
     private respawnCountdown = 0; // Секунды до респавна
     private respawnIntervalId: number | null = null;
     
-    // Защита от урона после респавна
-    private isInvulnerable = false;
-    private invulnerabilityDuration = 3000; // 3 секунды защиты
-    private invulnerabilityStartTime = 0;
-    private invulnerabilityGlow: Mesh | null = null;
+    // Модули
+    private healthModule: TankHealthModule;
+    private movementModule: TankMovementModule;
     
     // Эффекты движения
     private _lastMovementSoundTime: number = 0;
     private _lastSmokeTime: number = 0;
     
     // Special chassis abilities
-    private chassisAnimationElements: {
+    chassisAnimationElements: {
         stealthActive?: boolean;
         stealthMesh?: Mesh;
         hoverThrusters?: Mesh[];
@@ -102,23 +101,46 @@ export class TankController {
     private cannonAnimationElements: {
         gatlingBarrels?: Mesh[];
         teslaCoils?: Mesh[];
+        teslaGen?: Mesh;
         plasmaCore?: Mesh;
+        plasmaCoils?: Mesh[];
         laserLens?: Mesh;
+        laserRings?: Mesh[];
+        railgunCapacitors?: Mesh[];
         vortexRings?: Mesh[];
+        vortexGen?: Mesh;
         supportEmitter?: Mesh;
         supportRings?: Mesh[];
+        supportHealingRings?: Mesh[];
+        repairGen?: Mesh;
         // All other cannons for animations
         rocketTube?: Mesh;
+        rocketGuides?: Mesh[];
         mortarBase?: Mesh;
+        mortarLegs?: Mesh[];
         clusterTubes?: Mesh[];
+        clusterCenterTube?: Mesh;
         acidTank?: Mesh;
+        acidSprayer?: Mesh;
         freezeFins?: Mesh[];
+        cryoTank?: Mesh;
+        poisonInjector?: Mesh;
         empDish?: Mesh;
+        empCoils?: Mesh[];
+        empGen?: Mesh;
         multishotBarrels?: Mesh[];
+        multishotConnector?: Mesh;
+        shotgunBarrels?: Mesh[];
         homingGuidance?: Mesh;
+        homingAntennas?: Mesh[];
         piercingTip?: Mesh;
+        piercingConduits?: Mesh[];
         shockwaveAmp?: Mesh;
+        shockwaveEmitters?: Mesh[];
         beamFocuser?: Mesh;
+        beamLenses?: Mesh[];
+        beamConduits?: Mesh[];
+        flamethrowerNozzle?: Mesh;
         animationTime?: number;
     } = { animationTime: 0 };
     
@@ -401,6 +423,11 @@ export class TankController {
         
         // 4. Inputs
         this.setupInput();
+        
+        // 5. Initialize modules
+        this.healthModule = new TankHealthModule(this);
+        this.movementModule = new TankMovementModule(this);
+        
         console.log("TankController: Init Success");
     }
 
@@ -470,292 +497,51 @@ export class TankController {
         }, 1000);
     }
 
+    // ============ HEALTH MODULE DELEGATION ============
     takeDamage(amount: number, attackerPosition?: Vector3) {
-        if (!this.isAlive) return;
-        
-        // Shield reduces damage by 50%
-        if (this.chassisAnimationElements.shieldActive) {
-            amount = Math.round(amount * 0.5);
-        }
-        
-        // Stealth reduces damage by 30% (harder to hit)
-        if (this.chassisAnimationElements.stealthActive) {
-            amount = Math.round(amount * 0.7);
-        }
-        
-        // Shield reduces damage by 50%
-        if (this.chassisAnimationElements.shieldActive) {
-            amount = Math.round(amount * 0.5);
-        }
-        
-        // Stealth reduces damage by 30% (harder to hit)
-        if (this.chassisAnimationElements.stealthActive) {
-            amount = Math.round(amount * 0.7);
-        }
-        
-        // Применяем бонус брони от уровня опыта
-        let finalDamage = amount;
-        if (this.experienceSystem) {
-            const chassisBonus = this.experienceSystem.getChassisLevelBonus(this.chassisType.id);
-            if (chassisBonus && chassisBonus.armorBonus > 0) {
-                const reduction = 1 - chassisBonus.armorBonus;
-                finalDamage = Math.round(amount * reduction);
-                if (finalDamage < amount) {
-                    console.log(`[ARMOR] Damage reduced: ${amount} -> ${finalDamage} (${(chassisBonus.armorBonus * 100).toFixed(0)}% armor)`);
-                }
-            }
-        }
-        
-        this.currentHealth = Math.max(0, this.currentHealth - finalDamage);
-        if (this.hud) {
-            this.hud.damage(finalDamage);
-            
-            // Показываем индикатор направления урона, если известна позиция атакующего
-            if (attackerPosition && this.chassis) {
-                const playerPos = this.chassis.position;
-                const playerRotation = this.chassis.rotation.y;
-                this.hud.showDamageFromPosition(attackerPosition, playerPos, playerRotation);
-            }
-        }
-        
-        // Play hit sound (разные звуки для разных типов попаданий) with 3D positioning
-        if (this.soundManager) {
-            const hitType = finalDamage > 30 ? "critical" : finalDamage > 15 ? "armor" : "normal";
-            const hitPos = this.chassis.position.clone();
-            this.soundManager.playHit(hitType, hitPos);
-        }
-        
-        // Тряска камеры при получении урона
-        if (this.cameraShakeCallback) {
-            const intensity = Math.min(0.5, finalDamage / 50); // Интенсивность зависит от урона
-            this.cameraShakeCallback(intensity);
-        }
-        
-        // Записываем полученный урон для опыта корпуса (оригинальный урон)
-        if (this.experienceSystem) {
-            this.experienceSystem.recordDamageTaken(this.chassisType.id, amount);
-        }
-        // Записываем полученный урон в статистику игрока
-        if (this.playerProgression) {
-            this.playerProgression.recordDamageTaken(finalDamage);
-        }
-        
-        console.log(`[DAMAGE] Tank took ${finalDamage} damage! HP: ${this.currentHealth}/${this.maxHealth}`);
-        
-        if (this.currentHealth <= 0) {
-            this.die();
-        }
+        return this.healthModule.takeDamage(amount, attackerPosition);
     }
 
     heal(amount: number) {
-        if (!this.isAlive) return;
-        
-        this.currentHealth = Math.min(this.maxHealth, this.currentHealth + amount);
-        if (this.hud) {
-            this.hud.heal(amount);
-        }
+        return this.healthModule.heal(amount);
     }
     
     // Топливная система
     addFuel(amount: number): void {
-        this.currentFuel = Math.min(this.maxFuel, this.currentFuel + amount);
-        this.isFuelEmpty = this.currentFuel <= 0;
+        return this.healthModule.addFuel(amount);
     }
     
     consumeFuel(deltaTime: number): void {
-        if (this.isFuelEmpty) return;
-        
-        // Потребляем топливо только при движении
-        const isMoving = Math.abs(this.smoothThrottle) > 0.1 || Math.abs(this.smoothSteer) > 0.1;
-        if (isMoving) {
-            this.currentFuel -= this.fuelConsumptionRate * deltaTime;
-            if (this.currentFuel <= 0) {
-                this.currentFuel = 0;
-                this.isFuelEmpty = true;
-                console.log("[TANK] Out of fuel!");
-            }
-        }
+        return this.healthModule.consumeFuel(deltaTime);
     }
     
     getFuelPercent(): number {
-        return this.currentFuel / this.maxFuel;
+        return this.healthModule.getFuelPercent();
     }
     
-    // Активировать защиту от урона
+    // Защита от урона
     private activateInvulnerability(): void {
-        this.isInvulnerable = true;
-        this.invulnerabilityStartTime = Date.now();
-        
-        // Создаём визуальный эффект защиты (свечение)
-        if (this.chassis && this.effectsManager) {
-            this.createInvulnerabilityGlow();
-        }
-        
-        // Обновляем HUD
-        if (this.hud) {
-            this.hud.setInvulnerability(true, this.invulnerabilityDuration);
-        }
-        
-        // Сообщение в чат
-        if (this.chatSystem) {
-            this.chatSystem.info("Защита активирована", 0);
-        }
-        
-        // Отключаем защиту через заданное время
-        setTimeout(() => {
-            this.deactivateInvulnerability();
-        }, this.invulnerabilityDuration);
+        return this.healthModule.activateInvulnerability();
     }
     
-    // Деактивировать защиту от урона
-    private deactivateInvulnerability(): void {
-        this.isInvulnerable = false;
-        
-        // Удаляем визуальный эффект
-        if (this.invulnerabilityGlow) {
-            this.invulnerabilityGlow.dispose();
-            this.invulnerabilityGlow = null;
-        }
-        
-        // Обновляем HUD
-        if (this.hud) {
-            this.hud.setInvulnerability(false);
-        }
-    }
-    
-    // Создать визуальный эффект защиты
-    private createInvulnerabilityGlow(): void {
-        if (!this.chassis) return;
-        
-        // Создаём светящееся кольцо вокруг танка
-        const glow = MeshBuilder.CreateCylinder("invulnerabilityGlow", { 
-            diameter: this.chassisType.width + 2, 
-            height: 0.2, 
-            tessellation: 32 
-        }, this.scene);
-        glow.position = this.chassis.position.clone();
-        glow.position.y = 1;
-        glow.rotation.x = Math.PI / 2;
-        
-        const mat = new StandardMaterial("invulnerabilityMat", this.scene);
-        mat.diffuseColor = new Color3(0, 1, 1); // Голубой
-        mat.emissiveColor = new Color3(0, 0.8, 0.8);
-        mat.disableLighting = true;
-        glow.material = mat;
-        
-        this.invulnerabilityGlow = glow;
-        
-        // Анимация пульсации
-        let pulsePhase = 0;
-        const pulse = () => {
-            if (!this.isInvulnerable || !glow || glow.isDisposed()) return;
-            
-            pulsePhase += 0.1;
-            const scale = 1 + Math.sin(pulsePhase) * 0.1;
-            glow.scaling.setAll(scale);
-            
-            if (this.isInvulnerable) {
-                requestAnimationFrame(pulse);
-            }
-        };
-        pulse();
-    }
-    
-    // Обновить таймер защиты (вызывается каждый кадр)
     private updateInvulnerability(): void {
-        if (!this.isInvulnerable) return;
-        
-        const elapsed = Date.now() - this.invulnerabilityStartTime;
-        const timeLeft = this.invulnerabilityDuration - elapsed;
-        
-        if (timeLeft <= 0) {
-            this.deactivateInvulnerability();
-        } else {
-            // Обновляем визуальный эффект
-            if (this.invulnerabilityGlow && this.chassis) {
-                this.invulnerabilityGlow.position = this.chassis.position.clone();
-                this.invulnerabilityGlow.position.y = 1;
-            }
-            
-            // Обновляем HUD
-            if (this.hud) {
-                this.hud.updateInvulnerability(timeLeft);
-            }
-        }
+        return this.healthModule.updateInvulnerability();
     }
     
-    // Проверить, защищён ли танк
     isInvulnerableNow(): boolean {
-        return this.isInvulnerable;
+        return this.healthModule.isInvulnerableNow();
     }
     
-    // Получить оставшееся время защиты
     getInvulnerabilityTimeLeft(): number {
-        if (!this.isInvulnerable) return 0;
-        const elapsed = Date.now() - this.invulnerabilityStartTime;
-        return Math.max(0, this.invulnerabilityDuration - elapsed);
+        return this.healthModule.getInvulnerabilityTimeLeft();
     }
 
     die() {
-        if (!this.isAlive) return; // Уже мёртв
-        
-        this.isAlive = false;
-        console.log("[TANK] Destroyed!");
-        
-        // Останавливаем все движения
-        if (this.physicsBody) {
-            this.physicsBody.setLinearVelocity(Vector3.Zero());
-            this.physicsBody.setAngularVelocity(Vector3.Zero());
-        }
-        
-        // Сбрасываем инпуты
-        this.throttleTarget = 0;
-        this.steerTarget = 0;
-        this.smoothThrottle = 0;
-        this.smoothSteer = 0;
-        this.turretTurnTarget = 0;
-        this.turretTurnSmooth = 0;
-        
-        // Play explosion sound with 3D positioning
-        if (this.soundManager) {
-            const explosionPos = this.chassis.position.clone();
-            this.soundManager.playExplosion(explosionPos, 1.0);
-        }
-        
-        // Create explosion effect
-        if (this.effectsManager) {
-            this.effectsManager.createExplosion(this.chassis.position.clone(), 2);
-        }
-        
-        // Show death message
-        if (this.hud) {
-            this.hud.showDeathMessage();
-        }
-        
-        // Record death in player progression
-        if (this.playerProgression) {
-            this.playerProgression.recordDeath();
-        }
-        
-        // Сбрасываем серию убийств в системе опыта
-        if (this.experienceSystem) {
-            this.experienceSystem.recordDeath();
-        }
-        
-        // Respawn after 3 seconds
-        console.log("[TANK] Scheduling respawn in 3 seconds...");
-        setTimeout(() => {
-            console.log("[TANK] Respawn timer fired!");
-            if (!this.isAlive) {
-            this.respawn();
-            } else {
-                console.log("[TANK] Already alive, skipping respawn");
-            }
-        }, 3000);
+        return this.healthModule.die();
     }
 
     // Применить улучшения из гаража и бонусы от уровня опыта
-    private applyUpgrades(): void {
+    applyUpgrades(): void {
         try {
             // === 1. УЛУЧШЕНИЯ ИЗ ГАРАЖА ===
             const saved = localStorage.getItem("tx_garage_progress");
@@ -979,25 +765,28 @@ export class TankController {
         
         switch (this.chassisType.id) {
             case "light":
-                // Light - узкий, низкий, спортивный, обтекаемый
+                // Light - Прототип: БТ-7 / Т-70 - Узкий, низкий, обтекаемый
+                // Основной корпус - узкий и длинный с наклонной лобовой броней
                 chassis = MeshBuilder.CreateBox("tankHull", { 
-                    width: w * 0.88, 
-                    height: h * 0.8, 
-                    depth: d * 1.1 
+                    width: w * 0.75, 
+                    height: h * 0.7, 
+                    depth: d * 1.2 
                 }, scene);
                 break;
                 
             case "scout":
-                // Scout - очень маленький, обтекаемый, клиновидный
+                // Scout - Прототип: Т-70 / БТ-7 - Очень маленький, клиновидный
+                // Основной корпус - очень маленький с острым носом
                 chassis = MeshBuilder.CreateBox("tankHull", { 
-                    width: w * 0.82, 
-                    height: h * 0.75, 
-                    depth: d * 0.92 
+                    width: w * 0.7, 
+                    height: h * 0.65, 
+                    depth: d * 0.85 
                 }, scene);
                 break;
                 
             case "heavy":
-                // Heavy - большой, массивный, квадратный
+                // Heavy - Прототип: ИС-2 / ИС-7 - Огромный, массивный, квадратный
+                // Основной корпус - огромный и квадратный
                 chassis = MeshBuilder.CreateBox("tankHull", { 
                     width: w * 1.08, 
                     height: h * 1.2, 
@@ -1006,106 +795,120 @@ export class TankController {
                 break;
                 
             case "assault":
-                // Assault - средний, угловатый, агрессивный, широкий
+                // Assault - ШИРОКИЙ, АГРЕССИВНЫЙ, УГЛОВАТЫЙ - УНИКАЛЬНАЯ ФОРМА
+                // Основной корпус - широкий и угловатый
                 chassis = MeshBuilder.CreateBox("tankHull", { 
-                    width: w * 1.05, 
-                    height: h * 1.08, 
-                    depth: d * 1.02 
-                }, scene);
-                break;
-                
-            case "stealth":
-                // Stealth - угловатый, очень низкий профиль, плоский
-                chassis = MeshBuilder.CreateBox("tankHull", { 
-                    width: w * 0.98, 
-                    height: h * 0.85, 
-                    depth: d * 1.12 
-                }, scene);
-                break;
-                
-            case "hover":
-                // Hover - обтекаемый, округлый, с реактивными двигателями
-                chassis = MeshBuilder.CreateBox("tankHull", { 
-                    width: w * 1.02, 
-                    height: h * 0.92, 
+                    width: w * 1.12, 
+                    height: h * 1.1, 
                     depth: d * 1.05 
                 }, scene);
                 break;
                 
+            case "stealth":
+                // Stealth - ОЧЕНЬ НИЗКИЙ, ПЛОСКИЙ, УГЛОВАТЫЙ - УНИКАЛЬНАЯ ФОРМА
+                // Основной корпус - очень низкий и плоский
+                chassis = MeshBuilder.CreateBox("tankHull", { 
+                    width: w * 1.05, 
+                    height: h * 0.7, 
+                    depth: d * 1.15 
+                }, scene);
+                break;
+                
+            case "hover":
+                // Hover - Прототип: Концепт на воздушной подушке - Округлый, обтекаемый
+                // Основной корпус - округлый цилиндр (low-poly)
+                chassis = MeshBuilder.CreateCylinder("tankHull", { 
+                    diameter: Math.max(w, d) * 1.1,
+                    height: h * 0.95, 
+                    tessellation: 8  // Low-poly
+                }, scene);
+                chassis.rotation.z = Math.PI / 2;
+                break;
+                
             case "siege":
-                // Siege - массивный, очень большой, квадратный
+                // Siege - ОГРОМНЫЙ, МАССИВНЫЙ - УНИКАЛЬНАЯ ФОРМА
+                // Основной корпус - огромный и квадратный
+                chassis = MeshBuilder.CreateBox("tankHull", { 
+                    width: w * 1.25, 
+                    height: h * 1.35, 
+                    depth: d * 1.2 
+                }, scene);
+                break;
+                
+            case "racer":
+                // Racer - ЭКСТРЕМАЛЬНО НИЗКИЙ, ДЛИННЫЙ - УНИКАЛЬНАЯ ФОРМА
+                // Основной корпус - очень низкий и длинный
+                chassis = MeshBuilder.CreateBox("tankHull", { 
+                    width: w * 0.75, 
+                    height: h * 0.55, 
+                    depth: d * 1.3 
+                }, scene);
+                break;
+                
+            case "amphibious":
+                // Amphibious - ШИРОКИЙ, С ПОПЛАВКАМИ - УНИКАЛЬНАЯ ФОРМА
+                // Основной корпус - широкий и округлый
                 chassis = MeshBuilder.CreateBox("tankHull", { 
                     width: w * 1.15, 
+                    height: h * 1.1, 
+                    depth: d * 1.1 
+                }, scene);
+                break;
+                
+            case "shield":
+                // Shield - Прототип: Т-72 + генератор щита - Широкий, с генератором
+                // Основной корпус - широкий и округлый (октаэдр, low-poly)
+                chassis = MeshBuilder.CreateCylinder("tankHull", { 
+                    diameter: Math.max(w, d) * 1.2,
+                    height: h * 1.1,
+                    tessellation: 8  // Low-poly
+                }, scene);
+                chassis.rotation.z = Math.PI / 2;
+                break;
+                
+            case "drone":
+                // Drone - СРЕДНИЙ, С ПЛАТФОРМАМИ - УНИКАЛЬНАЯ ФОРМА
+                // Основной корпус - средний с платформами
+                chassis = MeshBuilder.CreateBox("tankHull", { 
+                    width: w * 1.1, 
+                    height: h * 1.12, 
+                    depth: d * 1.05 
+                }, scene);
+                break;
+                
+            case "artillery":
+                // Artillery - ШИРОКИЙ, ВЫСОКИЙ - УНИКАЛЬНАЯ ФОРМА
+                // Основной корпус - широкий и высокий
+                chassis = MeshBuilder.CreateBox("tankHull", { 
+                    width: w * 1.2, 
                     height: h * 1.25, 
                     depth: d * 1.15 
                 }, scene);
                 break;
                 
-            case "racer":
-                // Racer - очень низкий, спортивный, длинный
+            case "destroyer":
+                // Destroyer - ОЧЕНЬ ДЛИННЫЙ, НИЗКИЙ - УНИКАЛЬНАЯ ФОРМА
+                // Основной корпус - очень длинный и низкий
                 chassis = MeshBuilder.CreateBox("tankHull", { 
                     width: w * 0.85, 
-                    height: h * 0.7, 
-                    depth: d * 0.95 
-                }, scene);
-                break;
-                
-            case "amphibious":
-                // Amphibious - широкий, с поплавками
-                chassis = MeshBuilder.CreateBox("tankHull", { 
-                    width: w * 1.08, 
-                    height: h * 1.05, 
-                    depth: d * 1.08 
-                }, scene);
-                break;
-                
-            case "shield":
-                // Shield - широкий, с генератором щита
-                chassis = MeshBuilder.CreateBox("tankHull", { 
-                    width: w * 1.18, 
-                    height: h * 1.05, 
-                    depth: d * 1.08 
-                }, scene);
-                break;
-                
-            case "drone":
-                // Drone - средний, с платформами для дронов
-                chassis = MeshBuilder.CreateBox("tankHull", { 
-                    width: w * 1.05, 
-                    height: h * 1.08, 
-                    depth: d * 1.02 
-                }, scene);
-                break;
-                
-            case "artillery":
-                // Artillery - широкий, высокий, с стабилизаторами
-                chassis = MeshBuilder.CreateBox("tankHull", { 
-                    width: w * 1.12, 
-                    height: h * 1.15, 
-                    depth: d * 1.12 
-                }, scene);
-                break;
-                
-            case "destroyer":
-                // Destroyer - длинный, низкий, узкий
-                chassis = MeshBuilder.CreateBox("tankHull", { 
-                    width: w * 0.95, 
-                    height: h * 0.85, 
-                    depth: d * 1.2 
+                    height: h * 0.75, 
+                    depth: d * 1.4 
                 }, scene);
                 break;
                 
             case "command":
-                // Command - средний, высокий, с антеннами
+                // Command - ВЫСОКИЙ, С АНТЕННАМИ - УНИКАЛЬНАЯ ФОРМА
+                // Основной корпус - высокий с антеннами
                 chassis = MeshBuilder.CreateBox("tankHull", { 
-                    width: w * 1.05, 
-                    height: h * 1.15, 
-                    depth: d * 1.08 
+                    width: w * 1.1, 
+                    height: h * 1.2, 
+                    depth: d * 1.1 
                 }, scene);
                 break;
                 
             default: // medium
-                // Medium - сбалансированный, классический
+                // Medium - СБАЛАНСИРОВАННЫЙ, КЛАССИЧЕСКИЙ - УНИКАЛЬНАЯ ФОРМА
+                // Основной корпус - сбалансированный
                 chassis = MeshBuilder.CreateBox("tankHull", { 
                     width: w * 1.0, 
                     height: h * 1.0, 
@@ -1148,79 +951,287 @@ export class TankController {
         
         switch (this.chassisType.id) {
             case "light":
-                // Light - спортивные обтекатели, воздухозаборники
+                // Light - Прототип: БТ-7 - Наклонная лобовая броня, воздухозаборники, спойлер
+                // Наклонная лобовая плита (угол 60°)
+                const lightFront = MeshBuilder.CreateBox("lightFront", {
+                    width: w * 0.88,
+                    height: h * 0.6,
+                    depth: 0.2
+                }, scene);
+                lightFront.position = new Vector3(0, h * 0.15, d * 0.52);
+                lightFront.rotation.x = -Math.PI / 6;  // Наклон 30°
+                lightFront.parent = chassis;
+                lightFront.material = armorMat;
+                
+                // Воздухозаборники (угловатые)
                 for (let i = 0; i < 2; i++) {
                     const intake = MeshBuilder.CreateBox(`intake${i}`, {
-                        width: 0.12,
-                        height: h * 0.3,
-                        depth: 0.15
+                        width: 0.3,
+                        height: h * 0.65,
+                        depth: 0.35
                     }, scene);
-                    intake.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.15, d * 0.4);
+                    intake.position = new Vector3((i === 0 ? -1 : 1) * w * 0.42, h * 0.2, d * 0.45);
                     intake.parent = chassis;
-                    intake.material = armorMat;
+                    intake.material = accentMat;
                 }
-                // Задний спойлер
+                
+                // Задний спойлер (угловатый)
                 const lightSpoiler = MeshBuilder.CreateBox("lightSpoiler", {
-                    width: w * 0.9,
-                    height: 0.08,
-                    depth: 0.12
+                    width: w * 1.2,
+                    height: 0.2,
+                    depth: 0.25
                 }, scene);
-                lightSpoiler.position = new Vector3(0, h * 0.45, -d * 0.48);
+                lightSpoiler.position = new Vector3(0, h * 0.5, -d * 0.48);
                 lightSpoiler.parent = chassis;
                 lightSpoiler.material = accentMat;
+                
+                // Боковые обтекатели (угловатые)
+                for (let i = 0; i < 2; i++) {
+                    const fairing = MeshBuilder.CreateBox(`lightFairing${i}`, {
+                    width: 0.15,
+                        height: h * 0.75,
+                        depth: d * 0.55
+                }, scene);
+                    fairing.position = new Vector3((i === 0 ? -1 : 1) * w * 0.5, 0, d * 0.2);
+                    fairing.parent = chassis;
+                    fairing.material = accentMat;
+                }
+                
+                // Люки на крыше (2 штуки)
+                for (let i = 0; i < 2; i++) {
+                    const hatch = MeshBuilder.CreateBox(`lightHatch${i}`, {
+                        width: 0.2,
+                        height: 0.08,
+                        depth: 0.2
+                    }, scene);
+                    hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.25, h * 0.48, -d * 0.1);
+                    hatch.parent = chassis;
+                    hatch.material = armorMat;
+                }
+                
+                // Выхлопная труба сзади
+                const exhaust = MeshBuilder.CreateBox("lightExhaust", {
+                    width: 0.15,
+                    height: 0.15,
+                    depth: 0.2
+                }, scene);
+                exhaust.position = new Vector3(w * 0.35, h * 0.2, -d * 0.48);
+                exhaust.parent = chassis;
+                exhaust.material = armorMat;
+                
+                // Фары спереди (маленькие, угловатые)
+                for (let i = 0; i < 2; i++) {
+                    const headlight = MeshBuilder.CreateBox(`lightHeadlight${i}`, {
+                        width: 0.08,
+                        height: 0.08,
+                        depth: 0.06
+                    }, scene);
+                    headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.15, d * 0.5);
+                    headlight.parent = chassis;
+                    const headlightMat = new StandardMaterial(`lightHeadlightMat${i}`, scene);
+                    headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                    headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
+                    headlight.material = headlightMat;
+                }
+                
+                // Инструменты: лопата и топор на корме
+                const shovel = MeshBuilder.CreateBox("lightShovel", {
+                    width: 0.12,
+                    height: 0.3,
+                    depth: 0.02
+                }, scene);
+                shovel.position = new Vector3(-w * 0.4, h * 0.2, -d * 0.48);
+                shovel.parent = chassis;
+                shovel.material = armorMat;
+                
+                const axe = MeshBuilder.CreateBox("lightAxe", {
+                    width: 0.25,
+                    height: 0.08,
+                    depth: 0.02
+                }, scene);
+                axe.position = new Vector3(-w * 0.3, h * 0.25, -d * 0.48);
+                axe.parent = chassis;
+                axe.material = armorMat;
+                
+                // Вентиляционные решетки по бокам
+                for (let i = 0; i < 2; i++) {
+                    const vent = MeshBuilder.CreateBox(`lightVent${i}`, {
+                        width: 0.05,
+                        height: 0.12,
+                        depth: 0.15
+                    }, scene);
+                    vent.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.1, d * 0.1);
+                    vent.parent = chassis;
+                    vent.material = armorMat;
+                }
                 break;
                 
             case "scout":
-                // Scout - обтекаемые крылья, клиновидный нос
+                // Scout - Прототип: Т-70 - Острый клиновидный нос, минимальный профиль
+                // Острый клиновидный нос (угол 45°)
                 const scoutNose = MeshBuilder.CreateBox("scoutNose", {
-                    width: w * 0.6,
-                    height: h * 0.5,
-                    depth: 0.2
+                    width: w * 0.8,
+                    height: h * 0.7,
+                    depth: 0.4
                 }, scene);
-                scoutNose.position = new Vector3(0, 0, d * 0.48);
+                scoutNose.position = new Vector3(0, 0, d * 0.5);
+                scoutNose.rotation.x = -Math.PI / 4;  // Наклон 45°
                 scoutNose.parent = chassis;
                 scoutNose.material = accentMat;
                 
-                // Боковые обтекатели
+                // Боковые крылья (угловатые)
                 for (let i = 0; i < 2; i++) {
                     const wing = MeshBuilder.CreateBox(`scoutWing${i}`, {
-                        width: 0.06,
-                        height: h * 0.5,
-                        depth: d * 0.4
-                    }, scene);
-                    wing.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, -h * 0.15, d * 0.25);
+                        width: 0.15,
+                        height: h * 0.85,
+                    depth: d * 0.6
+                }, scene);
+                    wing.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, -h * 0.05, d * 0.3);
                     wing.parent = chassis;
-                    wing.material = armorMat;
+                    wing.material = accentMat;
+                }
+                
+                // Задний диффузор (угловатый)
+                const diffuser = MeshBuilder.CreateBox("scoutDiffuser", {
+                    width: w * 0.9,
+                    height: 0.15,
+                    depth: 0.2
+                }, scene);
+                diffuser.position = new Vector3(0, -h * 0.42, -d * 0.45);
+                diffuser.parent = chassis;
+                diffuser.material = accentMat;
+                
+                // Один люк на крыше
+                const scoutHatch = MeshBuilder.CreateBox("scoutHatch", {
+                    width: 0.18,
+                    height: 0.06,
+                    depth: 0.18
+                }, scene);
+                scoutHatch.position = new Vector3(0, h * 0.42, 0);
+                scoutHatch.parent = chassis;
+                scoutHatch.material = armorMat;
+                
+                // Радиоантенна на корме (угловатая)
+                const scoutAntenna = MeshBuilder.CreateBox("scoutAntenna", {
+                    width: 0.02,
+                    height: 0.3,
+                    depth: 0.02
+                }, scene);
+                scoutAntenna.position = new Vector3(0, h * 0.45, -d * 0.45);
+                scoutAntenna.parent = chassis;
+                scoutAntenna.material = armorMat;
+                
+                // Две фары (очень маленькие, скрытые)
+                for (let i = 0; i < 2; i++) {
+                    const headlight = MeshBuilder.CreateBox(`scoutHeadlight${i}`, {
+                        width: 0.06,
+                        height: 0.06,
+                        depth: 0.04
+                    }, scene);
+                    headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.1, d * 0.48);
+                    headlight.parent = chassis;
+                    const headlightMat = new StandardMaterial(`scoutHeadlightMat${i}`, scene);
+                    headlightMat.diffuseColor = new Color3(0.8, 0.8, 0.6);
+                    headlightMat.emissiveColor = new Color3(0.2, 0.2, 0.15);
+                    headlight.material = headlightMat;
                 }
                 break;
                 
             case "heavy":
-                // Heavy - массивные бронеплиты со всех сторон
+                // Heavy - массивные бронеплиты со всех сторон - ОЧЕНЬ ЗАМЕТНЫЕ
                 const heavyPlates = [
-                    { pos: new Vector3(-w * 0.58, 0, 0), size: new Vector3(0.18, h * 0.85, d * 0.65) },
-                    { pos: new Vector3(w * 0.58, 0, 0), size: new Vector3(0.18, h * 0.85, d * 0.65) },
-                    { pos: new Vector3(0, h * 0.25, d * 0.52), size: new Vector3(w * 0.75, h * 0.25, 0.12) },
-                    { pos: new Vector3(0, -h * 0.25, 0), size: new Vector3(w * 0.95, 0.18, d * 0.95) }
+                    { pos: new Vector3(-w * 0.62, 0, 0), size: new Vector3(0.35, h * 0.95, d * 0.8) },
+                    { pos: new Vector3(w * 0.62, 0, 0), size: new Vector3(0.35, h * 0.95, d * 0.8) },
+                    { pos: new Vector3(0, h * 0.35, d * 0.58), size: new Vector3(w * 0.85, h * 0.4, 0.25) },
+                    { pos: new Vector3(0, -h * 0.35, 0), size: new Vector3(w * 1.05, 0.3, d * 1.05) }
                 ];
                 heavyPlates.forEach((plate, i) => {
                     const plateMesh = MeshBuilder.CreateBox(`heavyPlate${i}`, {
                         width: plate.size.x,
                         height: plate.size.y,
                         depth: plate.size.z
-                    }, scene);
+                }, scene);
                     plateMesh.position = plate.pos;
                     plateMesh.parent = chassis;
                     plateMesh.material = armorMat;
                 });
-                // Верхняя бронеплита
+                // Верхняя бронеплита - ОЧЕНЬ БОЛЬШАЯ
                 const topPlate = MeshBuilder.CreateBox("heavyTop", {
-                    width: w * 0.85,
-                    height: 0.12,
-                    depth: d * 0.7
+                    width: w * 0.95,
+                    height: 0.25,
+                    depth: d * 0.85
                 }, scene);
-                topPlate.position = new Vector3(0, h * 0.55, 0);
+                topPlate.position = new Vector3(0, h * 0.65, 0);
                 topPlate.parent = chassis;
                 topPlate.material = armorMat;
+                // Угловые усиления - БОЛЬШЕ
+                for (let i = 0; i < 4; i++) {
+                    const corner = MeshBuilder.CreateBox(`heavyCorner${i}`, {
+                        width: 0.3,
+                        height: 0.3,
+                        depth: 0.3
+                    }, scene);
+                    const posX = (i % 2 === 0 ? -1 : 1) * w * 0.58;
+                    const posZ = (i < 2 ? -1 : 1) * d * 0.58;
+                    corner.position = new Vector3(posX, h * 0.55, posZ);
+                    corner.parent = chassis;
+                    corner.material = armorMat;
+                }
+                
+                // Две фары спереди
+                for (let i = 0; i < 2; i++) {
+                    const headlight = MeshBuilder.CreateBox(`heavyHeadlight${i}`, {
+                        width: 0.12,
+                        height: 0.12,
+                    depth: 0.1
+                }, scene);
+                    headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.15, d * 0.5);
+                    headlight.parent = chassis;
+                    const headlightMat = new StandardMaterial(`heavyHeadlightMat${i}`, scene);
+                    headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                    headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
+                    headlight.material = headlightMat;
+                }
+                
+                // Две выхлопные трубы
+                for (let i = 0; i < 2; i++) {
+                    const exhaust = MeshBuilder.CreateBox(`heavyExhaust${i}`, {
+                        width: 0.14,
+                        height: 0.14,
+                        depth: 0.2
+                    }, scene);
+                    exhaust.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.2, -d * 0.48);
+                    exhaust.parent = chassis;
+                    exhaust.material = armorMat;
+                }
+                
+                // Инструменты: лопата, топор, канистра
+                const heavyShovel = MeshBuilder.CreateBox("heavyShovel", {
+                    width: 0.15,
+                    height: 0.4,
+                    depth: 0.02
+                }, scene);
+                heavyShovel.position = new Vector3(-w * 0.45, h * 0.2, -d * 0.45);
+                heavyShovel.parent = chassis;
+                heavyShovel.material = armorMat;
+                
+                const heavyAxe = MeshBuilder.CreateBox("heavyAxe", {
+                    width: 0.3,
+                    height: 0.1,
+                    depth: 0.02
+                }, scene);
+                heavyAxe.position = new Vector3(-w * 0.35, h * 0.25, -d * 0.45);
+                heavyAxe.parent = chassis;
+                heavyAxe.material = armorMat;
+                
+                const heavyCanister = MeshBuilder.CreateBox("heavyCanister", {
+                    width: 0.14,
+                    height: 0.25,
+                    depth: 0.14
+                }, scene);
+                heavyCanister.position = new Vector3(w * 0.45, h * 0.22, -d * 0.4);
+                heavyCanister.parent = chassis;
+                heavyCanister.material = armorMat;
                 break;
                 
             case "assault":
@@ -1235,7 +1246,7 @@ export class TankController {
                         width: plate.size.x,
                         height: plate.size.y,
                         depth: plate.size.z
-                    }, scene);
+                }, scene);
                     plateMesh.position = plate.pos;
                     plateMesh.parent = chassis;
                     plateMesh.material = armorMat;
@@ -1251,22 +1262,135 @@ export class TankController {
                     spike.parent = chassis;
                     spike.material = accentMat;
                 }
+                
+                // Фары с защитой
+                for (let i = 0; i < 2; i++) {
+                    const headlight = MeshBuilder.CreateBox(`assaultHeadlight${i}`, {
+                        width: 0.1,
+                        height: 0.1,
+                        depth: 0.08
+                }, scene);
+                    headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.13, d * 0.48);
+                    headlight.parent = chassis;
+                    const headlightMat = new StandardMaterial(`assaultHeadlightMat${i}`, scene);
+                    headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                    headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
+                    headlight.material = headlightMat;
+                    
+                    // Защита фары
+                    const headlightGuard = MeshBuilder.CreateBox(`assaultHeadlightGuard${i}`, {
+                        width: 0.14,
+                        height: 0.14,
+                        depth: 0.06
+                    }, scene);
+                    headlightGuard.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.13, d * 0.46);
+                    headlightGuard.parent = chassis;
+                    headlightGuard.material = armorMat;
+                }
+                
+                // Выхлоп
+                const assaultExhaust = MeshBuilder.CreateBox("assaultExhaust", {
+                    width: 0.13,
+                    height: 0.13,
+                    depth: 0.18
+                }, scene);
+                assaultExhaust.position = new Vector3(w * 0.38, h * 0.18, -d * 0.45);
+                assaultExhaust.parent = chassis;
+                assaultExhaust.material = armorMat;
+                
+                // Инструменты
+                const assaultShovel = MeshBuilder.CreateBox("assaultShovel", {
+                    width: 0.13,
+                    height: 0.32,
+                    depth: 0.02
+                }, scene);
+                assaultShovel.position = new Vector3(-w * 0.4, h * 0.18, -d * 0.45);
+                assaultShovel.parent = chassis;
+                assaultShovel.material = armorMat;
                 break;
                 
             case "medium":
-                // Medium - классические детали: антенна и вентиляционные решетки
-                const mediumVents = [];
+                // Medium - Прототип: Т-34 - Классический средний танк, наклонная броня
+                // Наклонная лобовая броня (45°)
+                const mediumFront = MeshBuilder.CreateBox("mediumFront", {
+                    width: w * 1.0,
+                    height: h * 0.7,
+                    depth: 0.18
+                }, scene);
+                mediumFront.position = new Vector3(0, h * 0.1, d * 0.5);
+                mediumFront.rotation.x = -Math.PI / 4;  // Наклон 45°
+                mediumFront.parent = chassis;
+                mediumFront.material = armorMat;
+                
+                // Вентиляционные решетки (угловатые)
                 for (let i = 0; i < 3; i++) {
                     const vent = MeshBuilder.CreateBox(`vent${i}`, {
-                        width: 0.08,
-                        height: 0.05,
-                        depth: 0.1
-                    }, scene);
-                    vent.position = new Vector3((i - 1) * w * 0.3, h * 0.4, -d * 0.3);
+                        width: 0.06,
+                        height: 0.04,
+                        depth: 0.08
+                }, scene);
+                    vent.position = new Vector3((i - 1) * w * 0.28, h * 0.38, -d * 0.28);
                     vent.parent = chassis;
                     vent.material = armorMat;
-                    mediumVents.push(vent);
                 }
+                
+                // Два люка на крыше
+                for (let i = 0; i < 2; i++) {
+                    const hatch = MeshBuilder.CreateBox(`mediumHatch${i}`, {
+                        width: 0.22,
+                        height: 0.08,
+                        depth: 0.22
+                    }, scene);
+                    hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.48, -d * 0.1);
+                    hatch.parent = chassis;
+                    hatch.material = armorMat;
+                }
+                
+                // Выхлопные трубы сзади
+                for (let i = 0; i < 2; i++) {
+                    const exhaust = MeshBuilder.CreateBox(`mediumExhaust${i}`, {
+                        width: 0.12,
+                        height: 0.12,
+                        depth: 0.18
+                    }, scene);
+                    exhaust.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.18, -d * 0.45);
+                    exhaust.parent = chassis;
+                    exhaust.material = armorMat;
+                }
+                
+                // Фары спереди
+                for (let i = 0; i < 2; i++) {
+                    const headlight = MeshBuilder.CreateBox(`mediumHeadlight${i}`, {
+                        width: 0.1,
+                        height: 0.1,
+                        depth: 0.08
+                    }, scene);
+                    headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.12, d * 0.48);
+                    headlight.parent = chassis;
+                    const headlightMat = new StandardMaterial(`mediumHeadlightMat${i}`, scene);
+                    headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                    headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
+                    headlight.material = headlightMat;
+                }
+                
+                // Инструменты: лопата, канистра
+                const mediumShovel = MeshBuilder.CreateBox("mediumShovel", {
+                    width: 0.14,
+                    height: 0.35,
+                    depth: 0.02
+                }, scene);
+                mediumShovel.position = new Vector3(-w * 0.42, h * 0.18, -d * 0.45);
+                mediumShovel.parent = chassis;
+                mediumShovel.material = armorMat;
+                
+                const mediumCanister = MeshBuilder.CreateBox("mediumCanister", {
+                    width: 0.12,
+                    height: 0.2,
+                    depth: 0.12
+                }, scene);
+                mediumCanister.position = new Vector3(w * 0.42, h * 0.2, -d * 0.4);
+                mediumCanister.parent = chassis;
+                mediumCanister.material = armorMat;
                 break;
                 
             // === NEW CHASSIS TYPES ===
@@ -1415,6 +1539,85 @@ export class TankController {
                 cornerPlate.parent = chassis;
                 cornerPlate.material = armorMat;
             }
+            
+            // Три люка
+            for (let i = 0; i < 3; i++) {
+                const hatch = MeshBuilder.CreateBox(`siegeHatch${i}`, {
+                    width: 0.25,
+                    height: 0.1,
+                    depth: 0.25
+                }, scene);
+                hatch.position = new Vector3((i - 1) * w * 0.3, h * 0.7, -d * 0.1);
+                hatch.parent = chassis;
+                hatch.material = armorMat;
+            }
+            
+            // Фары
+            for (let i = 0; i < 2; i++) {
+                const headlight = MeshBuilder.CreateBox(`siegeHeadlight${i}`, {
+                    width: 0.14,
+                    height: 0.14,
+                    depth: 0.12
+                }, scene);
+                headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.18, d * 0.5);
+                headlight.parent = chassis;
+                const headlightMat = new StandardMaterial(`siegeHeadlightMat${i}`, scene);
+                headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
+                headlight.material = headlightMat;
+            }
+            
+            // Две выхлопные трубы
+            for (let i = 0; i < 2; i++) {
+                const exhaust = MeshBuilder.CreateBox(`siegeExhaust${i}`, {
+                    width: 0.16,
+                    height: 0.16,
+                    depth: 0.22
+                }, scene);
+                exhaust.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.22, -d * 0.48);
+                exhaust.parent = chassis;
+                exhaust.material = armorMat;
+            }
+            
+            // Множество инструментов
+            const siegeShovel = MeshBuilder.CreateBox("siegeShovel", {
+                width: 0.16,
+                height: 0.45,
+                depth: 0.02
+            }, scene);
+            siegeShovel.position = new Vector3(-w * 0.48, h * 0.22, -d * 0.45);
+            siegeShovel.parent = chassis;
+            siegeShovel.material = armorMat;
+            
+            const siegeAxe = MeshBuilder.CreateBox("siegeAxe", {
+                width: 0.35,
+                height: 0.12,
+                depth: 0.02
+            }, scene);
+            siegeAxe.position = new Vector3(-w * 0.38, h * 0.28, -d * 0.45);
+            siegeAxe.parent = chassis;
+            siegeAxe.material = armorMat;
+            
+            const siegeCanister = MeshBuilder.CreateBox("siegeCanister", {
+                width: 0.16,
+                height: 0.3,
+                depth: 0.16
+            }, scene);
+            siegeCanister.position = new Vector3(w * 0.48, h * 0.25, -d * 0.4);
+            siegeCanister.parent = chassis;
+            siegeCanister.material = armorMat;
+            
+            // Антенны
+            for (let i = 0; i < 2; i++) {
+                const antenna = MeshBuilder.CreateBox(`siegeAntenna${i}`, {
+                    width: 0.02,
+                    height: 0.4,
+                    depth: 0.02
+                }, scene);
+                antenna.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.75, -d * 0.4);
+                antenna.parent = chassis;
+                antenna.material = armorMat;
+            }
         }
         
         if (this.chassisType.id === "racer") {
@@ -1451,6 +1654,41 @@ export class TankController {
                 intake.parent = chassis;
                 intake.material = armorMat;
             }
+            
+            // Один люк
+            const racerHatch = MeshBuilder.CreateBox("racerHatch", {
+                width: 0.18,
+                height: 0.06,
+                depth: 0.18
+            }, scene);
+            racerHatch.position = new Vector3(0, h * 0.38, 0);
+            racerHatch.parent = chassis;
+            racerHatch.material = armorMat;
+            
+            // Фары
+            for (let i = 0; i < 2; i++) {
+                const headlight = MeshBuilder.CreateBox(`racerHeadlight${i}`, {
+                    width: 0.08,
+                    height: 0.08,
+                    depth: 0.06
+                }, scene);
+                headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.28, h * 0.08, d * 0.48);
+                headlight.parent = chassis;
+                const headlightMat = new StandardMaterial(`racerHeadlightMat${i}`, scene);
+                headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
+                headlight.material = headlightMat;
+            }
+            
+            // Выхлоп
+            const racerExhaust = MeshBuilder.CreateBox("racerExhaust", {
+                width: 0.12,
+                height: 0.12,
+                depth: 0.18
+            }, scene);
+            racerExhaust.position = new Vector3(w * 0.32, h * 0.1, -d * 0.48);
+            racerExhaust.parent = chassis;
+            racerExhaust.material = armorMat;
         }
         
         if (this.chassisType.id === "amphibious") {
@@ -1474,6 +1712,33 @@ export class TankController {
             waterSeal.position = new Vector3(0, h * 0.5, 0);
             waterSeal.parent = chassis;
             waterSeal.material = armorMat;
+            
+            // Люки
+            for (let i = 0; i < 2; i++) {
+                const hatch = MeshBuilder.CreateBox(`amphibiousHatch${i}`, {
+                    width: 0.2,
+                    height: 0.08,
+                    depth: 0.2
+                }, scene);
+                hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.52, -d * 0.1);
+                hatch.parent = chassis;
+                hatch.material = armorMat;
+            }
+            
+            // Фары
+            for (let i = 0; i < 2; i++) {
+                const headlight = MeshBuilder.CreateBox(`amphibiousHeadlight${i}`, {
+                    width: 0.1,
+                    height: 0.1,
+                    depth: 0.08
+                }, scene);
+                headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.15, d * 0.48);
+                headlight.parent = chassis;
+                const headlightMat = new StandardMaterial(`amphibiousHeadlightMat${i}`, scene);
+                headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
+                headlight.material = headlightMat;
+            }
         }
         
         if (this.chassisType.id === "shield") {
@@ -1504,6 +1769,33 @@ export class TankController {
                 panelMat.emissiveColor = new Color3(0, 0.3, 0.15);
                 energyPanel.material = panelMat;
             }
+            
+            // Люки
+            for (let i = 0; i < 2; i++) {
+                const hatch = MeshBuilder.CreateBox(`shieldHatch${i}`, {
+                    width: 0.2,
+                    height: 0.08,
+                    depth: 0.2
+                }, scene);
+                hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.52, -d * 0.1);
+                hatch.parent = chassis;
+                hatch.material = armorMat;
+            }
+            
+            // Фары
+            for (let i = 0; i < 2; i++) {
+                const headlight = MeshBuilder.CreateBox(`shieldHeadlight${i}`, {
+                    width: 0.1,
+                    height: 0.1,
+                    depth: 0.08
+                }, scene);
+                headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.15, d * 0.48);
+                headlight.parent = chassis;
+                const headlightMat = new StandardMaterial(`shieldHeadlightMat${i}`, scene);
+                headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
+                headlight.material = headlightMat;
+            }
         }
         
         if (this.chassisType.id === "drone") {
@@ -1531,6 +1823,33 @@ export class TankController {
                 antenna.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.72, 0);
                 antenna.parent = chassis;
                 antenna.material = platformMat;
+            }
+            
+            // Люки
+            for (let i = 0; i < 2; i++) {
+                const hatch = MeshBuilder.CreateBox(`droneHatch${i}`, {
+                    width: 0.2,
+                    height: 0.08,
+                    depth: 0.2
+                }, scene);
+                hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.6, -d * 0.1);
+                hatch.parent = chassis;
+                hatch.material = armorMat;
+            }
+            
+            // Фары
+            for (let i = 0; i < 2; i++) {
+                const headlight = MeshBuilder.CreateBox(`droneHeadlight${i}`, {
+                    width: 0.1,
+                    height: 0.1,
+                    depth: 0.08
+                }, scene);
+                headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.15, d * 0.48);
+                headlight.parent = chassis;
+                const headlightMat = new StandardMaterial(`droneHeadlightMat${i}`, scene);
+                headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
+                headlight.material = headlightMat;
             }
         }
         
@@ -1567,6 +1886,43 @@ export class TankController {
                 leg.parent = chassis;
                 leg.material = armorMat;
             }
+            
+            // Люки
+            for (let i = 0; i < 2; i++) {
+                const hatch = MeshBuilder.CreateBox(`artilleryHatch${i}`, {
+                    width: 0.22,
+                    height: 0.1,
+                    depth: 0.22
+                }, scene);
+                hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.7, -d * 0.1);
+                hatch.parent = chassis;
+                hatch.material = armorMat;
+            }
+            
+            // Фары
+            for (let i = 0; i < 2; i++) {
+                const headlight = MeshBuilder.CreateBox(`artilleryHeadlight${i}`, {
+                    width: 0.12,
+                    height: 0.12,
+                    depth: 0.1
+                }, scene);
+                headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.2, d * 0.5);
+                headlight.parent = chassis;
+                const headlightMat = new StandardMaterial(`artilleryHeadlightMat${i}`, scene);
+                headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
+                headlight.material = headlightMat;
+            }
+            
+            // Выхлоп
+            const artilleryExhaust = MeshBuilder.CreateBox("artilleryExhaust", {
+                width: 0.14,
+                height: 0.14,
+                depth: 0.2
+            }, scene);
+            artilleryExhaust.position = new Vector3(w * 0.4, h * 0.22, -d * 0.48);
+            artilleryExhaust.parent = chassis;
+            artilleryExhaust.material = armorMat;
         }
         
         if (this.chassisType.id === "destroyer") {
@@ -1590,6 +1946,33 @@ export class TankController {
                 sidePlate.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, 0, d * 0.15);
                 sidePlate.parent = chassis;
                 sidePlate.material = armorMat;
+            }
+            
+            // Люки
+            for (let i = 0; i < 2; i++) {
+                const hatch = MeshBuilder.CreateBox(`destroyerHatch${i}`, {
+                    width: 0.18,
+                    height: 0.06,
+                    depth: 0.18
+                }, scene);
+                hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.48, -d * 0.1);
+                hatch.parent = chassis;
+                hatch.material = armorMat;
+            }
+            
+            // Фары
+            for (let i = 0; i < 2; i++) {
+                const headlight = MeshBuilder.CreateBox(`destroyerHeadlight${i}`, {
+                    width: 0.1,
+                    height: 0.1,
+                    depth: 0.08
+                }, scene);
+                headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.1, d * 0.48);
+                headlight.parent = chassis;
+                const headlightMat = new StandardMaterial(`destroyerHeadlightMat${i}`, scene);
+                headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
+                headlight.material = headlightMat;
             }
         }
         
@@ -1639,6 +2022,33 @@ export class TankController {
                 antennaMat.diffuseColor = new Color3(1, 0.9, 0.2);
                 antenna.material = antennaMat;
             }
+            
+            // Люки
+            for (let i = 0; i < 2; i++) {
+                const hatch = MeshBuilder.CreateBox(`commandHatch${i}`, {
+                    width: 0.22,
+                    height: 0.08,
+                    depth: 0.22
+                }, scene);
+                hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.6, -d * 0.1);
+                hatch.parent = chassis;
+                hatch.material = armorMat;
+            }
+            
+            // Фары
+            for (let i = 0; i < 2; i++) {
+                const headlight = MeshBuilder.CreateBox(`commandHeadlight${i}`, {
+                    width: 0.1,
+                    height: 0.1,
+                    depth: 0.08
+                }, scene);
+                headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.15, d * 0.48);
+                headlight.parent = chassis;
+                const headlightMat = new StandardMaterial(`commandHeadlightMat${i}`, scene);
+                headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
+                headlight.material = headlightMat;
+            }
         }
         
         // Антенны для medium/heavy/assault
@@ -1663,625 +2073,1478 @@ export class TankController {
         
         switch (this.cannonType.id) {
             case "sniper":
-                // Sniper - очень длинная, тонкая, с оптикой и сошками
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 0.7, 
-                    height: barrelWidth * 0.7, 
-                    depth: barrelLength * 1.4 
+                // Sniper - Прототип: ПТРД / Д-44 - Длинная противотанковая пушка
+                // Основной ствол - очень длинный и тонкий цилиндр
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 0.5,
+                    height: barrelLength * 2.0,
+                    tessellation: 8  // Low-poly
                 }, scene);
-                // Большой прицел сверху
-                const scope = MeshBuilder.CreateCylinder("scope", {
-                    height: barrelWidth * 0.7,
-                    diameter: barrelWidth * 0.5
+                barrel.rotation.x = Math.PI / 2;
+                
+                // ОГРОМНЫЙ прицел (советский оптический прицел)
+                const scopeTube = MeshBuilder.CreateCylinder("scopeTube", {
+                    height: barrelWidth * 1.5,
+                    diameter: barrelWidth * 0.4,
+                    tessellation: 8  // Low-poly
                 }, scene);
-                scope.position = new Vector3(barrelWidth * 0.55, barrelWidth * 0.35, barrelLength * 0.4);
-                scope.parent = barrel;
+                scopeTube.position = new Vector3(barrelWidth * 0.7, barrelWidth * 0.6, barrelLength * 0.7);
+                scopeTube.parent = barrel;
                 const scopeMat = new StandardMaterial("scopeMat", scene);
-                scopeMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
+                scopeMat.diffuseColor = new Color3(0.15, 0.15, 0.15);  // Советский темно-зеленый
                 scopeMat.emissiveColor = new Color3(0.05, 0.05, 0.05);
-                scope.material = scopeMat;
-                // Сошки для стабилизации
+                scopeTube.material = scopeMat;
+                
+                // Линза прицела (светящаяся)
+                const scopeLens = MeshBuilder.CreateCylinder("scopeLens", {
+                    height: barrelWidth * 0.2,
+                    diameter: barrelWidth * 0.5,
+                    tessellation: 8
+                }, scene);
+                scopeLens.position = new Vector3(barrelWidth * 0.7, barrelWidth * 0.6, barrelLength * 0.85);
+                scopeLens.parent = barrel;
+                const lensMat = new StandardMaterial("scopeLensMat", scene);
+                lensMat.diffuseColor = new Color3(0.1, 0.2, 0.3);
+                lensMat.emissiveColor = new Color3(0.05, 0.1, 0.15);
+                scopeLens.material = lensMat;
+                
+                // Сошки (характерные для ПТРД)
                 for (let i = 0; i < 2; i++) {
                     const bipod = MeshBuilder.CreateBox(`bipod${i}`, {
-                        width: 0.04,
-                        height: barrelWidth * 0.4,
-                        depth: 0.04
+                        width: 0.12,
+                        height: barrelWidth * 1.0,
+                        depth: 0.12
                     }, scene);
-                    bipod.position = new Vector3((i === 0 ? -1 : 1) * barrelWidth * 0.3, -barrelWidth * 0.25, barrelLength * 0.6);
+                    bipod.position = new Vector3(
+                        (i === 0 ? -1 : 1) * barrelWidth * 0.45, 
+                        -barrelWidth * 0.5, 
+                        barrelLength * 0.75
+                    );
+                    bipod.rotation.z = (i === 0 ? 1 : -1) * Math.PI / 8;
                     bipod.parent = barrel;
                     bipod.material = scopeMat;
                 }
+                
+                // Стабилизаторы по бокам (угловатые, low-poly)
+                for (let i = 0; i < 3; i++) {
+                    const stabilizer = MeshBuilder.CreateBox(`sniperStabilizer${i}`, {
+                        width: 0.06,
+                        height: barrelLength * 0.35,
+                        depth: 0.06
+                    }, scene);
+                    stabilizer.position = new Vector3(
+                        (i === 0 ? -1 : i === 1 ? 1 : 0) * barrelWidth * 0.3, 
+                        (i === 2 ? 1 : 0) * barrelWidth * 0.3,
+                        barrelLength * 0.25 + i * barrelLength * 0.2
+                    );
+                    stabilizer.parent = barrel;
+                    stabilizer.material = scopeMat;
+                }
+                
+                // Дульный тормоз (многоствольный, советский стиль)
+                const muzzleBrake = MeshBuilder.CreateCylinder("sniperMuzzleBrake", {
+                    height: barrelWidth * 0.4,
+                    diameter: barrelWidth * 0.75,
+                    tessellation: 8
+                }, scene);
+                muzzleBrake.position = new Vector3(0, 0, barrelLength * 0.95);
+                muzzleBrake.parent = barrel;
+                muzzleBrake.material = scopeMat;
                 break;
                 
             case "gatling":
-                // Gatling - короткая, толстая, множественные стволы, система охлаждения
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 1.5, 
-                    height: barrelWidth * 1.5, 
-                    depth: barrelLength * 0.9 
+                // Gatling - Прототип: ГШ-6-30 / многоствольная система - Советская скорострельная пушка
+                // Основной корпус - короткий и широкий цилиндр
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 2.0,
+                    height: barrelLength * 0.8,
+                    tessellation: 8  // Low-poly
                 }, scene);
-                // Множественные стволы - более выразительные - ANIMATED
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Вращающиеся стволы - 6 штук в круге (стиль ГШ-6-30) - ANIMATED
                 this.cannonAnimationElements.gatlingBarrels = [];
                 for (let i = 0; i < 6; i++) {
                     const miniBarrel = MeshBuilder.CreateCylinder(`minibarrel${i}`, {
-                        height: barrelLength * 0.75,
-                        diameter: barrelWidth * 0.25
+                        height: barrelLength * 1.1,
+                        diameter: barrelWidth * 0.35,
+                        tessellation: 8  // Low-poly
                     }, scene);
                     const angle = (i * Math.PI * 2 / 6);
                     miniBarrel.position = new Vector3(
-                        Math.cos(angle) * barrelWidth * 0.45,
-                        Math.sin(angle) * barrelWidth * 0.45,
-                        0
-                    );
-                    miniBarrel.parent = barrel;
-                    miniBarrel.material = barrel.material;
-                    this.cannonAnimationElements.gatlingBarrels.push(miniBarrel);
-                }
-                // Система охлаждения
-                const coolingRing = MeshBuilder.CreateTorus("coolingRing", {
-                    diameter: barrelWidth * 1.3,
-                    thickness: barrelWidth * 0.15
-                }, scene);
-                coolingRing.position = new Vector3(0, 0, -barrelLength * 0.2);
-                coolingRing.parent = barrel;
-                coolingRing.material = barrel.material;
-                break;
-                
-            case "heavy":
-                // Heavy - длинная, толстая, массивный казённик, дульный тормоз
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 1.3, 
-                    height: barrelWidth * 1.3, 
-                    depth: barrelLength * 1.15 
-                }, scene);
-                // Массивный казённик
-                const breech = MeshBuilder.CreateBox("breech", {
-                    width: barrelWidth * 1.7,
-                    height: barrelWidth * 1.7,
-                    depth: barrelWidth * 1.3
-                }, scene);
-                breech.position = new Vector3(0, 0, -barrelLength * 0.48);
-                breech.parent = barrel;
-                const breechMat = new StandardMaterial("breechMat", scene);
-                breechMat.diffuseColor = cannonColor.scale(0.55);
-                breech.material = breechMat;
-                // Дульный тормоз
-                const muzzleBrake = MeshBuilder.CreateCylinder("muzzleBrake", {
-                    height: barrelWidth * 0.4,
-                    diameter: barrelWidth * 1.4
-                }, scene);
-                muzzleBrake.position = new Vector3(0, 0, barrelLength * 0.55);
-                muzzleBrake.parent = barrel;
-                muzzleBrake.material = breechMat;
-                break;
-                
-            case "rapid":
-                // Rapid - короткая, тонкая, быстрая, компактная
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 0.85, 
-                    height: barrelWidth * 0.85, 
-                    depth: barrelLength * 0.85 
-                }, scene);
-                // Компактный казённик
-                const rapidBreech = MeshBuilder.CreateBox("rapidBreech", {
-                    width: barrelWidth * 1.1,
-                    height: barrelWidth * 1.1,
-                    depth: barrelWidth * 0.6
-                }, scene);
-                rapidBreech.position = new Vector3(0, 0, -barrelLength * 0.35);
-                rapidBreech.parent = barrel;
-                rapidBreech.material = barrel.material;
-                break;
-                
-            // === ENERGY WEAPONS ===
-            case "plasma":
-                // Plasma - энергетическая, с генератором и катушками - ANIMATED
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 1.4, 
-                    height: barrelWidth * 1.4, 
-                    depth: barrelLength * 1.05 
-                }, scene);
-                // Энергетическое ядро - ANIMATED
-                const plasmaCore = MeshBuilder.CreateSphere("plasmaCore", { 
-                    diameter: barrelWidth * 0.9,
-                    segments: 16
-                }, scene);
-                plasmaCore.position = new Vector3(0, 0, -barrelLength * 0.35);
-                plasmaCore.parent = barrel;
-                const coreMat = new StandardMaterial("plasmaCoreMat", scene);
-                coreMat.diffuseColor = new Color3(1, 0, 1);
-                coreMat.emissiveColor = new Color3(0.6, 0, 0.6);
-                plasmaCore.material = coreMat;
-                this.cannonAnimationElements.plasmaCore = plasmaCore;
-                // Энергетические катушки вокруг ствола
-                for (let i = 0; i < 3; i++) {
-                    const coil = MeshBuilder.CreateTorus(`plasmaCoil${i}`, {
-                        diameter: barrelWidth * 1.2,
-                        thickness: barrelWidth * 0.08
-                    }, scene);
-                    coil.position = new Vector3(0, 0, -barrelLength * 0.3 + i * barrelLength * 0.15);
-                    coil.parent = barrel;
-                    coil.material = coreMat;
-                }
-                break;
-                
-            case "laser":
-                // Laser - длинная, тонкая, с линзой и фокусирующими элементами - ANIMATED
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 0.8, 
-                    height: barrelWidth * 0.8, 
-                    depth: barrelLength * 1.3 
-                }, scene);
-                // Большая линза - ANIMATED
-                const lens = MeshBuilder.CreateCylinder("lens", {
-                    height: barrelWidth * 0.35,
-                    diameter: barrelWidth * 0.7
-                }, scene);
-                lens.position = new Vector3(0, 0, barrelLength * 0.55);
-                lens.parent = barrel;
-                const lensMat = new StandardMaterial("lensMat", scene);
-                lensMat.diffuseColor = new Color3(1, 0, 0);
-                lensMat.emissiveColor = new Color3(0.4, 0, 0);
-                lens.material = lensMat;
-                this.cannonAnimationElements.laserLens = lens;
-                // Фокусирующие кольца
-                for (let i = 0; i < 2; i++) {
-                    const focusRing = MeshBuilder.CreateTorus(`focusRing${i}`, {
-                        diameter: barrelWidth * 0.9,
-                        thickness: barrelWidth * 0.05
-                    }, scene);
-                    focusRing.position = new Vector3(0, 0, barrelLength * 0.3 + i * barrelLength * 0.2);
-                    focusRing.parent = barrel;
-                    focusRing.material = lensMat;
-                }
-                break;
-                
-            case "tesla":
-                // Tesla - с катушками - ANIMATED
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 1.5, 
-                    height: barrelWidth * 1.2, 
-                    depth: barrelLength * 0.9 
-                }, scene);
-                // Add coils - ANIMATED
-                this.cannonAnimationElements.teslaCoils = [];
-                for (let i = 0; i < 3; i++) {
-                    const coil = MeshBuilder.CreateTorus("coil", {
-                        diameter: barrelWidth * 0.6,
-                        thickness: barrelWidth * 0.1
-                    }, scene);
-                    coil.position = new Vector3(0, 0, -barrelLength * 0.2 + i * barrelLength * 0.2);
-                    coil.parent = barrel;
-                    coil.material = barrel.material;
-                    this.cannonAnimationElements.teslaCoils.push(coil);
-                }
-                break;
-                
-            case "railgun":
-                // Railgun - очень длинная, с рельсами и конденсаторами
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 0.85, 
-                    height: barrelWidth * 0.85, 
-                    depth: barrelLength * 1.5 
-                }, scene);
-                // Рельсы - более выразительные
-                const rail1 = MeshBuilder.CreateBox("rail1", {
-                    width: barrelWidth * 0.12,
-                    height: barrelWidth * 0.7,
-                    depth: barrelLength * 1.5
-                }, scene);
-                rail1.position = new Vector3(-barrelWidth * 0.42, 0, 0);
-                rail1.parent = barrel;
-                const railMat = new StandardMaterial("railMat", scene);
-                railMat.diffuseColor = new Color3(0.1, 0.3, 0.8);
-                railMat.emissiveColor = new Color3(0.05, 0.15, 0.4);
-                rail1.material = railMat;
-                
-                const rail2 = MeshBuilder.CreateBox("rail2", {
-                    width: barrelWidth * 0.12,
-                    height: barrelWidth * 0.7,
-                    depth: barrelLength * 1.5
-                }, scene);
-                rail2.position = new Vector3(barrelWidth * 0.42, 0, 0);
-                rail2.parent = barrel;
-                rail2.material = railMat;
-                // Конденсаторы для накопления энергии
-                for (let i = 0; i < 3; i++) {
-                    const capacitor = MeshBuilder.CreateCylinder(`capacitor${i}`, {
-                        height: barrelWidth * 0.3,
-                        diameter: barrelWidth * 0.4
-                    }, scene);
-                    capacitor.position = new Vector3(0, barrelWidth * 0.5, -barrelLength * 0.4 + i * barrelLength * 0.2);
-                    capacitor.parent = barrel;
-                    capacitor.material = railMat;
-                }
-                break;
-                
-            // === EXPLOSIVE WEAPONS ===
-            case "rocket":
-                // Rocket - толстая, с направляющими и системой наведения - ANIMATED
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 1.5, 
-                    height: barrelWidth * 1.5, 
-                    depth: barrelLength * 1.05 
-                }, scene);
-                // Пусковая труба - ANIMATED
-                const tube = MeshBuilder.CreateCylinder("tube", {
-                    height: barrelLength * 0.9,
-                    diameter: barrelWidth * 1.3
-                }, scene);
-                tube.position = new Vector3(0, 0, 0);
-                tube.parent = barrel;
-                tube.material = barrel.material;
-                this.cannonAnimationElements.rocketTube = tube;
-                // Направляющие рельсы
-                for (let i = 0; i < 4; i++) {
-                    const guide = MeshBuilder.CreateBox(`guide${i}`, {
-                        width: 0.06,
-                        height: barrelLength * 0.8,
-                        depth: 0.06
-                    }, scene);
-                    const angle = (i * Math.PI * 2) / 4;
-                    guide.position = new Vector3(
                         Math.cos(angle) * barrelWidth * 0.6,
                         Math.sin(angle) * barrelWidth * 0.6,
                         0
                     );
-                    guide.parent = barrel;
-                    guide.material = barrel.material;
+                    miniBarrel.parent = barrel;
+                    const miniMat = new StandardMaterial(`minibarrelMat${i}`, scene);
+                    miniMat.diffuseColor = cannonColor.scale(0.8);
+                    miniBarrel.material = miniMat;
+                    this.cannonAnimationElements.gatlingBarrels.push(miniBarrel);
                 }
+                
+                // Система охлаждения (угловатые кольца, low-poly)
+                for (let i = 0; i < 4; i++) {
+                    const coolingRing = MeshBuilder.CreateTorus(`coolingRing${i}`, {
+                        diameter: barrelWidth * 1.9,
+                        thickness: barrelWidth * 0.25,
+                        tessellation: 8  // Low-poly
+                    }, scene);
+                    coolingRing.position = new Vector3(0, 0, -barrelLength * 0.35 + i * barrelLength * 0.12);
+                    coolingRing.parent = barrel;
+                    const ringMat = new StandardMaterial(`coolingRingMat${i}`, scene);
+                    ringMat.diffuseColor = cannonColor.scale(0.6);
+                    ringMat.emissiveColor = new Color3(0.05, 0.05, 0.05);
+                    coolingRing.material = ringMat;
+                }
+                
+                // Центральный блок питания (угловатый)
+                const powerBlock = MeshBuilder.CreateBox("gatlingPowerBlock", {
+                    width: barrelWidth * 1.3,
+                    height: barrelWidth * 1.3,
+                    depth: barrelWidth * 0.9
+                }, scene);
+                powerBlock.position = new Vector3(0, 0, -barrelLength * 0.5);
+                powerBlock.parent = barrel;
+                const powerMat = new StandardMaterial("gatlingPowerMat", scene);
+                powerMat.diffuseColor = cannonColor.scale(0.5);
+                powerBlock.material = powerMat;
+                
+                // Вентиляционные отверстия (угловатые)
+                for (let i = 0; i < 8; i++) {
+                    const vent = MeshBuilder.CreateBox(`gatlingVent${i}`, {
+                        width: barrelWidth * 0.12,
+                        height: barrelWidth * 0.3,
+                        depth: barrelWidth * 0.12
+                    }, scene);
+                    const angle = (i * Math.PI * 2) / 8;
+                    vent.position = new Vector3(
+                        Math.cos(angle) * barrelWidth * 0.85,
+                        Math.sin(angle) * barrelWidth * 0.85,
+                        -barrelLength * 0.2
+                    );
+                    vent.parent = barrel;
+                    vent.material = powerMat;
+                }
+                break;
+                
+            case "heavy":
+                // Heavy - Прототип: ИС-2 / Д-25Т - Массивная пушка с дульным тормозом
+                // Основной ствол - толстый цилиндр (советский стиль)
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 1.5,
+                    height: barrelLength * 1.2,
+                    tessellation: 8  // Low-poly
+                }, scene);
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Массивный казённик (стиль ИС-2)
+                const breech = MeshBuilder.CreateBox("breech", {
+                    width: barrelWidth * 1.8,
+                    height: barrelWidth * 1.8,
+                    depth: barrelWidth * 1.4
+                }, scene);
+                breech.position = new Vector3(0, 0, -barrelLength * 0.5);
+                breech.parent = barrel;
+                const breechMat = new StandardMaterial("breechMat", scene);
+                breechMat.diffuseColor = cannonColor.scale(0.55);
+                breech.material = breechMat;
+                
+                // Дульный тормоз (характерный для ИС-2)
+                const heavyMuzzleBrake = MeshBuilder.CreateCylinder("heavyMuzzleBrake", {
+                    height: barrelWidth * 0.5,
+                    diameter: barrelWidth * 1.6,
+                    tessellation: 8
+                }, scene);
+                heavyMuzzleBrake.position = new Vector3(0, 0, barrelLength * 0.55);
+                heavyMuzzleBrake.parent = barrel;
+                heavyMuzzleBrake.material = breechMat;
+                
+                // Усилители по бокам ствола
+                for (let i = 0; i < 2; i++) {
+                    const reinforcement = MeshBuilder.CreateBox(`heavyReinforcement${i}`, {
+                        width: barrelWidth * 0.12,
+                        height: barrelLength * 0.8,
+                        depth: barrelWidth * 0.12
+                    }, scene);
+                    reinforcement.position = new Vector3((i === 0 ? -1 : 1) * barrelWidth * 0.7, 0, barrelLength * 0.1);
+                    reinforcement.parent = barrel;
+                    reinforcement.material = breechMat;
+                }
+                break;
+                
+            case "rapid":
+                // Rapid - Прототип: Т-34-76 / ЗИС-3 - Быстрая пушка
+                // Основной ствол - короткий и тонкий цилиндр
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 0.8,
+                    height: barrelLength * 0.7,
+                    tessellation: 8  // Low-poly
+                }, scene);
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Компактный казённик
+                const rapidBreech = MeshBuilder.CreateBox("rapidBreech", {
+                    width: barrelWidth * 1.2,
+                    height: barrelWidth * 1.2,
+                    depth: barrelWidth * 0.7
+                }, scene);
+                rapidBreech.position = new Vector3(0, 0, -barrelLength * 0.35);
+                rapidBreech.parent = barrel;
+                rapidBreech.material = barrel.material;
+                
+                // Небольшой дульный тормоз
+                const rapidMuzzle = MeshBuilder.CreateCylinder("rapidMuzzle", {
+                    height: barrelWidth * 0.25,
+                    diameter: barrelWidth * 0.9,
+                    tessellation: 8
+                }, scene);
+                rapidMuzzle.position = new Vector3(0, 0, barrelLength * 0.35);
+                rapidMuzzle.parent = barrel;
+                rapidMuzzle.material = barrel.material;
+                break;
+                
+            // === ENERGY WEAPONS ===
+            case "plasma":
+                // Plasma - Прототип: Футуристическая плазменная пушка (советский стиль)
+                // Основной ствол - коническая форма (расширяется к концу)
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameterTop: barrelWidth * 1.8,
+                    diameterBottom: barrelWidth * 1.0,
+                    height: barrelLength * 1.2,
+                    tessellation: 8  // Low-poly
+                }, scene);
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Энергетическое ядро (советский футуристический генератор) - ANIMATED
+                const plasmaCore = MeshBuilder.CreateBox("plasmaCore", { 
+                    width: barrelWidth * 1.2,
+                    height: barrelWidth * 1.2,
+                    depth: barrelWidth * 1.2
+                }, scene);
+                plasmaCore.position = new Vector3(0, 0, -barrelLength * 0.4);
+                plasmaCore.parent = barrel;
+                const coreMat = new StandardMaterial("plasmaCoreMat", scene);
+                coreMat.diffuseColor = new Color3(0.8, 0.2, 0.8);  // Советский фиолетовый
+                coreMat.emissiveColor = new Color3(0.6, 0, 0.6);
+                coreMat.disableLighting = true;
+                plasmaCore.material = coreMat;
+                this.cannonAnimationElements.plasmaCore = plasmaCore;
+                
+                // Энергетические катушки (угловатые, low-poly)
+                this.cannonAnimationElements.plasmaCoils = [];
+                for (let i = 0; i < 3; i++) {
+                    const coil = MeshBuilder.CreateTorus(`plasmaCoil${i}`, {
+                        diameter: barrelWidth * 1.4,
+                        thickness: barrelWidth * 0.12,
+                        tessellation: 8  // Low-poly
+                    }, scene);
+                    coil.position = new Vector3(0, 0, -barrelLength * 0.3 + i * barrelLength * 0.15);
+                    coil.parent = barrel;
+                    const coilMat = new StandardMaterial(`plasmaCoilMat${i}`, scene);
+                    coilMat.diffuseColor = new Color3(0.7, 0, 0.7);
+                    coilMat.emissiveColor = new Color3(0.4, 0, 0.4);
+                    coil.material = coilMat;
+                    this.cannonAnimationElements.plasmaCoils.push(coil);
+                }
+                
+                // Энергетические стабилизаторы (угловатые)
+                for (let i = 0; i < 2; i++) {
+                    const stabilizer = MeshBuilder.CreateBox(`plasmaStabilizer${i}`, {
+                        width: barrelWidth * 0.12,
+                        height: barrelLength * 0.6,
+                        depth: barrelWidth * 0.12
+                    }, scene);
+                    stabilizer.position = new Vector3((i === 0 ? -1 : 1) * barrelWidth * 0.65, 0, barrelLength * 0.1);
+                    stabilizer.parent = barrel;
+                    stabilizer.material = coreMat;
+                }
+                
+                // Энергетический эмиттер (угловатый)
+                const emitter = MeshBuilder.CreateBox("plasmaEmitter", {
+                    width: barrelWidth * 1.8,
+                    height: barrelWidth * 0.4,
+                    depth: barrelWidth * 1.8
+                }, scene);
+                emitter.position = new Vector3(0, 0, barrelLength * 0.5);
+                emitter.parent = barrel;
+                emitter.material = coreMat;
+                break;
+                
+            case "laser":
+                // Laser - Прототип: Футуристический лазер (советский стиль)
+                // Основной ствол - очень длинный и тонкий цилиндр
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 0.6,
+                    height: barrelLength * 1.8,
+                    tessellation: 8  // Low-poly
+                }, scene);
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Линза на конце (угловатая, low-poly) - ANIMATED
+                const lens = MeshBuilder.CreateBox("lens", {
+                    width: barrelWidth * 0.9,
+                    height: barrelWidth * 0.5,
+                    depth: barrelWidth * 0.9
+                }, scene);
+                lens.position = new Vector3(0, 0, barrelLength * 0.6);
+                lens.parent = barrel;
+                const laserLensMat = new StandardMaterial("laserLensMat", scene);
+                laserLensMat.diffuseColor = new Color3(0.8, 0.15, 0);  // Советский красный
+                laserLensMat.emissiveColor = new Color3(0.5, 0, 0);
+                laserLensMat.disableLighting = true;
+                lens.material = laserLensMat;
+                this.cannonAnimationElements.laserLens = lens;
+                
+                // Фокусирующие кольца (угловатые, low-poly)
+                this.cannonAnimationElements.laserRings = [];
+                for (let i = 0; i < 3; i++) {
+                    const focusRing = MeshBuilder.CreateTorus(`focusRing${i}`, {
+                        diameter: barrelWidth * 1.0,
+                        thickness: barrelWidth * 0.08,
+                        tessellation: 8  // Low-poly
+                    }, scene);
+                    focusRing.position = new Vector3(0, 0, -barrelLength * 0.15 + i * barrelLength * 0.25);
+                    focusRing.parent = barrel;
+                    const ringMat = new StandardMaterial(`focusRingMat${i}`, scene);
+                    ringMat.diffuseColor = new Color3(0.7, 0, 0);
+                    ringMat.emissiveColor = new Color3(0.25, 0, 0);
+                    focusRing.material = ringMat;
+                    this.cannonAnimationElements.laserRings.push(focusRing);
+                }
+                
+                // Энергетические каналы (угловатые)
+                for (let i = 0; i < 2; i++) {
+                    const channel = MeshBuilder.CreateBox(`laserChannel${i}`, {
+                        width: barrelWidth * 0.08,
+                        height: barrelLength * 1.1,
+                        depth: barrelWidth * 0.08
+                    }, scene);
+                    channel.position = new Vector3((i === 0 ? -1 : 1) * barrelWidth * 0.4, 0, barrelLength * 0.1);
+                    channel.parent = barrel;
+                    channel.material = laserLensMat;
+                }
+                
+                // Защитный кожух (угловатый)
+                const housing = MeshBuilder.CreateBox("laserHousing", {
+                    width: barrelWidth * 0.85,
+                    height: barrelWidth * 0.25,
+                    depth: barrelLength * 1.2
+                }, scene);
+                housing.position = new Vector3(0, barrelWidth * 0.35, barrelLength * 0.05);
+                housing.parent = barrel;
+                const housingMat = new StandardMaterial("laserHousingMat", scene);
+                housingMat.diffuseColor = cannonColor.scale(0.6);
+                housing.material = housingMat;
+                break;
+                
+            case "tesla":
+                // Tesla - Прототип: Футуристическая катушка Тесла (советский стиль)
+                // Основной корпус - широкий и короткий ОКТАЭДР (8-гранный, low-poly)
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 1.8,
+                    height: barrelLength * 0.9,
+                    tessellation: 8  // Low-poly
+                }, scene);
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Вращающиеся катушки Тесла (угловатые, low-poly) - ANIMATED
+                this.cannonAnimationElements.teslaCoils = [];
+                for (let i = 0; i < 5; i++) {
+                    const coil = MeshBuilder.CreateTorus(`teslaCoil${i}`, {
+                        diameter: barrelWidth * 0.8,
+                        thickness: barrelWidth * 0.15,
+                        tessellation: 8  // Low-poly
+                    }, scene);
+                    coil.position = new Vector3(0, 0, -barrelLength * 0.3 + i * barrelLength * 0.15);
+                    coil.parent = barrel;
+                    const coilMat = new StandardMaterial(`teslaCoilMat${i}`, scene);
+                    coilMat.diffuseColor = new Color3(0, 0.7, 0.9);  // Советский голубой
+                    coilMat.emissiveColor = new Color3(0, 0.4, 0.6);
+                    coil.material = coilMat;
+                    this.cannonAnimationElements.teslaCoils.push(coil);
+                }
+                
+                // Электрические разрядники (угловатые)
+                for (let i = 0; i < 4; i++) {
+                    const discharger = MeshBuilder.CreateBox(`teslaDischarger${i}`, {
+                        width: barrelWidth * 0.2,
+                        height: barrelWidth * 0.4,
+                        depth: barrelWidth * 0.2
+                    }, scene);
+                    const angle = (i * Math.PI * 2) / 4;
+                    discharger.position = new Vector3(
+                        Math.cos(angle) * barrelWidth * 0.65,
+                        Math.sin(angle) * barrelWidth * 0.45,
+                        barrelLength * 0.2
+                    );
+                    discharger.parent = barrel;
+                    discharger.material = this.cannonAnimationElements.teslaCoils[0].material;
+                }
+                
+                // Центральный генератор (угловатый)
+                const teslaGen = MeshBuilder.CreateBox("teslaGen", {
+                    width: barrelWidth * 0.6,
+                    height: barrelWidth * 0.6,
+                    depth: barrelWidth * 0.6
+                }, scene);
+                teslaGen.position = new Vector3(0, 0, -barrelLength * 0.35);
+                teslaGen.parent = barrel;
+                const genMat = new StandardMaterial("teslaGenMat", scene);
+                genMat.diffuseColor = new Color3(0, 0.9, 1);
+                genMat.emissiveColor = new Color3(0, 0.6, 0.8);
+                genMat.disableLighting = true;
+                teslaGen.material = genMat;
+                this.cannonAnimationElements.teslaGen = teslaGen;
+                break;
+                
+            case "railgun":
+                // Railgun - Прототип: Футуристический рельсотрон (советский стиль)
+                // Основной ствол - очень длинный и узкий
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 0.6,
+                    height: barrelLength * 2.0,
+                    tessellation: 8  // Low-poly
+                }, scene);
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Рельсы (угловатые, low-poly)
+                const rail1 = MeshBuilder.CreateBox("rail1", {
+                    width: barrelWidth * 0.15,
+                    height: barrelWidth * 0.8,
+                    depth: barrelLength * 2.0
+                }, scene);
+                rail1.position = new Vector3(-barrelWidth * 0.45, 0, 0);
+                rail1.parent = barrel;
+                const railMat = new StandardMaterial("railMat", scene);
+                railMat.diffuseColor = new Color3(0.1, 0.3, 0.8);  // Советский синий
+                railMat.emissiveColor = new Color3(0.05, 0.15, 0.4);
+                rail1.material = railMat;
+                
+                const rail2 = MeshBuilder.CreateBox("rail2", {
+                    width: barrelWidth * 0.15,
+                    height: barrelWidth * 0.8,
+                    depth: barrelLength * 2.0
+                }, scene);
+                rail2.position = new Vector3(barrelWidth * 0.45, 0, 0);
+                rail2.parent = barrel;
+                rail2.material = railMat;
+                
+                // Конденсаторы (угловатые, low-poly)
+                this.cannonAnimationElements.railgunCapacitors = [];
+                for (let i = 0; i < 3; i++) {
+                    const capacitor = MeshBuilder.CreateBox(`capacitor${i}`, {
+                        width: barrelWidth * 0.5,
+                        height: barrelWidth * 0.5,
+                        depth: barrelWidth * 0.5
+                    }, scene);
+                    capacitor.position = new Vector3(0, barrelWidth * 0.55, -barrelLength * 0.4 + i * barrelLength * 0.3);
+                    capacitor.parent = barrel;
+                    capacitor.material = railMat;
+                    this.cannonAnimationElements.railgunCapacitors.push(capacitor);
+                }
+                
+                // Энергетические каналы (угловатые)
+                for (let i = 0; i < 3; i++) {
+                    const channel = MeshBuilder.CreateBox(`railChannel${i}`, {
+                        width: barrelWidth * 0.25,
+                        height: barrelWidth * 0.12,
+                        depth: barrelLength * 0.25
+                    }, scene);
+                    channel.position = new Vector3(0, 0, -barrelLength * 0.35 + i * barrelLength * 0.3);
+                    channel.parent = barrel;
+                    channel.material = railMat;
+                }
+                
+                // Дульный усилитель (угловатый)
+                const muzzleAmp = MeshBuilder.CreateBox("railgunMuzzleAmp", {
+                    width: barrelWidth * 1.2,
+                    height: barrelWidth * 0.3,
+                    depth: barrelWidth * 1.2
+                }, scene);
+                muzzleAmp.position = new Vector3(0, 0, barrelLength * 0.95);
+                muzzleAmp.parent = barrel;
+                muzzleAmp.material = railMat;
+                break;
+                
+            // === EXPLOSIVE WEAPONS ===
+            case "rocket":
+                // Rocket - Прототип: РПГ / РПГ-7 - Ракетная установка
+                // Основной корпус - широкий и короткий (угловатый)
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 1.7, 
+                    height: barrelWidth * 1.7, 
+                    depth: barrelLength * 1.1 
+                }, scene);
+                
+                // Пусковая труба (угловатая, low-poly) - ANIMATED
+                const tube = MeshBuilder.CreateBox("tube", {
+                    width: barrelWidth * 1.5,
+                    height: barrelWidth * 1.5,
+                    depth: barrelLength * 1.0 
+                }, scene);
+                tube.position = new Vector3(0, 0, 0);
+                tube.parent = barrel;
+                const tubeMat = new StandardMaterial("rocketTubeMat", scene);
+                tubeMat.diffuseColor = cannonColor.scale(0.8);
+                tube.material = tubeMat;
+                this.cannonAnimationElements.rocketTube = tube;
+                
+                // Направляющие рельсы (угловатые, low-poly)
+                this.cannonAnimationElements.rocketGuides = [];
+                for (let i = 0; i < 6; i++) {
+                    const guide = MeshBuilder.CreateBox(`guide${i}`, {
+                        width: barrelWidth * 0.1,
+                        height: barrelLength * 0.85,
+                        depth: barrelWidth * 0.1
+                    }, scene);
+                    const angle = (i * Math.PI * 2) / 6;
+                    guide.position = new Vector3(
+                        Math.cos(angle) * barrelWidth * 0.65,
+                        Math.sin(angle) * barrelWidth * 0.65,
+                        0
+                    );
+                    guide.parent = barrel;
+                    guide.material = tubeMat;
+                    this.cannonAnimationElements.rocketGuides.push(guide);
+                }
+                
+                // Стабилизаторы на конце (угловатые)
+                for (let i = 0; i < 4; i++) {
+                    const fin = MeshBuilder.CreateBox(`rocketFin${i}`, {
+                        width: barrelWidth * 0.12,
+                        height: barrelWidth * 0.25,
+                        depth: barrelWidth * 0.08
+                    }, scene);
+                    const angle = (i * Math.PI * 2) / 4;
+                    fin.position = new Vector3(
+                        Math.cos(angle) * barrelWidth * 0.75,
+                        Math.sin(angle) * barrelWidth * 0.75,
+                        barrelLength * 0.4
+                    );
+                    fin.parent = barrel;
+                    fin.material = tubeMat;
+                }
+                
+                // Система наведения (угловатая)
+                const guidance = MeshBuilder.CreateBox("rocketGuidance", {
+                    width: barrelWidth * 0.45,
+                    height: barrelWidth * 0.25,
+                    depth: barrelWidth * 0.45
+                }, scene);
+                guidance.position = new Vector3(0, barrelWidth * 0.65, -barrelLength * 0.2);
+                guidance.parent = barrel;
+                const guidanceMat = new StandardMaterial("rocketGuidanceMat", scene);
+                guidanceMat.diffuseColor = new Color3(0.15, 0.7, 0.15);  // Советский зеленый
+                guidanceMat.emissiveColor = new Color3(0.05, 0.3, 0.05);
+                guidance.material = guidanceMat;
                 break;
                 
             case "mortar":
-                // Mortar - короткая, очень толстая - ANIMATED
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 1.8, 
-                    height: barrelWidth * 1.8, 
-                    depth: barrelLength * 0.7 
+                // Mortar - Прототип: Миномет / 2Б9 Василек - Короткая, очень толстая
+                // Основной ствол - ОГРОМНЫЙ и короткий цилиндр
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 2.5,
+                    height: barrelLength * 0.6,
+                    tessellation: 8  // Low-poly
                 }, scene);
-                // Add base - ANIMATED
-                const mortarBase = MeshBuilder.CreateCylinder("mortarBase", {
-                    height: barrelWidth * 0.4,
-                    diameter: barrelWidth * 2.0
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Массивное основание (угловатое, low-poly) - ANIMATED
+                const mortarBase = MeshBuilder.CreateBox("mortarBase", {
+                    width: barrelWidth * 2.4,
+                    height: barrelWidth * 0.6,
+                    depth: barrelWidth * 2.4
                 }, scene);
-                mortarBase.position = new Vector3(0, -barrelWidth * 0.6, 0);
+                mortarBase.position = new Vector3(0, -barrelWidth * 0.7, 0);
                 mortarBase.parent = barrel;
-                mortarBase.material = barrel.material;
+                const baseMat = new StandardMaterial("mortarBaseMat", scene);
+                baseMat.diffuseColor = cannonColor.scale(0.6);
+                mortarBase.material = baseMat;
                 this.cannonAnimationElements.mortarBase = mortarBase;
+                
+                // Опорные ноги (угловатые)
+                this.cannonAnimationElements.mortarLegs = [];
+                for (let i = 0; i < 3; i++) {
+                    const leg = MeshBuilder.CreateBox(`mortarLeg${i}`, {
+                        width: barrelWidth * 0.18,
+                        height: barrelWidth * 0.45,
+                        depth: barrelWidth * 0.18
+                    }, scene);
+                    const angle = (i * Math.PI * 2) / 3;
+                    leg.position = new Vector3(
+                        Math.cos(angle) * barrelWidth * 0.95,
+                        -barrelWidth * 0.95,
+                        Math.sin(angle) * barrelWidth * 0.25
+                    );
+                    leg.parent = barrel;
+                    leg.material = baseMat;
+                    this.cannonAnimationElements.mortarLegs.push(leg);
+                }
+                
+                // Усилители по бокам (угловатые)
+                for (let i = 0; i < 2; i++) {
+                    const reinforcement = MeshBuilder.CreateBox(`mortarReinforcement${i}`, {
+                        width: barrelWidth * 0.25,
+                        height: barrelLength * 0.5,
+                        depth: barrelWidth * 0.25
+                    }, scene);
+                    reinforcement.position = new Vector3((i === 0 ? -1 : 1) * barrelWidth * 1.05, 0, 0);
+                    reinforcement.parent = barrel;
+                    reinforcement.material = baseMat;
+                }
                 break;
                 
             case "cluster":
-                // Cluster - множественные стволы - ANIMATED
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 1.3, 
-                    height: barrelWidth * 1.3, 
-                    depth: barrelLength * 1.0 
-                }, scene);
-                // Add cluster tubes - ANIMATED
-                this.cannonAnimationElements.clusterTubes = [];
-                for (let i = 0; i < 4; i++) {
-                    const clusterTube = MeshBuilder.CreateCylinder(`cluster${i}`, {
-                        height: barrelLength * 0.8,
-                        diameter: barrelWidth * 0.3
-                    }, scene);
-                    const angle = (i * Math.PI * 2 / 4);
-                    clusterTube.position = new Vector3(
-                        Math.cos(angle) * barrelWidth * 0.35,
-                        Math.sin(angle) * barrelWidth * 0.35,
-                        0
-                    );
-                    clusterTube.parent = barrel;
-                    clusterTube.material = barrel.material;
-                    this.cannonAnimationElements.clusterTubes.push(clusterTube);
-                }
-                break;
-                
-            case "explosive":
-                // Explosive - стандартная с усилением
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 1.3, 
-                    height: barrelWidth * 1.3, 
-                    depth: barrelLength * 1.05 
-                }, scene);
-                break;
-                
-            // === SPECIAL EFFECT WEAPONS ===
-            case "flamethrower":
-                // Flamethrower - короткая, широкая
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 1.2, 
-                    height: barrelWidth * 1.2, 
-                    depth: barrelLength * 0.8 
-                }, scene);
-                // Add nozzle
-                const nozzle = MeshBuilder.CreateCylinder("nozzle", {
-                    height: barrelLength * 0.3,
-                    diameter: barrelWidth * 0.8
-                }, scene);
-                nozzle.position = new Vector3(0, 0, barrelLength * 0.4);
-                nozzle.parent = barrel;
-                nozzle.material = barrel.material;
-                break;
-                
-            case "acid":
-                // Acid - с резервуаром - ANIMATED
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 1.1, 
-                    height: barrelWidth * 1.1, 
-                    depth: barrelLength * 1.0 
-                }, scene);
-                // Add tank - ANIMATED
-                const acidTank = MeshBuilder.CreateBox("acidTank", {
-                    width: barrelWidth * 0.8,
-                    height: barrelWidth * 1.5,
-                    depth: barrelWidth * 0.8
-                }, scene);
-                acidTank.position = new Vector3(0, barrelWidth * 0.5, -barrelLength * 0.3);
-                acidTank.parent = barrel;
-                acidTank.material = barrel.material;
-                this.cannonAnimationElements.acidTank = acidTank;
-                break;
-                
-            case "freeze":
-                // Freeze - с охладителем - ANIMATED
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 1.0, 
-                    height: barrelWidth * 1.0, 
-                    depth: barrelLength * 1.0 
-                }, scene);
-                // Add cooling fins - ANIMATED
-                this.cannonAnimationElements.freezeFins = [];
-                for (let i = 0; i < 4; i++) {
-                    const fin = MeshBuilder.CreateBox(`fin${i}`, {
-                        width: barrelWidth * 0.1,
-                        height: barrelLength * 0.6,
-                        depth: barrelWidth * 0.3
-                    }, scene);
-                    const angle = (i * Math.PI * 2 / 4);
-                    fin.position = new Vector3(
-                        Math.cos(angle) * barrelWidth * 0.5,
-                        0,
-                        Math.sin(angle) * barrelWidth * 0.2
-                    );
-                    fin.parent = barrel;
-                    fin.material = barrel.material;
-                    this.cannonAnimationElements.freezeFins.push(fin);
-                }
-                break;
-                
-            case "poison":
-                // Poison - с инжектором
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 1.05, 
-                    height: barrelWidth * 1.05, 
-                    depth: barrelLength * 0.95 
-                }, scene);
-                // Add injector
-                const injector = MeshBuilder.CreateCylinder("injector", {
-                    height: barrelWidth * 0.4,
-                    diameter: barrelWidth * 0.3
-                }, scene);
-                injector.position = new Vector3(0, 0, barrelLength * 0.4);
-                injector.parent = barrel;
-                injector.material = barrel.material;
-                break;
-                
-            case "emp":
-                // EMP - с излучателем - ANIMATED
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 1.25, 
-                    height: barrelWidth * 1.25, 
-                    depth: barrelLength * 1.0 
-                }, scene);
-                // Add emitter dish - ANIMATED
-                const dish = MeshBuilder.CreateCylinder("dish", {
-                    height: barrelWidth * 0.2,
-                    diameter: barrelWidth * 1.4
-                }, scene);
-                dish.position = new Vector3(0, 0, barrelLength * 0.5);
-                dish.parent = barrel;
-                dish.material = barrel.material;
-                this.cannonAnimationElements.empDish = dish;
-                break;
-                
-            // === MULTI-SHOT WEAPONS ===
-            case "shotgun":
-                // Shotgun - очень широкая, с множественными стволами
+                // Cluster - Прототип: РСЗО / Катюша - Множественные стволы
+                // Основной корпус - широкий (угловатый)
                 barrel = MeshBuilder.CreateBox("barrel", { 
                     width: barrelWidth * 1.8, 
                     height: barrelWidth * 1.8, 
-                    depth: barrelLength * 0.75 
+                    depth: barrelLength * 1.1 
                 }, scene);
-                // Множественные стволы для дроби
-                for (let i = 0; i < 8; i++) {
-                    const pelletBarrel = MeshBuilder.CreateCylinder(`pelletBarrel${i}`, {
-                        height: barrelLength * 0.6,
-                        diameter: barrelWidth * 0.15
+                
+                // Множественные трубы кластера (угловатые, low-poly) - ANIMATED
+                this.cannonAnimationElements.clusterTubes = [];
+                for (let i = 0; i < 6; i++) {
+                    const clusterTube = MeshBuilder.CreateBox(`cluster${i}`, {
+                        width: barrelWidth * 0.35,
+                        height: barrelWidth * 0.35,
+                        depth: barrelLength * 0.9
                     }, scene);
-                    const angle = (i * Math.PI * 2) / 8;
-                    pelletBarrel.position = new Vector3(
+                    const angle = (i * Math.PI * 2 / 6);
+                    clusterTube.position = new Vector3(
                         Math.cos(angle) * barrelWidth * 0.5,
                         Math.sin(angle) * barrelWidth * 0.5,
                         0
                     );
+                    clusterTube.parent = barrel;
+                    const tubeMat = new StandardMaterial(`clusterTubeMat${i}`, scene);
+                    tubeMat.diffuseColor = cannonColor.scale(0.9);
+                    clusterTube.material = tubeMat;
+                    this.cannonAnimationElements.clusterTubes.push(clusterTube);
+                }
+                
+                // Центральная труба (угловатая)
+                const centerTube = MeshBuilder.CreateBox("clusterCenter", {
+                    width: barrelWidth * 0.4,
+                    height: barrelWidth * 0.4,
+                    depth: barrelLength * 0.95
+                }, scene);
+                centerTube.position = new Vector3(0, 0, 0);
+                centerTube.parent = barrel;
+                centerTube.material = barrel.material;
+                this.cannonAnimationElements.clusterCenterTube = centerTube;
+                
+                // Стабилизаторы между трубами (угловатые)
+                for (let i = 0; i < 6; i++) {
+                    const stabilizer = MeshBuilder.CreateBox(`clusterStabilizer${i}`, {
+                        width: barrelWidth * 0.08,
+                        height: barrelLength * 0.6,
+                        depth: barrelWidth * 0.08
+                    }, scene);
+                    const angle = (i * Math.PI * 2 / 6) + Math.PI / 6;
+                    stabilizer.position = new Vector3(
+                        Math.cos(angle) * barrelWidth * 0.65,
+                        Math.sin(angle) * barrelWidth * 0.65,
+                        barrelLength * 0.1
+                    );
+                    stabilizer.parent = barrel;
+                    stabilizer.material = barrel.material;
+                }
+                break;
+                
+            case "explosive":
+                // Explosive - Прототип: ИСУ-152 / МЛ-20 - Толстая гаубица
+                // Основной ствол - толстый цилиндр
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 1.6,
+                    height: barrelLength * 1.0,
+                    tessellation: 8  // Low-poly
+                }, scene);
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Усиленный казённик (угловатый)
+                const explosiveBreech = MeshBuilder.CreateBox("explosiveBreech", {
+                    width: barrelWidth * 1.9,
+                    height: barrelWidth * 1.9,
+                    depth: barrelWidth * 1.3
+                }, scene);
+                explosiveBreech.position = new Vector3(0, 0, -barrelLength * 0.5);
+                explosiveBreech.parent = barrel;
+                const explosiveBreechMat = new StandardMaterial("explosiveBreechMat", scene);
+                explosiveBreechMat.diffuseColor = cannonColor.scale(0.7);
+                explosiveBreech.material = explosiveBreechMat;
+                
+                // Дульный усилитель (угловатый)
+                const explosiveMuzzle = MeshBuilder.CreateBox("explosiveMuzzle", {
+                    width: barrelWidth * 1.6,
+                    height: barrelWidth * 0.5,
+                    depth: barrelWidth * 1.6
+                }, scene);
+                explosiveMuzzle.position = new Vector3(0, 0, barrelLength * 0.5);
+                explosiveMuzzle.parent = barrel;
+                explosiveMuzzle.material = explosiveBreechMat;
+                
+                // Взрывные каналы по бокам (угловатые)
+                for (let i = 0; i < 4; i++) {
+                    const channel = MeshBuilder.CreateBox(`explosiveChannel${i}`, {
+                        width: barrelWidth * 0.1,
+                        height: barrelLength * 0.7,
+                        depth: barrelWidth * 0.1
+                    }, scene);
+                    const angle = (i * Math.PI * 2) / 4;
+                    channel.position = new Vector3(
+                        Math.cos(angle) * barrelWidth * 0.65,
+                        Math.sin(angle) * barrelWidth * 0.65,
+                        barrelLength * 0.05
+                    );
+                    channel.parent = barrel;
+                    channel.material = explosiveBreechMat;
+                }
+                break;
+                
+            // === SPECIAL EFFECT WEAPONS ===
+            case "flamethrower":
+                // Flamethrower - Прототип: Огнемет / РПО-А - Короткая, широкая с соплом
+                // Основной корпус - широкий и короткий цилиндр
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 1.6,
+                    height: barrelLength * 0.8,
+                    tessellation: 8  // Low-poly
+                }, scene);
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Сопло (угловатое, low-poly) - ANIMATED
+                const nozzle = MeshBuilder.CreateBox("nozzle", {
+                    width: barrelWidth * 1.0,
+                    height: barrelWidth * 1.0,
+                    depth: barrelLength * 0.4
+                }, scene);
+                nozzle.position = new Vector3(0, 0, barrelLength * 0.45);
+                nozzle.parent = barrel;
+                const nozzleMat = new StandardMaterial("flamethrowerNozzleMat", scene);
+                nozzleMat.diffuseColor = new Color3(0.7, 0.25, 0);  // Советский оранжевый
+                nozzleMat.emissiveColor = new Color3(0.25, 0.08, 0);
+                nozzle.material = nozzleMat;
+                this.cannonAnimationElements.flamethrowerNozzle = nozzle;
+                
+                // Топливные баки по бокам (угловатые)
+                for (let i = 0; i < 2; i++) {
+                    const tank = MeshBuilder.CreateBox(`flamethrowerTank${i}`, {
+                        width: barrelWidth * 0.4,
+                        height: barrelWidth * 0.4,
+                        depth: barrelLength * 0.7
+                    }, scene);
+                    tank.position = new Vector3((i === 0 ? -1 : 1) * barrelWidth * 0.6, 0, -barrelLength * 0.1);
+                    tank.parent = barrel;
+                    const tankMat = new StandardMaterial(`flamethrowerTankMat${i}`, scene);
+                    tankMat.diffuseColor = cannonColor.scale(0.8);
+                    tank.material = tankMat;
+                }
+                
+                // Топливные шланги (угловатые)
+                for (let i = 0; i < 2; i++) {
+                    const hose = MeshBuilder.CreateBox(`flamethrowerHose${i}`, {
+                        width: barrelWidth * 0.1,
+                        height: barrelWidth * 0.5,
+                        depth: barrelWidth * 0.1
+                    }, scene);
+                    hose.position = new Vector3((i === 0 ? -1 : 1) * barrelWidth * 0.35, barrelWidth * 0.25, barrelLength * 0.1);
+                    hose.rotation.z = (i === 0 ? 1 : -1) * Math.PI / 8;
+                    hose.parent = barrel;
+                    hose.material = nozzleMat;
+                }
+                break;
+                
+            case "acid":
+                // Acid - Прототип: Химический распылитель (советский стиль)
+                // Основной ствол - средний цилиндр
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 1.2,
+                    height: barrelLength * 1.0,
+                    tessellation: 8  // Low-poly
+                }, scene);
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Резервуар с кислотой (угловатый, low-poly) - ANIMATED
+                const acidTank = MeshBuilder.CreateBox("acidTank", {
+                    width: barrelWidth * 1.0,
+                    height: barrelWidth * 1.8,
+                    depth: barrelWidth * 1.0
+                }, scene);
+                acidTank.position = new Vector3(0, barrelWidth * 0.6, -barrelLength * 0.3);
+                acidTank.parent = barrel;
+                const tankMat = new StandardMaterial("acidTankMat", scene);
+                tankMat.diffuseColor = new Color3(0.15, 0.7, 0.15);  // Советский зеленый
+                tankMat.emissiveColor = new Color3(0.05, 0.3, 0.05);
+                acidTank.material = tankMat;
+                this.cannonAnimationElements.acidTank = acidTank;
+                
+                // Кислотные каналы (угловатые)
+                for (let i = 0; i < 3; i++) {
+                    const channel = MeshBuilder.CreateBox(`acidChannel${i}`, {
+                        width: barrelWidth * 0.15,
+                        height: barrelWidth * 0.15,
+                        depth: barrelLength * 0.6
+                    }, scene);
+                    channel.position = new Vector3(
+                        (i - 1) * barrelWidth * 0.25,
+                        barrelWidth * 0.15,
+                        barrelLength * 0.1
+                    );
+                    channel.parent = barrel;
+                    channel.material = tankMat;
+                }
+                
+                // Распылитель на конце (угловатый)
+                const acidSprayer = MeshBuilder.CreateBox("acidSprayer", {
+                    width: barrelWidth * 1.3,
+                    height: barrelWidth * 0.3,
+                    depth: barrelWidth * 1.3
+                }, scene);
+                acidSprayer.position = new Vector3(0, 0, barrelLength * 0.5);
+                acidSprayer.parent = barrel;
+                acidSprayer.material = tankMat;
+                this.cannonAnimationElements.acidSprayer = acidSprayer;
+                break;
+                
+            case "freeze":
+                // Freeze - Прототип: Криогенная установка (советский стиль)
+                // Основной ствол - цилиндрический
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 1.2,
+                    height: barrelLength * 1.0,
+                    tessellation: 8  // Low-poly
+                }, scene);
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Охлаждающие рёбра (угловатые, low-poly) - ANIMATED
+                this.cannonAnimationElements.freezeFins = [];
+                for (let i = 0; i < 6; i++) {
+                    const fin = MeshBuilder.CreateBox(`freezeFin${i}`, {
+                        width: barrelWidth * 0.12,
+                        height: barrelLength * 0.75,
+                        depth: barrelWidth * 0.35
+                    }, scene);
+                    const angle = (i * Math.PI * 2 / 6);
+                    fin.position = new Vector3(
+                        Math.cos(angle) * barrelWidth * 0.55,
+                        Math.sin(angle) * barrelWidth * 0.55,
+                        barrelLength * 0.05
+                    );
+                    fin.parent = barrel;
+                    const finMat = new StandardMaterial(`freezeFinMat${i}`, scene);
+                    finMat.diffuseColor = new Color3(0.4, 0.6, 0.9);  // Советский голубой
+                    finMat.emissiveColor = new Color3(0.08, 0.15, 0.25);
+                    fin.material = finMat;
+                    this.cannonAnimationElements.freezeFins.push(fin);
+                }
+                
+                // Криогенный резервуар (угловатый)
+                const cryoTank = MeshBuilder.CreateBox("cryoTank", {
+                    width: barrelWidth * 0.7,
+                    height: barrelWidth * 0.6,
+                    depth: barrelWidth * 0.7
+                }, scene);
+                cryoTank.position = new Vector3(0, barrelWidth * 0.45, -barrelLength * 0.3);
+                cryoTank.parent = barrel;
+                const cryoMat = new StandardMaterial("cryoTankMat", scene);
+                cryoMat.diffuseColor = new Color3(0.25, 0.5, 0.9);
+                cryoMat.emissiveColor = new Color3(0.08, 0.15, 0.3);
+                cryoTank.material = cryoMat;
+                this.cannonAnimationElements.cryoTank = cryoTank;
+                
+                // Эмиттер холода на конце (угловатый)
+                const freezeEmitter = MeshBuilder.CreateBox("freezeEmitter", {
+                    width: barrelWidth * 1.3,
+                    height: barrelWidth * 0.4,
+                    depth: barrelWidth * 1.3
+                }, scene);
+                freezeEmitter.position = new Vector3(0, 0, barrelLength * 0.5);
+                freezeEmitter.parent = barrel;
+                freezeEmitter.material = cryoMat;
+                break;
+                
+            case "poison":
+                // Poison - Прототип: Химический инжектор (советский стиль)
+                // Основной ствол - средний
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 1.1,
+                    height: barrelLength * 0.95,
+                    tessellation: 8  // Low-poly
+                }, scene);
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Резервуар с ядом (угловатый)
+                const poisonTank = MeshBuilder.CreateBox("poisonTank", {
+                    width: barrelWidth * 0.6,
+                    height: barrelWidth * 1.2,
+                    depth: barrelWidth * 0.6
+                }, scene);
+                poisonTank.position = new Vector3(0, barrelWidth * 0.4, -barrelLength * 0.25);
+                poisonTank.parent = barrel;
+                const poisonMat = new StandardMaterial("poisonTankMat", scene);
+                poisonMat.diffuseColor = new Color3(0.3, 0.7, 0.15);  // Советский зеленый
+                poisonMat.emissiveColor = new Color3(0.15, 0.35, 0.08);
+                poisonTank.material = poisonMat;
+                
+                // Инжектор (угловатый, low-poly) - ANIMATED
+                const injector = MeshBuilder.CreateBox("poisonInjector", {
+                    width: barrelWidth * 0.5,
+                    height: barrelWidth * 0.6,
+                    depth: barrelWidth * 0.5
+                }, scene);
+                injector.position = new Vector3(0, 0, barrelLength * 0.45);
+                injector.parent = barrel;
+                injector.material = poisonMat;
+                this.cannonAnimationElements.poisonInjector = injector;
+                
+                // Иглы инжектора (угловатые)
+                for (let i = 0; i < 4; i++) {
+                    const needle = MeshBuilder.CreateBox(`poisonNeedle${i}`, {
+                        width: barrelWidth * 0.06,
+                        height: barrelWidth * 0.3,
+                        depth: barrelWidth * 0.06
+                    }, scene);
+                    const angle = (i * Math.PI * 2) / 4;
+                    needle.position = new Vector3(
+                        Math.cos(angle) * barrelWidth * 0.25,
+                        Math.sin(angle) * barrelWidth * 0.25,
+                        barrelLength * 0.5
+                    );
+                    needle.parent = barrel;
+                    needle.material = poisonMat;
+                }
+                
+                // Каналы подачи яда (угловатые)
+                for (let i = 0; i < 2; i++) {
+                    const channel = MeshBuilder.CreateBox(`poisonChannel${i}`, {
+                        width: barrelWidth * 0.1,
+                        height: barrelLength * 0.5,
+                        depth: barrelWidth * 0.1
+                    }, scene);
+                    channel.position = new Vector3((i === 0 ? -1 : 1) * barrelWidth * 0.3, barrelWidth * 0.15, barrelLength * 0.1);
+                    channel.parent = barrel;
+                    channel.material = poisonMat;
+                }
+                break;
+                
+            case "emp":
+                // EMP - Прототип: ЭМИ излучатель (советский стиль)
+                // Основной корпус - широкий цилиндр
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 1.6,
+                    height: barrelLength * 1.0,
+                    tessellation: 8  // Low-poly
+                }, scene);
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Излучатель (угловатый, low-poly) - ANIMATED
+                const dish = MeshBuilder.CreateBox("empDish", {
+                    width: barrelWidth * 1.8,
+                    height: barrelWidth * 0.3,
+                    depth: barrelWidth * 1.8
+                }, scene);
+                dish.position = new Vector3(0, 0, barrelLength * 0.5);
+                dish.parent = barrel;
+                const dishMat = new StandardMaterial("empDishMat", scene);
+                dishMat.diffuseColor = new Color3(0.7, 0.7, 0.15);  // Советский желтый
+                dishMat.emissiveColor = new Color3(0.3, 0.3, 0.08);
+                dish.material = dishMat;
+                this.cannonAnimationElements.empDish = dish;
+                
+                // Энергетические катушки (угловатые, low-poly)
+                this.cannonAnimationElements.empCoils = [];
+                for (let i = 0; i < 3; i++) {
+                    const coil = MeshBuilder.CreateTorus(`empCoil${i}`, {
+                        diameter: barrelWidth * 1.3,
+                        thickness: barrelWidth * 0.1,
+                        tessellation: 8  // Low-poly
+                    }, scene);
+                    coil.position = new Vector3(0, 0, -barrelLength * 0.25 + i * barrelLength * 0.2);
+                    coil.parent = barrel;
+                    coil.material = dishMat;
+                    this.cannonAnimationElements.empCoils.push(coil);
+                }
+                
+                // Генератор EMP (угловатый)
+                const empGen = MeshBuilder.CreateBox("empGen", {
+                    width: barrelWidth * 0.7,
+                    height: barrelWidth * 0.7,
+                    depth: barrelWidth * 0.7
+                }, scene);
+                empGen.position = new Vector3(0, 0, -barrelLength * 0.4);
+                empGen.parent = barrel;
+                const empGenMat = new StandardMaterial("empGenMat", scene);
+                empGenMat.diffuseColor = new Color3(0.9, 0.9, 0.25);
+                empGenMat.emissiveColor = new Color3(0.4, 0.4, 0.12);
+                empGenMat.disableLighting = true;
+                empGen.material = empGenMat;
+                this.cannonAnimationElements.empGen = empGen;
+                break;
+                
+            // === MULTI-SHOT WEAPONS ===
+            case "shotgun":
+                // Shotgun - Прототип: Дробовик / КС-23 - Огромная, множественные стволы
+                // Основной корпус - ОГРОМНЫЙ цилиндр
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 2.2,
+                    height: barrelLength * 0.75,
+                    tessellation: 8  // Low-poly
+                }, scene);
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Множественные стволы для дроби (угловатые, low-poly) - ANIMATED
+                this.cannonAnimationElements.shotgunBarrels = [];
+                for (let i = 0; i < 10; i++) {
+                    const pelletBarrel = MeshBuilder.CreateBox(`pelletBarrel${i}`, {
+                        width: barrelWidth * 0.18,
+                        height: barrelWidth * 0.18,
+                    depth: barrelLength * 0.7 
+                }, scene);
+                    const angle = (i * Math.PI * 2) / 10;
+                    pelletBarrel.position = new Vector3(
+                        Math.cos(angle) * barrelWidth * 0.55,
+                        Math.sin(angle) * barrelWidth * 0.55,
+                        0
+                    );
                     pelletBarrel.parent = barrel;
-                    pelletBarrel.material = barrel.material;
+                    const barrelMat = new StandardMaterial(`shotgunBarrelMat${i}`, scene);
+                    barrelMat.diffuseColor = cannonColor.scale(0.9);
+                    pelletBarrel.material = barrelMat;
+                    this.cannonAnimationElements.shotgunBarrels.push(pelletBarrel);
+                }
+                
+                // Центральный ствол (угловатый)
+                const centerBarrel = MeshBuilder.CreateBox("shotgunCenter", {
+                    width: barrelWidth * 0.25,
+                    height: barrelWidth * 0.25,
+                    depth: barrelLength * 0.75
+                }, scene);
+                centerBarrel.position = new Vector3(0, 0, 0);
+                centerBarrel.parent = barrel;
+                centerBarrel.material = barrel.material;
+                
+                // Усилители между стволами (угловатые)
+                for (let i = 0; i < 5; i++) {
+                    const reinforcement = MeshBuilder.CreateBox(`shotgunReinforcement${i}`, {
+                        width: barrelWidth * 0.08,
+                        height: barrelLength * 0.45,
+                        depth: barrelWidth * 0.08
+                    }, scene);
+                    const angle = (i * Math.PI * 2) / 5 + Math.PI / 10;
+                    reinforcement.position = new Vector3(
+                        Math.cos(angle) * barrelWidth * 0.75,
+                        Math.sin(angle) * barrelWidth * 0.75,
+                        barrelLength * 0.1
+                    );
+                    reinforcement.parent = barrel;
+                    reinforcement.material = barrel.material;
                 }
                 break;
                 
             case "multishot":
-                // Multishot - три ствола - ANIMATED
+                // Multishot - Прототип: Трехствольная пушка (советский стиль)
+                // Основной корпус - широкий прямоугольный
                 barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 1.9, 
-                    height: barrelWidth * 1.9, 
+                    width: barrelWidth * 2.2, 
+                    height: barrelWidth * 1.6, 
                     depth: barrelLength * 1.0 
                 }, scene);
-                // Add 3 barrels - ANIMATED
+                
+                // Три ствола (угловатые, low-poly) - ANIMATED
                 this.cannonAnimationElements.multishotBarrels = [];
                 for (let i = 0; i < 3; i++) {
-                    const multiBarrel = MeshBuilder.CreateCylinder(`multi${i}`, {
-                        height: barrelLength,
-                        diameter: barrelWidth * 0.4
+                    const multiBarrel = MeshBuilder.CreateBox(`multi${i}`, {
+                        width: barrelWidth * 0.5,
+                        height: barrelWidth * 0.5,
+                        depth: barrelLength * 1.05
                     }, scene);
                     multiBarrel.position = new Vector3(
-                        (i - 1) * barrelWidth * 0.5,
+                        (i - 1) * barrelWidth * 0.55,
                         0,
                         0
                     );
                     multiBarrel.parent = barrel;
-                    multiBarrel.material = barrel.material;
+                    const barrelMat = new StandardMaterial(`multishotBarrelMat${i}`, scene);
+                    barrelMat.diffuseColor = cannonColor.scale(0.9);
+                    multiBarrel.material = barrelMat;
                     this.cannonAnimationElements.multishotBarrels.push(multiBarrel);
+                }
+                
+                // Объединяющий блок (угловатый)
+                const connector = MeshBuilder.CreateBox("multishotConnector", {
+                    width: barrelWidth * 1.9,
+                    height: barrelWidth * 0.9,
+                    depth: barrelWidth * 0.7
+                }, scene);
+                connector.position = new Vector3(0, 0, -barrelLength * 0.4);
+                connector.parent = barrel;
+                connector.material = barrel.material;
+                this.cannonAnimationElements.multishotConnector = connector;
+                
+                // Стабилизаторы между стволами (угловатые)
+                for (let i = 0; i < 2; i++) {
+                    const stabilizer = MeshBuilder.CreateBox(`multishotStabilizer${i}`, {
+                        width: barrelWidth * 0.12,
+                        height: barrelLength * 0.65,
+                        depth: barrelWidth * 0.12
+                    }, scene);
+                    stabilizer.position = new Vector3(
+                        (i === 0 ? -1 : 1) * barrelWidth * 0.25,
+                        0,
+                        barrelLength * 0.15
+                    );
+                    stabilizer.parent = barrel;
+                    stabilizer.material = barrel.material;
                 }
                 break;
                 
             // === ADVANCED WEAPONS ===
             case "homing":
-                // Homing - с навигацией - ANIMATED
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 1.35, 
-                    height: barrelWidth * 1.35, 
-                    depth: barrelLength * 1.0 
+                // Homing - Прототип: ПТУР / Конкурс - С системой наведения
+                // Основной ствол - средний цилиндр
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 1.3,
+                    height: barrelLength * 1.0,
+                    tessellation: 8  // Low-poly
                 }, scene);
-                // Add guidance system - ANIMATED
-                const guidance = MeshBuilder.CreateBox("guidance", {
-                    width: barrelWidth * 0.6,
-                    height: barrelWidth * 0.4,
-                    depth: barrelWidth * 0.6
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Система наведения (угловатая, low-poly) - ANIMATED
+                const homingGuidance = MeshBuilder.CreateBox("homingGuidance", {
+                    width: barrelWidth * 0.75,
+                    height: barrelWidth * 0.55,
+                    depth: barrelWidth * 0.75
                 }, scene);
-                guidance.position = new Vector3(0, barrelWidth * 0.5, -barrelLength * 0.2);
-                guidance.parent = barrel;
-                const guidanceMat = new StandardMaterial("guidanceMat", scene);
-                guidanceMat.diffuseColor = new Color3(0.2, 0.8, 0.2);
-                guidance.material = guidanceMat;
-                this.cannonAnimationElements.homingGuidance = guidance;
+                homingGuidance.position = new Vector3(0, barrelWidth * 0.55, -barrelLength * 0.2);
+                homingGuidance.parent = barrel;
+                const homingGuidanceMat = new StandardMaterial("homingGuidanceMat", scene);
+                homingGuidanceMat.diffuseColor = new Color3(0.08, 0.8, 0.08);  // Советский зеленый
+                homingGuidanceMat.emissiveColor = new Color3(0.03, 0.35, 0.03);
+                homingGuidance.material = homingGuidanceMat;
+                this.cannonAnimationElements.homingGuidance = homingGuidance;
+                
+                // Радарные антенны (угловатые)
+                this.cannonAnimationElements.homingAntennas = [];
+                for (let i = 0; i < 2; i++) {
+                    const antenna = MeshBuilder.CreateBox(`homingAntenna${i}`, {
+                        width: barrelWidth * 0.08,
+                        height: barrelWidth * 0.35,
+                        depth: barrelWidth * 0.08
+                    }, scene);
+                    antenna.position = new Vector3(
+                        (i === 0 ? -1 : 1) * barrelWidth * 0.45,
+                        barrelWidth * 0.75,
+                        -barrelLength * 0.15
+                    );
+                    antenna.parent = barrel;
+                    antenna.material = homingGuidanceMat;
+                    this.cannonAnimationElements.homingAntennas.push(antenna);
+                }
+                
+                // Стабилизаторы наведения (угловатые)
+                for (let i = 0; i < 2; i++) {
+                    const stabilizer = MeshBuilder.CreateBox(`homingStabilizer${i}`, {
+                        width: barrelWidth * 0.12,
+                        height: barrelLength * 0.55,
+                        depth: barrelWidth * 0.12
+                    }, scene);
+                    stabilizer.position = new Vector3((i === 0 ? -1 : 1) * barrelWidth * 0.55, 0, barrelLength * 0.1);
+                    stabilizer.parent = barrel;
+                    stabilizer.material = homingGuidanceMat;
+                }
                 break;
                 
             case "piercing":
-                // Piercing - очень длинная и тонкая - ANIMATED
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 0.85, 
-                    height: barrelWidth * 0.85, 
-                    depth: barrelLength * 1.5 
+                // Piercing - Прототип: Бронебойная пушка / БС-3 - Экстремально длинная и тонкая
+                // Основной ствол - ОЧЕНЬ длинный и тонкий цилиндр
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 0.55,
+                    height: barrelLength * 2.2,
+                    tessellation: 8  // Low-poly
                 }, scene);
-                // Add tip - ANIMATED
-                const tip = MeshBuilder.CreateCylinder("tip", {
-                    height: barrelLength * 0.2,
-                    diameter: barrelWidth * 0.6
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Острый наконечник (угловатый, low-poly) - ANIMATED
+                const tip = MeshBuilder.CreateBox("piercingTip", {
+                    width: barrelWidth * 0.3,
+                    height: barrelWidth * 0.3,
+                    depth: barrelLength * 0.3
                 }, scene);
-                tip.position = new Vector3(0, 0, barrelLength * 0.6);
+                tip.position = new Vector3(0, 0, barrelLength * 0.7);
                 tip.parent = barrel;
-                tip.material = barrel.material;
+                const tipMat = new StandardMaterial("piercingTipMat", scene);
+                tipMat.diffuseColor = new Color3(0.85, 0.85, 0.85);  // Советский серый
+                tipMat.emissiveColor = new Color3(0.15, 0.15, 0.15);
+                tip.material = tipMat;
                 this.cannonAnimationElements.piercingTip = tip;
+                
+                // Усилители прочности (угловатые)
+                this.cannonAnimationElements.piercingConduits = [];
+                for (let i = 0; i < 2; i++) {
+                    const conduit = MeshBuilder.CreateBox(`piercingConduit${i}`, {
+                        width: barrelWidth * 0.08,
+                        height: barrelLength * 1.1,
+                        depth: barrelWidth * 0.08
+                    }, scene);
+                    conduit.position = new Vector3(
+                        (i === 0 ? -1 : 1) * barrelWidth * 0.35,
+                        0,
+                        barrelLength * 0.2
+                    );
+                    conduit.parent = barrel;
+                    conduit.material = barrel.material;
+                    this.cannonAnimationElements.piercingConduits.push(conduit);
+                }
+                
+                // Стабилизаторы (угловатые, low-poly)
+                for (let i = 0; i < 3; i++) {
+                    const stabilizer = MeshBuilder.CreateTorus(`piercingStabilizer${i}`, {
+                        diameter: barrelWidth * 0.75,
+                        thickness: barrelWidth * 0.06,
+                        tessellation: 8  // Low-poly
+                    }, scene);
+                    stabilizer.position = new Vector3(0, 0, -barrelLength * 0.25 + i * barrelLength * 0.2);
+                    stabilizer.parent = barrel;
+                    stabilizer.material = barrel.material;
+                }
                 break;
                 
             case "shockwave":
-                // Shockwave - очень толстая - ANIMATED
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 1.6, 
-                    height: barrelWidth * 1.6, 
-                    depth: barrelLength * 0.9 
+                // Shockwave - Прототип: Ударная волна (советский стиль)
+                // Основной корпус - ОГРОМНЫЙ и короткий
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 2.2,
+                    height: barrelLength * 0.85,
+                    tessellation: 8  // Low-poly
                 }, scene);
-                // Add amplifier - ANIMATED
-                const amp = MeshBuilder.CreateCylinder("amp", {
-                    height: barrelWidth * 0.5,
-                    diameter: barrelWidth * 1.8
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Усилитель (угловатый, low-poly) - ANIMATED
+                const amp = MeshBuilder.CreateBox("shockwaveAmp", {
+                    width: barrelWidth * 2.2,
+                    height: barrelWidth * 0.6,
+                    depth: barrelWidth * 2.2
                 }, scene);
-                amp.position = new Vector3(0, 0, barrelLength * 0.4);
+                amp.position = new Vector3(0, 0, barrelLength * 0.45);
                 amp.parent = barrel;
-                amp.material = barrel.material;
+                const ampMat = new StandardMaterial("shockwaveAmpMat", scene);
+                ampMat.diffuseColor = cannonColor.scale(0.8);
+                ampMat.emissiveColor = new Color3(0.05, 0.05, 0.05);
+                amp.material = ampMat;
                 this.cannonAnimationElements.shockwaveAmp = amp;
+                
+                // Волновые каналы (угловатые)
+                this.cannonAnimationElements.shockwaveEmitters = [];
+                for (let i = 0; i < 4; i++) {
+                    const emitter = MeshBuilder.CreateBox(`shockwaveEmitter${i}`, {
+                        width: barrelWidth * 0.12,
+                        height: barrelLength * 0.6,
+                        depth: barrelWidth * 0.12
+                    }, scene);
+                    const angle = (i * Math.PI * 2) / 4;
+                    emitter.position = new Vector3(
+                        Math.cos(angle) * barrelWidth * 0.85,
+                        Math.sin(angle) * barrelWidth * 0.85,
+                        barrelLength * 0.1
+                    );
+                    emitter.parent = barrel;
+                    emitter.material = ampMat;
+                    this.cannonAnimationElements.shockwaveEmitters.push(emitter);
+                }
+                
+                // Генератор ударной волны (угловатый)
+                const shockGen = MeshBuilder.CreateBox("shockwaveGen", {
+                    width: barrelWidth * 0.8,
+                    height: barrelWidth * 0.8,
+                    depth: barrelWidth * 0.8
+                }, scene);
+                shockGen.position = new Vector3(0, 0, -barrelLength * 0.35);
+                shockGen.parent = barrel;
+                shockGen.material = ampMat;
                 break;
                 
             case "beam":
-                // Beam - длинная, с фокусировщиком - ANIMATED
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 0.95, 
-                    height: barrelWidth * 0.95, 
-                    depth: barrelLength * 1.3 
+                // Beam - Прототип: Лучовая пушка (советский стиль)
+                // Основной ствол - длинный цилиндр
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 0.85,
+                    height: barrelLength * 1.6,
+                    tessellation: 8  // Low-poly
                 }, scene);
-                // Add focuser - ANIMATED
-                const focuser = MeshBuilder.CreateCylinder("focuser", {
-                    height: barrelWidth * 0.3,
-                    diameter: barrelWidth * 0.7
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Фокусировщик (угловатый, low-poly) - ANIMATED
+                const focuser = MeshBuilder.CreateBox("beamFocuser", {
+                    width: barrelWidth * 0.9,
+                    height: barrelWidth * 0.5,
+                    depth: barrelWidth * 0.9
                 }, scene);
-                focuser.position = new Vector3(0, 0, barrelLength * 0.6);
+                focuser.position = new Vector3(0, 0, barrelLength * 0.65);
                 focuser.parent = barrel;
-                focuser.material = barrel.material;
+                const focuserMat = new StandardMaterial("beamFocuserMat", scene);
+                focuserMat.diffuseColor = new Color3(0.9, 0.4, 0);  // Советский оранжевый
+                focuserMat.emissiveColor = new Color3(0.35, 0.15, 0);
+                focuserMat.disableLighting = true;
+                focuser.material = focuserMat;
                 this.cannonAnimationElements.beamFocuser = focuser;
+                
+                // Фокусирующие линзы (угловатые, low-poly)
+                this.cannonAnimationElements.beamLenses = [];
+                for (let i = 0; i < 3; i++) {
+                    const lens = MeshBuilder.CreateBox(`beamLens${i}`, {
+                        width: barrelWidth * 0.85,
+                        height: barrelWidth * 0.2,
+                        depth: barrelWidth * 0.85
+                    }, scene);
+                    lens.position = new Vector3(0, 0, barrelLength * 0.25 + i * barrelLength * 0.15);
+                    lens.parent = barrel;
+                    lens.material = focuserMat;
+                    this.cannonAnimationElements.beamLenses.push(lens);
+                }
+                
+                // Энергетические каналы (угловатые)
+                this.cannonAnimationElements.beamConduits = [];
+                for (let i = 0; i < 2; i++) {
+                    const channel = MeshBuilder.CreateBox(`beamChannel${i}`, {
+                        width: barrelWidth * 0.08,
+                        height: barrelLength * 1.1,
+                        depth: barrelWidth * 0.08
+                    }, scene);
+                    channel.position = new Vector3((i === 0 ? -1 : 1) * barrelWidth * 0.45, 0, barrelLength * 0.1);
+                    channel.parent = barrel;
+                    channel.material = focuserMat;
+                    this.cannonAnimationElements.beamConduits.push(channel);
+                }
                 break;
                 
             case "vortex":
-                // Vortex - с вихревым генератором - ANIMATED
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 1.45, 
-                    height: barrelWidth * 1.45, 
-                    depth: barrelLength * 1.0 
+                // Vortex - Прототип: Вихревой генератор (советский стиль)
+                // Основной корпус - широкий
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 1.7,
+                    height: barrelLength * 1.0,
+                    tessellation: 8  // Low-poly
                 }, scene);
-                // Add vortex rings - ANIMATED
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Вихревые кольца (угловатые, low-poly) - ANIMATED
                 this.cannonAnimationElements.vortexRings = [];
-                for (let i = 0; i < 3; i++) {
+                for (let i = 0; i < 5; i++) {
                     const ring = MeshBuilder.CreateTorus(`vortex${i}`, {
-                        diameter: barrelWidth * (1.0 + i * 0.2),
-                        thickness: barrelWidth * 0.1
+                        diameter: barrelWidth * (1.2 + i * 0.15),
+                        thickness: barrelWidth * 0.12,
+                        tessellation: 8  // Low-poly
                     }, scene);
-                    ring.position = new Vector3(0, 0, -barrelLength * 0.2 + i * barrelLength * 0.2);
+                    ring.position = new Vector3(0, 0, -barrelLength * 0.25 + i * barrelLength * 0.15);
                     ring.parent = barrel;
-                    ring.material = barrel.material;
+                    const ringMat = new StandardMaterial(`vortexRingMat${i}`, scene);
+                    ringMat.diffuseColor = new Color3(0.4, 0.15, 0.7);  // Советский фиолетовый
+                    ringMat.emissiveColor = new Color3(0.15, 0.08, 0.3);
+                    ring.material = ringMat;
                     this.cannonAnimationElements.vortexRings.push(ring);
                 }
+                
+                // Центральный генератор вихря (угловатый)
+                const vortexGen = MeshBuilder.CreateBox("vortexGen", {
+                    width: barrelWidth * 0.7,
+                    height: barrelWidth * 0.7,
+                    depth: barrelWidth * 0.7
+                }, scene);
+                vortexGen.position = new Vector3(0, 0, -barrelLength * 0.4);
+                vortexGen.parent = barrel;
+                const vortexGenMat = new StandardMaterial("vortexGenMat", scene);
+                vortexGenMat.diffuseColor = new Color3(0.5, 0.25, 0.9);
+                vortexGenMat.emissiveColor = new Color3(0.25, 0.12, 0.4);
+                vortexGenMat.disableLighting = true;
+                vortexGen.material = vortexGenMat;
+                this.cannonAnimationElements.vortexGen = vortexGen;
                 break;
                 
             case "support":
-                // Support - с ремонтным лучом - ANIMATED
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 1.1, 
-                    height: barrelWidth * 1.1, 
-                    depth: barrelLength * 1.0 
+                // Support - Прототип: Ремонтный луч (советский стиль)
+                // Основной ствол
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 1.3,
+                    height: barrelLength * 1.0,
+                    tessellation: 8  // Low-poly
                 }, scene);
-                // Add repair emitter - ANIMATED
-                const emitter = MeshBuilder.CreateCylinder("emitter", {
-                    height: barrelWidth * 0.4,
-                    diameter: barrelWidth * 0.7
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Ремонтный эмиттер (угловатый, low-poly) - ANIMATED
+                const supportEmitter = MeshBuilder.CreateBox("supportEmitter", {
+                    width: barrelWidth * 0.9,
+                    height: barrelWidth * 0.6,
+                    depth: barrelWidth * 0.9
                 }, scene);
-                emitter.position = new Vector3(0, 0, barrelLength * 0.5);
-                emitter.parent = barrel;
-                const emitterMat = new StandardMaterial("emitterMat", scene);
-                emitterMat.diffuseColor = new Color3(0, 1, 0.5);
-                emitterMat.emissiveColor = new Color3(0, 0.3, 0.15);
-                emitter.material = emitterMat;
-                this.cannonAnimationElements.supportEmitter = emitter;
-                // Add healing rings
-                this.cannonAnimationElements.supportRings = [];
-                for (let i = 0; i < 2; i++) {
+                supportEmitter.position = new Vector3(0, 0, barrelLength * 0.5);
+                supportEmitter.parent = barrel;
+                const supportEmitterMat = new StandardMaterial("supportEmitterMat", scene);
+                supportEmitterMat.diffuseColor = new Color3(0, 0.9, 0.45);  // Советский зеленый
+                supportEmitterMat.emissiveColor = new Color3(0, 0.35, 0.18);
+                supportEmitterMat.disableLighting = true;
+                supportEmitter.material = supportEmitterMat;
+                this.cannonAnimationElements.supportEmitter = supportEmitter;
+                
+                // Лечебные кольца (угловатые, low-poly)
+                this.cannonAnimationElements.supportHealingRings = [];
+                for (let i = 0; i < 3; i++) {
                     const ring = MeshBuilder.CreateTorus(`supportRing${i}`, {
-                        diameter: barrelWidth * (0.8 + i * 0.2),
-                        thickness: barrelWidth * 0.08
+                        diameter: barrelWidth * (0.9 + i * 0.15),
+                        thickness: barrelWidth * 0.1,
+                        tessellation: 8  // Low-poly
                     }, scene);
-                    ring.position = new Vector3(0, 0, barrelLength * 0.4);
+                    ring.position = new Vector3(0, 0, -barrelLength * 0.15 + i * barrelLength * 0.15);
                     ring.parent = barrel;
-                    ring.material = emitterMat;
-                    this.cannonAnimationElements.supportRings.push(ring);
+                    ring.material = supportEmitterMat;
+                    this.cannonAnimationElements.supportHealingRings.push(ring);
                 }
+                
+                // Генератор ремонта (угловатый)
+                const repairGen = MeshBuilder.CreateBox("repairGen", {
+                    width: barrelWidth * 0.6,
+                    height: barrelWidth * 0.6,
+                    depth: barrelWidth * 0.6
+                }, scene);
+                repairGen.position = new Vector3(0, 0, -barrelLength * 0.35);
+                repairGen.parent = barrel;
+                repairGen.material = supportEmitterMat;
+                this.cannonAnimationElements.repairGen = repairGen;
                 break;
                 
             default: // standard
-                // Standard - сбалансированная, классическая форма
-                barrel = MeshBuilder.CreateBox("barrel", { 
-                    width: barrelWidth * 1.0, 
-                    height: barrelWidth * 1.0, 
-                    depth: barrelLength * 1.0 
+                // Standard - Прототип: Т-34-85 / Д-5Т - Классическая советская пушка
+                // Основной ствол - стандартный цилиндр
+                barrel = MeshBuilder.CreateCylinder("barrel", { 
+                    diameter: barrelWidth * 1.0,
+                    height: barrelLength * 1.0,
+                    tessellation: 8  // Low-poly
                 }, scene);
-                // Классический казённик
+                barrel.rotation.x = Math.PI / 2;
+                
+                // Классический казённик (стиль Т-34)
                 const standardBreech = MeshBuilder.CreateBox("standardBreech", {
-                    width: barrelWidth * 1.3,
-                    height: barrelWidth * 1.3,
-                    depth: barrelWidth * 0.8
+                    width: barrelWidth * 1.4,
+                    height: barrelWidth * 1.4,
+                    depth: barrelWidth * 0.9
                 }, scene);
                 standardBreech.position = new Vector3(0, 0, -barrelLength * 0.4);
                 standardBreech.parent = barrel;
                 const standardBreechMat = new StandardMaterial("standardBreechMat", scene);
                 standardBreechMat.diffuseColor = cannonColor.scale(0.7);
                 standardBreech.material = standardBreechMat;
+                
+                // Защитный кожух ствола
+                const barrelShield = MeshBuilder.CreateBox("standardShield", {
+                    width: barrelWidth * 1.1,
+                    height: barrelWidth * 0.3,
+                    depth: barrelLength * 0.6
+                }, scene);
+                barrelShield.position = new Vector3(0, barrelWidth * 0.4, barrelLength * 0.1);
+                barrelShield.parent = barrel;
+                barrelShield.material = standardBreechMat;
         }
         
         // Barrel material - улучшенный low-poly стиль
@@ -2474,174 +3737,13 @@ export class TankController {
         }
     }
 
+    // ============ MOVEMENT MODULE DELEGATION ============
     private updateInputs() {
-        // ВАЖНО: updateInputs() НЕ зависит от isAiming!
-        // Управление танком работает одинаково в любом режиме!
-        this.throttleTarget = 0;
-        if (this._inputMap["KeyW"] || this._inputMap["ArrowUp"]) this.throttleTarget += 1;
-        if (this._inputMap["KeyS"] || this._inputMap["ArrowDown"]) this.throttleTarget -= 1;
-
-        this.steerTarget = 0;
-        if (this._inputMap["KeyA"] || this._inputMap["ArrowLeft"]) this.steerTarget -= 1;
-        if (this._inputMap["KeyD"] || this._inputMap["ArrowRight"]) this.steerTarget += 1;
-        
-        // Notify HUD about movement (for tutorial)
-        if ((this.throttleTarget !== 0 || this.steerTarget !== 0) && this.hud) {
-            this.hud.notifyPlayerMoved();
-        }
-        
-        // Debug: Log input changes
-        if (this._tick % 120 === 0 && (this.throttleTarget !== 0 || this.steerTarget !== 0)) {
-            console.log(`[Input] Throttle: ${this.throttleTarget}, Steer: ${this.steerTarget}, W: ${this._inputMap["KeyW"]}, S: ${this._inputMap["KeyS"]}, A: ${this._inputMap["KeyA"]}, D: ${this._inputMap["KeyD"]}`);
-        }
-        
-        // Turret Control (smoothed; mouse disabled)
-        this.turretTurnTarget = 0;
-        this.isKeyboardTurretControl = false; // Сбрасываем флаг каждый кадр
-        
-        // Ручное управление (отменяет авто-центрирование)
-        if (this._inputMap["KeyZ"]) {
-            this.turretTurnTarget -= 1;
-            this.isAutoCentering = false;
-            this.isKeyboardTurretControl = true; // Активируем клавиатурное управление
-            window.dispatchEvent(new CustomEvent("stopCenterCamera"));
-        }
-        if (this._inputMap["KeyX"]) {
-            this.turretTurnTarget += 1;
-            this.isAutoCentering = false;
-            this.isKeyboardTurretControl = true; // Активируем клавиатурное управление
-            window.dispatchEvent(new CustomEvent("stopCenterCamera"));
-        }
-
-        // Автоматическое центрирование (активируется по C) - с ОБЫЧНОЙ скоростью вращения
-        // НО ТОЛЬКО если игрок не управляет башней вручную (Z/X или мышка)
-        if ((this.isAutoCentering || this._inputMap["KeyC"]) && !this.isKeyboardTurretControl) {
-            // Нормализуем угол к [-PI, PI] для кратчайшего пути
-            let currentRot = this.turret.rotation.y;
-            while (currentRot > Math.PI) currentRot -= Math.PI * 2;
-            while (currentRot < -Math.PI) currentRot += Math.PI * 2;
-            
-            // Если башня уже в центре и игрок нажимает C - просто синхронизируем cameraYaw и выходим
-            if (Math.abs(currentRot) < 0.01) {
-                if (this._inputMap["KeyC"] && !this.isAutoCentering) {
-                    // Башня уже в центре, просто синхронизируем cameraYaw через событие
-                    this.turret.rotation.y = 0;
-                    window.dispatchEvent(new CustomEvent("syncCameraYaw", { 
-                        detail: { turretRotY: 0 } 
-                    }));
-                    // Не запускаем центрирование, если башня уже в центре
-                    return;
-                }
-                // Если уже центрируемся и достигли центра - завершаем
-                if (this.isAutoCentering) {
-                    // Достигли центра - останавливаем вращение
-                    this.turret.rotation.y = 0;
-                    this.turretTurnTarget = 0;
-                    this.turretTurnSmooth = 0;
-                    this.turretAcceleration = 0;
-                    this.turretAccelStartTime = 0;
-                    this.isAutoCentering = false;
-                    
-                    // Синхронизируем cameraYaw с углом башни (0 когда башня в центре)
-                    window.dispatchEvent(new CustomEvent("syncCameraYaw", { 
-                        detail: { turretRotY: 0 } 
-                    }));
-                    
-                    // КРИТИЧЕСКИ ВАЖНО: НЕ центрируем камеру при центрировании башни!
-                    // C должна центрировать ТОЛЬКО башню, камера следует за башней автоматически
-                    // window.dispatchEvent(new CustomEvent("centerCamera", ...)); // ОТКЛЮЧЕНО
-                    window.dispatchEvent(new CustomEvent("stopCenterCamera"));
-                }
-            } else {
-                // Башня не в центре - запускаем центрирование
-                if (this._inputMap["KeyC"]) this.isAutoCentering = true;
-                
-                // Используем ОБЫЧНУЮ скорость вращения башни для центровки
-                const baseTurretSpeed = this.baseTurretSpeed; // Та же скорость, что и при обычном вращении
-                
-                // Вычисляем направление к центру
-                const targetDirection = -Math.sign(currentRot); // -1 или 1, в зависимости от направления
-                
-                // Устанавливаем цель вращения (как при ручном управлении)
-                this.turretTurnTarget = targetDirection;
-                
-                // Включаем ускорение башни (как при обычном вращении)
-                if (this.turretAccelStartTime === 0) {
-                    this.turretAccelStartTime = performance.now();
-                }
-                
-                // Камера следует за башней
-                window.dispatchEvent(new CustomEvent("centerCamera", { 
-                    detail: { 
-                        turretRotY: this.turret.rotation.y, 
-                        lerpSpeed: baseTurretSpeed,
-                        isActive: true
-                    } 
-                }));
-            }
-        } else if (this.isKeyboardTurretControl) {
-            // Если игрок управляет башней вручную - отменяем центрирование
-            this.isAutoCentering = false;
-            window.dispatchEvent(new CustomEvent("stopCenterCamera"));
-        }
+        return this.movementModule.updateInputs();
     }
 
     reset() {
-        if (!this.chassis || !this.physicsBody) {
-            console.error("[TANK] Reset failed - chassis or physicsBody is null!");
-            return;
-        }
-        
-        // Убеждаемся что физика активна ПЕРЕД сбросом скорости
-        if (this.physicsBody.motionType !== PhysicsMotionType.DYNAMIC) {
-            this.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
-        }
-        
-        // ПОЛНЫЙ сброс физики ПЕРВЫМ (чтобы не было прыжков!)
-        this.physicsBody.setLinearVelocity(Vector3.Zero());
-        this.physicsBody.setAngularVelocity(Vector3.Zero());
-        
-        // Полный сброс позиции (будет установлена из гаража при респавне)
-        const spawnPos = new Vector3(0, 3, 0);
-        this.chassis.position.copyFrom(spawnPos);
-        
-        // Сброс вращения корпуса
-        this.chassis.rotationQuaternion = Quaternion.Identity();
-        this.chassis.rotation.set(0, 0, 0);
-        
-        // Сброс вращения башни
-        this.turret.rotation.set(0, 0, 0);
-        
-        // Принудительно обновляем матрицу
-        this.chassis.computeWorldMatrix(true);
-        this.turret.computeWorldMatrix(true);
-        this.barrel.computeWorldMatrix(true);
-        
-        // КРИТИЧЕСКИ ВАЖНО: Ждём один кадр перед повторным сбросом скорости (чтобы избежать прыжков!)
-        setTimeout(() => {
-            if (this.physicsBody && this.chassis) {
-        this.physicsBody.setLinearVelocity(Vector3.Zero());
-        this.physicsBody.setAngularVelocity(Vector3.Zero());
-            }
-        }, 16); // Один кадр (16ms)
-        
-        // Дополнительно: сбрасываем все силы и импульсы
-        // (Havok может не поддерживать напрямую, но попробуем)
-        try {
-            // Применяем противоположные силы чтобы остановить всё
-            const vel = this.physicsBody.getLinearVelocity();
-            const angVel = this.physicsBody.getAngularVelocity();
-            if (vel && vel.length() > 0.01) {
-                this.physicsBody.applyImpulse(vel.scale(-this.mass), this.chassis.absolutePosition);
-            }
-            if (angVel && angVel.length() > 0.01) {
-                this.physicsBody.applyAngularImpulse(angVel.scale(-this.mass * 0.1));
-            }
-        } catch (e) {
-            // Игнорируем если не поддерживается
-        }
-        
-        console.log("[TANK] Reset complete - Position:", spawnPos, "Alive:", this.isAlive);
+        return this.movementModule.reset();
     }
 
     fire() {
@@ -3331,7 +4433,7 @@ export class TankController {
         return ball;
     }
     
-    private setupProjectileHitDetection(ball: Mesh, body: PhysicsBody): void {
+    private setupProjectileHitDetection(ball: Mesh, _body: PhysicsBody): void {
         // Use the same hit detection logic as main fire() method
         // This is a simplified version that integrates with existing checkHit
         let hasHit = false;
@@ -3811,19 +4913,7 @@ export class TankController {
         // Проверка на валидность вектора момента
         if (!isFinite(torque.x) || !isFinite(torque.y) || !isFinite(torque.z)) return;
         
-        try {
-            const body = this.physicsBody as any;
-            if (body && body.applyTorque) {
-                body.applyTorque(torque);
-            } else if (body && body.applyAngularImpulse) {
-                // Use scaleToRef to avoid mutating the input vector
-                torque.scaleToRef(0.016, this._tmpVector5);
-                body.applyAngularImpulse(this._tmpVector5);
-            }
-        } catch (e) {
-            // Игнорируем ошибки применения момента для предотвращения крашей
-            console.warn("[TANK] applyTorque error:", e);
-        }
+        return this.movementModule.applyTorque(torque);
     }
 
     updatePhysics() {
@@ -5386,30 +6476,64 @@ export class TankController {
         // Gatling - вращение стволов
         if (this.cannonAnimationElements.gatlingBarrels) {
             const rotationSpeed = 10; // Radians per second
-            this.cannonAnimationElements.gatlingBarrels.forEach((barrel, i) => {
+            this.cannonAnimationElements.gatlingBarrels.forEach((barrel) => {
                 if (barrel && !barrel.isDisposed()) {
                     barrel.rotation.z += rotationSpeed * deltaTime;
                 }
             });
         }
         
-        // Tesla - пульсация катушек
+        // Tesla - пульсация катушек и генератора
         if (this.cannonAnimationElements.teslaCoils) {
             this.cannonAnimationElements.teslaCoils.forEach((coil, i) => {
                 if (coil && !coil.isDisposed()) {
-                    const pulse = Math.sin(time * 3 + i * 0.5) * 0.1 + 1.0;
+                    const pulse = Math.sin(time * 3 + i * 0.5) * 0.15 + 1.0;
                     coil.scaling.setAll(pulse);
                     // Rotate coils
-                    coil.rotation.y += deltaTime * 2;
+                    coil.rotation.y += deltaTime * (2.5 + i * 0.3);
+                    const mat = coil.material as StandardMaterial;
+                    if (mat && mat.emissiveColor) {
+                        const intensity = (Math.sin(time * 3 + i * 0.5) + 1) * 0.5;
+                        mat.emissiveColor = new Color3(0, 0.4 * intensity, 0.5 * intensity);
+                    }
+                }
+            });
+        }
+        if (this.cannonAnimationElements.teslaGen) {
+            const gen = this.cannonAnimationElements.teslaGen;
+            if (!gen.isDisposed()) {
+                const pulse = Math.sin(time * 5) * 0.2 + 1.0;
+                gen.scaling.setAll(pulse);
+                gen.rotation.y += deltaTime * 4;
+                gen.rotation.x += deltaTime * 3;
+                const mat = gen.material as StandardMaterial;
+                if (mat && mat.emissiveColor) {
+                    const intensity = (Math.sin(time * 5) + 1) * 0.5;
+                    mat.emissiveColor = new Color3(0, 0.5 * intensity, 0.7 * intensity);
+                }
+            }
+        }
+        
+        // Railgun - пульсация конденсаторов
+        if (this.cannonAnimationElements.railgunCapacitors) {
+            this.cannonAnimationElements.railgunCapacitors.forEach((cap, i) => {
+                if (cap && !cap.isDisposed()) {
+                    const pulse = Math.sin(time * 2 + i * 0.6) * 0.1 + 1.0;
+                    cap.scaling.setAll(pulse);
+                    const mat = cap.material as StandardMaterial;
+                    if (mat && mat.emissiveColor) {
+                        const intensity = (Math.sin(time * 2 + i * 0.6) + 1) * 0.5;
+                        mat.emissiveColor = new Color3(0.05 * intensity, 0.15 * intensity, 0.5 * intensity);
+                    }
                 }
             });
         }
         
-        // Plasma - пульсация ядра
+        // Plasma - пульсация ядра и вращение катушек
         if (this.cannonAnimationElements.plasmaCore) {
             const core = this.cannonAnimationElements.plasmaCore;
             if (!core.isDisposed()) {
-                const pulse = Math.sin(time * 4) * 0.15 + 1.0;
+                const pulse = Math.sin(time * 4) * 0.2 + 1.0;
                 core.scaling.setAll(pulse);
                 // Rotate core
                 core.rotation.y += deltaTime * 3;
@@ -5418,52 +6542,94 @@ export class TankController {
                 const mat = core.material as StandardMaterial;
                 if (mat && mat.emissiveColor) {
                     const intensity = (Math.sin(time * 4) + 1) * 0.5;
-                    mat.emissiveColor = new Color3(0.5 * intensity, 0, 0.5 * intensity);
+                    mat.emissiveColor = new Color3(0.6 * intensity, 0, 0.6 * intensity);
                 }
             }
         }
+        if (this.cannonAnimationElements.plasmaCoils) {
+            this.cannonAnimationElements.plasmaCoils.forEach((coil, i) => {
+                if (coil && !coil.isDisposed()) {
+                    coil.rotation.y += deltaTime * (2 + i * 0.5);
+                    const pulse = Math.sin(time * 3 + i * 0.8) * 0.1 + 1.0;
+                    coil.scaling.setAll(pulse);
+                    const mat = coil.material as StandardMaterial;
+                    if (mat && mat.emissiveColor) {
+                        const intensity = (Math.sin(time * 3 + i * 0.8) + 1) * 0.5;
+                        mat.emissiveColor = new Color3(0.4 * intensity, 0, 0.4 * intensity);
+                    }
+                }
+            });
+        }
         
-        // Laser - мерцание линзы
+        // Laser - мерцание линзы и вращение колец
         if (this.cannonAnimationElements.laserLens) {
             const lens = this.cannonAnimationElements.laserLens;
             if (!lens.isDisposed()) {
-                const flicker = Math.sin(time * 8) * 0.1 + 1.0;
+                const flicker = Math.sin(time * 8) * 0.15 + 1.0;
                 lens.scaling.setAll(flicker);
                 // Update emissive color
                 const mat = lens.material as StandardMaterial;
                 if (mat && mat.emissiveColor) {
                     const intensity = (Math.sin(time * 8) + 1) * 0.5;
-                    mat.emissiveColor = new Color3(0.3 * intensity, 0, 0);
+                    mat.emissiveColor = new Color3(0.4 * intensity, 0, 0);
                 }
             }
         }
-        
-        // Vortex - вращение колец
-        if (this.cannonAnimationElements.vortexRings) {
-            this.cannonAnimationElements.vortexRings.forEach((ring, i) => {
+        if (this.cannonAnimationElements.laserRings) {
+            this.cannonAnimationElements.laserRings.forEach((ring, i) => {
                 if (ring && !ring.isDisposed()) {
-                    const speed = (i + 1) * 2; // Different speeds for each ring
-                    ring.rotation.x += deltaTime * speed;
-                    ring.rotation.z += deltaTime * speed * 0.5;
-                    // Pulsing size
-                    const pulse = Math.sin(time * 2 + i * 0.8) * 0.05 + 1.0;
+                    ring.rotation.y += deltaTime * (1.5 + i * 0.3);
+                    const pulse = Math.sin(time * 5 + i * 0.5) * 0.08 + 1.0;
                     ring.scaling.setAll(pulse);
                 }
             });
+        }
+        
+        // Vortex - вращение колец и генератора
+        if (this.cannonAnimationElements.vortexRings) {
+            this.cannonAnimationElements.vortexRings.forEach((ring, i) => {
+                if (ring && !ring.isDisposed()) {
+                    const speed = (i + 1) * 2.5; // Different speeds for each ring
+                    ring.rotation.x += deltaTime * speed;
+                    ring.rotation.z += deltaTime * speed * 0.5;
+                    // Pulsing size
+                    const pulse = Math.sin(time * 2 + i * 0.8) * 0.1 + 1.0;
+                    ring.scaling.setAll(pulse);
+                    const mat = ring.material as StandardMaterial;
+                    if (mat && mat.emissiveColor) {
+                        const intensity = (Math.sin(time * 2 + i * 0.8) + 1) * 0.5;
+                        mat.emissiveColor = new Color3(0.1 * intensity, 0.05 * intensity, 0.2 * intensity);
+                    }
+                }
+            });
+        }
+        if (this.cannonAnimationElements.vortexGen) {
+            const gen = this.cannonAnimationElements.vortexGen;
+            if (!gen.isDisposed()) {
+                const pulse = Math.sin(time * 3) * 0.2 + 1.0;
+                gen.scaling.setAll(pulse);
+                gen.rotation.y += deltaTime * 4;
+                gen.rotation.x += deltaTime * 3;
+                const mat = gen.material as StandardMaterial;
+                if (mat && mat.emissiveColor) {
+                    const intensity = (Math.sin(time * 3) + 1) * 0.5;
+                    mat.emissiveColor = new Color3(0.15 * intensity, 0.075 * intensity, 0.25 * intensity);
+                }
+            }
         }
         
         // Support - вращение колец и пульсация эмиттера
         if (this.cannonAnimationElements.supportEmitter) {
             const emitter = this.cannonAnimationElements.supportEmitter;
             if (!emitter.isDisposed()) {
-                const pulse = Math.sin(time * 3) * 0.1 + 1.0;
+                const pulse = Math.sin(time * 3) * 0.15 + 1.0;
                 emitter.scaling.setAll(pulse);
                 emitter.rotation.y += deltaTime * 2;
                 // Update emissive color
                 const mat = emitter.material as StandardMaterial;
                 if (mat && mat.emissiveColor) {
                     const intensity = (Math.sin(time * 3) + 1) * 0.5;
-                    mat.emissiveColor = new Color3(0, 0.3 * intensity, 0.15 * intensity);
+                    mat.emissiveColor = new Color3(0, 0.4 * intensity, 0.2 * intensity);
                 }
             }
         }
@@ -5471,10 +6637,19 @@ export class TankController {
             this.cannonAnimationElements.supportRings.forEach((ring, i) => {
                 if (ring && !ring.isDisposed()) {
                     ring.rotation.y += deltaTime * (3 + i * 1);
-                    const pulse = Math.sin(time * 4 + i * 0.5) * 0.08 + 1.0;
+                    const pulse = Math.sin(time * 4 + i * 0.5) * 0.1 + 1.0;
                     ring.scaling.setAll(pulse);
                 }
             });
+        }
+        if (this.cannonAnimationElements.repairGen) {
+            const gen = this.cannonAnimationElements.repairGen;
+            if (!gen.isDisposed()) {
+                const pulse = Math.sin(time * 2.5) * 0.15 + 1.0;
+                gen.scaling.setAll(pulse);
+                gen.rotation.y += deltaTime * 3;
+                gen.rotation.x += deltaTime * 2;
+            }
         }
         
         // Rocket - пульсация трубы
@@ -5535,6 +6710,112 @@ export class TankController {
             }
         }
         
+        // Rocket - пульсация направляющих
+        if (this.cannonAnimationElements.rocketGuides) {
+            this.cannonAnimationElements.rocketGuides.forEach((guide, i) => {
+                if (guide && !guide.isDisposed()) {
+                    const pulse = Math.sin(time * 2 + i * 0.3) * 0.05 + 1.0;
+                    guide.scaling.setAll(pulse);
+                }
+            });
+        }
+        
+        // Acid - пульсация резервуара
+        if (this.cannonAnimationElements.acidTank) {
+            const tank = this.cannonAnimationElements.acidTank;
+            if (!tank.isDisposed()) {
+                const pulse = Math.sin(time * 1.5) * 0.1 + 1.0;
+                tank.scaling.y = pulse;
+                tank.rotation.y += deltaTime * 0.5;
+                const mat = tank.material as StandardMaterial;
+                if (mat && mat.emissiveColor) {
+                    const intensity = (Math.sin(time * 1.5) + 1) * 0.5;
+                    mat.emissiveColor = new Color3(0.05 * intensity, 0.2 * intensity, 0.05 * intensity);
+                }
+            }
+        }
+        
+        // Freeze - вибрация рёбер и пульсация резервуара
+        if (this.cannonAnimationElements.freezeFins) {
+            this.cannonAnimationElements.freezeFins.forEach((fin, i) => {
+                if (fin && !fin.isDisposed()) {
+                    const shake = Math.sin(time * 4 + i * 0.5) * 0.05;
+                    fin.rotation.x = shake;
+                    const mat = fin.material as StandardMaterial;
+                    if (mat && mat.emissiveColor) {
+                        const intensity = (Math.sin(time * 4 + i * 0.5) + 1) * 0.5;
+                        mat.emissiveColor = new Color3(0.05 * intensity, 0.1 * intensity, 0.15 * intensity);
+                    }
+                }
+            });
+        }
+        if (this.cannonAnimationElements.cryoTank) {
+            const cryo = this.cannonAnimationElements.cryoTank;
+            if (!cryo.isDisposed()) {
+                const pulse = Math.sin(time * 2) * 0.1 + 1.0;
+                cryo.scaling.setAll(pulse);
+                cryo.rotation.y += deltaTime * 1;
+            }
+        }
+        
+        // Poison - пульсация инжектора
+        if (this.cannonAnimationElements.poisonInjector) {
+            const injector = this.cannonAnimationElements.poisonInjector;
+            if (!injector.isDisposed()) {
+                const pulse = Math.sin(time * 3) * 0.1 + 1.0;
+                injector.scaling.setAll(pulse);
+                injector.rotation.y += deltaTime * 2;
+            }
+        }
+        
+        // EMP - вращение катушек и генератора
+        if (this.cannonAnimationElements.empCoils) {
+            this.cannonAnimationElements.empCoils.forEach((coil, i) => {
+                if (coil && !coil.isDisposed()) {
+                    coil.rotation.y += deltaTime * (2 + i * 0.5);
+                    const pulse = Math.sin(time * 3 + i * 0.6) * 0.1 + 1.0;
+                    coil.scaling.setAll(pulse);
+                }
+            });
+        }
+        if (this.cannonAnimationElements.empGen) {
+            const gen = this.cannonAnimationElements.empGen;
+            if (!gen.isDisposed()) {
+                const pulse = Math.sin(time * 4) * 0.15 + 1.0;
+                gen.scaling.setAll(pulse);
+                gen.rotation.y += deltaTime * 3;
+                gen.rotation.x += deltaTime * 2;
+                const mat = gen.material as StandardMaterial;
+                if (mat && mat.emissiveColor) {
+                    const intensity = (Math.sin(time * 4) + 1) * 0.5;
+                    mat.emissiveColor = new Color3(0.25 * intensity, 0.25 * intensity, 0.075 * intensity);
+                }
+            }
+        }
+        
+        // Flamethrower - пульсация сопла
+        if (this.cannonAnimationElements.flamethrowerNozzle) {
+            const nozzle = this.cannonAnimationElements.flamethrowerNozzle;
+            if (!nozzle.isDisposed()) {
+                const pulse = Math.sin(time * 5) * 0.1 + 1.0;
+                nozzle.scaling.setAll(pulse);
+                const mat = nozzle.material as StandardMaterial;
+                if (mat && mat.emissiveColor) {
+                    const intensity = (Math.sin(time * 5) + 1) * 0.5;
+                    mat.emissiveColor = new Color3(0.15 * intensity, 0.05 * intensity, 0);
+                }
+            }
+        }
+        
+        // Shotgun - вращение стволов
+        if (this.cannonAnimationElements.shotgunBarrels) {
+            this.cannonAnimationElements.shotgunBarrels.forEach((barrel, i) => {
+                if (barrel && !barrel.isDisposed()) {
+                    barrel.rotation.z += deltaTime * (1 + i * 0.1);
+                }
+            });
+        }
+        
         // Multishot - вращение стволов
         if (this.cannonAnimationElements.multishotBarrels) {
             this.cannonAnimationElements.multishotBarrels.forEach((barrel, i) => {
@@ -5578,13 +6859,36 @@ export class TankController {
             }
         }
         
-        // Beam - вращение и пульсация фокусировщика
+        // Beam - вращение и пульсация фокусировщика и линз
         if (this.cannonAnimationElements.beamFocuser) {
             const focuser = this.cannonAnimationElements.beamFocuser;
             if (!focuser.isDisposed()) {
                 focuser.rotation.y += deltaTime * 4;
-                const pulse = Math.sin(time * 5) * 0.08 + 1.0;
+                const pulse = Math.sin(time * 5) * 0.1 + 1.0;
                 focuser.scaling.setAll(pulse);
+                const mat = focuser.material as StandardMaterial;
+                if (mat && mat.emissiveColor) {
+                    const intensity = (Math.sin(time * 5) + 1) * 0.5;
+                    mat.emissiveColor = new Color3(0.2 * intensity, 0.1 * intensity, 0);
+                }
+            }
+        }
+        if (this.cannonAnimationElements.beamLenses) {
+            this.cannonAnimationElements.beamLenses.forEach((lens, i) => {
+                if (lens && !lens.isDisposed()) {
+                    lens.rotation.y += deltaTime * (2 + i * 0.5);
+                    const pulse = Math.sin(time * 4 + i * 0.3) * 0.05 + 1.0;
+                    lens.scaling.setAll(pulse);
+                }
+            });
+        }
+        
+        // Shockwave - пульсация усилителя (обновлено)
+        if (this.cannonAnimationElements.shockwaveAmp) {
+            const amp = this.cannonAnimationElements.shockwaveAmp;
+            if (!amp.isDisposed()) {
+                const pulse = Math.sin(time * 2.5) * 0.15 + 1.0;
+                amp.scaling.setAll(pulse);
             }
         }
         
