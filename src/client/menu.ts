@@ -4226,26 +4226,52 @@ export class MainMenu {
             }
         }
 
-        const connectors = document.createDocumentFragment();
+        // Создаем SVG для извилистых коннекторов
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.className = "skill-connectors-svg";
+        svg.style.position = "absolute";
+        svg.style.top = "0";
+        svg.style.left = "0";
+        svg.style.width = `${skillTree.style.minWidth || "100%"}`;
+        svg.style.height = `${skillTree.style.minHeight || "100%"}`;
+        svg.style.pointerEvents = "none";
+        svg.style.zIndex = "0";
+        
         edges.forEach((edge) => {
             const from = nodePositions.get(edge.from);
             const to = nodePositions.get(edge.to);
             if (!from || !to) return;
 
-            const h = document.createElement("div");
-            h.className = "skill-connector h";
-            h.style.left = `${Math.min(from.centerX, to.centerX)}px`;
-            h.style.top = `${from.centerY}px`;
-            h.style.width = `${Math.max(Math.abs(from.centerX - to.centerX), 2)}px`;
-            connectors.appendChild(h);
-
-            const v = document.createElement("div");
-            v.className = "skill-connector v";
-            v.style.left = `${to.centerX}px`;
-            v.style.top = `${Math.min(from.centerY, to.centerY)}px`;
-            v.style.height = `${Math.max(Math.abs(from.centerY - to.centerY), 2)}px`;
-            connectors.appendChild(v);
+            // Вычисляем контрольные точки для извилистой кривой
+            const dx = to.centerX - from.centerX;
+            const dy = to.centerY - from.centerY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            // Создаем извилистую кривую с несколькими контрольными точками
+            const controlOffset = Math.min(distance * 0.3, 60); // Максимальное смещение для извилистости
+            const randomOffset1 = (Math.sin(edge.from.charCodeAt(0) + edge.to.charCodeAt(0)) * controlOffset);
+            const randomOffset2 = (Math.cos(edge.from.charCodeAt(0) + edge.to.charCodeAt(0)) * controlOffset);
+            
+            // Первая контрольная точка (смещение перпендикулярно направлению)
+            const cp1x = from.centerX + dx * 0.3 + randomOffset1;
+            const cp1y = from.centerY + dy * 0.3 - randomOffset2;
+            
+            // Вторая контрольная точка
+            const cp2x = from.centerX + dx * 0.7 - randomOffset1;
+            const cp2y = from.centerY + dy * 0.7 + randomOffset2;
+            
+            // Создаем кривую Безье (кубическую)
+            const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            path.setAttribute("d", `M ${from.centerX} ${from.centerY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${to.centerX} ${to.centerY}`);
+            path.setAttribute("stroke", "#0f0");
+            path.setAttribute("stroke-width", "2");
+            path.setAttribute("fill", "none");
+            path.setAttribute("opacity", "0.4");
+            svg.appendChild(path);
         });
+        
+        const connectors = document.createDocumentFragment();
+        connectors.appendChild(svg);
 
         const nodesFragment = document.createDocumentFragment();
         let nodesCreated = 0;
@@ -4370,15 +4396,42 @@ export class MainMenu {
         const skillTree = document.getElementById("skill-tree");
         if (!skillTree) return;
 
-        // Зум
+        // Зум с поддержкой масштабирования относительно курсора
         let zoomLevel = 1.0;
         const minZoom = 0.3;
         const maxZoom = 2.5;
         const zoomStep = 0.1;
 
-        const applyZoom = () => {
-            skillTree.style.transform = `scale(${zoomLevel})`;
-            skillTree.style.transformOrigin = "top left";
+        const applyZoom = (mouseX?: number, mouseY?: number) => {
+            if (mouseX !== undefined && mouseY !== undefined) {
+                // Зум относительно позиции курсора
+                const rect = wrapper.getBoundingClientRect();
+                const x = mouseX - rect.left;
+                const y = mouseY - rect.top;
+                
+                // Текущая позиция скролла
+                const scrollX = wrapper.scrollLeft;
+                const scrollY = wrapper.scrollTop;
+                
+                // Позиция курсора относительно контента
+                const contentX = scrollX + x;
+                const contentY = scrollY + y;
+                
+                // Применяем зум
+                skillTree.style.transform = `scale(${zoomLevel})`;
+                skillTree.style.transformOrigin = "top left";
+                
+                // Вычисляем новую позицию скролла, чтобы курсор оставался на том же месте
+                const newScrollX = contentX * zoomLevel - x;
+                const newScrollY = contentY * zoomLevel - y;
+                
+                wrapper.scrollLeft = newScrollX;
+                wrapper.scrollTop = newScrollY;
+            } else {
+                // Обычный зум без учета курсора
+                skillTree.style.transform = `scale(${zoomLevel})`;
+                skillTree.style.transformOrigin = "top left";
+            }
         };
 
         // Кнопки зума (создаём только один раз)
@@ -4395,17 +4448,18 @@ export class MainMenu {
             wrapper.parentElement?.insertBefore(zoomControls, wrapper);
         }
 
-        // Колесико мыши для зума (Ctrl/Cmd + колесико)
+        // Колесико мыши для зума (работает всегда, зум относительно курсора)
         wrapper.addEventListener("wheel", (e: WheelEvent) => {
-            if (e.ctrlKey || e.metaKey) {
-                e.preventDefault();
-                const delta = e.deltaY > 0 ? -zoomStep : zoomStep;
-                zoomLevel = Math.max(minZoom, Math.min(maxZoom, zoomLevel + delta));
-                applyZoom();
-                const zoomLevelEl = zoomControls.querySelector(".skill-zoom-level") as HTMLElement;
-                if (zoomLevelEl) {
-                    zoomLevelEl.textContent = `${Math.round(zoomLevel * 100)}%`;
-                }
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? -zoomStep : zoomStep;
+            zoomLevel = Math.max(minZoom, Math.min(maxZoom, zoomLevel + delta));
+            
+            // Зум относительно позиции курсора
+            applyZoom(e.clientX, e.clientY);
+            
+            const zoomLevelEl = zoomControls.querySelector(".skill-zoom-level") as HTMLElement;
+            if (zoomLevelEl) {
+                zoomLevelEl.textContent = `${Math.round(zoomLevel * 100)}%`;
             }
         }, { passive: false });
 
