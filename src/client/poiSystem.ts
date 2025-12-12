@@ -15,7 +15,9 @@ import {
     Animation,
     ParticleSystem,
     Texture,
-    Color4
+    Color4,
+    PointLight,
+    SpotLight
 } from "@babylonjs/core";
 
 // Seeded random
@@ -315,6 +317,31 @@ export class POISystem {
         ]);
         flag.animations.push(animation);
         this.scene.beginAnimation(flag, 0, 30, true);
+        
+        // Beacon light on top of pole
+        const beacon = MeshBuilder.CreateSphere(`${id}_beacon`, { diameter: 0.8 }, this.scene);
+        beacon.position = position.clone();
+        beacon.position.y = 8.5;
+        const beaconMat = new StandardMaterial(`${id}_beaconMat`, this.scene);
+        beaconMat.emissiveColor = new Color3(1, 1, 1);
+        beaconMat.diffuseColor = new Color3(0.8, 0.8, 0.8);
+        beacon.material = beaconMat;
+        beacon.parent = parent;
+        meshes.push(beacon);
+        
+        // Pulsing beacon animation
+        const beaconAnim = new Animation(
+            "beaconPulse", "material.emissiveColor", 30,
+            Animation.ANIMATIONTYPE_COLOR3,
+            Animation.ANIMATIONLOOPMODE_CYCLE
+        );
+        beaconAnim.setKeys([
+            { frame: 0, value: new Color3(0.3, 0.3, 0.3) },
+            { frame: 15, value: new Color3(1, 1, 1) },
+            { frame: 30, value: new Color3(0.3, 0.3, 0.3) }
+        ]);
+        beacon.animations.push(beaconAnim);
+        this.scene.beginAnimation(beacon, 0, 30, true);
         
         for (const mesh of meshes) {
             mesh.freezeWorldMatrix();

@@ -16,7 +16,8 @@ import {
     ArcRotateCamera,
     UniversalCamera,
     Ray,
-    Quaternion
+    Quaternion,
+    Matrix
 } from "@babylonjs/core";
 import "@babylonjs/gui";
 import { AdvancedDynamicTexture, TextBlock } from "@babylonjs/gui";
@@ -38,6 +39,7 @@ import { ChatSystem } from "./chatSystem";
 import { ExperienceSystem } from "./experienceSystem";
 import { PlayerProgressionSystem } from "./playerProgression";
 import { AimingSystem } from "./aimingSystem";
+import { AchievementsSystem, Achievement } from "./achievements";
 import { DestructionSystem } from "./destructionSystem";
 
 export class Game {
@@ -85,6 +87,9 @@ export class Game {
     // Player progression system
     playerProgression: PlayerProgressionSystem | undefined;
     
+    // Achievements system
+    achievementsSystem: AchievementsSystem | undefined;
+    
     // Aiming system
     aimingSystem: AimingSystem | undefined;
     
@@ -106,6 +111,10 @@ export class Game {
     gameStarted = false;
     gamePaused = false;
     currentMapType: MapType = "normal";
+    
+    // Survival tracking for achievements
+    private survivalStartTime = 0;
+    private lastDeathTime = 0;
     gameInitialized = false;
     
     // Система волн для карты "Передовая"
@@ -777,11 +786,46 @@ export class Game {
         }
     }
     
+    // Called when an achievement is unlocked
+    private onAchievementUnlocked(achievement: Achievement): void {
+        console.log(`[Game] Achievement unlocked: ${achievement.name}`);
+        
+        // Show notification
+        if (this.hud) {
+            const name = this.achievementsSystem?.getAchievementName(achievement) || achievement.name;
+            this.hud.showNotification?.(`🏆 ${name}`, "success");
+        }
+        
+        // Play sound
+        if (this.soundManager) {
+            this.soundManager.playReloadComplete?.(); // Use reload sound as achievement sound
+        }
+        
+        // Give reward
+        if (achievement.reward && this.playerProgression) {
+            const reward = this.achievementsSystem?.claimReward(achievement.id);
+            if (reward) {
+                if (reward.type === "experience" && reward.amount) {
+                    this.playerProgression.addExperience(reward.amount, "achievement");
+                    console.log(`[Game] Awarded ${reward.amount} XP for achievement`);
+                }
+            }
+        }
+    }
+    
     startGame(): void {
         logger.log("startGame() called, mapType:", this.currentMapType);
         this.gameStarted = true;
         this.gamePaused = false;
         this.settings = this.mainMenu.getSettings();
+        
+        // Track survival time for achievements
+        this.survivalStartTime = Date.now();
+        
+        // Apply mouse sensitivity from settings (1-10 scale to 0.001-0.006)
+        const sensValue = this.settings.mouseSensitivity || 5;
+        this.mouseSensitivity = 0.001 + (sensValue / 10) * 0.005;
+        logger.log(`Mouse sensitivity: ${sensValue} -> ${this.mouseSensitivity.toFixed(4)}`);
         
         // Убеждаемся, что canvas виден и имеет правильный размер
         if (this.canvas) {
@@ -1170,6 +1214,17 @@ export class Game {
             if (this.hud) {
                 this.experienceSystem.setHUD(this.hud);
             }
+            
+            // Initialize achievements system
+            this.achievementsSystem = new AchievementsSystem();
+            this.achievementsSystem.setLanguage(this.settings.language as "ru" | "en" || "ru");
+            this.achievementsSystem.setOnAchievementUnlocked((achievement: Achievement) => {
+                this.onAchievementUnlocked(achievement);
+            });
+            // Track session start
+            this.achievementsSystem.updateProgress("dedication", 1);
+            if (this.hud) {
+            }
             if (this.effectsManager) {
                 this.experienceSystem.setEffectsManager(this.effectsManager);
             }
@@ -1241,12 +1296,8 @@ export class Game {
                 this.mainMenu.hide();
             }
             
-            // Create Garage System
+            // Create Garage System (HTML-based)
             this.garage = new Garage(this.scene, this.currencyManager);
-            // Share HUD's GUI texture with Garage for proper layering
-            if (this.hud) {
-                this.garage.setGuiTexture(this.hud.getGuiTexture());
-            }
             if (this.chatSystem) {
                 this.garage.setChatSystem(this.chatSystem);
             }
@@ -1271,6 +1322,7 @@ export class Game {
             // Connect experience system to tank
             if (this.tank && this.experienceSystem) {
                 this.tank.experienceSystem = this.experienceSystem;
+                this.tank.achievementsSystem = this.achievementsSystem;
             }
             
             // Connect aiming system to tank
@@ -1393,6 +1445,10 @@ export class Game {
             this.updateLoadingProgress(100, "Готово!");
             setTimeout(() => {
                 this.hideLoadingScreen();
+                // Start tutorial for new players
+                if (this.hud) {
+                    this.hud.startTutorial();
+                }
             }, 500);
         } catch (e) {
             logger.error("Game init error:", e);
@@ -1474,6 +1530,16 @@ export class Game {
                 if (this.hud) {
                     this.hud.addKill();
                     console.log("[GAME] Kill added to HUD");
+                }
+                // Track achievements
+                if (this.achievementsSystem) {
+                    this.achievementsSystem.updateProgress("first_blood", 1);
+                    this.achievementsSystem.updateProgress("tank_hunter", 1);
+                    this.achievementsSystem.updateProgress("tank_ace", 1);
+                    // Comeback achievement
+                    if (this.tank && this.tank.currentHealth / this.tank.maxHealth < 0.2) {
+                        this.achievementsSystem.updateProgress("comeback", 1);
+                    }
                 }
                 // Начисляем валюту
                 const reward = 100;
@@ -1585,6 +1651,11 @@ export class Game {
                 console.log("[GAME] Training bot destroyed!");
                 if (this.hud) {
                     this.hud.addKill();
+                }
+                // Track achievements (training bots count too)
+                if (this.achievementsSystem) {
+                    this.achievementsSystem.updateProgress("first_blood", 1);
+                    this.achievementsSystem.updateProgress("tank_hunter", 1);
                 }
                 // Меньше награда за тренировочных ботов
                 const reward = 50;
@@ -1757,6 +1828,16 @@ export class Game {
         
         if (this.hud) {
             this.hud.addKill();
+        }
+        
+        // Track achievements
+        if (this.achievementsSystem) {
+            this.achievementsSystem.updateProgress("first_blood", 1);
+            this.achievementsSystem.updateProgress("tank_hunter", 1);
+            this.achievementsSystem.updateProgress("tank_ace", 1);
+            if (this.tank && this.tank.currentHealth / this.tank.maxHealth < 0.2) {
+                this.achievementsSystem.updateProgress("comeback", 1);
+            }
         }
         
         // Награда зависит от типа врага
@@ -2838,6 +2919,56 @@ export class Game {
         });
     }
     
+    // Направление ботов к POI
+    assignBotsToPOIs(): void {
+        if (!this.chunkSystem || !this.enemyTanks || this.enemyTanks.length === 0) return;
+        
+        const poiSystem = this.chunkSystem.getPOISystem?.();
+        if (!poiSystem) return;
+        
+        const allPOIs = poiSystem.getAllPOIs();
+        if (allPOIs.length === 0) return;
+        
+        // Находим незахваченные POI
+        const unownedPOIs = allPOIs.filter(poi => poi.ownerId !== "enemy" && poi.capturable);
+        if (unownedPOIs.length === 0) return;
+        
+        // Назначаем 30% ботов на захват POI
+        const botsForPOI = Math.floor(this.enemyTanks.length * 0.3);
+        let assigned = 0;
+        
+        for (const enemy of this.enemyTanks) {
+            if (assigned >= botsForPOI) break;
+            if (!enemy || !enemy.isAlive || !enemy.chassis) continue;
+            
+            // Проверяем текущее состояние бота
+            const currentState = enemy.getState?.();
+            if (currentState === "attack" || currentState === "chase") continue;
+            
+            // Находим ближайший незахваченный POI
+            const enemyPos = enemy.chassis.absolutePosition;
+            let nearestPOI = null;
+            let nearestDist = Infinity;
+            
+            for (const poi of unownedPOIs) {
+                const dist = Vector3.Distance(enemyPos, poi.worldPosition);
+                if (dist < nearestDist && dist < 500) { // Макс 500м
+                    nearestDist = dist;
+                    nearestPOI = poi;
+                }
+            }
+            
+            if (nearestPOI) {
+                enemy.setPOITarget?.({
+                    position: nearestPOI.worldPosition,
+                    type: nearestPOI.type,
+                    id: nearestPOI.id
+                });
+                assigned++;
+            }
+        }
+    }
+    
     // Обновление системы POI
     updatePOISystem(deltaTime: number): void {
         if (!this.chunkSystem || !this.tank || !this.tank.chassis) return;
@@ -2859,6 +2990,70 @@ export class Game {
         
         // Обновляем POI систему
         poiSystem.update(playerPos, enemyPositions, deltaTime);
+        
+        // Обновляем POI на миникарте
+        if (this.hud && this._updateTick % 4 === 0) {
+            const allPOIs = poiSystem.getAllPOIs();
+            const tankRotation = this.tank.turret?.rotation.y || this.tank.chassis.rotation.y;
+            
+            // Данные для миникарты
+            const minimapPOIs = allPOIs.map(poi => ({
+                id: poi.id,
+                type: poi.type,
+                worldPosition: { x: poi.worldPosition.x, z: poi.worldPosition.z },
+                ownerId: poi.ownerId,
+                captureProgress: poi.captureProgress
+            }));
+            
+            this.hud.updateMinimapPOIs?.(
+                minimapPOIs,
+                { x: playerPos.x, z: playerPos.z },
+                tankRotation
+            );
+            
+            // 3D маркеры в мире
+            if (this.scene.activeCamera) {
+                const camera = this.scene.activeCamera;
+                const engine = this.engine;
+                
+                const poi3DData = allPOIs.map(poi => {
+                    const worldPos = poi.worldPosition.add(new Vector3(0, 10, 0)); // Над POI
+                    const screenPos = Vector3.Project(
+                        worldPos,
+                        Matrix.Identity(),
+                        this.scene.getTransformMatrix(),
+                        camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight())
+                    );
+                    
+                    // Проверяем видимость (перед камерой)
+                    const toCamera = camera.position.subtract(worldPos);
+                    const cameraForward = camera.getForwardRay().direction;
+                    const dot = Vector3.Dot(toCamera.normalize(), cameraForward);
+                    const visible = dot < 0; // POI перед камерой
+                    
+                    return {
+                        id: poi.id,
+                        type: poi.type,
+                        screenX: screenPos.x - engine.getRenderWidth() / 2,
+                        screenY: screenPos.y,
+                        distance: Vector3.Distance(playerPos, poi.worldPosition),
+                        ownerId: poi.ownerId,
+                        captureProgress: poi.captureProgress,
+                        visible
+                    };
+                });
+                
+                this.hud.updatePOI3DMarkers?.(poi3DData);
+            }
+            
+            // Показываем прогресс захвата ближайшего POI
+            const nearbyPOI = poiSystem.getNearbyPOI(playerPos, 20);
+            if (nearbyPOI && nearbyPOI.capturable && nearbyPOI.ownerId !== "player") {
+                this.hud.showPOICaptureProgress?.(nearbyPOI.type, nearbyPOI.captureProgress, nearbyPOI.contested);
+            } else {
+                this.hud.hidePOICaptureProgress?.();
+            }
+        }
     }
     
     update() {
@@ -3119,6 +3314,11 @@ export class Game {
         // 7.6. POI System - обновление точек интереса
         if (this._updateTick % 2 === 0) { // Каждые 2 кадра
             this.updatePOISystem(deltaTime);
+        }
+        
+        // 7.7. Направляем ботов к POI периодически
+        if (this._updateTick % 300 === 0) { // Каждые ~5 секунд
+            this.assignBotsToPOIs();
         }
         
         // 8. Enemy tanks - оптимизированное обновление с улучшенной LOD системой

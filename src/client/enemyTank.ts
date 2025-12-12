@@ -18,7 +18,7 @@ import { SoundManager } from "./soundManager";
 import { EffectsManager } from "./effects";
 
 // === AI States ===
-type AIState = "idle" | "patrol" | "chase" | "attack" | "flank" | "retreat" | "evade";
+type AIState = "idle" | "patrol" | "chase" | "attack" | "flank" | "retreat" | "evade" | "capturePOI";
 
 export class EnemyTank {
     private scene: Scene;
@@ -66,6 +66,12 @@ export class EnemyTank {
     private currentPatrolIndex = 0;
     private lastStateChange = 0;
     private stateTimer = 0;
+    
+    // POI System integration
+    private targetPOI: { position: Vector3, type: string, id: string } | null = null;
+    private poiCheckInterval = 5000; // Check for nearby POIs every 5 seconds
+    private lastPOICheck = 0;
+    private poiCaptureTime = 0; // Time spent at POI
     
     // AI Decisions
     private lastDecisionTime = 0;
@@ -1078,6 +1084,9 @@ export class EnemyTank {
             case "evade":
                 this.doEvade();
                 break;
+            case "capturePOI":
+                this.doCapturePOI();
+                break;
         }
     }
     
@@ -1116,6 +1125,62 @@ export class EnemyTank {
         // Крутим башню по сторонам во время патруля (сканирование)
         const scanAngle = Math.sin(Date.now() * 0.001) * 0.5; // ±0.5 радиан
         this.turretTargetAngle = scanAngle;
+    }
+    
+    // Захват POI
+    private doCapturePOI(): void {
+        if (!this.targetPOI) {
+            this.setState("patrol");
+            return;
+        }
+        
+        const myPos = this.chassis.absolutePosition;
+        const distance = Vector3.Distance(myPos, this.targetPOI.position);
+        
+        if (distance > 15) {
+            // Едем к POI
+            this.driveToward(this.targetPOI.position, 0.7);
+        } else if (distance > 8) {
+            // Подъезжаем ближе к центру
+            this.driveToward(this.targetPOI.position, 0.3);
+        } else {
+            // Стоим на точке - ждём захвата
+            this.poiCaptureTime += 16; // ~16ms per frame
+            
+            // Вращаем башню для защиты
+            const scanAngle = Math.sin(Date.now() * 0.0015) * Math.PI * 0.8;
+            this.turretTargetAngle = scanAngle;
+            
+            // Проверяем врагов и стреляем
+            if (this.target && this.target.isAlive) {
+                const targetDist = Vector3.Distance(myPos, this.target.chassis.absolutePosition);
+                if (targetDist < this.attackRange) {
+                    this.setState("attack");
+                    return;
+                }
+            }
+            
+            // Если захватили POI (примерно 30 секунд) - возвращаемся к патрулю
+            if (this.poiCaptureTime > 30000) {
+                this.targetPOI = null;
+                this.poiCaptureTime = 0;
+                this.setState("patrol");
+            }
+        }
+    }
+    
+    // Установка целевого POI
+    setPOITarget(poi: { position: Vector3, type: string, id: string } | null): void {
+        this.targetPOI = poi;
+        if (poi) {
+            this.poiCaptureTime = 0;
+            this.setState("capturePOI");
+        }
+    }
+    
+    // Получение текущего состояния
+    getState(): AIState {
+        return this.state;
     }
     
     private doChase(): void {

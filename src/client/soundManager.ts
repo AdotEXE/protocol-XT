@@ -1266,6 +1266,73 @@ export class SoundManager {
         this.playHit("ricochet", position);
     }
     
+    // Special critical hit sound with extra punch
+    playCriticalHitSpecial(position?: Vector3) {
+        if (!this.audioContext || !this.masterGain) return;
+        this.resume();
+        
+        const now = this.audioContext.currentTime;
+        
+        // 1. High-pitched "ding" for crit
+        const dingOsc = this.audioContext.createOscillator();
+        dingOsc.type = 'sine';
+        dingOsc.frequency.setValueAtTime(2000, now);
+        dingOsc.frequency.exponentialRampToValueAtTime(1500, now + 0.1);
+        
+        const dingGain = this.audioContext.createGain();
+        dingGain.gain.setValueAtTime(this.hitVolume * 0.8, now);
+        dingGain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+        
+        // 2. Low punch for impact
+        const punchOsc = this.audioContext.createOscillator();
+        punchOsc.type = 'square';
+        punchOsc.frequency.setValueAtTime(150, now);
+        punchOsc.frequency.exponentialRampToValueAtTime(50, now + 0.15);
+        
+        const punchGain = this.audioContext.createGain();
+        punchGain.gain.setValueAtTime(this.hitVolume * 1.2, now);
+        punchGain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+        
+        // 3. Metallic ring
+        const ringOsc = this.audioContext.createOscillator();
+        ringOsc.type = 'triangle';
+        ringOsc.frequency.setValueAtTime(3000, now);
+        ringOsc.frequency.exponentialRampToValueAtTime(2000, now + 0.4);
+        
+        const ringGain = this.audioContext.createGain();
+        ringGain.gain.setValueAtTime(this.hitVolume * 0.4, now + 0.05);
+        ringGain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+        
+        // Connect with optional 3D
+        const panner = position ? this.createPanner(position) : null;
+        
+        [dingGain, punchGain, ringGain].forEach(gain => {
+            if (panner) {
+                gain.connect(panner);
+            } else {
+                gain.connect(this.masterGain);
+            }
+        });
+        
+        if (panner) {
+            panner.connect(this.masterGain);
+        }
+        
+        dingOsc.connect(dingGain);
+        punchOsc.connect(punchGain);
+        ringOsc.connect(ringGain);
+        
+        // Add reverb for epic feel
+        this.connectToReverb(dingGain, 0.3);
+        
+        dingOsc.start(now);
+        dingOsc.stop(now + 0.3);
+        punchOsc.start(now);
+        punchOsc.stop(now + 0.2);
+        ringOsc.start(now);
+        ringOsc.stop(now + 0.5);
+    }
+    
     // ═══════════════════════════════════════════════════════════════════════
     // OTHER SOUNDS (улучшенные)
     // ═══════════════════════════════════════════════════════════════════════

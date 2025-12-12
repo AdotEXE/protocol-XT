@@ -1136,6 +1136,28 @@ export class MainMenu {
                 accent-color: #0f0;
             }
             
+            .setting-select {
+                background: rgba(0, 0, 0, 0.6);
+                color: #0f0;
+                border: 1px solid #0a0;
+                border-radius: 4px;
+                padding: 5px 10px;
+                font-family: 'Press Start 2P', monospace;
+                font-size: 10px;
+                cursor: pointer;
+                min-width: 100px;
+            }
+            
+            .setting-select:hover {
+                border-color: #0f0;
+                background: rgba(0, 50, 0, 0.6);
+            }
+            
+            .setting-select option {
+                background: #0a0a0a;
+                color: #0f0;
+            }
+            
             .lang-toggle {
                 display: flex;
                 gap: 5px;
@@ -2547,7 +2569,7 @@ export class MainMenu {
             cameraDistance: parseInt((document.getElementById("set-camera-dist") as HTMLInputElement)?.value || "12"),
             cameraHeight: 5,
             aimFOV: 0.4,
-            graphicsQuality: 2,
+            graphicsQuality: parseInt((document.getElementById("set-graphics") as HTMLSelectElement)?.value || "2"),
             vsync: false,
             fullscreen: false,
             aimAssist: true,

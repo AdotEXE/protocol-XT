@@ -65,6 +65,11 @@ export class HUD {
     // Damage indicator
     private damageIndicator!: Rectangle;
     
+    // Low HP effect (vignette + pulse)
+    private lowHpVignette: Rectangle | null = null;
+    private lowHpPulseTime = 0;
+    private isLowHp = false;
+    
     // Minimap
     private minimapContainer!: Rectangle;
     private radarArea: Rectangle | null = null; // Область радара для врагов
@@ -93,6 +98,15 @@ export class HUD {
     private poiCaptureProgress: Rectangle | null = null;
     private poiCaptureProgressFill: Rectangle | null = null;
     private poiCaptureText: TextBlock | null = null;
+    
+    // POI minimap markers
+    private poiMinimapMarkers: Map<string, Rectangle> = new Map();
+    private poiMinimapPool: Rectangle[] = [];
+    private readonly POI_MARKER_POOL_SIZE = 20;
+    
+    // POI 3D world markers
+    private poi3DMarkersContainer: Rectangle | null = null;
+    private poi3DMarkers: Map<string, { container: Rectangle, text: TextBlock, distance: TextBlock }> = new Map();
     
     // Notifications queue
     private notifications: Array<{ text: string, type: string, element: Rectangle }> = [];
@@ -136,6 +150,15 @@ export class HUD {
     private currentRange: number = 100; // Текущая дальность в метрах
     
     private fpsHistory: number[] = [];
+    
+    // Tutorial system
+    private tutorialContainer: Rectangle | null = null;
+    private tutorialText: TextBlock | null = null;
+    private tutorialStep = 0;
+    private tutorialCompleted = false;
+    private tutorialStartTime = 0;
+    private hasMoved = false;
+    private hasShot = false;
     
     // Game time tracking
     private gameTimeText: TextBlock | null = null;
@@ -234,6 +257,8 @@ export class HUD {
         this.createFuelIndicator();    // Индикатор топлива
         this.createPOICaptureBar();    // Прогресс-бар захвата POI
         this.createNotificationArea(); // Область уведомлений
+        this.createPOI3DMarkersContainer(); // 3D маркеры POI
+        this.createTutorial();         // Система туториала
         
         // Убеждаемся, что прицел скрыт по умолчанию
         this.setAimMode(false);
@@ -532,6 +557,7 @@ export class HUD {
         // Обновление индикаторов направления урона
         this.updateDamageIndicators();
         this.updateHitMarker();
+        this.updateLowHpEffect(deltaTime);
         
         // Обновление индикатора комбо (если есть experienceSystem)
         if (this.experienceSystem) {
@@ -2141,6 +2167,54 @@ export class HUD {
         rightEdge.isPointerBlocker = false;
         this.guiTexture.addControl(rightEdge);
         (this.damageIndicator as any)._rightEdge = rightEdge;
+        
+        // Low HP vignette (red border effect when HP < 30%)
+        this.lowHpVignette = new Rectangle("lowHpVignette");
+        this.lowHpVignette.width = "100%";
+        this.lowHpVignette.height = "100%";
+        this.lowHpVignette.thickness = 0;
+        this.lowHpVignette.isVisible = false;
+        this.lowHpVignette.isPointerBlocker = false;
+        this.lowHpVignette.zIndex = 50;
+        
+        // Create gradient-like effect with multiple rectangles
+        const vignetteTop = new Rectangle("vignetteTop");
+        vignetteTop.width = "100%";
+        vignetteTop.height = "150px";
+        vignetteTop.thickness = 0;
+        vignetteTop.background = "linear-gradient(to bottom, rgba(255,0,0,0.4), transparent)";
+        vignetteTop.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        vignetteTop.isPointerBlocker = false;
+        this.lowHpVignette.addControl(vignetteTop);
+        
+        const vignetteBottom = new Rectangle("vignetteBottom");
+        vignetteBottom.width = "100%";
+        vignetteBottom.height = "150px";
+        vignetteBottom.thickness = 0;
+        vignetteBottom.background = "linear-gradient(to top, rgba(255,0,0,0.4), transparent)";
+        vignetteBottom.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        vignetteBottom.isPointerBlocker = false;
+        this.lowHpVignette.addControl(vignetteBottom);
+        
+        const vignetteLeft = new Rectangle("vignetteLeft");
+        vignetteLeft.width = "100px";
+        vignetteLeft.height = "100%";
+        vignetteLeft.thickness = 0;
+        vignetteLeft.background = "linear-gradient(to right, rgba(255,0,0,0.3), transparent)";
+        vignetteLeft.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        vignetteLeft.isPointerBlocker = false;
+        this.lowHpVignette.addControl(vignetteLeft);
+        
+        const vignetteRight = new Rectangle("vignetteRight");
+        vignetteRight.width = "100px";
+        vignetteRight.height = "100%";
+        vignetteRight.thickness = 0;
+        vignetteRight.background = "linear-gradient(to left, rgba(255,0,0,0.3), transparent)";
+        vignetteRight.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        vignetteRight.isPointerBlocker = false;
+        this.lowHpVignette.addControl(vignetteRight);
+        
+        this.guiTexture.addControl(this.lowHpVignette);
     }
     
     private createMessageDisplay() {
@@ -2425,6 +2499,28 @@ export class HUD {
                 warningOverlay.isVisible = false;
             }
         }
+        
+        // Low HP vignette effect (< 30%)
+        this.isLowHp = percent < 30;
+        if (this.lowHpVignette) {
+            this.lowHpVignette.isVisible = this.isLowHp;
+        }
+    }
+    
+    // Update low HP pulse effect (call from updateAnimations)
+    private updateLowHpEffect(deltaTime: number): void {
+        if (!this.isLowHp || !this.lowHpVignette) return;
+        
+        this.lowHpPulseTime += deltaTime;
+        
+        // Pulse alpha based on sine wave (faster when health is lower)
+        const healthPercent = this.currentHealth / this.maxHealth;
+        const pulseSpeed = 3 + (1 - healthPercent) * 5; // Faster pulse at lower HP
+        const pulse = (Math.sin(this.lowHpPulseTime * pulseSpeed) + 1) / 2; // 0-1
+        
+        // Stronger effect at lower HP
+        const intensity = 0.3 + (1 - healthPercent * 3) * 0.4;
+        this.lowHpVignette.alpha = 0.3 + pulse * intensity;
     }
     
     damage(amount: number) {
@@ -4815,6 +4911,373 @@ export class HUD {
             this.notifications.forEach((n, i) => {
                 n.element.top = `${i * 35}px`;
             });
+        }
+    }
+    
+    // === TUTORIAL SYSTEM ===
+    private createTutorial(): void {
+        // Check if tutorial was already completed
+        try {
+            if (localStorage.getItem('tutorialCompleted') === 'true') {
+                this.tutorialCompleted = true;
+                return;
+            }
+        } catch (e) {
+            // localStorage not available
+        }
+        
+        // Create tutorial container
+        this.tutorialContainer = new Rectangle("tutorialContainer");
+        this.tutorialContainer.width = "400px";
+        this.tutorialContainer.height = "80px";
+        this.tutorialContainer.cornerRadius = 10;
+        this.tutorialContainer.thickness = 2;
+        this.tutorialContainer.color = "#0f0";
+        this.tutorialContainer.background = "rgba(0, 20, 0, 0.9)";
+        this.tutorialContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.tutorialContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.tutorialContainer.top = "200px"; // Below center
+        this.tutorialContainer.isVisible = false;
+        this.guiTexture.addControl(this.tutorialContainer);
+        
+        // Tutorial text
+        this.tutorialText = new TextBlock("tutorialText");
+        this.tutorialText.text = "";
+        this.tutorialText.color = "#0f0";
+        this.tutorialText.fontSize = 16;
+        this.tutorialText.fontFamily = "'Press Start 2P', monospace";
+        this.tutorialText.textWrapping = true;
+        this.tutorialText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.tutorialContainer.addControl(this.tutorialText);
+        
+        // Skip button hint
+        const skipHint = new TextBlock("skipHint");
+        skipHint.text = "ESC - пропустить";
+        skipHint.color = "#666";
+        skipHint.fontSize = 10;
+        skipHint.fontFamily = "monospace";
+        skipHint.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        skipHint.top = "-5px";
+        this.tutorialContainer.addControl(skipHint);
+        
+        console.log("[HUD] Tutorial system created");
+    }
+    
+    // Start tutorial when game begins
+    startTutorial(): void {
+        if (this.tutorialCompleted) return;
+        
+        this.tutorialStep = 0;
+        this.tutorialStartTime = Date.now();
+        this.hasMoved = false;
+        this.hasShot = false;
+        this.showTutorialStep(0);
+        
+        // Listen for ESC to skip
+        const skipHandler = (e: KeyboardEvent) => {
+            if (e.code === "Escape") {
+                this.completeTutorial();
+                window.removeEventListener("keydown", skipHandler);
+            }
+        };
+        window.addEventListener("keydown", skipHandler);
+        
+        console.log("[HUD] Tutorial started");
+    }
+    
+    private showTutorialStep(step: number): void {
+        if (!this.tutorialContainer || !this.tutorialText || this.tutorialCompleted) return;
+        
+        const steps = [
+            "WASD - движение танка\nQ/E - поворот башни",
+            "ЛКМ - выстрел\nПКМ или Ctrl - прицеливание",
+            "Находите гаражи\nдля ремонта и улучшений",
+            "Удачной охоты, танкист!"
+        ];
+        
+        if (step >= steps.length) {
+            this.completeTutorial();
+            return;
+        }
+        
+        this.tutorialStep = step;
+        this.tutorialText.text = steps[step];
+        this.tutorialContainer.isVisible = true;
+        
+        // Auto-advance to next step
+        const duration = step === steps.length - 1 ? 2000 : 5000; // Last message shorter
+        setTimeout(() => {
+            if (!this.tutorialCompleted && this.tutorialStep === step) {
+                this.showTutorialStep(step + 1);
+            }
+        }, duration);
+    }
+    
+    // Call this when player moves
+    notifyPlayerMoved(): void {
+        if (this.tutorialCompleted || this.hasMoved) return;
+        this.hasMoved = true;
+        
+        // If on step 0, advance to step 1
+        if (this.tutorialStep === 0) {
+            this.showTutorialStep(1);
+        }
+    }
+    
+    // Call this when player shoots
+    notifyPlayerShot(): void {
+        if (this.tutorialCompleted || this.hasShot) return;
+        this.hasShot = true;
+        
+        // If on step 1, advance to step 2
+        if (this.tutorialStep === 1) {
+            this.showTutorialStep(2);
+        }
+    }
+    
+    private completeTutorial(): void {
+        this.tutorialCompleted = true;
+        if (this.tutorialContainer) {
+            this.tutorialContainer.isVisible = false;
+        }
+        
+        try {
+            localStorage.setItem('tutorialCompleted', 'true');
+        } catch (e) {
+            // localStorage not available
+        }
+        
+        console.log("[HUD] Tutorial completed");
+    }
+    
+    // Reset tutorial (for debugging or settings)
+    resetTutorial(): void {
+        this.tutorialCompleted = false;
+        this.tutorialStep = 0;
+        this.hasMoved = false;
+        this.hasShot = false;
+        
+        try {
+            localStorage.removeItem('tutorialCompleted');
+        } catch (e) {}
+        
+        console.log("[HUD] Tutorial reset");
+    }
+    
+    // === POI MINIMAP MARKERS ===
+    
+    updateMinimapPOIs(
+        pois: Array<{id: string, type: string, worldPosition: {x: number, z: number}, ownerId: string | null, captureProgress: number}>,
+        playerPos: {x: number, z: number},
+        tankRotationY: number
+    ): void {
+        if (!this.radarArea) return;
+        
+        const radarRadius = 70;
+        const worldRadius = 150;
+        const scale = radarRadius / worldRadius;
+        
+        const angle = tankRotationY;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        
+        // Hide all existing POI markers
+        for (const marker of this.poiMinimapMarkers.values()) {
+            marker.isVisible = false;
+        }
+        
+        for (const poi of pois) {
+            const dx = poi.worldPosition.x - playerPos.x;
+            const dz = poi.worldPosition.z - playerPos.z;
+            
+            const rotX = dx * cos - dz * sin;
+            const rotZ = dx * sin + dz * cos;
+            
+            const radarX = rotX * scale;
+            const radarZ = -rotZ * scale;
+            
+            if (Math.abs(radarX) > radarRadius || Math.abs(radarZ) > radarRadius) continue;
+            
+            let marker = this.poiMinimapMarkers.get(poi.id);
+            if (!marker) {
+                marker = this.createPOIMinimapMarker(poi.type);
+                this.radarArea.addControl(marker);
+                this.poiMinimapMarkers.set(poi.id, marker);
+            }
+            
+            marker.left = `${radarX}px`;
+            marker.top = `${radarZ}px`;
+            marker.isVisible = true;
+            
+            if (poi.ownerId === "player") {
+                marker.background = "#0f0";
+                marker.color = "#0f0";
+            } else if (poi.ownerId === "enemy") {
+                marker.background = "#f00";
+                marker.color = "#f00";
+            } else {
+                marker.background = "#888";
+                marker.color = "#888";
+            }
+            
+            if (poi.captureProgress > 0 && poi.captureProgress < 100) {
+                const pulse = 1 + Math.sin(Date.now() * 0.01) * 0.3;
+                marker.scaleX = pulse;
+                marker.scaleY = pulse;
+            } else {
+                marker.scaleX = 1;
+                marker.scaleY = 1;
+            }
+        }
+    }
+    
+    private createPOIMinimapMarker(type: string): Rectangle {
+        const marker = new Rectangle("poiMarker_" + Date.now());
+        marker.width = "8px";
+        marker.height = "8px";
+        marker.thickness = 1;
+        marker.background = "#888";
+        marker.color = "#fff";
+        
+        switch (type) {
+            case "capturePoint":
+                marker.cornerRadius = 0;
+                marker.width = "10px";
+                marker.height = "10px";
+                break;
+            case "ammoDepot":
+                marker.cornerRadius = 2;
+                marker.width = "6px";
+                marker.height = "8px";
+                break;
+            case "repairStation":
+                marker.cornerRadius = 8;
+                break;
+            case "fuelDepot":
+                marker.cornerRadius = 4;
+                marker.width = "8px";
+                marker.height = "6px";
+                break;
+            case "radarStation":
+                marker.cornerRadius = 0;
+                marker.rotation = Math.PI / 4;
+                break;
+        }
+        
+        return marker;
+    }
+    
+    // === POI 3D WORLD MARKERS ===
+    
+    private createPOI3DMarkersContainer(): void {
+        this.poi3DMarkersContainer = new Rectangle("poi3DContainer");
+        this.poi3DMarkersContainer.width = "100%";
+        this.poi3DMarkersContainer.height = "100%";
+        this.poi3DMarkersContainer.thickness = 0;
+        this.poi3DMarkersContainer.isPointerBlocker = false;
+        this.guiTexture.addControl(this.poi3DMarkersContainer);
+    }
+    
+    updatePOI3DMarkers(
+        pois: Array<{
+            id: string,
+            type: string,
+            screenX: number,
+            screenY: number,
+            distance: number,
+            ownerId: string | null,
+            captureProgress: number,
+            visible: boolean
+        }>
+    ): void {
+        if (!this.poi3DMarkersContainer) return;
+        
+        for (const marker of this.poi3DMarkers.values()) {
+            marker.container.isVisible = false;
+        }
+        
+        for (const poi of pois) {
+            if (!poi.visible || poi.distance > 500) continue;
+            
+            let markerData = this.poi3DMarkers.get(poi.id);
+            if (!markerData) {
+                markerData = this.createPOI3DMarker(poi.type);
+                this.poi3DMarkersContainer.addControl(markerData.container);
+                this.poi3DMarkers.set(poi.id, markerData);
+            }
+            
+            markerData.container.left = `${poi.screenX}px`;
+            markerData.container.top = `${poi.screenY}px`;
+            markerData.container.isVisible = true;
+            
+            markerData.distance.text = `${Math.round(poi.distance)}m`;
+            
+            const scale = Math.max(0.5, 1 - poi.distance / 600);
+            markerData.container.scaleX = scale;
+            markerData.container.scaleY = scale;
+            
+            let color = "#888";
+            if (poi.ownerId === "player") color = "#0f0";
+            else if (poi.ownerId === "enemy") color = "#f00";
+            
+            markerData.container.color = color;
+            markerData.text.color = color;
+            markerData.distance.color = color;
+            
+            if (poi.captureProgress > 0 && poi.captureProgress < 100) {
+                const pulse = 1 + Math.sin(Date.now() * 0.008) * 0.2;
+                markerData.container.scaleX = scale * pulse;
+                markerData.container.scaleY = scale * pulse;
+            }
+        }
+    }
+    
+    private createPOI3DMarker(type: string): { container: Rectangle, text: TextBlock, distance: TextBlock } {
+        const container = new Rectangle("poi3D_" + Date.now());
+        container.width = "60px";
+        container.height = "40px";
+        container.thickness = 2;
+        container.color = "#888";
+        container.background = "rgba(0,0,0,0.6)";
+        container.cornerRadius = 5;
+        container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        container.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        
+        const text = new TextBlock();
+        text.fontSize = "14px";
+        text.fontFamily = "monospace";
+        text.color = "#fff";
+        text.top = "-5px";
+        
+        switch (type) {
+            case "capturePoint": text.text = "⚑"; break;
+            case "ammoDepot": text.text = "🔫"; break;
+            case "repairStation": text.text = "🔧"; break;
+            case "fuelDepot": text.text = "⛽"; break;
+            case "radarStation": text.text = "📡"; break;
+            default: text.text = "●";
+        }
+        container.addControl(text);
+        
+        const distance = new TextBlock();
+        distance.fontSize = "10px";
+        distance.fontFamily = "monospace";
+        distance.color = "#888";
+        distance.top = "10px";
+        distance.text = "0m";
+        container.addControl(distance);
+        
+        return { container, text, distance };
+    }
+    
+    getPOIIcon(type: string): string {
+        switch (type) {
+            case "capturePoint": return "⚑";
+            case "ammoDepot": return "🔫";
+            case "repairStation": return "🔧";
+            case "fuelDepot": return "⛽";
+            case "radarStation": return "📡";
+            default: return "●";
         }
     }
 }

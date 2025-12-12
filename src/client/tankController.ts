@@ -36,6 +36,7 @@ export class TankController {
     chatSystem: any = null; // ChatSystem для сообщений
     experienceSystem: any = null; // ExperienceSystem для опыта
     playerProgression: any = null; // PlayerProgressionSystem для глобального прогресса
+    achievementsSystem: any = null; // AchievementsSystem для достижений
     
     // Callback для получения позиции респавна (гараж)
     private respawnPositionCallback: (() => Vector3 | null) | null = null;
@@ -1123,6 +1124,11 @@ export class TankController {
         if (this._inputMap["KeyA"] || this._inputMap["ArrowLeft"]) this.steerTarget -= 1;
         if (this._inputMap["KeyD"] || this._inputMap["ArrowRight"]) this.steerTarget += 1;
         
+        // Notify HUD about movement (for tutorial)
+        if ((this.throttleTarget !== 0 || this.steerTarget !== 0) && this.hud) {
+            this.hud.notifyPlayerMoved();
+        }
+        
         // Debug: Log input changes
         if (this._tick % 120 === 0 && (this.throttleTarget !== 0 || this.steerTarget !== 0)) {
             console.log(`[Input] Throttle: ${this.throttleTarget}, Steer: ${this.steerTarget}, W: ${this._inputMap["KeyW"]}, S: ${this._inputMap["KeyS"]}, A: ${this._inputMap["KeyA"]}, D: ${this._inputMap["KeyD"]}`);
@@ -1290,6 +1296,7 @@ export class TankController {
             // Start reload on HUD
             if (this.hud) {
                 this.hud.startReload(this.cooldown);
+                this.hud.notifyPlayerShot(); // Tutorial notification
             }
             
             // End reload after cooldown
@@ -1577,9 +1584,21 @@ export class TankController {
                             this.playerProgression.recordDamageDealt(projectileDamage);
                         }
                         // Show hit marker on HUD (critical if damage > 120% of base)
+                        const isCriticalHit = projectileDamage > this.cannonType.damage * 1.2;
                         if (this.hud) {
-                            const isCritical = projectileDamage > this.cannonType.damage * 1.2;
-                            this.hud.showHitMarker(isCritical);
+                            this.hud.showHitMarker(isCriticalHit);
+                        }
+                        // Play special critical hit sound
+                        if (isCriticalHit && this.soundManager) {
+                            this.soundManager.playCriticalHitSpecial(bulletPos);
+                        }
+                        // Track critical hit achievement
+                        if (isCriticalHit && this.achievementsSystem) {
+                            this.achievementsSystem.updateProgress("sharpshooter", 1);
+                        }
+                        // Track damage dealt achievement
+                        if (this.achievementsSystem) {
+                            this.achievementsSystem.updateProgress("damage_dealer", projectileDamage);
                         }
                         ball.dispose();
                         return;
