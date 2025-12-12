@@ -1098,10 +1098,10 @@ export class MainMenu {
             }
             
             .logo-text {
-                font-size: 32px;
+                font-size: clamp(20px, 3vw, 32px);
                 color: #0f0;
-                letter-spacing: 4px;
-                margin-bottom: 8px;
+                letter-spacing: clamp(2px, 0.3vw, 4px);
+                margin-bottom: clamp(4px, 0.8vh, 8px);
                 text-shadow: 0 0 10px #0f0, 0 0 20px #0f0;
             }
             
@@ -1110,16 +1110,16 @@ export class MainMenu {
             }
             
             .menu-subtitle {
-                font-size: 10px;
+                font-size: clamp(8px, 1vw, 10px);
                 color: #0a0;
-                letter-spacing: 4px;
+                letter-spacing: clamp(2px, 0.3vw, 4px);
             }
             
             .player-card {
                 background: rgba(0, 30, 0, 0.8);
                 border: 2px solid #0f0;
-                padding: 15px;
-                margin-bottom: 10px;
+                padding: clamp(10px, 1.5vh, 15px);
+                margin-bottom: clamp(5px, 1vh, 10px);
             }
             
             .player-level-row {
@@ -1130,12 +1130,12 @@ export class MainMenu {
             }
             
             .level-badge {
-                width: 50px;
-                height: 50px;
+                width: clamp(40px, 5vw, 50px);
+                height: clamp(40px, 5vw, 50px);
                 background: #000;
                 border: 2px solid #0f0;
                 color: #0f0;
-                font-size: 20px;
+                font-size: clamp(16px, 2vw, 20px);
                 display: flex;
                 align-items: center;
                 justify-content: center;
@@ -1203,9 +1203,9 @@ export class MainMenu {
             
             .menu-btn {
                 flex: 1;
-                padding: 15px 20px;
+                padding: clamp(10px, 1.5vh, 15px) clamp(15px, 2vw, 20px);
                 font-family: 'Press Start 2P', monospace;
-                font-size: 12px;
+                font-size: clamp(10px, 1.2vw, 12px);
                 background: #000;
                 color: #0f0;
                 border: 2px solid #0f0;
@@ -1214,7 +1214,7 @@ export class MainMenu {
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                gap: 10px;
+                gap: clamp(5px, 1vw, 10px);
                 position: relative;
                 pointer-events: auto !important;
                 user-select: none;
@@ -1231,8 +1231,8 @@ export class MainMenu {
             }
             
             .menu-btn.play-btn {
-                padding: 18px 24px;
-                font-size: 14px;
+                padding: clamp(12px, 2vh, 18px) clamp(18px, 2.5vw, 24px);
+                font-size: clamp(12px, 1.5vw, 14px);
                 box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
             }
             
@@ -1291,8 +1291,9 @@ export class MainMenu {
             }
             
             @media (max-width: 900px) {
-                .controls-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
-                .logo-text { font-size: 24px; }
+                .controls-grid { grid-template-columns: repeat(2, minmax(min(150px, 30vw), 1fr)); }
+                .logo-text { font-size: clamp(18px, 4vw, 24px); }
+                .menu-content { padding: clamp(8px, 1.5vh, 10px); }
             }
             
             .control-category {
@@ -4414,9 +4415,6 @@ export class MainMenu {
         const maxZoom = 2.5;
         const zoomStep = 0.1;
 
-        // Сохраняем предыдущий уровень зума для правильного вычисления
-        let previousZoom = zoomLevel;
-
         const applyZoom = (mouseX?: number, mouseY?: number) => {
             if (mouseX !== undefined && mouseY !== undefined && wrapper) {
                 // Зум относительно позиции курсора
@@ -4428,27 +4426,24 @@ export class MainMenu {
                 const scrollX = wrapper.scrollLeft;
                 const scrollY = wrapper.scrollTop;
                 
-                // Позиция курсора относительно контента (до зума)
-                const contentX = (scrollX + x) / previousZoom;
-                const contentY = (scrollY + y) / previousZoom;
+                // Позиция курсора относительно контента
+                const contentX = scrollX + x;
+                const contentY = scrollY + y;
                 
                 // Применяем зум
                 skillTree.style.transform = `scale(${zoomLevel})`;
                 skillTree.style.transformOrigin = "top left";
                 
-                // Вычисляем новую позицию скролла, чтобы курсор оставался на том же месте контента
+                // Вычисляем новую позицию скролла, чтобы курсор оставался на том же месте
                 const newScrollX = contentX * zoomLevel - x;
                 const newScrollY = contentY * zoomLevel - y;
                 
                 wrapper.scrollLeft = Math.max(0, newScrollX);
                 wrapper.scrollTop = Math.max(0, newScrollY);
-                
-                previousZoom = zoomLevel;
             } else {
                 // Обычный зум без учета курсора
                 skillTree.style.transform = `scale(${zoomLevel})`;
                 skillTree.style.transformOrigin = "top left";
-                previousZoom = zoomLevel;
             }
         };
 
@@ -4466,23 +4461,18 @@ export class MainMenu {
             wrapper.parentElement?.insertBefore(zoomControls, wrapper);
         }
 
-        // Колесико мыши для зума (Ctrl/Cmd + колесико, зум относительно курсора)
+        // Колесико мыши для зума (работает всегда, зум относительно курсора)
         wrapper.addEventListener("wheel", (e: WheelEvent) => {
-            if (e.ctrlKey || e.metaKey) {
-                e.preventDefault();
-                const oldZoom = zoomLevel;
-                const delta = e.deltaY > 0 ? -zoomStep : zoomStep;
-                zoomLevel = Math.max(minZoom, Math.min(maxZoom, zoomLevel + delta));
-                
-                if (zoomLevel !== oldZoom) {
-                    // Зум относительно позиции курсора
-                    applyZoom(e.clientX, e.clientY);
-                    
-                    const zoomLevelEl = zoomControls.querySelector(".skill-zoom-level") as HTMLElement;
-                    if (zoomLevelEl) {
-                        zoomLevelEl.textContent = `${Math.round(zoomLevel * 100)}%`;
-                    }
-                }
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? -zoomStep : zoomStep;
+            zoomLevel = Math.max(minZoom, Math.min(maxZoom, zoomLevel + delta));
+            
+            // Зум относительно позиции курсора
+            applyZoom(e.clientX, e.clientY);
+            
+            const zoomLevelEl = zoomControls.querySelector(".skill-zoom-level") as HTMLElement;
+            if (zoomLevelEl) {
+                zoomLevelEl.textContent = `${Math.round(zoomLevel * 100)}%`;
             }
         }, { passive: false });
 
@@ -4495,14 +4485,12 @@ export class MainMenu {
         if (zoomInBtn && !(zoomInBtn as any)._zoomBound) {
             (zoomInBtn as any)._zoomBound = true;
             zoomInBtn.addEventListener("click", () => {
-                const oldZoom = zoomLevel;
                 zoomLevel = Math.min(maxZoom, zoomLevel + zoomStep);
-                if (zoomLevel !== oldZoom && wrapper) {
+                if (wrapper) {
                     // Зумим относительно центра видимой области
                     const rect = wrapper.getBoundingClientRect();
                     const centerX = rect.left + wrapper.clientWidth / 2;
                     const centerY = rect.top + wrapper.clientHeight / 2;
-                    previousZoom = oldZoom;
                     applyZoom(centerX, centerY);
                 }
                 if (zoomLevelDisplay) zoomLevelDisplay.textContent = `${Math.round(zoomLevel * 100)}%`;
@@ -4512,14 +4500,12 @@ export class MainMenu {
         if (zoomOutBtn && !(zoomOutBtn as any)._zoomBound) {
             (zoomOutBtn as any)._zoomBound = true;
             zoomOutBtn.addEventListener("click", () => {
-                const oldZoom = zoomLevel;
                 zoomLevel = Math.max(minZoom, zoomLevel - zoomStep);
-                if (zoomLevel !== oldZoom && wrapper) {
+                if (wrapper) {
                     // Зумим относительно центра видимой области
                     const rect = wrapper.getBoundingClientRect();
                     const centerX = rect.left + wrapper.clientWidth / 2;
                     const centerY = rect.top + wrapper.clientHeight / 2;
-                    previousZoom = oldZoom;
                     applyZoom(centerX, centerY);
                 }
                 if (zoomLevelDisplay) zoomLevelDisplay.textContent = `${Math.round(zoomLevel * 100)}%`;
