@@ -2,6 +2,15 @@
 // MAIN MENU - Минималистичное главное меню
 // ═══════════════════════════════════════════════════════════════════════════
 
+import { 
+    SKILL_TREE_NODES, 
+    SKILL_TREE_EDGES, 
+    SKILL_BRANCHES,
+    isNodeUnlocked,
+    getSkillCost,
+    type SkillNode
+} from "./skillTreeConfig";
+
 // Version tracking
 const VERSION_MAJOR = 0;
 const VERSION_MINOR = 3;
