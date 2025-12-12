@@ -38,6 +38,7 @@ import { ChatSystem } from "./chatSystem";
 import { ExperienceSystem } from "./experienceSystem";
 import { PlayerProgressionSystem } from "./playerProgression";
 import { AimingSystem } from "./aimingSystem";
+import { DestructionSystem } from "./destructionSystem";
 
 export class Game {
     engine: Engine;
@@ -53,6 +54,9 @@ export class Game {
     
     // Chunk system for optimization
     chunkSystem: ChunkSystem | undefined;
+    
+    // Destruction system for destructible objects
+    destructionSystem: DestructionSystem | undefined;
     
     // Debug dashboard
     debugDashboard: DebugDashboard | undefined;
@@ -104,6 +108,12 @@ export class Game {
     currentMapType: MapType = "normal";
     gameInitialized = false;
     
+    // Система волн для карты "Передовая"
+    private frontlineWaveNumber = 0;
+    private frontlineWaveTimer: number | null = null;
+    private frontlineMaxEnemies = 12;
+    private frontlineWaveInterval = 75000; // 75 секунд между волнами
+    
     // Stats overlay (Tab key - пункт 13)
     private statsOverlay: HTMLDivElement | null = null;
     private statsOverlayVisible = false;
@@ -111,6 +121,11 @@ export class Game {
     
     // Settings
     settings: GameSettings;
+    
+    // Loading screen
+    private loadingScreen: HTMLDivElement | null = null;
+    private loadingProgress = 0;
+    private loadingStage = "";
     
     // Camera settings
     cameraBeta = Math.PI / 2 - (20 * Math.PI / 180); // 20 градусов от горизонта для лучшего обзора
@@ -183,11 +198,17 @@ export class Game {
                     this.enemyTanks = [];
                     
                     // Пересоздаем ChunkSystem с новым типом карты
+                    const menuSettings = this.mainMenu?.getSettings();
+                    let newWorldSeed = menuSettings?.worldSeed || 12345;
+                    if (menuSettings?.useRandomSeed) {
+                        newWorldSeed = Math.floor(Math.random() * 999999999);
+                    }
+                    
                     this.chunkSystem = new ChunkSystem(this.scene, {
                         chunkSize: 80,
                         renderDistance: 1.5,
                         unloadDistance: 4,
-                        worldSeed: Math.floor(Math.random() * 1000000),
+                        worldSeed: newWorldSeed,
                         mapType: this.currentMapType
                     });
                     
@@ -553,6 +574,190 @@ export class Game {
         }
     }
     
+    // === LOADING SCREEN ===
+    
+    private createLoadingScreen(): void {
+        if (this.loadingScreen) return;
+        
+        this.loadingScreen = document.createElement("div");
+        this.loadingScreen.id = "loading-screen";
+        this.loadingScreen.innerHTML = `
+            <style>
+                #loading-screen {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #0a0a0a 100%);
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: center;
+                    align-items: center;
+                    z-index: 999999;
+                    font-family: 'Press Start 2P', monospace;
+                }
+                
+                .loading-logo {
+                    font-size: 48px;
+                    color: #0f0;
+                    text-shadow: 0 0 20px rgba(0, 255, 0, 0.5),
+                                 0 0 40px rgba(0, 255, 0, 0.3);
+                    margin-bottom: 60px;
+                    letter-spacing: 4px;
+                }
+                
+                .loading-logo .accent {
+                    color: #fff;
+                    text-shadow: 0 0 20px rgba(255, 255, 255, 0.8);
+                }
+                
+                .loading-container {
+                    width: 400px;
+                    text-align: center;
+                }
+                
+                .loading-bar-bg {
+                    width: 100%;
+                    height: 20px;
+                    background: rgba(0, 40, 0, 0.5);
+                    border: 2px solid #0a0;
+                    border-radius: 10px;
+                    overflow: hidden;
+                    box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
+                }
+                
+                .loading-bar-fill {
+                    height: 100%;
+                    background: linear-gradient(90deg, #0a0 0%, #0f0 50%, #0a0 100%);
+                    width: 0%;
+                    transition: width 0.3s ease-out;
+                    box-shadow: 0 0 15px rgba(0, 255, 0, 0.5);
+                    position: relative;
+                }
+                
+                .loading-bar-fill::after {
+                    content: '';
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: linear-gradient(90deg, 
+                        transparent 0%, 
+                        rgba(255, 255, 255, 0.3) 50%, 
+                        transparent 100%);
+                    animation: shimmer 1.5s infinite;
+                }
+                
+                @keyframes shimmer {
+                    0% { transform: translateX(-100%); }
+                    100% { transform: translateX(100%); }
+                }
+                
+                .loading-text {
+                    color: #0f0;
+                    font-size: 12px;
+                    margin-top: 20px;
+                    text-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+                }
+                
+                .loading-percent {
+                    color: #fff;
+                    font-size: 24px;
+                    margin-top: 15px;
+                    text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+                }
+                
+                .loading-tip {
+                    color: #888;
+                    font-size: 10px;
+                    margin-top: 40px;
+                    max-width: 500px;
+                    line-height: 1.6;
+                }
+                
+                .loading-tank {
+                    font-size: 40px;
+                    margin-bottom: 20px;
+                    animation: tankBounce 1s ease-in-out infinite;
+                }
+                
+                @keyframes tankBounce {
+                    0%, 100% { transform: translateY(0); }
+                    50% { transform: translateY(-10px); }
+                }
+            </style>
+            <div class="loading-logo">PROTOCOL <span class="accent">TX</span></div>
+            <div class="loading-tank">🎖️</div>
+            <div class="loading-container">
+                <div class="loading-bar-bg">
+                    <div class="loading-bar-fill" id="loading-bar-fill"></div>
+                </div>
+                <div class="loading-percent" id="loading-percent">0%</div>
+                <div class="loading-text" id="loading-text">Инициализация...</div>
+            </div>
+            <div class="loading-tip" id="loading-tip"></div>
+        `;
+        
+        document.body.appendChild(this.loadingScreen);
+        
+        // Показать случайный совет
+        this.showRandomLoadingTip();
+    }
+    
+    private showRandomLoadingTip(): void {
+        const tips = [
+            "💡 Используйте ПКМ для прицеливания - это увеличивает точность!",
+            "💡 Клавиша G открывает гараж для смены танка",
+            "💡 Колесо мыши позволяет приближать/отдалять камеру в режиме прицеливания",
+            "💡 TAB показывает статистику игры",
+            "💡 ESC ставит игру на паузу",
+            "💡 Разные корпуса и орудия имеют уникальные характеристики",
+            "💡 Клавиша M открывает тактическую карту",
+            "💡 Захватывайте гаражи для получения тактического преимущества",
+            "💡 Расходники 1-5 помогают в сложных ситуациях",
+            "💡 Shift включает свободный обзор камеры"
+        ];
+        
+        const tipElement = document.getElementById("loading-tip");
+        if (tipElement) {
+            tipElement.textContent = tips[Math.floor(Math.random() * tips.length)];
+        }
+    }
+    
+    private updateLoadingProgress(progress: number, stage: string): void {
+        this.loadingProgress = Math.min(100, Math.max(0, progress));
+        this.loadingStage = stage;
+        
+        const barFill = document.getElementById("loading-bar-fill");
+        const percentText = document.getElementById("loading-percent");
+        const stageText = document.getElementById("loading-text");
+        
+        if (barFill) {
+            barFill.style.width = `${this.loadingProgress}%`;
+        }
+        if (percentText) {
+            percentText.textContent = `${Math.round(this.loadingProgress)}%`;
+        }
+        if (stageText) {
+            stageText.textContent = stage;
+        }
+    }
+    
+    private hideLoadingScreen(): void {
+        if (this.loadingScreen) {
+            this.loadingScreen.style.transition = "opacity 0.5s ease-out";
+            this.loadingScreen.style.opacity = "0";
+            setTimeout(() => {
+                if (this.loadingScreen) {
+                    this.loadingScreen.remove();
+                    this.loadingScreen = null;
+                }
+            }, 500);
+        }
+    }
+    
     startGame(): void {
         logger.log("startGame() called, mapType:", this.currentMapType);
         this.gameStarted = true;
@@ -716,6 +921,10 @@ export class Game {
         try {
             console.log(`[Game] init() called with mapType: ${this.currentMapType}`);
             
+            // Показываем загрузочный экран
+            this.createLoadingScreen();
+            this.updateLoadingProgress(5, "Инициализация движка...");
+            
             // Убеждаемся, что canvas виден и не перекрыт
             if (this.canvas) {
                 this.canvas.style.display = "block";
@@ -814,9 +1023,11 @@ export class Game {
             console.log("Light created (balanced, no specular)");
 
             // Physics
+            this.updateLoadingProgress(15, "Загрузка физического движка...");
             console.log("Loading Havok WASM...");
             const havokInstance = await HavokPhysics({ locateFile: () => "/HavokPhysics.wasm" });
             console.log("Havok WASM loaded");
+            this.updateLoadingProgress(30, "Инициализация физики...");
             const havokPlugin = new HavokPlugin(true, havokInstance);
             this.scene.enablePhysics(new Vector3(0, -9.81, 0), havokPlugin);
             console.log("Physics enabled");
@@ -857,6 +1068,7 @@ export class Game {
             }
 
             // Create Tank (spawn close to ground - hover height is ~1.0)
+            this.updateLoadingProgress(40, "Создание танка...");
             this.tank = new TankController(this.scene, new Vector3(0, 1.2, 0));
             
             // Устанавливаем callback для респавна в гараже
@@ -884,6 +1096,7 @@ export class Game {
             console.log("[Game] Camera created and set as active");
             
             // Create HUD (может вызвать ошибку, но камера уже создана)
+            this.updateLoadingProgress(50, "Создание интерфейса...");
             try {
                 this.hud = new HUD(this.scene);
                 this.tank.setHUD(this.hud);
@@ -898,6 +1111,7 @@ export class Game {
             }
             
             // Create Sound Manager
+            this.updateLoadingProgress(55, "Загрузка звуков...");
             this.soundManager = new SoundManager();
             this.tank.setSoundManager(this.soundManager);
             
@@ -1090,17 +1304,35 @@ export class Game {
             });
             
             // === CHUNK SYSTEM (MAXIMUM OPTIMIZATION!) ===
+            this.updateLoadingProgress(70, "Генерация мира...");
             logger.log(`Creating ChunkSystem with mapType: ${this.currentMapType}`);
             // В production используем более агрессивные настройки производительности
             const isProduction = import.meta.env.PROD;
+            
+            // Получаем сид из настроек меню
+            const settings = this.mainMenu?.getSettings();
+            let worldSeed = settings?.worldSeed || 12345;
+            if (settings?.useRandomSeed) {
+                worldSeed = Math.floor(Math.random() * 999999999);
+            }
+            logger.log(`Using world seed: ${worldSeed}`);
+            
+            // Create destruction system
+            this.destructionSystem = new DestructionSystem(this.scene, {
+                enableDebris: true,
+                debrisLifetime: 10000,
+                maxDebrisPerObject: 5
+            });
+            
             this.chunkSystem = new ChunkSystem(this.scene, {
                 chunkSize: 80,          // HUGE chunks = fewer chunks
                 renderDistance: isProduction ? 1.2 : 1.5,       // Еще меньше в production
                 unloadDistance: 4,       // Уменьшено с 5 до 4
-                worldSeed: Math.floor(Math.random() * 1000000),
+                worldSeed: worldSeed,
                 mapType: this.currentMapType
             });
             logger.log(`Chunk system created with ${this.chunkSystem.garagePositions.length} garages`);
+            this.updateLoadingProgress(85, "Размещение объектов...");
             
             // КРИТИЧЕСКИ ВАЖНО: Запускаем генерацию чанков сразу, чтобы гаражи начали генерироваться
             // Используем позицию танка (0, 2, 0) для начальной генерации
@@ -1123,13 +1355,21 @@ export class Game {
 
             // Ждём генерации гаражей перед спавном (камера уже создана)
             // Starting waitForGaragesAndSpawn
+            this.updateLoadingProgress(95, "Финальная подготовка...");
             this.waitForGaragesAndSpawn();
 
             // Game initialized - Press F3 for debug info
             // Scene meshes count logged (disabled for performance)
             logger.debug("Active camera:", this.scene.activeCamera?.name);
+            
+            // Скрываем загрузочный экран
+            this.updateLoadingProgress(100, "Готово!");
+            setTimeout(() => {
+                this.hideLoadingScreen();
+            }, 500);
         } catch (e) {
             logger.error("Game init error:", e);
+            this.hideLoadingScreen(); // Скрываем экран даже при ошибке
         }
     }
     
@@ -1145,6 +1385,12 @@ export class Game {
         // Для полигона - спавним ботов в зоне боя (юго-восточный квадрант)
         if (this.currentMapType === "polygon") {
             this.spawnPolygonTrainingBots();
+            return;
+        }
+        
+        // Для передовой - система волн врагов
+        if (this.currentMapType === "frontline") {
+            this.spawnFrontlineEnemies();
             return;
         }
         
@@ -1324,9 +1570,11 @@ export class Game {
                 }
                 // Добавляем опыт
                 if (this.experienceSystem && this.tank) {
-                    const expGain = 15; // Меньше опыта за тренировочных ботов
-                    this.experienceSystem.addExperience(expGain);
-                    console.log(`[GAME] Training bot XP added: ${expGain}`);
+                    this.experienceSystem.recordKill(
+                        this.tank.chassisType.id,
+                        this.tank.cannonType.id,
+                        false
+                    );
                 }
                 // Записываем в прогресс
                 if (this.playerProgression) {
@@ -1362,6 +1610,181 @@ export class Game {
         });
         
         console.log(`[Game] Polygon: Spawned ${this.enemyTanks.length} training bots`);
+    }
+    
+    // Система волн врагов для карты "Передовая"
+    spawnFrontlineEnemies() {
+        if (!this.soundManager || !this.effectsManager) return;
+        
+        console.log("[Game] Frontline mode: Initializing wave system");
+        
+        // Сбрасываем счётчик волн
+        this.frontlineWaveNumber = 0;
+        
+        // Спавним начальных защитников на восточной стороне (оборона)
+        this.spawnFrontlineDefenders();
+        
+        // Спавним первую атакующую волну через 10 секунд
+        setTimeout(() => {
+            this.spawnFrontlineWave();
+        }, 10000);
+        
+        // Запускаем таймер волн
+        this.frontlineWaveTimer = window.setInterval(() => {
+            this.spawnFrontlineWave();
+        }, this.frontlineWaveInterval);
+    }
+    
+    // Спавн защитников на вражеской базе (восточная сторона)
+    private spawnFrontlineDefenders() {
+        if (!this.soundManager || !this.effectsManager) return;
+        
+        // Позиции защитников на восточной стороне (x > 100)
+        const defenderPositions = [
+            new Vector3(180, 1.2, 50),
+            new Vector3(200, 1.2, -30),
+            new Vector3(220, 1.2, 80),
+            new Vector3(160, 1.2, -100),
+        ];
+        
+        defenderPositions.forEach((pos) => {
+            // Защитники - средняя сложность, держат позиции
+            const difficulty = this.mainMenu?.getSettings().enemyDifficulty || "medium";
+            const defender = new EnemyTank(this.scene, pos, this.soundManager!, this.effectsManager!, difficulty);
+            if (this.tank) {
+                defender.setTarget(this.tank);
+            }
+            
+            defender.onDeathObservable.add(() => {
+                this.handleFrontlineEnemyDeath(defender, pos, "defender");
+            });
+            
+            this.enemyTanks.push(defender);
+        });
+        
+        console.log(`[Game] Frontline: Spawned ${defenderPositions.length} defenders`);
+    }
+    
+    // Спавн волны атакующих врагов
+    private spawnFrontlineWave() {
+        if (!this.soundManager || !this.effectsManager) return;
+        if (this.currentMapType !== "frontline") {
+            // Остановить таймер если карта сменилась
+            if (this.frontlineWaveTimer) {
+                clearInterval(this.frontlineWaveTimer);
+                this.frontlineWaveTimer = null;
+            }
+            return;
+        }
+        
+        // Проверяем максимум врагов
+        if (this.enemyTanks.length >= this.frontlineMaxEnemies) {
+            console.log("[Game] Frontline: Max enemies reached, skipping wave");
+            return;
+        }
+        
+        this.frontlineWaveNumber++;
+        
+        // Количество врагов в волне растёт
+        const baseCount = 3;
+        const waveBonus = Math.min(this.frontlineWaveNumber - 1, 4); // +1 за волну, макс +4
+        const waveCount = Math.min(baseCount + waveBonus, this.frontlineMaxEnemies - this.enemyTanks.length);
+        
+        if (waveCount <= 0) return;
+        
+        // Уведомление в HUD
+        if (this.hud) {
+            this.hud.showMessage(`⚔️ ВОЛНА ${this.frontlineWaveNumber}: ${waveCount} врагов!`, "#ff4444", 3000);
+        }
+        
+        console.log(`[Game] Frontline: Spawning wave ${this.frontlineWaveNumber} with ${waveCount} attackers`);
+        
+        // Атакующие спавнятся на восточной границе и идут к игроку
+        const spawnX = 250 + Math.random() * 40; // Восточный край
+        
+        for (let i = 0; i < waveCount; i++) {
+            const spawnZ = -200 + Math.random() * 400; // По всей ширине
+            const pos = new Vector3(spawnX, 1.2, spawnZ);
+            
+            // Сложность растёт с волнами
+            let difficulty: "easy" | "medium" | "hard" = "easy";
+            if (this.frontlineWaveNumber >= 3) difficulty = "medium";
+            if (this.frontlineWaveNumber >= 6) difficulty = "hard";
+            
+            const attacker = new EnemyTank(this.scene, pos, this.soundManager!, this.effectsManager!, difficulty);
+            if (this.tank) {
+                attacker.setTarget(this.tank);
+            }
+            
+            attacker.onDeathObservable.add(() => {
+                this.handleFrontlineEnemyDeath(attacker, pos, "attacker");
+            });
+            
+            this.enemyTanks.push(attacker);
+        }
+    }
+    
+    // Обработка смерти врага на передовой
+    private handleFrontlineEnemyDeath(enemy: EnemyTank, _originalPos: Vector3, type: "defender" | "attacker") {
+        console.log(`[GAME] Frontline ${type} destroyed!`);
+        
+        if (this.hud) {
+            this.hud.addKill();
+        }
+        
+        // Награда зависит от типа врага
+        const reward = type === "defender" ? 120 : 80; // Защитники ценнее
+        if (this.currencyManager) {
+            this.currencyManager.addCurrency(reward);
+            if (this.hud) {
+                this.hud.setCurrency(this.currencyManager.getCurrency());
+                this.hud.showMessage(`+${reward} кредитов!`, "#ffaa00", 2000);
+            }
+        }
+        
+        // Опыт
+        if (this.experienceSystem && this.tank) {
+            this.experienceSystem.recordKill(
+                this.tank.chassisType.id,
+                this.tank.cannonType.id,
+                false
+            );
+        }
+        
+        // Прогресс
+        if (this.playerProgression) {
+            this.playerProgression.recordKill();
+            this.playerProgression.addCredits(reward);
+        }
+        
+        // Удаляем из массива
+        const idx = this.enemyTanks.indexOf(enemy);
+        if (idx !== -1) this.enemyTanks.splice(idx, 1);
+        
+        // Защитники респавнятся через 60 секунд
+        if (type === "defender" && this.currentMapType === "frontline") {
+            setTimeout(() => {
+                if (this.currentMapType === "frontline" && this.soundManager && this.effectsManager) {
+                    // Респавн в той же зоне
+                    const newX = 150 + Math.random() * 100;
+                    const newZ = -150 + Math.random() * 300;
+                    const newPos = new Vector3(newX, 1.2, newZ);
+                    
+                    const difficulty = this.mainMenu?.getSettings().enemyDifficulty || "medium";
+                    const newDefender = new EnemyTank(this.scene, newPos, this.soundManager!, this.effectsManager!, difficulty);
+                    if (this.tank) {
+                        newDefender.setTarget(this.tank);
+                    }
+                    
+                    newDefender.onDeathObservable.add(() => {
+                        this.handleFrontlineEnemyDeath(newDefender, newPos, "defender");
+                    });
+                    
+                    this.enemyTanks.push(newDefender);
+                    console.log("[Game] Frontline: Defender respawned");
+                }
+            }, 60000); // 60 секунд
+        }
     }
     
     // Ожидание генерации гаражей и спавн игрока/врагов

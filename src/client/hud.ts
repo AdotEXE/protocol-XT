@@ -166,6 +166,21 @@ export class HUD {
     private playerProgression: any = null;
     private experienceSubscription: any = null;
     
+    // Death screen
+    private deathScreen: Rectangle | null = null;
+    private deathStatsContainer: Rectangle | null = null;
+    private deathKillsText: TextBlock | null = null;
+    private deathDamageText: TextBlock | null = null;
+    private deathTimeText: TextBlock | null = null;
+    private deathRespawnText: TextBlock | null = null;
+    private sessionKills = 0;
+    private sessionDamage = 0;
+    private sessionStartTime = Date.now();
+    
+    // Directional damage indicators
+    private damageDirectionIndicators: Map<string, { element: Rectangle, fadeTime: number }> = new Map();
+    private damageIndicatorDuration = 1500; // ms
+    
     // Values
     public maxHealth = 100;
     public currentHealth = 100;
@@ -194,6 +209,8 @@ export class HUD {
         this.createFullMap();          // Полноценная карта (M)
         this.createGarageCaptureBar(); // Прогресс-бар захвата гаража
         this.createComboIndicator();   // Индикатор комбо
+        this.createDeathScreen();      // Экран результатов смерти
+        this.createDirectionalDamageIndicators(); // Индикаторы направления урона
         
         // Убеждаемся, что прицел скрыт по умолчанию
         this.setAimMode(false);
@@ -483,6 +500,9 @@ export class HUD {
         this.animateXpBar(deltaTime);
         this.updateGlowEffects();
         this.updateComboAnimation(deltaTime);
+        
+        // Обновление индикаторов направления урона
+        this.updateDamageIndicators();
         
         // Обновление индикатора комбо (если есть experienceSystem)
         if (this.experienceSystem) {
@@ -2298,6 +2318,7 @@ export class HUD {
     
     damage(amount: number) {
         this.setHealth(this.currentHealth - amount);
+        this.sessionDamage += amount; // Обновляем статистику сессии
         
         // Enhanced RED flash with edge indicators
         const intensity = Math.min(1, amount / 50); // Интенсивность зависит от урона
@@ -2610,6 +2631,7 @@ export class HUD {
     
     addKill() {
         this.killsCount++;
+        this.sessionKills++; // Обновляем статистику сессии
         console.log(`[HUD] Kill added! Total: ${this.killsCount}`);
         
         if (this.killsText) {
@@ -2717,10 +2739,267 @@ export class HUD {
     
     showDeathMessage() {
         this.showMessage("DESTROYED! RESPAWN IN 3...", "#f00");
+        this.showDeathScreen();
     }
     
     showRespawnMessage() {
         this.showMessage("RESPAWNED!", "#0f0");
+        this.hideDeathScreen();
+    }
+    
+    // === DEATH SCREEN ===
+    
+    private createDeathScreen(): void {
+        // Основной контейнер экрана смерти
+        this.deathScreen = new Rectangle("deathScreen");
+        this.deathScreen.width = "100%";
+        this.deathScreen.height = "100%";
+        this.deathScreen.background = "rgba(0, 0, 0, 0.85)";
+        this.deathScreen.thickness = 0;
+        this.deathScreen.isVisible = false;
+        this.deathScreen.zIndex = 500;
+        this.guiTexture.addControl(this.deathScreen);
+        
+        // Заголовок DESTROYED
+        const title = new TextBlock("deathTitle");
+        title.text = "💀 DESTROYED 💀";
+        title.color = "#ff0000";
+        title.fontSize = 48;
+        title.fontWeight = "bold";
+        title.fontFamily = "'Press Start 2P', monospace";
+        title.top = "-120px";
+        title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.deathScreen.addControl(title);
+        
+        // Контейнер для статистики
+        this.deathStatsContainer = new Rectangle("deathStats");
+        this.deathStatsContainer.width = "400px";
+        this.deathStatsContainer.height = "200px";
+        this.deathStatsContainer.background = "rgba(20, 0, 0, 0.8)";
+        this.deathStatsContainer.thickness = 2;
+        this.deathStatsContainer.color = "#f00";
+        this.deathStatsContainer.cornerRadius = 10;
+        this.deathStatsContainer.top = "20px";
+        this.deathScreen.addControl(this.deathStatsContainer);
+        
+        // Заголовок статистики
+        const statsTitle = new TextBlock("statsTitle");
+        statsTitle.text = "📊 SESSION STATS";
+        statsTitle.color = "#ff6666";
+        statsTitle.fontSize = 16;
+        statsTitle.fontFamily = "'Press Start 2P', monospace";
+        statsTitle.top = "-70px";
+        this.deathStatsContainer.addControl(statsTitle);
+        
+        // Убийства
+        this.deathKillsText = new TextBlock("deathKills");
+        this.deathKillsText.text = "☠ Kills: 0";
+        this.deathKillsText.color = "#0f0";
+        this.deathKillsText.fontSize = 14;
+        this.deathKillsText.fontFamily = "'Press Start 2P', monospace";
+        this.deathKillsText.top = "-30px";
+        this.deathKillsText.left = "-50px";
+        this.deathKillsText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.deathStatsContainer.addControl(this.deathKillsText);
+        
+        // Урон
+        this.deathDamageText = new TextBlock("deathDamage");
+        this.deathDamageText.text = "💥 Damage: 0";
+        this.deathDamageText.color = "#ff8800";
+        this.deathDamageText.fontSize = 14;
+        this.deathDamageText.fontFamily = "'Press Start 2P', monospace";
+        this.deathDamageText.top = "10px";
+        this.deathDamageText.left = "-50px";
+        this.deathDamageText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.deathStatsContainer.addControl(this.deathDamageText);
+        
+        // Время игры
+        this.deathTimeText = new TextBlock("deathTime");
+        this.deathTimeText.text = "⏱ Time: 0:00";
+        this.deathTimeText.color = "#88ffff";
+        this.deathTimeText.fontSize = 14;
+        this.deathTimeText.fontFamily = "'Press Start 2P', monospace";
+        this.deathTimeText.top = "50px";
+        this.deathTimeText.left = "-50px";
+        this.deathTimeText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.deathStatsContainer.addControl(this.deathTimeText);
+        
+        // Таймер респавна
+        this.deathRespawnText = new TextBlock("deathRespawn");
+        this.deathRespawnText.text = "RESPAWN IN 3...";
+        this.deathRespawnText.color = "#ffff00";
+        this.deathRespawnText.fontSize = 20;
+        this.deathRespawnText.fontFamily = "'Press Start 2P', monospace";
+        this.deathRespawnText.top = "160px";
+        this.deathScreen.addControl(this.deathRespawnText);
+    }
+    
+    private showDeathScreen(): void {
+        if (!this.deathScreen) return;
+        
+        // Обновляем статистику
+        const sessionTime = Math.floor((Date.now() - this.sessionStartTime) / 1000);
+        const minutes = Math.floor(sessionTime / 60);
+        const seconds = sessionTime % 60;
+        
+        if (this.deathKillsText) {
+            this.deathKillsText.text = `☠ Kills: ${this.sessionKills}`;
+        }
+        if (this.deathDamageText) {
+            this.deathDamageText.text = `💥 Damage: ${this.sessionDamage}`;
+        }
+        if (this.deathTimeText) {
+            this.deathTimeText.text = `⏱ Time: ${minutes}:${seconds.toString().padStart(2, '0')}`;
+        }
+        
+        this.deathScreen.isVisible = true;
+        
+        // Анимация обратного отсчёта
+        let countdown = 3;
+        const updateCountdown = () => {
+            if (this.deathRespawnText && this.deathScreen?.isVisible) {
+                this.deathRespawnText.text = `RESPAWN IN ${countdown}...`;
+                countdown--;
+                if (countdown >= 0) {
+                    setTimeout(updateCountdown, 1000);
+                }
+            }
+        };
+        updateCountdown();
+    }
+    
+    private hideDeathScreen(): void {
+        if (this.deathScreen) {
+            this.deathScreen.isVisible = false;
+        }
+    }
+    
+    // Обновление статистики сессии
+    addSessionKill(): void {
+        this.sessionKills++;
+    }
+    
+    addSessionDamage(amount: number): void {
+        this.sessionDamage += amount;
+    }
+    
+    resetSession(): void {
+        this.sessionKills = 0;
+        this.sessionDamage = 0;
+        this.sessionStartTime = Date.now();
+    }
+    
+    // === DIRECTIONAL DAMAGE INDICATORS ===
+    
+    private createDirectionalDamageIndicators(): void {
+        // Создаём 4 индикатора для каждого направления: top, bottom, left, right
+        const directions = [
+            { name: "top", rotation: 0, top: "50px", left: "0", width: "200px", height: "60px" },
+            { name: "bottom", rotation: Math.PI, top: "-50px", left: "0", width: "200px", height: "60px", vAlign: Control.VERTICAL_ALIGNMENT_BOTTOM },
+            { name: "left", rotation: -Math.PI / 2, top: "0", left: "50px", width: "60px", height: "200px", hAlign: Control.HORIZONTAL_ALIGNMENT_LEFT },
+            { name: "right", rotation: Math.PI / 2, top: "0", left: "-50px", width: "60px", height: "200px", hAlign: Control.HORIZONTAL_ALIGNMENT_RIGHT }
+        ];
+        
+        directions.forEach(dir => {
+            const indicator = new Rectangle(`damageDir_${dir.name}`);
+            indicator.width = dir.width;
+            indicator.height = dir.height;
+            indicator.thickness = 0;
+            indicator.isVisible = false;
+            indicator.zIndex = 400;
+            
+            // Позиционирование
+            if (dir.vAlign !== undefined) {
+                indicator.verticalAlignment = dir.vAlign;
+            } else {
+                indicator.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            }
+            
+            if (dir.hAlign !== undefined) {
+                indicator.horizontalAlignment = dir.hAlign;
+            } else {
+                indicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            }
+            
+            indicator.top = dir.top;
+            indicator.left = dir.left;
+            
+            // Градиент от красного к прозрачному (используем сплошной красный с альфа)
+            indicator.background = dir.name === "top" || dir.name === "bottom" 
+                ? "linear-gradient(rgba(255, 0, 0, 0.8), transparent)"
+                : "rgba(255, 0, 0, 0.6)";
+            
+            this.guiTexture.addControl(indicator);
+            this.damageDirectionIndicators.set(dir.name, { element: indicator, fadeTime: 0 });
+        });
+    }
+    
+    // Показать индикатор направления урона
+    showDamageDirection(direction: "top" | "bottom" | "left" | "right"): void {
+        const indicator = this.damageDirectionIndicators.get(direction);
+        if (indicator) {
+            indicator.element.isVisible = true;
+            indicator.element.alpha = 1;
+            indicator.fadeTime = Date.now() + this.damageIndicatorDuration;
+        }
+    }
+    
+    // Показать урон с направлением от позиции атакующего
+    showDamageFromPosition(attackerPosition: Vector3, playerPosition: Vector3, playerRotation: number): void {
+        // Вычисляем направление от игрока к атакующему
+        const dx = attackerPosition.x - playerPosition.x;
+        const dz = attackerPosition.z - playerPosition.z;
+        
+        // Угол к атакующему в мировых координатах
+        let angleToAttacker = Math.atan2(dx, dz);
+        
+        // Корректируем на поворот игрока, чтобы получить относительный угол
+        let relativeAngle = angleToAttacker - playerRotation;
+        
+        // Нормализуем угол к диапазону [-PI, PI]
+        while (relativeAngle > Math.PI) relativeAngle -= Math.PI * 2;
+        while (relativeAngle < -Math.PI) relativeAngle += Math.PI * 2;
+        
+        // Определяем направление
+        // Передняя часть танка: relativeAngle около 0 (-45 до 45 градусов)
+        // Задняя часть: relativeAngle около PI или -PI (135 до 180 или -135 до -180)
+        // Левая часть: relativeAngle около -PI/2 (-135 до -45)
+        // Правая часть: relativeAngle около PI/2 (45 до 135)
+        
+        const deg45 = Math.PI / 4;
+        const deg135 = Math.PI * 3 / 4;
+        
+        if (relativeAngle >= -deg45 && relativeAngle <= deg45) {
+            // Урон спереди
+            this.showDamageDirection("top");
+        } else if (relativeAngle >= deg45 && relativeAngle <= deg135) {
+            // Урон справа
+            this.showDamageDirection("right");
+        } else if (relativeAngle >= -deg135 && relativeAngle <= -deg45) {
+            // Урон слева
+            this.showDamageDirection("left");
+        } else {
+            // Урон сзади
+            this.showDamageDirection("bottom");
+        }
+    }
+    
+    // Обновление затухания индикаторов урона
+    updateDamageIndicators(): void {
+        const now = Date.now();
+        
+        this.damageDirectionIndicators.forEach((indicator) => {
+            if (indicator.element.isVisible && indicator.fadeTime > 0) {
+                const remaining = indicator.fadeTime - now;
+                if (remaining <= 0) {
+                    indicator.element.isVisible = false;
+                    indicator.fadeTime = 0;
+                } else {
+                    // Плавное затухание
+                    indicator.element.alpha = remaining / this.damageIndicatorDuration;
+                }
+            }
+        });
     }
     
     // === TARGET INDICATOR WITH SMOOTH FADE ===

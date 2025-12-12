@@ -455,7 +455,7 @@ export class TankController {
         }, 1000);
     }
 
-    takeDamage(amount: number) {
+    takeDamage(amount: number, attackerPosition?: Vector3) {
         if (!this.isAlive) return;
         
         // Применяем бонус брони от уровня опыта
@@ -474,6 +474,13 @@ export class TankController {
         this.currentHealth = Math.max(0, this.currentHealth - finalDamage);
         if (this.hud) {
             this.hud.damage(finalDamage);
+            
+            // Показываем индикатор направления урона, если известна позиция атакующего
+            if (attackerPosition && this.chassis) {
+                const playerPos = this.chassis.position;
+                const playerRotation = this.chassis.rotation.y;
+                this.hud.showDamageFromPosition(attackerPosition, playerPos, playerRotation);
+            }
         }
         
         // Play hit sound (разные звуки для разных типов попаданий) with 3D positioning

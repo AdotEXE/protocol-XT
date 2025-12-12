@@ -369,7 +369,8 @@ export class EnemyTurret {
                 if (dist < 2.5) {
                     // HIT!
                     console.log(`[TURRET] HIT PLAYER! Damage: ${damage}`);
-                    target.takeDamage(damage);
+                    // Передаём позицию турели для индикатора направления урона
+                    target.takeDamage(damage, this.base.absolutePosition.clone());
                     if (effects) {
                         effects.createExplosion(bulletPos, 0.5);
                     }

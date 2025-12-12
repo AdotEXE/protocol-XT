@@ -49,6 +49,8 @@ export interface GameSettings {
     virtualTurretFixation: boolean; // Виртуальная фиксация башни
     language: string; // "ru" or "en"
     enemyDifficulty: "easy" | "medium" | "hard"; // Сложность противников
+    worldSeed: number; // Сид карты для процедурной генерации
+    useRandomSeed: boolean; // Использовать случайный сид при каждом запуске
 }
 
 const DEFAULT_SETTINGS: GameSettings = {
@@ -69,7 +71,9 @@ const DEFAULT_SETTINGS: GameSettings = {
     screenShake: true,
     virtualTurretFixation: false, // Виртуальная фиксация отключена по умолчанию
     language: "ru", // Russian by default
-    enemyDifficulty: "medium" // Средняя сложность по умолчанию
+    enemyDifficulty: "medium", // Средняя сложность по умолчанию
+    worldSeed: 12345, // Сид по умолчанию
+    useRandomSeed: true // Случайный сид по умолчанию
 };
 
 // === LANGUAGE STRINGS ===
@@ -88,6 +92,7 @@ const LANG = {
         normalMap: "Эта самая карта",
         sandboxMap: "Песочница",
         polygonMap: "Полигон",
+        frontlineMap: "Передовая",
         // Controls
         movement: "Движение",
         combat: "Бой",
@@ -115,6 +120,12 @@ const LANG = {
         diffEasy: "ЛЕГКО",
         diffMedium: "СРЕДНЕ",
         diffHard: "СЛОЖНО",
+        worldSeed: "Сид карты",
+        randomSeed: "Случайный сид",
+        copySeed: "Копировать",
+        seedCopied: "Сид скопирован!",
+        fullscreen: "Полный экран",
+        exitFullscreen: "Выйти из полноэкранного",
         close: "ЗАКРЫТЬ",
         apply: "ПРИМЕНИТЬ",
         reset: "СБРОС",
@@ -149,6 +160,7 @@ const LANG = {
         normalMap: "Normal Map",
         sandboxMap: "Sandbox",
         polygonMap: "Training Ground",
+        frontlineMap: "Frontline",
         // Controls
         movement: "Movement",
         combat: "Combat",
@@ -176,6 +188,12 @@ const LANG = {
         diffEasy: "EASY",
         diffMedium: "MEDIUM",
         diffHard: "HARD",
+        worldSeed: "World Seed",
+        randomSeed: "Random Seed",
+        copySeed: "Copy",
+        seedCopied: "Seed copied!",
+        fullscreen: "Fullscreen",
+        exitFullscreen: "Exit Fullscreen",
         close: "CLOSE",
         apply: "APPLY",
         reset: "RESET",
@@ -219,7 +237,7 @@ const DEFAULT_TANK: TankConfig = {
     firepower: 2
 };
 
-export type MapType = "normal" | "sandbox" | "polygon";
+export type MapType = "normal" | "sandbox" | "polygon" | "frontline";
 
 export class MainMenu {
     private container!: HTMLDivElement;
@@ -254,6 +272,14 @@ export class MainMenu {
         this.startAnimations();
         this.setupCanvasPointerEventsProtection();
         this.setupGlobalEventBlocking();
+        this.setupFullscreenListener();
+    }
+    
+    private setupFullscreenListener(): void {
+        // Слушаем изменения полноэкранного режима для обновления кнопки
+        document.addEventListener("fullscreenchange", () => {
+            this.updateFullscreenButton(!!document.fullscreenElement);
+        });
     }
     
     private setupGlobalEventBlocking(): void {
@@ -570,6 +596,10 @@ export class MainMenu {
                             <span class="btn-label">${L.options}</span>
                         </button>
                     </div>
+                    <button class="menu-btn fullscreen-btn" id="btn-fullscreen">
+                        <span class="btn-icon" id="fullscreen-icon">⛶</span>
+                        <span class="btn-label" id="fullscreen-label">${L.fullscreen}</span>
+                    </button>
                 </div>
                 
                 <div class="menu-footer">
@@ -893,6 +923,20 @@ export class MainMenu {
                 box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
             }
             
+            .menu-btn.fullscreen-btn {
+                width: 100%;
+                padding: 12px 20px;
+                margin-top: 5px;
+                background: rgba(0, 40, 0, 0.6);
+                border-color: #0a0;
+                font-size: 11px;
+            }
+            
+            .menu-btn.fullscreen-btn:hover {
+                background: #0a0;
+                border-color: #0f0;
+            }
+            
             .btn-icon { font-size: 16px; }
             
             .btn-badge {
@@ -1146,6 +1190,49 @@ export class MainMenu {
                 background: #0a0;
                 border-color: #0f0;
                 color: #000;
+            }
+            
+            /* Seed control */
+            .seed-control {
+                display: flex;
+                gap: 5px;
+                align-items: center;
+            }
+            
+            .seed-input {
+                width: 120px;
+                padding: 6px 8px;
+                font-family: 'Press Start 2P', monospace;
+                font-size: 10px;
+                background: rgba(0, 20, 0, 0.9);
+                color: #0f0;
+                border: 2px solid #0a0;
+                outline: none;
+            }
+            
+            .seed-input:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+            }
+            
+            .seed-input:focus {
+                border-color: #0f0;
+                box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+            }
+            
+            .seed-btn {
+                padding: 6px 10px;
+                font-size: 14px;
+                background: rgba(0, 40, 0, 0.8);
+                color: #0f0;
+                border: 2px solid #0a0;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+            
+            .seed-btn:hover {
+                background: rgba(0, 80, 0, 0.8);
+                border-color: #0f0;
             }
             
             #diff-medium.active {
@@ -1414,7 +1501,8 @@ export class MainMenu {
                 { id: "btn-garage", handler: () => this.showGarage() },
                 { id: "btn-skills", handler: () => this.showSkills() },
                 { id: "btn-stats", handler: () => this.showStats() },
-                { id: "btn-settings", handler: () => this.showSettings() }
+                { id: "btn-settings", handler: () => this.showSettings() },
+                { id: "btn-fullscreen", handler: () => this.toggleFullscreen() }
             ];
             
             buttons.forEach(({ id, handler }) => {
@@ -1839,6 +1927,20 @@ export class MainMenu {
                     </div>
                 </div>
                 
+                <div class="setting-row">
+                    <span class="setting-label">${L.worldSeed}</span>
+                    <div class="setting-value seed-control">
+                        <input type="number" class="seed-input" id="set-seed" value="${this.settings.worldSeed}" ${this.settings.useRandomSeed ? 'disabled' : ''}>
+                        <button class="seed-btn" id="seed-copy" title="${L.copySeed}">📋</button>
+                        <button class="seed-btn" id="seed-random" title="${L.randomSeed}">🎲</button>
+                    </div>
+                </div>
+                
+                <div class="setting-row">
+                    <span class="setting-label">${L.randomSeed}</span>
+                    <input type="checkbox" class="setting-checkbox" id="set-random-seed" ${this.settings.useRandomSeed ? 'checked' : ''}>
+                </div>
+                
                 <div class="panel-buttons">
                     <button class="panel-btn primary" id="settings-save">Сохранить</button>
                     <button class="panel-btn danger" id="settings-reset">Сброс</button>
@@ -1884,6 +1986,53 @@ export class MainMenu {
                 document.querySelectorAll(".diff-btn").forEach(btn => btn.classList.remove("active"));
                 document.getElementById(`diff-${diff}`)?.classList.add("active");
             });
+        });
+        
+        // Seed controls
+        const seedInput = document.getElementById("set-seed") as HTMLInputElement;
+        const randomSeedCheckbox = document.getElementById("set-random-seed") as HTMLInputElement;
+        
+        // Random seed checkbox
+        randomSeedCheckbox?.addEventListener("change", () => {
+            this.settings.useRandomSeed = randomSeedCheckbox.checked;
+            if (seedInput) {
+                seedInput.disabled = randomSeedCheckbox.checked;
+                if (randomSeedCheckbox.checked) {
+                    // Generate new random seed
+                    const newSeed = Math.floor(Math.random() * 999999999);
+                    seedInput.value = newSeed.toString();
+                    this.settings.worldSeed = newSeed;
+                }
+            }
+        });
+        
+        // Seed input change
+        seedInput?.addEventListener("change", () => {
+            const value = parseInt(seedInput.value) || 12345;
+            this.settings.worldSeed = value;
+            seedInput.value = value.toString();
+        });
+        
+        // Copy seed button
+        document.getElementById("seed-copy")?.addEventListener("click", () => {
+            const seed = this.settings.worldSeed.toString();
+            navigator.clipboard.writeText(seed).then(() => {
+                const btn = document.getElementById("seed-copy");
+                if (btn) {
+                    const originalText = btn.textContent;
+                    btn.textContent = "✓";
+                    setTimeout(() => { btn.textContent = originalText; }, 1000);
+                }
+            });
+        });
+        
+        // Random seed button
+        document.getElementById("seed-random")?.addEventListener("click", () => {
+            const newSeed = Math.floor(Math.random() * 999999999);
+            this.settings.worldSeed = newSeed;
+            if (seedInput) {
+                seedInput.value = newSeed.toString();
+            }
         });
         
         document.getElementById("settings-save")?.addEventListener("click", () => {
@@ -1970,6 +2119,10 @@ export class MainMenu {
                         <span class="btn-icon">🎯</span>
                         <span class="btn-label">${L.polygonMap}</span>
                     </button>
+                    <button class="menu-btn" id="btn-map-frontline" style="width: 100%; padding: 20px;">
+                        <span class="btn-icon">⚔️</span>
+                        <span class="btn-label">${L.frontlineMap}</span>
+                    </button>
                 </div>
                 
                 <div class="panel-buttons" style="margin-top: 20px;">
@@ -1996,6 +2149,12 @@ export class MainMenu {
             this.hide();
             this.hideMapSelection();
             this.onStartGame("polygon");
+        });
+        
+        document.getElementById("btn-map-frontline")?.addEventListener("click", () => {
+            this.hide();
+            this.hideMapSelection();
+            this.onStartGame("frontline");
         });
         
         this.setupCloseButton("map-selection-close", () => this.hideMapSelection());
@@ -2328,7 +2487,45 @@ export class MainMenu {
         }
     }
     
+    private toggleFullscreen(): void {
+        if (!document.fullscreenElement) {
+            // Входим в полноэкранный режим
+            document.documentElement.requestFullscreen().then(() => {
+                this.updateFullscreenButton(true);
+            }).catch((err) => {
+                console.error(`Error entering fullscreen: ${err.message}`);
+            });
+        } else {
+            // Выходим из полноэкранного режима
+            document.exitFullscreen().then(() => {
+                this.updateFullscreenButton(false);
+            }).catch((err) => {
+                console.error(`Error exiting fullscreen: ${err.message}`);
+            });
+        }
+    }
+    
+    private updateFullscreenButton(isFullscreen: boolean): void {
+        const L = getLang(this.settings);
+        const icon = document.getElementById("fullscreen-icon");
+        const label = document.getElementById("fullscreen-label");
+        
+        if (icon) {
+            icon.textContent = isFullscreen ? "⛶" : "⛶";
+        }
+        if (label) {
+            label.textContent = isFullscreen ? L.exitFullscreen : L.fullscreen;
+        }
+    }
+    
     private saveSettingsFromUI(): void {
+        // Determine world seed
+        const useRandomSeed = (document.getElementById("set-random-seed") as HTMLInputElement)?.checked ?? true;
+        let worldSeed = parseInt((document.getElementById("set-seed") as HTMLInputElement)?.value || "12345");
+        if (useRandomSeed) {
+            worldSeed = Math.floor(Math.random() * 999999999);
+        }
+        
         this.settings = {
             renderDistance: parseInt((document.getElementById("set-render") as HTMLInputElement)?.value || "3"),
             soundVolume: parseInt((document.getElementById("set-sound") as HTMLInputElement)?.value || "70"),
@@ -2347,7 +2544,9 @@ export class MainMenu {
             screenShake: (document.getElementById("set-screen-shake") as HTMLInputElement)?.checked ?? true,
             virtualTurretFixation: (document.getElementById("set-virtual-fixation") as HTMLInputElement)?.checked ?? false,
             language: this.settings.language, // Preserve current language selection
-            enemyDifficulty: this.settings.enemyDifficulty // Preserve difficulty selection
+            enemyDifficulty: this.settings.enemyDifficulty, // Preserve difficulty selection
+            worldSeed: worldSeed,
+            useRandomSeed: useRandomSeed
         };
         
         localStorage.setItem("gameSettings", JSON.stringify(this.settings));

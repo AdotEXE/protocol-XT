@@ -1,9 +1,10 @@
-// Enhanced Garage System - покупка и улучшение корпусов, пушек и их компонентов
+// Enhanced Garage System - Complete UI Rewrite with Grid Layout
 import { CurrencyManager } from "./currencyManager";
 import { AdvancedDynamicTexture, Rectangle, TextBlock, Control, Button, ScrollViewer, InputText } from "@babylonjs/gui";
-import { Scene } from "@babylonjs/core";
-import { CHASSIS_TYPES, CANNON_TYPES } from "./tankTypes";
+import { Scene, Mesh, MeshBuilder, StandardMaterial, Color3, Vector3 } from "@babylonjs/core";
+import { CHASSIS_TYPES, CANNON_TYPES, getChassisById, getCannonById } from "./tankTypes";
 
+// ============ INTERFACES ============
 export interface TankUpgrade {
     id: string;
     name: string;
@@ -12,7 +13,7 @@ export interface TankUpgrade {
     level: number;
     maxLevel: number;
     stat: "health" | "speed" | "armor" | "firepower" | "reload" | "damage";
-    value: number; // Значение улучшения
+    value: number;
 }
 
 export interface TankPart {
@@ -21,7 +22,7 @@ export interface TankPart {
     description: string;
     cost: number;
     unlocked: boolean;
-    type: "chassis" | "turret" | "barrel" | "engine";
+    type: "chassis" | "turret" | "barrel" | "engine" | "module" | "supply";
     stats: {
         health?: number;
         speed?: number;
@@ -32,3467 +33,1419 @@ export interface TankPart {
     };
 }
 
+// ============ STYLE CONSTANTS ============
+const STYLE = {
+    // Colors
+    BG_DARK: "rgba(5, 15, 5, 0.95)",
+    BG_MEDIUM: "rgba(10, 25, 10, 0.9)",
+    BG_LIGHT: "rgba(15, 35, 15, 0.85)",
+    PRIMARY: "#00ff00",
+    PRIMARY_DIM: "#00aa00",
+    ACCENT: "#00ffff",
+    WARNING: "#ffff00",
+    ERROR: "#ff0000",
+    TEXT: "#00ff00",
+    TEXT_DIM: "#008800",
+    BORDER: "#00ff00",
+    // Font
+    FONT: "Consolas, Monaco, monospace",
+    // Sizes
+    HEADER_HEIGHT: 50,
+    TAB_HEIGHT: 40,
+    FOOTER_HEIGHT: 40,
+};
+
+type CategoryType = "chassis" | "cannons" | "modules" | "supplies" | "shop";
+
+// ============ GARAGE CLASS ============
 export class Garage {
-    private scene: Scene;
+    private _scene: Scene; // Keep reference for future 3D preview
     private guiTexture: AdvancedDynamicTexture;
     private currencyManager: CurrencyManager;
     private isOpen: boolean = false;
-    private chatSystem: any = null; // ChatSystem будет установлен из Game
-    private tankController: any = null; // TankController для применения изменений сразу
-    private experienceSystem: any = null; // ExperienceSystem для опыта и показа уровней
-    private playerProgression: any = null; // PlayerProgressionSystem для статистики игрока
-    private experienceSubscription: any = null; // Подписка на изменения опыта
+    
+    // External systems (prefixed with _ for future use)
+    private _chatSystem: any = null;
+    private tankController: any = null;
+    private _experienceSystem: any = null;
+    private _playerProgression: any = null;
+    private soundManager: any = null;
+    private experienceSubscription: any = null;
     
     // UI Elements
     private garageContainer: Rectangle | null = null;
-    private categoryButtons: Button[] = [];
-    private itemList: Rectangle | null = null;
+    private categoryButtons: Map<CategoryType, Button> = new Map();
+    private itemListContainer: Rectangle | null = null;
     private scrollViewer: ScrollViewer | null = null;
-    private comparisonPanel: Rectangle | null = null; // Панель сравнения
+    private detailsPanel: Rectangle | null = null;
+    private previewContainer: Rectangle | null = null;
+    private searchInput: InputText | null = null;
     
-    // Current category
-    private currentCategory: "chassis" | "turret" | "barrel" | "upgrades" = "chassis";
-    
-    // Current selected parts (for comparison)
+    // State
+    private currentCategory: CategoryType = "chassis";
     private currentChassisId: string = "medium";
     private currentCannonId: string = "standard";
-    
-    // Preview selected parts (before applying)
     private previewChassisId: string | null = null;
     private previewCannonId: string | null = null;
-    
-    // Фильтры и сортировка
-    private searchText: string = "";
-    private sortBy: "name" | "cost" | "stats" = "name";
-    private filterUnlocked: boolean | null = null; // null = все, true = только разблокированные, false = только заблокированные
-    private _filterPrice: "all" | "cheap" | "medium" | "expensive" = "all"; // Фильтр по цене
-    private searchInput: any = null;
-    
-    // Счётчик для обновлений (зарезервирован для будущего использования)
-    
-    // Интервал для периодического обновления статистики
-    private _statsUpdateInterval: ReturnType<typeof setInterval> | null = null;
-    
-    // Навигация клавиатурой
     private selectedItemIndex: number = -1;
     private filteredItems: (TankPart | TankUpgrade)[] = [];
     
-    // История последних действий
-    private actionHistory: Array<{ type: string, text: string, timestamp: number }> = [];
-    private maxHistoryItems: number = 5;
+    // Filters
+    private searchText: string = "";
+    private sortBy: "name" | "cost" | "stats" = "name";
+    private filterMode: "all" | "owned" | "locked" = "all";
     
-    // Available parts - используем типы из tankTypes.ts
+    // 3D Preview
+    private previewTankBody: Mesh | null = null;
+    private previewTankTurret: Mesh | null = null;
+    private previewTankBarrel: Mesh | null = null;
+    private previewRotation: number = 0;
+    private isDraggingPreview: boolean = false;
+    private lastDragX: number = 0;
+    
+    // Intervals
+    private updateInterval: ReturnType<typeof setInterval> | null = null;
+    
+    // ============ DATA ============
     private chassisParts: TankPart[] = CHASSIS_TYPES.map(chassis => {
-        // Разные цены для разных корпусов
-        let cost = 0;
-        if (chassis.id === "light") cost = 400;
-        else if (chassis.id === "medium") cost = 0; // Бесплатный
-        else if (chassis.id === "heavy") cost = 600;
-        else if (chassis.id === "scout") cost = 500;
-        else if (chassis.id === "assault") cost = 800;
-        
+        const costs: Record<string, number> = { light: 400, medium: 0, heavy: 600, scout: 500, assault: 800 };
         return {
             id: chassis.id,
             name: chassis.name,
             description: chassis.description,
-            cost: cost,
-            unlocked: chassis.id === "medium" ? true : false,
+            cost: costs[chassis.id] || 0,
+            unlocked: chassis.id === "medium",
             type: "chassis" as const,
-            stats: {
-                health: chassis.maxHealth,
-                speed: chassis.moveSpeed,
-                armor: chassis.maxHealth / 50
-            }
+            stats: { health: chassis.maxHealth, speed: chassis.moveSpeed, armor: chassis.maxHealth / 50 }
         };
     });
     
     private cannonParts: TankPart[] = CANNON_TYPES.map(cannon => {
-        // Разные цены для разных пушек
-        let cost = 0;
-        if (cannon.id === "standard") cost = 0; // Бесплатная
-        else if (cannon.id === "rapid") cost = 450;
-        else if (cannon.id === "heavy") cost = 600;
-        else if (cannon.id === "sniper") cost = 800;
-        else if (cannon.id === "gatling") cost = 550;
-        
+        const costs: Record<string, number> = { standard: 0, rapid: 450, heavy: 600, sniper: 800, gatling: 550 };
         return {
             id: cannon.id,
             name: cannon.name,
             description: cannon.description,
-            cost: cost,
-            unlocked: cannon.id === "standard" ? true : false,
+            cost: costs[cannon.id] || 0,
+            unlocked: cannon.id === "standard",
             type: "barrel" as const,
-            stats: {
-                damage: cannon.damage,
-                reload: cannon.cooldown
-            }
+            stats: { damage: cannon.damage, reload: cannon.cooldown }
         };
     });
     
-    // Старые части для совместимости (можно удалить позже)
-    private turretParts: TankPart[] = [];
-    private _barrelParts: TankPart[] = [];
-    
-    private upgrades: TankUpgrade[] = [
-        { id: "health_1", name: "Health +20", description: "Increases health", cost: 200, level: 0, maxLevel: 5, stat: "health", value: 20 },
-        { id: "speed_1", name: "Speed +2", description: "Increases speed", cost: 250, level: 0, maxLevel: 5, stat: "speed", value: 2 },
-        { id: "armor_1", name: "Armor +0.2", description: "Increases armor", cost: 300, level: 0, maxLevel: 5, stat: "armor", value: 0.2 },
-        { id: "damage_1", name: "Damage +5", description: "Increases damage", cost: 300, level: 0, maxLevel: 5, stat: "damage", value: 5 },
-        { id: "reload_1", name: "Reload -100ms", description: "Faster reload", cost: 350, level: 0, maxLevel: 5, stat: "reload", value: -100 }
+    private moduleParts: TankPart[] = [
+        { id: "armor_plate", name: "Armor Plate", description: "+15% armor", cost: 300, unlocked: false, type: "module", stats: { armor: 0.15 } },
+        { id: "engine_boost", name: "Engine Boost", description: "+10% speed", cost: 350, unlocked: false, type: "module", stats: { speed: 0.1 } },
+        { id: "reload_system", name: "Auto-Loader", description: "-15% reload time", cost: 400, unlocked: false, type: "module", stats: { reload: -0.15 } },
+        { id: "targeting", name: "Targeting Computer", description: "+10% damage", cost: 450, unlocked: false, type: "module", stats: { damage: 0.1 } },
+        { id: "repair_kit", name: "Repair System", description: "Passive HP regen", cost: 500, unlocked: false, type: "module", stats: { health: 5 } },
     ];
     
+    private supplyParts: TankPart[] = [
+        { id: "medkit", name: "Repair Kit", description: "Restore 30 HP", cost: 50, unlocked: true, type: "supply", stats: { health: 30 } },
+        { id: "speed_boost", name: "Nitro", description: "+50% speed for 5s", cost: 75, unlocked: true, type: "supply", stats: { speed: 0.5 } },
+        { id: "shield", name: "Shield", description: "Block 50 damage", cost: 100, unlocked: false, type: "supply", stats: { armor: 50 } },
+        { id: "damage_boost", name: "Adrenaline", description: "+25% damage for 10s", cost: 80, unlocked: false, type: "supply", stats: { damage: 0.25 } },
+        { id: "smoke", name: "Smoke Screen", description: "Invisible for 3s", cost: 60, unlocked: true, type: "supply", stats: {} },
+    ];
+    
+    private shopItems: TankPart[] = [
+        { id: "premium_chassis", name: "Phantom", description: "Premium stealth chassis", cost: 2000, unlocked: false, type: "chassis", stats: { health: 90, speed: 32, armor: 1.5 } },
+        { id: "premium_cannon", name: "Devastator", description: "Premium heavy cannon", cost: 2500, unlocked: false, type: "barrel", stats: { damage: 60, reload: 4500 } },
+        { id: "crate_small", name: "Supply Crate", description: "Random supplies x3", cost: 200, unlocked: true, type: "supply", stats: {} },
+        { id: "crate_large", name: "Weapon Crate", description: "Random weapon unlock", cost: 1000, unlocked: true, type: "supply", stats: {} },
+    ];
+    
+    private upgrades: TankUpgrade[] = [
+        { id: "health_1", name: "Health +20", description: "Increases max health", cost: 200, level: 0, maxLevel: 5, stat: "health", value: 20 },
+        { id: "speed_1", name: "Speed +2", description: "Increases movement speed", cost: 250, level: 0, maxLevel: 5, stat: "speed", value: 2 },
+        { id: "armor_1", name: "Armor +0.2", description: "Increases armor rating", cost: 300, level: 0, maxLevel: 5, stat: "armor", value: 0.2 },
+        { id: "damage_1", name: "Damage +5", description: "Increases weapon damage", cost: 300, level: 0, maxLevel: 5, stat: "damage", value: 5 },
+        { id: "reload_1", name: "Reload -100ms", description: "Faster reload speed", cost: 350, level: 0, maxLevel: 5, stat: "reload", value: -100 },
+    ];
+    
+    // ============ CONSTRUCTOR ============
     constructor(scene: Scene, currencyManager: CurrencyManager) {
-        this.scene = scene;
+        this._scene = scene;
         this.currencyManager = currencyManager;
         
-        // Создаем GUI texture с высоким приоритетом
         this.guiTexture = AdvancedDynamicTexture.CreateFullscreenUI("GarageUI", true, scene);
         this.guiTexture.isForeground = true;
         
-        // Устанавливаем высокий приоритет для layerMask чтобы гараж был поверх всего
         if (this.guiTexture.layer) {
-            this.guiTexture.layer.layerMask = 0xFFFFFFFF; // Все слои видимы
-            // Добавляем слой в сцену, если его там еще нет
-            if (scene.layers.indexOf(this.guiTexture.layer) === -1) {
-                scene.layers.push(this.guiTexture.layer);
-            }
+            this.guiTexture.layer.layerMask = 0xFFFFFFFF;
         }
-        
-        // Убеждаемся, что rootContainer видим
-        if (this.guiTexture.rootContainer) {
-            this.guiTexture.rootContainer.isVisible = true;
-            this.guiTexture.rootContainer.alpha = 1.0;
-        }
-        
-        console.log("[Garage] GUI texture created:", {
-            isForeground: this.guiTexture.isForeground,
-            layerMask: this.guiTexture.layer?.layerMask,
-            rootContainerVisible: this.guiTexture.rootContainer?.isVisible
-        });
         
         this.loadProgress();
+        console.log("[Garage] Initialized with new grid-based UI");
     }
     
-    // Установить ссылку на ChatSystem
-    setChatSystem(chatSystem: any): void {
-        this.chatSystem = chatSystem;
-    }
+    // ============ EXTERNAL SETTERS ============
+    setChatSystem(chatSystem: any): void { this._chatSystem = chatSystem; }
+    setTankController(tankController: any): void { this.tankController = tankController; }
+    setExperienceSystem(experienceSystem: any): void { this._experienceSystem = experienceSystem; }
+    setSoundManager(soundManager: any): void { this.soundManager = soundManager; }
     
-    // Установить ссылку на TankController
-    setTankController(tankController: any): void {
-        this.tankController = tankController;
-    }
-    
-    // Установить ссылку на ExperienceSystem
-    setExperienceSystem(experienceSystem: any): void {
-        this.experienceSystem = experienceSystem;
-    }
-    
-    // Установить ссылку на PlayerProgressionSystem
     setPlayerProgression(playerProgression: any): void {
-        // Отписываемся от предыдущей подписки, если она была
         if (this.experienceSubscription) {
             this.experienceSubscription.remove();
             this.experienceSubscription = null;
         }
-        
-        this.playerProgression = playerProgression;
-        
-        // Подписываемся на изменения опыта
-        if (playerProgression && playerProgression.onExperienceChanged) {
-            console.log("[Garage] Subscribing to experience changes");
-            this.experienceSubscription = playerProgression.onExperienceChanged.add((data: {
-                current: number;
-                required: number;
-                percent: number;
-                level: number;
-            }) => {
-                console.log("[Garage] Experience changed event received:", data);
-                // Обновляем список предметов для обновления шкал опыта
-                if (this.isOpen && this.itemList) {
-                    this.updateItemList();
-                }
-                // Обновляем панель статистики игрока в гараже
-                if (this.isOpen) {
-                    this.updatePlayerStatsPanel();
-                }
+        this._playerProgression = playerProgression;
+        if (playerProgression?.onExperienceChanged) {
+            this.experienceSubscription = playerProgression.onExperienceChanged.add(() => {
+                if (this.isOpen) this.refreshItemList();
             });
-        } else {
-            console.warn("[Garage] Cannot subscribe to experience changes - playerProgression or onExperienceChanged is null");
         }
     }
     
-    // Загрузить прогресс из localStorage
+    // ============ PERSISTENCE ============
     private loadProgress(): void {
         try {
             const saved = localStorage.getItem("tx_garage_progress");
             if (saved) {
                 const progress = JSON.parse(saved);
-                // Обновляем разблокированные части
-                [...this.chassisParts, ...this.cannonParts].forEach(part => {
-                    if (progress.unlocked && progress.unlocked.includes(part.id)) {
-                        part.unlocked = true;
-                    }
+                [...this.chassisParts, ...this.cannonParts, ...this.moduleParts, ...this.supplyParts].forEach(part => {
+                    if (progress.unlocked?.includes(part.id)) part.unlocked = true;
                 });
-                // Обновляем уровни улучшений
                 if (progress.upgrades) {
-                    this.upgrades.forEach(upgrade => {
-                        if (progress.upgrades[upgrade.id] !== undefined) {
-                            upgrade.level = progress.upgrades[upgrade.id];
-                        }
+                    this.upgrades.forEach(u => {
+                        if (progress.upgrades[u.id] !== undefined) u.level = progress.upgrades[u.id];
                     });
                 }
+                if (progress.currentChassis) this.currentChassisId = progress.currentChassis;
+                if (progress.currentCannon) this.currentCannonId = progress.currentCannon;
             }
-        } catch (e) {
-            console.warn("[Garage] Failed to load progress:", e);
-        }
+        } catch (e) { console.warn("[Garage] Failed to load progress:", e); }
     }
     
-    // Сохранить прогресс в localStorage
     private saveProgress(): void {
         try {
-            const unlocked = [...this.chassisParts, ...this.cannonParts]
-                .filter(p => p.unlocked)
-                .map(p => p.id);
-            const upgrades: { [key: string]: number } = {};
-            this.upgrades.forEach(u => {
-                upgrades[u.id] = u.level;
-            });
-            localStorage.setItem("tx_garage_progress", JSON.stringify({ unlocked, upgrades }));
-        } catch (e) {
-            console.warn("[Garage] Failed to save progress:", e);
+            const unlocked = [...this.chassisParts, ...this.cannonParts, ...this.moduleParts, ...this.supplyParts]
+                .filter(p => p.unlocked).map(p => p.id);
+            const upgrades: Record<string, number> = {};
+            this.upgrades.forEach(u => { upgrades[u.id] = u.level; });
+            localStorage.setItem("tx_garage_progress", JSON.stringify({
+                unlocked, upgrades,
+                currentChassis: this.currentChassisId,
+                currentCannon: this.currentCannonId
+            }));
+        } catch (e) { console.warn("[Garage] Failed to save progress:", e); }
+    }
+    
+    // ============ PUBLIC API ============
+    isGarageOpen(): boolean { return this.isOpen; }
+    getGUI(): AdvancedDynamicTexture { return this.guiTexture; }
+    
+    open(): void {
+        if (this.isOpen) return;
+        console.log("[Garage] Opening...");
+        
+        this.isOpen = true;
+        this.currentChassisId = localStorage.getItem("selectedChassis") || "medium";
+        this.currentCannonId = localStorage.getItem("selectedCannon") || "standard";
+        
+        // Ensure GUI texture is ready
+        this.guiTexture.isForeground = true;
+        if (this.guiTexture.rootContainer) {
+            this.guiTexture.rootContainer.isVisible = true;
+            this.guiTexture.rootContainer.alpha = 1.0;
+        }
+        
+        this.createUI();
+        
+        // Ensure container is visible
+        if (this.garageContainer) {
+            this.garageContainer.isVisible = true;
+            this.garageContainer.alpha = 1.0;
+        }
+        
+        this.setupKeyboardNavigation();
+        
+        this.updateInterval = setInterval(() => {
+            if (this.isOpen) this.updateCurrencyDisplay();
+        }, 500);
+        
+        if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
+        console.log("[Garage] Opened successfully, container:", !!this.garageContainer);
+    }
+    
+    close(): void {
+        if (!this.isOpen) return;
+        console.log("[Garage] Closing...");
+        
+            this.isOpen = false;
+        if (this.updateInterval) {
+            clearInterval(this.updateInterval);
+            this.updateInterval = null;
+        }
+        
+        if (this.garageContainer) {
+            this.garageContainer.dispose();
+            this.garageContainer = null;
+        }
+        
+        // Dispose 3D preview tank
+        this.disposePreviewTank();
+        
+        this.categoryButtons.clear();
+        this.searchText = "";
+        this.filterMode = "all";
+        this.selectedItemIndex = -1;
+        
+        if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
+        console.log("[Garage] Closed");
+    }
+    
+    // Dispose preview tank (declared early for use in close)
+    private disposePreviewTank(): void {
+        if (this.previewTankBarrel) {
+            this.previewTankBarrel.dispose();
+            this.previewTankBarrel = null;
+        }
+        if (this.previewTankTurret) {
+            this.previewTankTurret.dispose();
+            this.previewTankTurret = null;
+        }
+        if (this.previewTankBody) {
+            this.previewTankBody.dispose();
+            this.previewTankBody = null;
         }
     }
     
-    private soundManager: any = null; // SoundManager будет установлен из Game
-    
-    // Установить ссылку на SoundManager
-    setSoundManager(soundManager: any): void {
-        this.soundManager = soundManager;
+    // ============ UI CREATION ============
+    private createUI(): void {
+        // Main container - fixed size that works well
+        this.garageContainer = new Rectangle("garageMain");
+        this.garageContainer.width = "1100px";
+        this.garageContainer.height = "700px";
+        this.garageContainer.background = STYLE.BG_DARK;
+        this.garageContainer.thickness = 2;
+        this.garageContainer.color = STYLE.BORDER;
+        this.garageContainer.cornerRadius = 0;
+        this.garageContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.garageContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.garageContainer.zIndex = 1000;
+        this.garageContainer.isPointerBlocker = true;
+        this.guiTexture.addControl(this.garageContainer);
+        
+        // Create layout sections
+        this.createHeader();
+        this.createCategoryTabs();
+        this.createContentArea();
+        this.createFooter();
+        
+        // Initial content
+        this.refreshItemList();
     }
     
-    // Горячие клавиши
-    private setupHotkeys(): void {
-        window.addEventListener("keydown", (e) => {
+    // ============ HEADER ============
+    private createHeader(): void {
+        const header = new Rectangle("header");
+        header.width = "100%";
+        header.height = `${STYLE.HEADER_HEIGHT}px`;
+        header.background = STYLE.BG_MEDIUM;
+        header.thickness = 0;
+        header.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.garageContainer!.addControl(header);
+        
+        // Title
+        const title = new TextBlock("title", "[ GARAGE ]");
+        title.color = STYLE.PRIMARY;
+        title.fontSize = 24;
+        title.fontWeight = "bold";
+        title.fontFamily = STYLE.FONT;
+        title.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        title.left = "20px";
+        header.addControl(title);
+        
+        // Currency display
+        const currencyPanel = new Rectangle("currencyPanel");
+        currencyPanel.width = "180px";
+        currencyPanel.height = "32px";
+        currencyPanel.background = "rgba(0,0,0,0.5)";
+        currencyPanel.thickness = 1;
+        currencyPanel.color = STYLE.WARNING;
+        currencyPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        header.addControl(currencyPanel);
+        
+        const currencyText = new TextBlock("currencyText", `CR: ${this.currencyManager.getCurrency()}`);
+        currencyText.color = STYLE.WARNING;
+        currencyText.fontSize = 16;
+        currencyText.fontWeight = "bold";
+        currencyText.fontFamily = STYLE.FONT;
+        currencyPanel.addControl(currencyText);
+        
+        // Close button
+        const closeBtn = Button.CreateSimpleButton("closeBtn", "X");
+        closeBtn.width = "40px";
+        closeBtn.height = "40px";
+        closeBtn.color = STYLE.ERROR;
+        closeBtn.background = "transparent";
+        closeBtn.thickness = 1;
+        closeBtn.fontSize = 20;
+        closeBtn.fontFamily = STYLE.FONT;
+        closeBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        closeBtn.left = "-5px";
+        closeBtn.onPointerEnterObservable.add(() => {
+            closeBtn.background = "rgba(255,0,0,0.3)";
+        });
+        closeBtn.onPointerOutObservable.add(() => {
+            closeBtn.background = "transparent";
+        });
+        closeBtn.onPointerClickObservable.add(() => this.close());
+        header.addControl(closeBtn);
+        
+        // Header separator
+        const separator = new Rectangle("headerSep");
+        separator.width = "100%";
+        separator.height = "2px";
+        separator.background = STYLE.PRIMARY;
+        separator.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        header.addControl(separator);
+    }
+    
+    // ============ CATEGORY TABS ============
+    private createCategoryTabs(): void {
+        const tabContainer = new Rectangle("tabContainer");
+        tabContainer.width = "100%";
+        tabContainer.height = `${STYLE.TAB_HEIGHT}px`;
+        tabContainer.background = STYLE.BG_LIGHT;
+        tabContainer.thickness = 0;
+        tabContainer.top = `${STYLE.HEADER_HEIGHT}px`;
+        tabContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.garageContainer!.addControl(tabContainer);
+        
+        const categories: { id: CategoryType; name: string; hotkey: string }[] = [
+            { id: "chassis", name: "CHASSIS", hotkey: "1" },
+            { id: "cannons", name: "CANNONS", hotkey: "2" },
+            { id: "modules", name: "MODULES", hotkey: "3" },
+            { id: "supplies", name: "SUPPLIES", hotkey: "4" },
+            { id: "shop", name: "SHOP", hotkey: "5" },
+        ];
+        
+        const tabWidth = 100 / categories.length;
+        
+        categories.forEach((cat, i) => {
+            const btn = Button.CreateSimpleButton(`tab_${cat.id}`, `[${cat.hotkey}] ${cat.name}`);
+            btn.width = `${tabWidth}%`;
+            btn.height = "100%";
+            btn.color = this.currentCategory === cat.id ? STYLE.PRIMARY : STYLE.TEXT_DIM;
+            btn.background = this.currentCategory === cat.id ? "rgba(0,255,0,0.15)" : "transparent";
+            btn.thickness = 0;
+            btn.fontSize = 12;
+            btn.fontWeight = this.currentCategory === cat.id ? "bold" : "normal";
+            btn.fontFamily = STYLE.FONT;
+            btn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            btn.left = `${i * tabWidth}%`;
+            
+            btn.onPointerEnterObservable.add(() => {
+                if (this.currentCategory !== cat.id) {
+                    btn.color = STYLE.PRIMARY;
+                    btn.background = "rgba(0,255,0,0.1)";
+                }
+            });
+            btn.onPointerOutObservable.add(() => {
+                if (this.currentCategory !== cat.id) {
+                    btn.color = STYLE.TEXT_DIM;
+                    btn.background = "transparent";
+                }
+            });
+            btn.onPointerClickObservable.add(() => this.switchCategory(cat.id));
+            
+            tabContainer.addControl(btn);
+            this.categoryButtons.set(cat.id, btn);
+        });
+        
+        // Tab separator
+        const separator = new Rectangle("tabSep");
+        separator.width = "100%";
+        separator.height = "1px";
+        separator.background = STYLE.PRIMARY_DIM;
+        separator.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        tabContainer.addControl(separator);
+    }
+    
+    // ============ CONTENT AREA ============
+    private createContentArea(): void {
+        const contentTop = STYLE.HEADER_HEIGHT + STYLE.TAB_HEIGHT;
+        const contentHeight = `calc(100% - ${contentTop + STYLE.FOOTER_HEIGHT}px)`;
+        
+        const contentArea = new Rectangle("contentArea");
+        contentArea.width = "100%";
+        contentArea.height = contentHeight;
+        contentArea.background = "transparent";
+        contentArea.thickness = 0;
+        contentArea.top = `${contentTop}px`;
+        contentArea.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.garageContainer!.addControl(contentArea);
+        
+        // Left panel (45%) - Search + Item list
+        this.createLeftPanel(contentArea);
+        
+        // Right panel (55%) - Preview + Details
+        this.createRightPanel(contentArea);
+    }
+    
+    private createLeftPanel(parent: Rectangle): void {
+        const leftPanel = new Rectangle("leftPanel");
+        leftPanel.width = "45%";
+        leftPanel.height = "100%";
+        leftPanel.background = "transparent";
+        leftPanel.thickness = 0;
+        leftPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        parent.addControl(leftPanel);
+        
+        // Search bar
+        this.createSearchBar(leftPanel);
+        
+        // Filter buttons
+        this.createFilterButtons(leftPanel);
+        
+        // Item list with scroll
+        this.createItemList(leftPanel);
+    }
+    
+    private createSearchBar(parent: Rectangle): void {
+        const searchContainer = new Rectangle("searchContainer");
+        searchContainer.width = "95%";
+        searchContainer.height = "35px";
+        searchContainer.background = "rgba(0,0,0,0.5)";
+        searchContainer.thickness = 1;
+        searchContainer.color = STYLE.ACCENT;
+        searchContainer.top = "10px";
+        searchContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        parent.addControl(searchContainer);
+        
+        const searchLabel = new TextBlock("searchLabel", "SEARCH:");
+        searchLabel.width = "70px";
+        searchLabel.color = STYLE.ACCENT;
+        searchLabel.fontSize = 11;
+        searchLabel.fontFamily = STYLE.FONT;
+        searchLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        searchLabel.left = "10px";
+        searchContainer.addControl(searchLabel);
+        
+        this.searchInput = new InputText("searchInput");
+        this.searchInput.width = "calc(100% - 90px)";
+        this.searchInput.height = "100%";
+        this.searchInput.text = "";
+        this.searchInput.placeholderText = "Type to filter...";
+        this.searchInput.color = STYLE.PRIMARY;
+        this.searchInput.background = "transparent";
+        this.searchInput.focusedBackground = "rgba(0,255,0,0.1)";
+        this.searchInput.fontSize = 12;
+        this.searchInput.fontFamily = STYLE.FONT;
+        this.searchInput.thickness = 0;
+        this.searchInput.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.searchInput.onTextChangedObservable.add(() => {
+            this.searchText = this.searchInput!.text;
+            this.selectedItemIndex = -1;
+            this.refreshItemList();
+        });
+        searchContainer.addControl(this.searchInput);
+    }
+    
+    private createFilterButtons(parent: Rectangle): void {
+        const filterContainer = new Rectangle("filterContainer");
+        filterContainer.width = "95%";
+        filterContainer.height = "30px";
+        filterContainer.background = "transparent";
+        filterContainer.thickness = 0;
+        filterContainer.top = "50px";
+        filterContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        parent.addControl(filterContainer);
+        
+        const filters: { id: "all" | "owned" | "locked"; name: string }[] = [
+            { id: "all", name: "ALL" },
+            { id: "owned", name: "OWNED" },
+            { id: "locked", name: "LOCKED" },
+        ];
+        
+        filters.forEach((f, i) => {
+            const btn = Button.CreateSimpleButton(`filter_${f.id}`, f.name);
+            btn.width = "60px";
+            btn.height = "24px";
+            btn.color = this.filterMode === f.id ? STYLE.PRIMARY : STYLE.TEXT_DIM;
+            btn.background = this.filterMode === f.id ? "rgba(0,255,0,0.2)" : "rgba(0,0,0,0.5)";
+            btn.thickness = 1;
+            btn.fontSize = 10;
+            btn.fontFamily = STYLE.FONT;
+            btn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            btn.left = `${i * 65 + 5}px`;
+            
+            btn.onPointerClickObservable.add(() => {
+                this.filterMode = f.id;
+                this.selectedItemIndex = -1;
+                this.refreshItemList();
+                this.updateFilterButtons(filterContainer);
+            });
+            filterContainer.addControl(btn);
+        });
+        
+        // Sort button
+        const sortBtn = Button.CreateSimpleButton("sortBtn", `SORT: ${this.sortBy.toUpperCase()}`);
+        sortBtn.width = "100px";
+        sortBtn.height = "24px";
+        sortBtn.color = STYLE.ACCENT;
+        sortBtn.background = "rgba(0,255,255,0.1)";
+        sortBtn.thickness = 1;
+        sortBtn.fontSize = 10;
+        sortBtn.fontFamily = STYLE.FONT;
+        sortBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        sortBtn.left = "-5px";
+        sortBtn.onPointerClickObservable.add(() => {
+            if (this.sortBy === "name") this.sortBy = "cost";
+            else if (this.sortBy === "cost") this.sortBy = "stats";
+            else this.sortBy = "name";
+            sortBtn.textBlock!.text = `SORT: ${this.sortBy.toUpperCase()}`;
+            this.refreshItemList();
+        });
+        filterContainer.addControl(sortBtn);
+    }
+    
+    private updateFilterButtons(container: Rectangle): void {
+        ["all", "owned", "locked"].forEach(id => {
+            const btn = container.getChildByName(`filter_${id}`) as Button;
+            if (btn) {
+                btn.color = this.filterMode === id ? STYLE.PRIMARY : STYLE.TEXT_DIM;
+                btn.background = this.filterMode === id ? "rgba(0,255,0,0.2)" : "rgba(0,0,0,0.5)";
+            }
+        });
+    }
+    
+    private createItemList(parent: Rectangle): void {
+        // Scroll viewer
+        this.scrollViewer = new ScrollViewer("itemScroll");
+        this.scrollViewer.width = "95%";
+        this.scrollViewer.height = "calc(100% - 95px)";
+        this.scrollViewer.background = "rgba(0,0,0,0.3)";
+        this.scrollViewer.thickness = 1;
+        this.scrollViewer.color = STYLE.PRIMARY_DIM;
+        this.scrollViewer.top = "85px";
+        this.scrollViewer.barSize = 8;
+        this.scrollViewer.barColor = STYLE.PRIMARY_DIM;
+        this.scrollViewer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        parent.addControl(this.scrollViewer);
+        
+        // Item list container
+        this.itemListContainer = new Rectangle("itemListContainer");
+        this.itemListContainer.width = "100%";
+        this.itemListContainer.height = "100%";
+        this.itemListContainer.background = "transparent";
+        this.itemListContainer.thickness = 0;
+        this.scrollViewer.addControl(this.itemListContainer);
+    }
+    
+    private createRightPanel(parent: Rectangle): void {
+        const rightPanel = new Rectangle("rightPanel");
+        rightPanel.width = "55%";
+        rightPanel.height = "100%";
+        rightPanel.background = "transparent";
+        rightPanel.thickness = 0;
+        rightPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        parent.addControl(rightPanel);
+        
+        // Separator line
+        const separator = new Rectangle("panelSep");
+        separator.width = "1px";
+        separator.height = "95%";
+        separator.background = STYLE.PRIMARY_DIM;
+        separator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        rightPanel.addControl(separator);
+        
+        // Tank preview area (top 50%)
+        this.createPreviewArea(rightPanel);
+        
+        // Details panel (bottom 50%)
+        this.createDetailsPanel(rightPanel);
+    }
+    
+    private createPreviewArea(parent: Rectangle): void {
+        this.previewContainer = new Rectangle("previewContainer");
+        this.previewContainer.width = "95%";
+        this.previewContainer.height = "50%";
+        this.previewContainer.background = "rgba(0,20,0,0.5)";
+        this.previewContainer.thickness = 1;
+        this.previewContainer.color = STYLE.PRIMARY_DIM;
+        this.previewContainer.top = "10px";
+        this.previewContainer.left = "10px";
+        this.previewContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.previewContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        parent.addControl(this.previewContainer);
+        
+        // Preview title
+        const previewTitle = new TextBlock("previewTitle", "[ TANK PREVIEW ]");
+        previewTitle.color = STYLE.PRIMARY_DIM;
+        previewTitle.fontSize = 10;
+        previewTitle.fontFamily = STYLE.FONT;
+        previewTitle.top = "5px";
+        previewTitle.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.previewContainer.addControl(previewTitle);
+        
+        // Create 3D tank preview (optional, won't break UI if fails)
+        try {
+            this.createPreviewTank();
+        } catch (e) {
+            console.warn("[Garage] Preview tank creation failed:", e);
+        }
+        
+        // Current chassis/cannon info
+        this.updatePreviewInfo();
+        
+        // Drag hint
+        const dragHint = new TextBlock("dragHint", "[ Drag to rotate ]");
+        dragHint.color = STYLE.TEXT_DIM;
+        dragHint.fontSize = 9;
+        dragHint.fontFamily = STYLE.FONT;
+        dragHint.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        dragHint.top = "-5px";
+        this.previewContainer.addControl(dragHint);
+        
+        // Setup drag rotation
+        this.setupPreviewDrag();
+    }
+    
+    private createPreviewTank(): void {
+        try {
+            // Dispose old preview meshes
+            this.disposePreviewTank();
+            
+            const chassisType = getChassisById(this.previewChassisId || this.currentChassisId);
+            const cannonType = getCannonById(this.previewCannonId || this.currentCannonId);
+            
+            // Create tank body at preview position (far from gameplay area)
+            const previewPos = new Vector3(1000, 50, 1000);
+            
+            // Tank body
+            this.previewTankBody = MeshBuilder.CreateBox("previewBody", {
+                width: chassisType.width,
+                height: chassisType.height,
+                depth: chassisType.depth
+            }, this._scene);
+            this.previewTankBody.position = previewPos;
+            this.previewTankBody.rotation.y = this.previewRotation;
+            
+            const bodyMat = new StandardMaterial("previewBodyMat", this._scene);
+            bodyMat.diffuseColor = Color3.FromHexString(chassisType.color);
+            bodyMat.emissiveColor = Color3.FromHexString(chassisType.color).scale(0.3);
+            this.previewTankBody.material = bodyMat;
+            
+            // Tank turret
+            this.previewTankTurret = MeshBuilder.CreateBox("previewTurret", {
+                width: chassisType.width * 0.6,
+                height: chassisType.height * 0.8,
+                depth: chassisType.depth * 0.4
+            }, this._scene);
+            this.previewTankTurret.parent = this.previewTankBody;
+            this.previewTankTurret.position = new Vector3(0, chassisType.height * 0.9, 0);
+            
+            const turretMat = new StandardMaterial("previewTurretMat", this._scene);
+            turretMat.diffuseColor = Color3.FromHexString(cannonType.color);
+            turretMat.emissiveColor = Color3.FromHexString(cannonType.color).scale(0.3);
+            this.previewTankTurret.material = turretMat;
+            
+            // Tank barrel
+            this.previewTankBarrel = MeshBuilder.CreateCylinder("previewBarrel", {
+                height: cannonType.barrelLength,
+                diameter: cannonType.barrelWidth * 2
+            }, this._scene);
+            this.previewTankBarrel.parent = this.previewTankTurret;
+            this.previewTankBarrel.rotation.x = Math.PI / 2;
+            this.previewTankBarrel.position = new Vector3(0, 0, cannonType.barrelLength / 2 + chassisType.depth * 0.2);
+            this.previewTankBarrel.material = turretMat;
+        } catch (e) {
+            console.warn("[Garage] Failed to create 3D preview tank:", e);
+        }
+    }
+    
+    private setupPreviewDrag(): void {
+        if (!this.previewContainer) return;
+        
+        this.previewContainer.onPointerDownObservable.add((info) => {
+            this.isDraggingPreview = true;
+            this.lastDragX = info.x;
+        });
+        
+        this.previewContainer.onPointerUpObservable.add(() => {
+            this.isDraggingPreview = false;
+        });
+        
+        this.previewContainer.onPointerMoveObservable.add((info) => {
+            if (this.isDraggingPreview && this.previewTankBody) {
+                const deltaX = info.x - this.lastDragX;
+                this.previewRotation += deltaX * 0.01;
+                this.previewTankBody.rotation.y = this.previewRotation;
+                this.lastDragX = info.x;
+            }
+        });
+    }
+    
+    private updatePreviewInfo(): void {
+        if (!this.previewContainer) return;
+        
+        // Remove old info
+        const oldInfo = this.previewContainer.getChildByName("currentInfo");
+        if (oldInfo) oldInfo.dispose();
+        
+        const chassis = CHASSIS_TYPES.find(c => c.id === (this.previewChassisId || this.currentChassisId));
+        const cannon = CANNON_TYPES.find(c => c.id === (this.previewCannonId || this.currentCannonId));
+        
+        const infoPanel = new Rectangle("currentInfo");
+        infoPanel.width = "90%";
+        infoPanel.height = "60px";
+        infoPanel.background = "rgba(0,0,0,0.5)";
+        infoPanel.thickness = 0;
+        infoPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.previewContainer.addControl(infoPanel);
+        
+        const chassisText = new TextBlock("chassisInfo", `CHASSIS: ${chassis?.name || "None"}`);
+        chassisText.color = STYLE.PRIMARY;
+        chassisText.fontSize = 14;
+        chassisText.fontFamily = STYLE.FONT;
+        chassisText.top = "-15px";
+        infoPanel.addControl(chassisText);
+        
+        const cannonText = new TextBlock("cannonInfo", `CANNON: ${cannon?.name || "None"}`);
+        cannonText.color = STYLE.ACCENT;
+        cannonText.fontSize = 14;
+        cannonText.fontFamily = STYLE.FONT;
+        cannonText.top = "15px";
+        infoPanel.addControl(cannonText);
+    }
+    
+    private createDetailsPanel(parent: Rectangle): void {
+        this.detailsPanel = new Rectangle("detailsPanel");
+        this.detailsPanel.width = "95%";
+        this.detailsPanel.height = "calc(50% - 25px)";
+        this.detailsPanel.background = "rgba(0,0,0,0.3)";
+        this.detailsPanel.thickness = 1;
+        this.detailsPanel.color = STYLE.PRIMARY_DIM;
+        this.detailsPanel.top = "-10px";
+        this.detailsPanel.left = "10px";
+        this.detailsPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        this.detailsPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        parent.addControl(this.detailsPanel);
+        
+        // Title
+        const detailsTitle = new TextBlock("detailsTitle", "[ SELECT AN ITEM ]");
+        detailsTitle.color = STYLE.TEXT_DIM;
+        detailsTitle.fontSize = 12;
+        detailsTitle.fontFamily = STYLE.FONT;
+        detailsTitle.top = "10px";
+        detailsTitle.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.detailsPanel.addControl(detailsTitle);
+    }
+    
+    // ============ FOOTER ============
+    private createFooter(): void {
+        const footer = new Rectangle("footer");
+        footer.width = "100%";
+        footer.height = `${STYLE.FOOTER_HEIGHT}px`;
+        footer.background = STYLE.BG_MEDIUM;
+        footer.thickness = 0;
+        footer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        this.garageContainer!.addControl(footer);
+        
+        // Footer separator
+        const separator = new Rectangle("footerSep");
+        separator.width = "100%";
+        separator.height = "1px";
+        separator.background = STYLE.PRIMARY_DIM;
+        separator.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        footer.addControl(separator);
+        
+        // Keyboard hints
+        const hints = new TextBlock("hints", "[↑↓] Navigate  |  [Enter/Space] Select  |  [1-5] Categories  |  [ESC] Close");
+        hints.color = STYLE.TEXT_DIM;
+        hints.fontSize = 10;
+        hints.fontFamily = STYLE.FONT;
+        footer.addControl(hints);
+    }
+    
+    // ============ ITEM LIST RENDERING ============
+    private refreshItemList(): void {
+        if (!this.itemListContainer) return;
+        
+        // Clear old items
+        this.itemListContainer.getDescendants().forEach(c => c.dispose());
+        
+        // Get items for current category
+        let items: (TankPart | TankUpgrade)[] = this.getItemsForCategory();
+        
+        // Apply search filter
+        if (this.searchText.trim()) {
+            const search = this.searchText.toLowerCase();
+            items = items.filter(item => 
+                item.name.toLowerCase().includes(search) || 
+                item.description.toLowerCase().includes(search)
+            );
+        }
+        
+        // Apply owned/locked filter
+        if (this.filterMode !== "all") {
+            items = items.filter(item => {
+                if ("level" in item) {
+                    return this.filterMode === "owned" ? item.level > 0 : item.level === 0;
+                } else {
+                    return this.filterMode === "owned" ? item.unlocked : !item.unlocked;
+                }
+            });
+        }
+        
+        // Apply sorting
+        items = this.sortItems(items);
+        
+        this.filteredItems = items;
+        
+        // Validate selection
+        if (this.selectedItemIndex >= items.length) {
+            this.selectedItemIndex = items.length > 0 ? 0 : -1;
+        }
+        
+        // Calculate container height
+        const itemHeight = 70;
+        const spacing = 5;
+        const totalHeight = items.length * (itemHeight + spacing);
+        this.itemListContainer.height = `${Math.max(totalHeight, 100)}px`;
+        
+        // Render items
+        items.forEach((item, i) => {
+            const card = this.createItemCard(item, i);
+            card.top = `${i * (itemHeight + spacing)}px`;
+            this.itemListContainer!.addControl(card);
+        });
+        
+        // Update details if item selected
+        if (this.selectedItemIndex >= 0 && this.selectedItemIndex < items.length) {
+            this.showItemDetails(items[this.selectedItemIndex]);
+        }
+    }
+    
+    private getItemsForCategory(): (TankPart | TankUpgrade)[] {
+        switch (this.currentCategory) {
+            case "chassis": return [...this.chassisParts];
+            case "cannons": return [...this.cannonParts];
+            case "modules": return [...this.moduleParts, ...this.upgrades.filter(u => u.level < u.maxLevel)];
+            case "supplies": return [...this.supplyParts];
+            case "shop": return [...this.shopItems];
+            default: return [];
+        }
+    }
+    
+    private sortItems(items: (TankPart | TankUpgrade)[]): (TankPart | TankUpgrade)[] {
+        return items.sort((a, b) => {
+            if (this.sortBy === "name") return a.name.localeCompare(b.name);
+            if (this.sortBy === "cost") return a.cost - b.cost;
+            // Stats - sort by primary stat
+            const getMainStat = (item: TankPart | TankUpgrade): number => {
+                if ("level" in item) return item.value;
+                if (item.stats.health) return item.stats.health;
+                if (item.stats.damage) return item.stats.damage;
+                if (item.stats.speed) return item.stats.speed;
+                return 0;
+            };
+            return getMainStat(b) - getMainStat(a);
+        });
+    }
+    
+    private createItemCard(item: TankPart | TankUpgrade, index: number): Rectangle {
+        const isUpgrade = "level" in item;
+        const isOwned = isUpgrade ? item.level > 0 : (item as TankPart).unlocked;
+        const isSelected = index === this.selectedItemIndex;
+        const isEquipped = !isUpgrade && (
+            (item as TankPart).type === "chassis" && item.id === this.currentChassisId ||
+            (item as TankPart).type === "barrel" && item.id === this.currentCannonId
+        );
+        
+        const card = new Rectangle(`item_${index}`);
+        card.width = "98%";
+        card.height = "65px";
+        card.background = isSelected ? "rgba(0,255,0,0.15)" : isEquipped ? "rgba(0,255,255,0.1)" : "rgba(0,0,0,0.4)";
+        card.thickness = isSelected ? 2 : 1;
+        card.color = isSelected ? STYLE.PRIMARY : isEquipped ? STYLE.ACCENT : (isOwned ? STYLE.PRIMARY_DIM : STYLE.TEXT_DIM);
+        card.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        card.isPointerBlocker = true;
+        
+        // Item name
+        const name = new TextBlock("name", item.name + (isEquipped ? " [EQUIPPED]" : ""));
+        name.color = isOwned ? STYLE.PRIMARY : STYLE.TEXT_DIM;
+        name.fontSize = 13;
+        name.fontWeight = isEquipped ? "bold" : "normal";
+        name.fontFamily = STYLE.FONT;
+        name.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        name.left = "10px";
+        name.top = "8px";
+        name.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        card.addControl(name);
+        
+        // Description
+        const desc = new TextBlock("desc", item.description);
+        desc.color = STYLE.TEXT_DIM;
+        desc.fontSize = 10;
+        desc.fontFamily = STYLE.FONT;
+        desc.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        desc.left = "10px";
+        desc.top = "26px";
+        desc.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        card.addControl(desc);
+        
+        // Stats preview
+        const statsText = this.formatItemStats(item);
+        const stats = new TextBlock("stats", statsText);
+        stats.color = STYLE.ACCENT;
+        stats.fontSize = 10;
+        stats.fontFamily = STYLE.FONT;
+        stats.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        stats.left = "10px";
+        stats.top = "-8px";
+        stats.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        card.addControl(stats);
+        
+        // Price or status
+        let priceText = "";
+        if (isOwned && !isUpgrade) {
+            priceText = "OWNED";
+        } else if (isUpgrade && item.level >= item.maxLevel) {
+            priceText = "MAX";
+            } else {
+            priceText = `${item.cost} CR`;
+        }
+        
+        const price = new TextBlock("price", priceText);
+        price.color = isOwned ? STYLE.PRIMARY : STYLE.WARNING;
+        price.fontSize = 12;
+        price.fontWeight = "bold";
+        price.fontFamily = STYLE.FONT;
+        price.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        price.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        price.left = "-10px";
+        price.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        card.addControl(price);
+        
+        // XP bar for upgrades
+        if (isUpgrade) {
+            const xpBg = new Rectangle("xpBg");
+            xpBg.width = "60px";
+            xpBg.height = "6px";
+            xpBg.background = "rgba(0,0,0,0.5)";
+            xpBg.thickness = 0;
+            xpBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            xpBg.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            xpBg.left = "-10px";
+            xpBg.top = "-8px";
+            card.addControl(xpBg);
+            
+            const xpFill = new Rectangle("xpFill");
+            xpFill.width = `${(item.level / item.maxLevel) * 100}%`;
+            xpFill.height = "100%";
+            xpFill.background = STYLE.PRIMARY;
+            xpFill.thickness = 0;
+            xpFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            xpBg.addControl(xpFill);
+        }
+        
+        // Click handlers
+        card.onPointerEnterObservable.add(() => {
+                if (!isSelected) {
+                card.background = "rgba(0,255,0,0.1)";
+            }
+        });
+        card.onPointerOutObservable.add(() => {
+                if (!isSelected) {
+                card.background = isEquipped ? "rgba(0,255,255,0.1)" : "rgba(0,0,0,0.4)";
+            }
+        });
+        // Double-click detection via timing
+        let lastClickTime = 0;
+        card.onPointerClickObservable.add(() => {
+            const now = Date.now();
+            if (now - lastClickTime < 300) {
+                // Double-click detected
+                this.handleItemAction(item);
+            } else {
+                // Single click
+                this.selectedItemIndex = index;
+                this.refreshItemList();
+                this.showItemDetails(item);
+            }
+            lastClickTime = now;
+        });
+        
+        return card;
+    }
+    
+    private formatItemStats(item: TankPart | TankUpgrade): string {
+            if ("level" in item) {
+            return `Lv.${item.level}/${item.maxLevel} | ${item.stat.toUpperCase()}: ${item.value > 0 ? "+" : ""}${item.value}`;
+        }
+                const part = item as TankPart;
+        const stats: string[] = [];
+        if (part.stats.health) stats.push(`HP:${part.stats.health}`);
+        if (part.stats.speed) stats.push(`SPD:${part.stats.speed}`);
+        if (part.stats.damage) stats.push(`DMG:${part.stats.damage}`);
+        if (part.stats.reload) stats.push(`RLD:${part.stats.reload}ms`);
+        if (part.stats.armor) stats.push(`ARM:${part.stats.armor}`);
+        return stats.join(" | ");
+    }
+    
+    // ============ DETAILS PANEL ============
+    private showItemDetails(item: TankPart | TankUpgrade): void {
+        if (!this.detailsPanel) return;
+        
+        // Clear old content
+        this.detailsPanel.getDescendants().forEach(c => c.dispose());
+        
+        const isUpgrade = "level" in item;
+        const canAfford = this.currencyManager.getCurrency() >= item.cost;
+        
+        // Title
+        const title = new TextBlock("title", `[ ${item.name.toUpperCase()} ]`);
+        title.color = STYLE.PRIMARY;
+        title.fontSize = 14;
+        title.fontWeight = "bold";
+        title.fontFamily = STYLE.FONT;
+        title.top = "10px";
+        title.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.detailsPanel.addControl(title);
+        
+        // Description
+        const desc = new TextBlock("desc", item.description);
+        desc.color = STYLE.TEXT;
+        desc.fontSize = 11;
+        desc.fontFamily = STYLE.FONT;
+        desc.top = "35px";
+        desc.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.detailsPanel.addControl(desc);
+        
+        // Stats comparison (for parts)
+        if (!isUpgrade) {
+            const part = item as TankPart;
+            this.showStatsComparison(part);
+        }
+        
+        // Action button
+        let btnText = "";
+        let btnColor = STYLE.PRIMARY;
+        let btnEnabled = true;
+        
+        if (isUpgrade) {
+            const upgrade = item as TankUpgrade;
+            if (upgrade.level >= upgrade.maxLevel) {
+                btnText = "MAX LEVEL";
+                btnColor = STYLE.TEXT_DIM;
+                btnEnabled = false;
+            } else if (!canAfford) {
+                btnText = `NEED ${item.cost} CR`;
+                btnColor = STYLE.ERROR;
+                btnEnabled = false;
+            } else {
+                btnText = `UPGRADE (${item.cost} CR)`;
+            }
+        } else {
+            const part = item as TankPart;
+            if (part.unlocked) {
+                if ((part.type === "chassis" && part.id === this.currentChassisId) ||
+                    (part.type === "barrel" && part.id === this.currentCannonId)) {
+                    btnText = "EQUIPPED";
+                    btnColor = STYLE.ACCENT;
+                    btnEnabled = false;
+                } else {
+                    btnText = "EQUIP";
+                    btnColor = STYLE.PRIMARY;
+                }
+            } else if (!canAfford) {
+                btnText = `NEED ${item.cost} CR`;
+                btnColor = STYLE.ERROR;
+                btnEnabled = false;
+        } else {
+                btnText = `BUY (${item.cost} CR)`;
+                btnColor = STYLE.WARNING;
+            }
+        }
+        
+        const actionBtn = Button.CreateSimpleButton("actionBtn", btnText);
+        actionBtn.width = "180px";
+        actionBtn.height = "35px";
+        actionBtn.color = btnColor;
+        actionBtn.background = btnEnabled ? "rgba(0,255,0,0.2)" : "rgba(100,100,100,0.2)";
+        actionBtn.thickness = 2;
+        actionBtn.fontSize = 12;
+        actionBtn.fontWeight = "bold";
+        actionBtn.fontFamily = STYLE.FONT;
+        actionBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        actionBtn.top = "-15px";
+        
+        if (btnEnabled) {
+            actionBtn.onPointerEnterObservable.add(() => {
+                actionBtn.background = "rgba(0,255,0,0.3)";
+            });
+            actionBtn.onPointerOutObservable.add(() => {
+                actionBtn.background = "rgba(0,255,0,0.2)";
+            });
+            actionBtn.onPointerClickObservable.add(() => {
+                this.handleItemAction(item);
+            });
+        }
+        
+        this.detailsPanel.addControl(actionBtn);
+    }
+    
+    private showStatsComparison(item: TankPart): void {
+        if (!this.detailsPanel) return;
+        
+        const currentChassis = CHASSIS_TYPES.find(c => c.id === this.currentChassisId);
+        const currentCannon = CANNON_TYPES.find(c => c.id === this.currentCannonId);
+        
+        let comparisons: { stat: string; current: number; new: number }[] = [];
+        
+        if (item.type === "chassis") {
+            const newChassis = CHASSIS_TYPES.find(c => c.id === item.id);
+            if (currentChassis && newChassis) {
+                comparisons = [
+                    { stat: "HP", current: currentChassis.maxHealth, new: newChassis.maxHealth },
+                    { stat: "SPEED", current: currentChassis.moveSpeed, new: newChassis.moveSpeed },
+                ];
+            }
+        } else if (item.type === "barrel") {
+            const newCannon = CANNON_TYPES.find(c => c.id === item.id);
+            if (currentCannon && newCannon) {
+                comparisons = [
+                    { stat: "DAMAGE", current: currentCannon.damage, new: newCannon.damage },
+                    { stat: "RELOAD", current: currentCannon.cooldown, new: newCannon.cooldown },
+                ];
+            }
+        }
+        
+        comparisons.forEach((comp, i) => {
+            const diff = comp.new - comp.current;
+            const isReload = comp.stat === "RELOAD";
+            const isBetter = isReload ? diff < 0 : diff > 0;
+            const color = diff === 0 ? STYLE.TEXT_DIM : (isBetter ? STYLE.PRIMARY : STYLE.ERROR);
+            const arrow = diff === 0 ? "=" : (isBetter ? "▲" : "▼");
+            
+            const text = new TextBlock(`comp_${i}`, 
+                `${comp.stat}: ${comp.current} → ${comp.new} ${arrow} ${Math.abs(diff)}`);
+            text.color = color;
+            text.fontSize = 11;
+            text.fontFamily = STYLE.FONT;
+            text.top = `${60 + i * 18}px`;
+            text.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            this.detailsPanel!.addControl(text);
+        });
+    }
+    
+    // ============ ACTIONS ============
+    private handleItemAction(item: TankPart | TankUpgrade): void {
+        const isUpgrade = "level" in item;
+        
+        if (isUpgrade) {
+            this.purchaseUpgrade(item as TankUpgrade);
+                    } else {
+                const part = item as TankPart;
+            if (part.unlocked) {
+                this.equipPart(part);
+            } else {
+                this.purchasePart(part);
+            }
+        }
+    }
+    
+    private purchasePart(part: TankPart): void {
+        if (part.unlocked) return;
+        if (this.currencyManager.getCurrency() < part.cost) {
+            this.showMessage("Insufficient credits!", STYLE.ERROR);
+            return;
+        }
+        
+        this.currencyManager.addCurrency(-part.cost);
+        part.unlocked = true;
+        this.saveProgress();
+        this.showMessage(`Purchased ${part.name}!`, STYLE.PRIMARY);
+        if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
+        this.refreshItemList();
+    }
+    
+    private equipPart(part: TankPart): void {
+        if (!part.unlocked) return;
+        
+        if (part.type === "chassis") {
+            this.currentChassisId = part.id;
+            this.previewChassisId = part.id;
+            localStorage.setItem("selectedChassis", part.id);
+        } else if (part.type === "barrel") {
+            this.currentCannonId = part.id;
+            this.previewCannonId = part.id;
+            localStorage.setItem("selectedCannon", part.id);
+        }
+        
+        // Apply to tank controller
+        if (this.tankController) {
+            if (part.type === "chassis" && this.tankController.setChassisType) {
+                this.tankController.setChassisType(part.id);
+            } else if (part.type === "barrel" && this.tankController.setCannonType) {
+                this.tankController.setCannonType(part.id);
+            }
+        }
+        
+        this.saveProgress();
+        this.updatePreviewInfo();
+        this.createPreviewTank(); // Update 3D preview
+        this.showMessage(`Equipped ${part.name}!`, STYLE.ACCENT);
+        if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
+        this.refreshItemList();
+    }
+    
+    private purchaseUpgrade(upgrade: TankUpgrade): void {
+        if (upgrade.level >= upgrade.maxLevel) return;
+        if (this.currencyManager.getCurrency() < upgrade.cost) {
+            this.showMessage("Insufficient credits!", STYLE.ERROR);
+            return;
+        }
+        
+        this.currencyManager.addCurrency(-upgrade.cost);
+        upgrade.level++;
+        this.saveProgress();
+        this.showMessage(`Upgraded ${upgrade.name} to Lv.${upgrade.level}!`, STYLE.PRIMARY);
+        if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
+        this.refreshItemList();
+    }
+    
+    private showMessage(text: string, color: string): void {
+        if (!this.garageContainer) return;
+        
+        // Remove old message
+        const oldMsg = this.garageContainer.getChildByName("message");
+        if (oldMsg) oldMsg.dispose();
+        
+        const msg = new TextBlock("message", text);
+        msg.color = color;
+        msg.fontSize = 14;
+        msg.fontWeight = "bold";
+        msg.fontFamily = STYLE.FONT;
+        msg.top = `${STYLE.HEADER_HEIGHT + 5}px`;
+        msg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        msg.zIndex = 100;
+        this.garageContainer.addControl(msg);
+        
+        // Auto-remove after 2 seconds
+                setTimeout(() => {
+            if (msg.parent) msg.dispose();
+                }, 2000);
+    }
+    
+    private updateCurrencyDisplay(): void {
+        if (!this.garageContainer) return;
+        const header = this.garageContainer.getChildByName("header") as Rectangle;
+        if (!header) return;
+        const currencyPanel = header.getChildByName("currencyPanel") as Rectangle;
+        if (!currencyPanel) return;
+        const currencyText = currencyPanel.getChildByName("currencyText") as TextBlock;
+        if (currencyText) {
+            currencyText.text = `CR: ${this.currencyManager.getCurrency()}`;
+        }
+    }
+    
+    // ============ CATEGORY SWITCHING ============
+    private switchCategory(category: CategoryType): void {
+        if (this.currentCategory === category) return;
+        
+        this.currentCategory = category;
+        this.selectedItemIndex = -1;
+        this.searchText = "";
+        if (this.searchInput) this.searchInput.text = "";
+        
+        // Update tab buttons
+        this.categoryButtons.forEach((btn, id) => {
+            btn.color = id === category ? STYLE.PRIMARY : STYLE.TEXT_DIM;
+            btn.background = id === category ? "rgba(0,255,0,0.15)" : "transparent";
+            btn.fontWeight = id === category ? "bold" : "normal";
+        });
+        
+        this.refreshItemList();
+        
+        // Clear details
+        if (this.detailsPanel) {
+            this.detailsPanel.getDescendants().forEach(c => c.dispose());
+            const title = new TextBlock("detailsTitle", "[ SELECT AN ITEM ]");
+            title.color = STYLE.TEXT_DIM;
+            title.fontSize = 12;
+            title.fontFamily = STYLE.FONT;
+            title.top = "10px";
+            title.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            this.detailsPanel.addControl(title);
+        }
+        
+        if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
+    }
+    
+    // ============ KEYBOARD NAVIGATION ============
+    private setupKeyboardNavigation(): void {
+        const handler = (e: KeyboardEvent) => {
             if (!this.isOpen) return;
             
-            // ESC - закрыть гараж
+            // ESC - close
             if (e.code === "Escape") {
                 e.preventDefault();
                 this.close();
                 return;
             }
             
-            // 1, 2, 3 - переключение категорий
-            if (e.code === "Digit1" || e.code === "Numpad1") {
-                e.preventDefault();
-                this.switchCategory("chassis");
-                // Обновляем кнопки категорий
-                this.categoryButtons.forEach((btn) => {
-                    const btnId = (btn as any).name;
-                    if (btnId === "cat_chassis") {
-                        btn.color = "#0f0";
-                        btn.background = "#002200aa";
-                        btn.thickness = 3;
-                        btn.fontWeight = "bold";
-                    } else {
-                        btn.color = "#0aa";
-                        btn.background = "#000000aa";
-                        btn.thickness = 2;
-                        btn.fontWeight = "normal";
-                    }
-                });
-            } else if (e.code === "Digit2" || e.code === "Numpad2") {
-                e.preventDefault();
-                this.switchCategory("barrel");
-                this.categoryButtons.forEach((btn) => {
-                    const btnId = (btn as any).name;
-                    if (btnId === "cat_barrel") {
-                        btn.color = "#0f0";
-                        btn.background = "#002200aa";
-                        btn.thickness = 3;
-                        btn.fontWeight = "bold";
-                    } else {
-                        btn.color = "#0aa";
-                        btn.background = "#000000aa";
-                        btn.thickness = 2;
-                        btn.fontWeight = "normal";
-                    }
-                });
-            } else if (e.code === "Digit3" || e.code === "Numpad3") {
-                e.preventDefault();
-                this.switchCategory("upgrades");
-                this.categoryButtons.forEach((btn) => {
-                    const btnId = (btn as any).name;
-                    if (btnId === "cat_upgrades") {
-                        btn.color = "#0f0";
-                        btn.background = "#002200aa";
-                        btn.thickness = 3;
-                        btn.fontWeight = "bold";
-                    } else {
-                        btn.color = "#0aa";
-                        btn.background = "#000000aa";
-                        btn.thickness = 2;
-                        btn.fontWeight = "normal";
-                    }
-                });
-            }
-            
-            // Enter - применить изменения
-            if (e.code === "Enter") {
-                e.preventDefault();
-                this.applySelection();
-            }
-            
-            // F - быстрая покупка
-            if (e.code === "KeyF") {
-                e.preventDefault();
-                this.quickPurchase();
-            }
-            
-            // R - сброс фильтров
-            if (e.code === "KeyR") {
-                e.preventDefault();
-                this.searchText = "";
-                this.filterUnlocked = null;
-                this._filterPrice = "all";
-                this.sortBy = "name";
-                if (this.searchInput) {
-                    if (this.searchInput) {
-                        this.searchInput.text = "";
-                    }
+            // Category hotkeys 1-5
+            const categories: CategoryType[] = ["chassis", "cannons", "modules", "supplies", "shop"];
+            for (let i = 1; i <= 5; i++) {
+                if (e.code === `Digit${i}` || e.code === `Numpad${i}`) {
+                    e.preventDefault();
+                    this.switchCategory(categories[i - 1]);
+                    return;
                 }
-                // Сбрасываем кнопки фильтров
-                const filterAll = this.garageContainer!.getChildByName("filterAll") as Button;
-                const filterOwned = this.garageContainer!.getChildByName("filterOwned") as Button;
-                const filterLocked = this.garageContainer!.getChildByName("filterLocked") as Button;
-                const priceAll = this.garageContainer!.getChildByName("priceAll") as Button;
-                if (filterAll) { filterAll.color = "#0f0"; filterAll.background = "#002200"; }
-                if (filterOwned) { filterOwned.color = "#0aa"; filterOwned.background = "#001122"; }
-                if (filterLocked) { filterLocked.color = "#0aa"; filterLocked.background = "#001122"; }
-                if (priceAll) { priceAll.color = "#0f0"; priceAll.background = "#002200"; }
-                this.selectedItemIndex = -1;
-                this.updateItemList();
             }
             
-            // Стрелки вверх/вниз - навигация по предметам с улучшенной обратной связью
+            // Arrow navigation
             if (e.code === "ArrowUp") {
                 e.preventDefault();
                 if (this.filteredItems.length > 0) {
                     this.selectedItemIndex = Math.max(0, this.selectedItemIndex - 1);
-                    this.highlightSelectedItem();
-                    this.scrollToSelectedItem();
-                    // Визуальная обратная связь - мигание индикатора
-                    const navHint = this.garageContainer!.getChildByName("navHint") as TextBlock;
-                    if (navHint) {
-                        navHint.color = "#0f0";
-                        setTimeout(() => {
-                            if (navHint) navHint.color = "#0dd";
-                        }, 150);
+                    this.refreshItemList();
+                    this.scrollToSelected();
+                    if (this.selectedItemIndex >= 0) {
+                        this.showItemDetails(this.filteredItems[this.selectedItemIndex]);
                     }
                 }
             } else if (e.code === "ArrowDown") {
                 e.preventDefault();
                 if (this.filteredItems.length > 0) {
                     this.selectedItemIndex = Math.min(this.filteredItems.length - 1, this.selectedItemIndex + 1);
-                    this.highlightSelectedItem();
-                    this.scrollToSelectedItem();
-                    // Визуальная обратная связь - мигание индикатора
-                    const navHint = this.garageContainer!.getChildByName("navHint") as TextBlock;
-                    if (navHint) {
-                        navHint.color = "#0f0";
-                        setTimeout(() => {
-                            if (navHint) navHint.color = "#0dd";
-                        }, 150);
+                    this.refreshItemList();
+                    this.scrollToSelected();
+                    if (this.selectedItemIndex >= 0) {
+                        this.showItemDetails(this.filteredItems[this.selectedItemIndex]);
                     }
                 }
             }
             
-            // Space или Enter на выбранном предмете - выбрать/купить
-            if ((e.code === "Space" || e.code === "Enter") && this.selectedItemIndex >= 0 && this.selectedItemIndex < this.filteredItems.length) {
+            // Enter/Space - action
+            if ((e.code === "Enter" || e.code === "Space") && this.selectedItemIndex >= 0) {
                 e.preventDefault();
                 const item = this.filteredItems[this.selectedItemIndex];
-                if (!("level" in item)) {
-                    const part = item as TankPart;
-                    if (part.unlocked) {
-                        this.selectPart(part);
-                    } else {
-                        this.purchaseItem(item);
-                    }
-                } else {
-                    this.purchaseItem(item);
-                }
-            }
-        });
-    }
-    
-    // Открыть гараж
-    open(): void {
-        if (this.isOpen) {
-            console.log("[Garage] Already open, ignoring open() call");
-            return;
-        }
-        console.log("[Garage] ===== Opening garage =====");
-        console.log("[Garage] GUI texture exists:", !!this.guiTexture);
-        console.log("[Garage] Scene exists:", !!this.scene);
-        
-        // Убеждаемся, что GUI texture существует и видим
-        if (!this.guiTexture) {
-            console.error("[Garage] ERROR: GUI texture not initialized!");
-            return;
-        }
-        
-        // Убеждаемся, что GUI texture видим и на переднем плане ПЕРЕД созданием UI
-        this.guiTexture.isForeground = true;
-        
-        // Убеждаемся, что GUI texture активен
-        if (this.guiTexture.rootContainer) {
-            this.guiTexture.rootContainer.isVisible = true;
-            this.guiTexture.rootContainer.alpha = 1.0;
-        }
-        
-        this.isOpen = true;
-        this.createGarageUI();
-        
-        // Убеждаемся, что гараж видим после создания
-        if (this.garageContainer) {
-            this.garageContainer.isVisible = true;
-            this.garageContainer.alpha = 1.0;
-        }
-        
-        // Периодическое обновление статистики в реальном времени (каждую секунду)
-        if (this._statsUpdateInterval) {
-            clearInterval(this._statsUpdateInterval);
-        }
-        this._statsUpdateInterval = setInterval(() => {
-            if (this.isOpen && this.playerProgression) {
-                this.updatePlayerStatsPanel();
-            }
-        }, 100); // Обновляем каждые 100мс для плавной анимации XP-бара
-        
-        // Настраиваем горячие клавиши
-        this.setupHotkeys();
-        
-        // Обновляем статистику после создания UI (если метод существует)
-        if (this.updatePlayerStatsPanel) {
-            try {
-                this.updatePlayerStatsPanel();
-            } catch (e) {
-                console.warn("[Garage] Failed to update player stats panel:", e);
-            }
-        }
-        
-        // Принудительно обновляем опыт при открытии гаража
-        setTimeout(() => {
-            if (this.isOpen) {
-                this.updateItemList(); // Пересоздаём список с актуальными данными опыта
-                // Также обновляем опыт сразу после создания списка
-                if (this.updateExperienceBars) {
-                    setTimeout(() => {
-                        this.updateExperienceBars();
-                    }, 200);
-                }
-            }
-        }, 100);
-        
-        // Дополнительная проверка после создания UI
-        if (this.garageContainer) {
-            this.garageContainer.isVisible = true;
-            this.garageContainer.alpha = 0.75; // 75% прозрачность
-            console.log("[Garage] Container visibility after creation:", {
-                isVisible: this.garageContainer.isVisible,
-                alpha: this.garageContainer.alpha,
-                width: this.garageContainer.width,
-                height: this.garageContainer.height
-            });
-        }
-        
-        // Убеждаемся, что GUI texture все еще видим
-        this.guiTexture.isForeground = true;
-        
-        console.log("[Garage] GUI texture settings:", {
-            isForeground: this.guiTexture.isForeground,
-            layerMask: this.guiTexture.layer?.layerMask,
-            rootContainerVisible: this.guiTexture.rootContainer?.isVisible,
-            rootContainerAlpha: this.guiTexture.rootContainer?.alpha
-        });
-        console.log("[Garage] Garage container created:", !!this.garageContainer);
-        
-        if (this.soundManager) {
-            this.soundManager.playGarageOpen();
-        }
-        console.log("[Garage] ✓ Garage opened successfully");
-    }
-    
-    // Закрыть гараж с анимацией
-    close(): void {
-        if (!this.isOpen) return;
-        
-        // Упрощенное закрытие без лишних анимаций
-        if (this.garageContainer) {
-            this.isOpen = false;
-            this.garageContainer.dispose();
-            this.garageContainer = null;
-            // Останавливаем периодическое обновление статистики
-            if (this._statsUpdateInterval) {
-                clearInterval(this._statsUpdateInterval);
-                this._statsUpdateInterval = null;
-            }
-            // Сбрасываем фильтры при закрытии
-            this.searchText = "";
-            this.filterUnlocked = null;
-            this.sortBy = "name";
-        } else {
-            this.isOpen = false;
-            // Останавливаем периодическое обновление статистики
-            if (this._statsUpdateInterval) {
-                clearInterval(this._statsUpdateInterval);
-                this._statsUpdateInterval = null;
-            }
-        }
-        
-        if (this.soundManager) {
-            this.soundManager.playGarageOpen();
-        }
-    }
-    
-    // Переключить категорию с анимацией
-    private switchCategory(category: "chassis" | "turret" | "barrel" | "upgrades"): void {
-        if (this.currentCategory === category) return;
-        
-        // Упрощенное переключение категорий без лишних анимаций
-        this.currentCategory = category;
-        this.selectedItemIndex = -1; // Сбрасываем выбор
-        this.updateItemList();
-        
-        // Обновляем опыт
-        if (this.itemList && this.updateExperienceBars) {
-            this.itemList.alpha = 1.0;
-            this.itemList.left = "0px";
-            this.updateExperienceBars();
-        }
-        
-        // Звуковой эффект переключения
-        if (this.soundManager && this.soundManager.playGarageOpen) {
-            this.soundManager.playGarageOpen();
-        }
-    }
-    
-    // Создать UI гаража - полностью переделанный с нуля в современном Low Poly стиле
-    private createGarageUI(): void {
-        // Main container - компактный и современный дизайн
-        this.garageContainer = new Rectangle("garageMain");
-        this.garageContainer.width = "1000px";
-        this.garageContainer.height = "700px";
-        this.garageContainer.cornerRadius = 0;
-        this.garageContainer.thickness = 3;
-        this.garageContainer.color = "#0f0";
-        this.garageContainer.background = "rgba(10, 20, 10, 0.95)";
-        this.garageContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.garageContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        this.garageContainer.isPointerBlocker = true;
-        // Гараж должен быть скрыт по умолчанию, пока не будет открыт
-        this.garageContainer.alpha = 0.0;
-        this.garageContainer.isVisible = false;
-        this.garageContainer.zIndex = 1000;
-        
-        // Добавляем в GUI texture
-        this.guiTexture.addControl(this.garageContainer);
-        
-        // ========== HEADER SECTION (компактный) ==========
-        // Header background - компактная высота 50px
-        const headerBg = new Rectangle("garageHeader");
-        headerBg.width = "100%";
-        headerBg.height = "50px";
-        headerBg.cornerRadius = 0;
-        headerBg.thickness = 0;
-        headerBg.background = "rgba(0, 40, 0, 0.85)";
-        headerBg.top = "-350px";
-        headerBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.garageContainer.addControl(headerBg);
-        
-        // Title - компактный
-        const title = new TextBlock("garageTitle");
-        title.text = "GARAGE";
-        title.color = "#0f0";
-        title.fontSize = 18;
-        title.fontWeight = "bold";
-        title.fontFamily = "Consolas, Monaco, monospace";
-        title.top = "-330px";
-        title.left = "-480px";
-        title.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.garageContainer.addControl(title);
-        
-        // Currency display - компактный, справа от заголовка
-        const currencyContainer = new Rectangle("currencyContainer");
-        currencyContainer.width = "160px";
-        currencyContainer.height = "28px";
-        currencyContainer.cornerRadius = 0;
-        currencyContainer.thickness = 1;
-        currencyContainer.color = "#ff0";
-        currencyContainer.background = "rgba(20, 20, 0, 0.9)";
-        currencyContainer.left = "200px";
-        currencyContainer.top = "-332px";
-        this.garageContainer.addControl(currencyContainer);
-        
-        const currencyLabel = new TextBlock("currencyLabel");
-        currencyLabel.text = "CR:";
-        currencyLabel.color = "#0ff";
-        currencyLabel.fontSize = 11;
-        currencyLabel.fontFamily = "Consolas, Monaco, monospace";
-        currencyLabel.fontWeight = "normal";
-        currencyLabel.left = "-65px";
-        currencyLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        currencyContainer.addControl(currencyLabel);
-        
-        const currencyText = new TextBlock("garageCurrency");
-        currencyText.text = `${this.currencyManager.getCurrency()}`;
-        currencyText.color = "#ff0";
-        currencyText.fontSize = 14;
-        currencyText.fontWeight = "bold";
-        currencyText.fontFamily = "Consolas, Monaco, monospace";
-        currencyText.left = "8px";
-        currencyText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        currencyContainer.addControl(currencyText);
-        
-        // Player stats panel (компактный, справа от валюты) - безопасный вызов
-        try {
-            if (this.createPlayerStatsPanel) {
-                this.createPlayerStatsPanel();
-            }
-        } catch (e) {
-            console.warn("[Garage] Failed to create player stats panel:", e);
-        }
-        
-        // Header separator line
-        const headerLine = new Rectangle("headerLine");
-        headerLine.width = "100%";
-        headerLine.height = "2px";
-        headerLine.cornerRadius = 0;
-        headerLine.thickness = 0;
-        headerLine.background = "#0f0";
-        headerLine.top = "-300px";
-        headerLine.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.garageContainer.addControl(headerLine);
-        
-        // ========== CONTENT SECTION (компактная двухколоночная структура) ==========
-        // Message display - компактный, вверху контента
-        const messageContainer = new Rectangle("messageContainer");
-        messageContainer.width = "960px";
-        messageContainer.height = "22px";
-        messageContainer.cornerRadius = 0;
-        messageContainer.thickness = 1;
-        messageContainer.color = "#0f0";
-        messageContainer.background = "rgba(0, 20, 0, 0.9)";
-        messageContainer.top = "-280px";
-        messageContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.garageContainer.addControl(messageContainer);
-        
-        const messageText = new TextBlock("garageMessage");
-        messageText.text = "";
-        messageText.color = "#0f0";
-        messageText.fontSize = 11;
-        messageText.fontFamily = "Consolas, Monaco, monospace";
-        messageText.fontWeight = "normal";
-        messageText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        messageContainer.addControl(messageText);
-        
-        // Поиск и фильтры
-        this.createSearchAndFilters();
-        
-        // Category buttons
-        this.createCategoryButtons();
-        
-        // Item list
-        this.createItemList();
-        
-        // Comparison panel
-        this.createComparisonPanel();
-        
-        // Apply button (применить изменения сразу) - улучшенный
-        this.createApplyButton();
-        
-        // ========== FOOTER SECTION (компактный) ==========
-        // Footer background - компактная высота 45px
-        const footerBg = new Rectangle("garageFooter");
-        footerBg.width = "100%";
-        footerBg.height = "45px";
-        footerBg.cornerRadius = 0;
-        footerBg.thickness = 0;
-        footerBg.background = "rgba(0, 30, 0, 0.85)";
-        footerBg.top = "310px";
-        footerBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.garageContainer.addControl(footerBg);
-        
-        // Footer separator line
-        const footerLine = new Rectangle("footerLine");
-        footerLine.width = "100%";
-        footerLine.height = "2px";
-        footerLine.cornerRadius = 0;
-        footerLine.thickness = 0;
-        footerLine.background = "#0f0";
-        footerLine.top = "310px";
-        footerLine.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.garageContainer.addControl(footerLine);
-        
-        // Changes indicator - компактный
-        const changesIndicator = new Rectangle("changesIndicator");
-        changesIndicator.width = "380px";
-        changesIndicator.height = "22px";
-        changesIndicator.cornerRadius = 0;
-        changesIndicator.thickness = 1;
-        changesIndicator.color = "#0ff";
-        changesIndicator.background = "rgba(0, 20, 20, 0.9)";
-        changesIndicator.top = "290px";
-        changesIndicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        changesIndicator.isVisible = false;
-        this.garageContainer.addControl(changesIndicator);
-        
-        const changesText = new TextBlock("changesText");
-        changesText.text = "> PENDING CHANGES | [Enter] to apply";
-        changesText.color = "#0ff";
-        changesText.fontSize = 10;
-        changesText.fontFamily = "Consolas, Monaco, monospace";
-        changesText.fontWeight = "bold";
-        changesText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        changesIndicator.addControl(changesText);
-        
-        // Navigation hint - компактный
-        const navHint = new TextBlock("navHint");
-        navHint.text = "[↑↓] Navigate | [Space/Enter] Select | [1-3] Categories | [F] Quick Buy | [R] Reset";
-        navHint.color = "#0aa";
-        navHint.fontSize = 9;
-        navHint.fontFamily = "Consolas, Monaco, monospace";
-        navHint.fontWeight = "normal";
-        navHint.top = "270px";
-        navHint.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.garageContainer.addControl(navHint);
-        
-        // Close button - компактный
-        const closeBtn = Button.CreateSimpleButton("closeGarage", "CLOSE [ESC]");
-        closeBtn.width = "120px";
-        closeBtn.height = "32px";
-        closeBtn.cornerRadius = 0;
-        closeBtn.fontFamily = "Consolas, Monaco, monospace";
-        closeBtn.color = "#f00";
-        closeBtn.background = "rgba(255, 0, 0, 0.25)";
-        closeBtn.thickness = 1;
-        closeBtn.fontSize = 10;
-        closeBtn.fontWeight = "bold";
-        closeBtn.top = "318px";
-        closeBtn.left = "280px";
-        closeBtn.isPointerBlocker = true;
-        
-        // Hover эффект для кнопки закрытия
-        closeBtn.onPointerEnterObservable.add(() => {
-            closeBtn.color = "#ff0";
-            closeBtn.background = "rgba(255, 255, 0, 0.3)";
-            closeBtn.thickness = 2;
-        });
-        closeBtn.onPointerOutObservable.add(() => {
-            closeBtn.color = "#f00";
-            closeBtn.background = "rgba(255, 0, 0, 0.2)";
-            closeBtn.thickness = 1;
-        });
-        
-        closeBtn.onPointerClickObservable.add(() => {
-            this.close();
-        });
-        this.garageContainer.addControl(closeBtn);
-        
-        // Update changes indicator periodically
-        setInterval(() => {
-            if (this.isOpen && changesIndicator) {
-                const hasChanges = (this.previewChassisId && this.previewChassisId !== this.currentChassisId) ||
-                                (this.previewCannonId && this.previewCannonId !== this.currentCannonId);
-                if (changesIndicator.isVisible !== !!hasChanges) {
-                    changesIndicator.isVisible = !!hasChanges;
-                }
-            }
-        }, 300);
-        
-        // Кнопка сброса фильтров - компактная
-        const resetFiltersBtn = Button.CreateSimpleButton("resetFilters", "RESET [R]");
-        resetFiltersBtn.width = "90px";
-        resetFiltersBtn.height = "26px";
-        resetFiltersBtn.cornerRadius = 0;
-        resetFiltersBtn.fontFamily = "Consolas, Monaco, monospace";
-        resetFiltersBtn.color = "#0aa";
-        resetFiltersBtn.background = "rgba(0, 255, 0, 0.15)";
-        resetFiltersBtn.thickness = 1;
-        resetFiltersBtn.fontSize = 9;
-        resetFiltersBtn.top = "320px";
-        resetFiltersBtn.left = "-450px";
-        
-        // Hover эффект для кнопки сброса
-        resetFiltersBtn.onPointerEnterObservable.add(() => {
-            resetFiltersBtn.color = "#0f0";
-            resetFiltersBtn.background = "rgba(0, 255, 0, 0.2)";
-            resetFiltersBtn.thickness = 2;
-        });
-        resetFiltersBtn.onPointerOutObservable.add(() => {
-            resetFiltersBtn.color = "#0aa";
-            resetFiltersBtn.background = "rgba(0, 255, 0, 0.1)";
-            resetFiltersBtn.thickness = 1;
-        });
-        
-        resetFiltersBtn.onPointerClickObservable.add(() => {
-            this.searchText = "";
-            this.filterUnlocked = null;
-            this._filterPrice = "all";
-            this.sortBy = "name";
-            if (this.searchInput) {
-                this.searchInput.text = "";
-            }
-            // Сбрасываем кнопки фильтров
-            const filterAll = this.garageContainer!.getChildByName("filterAll") as Button;
-            const filterOwned = this.garageContainer!.getChildByName("filterOwned") as Button;
-            const filterLocked = this.garageContainer!.getChildByName("filterLocked") as Button;
-            const priceAll = this.garageContainer!.getChildByName("priceAll") as Button;
-            if (filterAll) { filterAll.color = "#0f0"; filterAll.background = "#002200"; }
-            if (filterOwned) { filterOwned.color = "#0aa"; filterOwned.background = "#001122"; }
-            if (filterLocked) { filterLocked.color = "#0aa"; filterLocked.background = "#001122"; }
-            if (priceAll) { priceAll.color = "#0f0"; priceAll.background = "#002200"; }
-            this.selectedItemIndex = -1;
-            this.updateItemList();
-        });
-        this.garageContainer.addControl(resetFiltersBtn);
-        
-        // Update currency display and stats periodically - оптимизировано
-        let lastCurrencyUpdate = 0;
-        let lastStatsUpdate = 0;
-        let lastExpUpdate = 0;
-        let lastRecUpdate = 0;
-        let lastPreviewUpdate = 0;
-        let lastComparisonUpdate = 0;
-        
-        setInterval(() => {
-            if (this.isOpen && this.garageContainer) {
-                const now = Date.now();
-                
-                // Обновляем валюту только если она изменилась (оптимизация)
-                const currentCurrency = this.currencyManager.getCurrency();
-                const currencyText = this.garageContainer.getChildByName("garageCurrency") as TextBlock;
-                if (currencyText && now - lastCurrencyUpdate > 100) {
-                    const newText = `${currentCurrency}`;
-                    if (currencyText.text !== newText) {
-                        currencyText.text = newText;
-                        lastCurrencyUpdate = now;
-                    }
-                }
-                
-                // Обновляем статистику игрока реже (каждые 500мс)
-                if (now - lastStatsUpdate > 500) {
-                    try {
-                        if (this.updatePlayerStatsPanel) {
-                            this.updatePlayerStatsPanel();
-                        }
-                    } catch (e) {
-                        console.warn("[Garage] Failed to update player stats panel in interval:", e);
-                    }
-                    lastStatsUpdate = now;
-                }
-                
-                // Обновляем панель рекомендаций реже (каждые 2 секунды)
-                if (now - lastRecUpdate > 2000) {
-                    try {
-                        const recPanel = this.garageContainer.getChildByName("recommendationsPanel");
-                        if (recPanel) {
-                            recPanel.dispose();
-                            this.createRecommendationsPanel();
-                        }
-                    } catch (e) {
-                        console.warn("[Garage] Failed to update recommendations panel:", e);
-                    }
-                    lastRecUpdate = now;
-                }
-                
-                // Обновляем опыт в списке предметов (каждые 200мс для более плавной анимации)
-                if (now - lastExpUpdate > 200) {
-                    try {
-                        this.updateExperienceBars();
-                    } catch (e) {
-                        console.warn("[Garage] Failed to update experience bars:", e);
-                    }
-                    lastExpUpdate = now;
-                }
-                
-                // Обновляем превью текущего танка реже (каждую секунду)
-                if (now - lastPreviewUpdate > 1000) {
-                    try {
-                        const previewContainer = this.garageContainer.getChildByName("tankPreviewContainer");
-                        if (previewContainer) {
-                            previewContainer.dispose();
-                            this.createCurrentTankPreview();
-                        }
-                    } catch (e) {
-                        console.warn("[Garage] Failed to update current tank preview:", e);
-                    }
-                    lastPreviewUpdate = now;
-                }
-                
-                // Обновляем панель сравнения только при изменениях (каждые 300мс)
-                if (now - lastComparisonUpdate > 300) {
-                    try {
-                        this.updateComparisonPanel();
-                    } catch (e) {
-                        console.warn("[Garage] Failed to update comparison panel:", e);
-                    }
-                    lastComparisonUpdate = now;
-                }
-            }
-        }, 100); // Проверяем каждые 100мс, но обновляем с разной частотой для оптимизации
-    }
-    
-    // Создать поиск и фильтры - компактная версия
-    private createSearchAndFilters(): void {
-        // Контейнер для поиска и фильтров - компактный
-        const searchContainer = new Rectangle("searchContainer");
-        searchContainer.width = "960px";
-        searchContainer.height = "32px";
-        searchContainer.cornerRadius = 0;
-        searchContainer.thickness = 0;
-        searchContainer.background = "#00000000";
-        searchContainer.top = "-250px";
-        searchContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.garageContainer!.addControl(searchContainer);
-        
-        // Визуальный разделитель между поиском и категориями
-        const categorySeparator = new Rectangle("categorySeparator");
-        categorySeparator.width = "960px";
-        categorySeparator.height = "1px";
-        categorySeparator.cornerRadius = 0;
-        categorySeparator.thickness = 0;
-        categorySeparator.background = "#0aa";
-        categorySeparator.top = "-210px";
-        categorySeparator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.garageContainer!.addControl(categorySeparator);
-        
-        // Поиск - компактный
-        const searchLabel = new TextBlock("searchLabel");
-        searchLabel.text = "SEARCH:";
-        searchLabel.color = "#0ff";
-        searchLabel.fontSize = 10;
-        searchLabel.fontFamily = "Consolas, Monaco, monospace";
-        searchLabel.fontWeight = "normal";
-        searchLabel.left = "-470px";
-        searchLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        searchContainer.addControl(searchLabel);
-        
-        // Поле поиска - компактное
-        const searchInput = new InputText("searchInput");
-        searchInput.width = "160px";
-        searchInput.height = "24px";
-        searchInput.text = this.searchText || "";
-        searchInput.placeholderText = "Name...";
-        searchInput.color = "#0aa";
-        searchInput.background = "rgba(0, 0, 0, 0.8)";
-        searchInput.focusedBackground = "rgba(0, 20, 20, 0.9)";
-        searchInput.fontSize = 9;
-        searchInput.fontFamily = "Consolas, Monaco, monospace";
-        searchInput.thickness = 1;
-        searchInput.focusedColor = "#0f0";
-        searchInput.left = "-380px";
-        searchInput.top = "4px";
-        searchInput.onTextChangedObservable.add((text) => {
-            this.searchText = typeof text === 'string' ? text : String(text || '');
-            this.selectedItemIndex = -1; // Сбрасываем выбор при поиске
-            this.updateItemList();
-        });
-        searchContainer.addControl(searchInput);
-        this.searchInput = searchInput as any;
-        
-        // Фильтр - компактный
-        const filterLabel = new TextBlock("filterLabel");
-        filterLabel.text = "FILTER:";
-        filterLabel.color = "#0ff";
-        filterLabel.fontSize = 10;
-        filterLabel.fontFamily = "Consolas, Monaco, monospace";
-        filterLabel.fontWeight = "normal";
-        filterLabel.left = "-180px";
-        filterLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        searchContainer.addControl(filterLabel);
-        
-        const filterAll = Button.CreateSimpleButton("filterAll", "ALL");
-        filterAll.width = "50px";
-        filterAll.height = "24px";
-        filterAll.cornerRadius = 0;
-        filterAll.fontFamily = "Consolas, Monaco, monospace";
-        filterAll.color = this.filterUnlocked === null ? "#0f0" : "#0aa";
-        filterAll.background = this.filterUnlocked === null ? "rgba(0, 255, 0, 0.15)" : "rgba(0, 0, 0, 0.8)";
-        filterAll.thickness = 1;
-        filterAll.fontSize = 9;
-        filterAll.left = "-110px";
-        filterAll.top = "4px";
-        
-        // Hover эффект для кнопки фильтра
-        filterAll.onPointerEnterObservable.add(() => {
-            if (this.filterUnlocked !== null) {
-                filterAll.color = "#0f0";
-                filterAll.background = "rgba(0, 255, 0, 0.15)";
-            }
-        });
-        filterAll.onPointerOutObservable.add(() => {
-            if (this.filterUnlocked !== null) {
-                filterAll.color = "#0aa";
-                filterAll.background = "rgba(0, 0, 0, 0.8)";
-            }
-        });
-        
-        filterAll.onPointerClickObservable.add(() => {
-            this.filterUnlocked = null;
-            filterAll.color = "#0f0";
-            filterAll.background = "#002200";
-            filterOwned.color = "#0aa";
-            filterOwned.background = "#001122";
-            filterLocked.color = "#0aa";
-            filterLocked.background = "#001122";
-            this.updateItemList();
-        });
-        searchContainer.addControl(filterAll);
-        
-        const filterOwned = Button.CreateSimpleButton("filterOwned", "OWNED");
-        filterOwned.width = "60px";
-        filterOwned.height = "24px";
-        filterOwned.cornerRadius = 0;
-        filterOwned.fontFamily = "Consolas, Monaco, monospace";
-        filterOwned.color = this.filterUnlocked === true ? "#0f0" : "#0aa";
-        filterOwned.background = this.filterUnlocked === true ? "rgba(0, 255, 0, 0.15)" : "rgba(0, 0, 0, 0.8)";
-        filterOwned.thickness = 1;
-        filterOwned.fontSize = 9;
-        filterOwned.left = "-50px";
-        filterOwned.top = "4px";
-        
-        // Hover эффект для кнопки фильтра
-        filterOwned.onPointerEnterObservable.add(() => {
-            if (this.filterUnlocked !== true) {
-                filterOwned.color = "#0f0";
-                filterOwned.background = "rgba(0, 255, 0, 0.15)";
-            }
-        });
-        filterOwned.onPointerOutObservable.add(() => {
-            if (this.filterUnlocked !== true) {
-                filterOwned.color = "#0aa";
-                filterOwned.background = "rgba(0, 0, 0, 0.8)";
-            }
-        });
-        
-        filterOwned.onPointerClickObservable.add(() => {
-            this.filterUnlocked = true;
-            filterAll.color = "#0aa";
-            filterAll.background = "#001122";
-            filterOwned.color = "#0f0";
-            filterOwned.background = "#002200";
-            filterLocked.color = "#0aa";
-            filterLocked.background = "#001122";
-            this.updateItemList();
-        });
-        searchContainer.addControl(filterOwned);
-        
-        const filterLocked = Button.CreateSimpleButton("filterLocked", "LOCKED");
-        filterLocked.width = "65px";
-        filterLocked.height = "24px";
-        filterLocked.cornerRadius = 0;
-        filterLocked.fontFamily = "Consolas, Monaco, monospace";
-        filterLocked.color = this.filterUnlocked === false ? "#0f0" : "#0aa";
-        filterLocked.background = this.filterUnlocked === false ? "rgba(0, 255, 0, 0.15)" : "rgba(0, 0, 0, 0.8)";
-        filterLocked.thickness = 1;
-        filterLocked.fontSize = 9;
-        filterLocked.left = "20px";
-        filterLocked.top = "4px";
-        
-        // Hover эффект для кнопки фильтра
-        filterLocked.onPointerEnterObservable.add(() => {
-            if (this.filterUnlocked !== false) {
-                filterLocked.color = "#0f0";
-                filterLocked.background = "rgba(0, 255, 0, 0.15)";
-            }
-        });
-        filterLocked.onPointerOutObservable.add(() => {
-            if (this.filterUnlocked !== false) {
-                filterLocked.color = "#0aa";
-                filterLocked.background = "rgba(0, 0, 0, 0.8)";
-            }
-        });
-        
-        filterLocked.onPointerClickObservable.add(() => {
-            this.filterUnlocked = false;
-            filterAll.color = "#0aa";
-            filterAll.background = "#001122";
-            filterOwned.color = "#0aa";
-            filterOwned.background = "#001122";
-            filterLocked.color = "#0f0";
-            filterLocked.background = "#002200";
-            this.updateItemList();
-        });
-        searchContainer.addControl(filterLocked);
-        
-        // Сортировка - компактная
-        const sortLabel = new TextBlock("sortLabel");
-        sortLabel.text = "SORT:";
-        sortLabel.color = "#0ff";
-        sortLabel.fontSize = 10;
-        sortLabel.fontFamily = "Consolas, Monaco, monospace";
-        sortLabel.fontWeight = "normal";
-        sortLabel.left = "100px";
-        sortLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        searchContainer.addControl(sortLabel);
-        
-        const sortBtn = Button.CreateSimpleButton("sortBtn", this.sortBy === "name" ? "NAME" : this.sortBy === "cost" ? "COST" : "STATS");
-        sortBtn.width = "60px";
-        sortBtn.height = "24px";
-        sortBtn.cornerRadius = 0;
-        sortBtn.fontFamily = "Consolas, Monaco, monospace";
-        sortBtn.color = "#0ff";
-        sortBtn.background = "rgba(0, 255, 255, 0.1)";
-        sortBtn.thickness = 1;
-        sortBtn.fontSize = 9;
-        sortBtn.left = "150px";
-        sortBtn.top = "4px";
-        
-        // Hover эффект для кнопки сортировки
-        sortBtn.onPointerEnterObservable.add(() => {
-            sortBtn.color = "#0f0";
-            sortBtn.background = "rgba(0, 255, 0, 0.2)";
-            sortBtn.thickness = 2;
-        });
-        sortBtn.onPointerOutObservable.add(() => {
-            sortBtn.color = "#0ff";
-            sortBtn.background = "rgba(0, 255, 255, 0.1)";
-            sortBtn.thickness = 1;
-        });
-        
-        sortBtn.onPointerClickObservable.add(() => {
-            // Циклическая смена: name -> cost -> stats -> name
-            if (this.sortBy === "name") {
-                this.sortBy = "cost";
-                sortBtn.textBlock!.text = "COST";
-            } else if (this.sortBy === "cost") {
-                this.sortBy = "stats";
-                sortBtn.textBlock!.text = "STATS";
-            } else {
-                this.sortBy = "name";
-                sortBtn.textBlock!.text = "NAME";
-            }
-            this.updateItemList();
-        });
-        searchContainer.addControl(sortBtn);
-    }
-    
-    // Создать кнопки категорий - компактные
-    private createCategoryButtons(): void {
-        const categories = [
-            { name: "CHASSIS", id: "chassis" as const },
-            { name: "CANNONS", id: "barrel" as const },
-            { name: "UPGRADES", id: "upgrades" as const }
-        ];
-        
-        categories.forEach((cat, i) => {
-            const btn = Button.CreateSimpleButton(`cat_${cat.id}`, cat.name);
-            btn.width = "180px";
-            btn.height = "30px";
-            btn.cornerRadius = 0;
-            btn.color = this.currentCategory === cat.id ? "#0f0" : "#0aa";
-            btn.background = this.currentCategory === cat.id ? "rgba(0, 255, 0, 0.25)" : "rgba(0, 0, 0, 0.8)";
-            btn.thickness = this.currentCategory === cat.id ? 2 : 1;
-            btn.fontSize = 10;
-            btn.fontFamily = "Consolas, Monaco, monospace";
-            btn.fontWeight = this.currentCategory === cat.id ? "bold" : "normal";
-            // Выравнивание кнопок категорий по центру с равными отступами
-            const totalWidth = 180 * 3 + 15 * 2; // ширина кнопок + отступы
-            const startPos = -totalWidth / 2 + 90; // центр первой кнопки
-            btn.left = `${startPos + i * 195}px`; // 195 = 180 (ширина) + 15 (отступ)
-            btn.top = "-195px";
-            btn.isPointerBlocker = true;
-            
-            // Hover эффекты для кнопок категорий
-            const originalColor = btn.color;
-            const originalBg = btn.background;
-            const originalThickness = btn.thickness;
-            
-            // Упрощенный hover эффект для кнопок категорий (без лишних анимаций)
-            btn.onPointerEnterObservable.add(() => {
-                if (this.currentCategory !== cat.id) {
-                    btn.color = "#0f0";
-                    btn.background = "rgba(0, 255, 0, 0.15)";
-                    btn.thickness = 2;
-                }
-            });
-            
-            btn.onPointerOutObservable.add(() => {
-                if (this.currentCategory !== cat.id) {
-                    btn.color = originalColor;
-                    btn.background = originalBg;
-                    btn.thickness = originalThickness;
-                }
-            });
-            
-            btn.onPointerClickObservable.add(() => {
-                this.switchCategory(cat.id);
-                // Update button colors в терминальном стиле
-                this.categoryButtons.forEach(b => {
-                    const btnId = (b as any).name;
-                    if (btnId === `cat_${cat.id}`) {
-                        b.color = "#0f0";
-                        b.background = "rgba(0, 255, 0, 0.2)";
-                        b.thickness = 2;
-                        b.fontWeight = "bold";
-                    } else {
-                        b.color = "#0aa";
-                        b.background = "rgba(0, 0, 0, 0.8)";
-                        b.thickness = 1;
-                        b.fontWeight = "normal";
-                    }
-                });
-            });
-            this.categoryButtons.push(btn);
-            this.garageContainer!.addControl(btn);
-        });
-    }
-    
-    // Создать список товаров с прокруткой - компактный
-    private createItemList(): void {
-        // Контейнер для прокрутки - компактный, занимает левую часть
-        this.scrollViewer = new ScrollViewer("itemScrollViewer");
-        this.scrollViewer.width = "480px";
-        this.scrollViewer.height = "480px";
-        this.scrollViewer.cornerRadius = 0;
-        this.scrollViewer.thickness = 2;
-        this.scrollViewer.color = "#0f0";
-        this.scrollViewer.background = "rgba(0, 0, 0, 0.9)";
-        this.scrollViewer.top = "-150px";
-        this.scrollViewer.left = "-480px";
-        this.scrollViewer.barSize = 8;
-        this.scrollViewer.barColor = "rgba(0, 255, 0, 0.15)";
-        this.garageContainer!.addControl(this.scrollViewer);
-        
-        // Разделительная линия перед списком элементов
-        const listSeparator = new Rectangle("listSeparator");
-        listSeparator.width = "480px";
-        listSeparator.height = "1px";
-        listSeparator.cornerRadius = 0;
-        listSeparator.thickness = 0;
-        listSeparator.background = "#0aa";
-        listSeparator.top = "-155px";
-        listSeparator.left = "-480px";
-        this.garageContainer!.addControl(listSeparator);
-        
-        // Контейнер для элементов (будет обновляться динамически)
-        this.itemList = new Rectangle("itemListContainer");
-        this.itemList.width = "460px";
-        this.itemList.height = "1px"; // Будет обновляться
-        this.itemList.cornerRadius = 0;
-        this.itemList.thickness = 0;
-        this.itemList.background = "#00000000";
-        this.scrollViewer.addControl(this.itemList);
-        
-        // Загружаем текущие выбранные части
-        this.currentChassisId = localStorage.getItem("selectedChassis") || "medium";
-        this.currentCannonId = localStorage.getItem("selectedCannon") || "standard";
-        
-        this.updateItemList();
-    }
-    
-    // Обновить список товаров
-    private updateItemList(): void {
-        if (!this.itemList) return;
-        
-        // Clear existing items
-        if (this.itemList.children) {
-            this.itemList.children.forEach((child: any) => child.dispose());
-        }
-        
-        let items: (TankPart | TankUpgrade)[] = [];
-        
-        // Получаем все предметы категории
-        if (this.currentCategory === "chassis") {
-            items = [...this.chassisParts];
-        } else if (this.currentCategory === "turret") {
-            items = [...this.turretParts];
-        } else if (this.currentCategory === "barrel") {
-            items = [...this.cannonParts];
-        } else if (this.currentCategory === "upgrades") {
-            items = this.upgrades.filter(u => u.level < u.maxLevel);
-        }
-        
-        // Применяем поиск
-        if (this.searchText && this.searchText.trim() !== "") {
-            const searchLower = this.searchText.toLowerCase();
-            items = items.filter(item => 
-                item.name.toLowerCase().includes(searchLower) ||
-                item.description.toLowerCase().includes(searchLower)
-            );
-        }
-        
-        // Применяем фильтр по разблокированности
-        if (this.filterUnlocked !== null) {
-            items = items.filter(item => {
-                if ("level" in item) {
-                    return this.filterUnlocked ? (item as TankUpgrade).level > 0 : (item as TankUpgrade).level === 0;
-                } else {
-                    return (item as TankPart).unlocked === this.filterUnlocked;
-                }
-            });
-        }
-        
-        // Сортировка
-        items.sort((a, b) => {
-            if (this.sortBy === "name") {
-                return a.name.localeCompare(b.name);
-            } else if (this.sortBy === "cost") {
-                return a.cost - b.cost;
-            } else {
-                // Сортировка по статистике (для корпусов - HP, для пушек - урон)
-                if (!("level" in a) && !("level" in b)) {
-                    const partA = a as TankPart;
-                    const partB = b as TankPart;
-                    if (partA.type === "chassis" && partB.type === "chassis") {
-                        return (partB.stats.health || 0) - (partA.stats.health || 0);
-                    } else if (partA.type === "barrel" && partB.type === "barrel") {
-                        return (partB.stats.damage || 0) - (partA.stats.damage || 0);
-                    }
-                }
-                return 0;
-            }
-        });
-        
-        // Сохраняем отфильтрованные элементы для навигации
-        this.filteredItems = items;
-        
-        // Сбрасываем индекс выбранного элемента, если он выходит за границы
-        if (this.selectedItemIndex >= items.length) {
-            this.selectedItemIndex = items.length > 0 ? 0 : -1;
-        } else if (this.selectedItemIndex < 0 && items.length > 0) {
-            this.selectedItemIndex = 0;
-        }
-        
-        console.log(`[Garage] Showing ${items.length} items (filtered and sorted)`);
-        
-        // Обновляем высоту контейнера - компактный spacing
-        const itemHeight = 95; // Компактная высота
-        const spacing = 10; // Компактный spacing
-        const totalHeight = items.length > 0 ? items.length * itemHeight + (items.length - 1) * spacing : 1;
-        this.itemList!.height = `${totalHeight}px`;
-        
-        items.forEach((item, i) => {
-            const itemContainer = new Rectangle(`item_${i}`);
-            itemContainer.width = "440px";
-            itemContainer.height = "90px"; // Компактная высота
-            itemContainer.cornerRadius = 0;
-            itemContainer.thickness = 2;
-            itemContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            
-            // Определяем, выбран ли этот предмет
-            let isSelected = false;
-            if (!("level" in item)) {
-                const part = item as TankPart;
-                if (part.type === "chassis") {
-                    isSelected = part.id === this.currentChassisId;
-                } else if (part.type === "barrel") {
-                    isSelected = part.id === this.currentCannonId;
-                }
-            }
-            
-            // Цвет рамки зависит от статуса в терминальном стиле
-            const isKeyboardSelected = i === this.selectedItemIndex;
-            if (isSelected) {
-                itemContainer.color = "#ff0";
-                itemContainer.background = "rgba(255, 255, 0, 0.2)"; // Более заметный фон для выбранных
-                itemContainer.thickness = 3; // Увеличенная толщина для акцента
-            } else if (isKeyboardSelected) {
-                itemContainer.color = "#0ff";
-                itemContainer.background = "rgba(0, 255, 255, 0.25)"; // Более заметный фон
-                itemContainer.thickness = 3; // Увеличенная толщина для акцента
-            } else if ((!("level" in item) && (item as TankPart).unlocked) || (("level" in item) && (item as TankUpgrade).level > 0)) {
-                itemContainer.color = "#0f0"; // Яркий зелёный для разблокированных
-                itemContainer.background = "rgba(0, 255, 0, 0.08)"; // Более заметный фон
-                itemContainer.thickness = 1;
-            } else {
-                itemContainer.color = "#055"; // Приглушённый зелёный для заблокированных
-                itemContainer.background = "rgba(0, 0, 0, 0.6)"; // Более тёмный фон
-                itemContainer.thickness = 1;
-            }
-            
-            itemContainer.top = `${i * (itemHeight + spacing)}px`;
-            
-            // Hover эффекты для элементов списка
-            const originalItemColor = itemContainer.color;
-            const originalItemBg = itemContainer.background;
-            const originalItemThickness = itemContainer.thickness;
-            
-            itemContainer.onPointerEnterObservable.add(() => {
-                if (!isSelected && !isKeyboardSelected) {
-                    itemContainer.color = "#0ff";
-                    itemContainer.background = "rgba(0, 255, 255, 0.15)";
-                    itemContainer.thickness = 2;
-                }
-            });
-            
-            itemContainer.onPointerOutObservable.add(() => {
-                if (!isSelected && !isKeyboardSelected) {
-                    itemContainer.color = originalItemColor;
-                    itemContainer.background = originalItemBg;
-                    itemContainer.thickness = originalItemThickness;
-                }
-            });
-            
-            // Добавляем tooltip при наведении (безопасный вызов)
-            try {
-                if (this.addTooltipToItem) {
-                    this.addTooltipToItem(itemContainer, item, i);
-                }
-            } catch (e) {
-                console.warn(`[Garage] Failed to add tooltip to item ${i}:`, e);
-            }
-            
-            this.itemList!.addControl(itemContainer);
-            
-            // Индикатор "NEW" в терминальном стиле - улучшенный
-            if (!("level" in item)) {
-                const part = item as TankPart;
-                // Показываем "NEW" если предмет разблокирован, но еще не выбран
-                if (part.unlocked && !isSelected) {
-                    const newBadge = new Rectangle(`newBadge_${i}`);
-                    newBadge.width = "50px";
-                    newBadge.height = "18px";
-                    newBadge.cornerRadius = 0;
-                    newBadge.thickness = 1;
-                    newBadge.color = "#ff0";
-                    newBadge.background = "rgba(255, 255, 0, 0.2)";
-                    newBadge.left = "-400px";
-                    newBadge.top = "-47px";
-                    newBadge.zIndex = 10;
-                    itemContainer.addControl(newBadge);
-                    
-                    const newText = new TextBlock(`newText_${i}`);
-                    newText.text = "NEW";
-                    newText.color = "#ff0";
-                    newText.fontSize = 10;
-                    newText.fontFamily = "Consolas, Monaco, monospace";
-                    newText.fontWeight = "bold";
-                    newText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-                    newBadge.addControl(newText);
-                }
-            }
-            
-            // Item name with selection indicator and level - улучшенный с иконками
-            const nameText = new TextBlock(`itemName_${i}`);
-            let namePrefix = "";
-            let levelSuffix = "";
-            let icon = "";
-            
-            // Префиксы для разных типов (ASCII вместо эмодзи)
-            if (!("level" in item)) {
-                const part = item as TankPart;
-                if (part.type === "chassis") {
-                    icon = "[CH] ";
-                } else if (part.type === "barrel") {
-                    icon = "[CN] ";
-                }
-            } else {
-                icon = "[UP] ";
-            }
-            
-            if (isSelected) {
-                namePrefix = "> ";
-            } else if (!("level" in item) && (item as TankPart).unlocked) {
-                namePrefix = "+ ";
-            } else if ("level" in item && (item as TankUpgrade).level > 0) {
-                namePrefix = "+ ";
-            }
-            
-            // Показываем уровень опыта для корпусов и пушек
-            if (!("level" in item) && this.experienceSystem) {
-                const part = item as TankPart;
-                if (part.type === "chassis") {
-                    const level = this.experienceSystem.getChassisLevel(part.id);
-                    const levelInfo = this.experienceSystem.getLevelInfo(part.id, "chassis");
-                    levelSuffix = level > 1 ? ` [${levelInfo?.title || `Ур.${level}`}]` : "";
-                } else if (part.type === "barrel") {
-                    const level = this.experienceSystem.getCannonLevel(part.id);
-                    const levelInfo = this.experienceSystem.getLevelInfo(part.id, "cannon");
-                    levelSuffix = level > 1 ? ` [${levelInfo?.title || `Ур.${level}`}]` : "";
-                }
-            }
-            
-            nameText.text = `${namePrefix}${icon}${item.name}${levelSuffix}`;
-            // Улучшенная цветовая кодировка: выбранный - жёлтый, разблокированный - яркий зелёный, заблокированный - приглушённый
-            const isUnlocked = (!("level" in item) && (item as TankPart).unlocked) || (("level" in item) && (item as TankUpgrade).level > 0);
-            nameText.color = isSelected ? "#ff0" : (isUnlocked ? "#0ff0" : "#0aa");
-            nameText.fontSize = 15; // Согласно плану: названия предметов 15px
-            nameText.fontFamily = "Consolas, Monaco, monospace";
-            nameText.fontWeight = "bold";
-            nameText.left = "-400px";
-            nameText.top = "-45px";
-            nameText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            itemContainer.addControl(nameText);
-            
-            // Подсветка рекомендуемых предметов в терминальном стиле - улучшенная
-            const currency = this.currencyManager.getCurrency();
-            if (!("level" in item) && !(item as TankPart).unlocked && item.cost <= currency && item.cost > 0) {
-                const recBadge = new Rectangle(`recBadge_${i}`);
-                recBadge.width = "65px";
-                recBadge.height = "18px";
-                recBadge.cornerRadius = 0;
-                recBadge.thickness = 1;
-                recBadge.color = "#ff0";
-                recBadge.background = "rgba(255, 255, 0, 0.15)";
-                recBadge.left = "-300px";
-                recBadge.top = "-47px";
-                recBadge.zIndex = 10;
-                itemContainer.addControl(recBadge);
-                
-                const recText = new TextBlock(`recText_${i}`);
-                recText.text = "REC";
-                recText.color = "#ff0";
-                recText.fontSize = 10;
-                recText.fontFamily = "Consolas, Monaco, monospace";
-                recText.fontWeight = "bold";
-                recText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-                recBadge.addControl(recText);
-            }
-            
-            // Item description - оптимизированная статистика (детали в tooltip)
-            const descText = new TextBlock(`itemDesc_${i}`);
-            let desc = "";
-            // Показываем только ключевые параметры в компактном формате
-            if (!("level" in item)) {
-                const part = item as TankPart;
-                if (part.type === "chassis" && part.stats) {
-                    let baseHp = part.stats.health || 0;
-                    let baseSpeed = part.stats.speed || 0;
-                    if (this.experienceSystem) {
-                        const bonus = this.experienceSystem.getChassisLevelBonus(part.id);
-                        baseHp += bonus.healthBonus;
-                        baseSpeed += bonus.speedBonus;
-                    }
-                    desc = `HP: ${baseHp} | SPD: ${baseSpeed.toFixed(1)} | ARM: ${(part.stats.armor || 0).toFixed(1)}`;
-                } else if (part.type === "barrel" && part.stats) {
-                    let baseDmg = part.stats.damage || 0;
-                    let baseReload = part.stats.reload || 0;
-                    if (this.experienceSystem) {
-                        const bonus = this.experienceSystem.getCannonLevelBonus(part.id);
-                        baseDmg += bonus.damageBonus;
-                        baseReload -= bonus.reloadBonus;
-                    }
-                    desc = `DMG: ${baseDmg} | REL: ${(baseReload / 1000).toFixed(1)}s`;
-                }
-            } else {
-                const upgrade = item as TankUpgrade;
-                desc = upgrade.level > 0 ? `Lv.${upgrade.level}/${upgrade.maxLevel} +${upgrade.level * upgrade.value}` : item.description;
-            }
-            descText.text = desc;
-            descText.color = "#0ff"; // Максимально яркий цвет для лучшей читаемости описаний
-            descText.fontSize = 12; // Согласно плану: описания/статистика 12px
-            descText.fontFamily = "Consolas, Monaco, monospace";
-            descText.fontWeight = "normal";
-            descText.left = "-400px";
-            descText.top = "-25px";
-            descText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            itemContainer.addControl(descText);
-            
-            // Experience bar для корпусов и пушек
-            if (!("level" in item) && this.experienceSystem) {
-                const part = item as TankPart;
-                const expType = part.type === "chassis" ? "chassis" : "cannon";
-                const expInfo = expType === "chassis" 
-                    ? this.experienceSystem.getChassisExperience(part.id)
-                    : this.experienceSystem.getCannonExperience(part.id);
-                
-                if (expInfo) {
-                    const progressData = this.experienceSystem.getExperienceToNextLevel(expInfo);
-                    const levelInfo = this.experienceSystem.getLevelInfo(part.id, expType);
-                    
-                    // Experience bar - улучшенный с лучшей видимостью
-                    const expBarBg = new Rectangle(`expBarBg_${i}`);
-                    expBarBg.width = "200px";
-                    expBarBg.height = "10px"; // Значительно увеличен для лучшей видимости
-                    expBarBg.cornerRadius = 0;
-                    expBarBg.thickness = 2;
-                    expBarBg.color = "#0ff";
-                    expBarBg.background = "rgba(0, 0, 0, 0.9)";
-                    expBarBg.left = "-400px";
-                    expBarBg.top = "-5px";
-                    expBarBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                    itemContainer.addControl(expBarBg);
-                    
-                    // Experience bar fill - улучшенный
-                    const fillWidth = Math.max(2, progressData.progress * 196);
-                    const expBarFill = new Rectangle(`expBarFill_${i}`);
-                    expBarFill.width = `${fillWidth}px`;
-                    expBarFill.height = "8px"; // Значительно увеличен для лучшей видимости
-                    expBarFill.cornerRadius = 0;
-                    expBarFill.thickness = 0;
-                    expBarFill.background = levelInfo?.titleColor || "#0f0";
-                    expBarFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                    expBarBg.addControl(expBarFill);
-                    
-                    // Level and experience text - исправленный формат
-                    const expToNext = this.experienceSystem.getExpToNextLevel(part.id, expType);
-                    const expText = new TextBlock(`expText_${i}`);
-                    // Правильное форматирование опыта с разделителями
-                    const levelTitle = levelInfo?.title || `Lv.${expInfo.level}`;
-                    const expValue = expInfo.experience;
-                    const nextText = expToNext > 0 ? `Next: ${expToNext}` : "MAX";
-                    expText.text = `${levelTitle} | ${expValue} XP | ${nextText}`;
-                    expText.color = levelInfo?.titleColor || "#0f0";
-                    expText.fontSize = 12;
-                    expText.fontFamily = "Consolas, Monaco, monospace";
-                    expText.fontWeight = "bold";
-                    expText.left = "-190px";
-                    expText.top = "-5px";
-                    expText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                    itemContainer.addControl(expText);
-                }
-            }
-            
-            // Cost or level - оптимизированный с лучшей структурой и читаемостью
-            const costText = new TextBlock(`itemCost_${i}`);
-            if ("level" in item) {
-                const upgrade = item as TankUpgrade;
-                const canAfford = this.currencyManager.canAfford(upgrade.cost);
-                costText.text = `Lv.${upgrade.level}/${upgrade.maxLevel} | ${upgrade.cost} CR`;
-                costText.color = canAfford ? "#ff0" : "#999"; // Более заметный серый для недоступных
-            } else {
-                const part = item as TankPart;
-                if (part.unlocked) {
-                    costText.text = isSelected ? "[SELECTED]" : "[OWNED]";
-                    costText.color = isSelected ? "#ff0" : "#0ff0"; // Более яркий зелёный для owned
-                } else {
-                    const canAfford = this.currencyManager.canAfford(part.cost);
-                    costText.text = `${part.cost} CR`;
-                    costText.color = canAfford ? "#ff0" : "#999"; // Более заметный серый для недоступных
-                }
-            }
-            costText.fontSize = 14; // Значительно увеличен для лучшей читаемости
-            costText.fontFamily = "Consolas, Monaco, monospace";
-            costText.fontWeight = "bold";
-            costText.left = "360px";
-            costText.top = "-45px";
-            costText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-            itemContainer.addControl(costText);
-            
-            // Buy/Upgrade button в терминальном стиле - упрощенный
-            if (!("level" in item) || (item as TankUpgrade).level < (item as TankUpgrade).maxLevel) {
-                const canAfford = this.currencyManager.canAfford(item.cost);
-                const partUnlocked = !("level" in item) && (item as TankPart).unlocked;
-                const buyBtn = Button.CreateSimpleButton(`buy_${i}`, "level" in item ? "UPGRADE" : partUnlocked ? "OWNED" : "BUY");
-                buyBtn.width = "100px";
-                buyBtn.height = "30px";
-                buyBtn.cornerRadius = 0;
-                buyBtn.fontFamily = "Consolas, Monaco, monospace";
-                
-                if (partUnlocked) {
-                    buyBtn.color = "#0a0";
-                    buyBtn.background = "rgba(0, 255, 0, 0.05)";
-                    buyBtn.isEnabled = false;
-                } else {
-                    buyBtn.color = canAfford ? "#0ff0" : "#888"; // Более яркий зелёный для доступных, более заметный серый для недоступных
-                    buyBtn.background = canAfford ? "rgba(0, 255, 0, 0.25)" : "rgba(0, 0, 0, 0.6)";
-                    buyBtn.isEnabled = canAfford;
-                }
-                
-                buyBtn.thickness = 1;
-                buyBtn.fontSize = 10;
-                buyBtn.fontWeight = "bold";
-                buyBtn.left = "350px";
-                buyBtn.top = "25px";
-                
-            // Упрощенный hover эффект для кнопки покупки (без лишних анимаций)
-            if (canAfford && !partUnlocked) {
-                const originalBuyColor = buyBtn.color;
-                const originalBuyBg = buyBtn.background;
-                buyBtn.onPointerEnterObservable.add(() => {
-                    buyBtn.color = "#ff0";
-                    buyBtn.background = "rgba(255, 255, 0, 0.3)";
-                    buyBtn.thickness = 2;
-                });
-                buyBtn.onPointerOutObservable.add(() => {
-                    buyBtn.color = originalBuyColor;
-                    buyBtn.background = originalBuyBg;
-                    buyBtn.thickness = 1;
-                });
-                    buyBtn.onPointerClickObservable.add(() => {
-                        // Визуальный эффект при покупке
-                        const originalColor = itemContainer.color;
-                        const originalBg = itemContainer.background;
-                        itemContainer.color = "#0f0";
-                        itemContainer.background = "rgba(0, 255, 0, 0.3)";
-                        itemContainer.thickness = 3;
-                        
-                        setTimeout(() => {
-                            if (itemContainer) {
-                                itemContainer.color = originalColor;
-                                itemContainer.background = originalBg;
-                            }
-                        }, 300);
-                        
-                        this.purchaseItem(item);
-                    });
-                }
-                itemContainer.addControl(buyBtn);
-            }
-            
-            // Select button в терминальном стиле - упрощенный
-            if (!("level" in item)) {
-                const part = item as TankPart;
-                if (part.unlocked && (part.type === "chassis" || part.type === "barrel")) {
-                    const selectBtn = Button.CreateSimpleButton(`select_${i}`, isSelected ? "[✓]" : "SELECT");
-                    selectBtn.width = "90px";
-                    selectBtn.height = "30px";
-                    selectBtn.cornerRadius = 0;
-                    selectBtn.fontFamily = "Consolas, Monaco, monospace";
-                    selectBtn.color = isSelected ? "#ff0" : "#0ff";
-                    selectBtn.background = isSelected ? "rgba(255, 255, 0, 0.2)" : "rgba(0, 255, 255, 0.15)";
-                    selectBtn.thickness = 1;
-                    selectBtn.fontSize = 10;
-                    selectBtn.fontWeight = "bold";
-                    selectBtn.left = "240px";
-                    selectBtn.top = "25px";
-                    
-            // Улучшенный hover эффект для кнопки выбора с эффектом свечения
-            const originalSelectColor = selectBtn.color;
-            const originalSelectBg = selectBtn.background;
-            let selectGlowInterval: any = null;
-            selectBtn.onPointerEnterObservable.add(() => {
-                if (!isSelected) {
-                    selectBtn.color = "#0f0";
-                    selectBtn.background = "rgba(0, 255, 0, 0.25)";
-                    selectBtn.thickness = 2;
-                    // Эффект свечения при наведении
-                    let hoverGlow = 0;
-                    selectGlowInterval = setInterval(() => {
-                        hoverGlow += 0.2;
-                        if (selectBtn && selectBtn.isPointerBlocker) {
-                            selectBtn.thickness = 2 + Math.sin(hoverGlow) * 0.5;
-                        } else {
-                            if (selectGlowInterval) clearInterval(selectGlowInterval);
-                        }
-                    }, 50);
-                }
-            });
-            selectBtn.onPointerOutObservable.add(() => {
-                if (selectGlowInterval) {
-                    clearInterval(selectGlowInterval);
-                    selectGlowInterval = null;
-                }
-                if (!isSelected) {
-                    selectBtn.color = originalSelectColor;
-                    selectBtn.background = originalSelectBg;
-                    selectBtn.thickness = 1;
-                }
-            });
-                    
-                    selectBtn.onPointerClickObservable.add(() => {
-                        // Визуальный эффект при выборе
-                        const originalColor = itemContainer.color;
-                        const originalBg = itemContainer.background;
-                        itemContainer.color = "#ff0";
-                        itemContainer.background = "rgba(255, 255, 0, 0.3)";
-                        itemContainer.thickness = 3;
-                        
-                        setTimeout(() => {
-                            if (itemContainer) {
-                                itemContainer.color = originalColor;
-                                itemContainer.background = originalBg;
-                            }
-                        }, 300);
-                        
-                        this.selectPart(part);
-                        // Обновляем текущие выбранные части
-                        if (part.type === "chassis") {
-                            this.currentChassisId = part.id;
-                            this.previewChassisId = part.id;
-                        } else if (part.type === "barrel") {
-                            this.currentCannonId = part.id;
-                            this.previewCannonId = part.id;
-                        }
-                        this.updateItemList(); // Обновляем чтобы показать "ВЫБРАНО"
-                        this.updateComparisonPanel(); // Обновляем панель сравнения
-                    });
-                    itemContainer.addControl(selectBtn);
-                }
-            }
-        });
-    }
-    
-    // Покупка/улучшение предмета - с визуальными эффектами
-    private purchaseItem(item: TankPart | TankUpgrade): void {
-        if (!this.currencyManager.canAfford(item.cost)) {
-            console.log("[Garage] Not enough currency!");
-            // Показываем сообщение игроку с анимацией
-            const msgContainer = this.garageContainer!.getChildByName("messageContainer") as Rectangle;
-            const msg = msgContainer?.getChildByName("garageMessage") as TextBlock;
-            if (msg) {
-                msg.text = "[ERROR] Not enough currency!";
-                msg.color = "#f00";
-                setTimeout(() => {
-                    if (msg) msg.text = "";
-                }, 2000);
-            }
-            return;
-        }
-        
-            if (this.currencyManager.spendCurrency(item.cost)) {
-            // Звук покупки
-            if (this.soundManager) {
-                this.soundManager.playPurchase();
-            }
-            
-            // Улучшенный визуальный эффект успешной покупки с анимацией
-            const msgContainer = this.garageContainer!.getChildByName("messageContainer") as Rectangle;
-            const msg = msgContainer?.getChildByName("garageMessage") as TextBlock;
-            
-            // Упрощенный эффект для контейнера сообщения (без пульсации)
-            
-            if ("level" in item) {
-                // Upgrade
-                const upgrade = item as TankUpgrade;
-                upgrade.level++;
-                console.log(`[Garage] Upgraded ${upgrade.name} to level ${upgrade.level}`);
-                
-                // Добавляем в историю
-                this.addToHistory("upgrade", `[UP] ${upgrade.name} -> Lv.${upgrade.level}`);
-                
-                // Показываем сообщение (упрощенное, без лишних анимаций)
-                if (msg) {
-                    msg.text = `[UP] Upgraded: ${upgrade.name} (Level ${upgrade.level})`;
-                    msg.color = "#0f0";
-                    setTimeout(() => {
-                        if (msg) {
-                            msg.text = "";
-                        }
-                    }, 3000);
-                }
-                if (this.chatSystem) {
-                    this.chatSystem.success(`[UP] Upgraded: ${upgrade.name} (Level ${upgrade.level})`);
-                }
-            } else {
-                // Unlock part
-                const part = item as TankPart;
-                part.unlocked = true;
-                console.log(`[Garage] Unlocked ${part.name}`);
-                
-                // Добавляем в историю
-                this.addToHistory("purchase", `[OK] ${part.name} (${part.cost} CR)`);
-                
-                // Показываем сообщение (упрощенное, без лишних анимаций)
-                if (msg) {
-                    msg.text = `[OK] Purchased: ${part.name}`;
-                    msg.color = "#0f0";
-                    setTimeout(() => {
-                        if (msg) {
-                            msg.text = "";
-                        }
-                    }, 3000);
-                }
-                if (this.chatSystem) {
-                    this.chatSystem.economy(`[OK] Purchased: ${part.name}`);
-                }
-            }
-            
-            this.saveProgress();
-            this.updateItemList();
-            // Update currency display с улучшенной анимацией
-            const currencyText = this.garageContainer!.getChildByName("garageCurrency") as TextBlock;
-            if (currencyText) {
-                const newValue = this.currencyManager.getCurrency();
-                currencyText.text = `${newValue}`;
-                
-                // Улучшенный эффект обновления валюты с плавным изменением
-                let flash = 0;
-                const flashInterval = setInterval(() => {
-                    flash++;
-                    if (currencyText) {
-                        // Плавное изменение цвета и размера
-                        const intensity = Math.sin(flash * 0.5);
-                        currencyText.color = flash % 2 === 0 ? "#ff0" : "#fff";
-                        currencyText.fontSize = 16 + intensity * 2;
-                    }
-                    if (flash > 8) {
-                        clearInterval(flashInterval);
-                        if (currencyText) {
-                            currencyText.color = "#ff0";
-                            currencyText.fontSize = 16;
-                        }
-                    }
-                }, 80);
-            }
-            
-            // Обновляем рекомендации
-            const recPanel = this.garageContainer!.getChildByName("recommendationsPanel");
-            if (recPanel) {
-                recPanel.dispose();
-                this.createRecommendationsPanel();
-            }
-        }
-    }
-    
-    // Выбрать корпус или пушку (предпросмотр, без применения) - с визуальными эффектами
-    private selectPart(part: TankPart): void {
-        if (part.type === "chassis") {
-            this.previewChassisId = part.id;
-            console.log(`[Garage] Preview chassis: ${part.name}`);
-            
-            // Показываем сообщение (упрощенное, без лишних анимаций)
-            const msgContainer = this.garageContainer!.getChildByName("messageContainer") as Rectangle;
-            const msg = msgContainer?.getChildByName("garageMessage") as TextBlock;
-            if (msg) {
-                msg.text = `[CH] Selected chassis: ${part.name} (press APPLY to confirm)`;
-                msg.color = "#0ff";
-                setTimeout(() => {
-                    if (msg) {
-                        msg.text = "";
-                    }
-                }, 4000);
-            }
-            if (this.chatSystem) {
-                this.chatSystem.info(`[CH] Selected chassis: ${part.name}`);
-            }
-        } else if (part.type === "barrel") {
-            this.previewCannonId = part.id;
-            console.log(`[Garage] Preview cannon: ${part.name}`);
-            
-            // Показываем сообщение (упрощенное, без лишних анимаций)
-            const msgContainer = this.garageContainer!.getChildByName("messageContainer") as Rectangle;
-            const msg = msgContainer?.getChildByName("garageMessage") as TextBlock;
-            if (msg) {
-                msg.text = `[CN] Selected cannon: ${part.name} (press APPLY to confirm)`;
-                msg.color = "#0ff";
-                setTimeout(() => {
-                    if (msg) {
-                        msg.text = "";
-                    }
-                }, 4000);
-            }
-            if (this.chatSystem) {
-                this.chatSystem.info(`[CN] Selected cannon: ${part.name}`);
-            }
-        }
-        
-        // Звук выбора
-        if (this.soundManager) {
-            this.soundManager.playSelect();
-        }
-        
-        // Обновляем панель сравнения с анимацией
-        this.updateComparisonPanel();
-    }
-    
-    // Применить выбранные изменения
-    private applySelection(): void {
-        let applied = false;
-        
-        if (this.previewChassisId && this.previewChassisId !== this.currentChassisId) {
-            localStorage.setItem("selectedChassis", this.previewChassisId);
-            this.currentChassisId = this.previewChassisId;
-            applied = true;
-            
-            // Применяем сразу к танку, если он жив
-            if (this.tankController && this.tankController.isAlive) {
-                const chassisType = CHASSIS_TYPES.find(c => c.id === this.previewChassisId);
-                if (chassisType) {
-                    this.tankController.chassisType = chassisType;
-                    // Обновляем параметры танка
-                    this.tankController.moveSpeed = chassisType.moveSpeed;
-                    this.tankController.turnSpeed = chassisType.turnSpeed;
-                    this.tankController.acceleration = chassisType.acceleration;
-                    this.tankController.maxHealth = chassisType.maxHealth;
-                    // Обновляем здоровье пропорционально
-                    const healthRatio = this.tankController.currentHealth / this.tankController.maxHealth;
-                    this.tankController.currentHealth = chassisType.maxHealth * healthRatio;
-                    
-                    if (this.chatSystem) {
-                        this.chatSystem.success(`[CH] Chassis applied: ${chassisType.name}`);
-                    }
-                }
-            }
-        }
-        
-        if (this.previewCannonId && this.previewCannonId !== this.currentCannonId) {
-            localStorage.setItem("selectedCannon", this.previewCannonId);
-            this.currentCannonId = this.previewCannonId;
-            applied = true;
-            
-            // Применяем сразу к танку, если он жив
-            if (this.tankController && this.tankController.isAlive) {
-                const cannonType = CANNON_TYPES.find(c => c.id === this.previewCannonId);
-                if (cannonType) {
-                    this.tankController.cannonType = cannonType;
-                    // Обновляем параметры пушки
-                    this.tankController.cooldown = cannonType.cooldown;
-                    this.tankController.damage = cannonType.damage;
-                    this.tankController.projectileSpeed = cannonType.projectileSpeed;
-                    this.tankController.projectileSize = cannonType.projectileSize;
-                    
-                    if (this.chatSystem) {
-                        this.chatSystem.success(`[CN] Cannon applied: ${cannonType.name}`);
-                    }
-                }
-            }
-        }
-        
-        if (applied) {
-            // Звук применения
-            if (this.soundManager) {
-                this.soundManager.playPurchase();
-            }
-            
-            // Показываем сообщение с эффектом успеха
-            const msgContainer = this.garageContainer!.getChildByName("messageContainer") as Rectangle;
-            const msg = msgContainer?.getChildByName("garageMessage") as TextBlock;
-            if (msg) {
-                msg.text = "[OK] Changes applied!";
-                msg.color = "#0f0";
-                setTimeout(() => {
-                    if (msg) {
-                        msg.text = "";
-                    }
-                }, 3000);
-            }
-            
-            // Сбрасываем предпросмотр
-            this.previewChassisId = null;
-            this.previewCannonId = null;
-            
-            // Обновляем список
-            this.updateItemList();
-            this.updateComparisonPanel();
-            
-            // Обновляем превью текущего танка
-            const previewContainer = this.garageContainer!.getChildByName("tankPreviewContainer");
-            if (previewContainer) {
-                previewContainer.dispose();
-                this.createCurrentTankPreview();
-            }
-        } else {
-            // Показываем сообщение, что нечего применять
-            const msgContainer = this.garageContainer!.getChildByName("messageContainer") as Rectangle;
-            const msg = msgContainer?.getChildByName("garageMessage") as TextBlock;
-            if (msg) {
-                msg.text = "[WARN] No changes to apply";
-                msg.color = "#ff0";
-                setTimeout(() => {
-                    if (msg) msg.text = "";
-                }, 2000);
-            }
-        }
-    }
-    
-    // Создать панель сравнения в терминальном стиле
-    private createComparisonPanel(): void {
-        this.comparisonPanel = new Rectangle("comparisonPanel");
-        this.comparisonPanel.width = "480px";
-        this.comparisonPanel.height = "200px";
-        this.comparisonPanel.cornerRadius = 0;
-        this.comparisonPanel.thickness = 1;
-        this.comparisonPanel.color = "#0ff";
-        this.comparisonPanel.background = "rgba(0, 0, 0, 0.8)";
-        this.comparisonPanel.top = "-150px";
-        this.comparisonPanel.left = "20px";
-        this.garageContainer!.addControl(this.comparisonPanel);
-        
-        this.updateComparisonPanel();
-    }
-    
-    // Обновить панель сравнения с цветовыми индикаторами
-    private updateComparisonPanel(): void {
-        if (!this.comparisonPanel) return;
-        
-        // Очищаем старые элементы
-        if (this.comparisonPanel.children) {
-            this.comparisonPanel.children.forEach((child: any) => {
-                if (child.name !== "comparisonTitle") child.dispose();
-            });
-        }
-        
-        // Заголовок в терминальном стиле
-        let title = this.comparisonPanel.getChildByName("comparisonTitle") as TextBlock;
-        if (!title) {
-            title = new TextBlock("comparisonTitle");
-            title.text = "COMPARISON";
-            title.color = "#0ff";
-            title.fontSize = 12;
-            title.fontFamily = "Consolas, Monaco, monospace";
-            title.fontWeight = "bold";
-            title.top = "-65px";
-            title.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            this.comparisonPanel.addControl(title);
-            
-            // Разделительная линия
-            const titleLine = new Rectangle("comparisonTitleLine");
-            titleLine.width = "100%";
-            titleLine.height = "1px";
-            titleLine.cornerRadius = 0;
-            titleLine.thickness = 0;
-            titleLine.background = "#0ff";
-            titleLine.top = "-50px";
-            titleLine.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            this.comparisonPanel.addControl(titleLine);
-        }
-        
-        // Вспомогательная функция для получения цвета изменения
-        const getChangeColor = (diff: number, isBetter: boolean): string => {
-            if (diff === 0) return "#aaa";
-            if (isBetter) {
-                return diff > 0 ? "#0f0" : "#f00"; // Зеленый для улучшения, красный для ухудшения
-            } else {
-                return diff < 0 ? "#0f0" : "#f00"; // Для перезарядки меньше = лучше
+                if (item) this.handleItemAction(item);
             }
         };
         
-        // Вспомогательная функция для форматирования изменения (зарезервирована для будущего использования)
-        const _formatChange = (diff: number, _isBetter: boolean): string => {
-            if (diff === 0) return "";
-            const sign = diff > 0 ? "+" : "";
-            void getChangeColor; // Сохраняем ссылку
-            return ` [${sign}${diff.toFixed(1)}]`;
-        };
-        void _formatChange;
+        window.addEventListener("keydown", handler);
         
-        // Текущий корпус с бонусами от опыта
-        const currentChassis = CHASSIS_TYPES.find(c => c.id === this.currentChassisId);
-        const previewChassis = this.previewChassisId ? CHASSIS_TYPES.find(c => c.id === this.previewChassisId) : null;
-        
-        // Получаем бонусы от опыта
-        let currentChassisBonus = { healthBonus: 0, speedBonus: 0, armorBonus: 0, title: "" };
-        let previewChassisBonus = { healthBonus: 0, speedBonus: 0, armorBonus: 0, title: "" };
-        let currentCannonBonus = { damageBonus: 0, reloadBonus: 0, title: "" };
-        let previewCannonBonus = { damageBonus: 0, reloadBonus: 0, title: "" };
-        
-        if (this.experienceSystem) {
-            currentChassisBonus = this.experienceSystem.getChassisLevelBonus(this.currentChassisId) || currentChassisBonus;
-            if (this.previewChassisId) {
-                previewChassisBonus = this.experienceSystem.getChassisLevelBonus(this.previewChassisId) || previewChassisBonus;
-            }
-            currentCannonBonus = this.experienceSystem.getCannonLevelBonus(this.currentCannonId) || currentCannonBonus;
-            if (this.previewCannonId) {
-                previewCannonBonus = this.experienceSystem.getCannonLevelBonus(this.previewCannonId) || previewCannonBonus;
-            }
-        }
-        
-        if (currentChassis) {
-            const totalHp = currentChassis.maxHealth + currentChassisBonus.healthBonus;
-            const totalSpeed = currentChassis.moveSpeed + currentChassisBonus.speedBonus;
-            const expBonusText = currentChassisBonus.healthBonus > 0 ? ` (+${currentChassisBonus.healthBonus} XP)` : "";
-            const speedBonusText = currentChassisBonus.speedBonus > 0 ? ` (+${currentChassisBonus.speedBonus.toFixed(1)} XP)` : "";
-            
-            // Текущий корпус
-            const currentLabel = new TextBlock("currentChassisLabel");
-            currentLabel.text = "CURRENT:";
-            currentLabel.color = "#0f0";
-            currentLabel.fontSize = 10;
-            currentLabel.fontFamily = "Consolas, Monaco, monospace";
-            currentLabel.fontWeight = "bold";
-            currentLabel.top = "-35px";
-            currentLabel.left = "-370px";
-            this.comparisonPanel.addControl(currentLabel);
-            
-            const currentText = new TextBlock("currentChassis");
-            currentText.text = `${currentChassis.name} [${currentChassisBonus.title || "Lv.1"}] | HP: ${totalHp}${expBonusText} | Speed: ${totalSpeed.toFixed(1)}${speedBonusText}`;
-            currentText.color = "#0f0";
-            currentText.fontSize = 10;
-            currentText.fontFamily = "Consolas, Monaco, monospace";
-            currentText.top = "-35px";
-            currentText.left = "-280px";
-            this.comparisonPanel.addControl(currentText);
-            
-            if (previewChassis && previewChassis.id !== currentChassis.id) {
-                const previewTotalHp = previewChassis.maxHealth + previewChassisBonus.healthBonus;
-                const previewTotalSpeed = previewChassis.moveSpeed + previewChassisBonus.speedBonus;
-                const hpDiff = previewTotalHp - totalHp;
-                const speedDiff = previewTotalSpeed - totalSpeed;
-                
-                // Новый корпус
-                const previewLabel = new TextBlock("previewChassisLabel");
-                previewLabel.text = "NEW:";
-                previewLabel.color = "#0ff";
-                previewLabel.fontSize = 10;
-                previewLabel.fontWeight = "bold";
-                previewLabel.top = "-15px";
-                previewLabel.left = "-370px";
-                this.comparisonPanel.addControl(previewLabel);
-                
-                // HP с цветовым индикатором
-                const hpColor = getChangeColor(hpDiff, true);
-                const hpChangeText = new TextBlock("hpChange");
-                hpChangeText.text = `HP: ${previewTotalHp}`;
-                hpChangeText.color = hpColor;
-                hpChangeText.fontSize = 11;
-                hpChangeText.fontWeight = "bold";
-                hpChangeText.top = "-15px";
-                hpChangeText.left = "-280px";
-                this.comparisonPanel.addControl(hpChangeText);
-                
-                const hpDiffText = new TextBlock("hpDiff");
-                hpDiffText.text = `(${hpDiff > 0 ? "+" : ""}${hpDiff})`;
-                hpDiffText.color = hpColor;
-                hpDiffText.fontSize = 10;
-                hpDiffText.top = "-15px";
-                hpDiffText.left = "-200px";
-                this.comparisonPanel.addControl(hpDiffText);
-                
-                // Speed с цветовым индикатором
-                const speedColor = getChangeColor(speedDiff, true);
-                const speedChangeText = new TextBlock("speedChange");
-                speedChangeText.text = `Speed: ${previewTotalSpeed.toFixed(1)}`;
-                speedChangeText.color = speedColor;
-                speedChangeText.fontSize = 11;
-                speedChangeText.fontWeight = "bold";
-                speedChangeText.top = "-15px";
-                speedChangeText.left = "-120px";
-                this.comparisonPanel.addControl(speedChangeText);
-                
-                const speedDiffText = new TextBlock("speedDiff");
-                speedDiffText.text = `(${speedDiff > 0 ? "+" : ""}${speedDiff.toFixed(1)})`;
-                speedDiffText.color = speedColor;
-                speedDiffText.fontSize = 10;
-                speedDiffText.top = "-15px";
-                speedDiffText.left = "-30px";
-                this.comparisonPanel.addControl(speedDiffText);
-            }
-        }
-        
-        // Текущая пушка с бонусами от опыта
-        const currentCannon = CANNON_TYPES.find(c => c.id === this.currentCannonId);
-        const previewCannon = this.previewCannonId ? CANNON_TYPES.find(c => c.id === this.previewCannonId) : null;
-        
-        if (currentCannon) {
-            const totalDmg = currentCannon.damage + currentCannonBonus.damageBonus;
-            const totalReload = Math.max(300, currentCannon.cooldown - currentCannonBonus.reloadBonus);
-            const dmgBonusText = currentCannonBonus.damageBonus > 0 ? ` (+${currentCannonBonus.damageBonus} XP)` : "";
-            const reloadBonusText = currentCannonBonus.reloadBonus > 0 ? ` (-${currentCannonBonus.reloadBonus}ms XP)` : "";
-            
-            // Текущая пушка
-            const currentCannonLabel = new TextBlock("currentCannonLabel");
-            currentCannonLabel.text = "CURRENT:";
-            currentCannonLabel.color = "#0a0";
-            currentCannonLabel.fontSize = 10;
-            currentCannonLabel.fontWeight = "bold";
-            currentCannonLabel.top = "10px";
-            currentCannonLabel.left = "-370px";
-            this.comparisonPanel.addControl(currentCannonLabel);
-            
-            const currentCannonText = new TextBlock("currentCannon");
-            currentCannonText.text = `${currentCannon.name} [${currentCannonBonus.title || "Lv.1"}] | Damage: ${totalDmg}${dmgBonusText} | Reload: ${(totalReload / 1000).toFixed(2)}s${reloadBonusText}`;
-            currentCannonText.color = "#0a0";
-            currentCannonText.fontSize = 11;
-            currentCannonText.top = "10px";
-            currentCannonText.left = "-280px";
-            this.comparisonPanel.addControl(currentCannonText);
-            
-            if (previewCannon && previewCannon.id !== currentCannon.id) {
-                const previewTotalDmg = previewCannon.damage + previewCannonBonus.damageBonus;
-                const previewTotalReload = Math.max(300, previewCannon.cooldown - previewCannonBonus.reloadBonus);
-                const dmgDiff = previewTotalDmg - totalDmg;
-                const reloadDiff = (previewTotalReload - totalReload) / 1000;
-                
-                // Новая пушка
-                const previewCannonLabel = new TextBlock("previewCannonLabel");
-                previewCannonLabel.text = "NEW:";
-                previewCannonLabel.color = "#0ff";
-                previewCannonLabel.fontSize = 10;
-                previewCannonLabel.fontWeight = "bold";
-                previewCannonLabel.top = "30px";
-                previewCannonLabel.left = "-370px";
-                this.comparisonPanel.addControl(previewCannonLabel);
-                
-                // Damage с цветовым индикатором
-                const dmgColor = getChangeColor(dmgDiff, true);
-                const dmgChangeText = new TextBlock("dmgChange");
-                dmgChangeText.text = `Damage: ${previewTotalDmg}`;
-                dmgChangeText.color = dmgColor;
-                dmgChangeText.fontSize = 11;
-                dmgChangeText.fontWeight = "bold";
-                dmgChangeText.top = "30px";
-                dmgChangeText.left = "-280px";
-                this.comparisonPanel.addControl(dmgChangeText);
-                
-                const dmgDiffText = new TextBlock("dmgDiff");
-                dmgDiffText.text = `(${dmgDiff > 0 ? "+" : ""}${dmgDiff})`;
-                dmgDiffText.color = dmgColor;
-                dmgDiffText.fontSize = 10;
-                dmgDiffText.top = "30px";
-                dmgDiffText.left = "-200px";
-                this.comparisonPanel.addControl(dmgDiffText);
-                
-                // Reload с цветовым индикатором (меньше = лучше)
-                const reloadColor = getChangeColor(-reloadDiff * 1000, true); // Инвертируем для перезарядки
-                const reloadChangeText = new TextBlock("reloadChange");
-                reloadChangeText.text = `Reload: ${(previewTotalReload / 1000).toFixed(2)}s`;
-                reloadChangeText.color = reloadColor;
-                reloadChangeText.fontSize = 11;
-                reloadChangeText.fontWeight = "bold";
-                reloadChangeText.top = "30px";
-                reloadChangeText.left = "-120px";
-                this.comparisonPanel.addControl(reloadChangeText);
-                
-                const reloadDiffText = new TextBlock("reloadDiff");
-                reloadDiffText.text = `(${reloadDiff < 0 ? "" : "+"}${reloadDiff.toFixed(2)}s)`;
-                reloadDiffText.color = reloadColor;
-                reloadDiffText.fontSize = 10;
-                reloadDiffText.top = "30px";
-                reloadDiffText.left = "-30px";
-                this.comparisonPanel.addControl(reloadDiffText);
-            }
-        }
-        
-        // Показываем панель только если есть изменения (упрощено, без анимации)
-        const hasChanges = (this.previewChassisId && this.previewChassisId !== this.currentChassisId) ||
-                          (this.previewCannonId && this.previewCannonId !== this.currentCannonId);
-        this.comparisonPanel.isVisible = !!hasChanges;
-        this.comparisonPanel.alpha = 1.0;
+        // Store handler reference for cleanup (if needed)
+        (this as any)._keyboardHandler = handler;
     }
     
-        // Создать кнопку применения - компактная
-    private createApplyButton(): void {
-        const applyBtn = Button.CreateSimpleButton("applySelection", "APPLY [Enter]");
-        applyBtn.width = "140px";
-        applyBtn.height = "32px";
-        applyBtn.cornerRadius = 0;
-        applyBtn.fontFamily = "Consolas, Monaco, monospace";
-        applyBtn.color = "#0f0";
-        applyBtn.background = "rgba(0, 255, 0, 0.25)";
-        applyBtn.thickness = 1;
-        applyBtn.fontSize = 10;
-        applyBtn.fontWeight = "bold";
-        applyBtn.top = "318px";
-        applyBtn.left = "-80px";
-        
-        // Проверяем, есть ли изменения для применения
-        const hasChanges = (this.previewChassisId && this.previewChassisId !== this.currentChassisId) ||
-                          (this.previewCannonId && this.previewCannonId !== this.currentCannonId);
-        
-        if (!hasChanges) {
-            applyBtn.color = "#666";
-            applyBtn.background = "#001100aa";
-            (applyBtn as any).isEnabled = false;
-        }
-        
-        // Hover эффект для кнопки применения
-        applyBtn.onPointerEnterObservable.add(() => {
-            if (applyBtn.isEnabled) {
-                applyBtn.color = "#ff0";
-                applyBtn.background = "rgba(255, 255, 0, 0.3)";
-                applyBtn.thickness = 2;
-            }
-        });
-        applyBtn.onPointerOutObservable.add(() => {
-            if (applyBtn.isEnabled) {
-                applyBtn.color = "#0f0";
-                applyBtn.background = "rgba(0, 255, 0, 0.2)";
-                applyBtn.thickness = 1;
-            }
-        });
-        
-        applyBtn.onPointerClickObservable.add(() => {
-            this.applySelection();
-            // Обновляем кнопку после применения
-            const hasChangesAfter = (this.previewChassisId && this.previewChassisId !== this.currentChassisId) ||
-                                  (this.previewCannonId && this.previewCannonId !== this.currentCannonId);
-            if (!hasChangesAfter) {
-                applyBtn.color = "#666";
-                applyBtn.background = "#001100aa";
-                applyBtn.isEnabled = false;
-            }
-        });
-        this.garageContainer!.addControl(applyBtn);
-        
-        // Обновляем кнопку периодически - оптимизировано
-        setInterval(() => {
-            if (this.isOpen && applyBtn) {
-                const hasChangesNow = (this.previewChassisId && this.previewChassisId !== this.currentChassisId) ||
-                                    (this.previewCannonId && this.previewCannonId !== this.currentCannonId);
-                const shouldBeEnabled = hasChangesNow;
-                if (shouldBeEnabled !== applyBtn.isEnabled) {
-                    if (shouldBeEnabled) {
-                        applyBtn.color = "#0f0";
-                        applyBtn.background = "#002200aa";
-                        applyBtn.isEnabled = true;
-                    } else {
-                        applyBtn.color = "#666";
-                        applyBtn.background = "#001100aa";
-                        applyBtn.isEnabled = false;
-                    }
-                }
-            }
-        }, 300); // Реже проверяем для оптимизации
-    }
-    
-    // Получить текущие улучшения
-    getUpgrades(): { [stat: string]: number } {
-        const result: { [stat: string]: number } = {};
-        this.upgrades.forEach(u => {
-            if (u.level > 0) {
-                result[u.stat] = (result[u.stat] || 0) + u.level * u.value;
-            }
-        });
-        return result;
-    }
-    
-    // Проверить, открыт ли гараж
-    isGarageOpen(): boolean {
-        return this.isOpen;
-    }
-    
-    // Создать панель статистики игрока в терминальном стиле
-    private createPlayerStatsPanel(): void {
-        if (!this.playerProgression) return;
-        
-        const stats = this.playerProgression.getStats();
-        const xpProgress = this.playerProgression.getExperienceProgress();
-        
-        // Контейнер для статистики - компактный, справа от валюты
-        const statsContainer = new Rectangle("playerStatsContainer");
-        statsContainer.width = "180px";
-        statsContainer.height = "40px";
-        statsContainer.cornerRadius = 0;
-        statsContainer.thickness = 1;
-        statsContainer.color = "#0ff";
-        statsContainer.background = "rgba(0, 20, 20, 0.9)";
-        statsContainer.left = "380px";
-        statsContainer.top = "-332px";
-        this.garageContainer!.addControl(statsContainer);
-        
-        // Компактная статистика в одну строку
-        const statsText = new TextBlock("playerStatsText");
-        const kd = this.playerProgression.getKDRatio();
-        statsText.text = `Lv.${stats.level} | K/D:${kd} | ${xpProgress.current}/${xpProgress.required}XP`;
-        statsText.color = "#0ff";
-        statsText.fontSize = 10;
-        statsText.fontFamily = "Consolas, Monaco, monospace";
-        statsText.fontWeight = "normal";
-        statsText.top = "-20px";
-        statsText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        statsContainer.addControl(statsText);
-        
-        // Прогресс-бар опыта - компактный
-        const xpBarBg = new Rectangle("xpBarBg");
-        xpBarBg.width = "160px";
-        xpBarBg.height = "4px";
-        xpBarBg.background = "rgba(0, 0, 0, 0.8)";
-        xpBarBg.thickness = 1;
-        xpBarBg.color = "#0aa";
-        xpBarBg.cornerRadius = 0;
-        xpBarBg.top = "5px";
-        xpBarBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        statsContainer.addControl(xpBarBg);
-        
-        const xpBarFill = new Rectangle("xpBarFill");
-        const xpPercent = xpProgress.required > 0 ? (xpProgress.current / xpProgress.required) : 0;
-        xpBarFill.width = `${160 * Math.min(xpPercent, 1)}px`;
-        xpBarFill.height = "2px";
-        xpBarFill.cornerRadius = 0;
-        xpBarFill.background = "#0ff";
-        xpBarFill.top = "5px";
-        xpBarFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        xpBarBg.addControl(xpBarFill);
-    }
-    
-    // Обновить панель статистики игрока
-    private updatePlayerStatsPanel(): void {
-        if (!this.playerProgression || !this.garageContainer) return;
-        
-        const stats = this.playerProgression.getStats();
-        const xpProgress = this.playerProgression.getExperienceProgress();
-        const kd = this.playerProgression.getKDRatio();
-        
-        // Обновляем уровень
-        const levelText = this.garageContainer.getChildByName("playerLevel") as TextBlock;
-        if (levelText) {
-            levelText.text = `Lv.${stats.level}`;
-        }
-        
-        // Обновляем опыт
-        const xpText = this.garageContainer.getChildByName("playerXP") as TextBlock;
-        if (xpText) {
-            xpText.text = `XP: ${xpProgress.current}/${xpProgress.required}`;
-        }
-        
-        // Обновляем прогресс-бар опыта с плавной анимацией
-        const xpBarFill = this.garageContainer.getChildByName("xpBarFill") as Rectangle;
-        if (xpBarFill) {
-            const targetPercent = xpProgress.required > 0 ? (xpProgress.current / xpProgress.required) : 0;
-            const targetWidth = 180 * Math.min(targetPercent, 1);
-            const currentWidth = parseFloat(xpBarFill.width.toString().replace("px", "")) || 0;
-            
-            // Плавная интерполяция к целевому значению
-            if (Math.abs(targetWidth - currentWidth) > 1) {
-                const diff = targetWidth - currentWidth;
-                const newWidth = currentWidth + diff * 0.15; // Плавное приближение
-                xpBarFill.width = `${Math.max(0, Math.min(180, newWidth))}px`;
-            } else {
-                xpBarFill.width = `${targetWidth}px`;
-            }
-        }
-        
-        // Обновляем K/D
-        const kdText = this.garageContainer.getChildByName("playerKD") as TextBlock;
-        if (kdText) {
-            kdText.text = `K/D: ${kd}`;
-        }
-        
-        // Обновляем убийства/смерти
-        const killsDeathsText = this.garageContainer.getChildByName("killsDeaths") as TextBlock;
-        if (killsDeathsText) {
-            killsDeathsText.text = `K: ${stats.totalKills} | D: ${stats.totalDeaths}`;
-        }
-    }
-    
-    // Добавить tooltip к элементу списка - улучшенный с детальной информацией
-    private addTooltipToItem(container: Rectangle, item: TankPart | TankUpgrade, index: number): void {
-        let tooltip: Rectangle | null = null;
-        
-        // Эффект подсветки при наведении
-        container.onPointerEnterObservable.add(() => {
-            // Увеличиваем яркость контейнера
-            const originalThickness = container.thickness;
-            container.thickness = Math.min(originalThickness + 1, 4);
-            
-            // Создаем tooltip в терминальном стиле
-            tooltip = new Rectangle(`tooltip_${index}`);
-            tooltip.width = "360px";
-            tooltip.height = "220px";
-            tooltip.cornerRadius = 0;
-            tooltip.thickness = 1;
-            tooltip.color = "#0ff";
-            tooltip.background = "rgba(0, 0, 0, 0.95)";
-            tooltip.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            tooltip.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            tooltip.left = "430px";
-            tooltip.top = `${index * 115 - 80}px`;
-            tooltip.zIndex = 2000;
-            tooltip.isPointerBlocker = false;
-            
-            // Заголовок tooltip в терминальном стиле
-            const tooltipTitle = new TextBlock(`tooltipTitle_${index}`);
-            let prefix = "";
-            if (!("level" in item)) {
-                const part = item as TankPart;
-                prefix = part.type === "chassis" ? "CHASSIS: " : "CANNON: ";
-            } else {
-                prefix = "UPGRADE: ";
-            }
-            tooltipTitle.text = `${prefix}${item.name}`;
-            tooltipTitle.color = "#0ff";
-            tooltipTitle.fontSize = 12;
-            tooltipTitle.fontFamily = "Consolas, Monaco, monospace";
-            tooltipTitle.fontWeight = "bold";
-            tooltipTitle.top = "-105px";
-            tooltipTitle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            tooltip.addControl(tooltipTitle);
-            
-            // Разделительная линия
-            const tooltipLine = new Rectangle(`tooltipLine_${index}`);
-            tooltipLine.width = "100%";
-            tooltipLine.height = "1px";
-            tooltipLine.cornerRadius = 0;
-            tooltipLine.thickness = 0;
-            tooltipLine.background = "#0ff";
-            tooltipLine.top = "-100px";
-            tooltipLine.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            tooltip.addControl(tooltipLine);
-            
-            // Статус разблокированности в терминальном стиле
-            const statusText = new TextBlock(`tooltipStatus_${index}`);
-            if (!("level" in item)) {
-                const part = item as TankPart;
-                statusText.text = part.unlocked ? "[UNLOCKED]" : `[LOCKED] Cost: ${item.cost} CR`;
-                statusText.color = part.unlocked ? "#0f0" : "#f00";
-            } else {
-                const upgrade = item as TankUpgrade;
-                statusText.text = `LEVEL: ${upgrade.level}/${upgrade.maxLevel}`;
-                statusText.color = upgrade.level > 0 ? "#0f0" : "#0aa";
-            }
-            statusText.fontSize = 10;
-            statusText.fontFamily = "Consolas, Monaco, monospace";
-            statusText.top = "-90px";
-            statusText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            tooltip.addControl(statusText);
-            
-            // Описание в терминальном стиле
-            const tooltipDesc = new TextBlock(`tooltipDesc_${index}`);
-            tooltipDesc.text = item.description;
-            tooltipDesc.color = "#aaa";
-            tooltipDesc.fontSize = 11;
-            tooltipDesc.fontFamily = "Consolas, Monaco, monospace";
-            tooltipDesc.top = "-70px";
-            tooltipDesc.left = "-170px";
-            tooltipDesc.textWrapping = true;
-            tooltipDesc.resizeToFit = true;
-            tooltip.addControl(tooltipDesc);
-            
-            // Детальная статистика
-            let statsLines: string[] = [];
-            if (!("level" in item)) {
-                const part = item as TankPart;
-                if (part.type === "chassis" && part.stats) {
-                    // Получаем бонусы от опыта
-                    let baseHp = part.stats.health || 0;
-                    let baseSpeed = part.stats.speed || 0;
-                    let expBonus = "";
-                    if (this.experienceSystem) {
-                        const bonus = this.experienceSystem.getChassisLevelBonus(part.id);
-                        baseHp += bonus.healthBonus;
-                        baseSpeed += bonus.speedBonus;
-                        if (bonus.healthBonus > 0 || bonus.speedBonus > 0) {
-                            expBonus = ` (+${bonus.healthBonus} HP, +${bonus.speedBonus.toFixed(1)} SPD from XP)`;
-                        }
-                    }
-                    statsLines.push(`HP: ${baseHp}${expBonus}`);
-                    statsLines.push(`SPD: ${baseSpeed.toFixed(1)}`);
-                    statsLines.push(`ARM: ${(part.stats.armor || 0).toFixed(1)}`);
-                    
-                    // Опыт и статистика использования
-                    if (this.experienceSystem) {
-                        const expInfo = this.experienceSystem.getChassisExperience(part.id);
-                        if (expInfo) {
-                            statsLines.push(`XP: ${expInfo.experience} XP`);
-                            statsLines.push(`Kills: ${expInfo.kills}`);
-                            statsLines.push(`DMG: ${Math.round(expInfo.damageDealt)}`);
-                        }
-                    }
-                } else if (part.type === "barrel" && part.stats) {
-                    // Получаем бонусы от опыта
-                    let baseDmg = part.stats.damage || 0;
-                    let baseReload = part.stats.reload || 0;
-                    let expBonus = "";
-                    if (this.experienceSystem) {
-                        const bonus = this.experienceSystem.getCannonLevelBonus(part.id);
-                        baseDmg += bonus.damageBonus;
-                        baseReload -= bonus.reloadBonus;
-                        if (bonus.damageBonus > 0 || bonus.reloadBonus > 0) {
-                            expBonus = ` (+${bonus.damageBonus} DMG, -${bonus.reloadBonus}ms from XP)`;
-                        }
-                    }
-                    statsLines.push(`DMG: ${baseDmg}${expBonus}`);
-                    statsLines.push(`REL: ${(baseReload / 1000).toFixed(2)}s`);
-                    
-                    // Опыт и статистика использования
-                    if (this.experienceSystem) {
-                        const expInfo = this.experienceSystem.getCannonExperience(part.id);
-                        if (expInfo) {
-                            statsLines.push(`XP: ${expInfo.experience} XP`);
-                            statsLines.push(`Kills: ${expInfo.kills}`);
-                            statsLines.push(`DMG: ${Math.round(expInfo.damageDealt)}`);
-                        }
-                    }
-                }
-            } else {
-                const upgrade = item as TankUpgrade;
-                statsLines.push(`Current: ${upgrade.level * upgrade.value}${upgrade.stat === "reload" ? "ms" : ""}`);
-                statsLines.push(`Next: +${upgrade.value}${upgrade.stat === "reload" ? "ms" : ""}`);
-                statsLines.push(`Cost: ${upgrade.cost} CR`);
-            }
-            
-            // Отображаем статистику в терминальном стиле
-            statsLines.forEach((line, i) => {
-                const statLine = new TextBlock(`tooltipStat_${index}_${i}`);
-                // Убираем эмодзи и форматируем в терминальном стиле
-                let cleanLine = line.trim();
-                // Уже в правильном формате, убираем лишние замены
-                statLine.text = `> ${cleanLine}`;
-                statLine.color = "#0f0";
-                statLine.fontSize = 11;
-                statLine.fontFamily = "Consolas, Monaco, monospace";
-                statLine.top = `${-50 + i * 16}px`;
-                statLine.left = "-170px";
-                statLine.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                if (tooltip) tooltip.addControl(statLine);
-            });
-            
-            // Рекомендация в терминальном стиле
-            const currency = this.currencyManager.getCurrency();
-            if (!("level" in item) && !(item as TankPart).unlocked && item.cost <= currency) {
-                const recText = new TextBlock(`tooltipRec_${index}`);
-                recText.text = "> RECOMMENDED";
-                recText.color = "#ff0";
-                recText.fontSize = 10;
-                recText.fontFamily = "Consolas, Monaco, monospace";
-                recText.fontWeight = "bold";
-                recText.top = "100px";
-                recText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-                tooltip.addControl(recText);
-            }
-            
-            // Добавляем tooltip в контейнер списка
-            if (this.itemList) {
-                this.itemList.addControl(tooltip);
-            }
-        });
-        
-        container.onPointerOutObservable.add(() => {
-            // Восстанавливаем оригинальную толщину
-            container.thickness = Math.max(container.thickness - 1, 1);
-            
-            // Удаляем tooltip
-            if (tooltip) {
-                tooltip.dispose();
-                tooltip = null;
-            }
-        });
-    }
-    
-    // Создать превью текущего танка - улучшенное
-    private createCurrentTankPreview(): void {
-        const currentChassis = CHASSIS_TYPES.find(c => c.id === this.currentChassisId);
-        const currentCannon = CANNON_TYPES.find(c => c.id === this.currentCannonId);
-        
-        if (!currentChassis || !currentCannon) return;
-        
-        // Получаем бонусы от опыта
-        let chassisBonus = { healthBonus: 0, speedBonus: 0, armorBonus: 0, title: "" };
-        let cannonBonus = { damageBonus: 0, reloadBonus: 0, title: "" };
-        if (this.experienceSystem) {
-            chassisBonus = this.experienceSystem.getChassisLevelBonus(this.currentChassisId) || chassisBonus;
-            cannonBonus = this.experienceSystem.getCannonLevelBonus(this.currentCannonId) || cannonBonus;
-        }
-        
-        // Контейнер для превью - компактный, справа вверху
-        const previewContainer = new Rectangle("tankPreviewContainer");
-        previewContainer.width = "220px";
-        previewContainer.height = "80px";
-        previewContainer.cornerRadius = 0;
-        previewContainer.thickness = 1;
-        previewContainer.color = "#0f0";
-        previewContainer.background = "rgba(0, 0, 0, 0.8)";
-        previewContainer.left = "20px";
-        previewContainer.top = "-250px";
-        this.garageContainer!.addControl(previewContainer);
-        
-        // Заголовок в терминальном стиле - упрощенный
-        const previewTitle = new TextBlock("previewTitle");
-        previewTitle.text = "CURRENT";
-        previewTitle.color = "#0f0";
-        previewTitle.fontSize = 10;
-        previewTitle.fontFamily = "Consolas, Monaco, monospace";
-        previewTitle.fontWeight = "bold";
-        previewTitle.top = "-40px";
-        previewTitle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        previewContainer.addControl(previewTitle);
-        
-        // Название корпуса с уровнем в терминальном стиле - упрощенный
-        const chassisText = new TextBlock("currentChassis");
-        chassisText.text = `${currentChassis.name} [${chassisBonus.title || "Lv.1"}]`;
-        chassisText.color = "#0f0";
-        chassisText.fontSize = 11;
-        chassisText.fontFamily = "Consolas, Monaco, monospace";
-        chassisText.fontWeight = "bold";
-        chassisText.top = "-25px";
-        chassisText.left = "-110px";
-        previewContainer.addControl(chassisText);
-        
-        // Название пушки с уровнем в терминальном стиле - упрощенный
-        const cannonText = new TextBlock("currentCannon");
-        cannonText.text = `${currentCannon.name} [${cannonBonus.title || "Lv.1"}]`;
-        cannonText.color = "#0ff";
-        cannonText.fontSize = 11;
-        cannonText.fontFamily = "Consolas, Monaco, monospace";
-        cannonText.fontWeight = "bold";
-        cannonText.top = "-10px";
-        cannonText.left = "-110px";
-        previewContainer.addControl(cannonText);
-        
-        // Статистика с бонусами в терминальном стиле - упрощенная
-        const totalHp = currentChassis.maxHealth + chassisBonus.healthBonus;
-        const totalDmg = currentCannon.damage + cannonBonus.damageBonus;
-        const totalSpeed = currentChassis.moveSpeed + chassisBonus.speedBonus;
-        const statsText = new TextBlock("tankStats");
-        statsText.text = `HP:${totalHp} DMG:${totalDmg} SPD:${totalSpeed.toFixed(1)}`;
-        statsText.color = "#0aa";
-        statsText.fontSize = 10;
-        statsText.fontFamily = "Consolas, Monaco, monospace";
-        statsText.top = "5px";
-        statsText.left = "-110px";
-        previewContainer.addControl(statsText);
-    }
-    
-    // Создать быстрые действия (вызывается из createGarageUI)
-    public createQuickActions(): void {
-        const quickContainer = new Rectangle("quickActions");
-        quickContainer.width = "480px";
-        quickContainer.height = "40px";
-        quickContainer.cornerRadius = 0;
-        quickContainer.thickness = 0;
-        quickContainer.background = "#00000000";
-        quickContainer.top = "-150px";
-        quickContainer.left = "20px";
-        this.garageContainer!.addControl(quickContainer);
-        
-        // Быстрая покупка - компактная
-        const quickBuyBtn = Button.CreateSimpleButton("quickBuy", "QUICK BUY [F]");
-        quickBuyBtn.width = "140px";
-        quickBuyBtn.height = "28px";
-        quickBuyBtn.cornerRadius = 0;
-        quickBuyBtn.fontFamily = "Consolas, Monaco, monospace";
-        quickBuyBtn.color = "#0f0";
-        quickBuyBtn.background = "rgba(0, 255, 0, 0.2)";
-        quickBuyBtn.thickness = 1;
-        quickBuyBtn.fontSize = 9;
-        quickBuyBtn.fontWeight = "bold";
-        quickBuyBtn.left = "-230px";
-        quickBuyBtn.top = "6px";
-        
-        // Hover эффект для кнопки быстрой покупки
-        quickBuyBtn.onPointerEnterObservable.add(() => {
-            quickBuyBtn.color = "#ff0";
-            quickBuyBtn.background = "rgba(255, 255, 0, 0.25)";
-            quickBuyBtn.thickness = 2;
-        });
-        quickBuyBtn.onPointerOutObservable.add(() => {
-            quickBuyBtn.color = "#0f0";
-            quickBuyBtn.background = "rgba(0, 255, 0, 0.15)";
-            quickBuyBtn.thickness = 1;
-        });
-        
-        quickBuyBtn.onPointerClickObservable.add(() => {
-            this.quickPurchase();
-        });
-        quickContainer.addControl(quickBuyBtn);
-        
-        // Показать только доступные - компактная
-        const showAffordableBtn = Button.CreateSimpleButton("showAffordable", "AFFORDABLE");
-        showAffordableBtn.width = "120px";
-        showAffordableBtn.height = "28px";
-        showAffordableBtn.cornerRadius = 0;
-        showAffordableBtn.fontFamily = "Consolas, Monaco, monospace";
-        showAffordableBtn.color = "#0ff";
-        showAffordableBtn.background = "rgba(0, 255, 255, 0.15)";
-        showAffordableBtn.thickness = 1;
-        showAffordableBtn.fontSize = 9;
-        showAffordableBtn.left = "-70px";
-        showAffordableBtn.top = "6px";
-        
-        // Hover эффект для кнопки доступных
-        showAffordableBtn.onPointerEnterObservable.add(() => {
-            showAffordableBtn.color = "#0f0";
-            showAffordableBtn.background = "rgba(0, 255, 0, 0.2)";
-            showAffordableBtn.thickness = 2;
-        });
-        showAffordableBtn.onPointerOutObservable.add(() => {
-            showAffordableBtn.color = "#0ff";
-            showAffordableBtn.background = "rgba(0, 255, 255, 0.1)";
-            showAffordableBtn.thickness = 1;
-        });
-        
-        showAffordableBtn.onPointerClickObservable.add(() => {
-            // Показываем только то, что можем купить
-            this.filterUnlocked = false;
-            this.updateItemList();
-            // Обновляем кнопки фильтров
-            const filterAll = this.garageContainer!.getChildByName("filterAll") as Button;
-            const filterOwned = this.garageContainer!.getChildByName("filterOwned") as Button;
-            const filterLocked = this.garageContainer!.getChildByName("filterLocked") as Button;
-            if (filterAll) { filterAll.color = "#0aa"; filterAll.background = "#001122"; }
-            if (filterOwned) { filterOwned.color = "#0aa"; filterOwned.background = "#001122"; }
-            if (filterLocked) { filterLocked.color = "#0f0"; filterLocked.background = "#002200"; }
-        });
-        quickContainer.addControl(showAffordableBtn);
-        
-        // Показать статистику категории - компактная
-        const statsBtn = Button.CreateSimpleButton("categoryStats", "STATS");
-        statsBtn.width = "90px";
-        statsBtn.height = "28px";
-        statsBtn.cornerRadius = 0;
-        statsBtn.fontFamily = "Consolas, Monaco, monospace";
-        statsBtn.color = "#0aa";
-        statsBtn.background = "rgba(0, 255, 0, 0.15)";
-        statsBtn.thickness = 1;
-        statsBtn.fontSize = 9;
-        statsBtn.left = "60px";
-        statsBtn.top = "6px";
-        
-        // Hover эффект для кнопки статистики
-        statsBtn.onPointerEnterObservable.add(() => {
-            statsBtn.color = "#0ff";
-            statsBtn.background = "rgba(0, 255, 255, 0.2)";
-            statsBtn.thickness = 2;
-        });
-        statsBtn.onPointerOutObservable.add(() => {
-            statsBtn.color = "#0aa";
-            statsBtn.background = "rgba(0, 255, 0, 0.1)";
-            statsBtn.thickness = 1;
-        });
-        
-        statsBtn.onPointerClickObservable.add(() => {
-            this.showCategoryStats();
-        });
-        quickContainer.addControl(statsBtn);
-    }
-    
-    // Быстрая покупка самого дешёвого доступного предмета
-    private quickPurchase(): void {
-        const currency = this.currencyManager.getCurrency();
-        let cheapest: TankPart | TankUpgrade | null = null;
-        let cheapestCost = Infinity;
-        
-        // Ищем самый дешёвый доступный предмет в текущей категории
-        let items: (TankPart | TankUpgrade)[] = [];
-        if (this.currentCategory === "chassis") {
-            items = this.chassisParts.filter(p => !p.unlocked && p.cost <= currency);
-        } else if (this.currentCategory === "barrel") {
-            items = this.cannonParts.filter(p => !p.unlocked && p.cost <= currency);
-        } else if (this.currentCategory === "upgrades") {
-            items = this.upgrades.filter(u => u.level < u.maxLevel && u.cost <= currency);
-        }
-        
-        items.forEach(item => {
-            if (item.cost < cheapestCost) {
-                cheapestCost = item.cost;
-                cheapest = item;
-            }
-        });
-        
-        if (cheapest) {
-            this.purchaseItem(cheapest);
-            const msg = this.garageContainer!.getChildByName("garageMessage") as TextBlock;
-            if (msg) {
-                let itemName = "Unknown";
-                if (cheapest && typeof cheapest === 'object' && 'name' in cheapest) {
-                    itemName = (cheapest as { name: string }).name;
-                }
-                msg.text = `[QUICK] Quick buy: ${itemName}`;
-                msg.color = "#0f0";
-            }
-        } else {
-            const msg = this.garageContainer!.getChildByName("garageMessage") as TextBlock;
-            if (msg) {
-                msg.text = "Нет доступных предметов для покупки";
-                msg.color = "#ff0";
-                setTimeout(() => {
-                    if (msg) msg.text = "";
-                }, 2000);
-            }
-        }
-    }
-    
-    // Показать статистику категории
-    private showCategoryStats(): void {
-        let items: (TankPart | TankUpgrade)[] = [];
-        if (this.currentCategory === "chassis") {
-            items = this.chassisParts;
-        } else if (this.currentCategory === "barrel") {
-            items = this.cannonParts;
-        } else if (this.currentCategory === "upgrades") {
-            items = this.upgrades;
-        }
-        
-        const total = items.length;
-        const unlocked = items.filter(i => !("level" in i) ? (i as TankPart).unlocked : (i as TankUpgrade).level > 0).length;
-        const locked = total - unlocked;
-        const totalCost = items.filter(i => !("level" in i) ? !(i as TankPart).unlocked : (i as TankUpgrade).level < (i as TankUpgrade).maxLevel)
-            .reduce((sum, i) => sum + i.cost, 0);
-        
-        const msg = this.garageContainer!.getChildByName("garageMessage") as TextBlock;
-        if (msg) {
-            msg.text = `[STATS] Total: ${total} | Unlocked: ${unlocked} | Locked: ${locked} | Total cost: ${totalCost} CR`;
-            msg.color = "#0ff";
-            setTimeout(() => {
-                if (msg) msg.text = "";
-            }, 4000);
-        }
-    }
-    
-    // Создать панель рекомендаций в терминальном стиле
-    private createRecommendationsPanel(): void {
-        if (!this.playerProgression || !this.currencyManager) return;
-        
-        // Удаляем старую панель, если есть
-        const oldPanel = this.garageContainer!.getChildByName("recommendationsPanel");
-        if (oldPanel) {
-            oldPanel.dispose();
-        }
-        
-        const recContainer = new Rectangle("recommendationsPanel");
-        recContainer.width = "220px";
-        recContainer.height = "100px";
-        recContainer.cornerRadius = 0;
-        recContainer.thickness = 1;
-        recContainer.color = "#0ff";
-        recContainer.background = "rgba(0, 0, 0, 0.8)";
-        recContainer.left = "20px";
-        recContainer.top = "-160px";
-        this.garageContainer!.addControl(recContainer);
-        
-        const recTitle = new TextBlock("recTitle");
-        recTitle.text = "RECOMMENDED";
-        recTitle.color = "#0ff";
-        recTitle.fontSize = 10;
-        recTitle.fontFamily = "Consolas, Monaco, monospace";
-        recTitle.fontWeight = "bold";
-        recTitle.top = "-55px";
-        recTitle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        recContainer.addControl(recTitle);
-        
-        // Генерируем рекомендации с приоритетами
-        const recommendations: Array<{text: string, priority: number, action?: () => void}> = [];
-        const currency = this.currencyManager.getCurrency();
-        
-        // Рекомендация по валюте - приоритет по соотношению цена/эффективность
-        const lockedChassis = this.chassisParts.filter(p => !p.unlocked && p.cost <= currency);
-        const lockedCannons = this.cannonParts.filter(p => !p.unlocked && p.cost <= currency);
-        const availableUpgrades = this.upgrades.filter(u => u.level < u.maxLevel && u.cost <= currency);
-        
-        // Сортируем по эффективности (статистика / цена)
-        if (lockedChassis.length > 0) {
-            const best = lockedChassis.sort((a, b) => {
-                const aValue = (a.stats.health || 0) / Math.max(a.cost, 1);
-                const bValue = (b.stats.health || 0) / Math.max(b.cost, 1);
-                return bValue - aValue;
-            })[0];
-            recommendations.push({
-                text: `[CH] ${best.name} (${best.cost} CR)`,
-                priority: 3,
-                action: () => {
-                    const item = this.chassisParts.find(p => p.id === best.id);
-                    if (item) this.purchaseItem(item);
-                }
-            });
-        }
-        if (lockedCannons.length > 0) {
-            const best = lockedCannons.sort((a, b) => {
-                const aValue = (a.stats.damage || 0) / Math.max(a.cost, 1);
-                const bValue = (b.stats.damage || 0) / Math.max(b.cost, 1);
-                return bValue - aValue;
-            })[0];
-            recommendations.push({
-                text: `[CN] ${best.name} (${best.cost} CR)`,
-                priority: 3,
-                action: () => {
-                    const item = this.cannonParts.find(p => p.id === best.id);
-                    if (item) this.purchaseItem(item);
-                }
-            });
-        }
-        if (availableUpgrades.length > 0) {
-            const best = availableUpgrades.sort((a, b) => {
-                const aValue = a.value / Math.max(a.cost, 1);
-                const bValue = b.value / Math.max(b.cost, 1);
-                return bValue - aValue;
-            })[0];
-            recommendations.push({
-                text: `[UP] ${best.name} (${best.cost} CR)`,
-                priority: 2,
-                action: () => {
-                    const item = this.upgrades.find(u => u.id === best.id);
-                    if (item) this.purchaseItem(item);
-                }
-            });
-        }
-        
-        // Рекомендация по опыту (если есть предметы с низким уровнем)
-        if (this.experienceSystem) {
-            const lowLevelChassis = this.chassisParts.filter(p => {
-                if (!p.unlocked) return false;
-                const level = this.experienceSystem!.getChassisLevel(p.id);
-                return level < 3;
-            });
-            if (lowLevelChassis.length > 0) {
-                recommendations.push({
-                    text: `[XP] Use ${lowLevelChassis[0].name} to level up`,
-                    priority: 1
-                });
-            }
-        }
-        
-        if (recommendations.length === 0) {
-            recommendations.push({
-                text: "[OK] All items purchased! Great work!",
-                priority: 0
-            });
-        }
-        
-        // Сортируем по приоритету и показываем до 3 рекомендаций в терминальном стиле - упрощенные
-        recommendations.sort((a, b) => b.priority - a.priority);
-        recommendations.slice(0, 3).forEach((rec, i) => {
-            const recText = new TextBlock(`rec_${i}`);
-            recText.text = `> ${rec.text.trim()}`;
-            recText.color = rec.priority > 2 ? "#0f0" : rec.priority > 1 ? "#0aa" : "#aaa";
-            recText.fontSize = 10;
-            recText.fontFamily = "Consolas, Monaco, monospace";
-            recText.top = `${-40 + i * 18}px`;
-            recText.left = "-110px";
-            recText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            recContainer.addControl(recText);
-            
-            // Делаем кликабельными рекомендации с действиями
-            if (rec.action) {
-                recText.color = "#0ff";
-                recText.onPointerClickObservable.add(() => {
-                    if (rec.action) rec.action();
-                });
-            }
-        });
-    }
-    
-    // Обновить прогресс-бары опыта в списке предметов
-    private updateExperienceBars(): void {
-        if (!this.itemList || !this.experienceSystem) return;
-        
-        // Получаем текущий список предметов с учетом фильтров
-        let allItems: (TankPart | TankUpgrade)[] = [];
-        if (this.currentCategory === "chassis") {
-            allItems = this.chassisParts;
-        } else if (this.currentCategory === "barrel") {
-            allItems = this.cannonParts;
-        } else {
-            return; // Для upgrades нет опыта
-        }
-        
-        // Применяем фильтры (как в updateItemList)
-        let items = [...allItems];
-        if (this.searchText && this.searchText.trim() !== "") {
-            const searchLower = this.searchText.toLowerCase();
-            items = items.filter(item => 
-                item.name.toLowerCase().includes(searchLower) ||
-                item.description.toLowerCase().includes(searchLower)
-            );
-        }
-        if (this.filterUnlocked !== null) {
-            items = items.filter(item => {
-                if ("level" in item) {
-                    return this.filterUnlocked ? (item as TankUpgrade).level > 0 : (item as TankUpgrade).level === 0;
-                } else {
-                    return (item as TankPart).unlocked === this.filterUnlocked;
-                }
-            });
-        }
-        
-        // Обновляем каждый элемент в списке
-        items.forEach((item, displayIndex) => {
-            if ("level" in item) return; // Это upgrade, не часть
-            
-            const part = item as TankPart;
-            const expType = part.type === "chassis" ? "chassis" : "cannon";
-            const expInfo = expType === "chassis" 
-                ? this.experienceSystem.getChassisExperience(part.id)
-                : this.experienceSystem.getCannonExperience(part.id);
-            
-            if (!expInfo) return;
-            
-            const progressData = this.experienceSystem.getExperienceToNextLevel(expInfo);
-            const levelInfo = this.experienceSystem.getLevelInfo(part.id, expType);
-            
-            // Находим контейнер элемента по индексу отображения
-            if (!this.itemList) return;
-            const itemContainer = this.itemList.getChildByName(`item_${displayIndex}`) as Rectangle;
-            if (!itemContainer) return;
-            
-            // Обновляем прогресс-бар с плавной анимацией
-            const expBarBg = itemContainer.getChildByName(`expBarBg_${displayIndex}`) as Rectangle;
-            if (expBarBg) {
-                const expBarFill = expBarBg.getChildByName(`expBarFill_${displayIndex}`) as Rectangle;
-                if (expBarFill) {
-                    // Используем ту же ширину, что и при создании (198px для fill, 200px для bg)
-                    const targetWidth = Math.max(1, Math.min(198, progressData.progress * 198));
-                    const currentWidth = parseFloat(expBarFill.width.toString().replace("px", "")) || 0;
-                    
-                    // Плавная интерполяция к целевому значению
-                    if (Math.abs(targetWidth - currentWidth) > 0.5) {
-                        const diff = targetWidth - currentWidth;
-                        const newWidth = currentWidth + diff * 0.2; // Плавное приближение
-                        expBarFill.width = `${Math.max(1, Math.min(198, newWidth))}px`;
-                    } else {
-                        expBarFill.width = `${targetWidth}px`;
-                    }
-                    
-                    // Обновляем цвет в зависимости от уровня
-                    if (levelInfo?.titleColor) {
-                        expBarFill.background = levelInfo.titleColor;
-                    }
-                }
-            }
-            
-            // Обновляем текст опыта (правильный формат согласно плану)
-            const expText = itemContainer.getChildByName(`expText_${displayIndex}`) as TextBlock;
-            if (expText) {
-                const expToNext = this.experienceSystem.getExpToNextLevel(part.id, expType);
-                const levelTitle = levelInfo?.title || `Lv.${expInfo.level}`;
-                const expValue = expInfo.experience;
-                const nextText = expToNext > 0 ? `Next: ${expToNext}` : "MAX";
-                expText.text = `${levelTitle} | ${expValue} XP | ${nextText}`;
-            }
-            
-            // Обновляем статистику (убийства, урон)
-            const statsText = itemContainer.getChildByName(`statsText_${displayIndex}`) as TextBlock;
-            if (statsText) {
-                const deaths = (expInfo as any).deaths || 0;
-                const kdr = deaths > 0 ? (expInfo.kills / deaths).toFixed(2) : expInfo.kills > 0 ? "INF" : "0.00";
-                statsText.text = `KILLS: ${expInfo.kills} | DMG: ${Math.round(expInfo.damageDealt)} | K/D: ${kdr}`;
-            }
-            
-            // Обновляем уровень в названии
-            const nameText = itemContainer.getChildByName(`itemName_${displayIndex}`) as TextBlock;
-            if (nameText) {
-                const level = expType === "chassis" 
-                    ? this.experienceSystem.getChassisLevel(part.id)
-                    : this.experienceSystem.getCannonLevel(part.id);
-                const levelInfo = this.experienceSystem.getLevelInfo(part.id, expType);
-                const levelSuffix = level > 1 ? ` [${levelInfo?.title || `Lv.${level}`}]` : "";
-                
-                // Сохраняем префикс (ASCII формат: > или +)
-                let prefix = "";
-                let icon = "";
-                
-                // Определяем префикс и иконку как в updateItemList
-                if (!("level" in item)) {
-                    const part = item as TankPart;
-                    if (part.type === "chassis") {
-                        icon = "[CH] ";
-                    } else if (part.type === "barrel") {
-                        icon = "[CN] ";
-                    }
-                } else {
-                    icon = "[UP] ";
-                }
-                
-                const isSelected = !("level" in item) && 
-                    ((item as TankPart).type === "chassis" ? (item as TankPart).id === this.currentChassisId :
-                     (item as TankPart).type === "barrel" ? (item as TankPart).id === this.currentCannonId : false);
-                
-                if (isSelected) {
-                    prefix = "> ";
-                } else if (!("level" in item) && (item as TankPart).unlocked) {
-                    prefix = "+ ";
-                }
-                
-                nameText.text = `${prefix}${icon}${item.name}${levelSuffix}`;
-            }
-        });
-    }
-    
-    // Получить GUI texture для проверки видимости
-    getGUI(): AdvancedDynamicTexture | null {
-        return this.guiTexture;
-    }
-    
-    // Подсветить выбранный элемент (клавиатурная навигация)
-    private highlightSelectedItem(): void {
-        if (!this.itemList) return;
-        
-        // Обновляем все элементы для подсветки выбранного
-        this.itemList.children.forEach((child: any) => {
-            if (child.name && child.name.startsWith("item_")) {
-                const itemIndex = parseInt(child.name.split("_")[1]);
-                const isKeyboardSelected = itemIndex === this.selectedItemIndex;
-                const item = this.filteredItems[itemIndex];
-                
-                if (item) {
-                    let isSelected = false;
-                    if (!("level" in item)) {
-                        const part = item as TankPart;
-                        if (part.type === "chassis") {
-                            isSelected = part.id === this.currentChassisId;
-                        } else if (part.type === "barrel") {
-                            isSelected = part.id === this.currentCannonId;
-                        }
-                    }
-                    
-                    // Обновляем цвета в зависимости от состояния - улучшенная визуальная обратная связь
-                    if (isSelected) {
-                        child.color = "#ff0";
-                        child.background = "rgba(255, 255, 0, 0.25)"; // Более заметный фон
-                        child.thickness = 3; // Увеличенная толщина для акцента
-                    } else if (isKeyboardSelected) {
-                        child.color = "#0ff";
-                        child.background = "rgba(0, 255, 255, 0.3)"; // Более заметный фон для клавиатурной навигации
-                        child.thickness = 3; // Увеличенная толщина для акцента
-                    } else if ((!("level" in item) && (item as TankPart).unlocked) || (("level" in item) && (item as TankUpgrade).level > 0)) {
-                        child.color = "#0f0";
-                        child.background = "rgba(0, 255, 0, 0.08)";
-                        child.thickness = 1;
-                    } else {
-                        child.color = "#055";
-                        child.background = "rgba(0, 0, 0, 0.6)";
-                        child.thickness = 1;
-                    }
-                }
-            }
-        });
-    }
-    
-    // Прокрутить к выбранному элементу
-    private scrollToSelectedItem(): void {
-        if (!this.scrollViewer || !this.itemList || this.selectedItemIndex < 0) return;
-        
-        const itemHeight = 100;
-        const spacing = 10; // Обновлено для соответствия новому spacing
-        const itemTop = this.selectedItemIndex * (itemHeight + spacing);
-        const scrollViewerHeight = 450;
-        
-        // Вычисляем позицию прокрутки
-        const scrollPosition = Math.max(0, itemTop - scrollViewerHeight / 2 + itemHeight / 2);
-        
-        // Устанавливаем позицию прокрутки
-        if (this.scrollViewer.verticalBar) {
-            const maxScroll = Math.max(0, (this.itemList.heightInPixels || 0) - scrollViewerHeight);
-            const normalizedScroll = maxScroll > 0 ? scrollPosition / maxScroll : 0;
-            this.scrollViewer.verticalBar.value = Math.max(0, Math.min(1, normalizedScroll));
-        }
-    }
-    
-    // Создать визуальные прогресс-бары для статистики (используется в updateItemList)
-    public createStatBars(container: Rectangle, index: number, stats: { [key: string]: { value: number, max: number, diff: number, label: string } }): void {
-        const barY = 60;
-        const barWidth = 150;
-        const barHeight = 6;
-        let barIndex = 0;
-        
-        Object.entries(stats).forEach(([key, stat]) => {
-            const percent = Math.min(1, stat.value / stat.max);
-            const barX = -400 + (barIndex * (barWidth + 20));
-            
-            // Фон прогресс-бара
-            const barBg = new Rectangle(`statBarBg_${index}_${key}`);
-            barBg.width = `${barWidth}px`;
-            barBg.height = `${barHeight}px`;
-            barBg.cornerRadius = 0;
-            barBg.thickness = 1;
-            barBg.color = "#0a0";
-            barBg.background = "rgba(0, 0, 0, 0.8)";
-            barBg.left = `${barX}px`;
-            barBg.top = `${barY}px`;
-            barBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            container.addControl(barBg);
-            
-            // Заполнение прогресс-бара
-            const barFill = new Rectangle(`statBarFill_${index}_${key}`);
-            barFill.width = `${barWidth * percent}px`;
-            barFill.height = `${barHeight - 2}px`;
-            barFill.cornerRadius = 0;
-            barFill.thickness = 0;
-            // Цвет зависит от разницы: зеленый если лучше, красный если хуже
-            if (stat.diff > 0) {
-                barFill.background = "#0f0"; // Улучшение
-            } else if (stat.diff < 0) {
-                barFill.background = "#f00"; // Ухудшение
-            } else {
-                barFill.background = "#0aa"; // Без изменений
-            }
-            barFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            barBg.addControl(barFill);
-            
-            // Текст со значением и индикатором изменения
-            const statText = new TextBlock(`statText_${index}_${key}`);
-            let diffIcon = "";
-            if (stat.diff > 0) diffIcon = " ↑";
-            else if (stat.diff < 0) diffIcon = " ↓";
-            statText.text = `${stat.label}: ${stat.value.toFixed(stat.label === "Reload" ? 1 : 0)}${diffIcon}`;
-            statText.color = stat.diff > 0 ? "#0f0" : stat.diff < 0 ? "#f00" : "#aaa";
-            statText.fontSize = 10;
-            statText.fontFamily = "Consolas, Monaco, monospace";
-            statText.left = `${barX}px`;
-            statText.top = `${barY - 12}px`;
-            statText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            container.addControl(statText);
-            
-            barIndex++;
-        });
-    }
-    
-    // Добавить действие в историю
-    private addToHistory(type: string, text: string): void {
-        this.actionHistory.unshift({
-            type,
-            text,
-            timestamp: Date.now()
-        });
-        
-        // Ограничиваем размер истории
-        if (this.actionHistory.length > this.maxHistoryItems) {
-            this.actionHistory = this.actionHistory.slice(0, this.maxHistoryItems);
-        }
-        
-        // Обновляем панель истории
-        this.updateActionHistoryPanel();
-    }
-    
-    // Создать панель истории действий (вызывается из createGarageUI)
-    public createActionHistoryPanel(): void {
-        const historyContainer = new Rectangle("actionHistoryPanel");
-        historyContainer.width = "220px";
-        historyContainer.height = "90px";
-        historyContainer.cornerRadius = 0;
-        historyContainer.thickness = 1;
-        historyContainer.color = "#0aa";
-        historyContainer.background = "rgba(0, 0, 0, 0.8)";
-        historyContainer.left = "20px";
-        historyContainer.top = "-50px";
-        this.garageContainer!.addControl(historyContainer);
-        
-        const historyTitle = new TextBlock("historyTitle");
-        historyTitle.text = "ACTIONS";
-        historyTitle.color = "#0aa";
-        historyTitle.fontSize = 10;
-        historyTitle.fontFamily = "Consolas, Monaco, monospace";
-        historyTitle.fontWeight = "bold";
-        historyTitle.top = "-45px";
-        historyTitle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        historyContainer.addControl(historyTitle);
-        
-        // Контейнер для элементов истории - упрощенный
-        const historyList = new Rectangle("historyList");
-        historyList.width = "220px";
-        historyList.height = "80px";
-        historyList.cornerRadius = 0;
-        historyList.thickness = 0;
-        historyList.background = "#00000000";
-        historyList.top = "-35px";
-        historyContainer.addControl(historyList);
-        
-        this.updateActionHistoryPanel();
-    }
-    
-    // Обновить панель истории действий
-    private updateActionHistoryPanel(): void {
-        if (!this.garageContainer) return;
-        
-        const historyList = this.garageContainer.getChildByName("historyList") as Rectangle;
-        if (!historyList) return;
-        
-        // Очищаем старые элементы
-        if (historyList.children) {
-            historyList.children.forEach((child: any) => child.dispose());
-        }
-        
-        // Добавляем элементы истории - упрощенные (максимум 4)
-        this.actionHistory.slice(0, 4).forEach((action, i) => {
-            const historyItem = new TextBlock(`historyItem_${i}`);
-            const timeAgo = Math.floor((Date.now() - action.timestamp) / 1000);
-            const timeText = timeAgo < 60 ? `${timeAgo}s` : `${Math.floor(timeAgo / 60)}m`;
-            historyItem.text = `${action.text.trim()} [${timeText}]`;
-            historyItem.color = action.type === "purchase" ? "#0f0" : action.type === "upgrade" ? "#0ff" : "#aaa";
-            historyItem.fontSize = 10;
-            historyItem.fontFamily = "Consolas, Monaco, monospace";
-            historyItem.top = `${i * 16}px`;
-            historyItem.left = "-110px";
-            historyItem.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            historyList.addControl(historyItem);
-        });
-        
-        // Если истории нет, показываем сообщение
-        if (this.actionHistory.length === 0) {
-            const emptyText = new TextBlock("historyEmpty");
-            emptyText.text = "No actions";
-            emptyText.color = "#666";
-            emptyText.fontSize = 10;
-            emptyText.fontFamily = "Consolas, Monaco, monospace";
-            emptyText.top = "35px";
-            emptyText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            historyList.addControl(emptyText);
-        }
-    }
-    
-    // Упрощенный визуальный эффект при покупке (без лишних анимаций, используется при покупке)
-    public createPurchaseEffect(container: Rectangle | null, color: string): void {
-        if (!container || !this.garageContainer) return;
-        
-        // Простая вспышка без частиц
-        const originalBg = container.background;
-        const flashColor = color === "#0f0" ? "rgba(0, 255, 0, 0.3)" : "rgba(255, 255, 0, 0.3)";
-        container.background = flashColor;
-        setTimeout(() => {
-            if (container) container.background = originalBg;
-        }, 200);
+    private scrollToSelected(): void {
+        if (!this.scrollViewer || this.selectedItemIndex < 0) return;
+        
+        const itemHeight = 70;
+        const spacing = 5;
+        const scrollPos = this.selectedItemIndex * (itemHeight + spacing);
+        
+        // Scroll to make selected item visible
+        this.scrollViewer.verticalBar.value = Math.max(0, Math.min(1, scrollPos / (this.filteredItems.length * (itemHeight + spacing))));
     }
 }

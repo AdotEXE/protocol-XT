@@ -1517,7 +1517,8 @@ export class EnemyTank {
                 if (dist < 3.5) {
                     hasHit = true;
                     console.log(`[EnemyTank ${this.id}] HIT PLAYER! Damage: ${damage}`);
-                    (target as any).takeDamage(damage);
+                    // Передаём позицию атакующего для индикатора направления урона
+                    (target as any).takeDamage(damage, this.chassis.absolutePosition.clone());
                     this.effectsManager.createExplosion(bulletPos, 0.8);
                     this.soundManager.playHit("normal", bulletPos);
                 ball.dispose();
