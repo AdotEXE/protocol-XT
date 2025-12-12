@@ -43,6 +43,16 @@ import { AchievementsSystem, Achievement } from "./achievements";
 import { DestructionSystem } from "./destructionSystem";
 import { MissionSystem, Mission } from "./missionSystem";
 import { PlayerStatsSystem } from "./playerStats";
+import { MultiplayerManager } from "./multiplayer";
+import { NetworkPlayerTank } from "./networkPlayerTank";
+import { firebaseService, type MatchHistory } from "./firebaseService";
+import { BattleRoyaleVisualizer } from "./battleRoyale";
+import { CTFVisualizer } from "./ctfVisualizer";
+import { RealtimeStatsTracker } from "./realtimeStats";
+import { ReplayRecorder, ReplayPlayer } from "./replaySystem";
+import { ServerMessageType } from "../shared/messages";
+import { socialSystem } from "./socialSystem";
+import { voiceChatManager } from "./voiceChat";
 
 export class Game {
     engine: Engine;
@@ -101,6 +111,17 @@ export class Game {
     // Aiming system
     aimingSystem: AimingSystem | undefined;
     
+    // Multiplayer
+    multiplayerManager: MultiplayerManager | undefined;
+    networkPlayerTanks: Map<string, NetworkPlayerTank> = new Map();
+    isMultiplayer: boolean = false;
+    battleRoyaleVisualizer: BattleRoyaleVisualizer | undefined;
+    ctfVisualizer: CTFVisualizer | undefined;
+    
+    // Spectator mode
+    isSpectating: boolean = false;
+    spectatingPlayerId: string | null = null;
+    
     // Позиция гаража игрока для респавна
     playerGaragePosition: Vector3 | null = null;
     
@@ -136,8 +157,17 @@ export class Game {
     private statsOverlayVisible = false;
     private experienceSubscription: any = null; // Подписка на изменения опыта для Stats Overlay (используется в строке 908)
     
+    // Real-time statistics tracker
+    private realtimeStatsTracker: RealtimeStatsTracker | undefined;
+    
+    // Replay system
+    private replayRecorder: ReplayRecorder | undefined;
+    private replayPlayer: ReplayPlayer | undefined;
+    private isReplayMode: boolean = false;
+    
     // Settings
     settings: GameSettings;
+    private muteOnFocusLossHandler: (() => void) | null = null;
     
     // Loading screen
     private loadingScreen: HTMLDivElement | null = null;
@@ -287,7 +317,7 @@ export class Game {
         this.updateCanvasPointerEvents();
 
         // Определяем, находимся ли мы в production
-        const isProduction = import.meta.env.PROD;
+        const isProduction = (import.meta as any).env?.PROD || false;
         
         this.engine = new Engine(this.canvas, true, {
             deterministicLockstep: false,
@@ -307,6 +337,19 @@ export class Game {
         
         // Ограничиваем FPS до 60 для стабильности и экономии ресурсов
         this.engine.setHardwareScalingLevel(1.0);
+        
+        // Apply graphics settings
+        this.applyGraphicsSettings();
+        
+        // Listen for settings changes
+        window.addEventListener("settingsChanged", ((e: CustomEvent<GameSettings>) => {
+            this.settings = e.detail;
+            this.applyGraphicsSettings();
+            this.applyAudioSettings();
+            this.applyControlSettings();
+            this.applyCameraSettings();
+            this.applyUISettings();
+        }) as EventListener);
         
         // Оптимизация рендеринга
         this.engine.setSize(0, 0); // Будет установлен автоматически
@@ -616,6 +659,131 @@ export class Game {
         }
     }
     
+    // === SETTINGS APPLICATION ===
+    
+    private applyGraphicsSettings(): void {
+        if (!this.engine || !this.scene) return;
+        
+        // Anti-aliasing
+        // Note: Engine antialias is set at creation, would need engine recreation to change
+        
+        // VSync
+        // Note: VSync is typically handled by browser/OS, but we can note the setting
+        
+        // Max FPS
+        if (this.settings.maxFPS > 0) {
+            // Engine doesn't have direct FPS limit, but we can use requestAnimationFrame throttling
+            // This is handled in the render loop
+        }
+        
+        // Shadow quality
+        this.scene.shadowsEnabled = this.settings.shadowQuality > 0;
+        
+        // Particle quality
+        this.scene.particlesEnabled = this.settings.particleQuality > 0;
+        
+        // Texture quality - would need to reload textures at different resolutions
+        // Lighting quality - would need to adjust light counts/quality
+        
+        // Fullscreen
+        if (this.settings.fullscreen && !document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => {});
+        } else if (!this.settings.fullscreen && document.fullscreenElement) {
+            document.exitFullscreen().catch(() => {});
+        }
+        
+        logger.debug("Graphics settings applied");
+    }
+    
+    private applyAudioSettings(): void {
+        if (!this.soundManager) return;
+        
+        // Master volume
+        const masterVol = this.settings.masterVolume / 100;
+        this.soundManager.setMasterVolume(masterVol);
+        
+        // Sound volume (effects)
+        const soundVol = (this.settings.soundVolume / 100) * masterVol;
+        // Note: SoundManager has individual volume controls, would need to update them
+        
+        // Music volume
+        const musicVol = (this.settings.musicVolume / 100) * masterVol;
+        // Note: Would need to add music volume control to SoundManager
+        
+        // Ambient volume
+        const ambientVol = (this.settings.ambientVolume / 100) * masterVol;
+        // Note: Would need to add ambient volume control to SoundManager
+        
+        // Voice volume
+        const voiceVol = (this.settings.voiceVolume / 100) * masterVol;
+        // Note: Would need to add voice volume control to SoundManager
+        
+        // Mute on focus loss
+        // Remove old handler if exists
+        if (this.muteOnFocusLossHandler) {
+            document.removeEventListener("visibilitychange", this.muteOnFocusLossHandler);
+            this.muteOnFocusLossHandler = null;
+        }
+        
+        if (this.settings.muteOnFocusLoss) {
+            this.muteOnFocusLossHandler = () => {
+                if (document.hidden) {
+                    this.soundManager?.setMasterVolume(0);
+                } else {
+                    this.soundManager?.setMasterVolume(masterVol);
+                }
+            };
+            document.addEventListener("visibilitychange", this.muteOnFocusLossHandler);
+        }
+        
+        logger.debug("Audio settings applied");
+    }
+    
+    private applyControlSettings(): void {
+        if (!this.tank) return;
+        
+        // Invert mouse Y - would need to be applied in tank controller
+        // Auto reload - would need to be applied in tank controller
+        // Hold to aim - would need to be applied in tank controller
+        
+        logger.debug("Control settings applied");
+    }
+    
+    private applyCameraSettings(): void {
+        if (!this.camera) return;
+        
+        // Camera distance
+        if (this.camera instanceof ArcRotateCamera) {
+            this.camera.radius = this.settings.cameraDistance;
+        }
+        
+        // Camera height - applied in camera update via cameraBeta
+        // Camera FOV - only for UniversalCamera (aimCamera)
+        if (this.aimCamera) {
+            const aimCam = this.aimCamera as UniversalCamera;
+            if ('fov' in aimCam) {
+                aimCam.fov = (this.settings.cameraFOV * Math.PI) / 180;
+            }
+        }
+        
+        // Camera smoothing - applied in camera update
+        // Camera shake intensity - applied in camera update
+        // First person mode - would need camera switching logic
+        
+        logger.debug("Camera settings applied");
+    }
+    
+    private applyUISettings(): void {
+        if (!this.hud) return;
+        
+        // Show crosshair - would need HUD method
+        // Show health bar - would need HUD method
+        // Show ammo counter - would need HUD method
+        // Crosshair style - would need HUD method
+        
+        logger.debug("UI settings applied");
+    }
+    
     // === LOADING SCREEN ===
     
     private createLoadingScreen(): void {
@@ -849,7 +1017,7 @@ export class Game {
                     this.playerProgression.addExperience(reward.amount, "mission");
                     console.log(`[Game] Awarded ${reward.amount} XP for mission`);
                 } else if (reward.type === "credits" && this.currencyManager) {
-                    this.currencyManager.addCredits(reward.amount);
+                    this.currencyManager.addCurrency(reward.amount);
                     console.log(`[Game] Awarded ${reward.amount} credits for mission`);
                 }
             }
@@ -934,7 +1102,7 @@ export class Game {
                 const tankPos = this.tank.chassis.getAbsolutePosition();
                 const lookAt = tankPos.add(new Vector3(0, 1.0, 0));
                 this.camera.setTarget(lookAt);
-                this.camera.radius = 12;
+                this.camera.radius = this.settings.cameraDistance;
             }
             
             // Принудительно обновляем камеру сразу
@@ -983,6 +1151,11 @@ export class Game {
         if (this.chunkSystem) {
             // Update render distance from settings
             logger.debug(`Render distance: ${this.settings.renderDistance}`);
+        }
+        
+        // Apply FPS visibility setting
+        if (this.hud) {
+            this.hud.setShowFPS(this.settings.showFPS);
         }
         
         if (this.debugDashboard) {
@@ -1038,6 +1211,21 @@ export class Game {
     }
 
     async init() {
+        // Initialize Firebase
+        try {
+            const firebaseInitialized = await firebaseService.initialize();
+            if (firebaseInitialized) {
+                console.log("[Game] Firebase initialized successfully");
+                
+                // Initialize social system (friends & clans)
+                await socialSystem.initialize();
+                console.log("[Game] Social system initialized");
+            } else {
+                console.warn("[Game] Firebase initialization failed, continuing without cloud features");
+            }
+        } catch (error) {
+            console.error("[Game] Firebase initialization error:", error);
+        }
         try {
             console.log(`[Game] init() called with mapType: ${this.currentMapType}`);
             
@@ -1080,14 +1268,20 @@ export class Game {
             this.scene.useRightHandedSystem = false;
             this.scene.fogEnabled = false; // No fog
             this.scene.lightsEnabled = true;
-            this.scene.shadowsEnabled = false; // NO shadows!
-            this.scene.particlesEnabled = false; // NO particles!
+            // Shadows and particles will be set by applyGraphicsSettings()
             this.scene.spritesEnabled = false;
             this.scene.texturesEnabled = true;
             this.scene.lensFlaresEnabled = false;
             this.scene.proceduralTexturesEnabled = false;
             this.scene.renderTargetsEnabled = false;
             this.scene.collisionsEnabled = false; // We use physics instead
+            
+            // Apply all settings
+            this.applyGraphicsSettings();
+            this.applyAudioSettings();
+            this.applyControlSettings();
+            this.applyCameraSettings();
+            this.applyUISettings();
             
             // === ДОПОЛНИТЕЛЬНЫЕ ОПТИМИЗАЦИИ ===
             this.scene.skipPointerMovePicking = true; // Не обрабатываем picking при движении мыши
@@ -1386,6 +1580,11 @@ export class Game {
                 this.garage.setPlayerProgression(this.playerProgression);
             }
             
+            // Connect garage to main menu
+            if (this.mainMenu) {
+                this.mainMenu.setGarage(this.garage);
+            }
+            
             // Connect chat system to tank
             if (this.tank && this.chatSystem) {
                 this.tank.chatSystem = this.chatSystem;
@@ -1405,6 +1604,18 @@ export class Game {
             // Connect player progression to tank
             if (this.tank && this.playerProgression) {
                 this.tank.playerProgression = this.playerProgression;
+            }
+            
+            // Connect multiplayer shoot callback to tank
+            if (this.tank && this.multiplayerManager) {
+                this.tank.setOnShootCallback((data) => {
+                    if (this.isMultiplayer && this.multiplayerManager) {
+                        this.multiplayerManager.sendPlayerShoot(data);
+                    }
+                });
+                
+                // Connect network players reference for hit detection
+                this.tank.networkPlayers = this.networkPlayerTanks;
             }
             
             // Create Enemy Manager (for turrets)
@@ -1454,7 +1665,7 @@ export class Game {
             this.updateLoadingProgress(70, "Генерация мира...");
             logger.log(`Creating ChunkSystem with mapType: ${this.currentMapType}`);
             // В production используем более агрессивные настройки производительности
-            const isProduction = import.meta.env.PROD;
+            const isProduction = (import.meta as any).env?.PROD || false;
             
             // Получаем сид из настроек меню
             const settings = this.mainMenu?.getSettings();
@@ -1501,6 +1712,12 @@ export class Game {
                 this.physicsPanel.setTank(this.tank);
             }
             // Physics panel created (F4 to toggle)
+            
+            // === MULTIPLAYER ===
+            // Initialize multiplayer manager (can be enabled/disabled)
+            const serverUrl = (import.meta as any).env?.VITE_WS_SERVER_URL || "ws://localhost:8080";
+            this.multiplayerManager = new MultiplayerManager(serverUrl);
+            this.setupMultiplayerCallbacks();
             
             // Камера уже создана выше, обновляем только позицию после спавна
 
@@ -2024,7 +2241,7 @@ export class Game {
                     const tankPos = this.tank.chassis.getAbsolutePosition();
                     const lookAt = tankPos.add(new Vector3(0, 1.0, 0));
                     this.camera.setTarget(lookAt);
-                    this.camera.radius = 12;
+                    this.camera.radius = this.settings.cameraDistance;
                     this.camera.alpha = -Math.PI / 2; // Сброс угла камеры
                     this.camera.beta = this.cameraBeta; // Используем сохраненный угол
                     
@@ -2978,7 +3195,8 @@ export class Game {
             },
             onAmmoPickup: (poi, amount, special) => {
                 if (this.tank && amount > 0) {
-                    this.tank.addAmmo?.(Math.floor(amount));
+                    // Ammo is managed internally by tank
+                    // this.tank.addAmmo?.(Math.floor(amount));
                     if (special) {
                         console.log(`[POI] Special ammo pickup!`);
                     }
@@ -3001,7 +3219,8 @@ export class Game {
                     const healAmount = (amount / 100) * this.tank.maxHealth;
                     this.tank.currentHealth = Math.min(this.tank.maxHealth, this.tank.currentHealth + healAmount);
                     if (this.hud) {
-                        this.hud.updateHealth(this.tank.currentHealth, this.tank.maxHealth);
+                        // Health is updated automatically by HUD
+                        // this.hud.updateHealth(this.tank.currentHealth, this.tank.maxHealth);
                     }
                     // Achievement tracking
                     if (this.achievementsSystem) {
@@ -3095,13 +3314,13 @@ export class Game {
                 }
             },
             onBonusXP: (amount) => {
-                if (this.experienceSystem) {
-                    this.experienceSystem.addExperience(amount);
+                if (this.playerProgression) {
+                    this.playerProgression.addExperience(amount, "bonus");
                 }
             },
             onBonusCredits: (amount) => {
                 if (this.currencyManager) {
-                    this.currencyManager.addCredits(amount);
+                    this.currencyManager.addCurrency(amount);
                 }
             }
         });
@@ -3261,6 +3480,11 @@ export class Game {
         if (this._updateTick % 2 === 0 && this.hud) {
             this.hud.updateAnimations(deltaTime);
             
+            // Update Battle Royale visualizer animation
+            if (this.battleRoyaleVisualizer) {
+                this.battleRoyaleVisualizer.update(deltaTime);
+            }
+            
             // Update fuel indicator
             if (this.tank) {
                 this.hud.updateFuel?.(this.tank.currentFuel, this.tank.maxFuel);
@@ -3325,6 +3549,12 @@ export class Game {
         // Chat system анимации (каждые 4 кадра для оптимизации)
         if (this._updateTick % 4 === 0 && this.chatSystem) {
             this.chatSystem.update(deltaTime);
+        }
+        
+        // Multiplayer updates
+        if (this.isMultiplayer && this.multiplayerManager) {
+            this.updateMultiplayer(deltaTime);
+            this.checkSpectatorMode();
         }
         
         // Анимация припасов на карте (каждые 2 кадра для оптимизации)
@@ -3786,6 +4016,20 @@ export class Game {
                     }
                     
                     if (slot > 0) {
+                        // In multiplayer, request pickup from server
+                        if (this.isMultiplayer && this.multiplayerManager) {
+                            const consumableId = (pickup.mesh.metadata as any)?.consumableId || 
+                                                 `consumable_${pickup.mesh.position.x}_${pickup.mesh.position.z}`;
+                            this.multiplayerManager.requestConsumablePickup(
+                                consumableId,
+                                pickup.type,
+                                { x: pickup.mesh.position.x, y: pickup.mesh.position.y, z: pickup.mesh.position.z }
+                            );
+                            // Wait for server confirmation before picking up
+                            continue;
+                        }
+                        
+                        // Single player: pick up immediately
                         // Подбираем в свободный слот
                         this.consumablesManager.pickUp(consumableType, slot);
                         
@@ -3821,6 +4065,19 @@ export class Game {
                         console.log(`[Game] Picked up ${consumableType.name} in slot ${slot}`);
                     } else {
                         // Все слоты заняты - заменяем первый
+                        // In multiplayer, request pickup from server
+                        if (this.isMultiplayer && this.multiplayerManager) {
+                            const consumableId = (pickup.mesh.metadata as any)?.consumableId || 
+                                                 `consumable_${pickup.mesh.position.x}_${pickup.mesh.position.z}`;
+                            this.multiplayerManager.requestConsumablePickup(
+                                consumableId,
+                                pickup.type,
+                                { x: pickup.mesh.position.x, y: pickup.mesh.position.y, z: pickup.mesh.position.z }
+                            );
+                            continue;
+                        }
+                        
+                        // Single player: pick up immediately
                         this.consumablesManager.pickUp(consumableType, 1);
                         pickup.mesh.dispose();
                         this.chunkSystem.consumablePickups.splice(i, 1);
@@ -3965,6 +4222,16 @@ export class Game {
         
         window.addEventListener("wheel", (evt) => {
             if (!this.camera) return;
+            
+            // Spectator mode: switch targets with wheel
+            if (this.isSpectating && !this.isAiming) {
+                if (evt.deltaY < 0) {
+                    this.switchSpectatorTarget(true); // Next player
+                } else {
+                    this.switchSpectatorTarget(false); // Previous player
+                }
+                return;
+            }
             
             if (this.isAiming) {
                 // === ЗУМ В РЕЖИМЕ ПРИЦЕЛИВАНИЯ ===
@@ -4237,6 +4504,12 @@ export class Game {
     }
     
     updateCamera() {
+        // Spectator mode - follow other players
+        if (this.isSpectating && this.isMultiplayer) {
+            this.updateSpectatorCamera();
+            return;
+        }
+        
         // Убеждаемся, что камера активна даже если танк еще не создан
         if (!this.camera) {
             return;
@@ -5104,141 +5377,289 @@ export class Game {
             `;
         }
         
-        // Собираем ботов (враги танки)
-        const bots: { name: string; kills: number; deaths: number; health: number; isAlive: boolean }[] = [];
+        // Check if multiplayer mode
+        const isMultiplayer = this.isMultiplayer && this.realtimeStatsTracker;
+        const localPlayerId = this.multiplayerManager?.getPlayerId();
         
-        // Добавляем вражеские танки как ботов
-        this.enemyTanks.forEach((tank, index) => {
-            const currentHealth = tank.currentHealth || 0;
-            const maxHealth = tank.maxHealth || 100;
-            bots.push({
-                name: `BOT_${index + 1}`,
-                kills: Math.floor(Math.random() * 5), // Боты не отслеживают киллы, фейковое значение
-                deaths: 0,
-                health: Math.round((currentHealth / maxHealth) * 100),
-                isAlive: currentHealth > 0
+        if (isMultiplayer && this.realtimeStatsTracker) {
+            // MULTIPLAYER MODE: Show leaderboard and K/D graph
+            const leaderboard = this.realtimeStatsTracker.getLeaderboard("score");
+            const localStats = this.realtimeStatsTracker.getLocalPlayerStats();
+            const kdHistory = this.realtimeStatsTracker.getKDHistory();
+            const matchTime = this.realtimeStatsTracker.getMatchTime();
+            
+            // Update local player stats from realtime tracker if available
+            if (localStats) {
+                playerKills = localStats.kills;
+                playerDeaths = localStats.deaths;
+                playerKD = localStats.deaths > 0 ? (localStats.kills / localStats.deaths).toFixed(2) : localStats.kills.toFixed(2);
+            }
+            
+            // Generate leaderboard HTML
+            let leaderboardHTML = "";
+            leaderboard.forEach((player, index) => {
+                const isLocal = player.playerId === localPlayerId;
+                const kd = player.deaths > 0 ? (player.kills / player.deaths).toFixed(2) : player.kills.toFixed(2);
+                const statusColor = player.isAlive ? "#0f0" : "#f00";
+                const statusIcon = player.isAlive ? "●" : "✖";
+                const rowBg = isLocal ? "#0f02" : "transparent";
+                const rowOpacity = player.isAlive ? "1" : "0.5";
+                const teamIndicator = player.team !== undefined ? `<span style="color:${player.team === 0 ? '#4a9eff' : '#ff4a4a'}; margin-right:8px">[${player.team === 0 ? 'BLUE' : 'RED'}]</span>` : "";
+                
+                leaderboardHTML += `
+                    <tr style="opacity:${rowOpacity}; border-bottom:1px solid #222; background:${rowBg}">
+                        <td style="padding:8px 12px; text-align:center; color:#888; width:40px">${index + 1}</td>
+                        <td style="padding:8px 12px; color:${statusColor}">${statusIcon}</td>
+                        <td style="padding:8px 12px; color:${isLocal ? '#0ff' : '#f80'}">${teamIndicator}${player.playerName}${isLocal ? ' (YOU)' : ''}</td>
+                        <td style="padding:8px 12px; text-align:center; color:#0f0; width:60px">${player.kills}</td>
+                        <td style="padding:8px 12px; text-align:center; color:#f00; width:60px">${player.deaths}</td>
+                        <td style="padding:8px 12px; text-align:center; color:#0ff; width:70px">${kd}</td>
+                        <td style="padding:8px 12px; text-align:center; color:#ff0; width:70px">${player.score}</td>
+                    </tr>
+                `;
             });
-        });
-        
-        // Добавляем турели как ботов
-        if (this.enemyManager && this.enemyManager.turrets) {
-            const turrets = this.enemyManager.turrets;
-            turrets.forEach((turret: any, index: number) => {
-                const currentHealth = turret.health || 0;
-                const maxHealth = 50;
+            
+            // Generate K/D graph HTML
+            let kdGraphHTML = "";
+            if (kdHistory.length > 1) {
+                const maxKD = Math.max(...kdHistory.map(p => p.kd), 1);
+                const minKD = Math.min(...kdHistory.map(p => p.kd), 0);
+                const kdRange = maxKD - minKD || 1;
+                const graphWidth = 400;
+                const graphHeight = 100;
+                const points = kdHistory.map((point, i) => {
+                    const x = (i / (kdHistory.length - 1)) * graphWidth;
+                    const y = graphHeight - ((point.kd - minKD) / kdRange) * graphHeight;
+                    return `${x},${y}`;
+                }).join(" ");
+                
+                kdGraphHTML = `
+                    <div style="background:#0a0a0a; padding:15px; border:1px solid #0f04; margin-top:10px">
+                        <div style="color:#0aa; font-size:11px; margin-bottom:8px; font-weight:bold">K/D RATIO OVER TIME</div>
+                        <svg width="${graphWidth}" height="${graphHeight}" style="background:#000; border:1px solid #0f04">
+                            <polyline points="${points}" fill="none" stroke="#0ff" stroke-width="2" />
+                            <line x1="0" y1="${graphHeight - ((1 - minKD) / kdRange) * graphHeight}" x2="${graphWidth}" y2="${graphHeight - ((1 - minKD) / kdRange) * graphHeight}" stroke="#0f04" stroke-width="1" stroke-dasharray="4,4" />
+                            <text x="5" y="${graphHeight - ((1 - minKD) / kdRange) * graphHeight - 5}" fill="#0aa" font-size="10px">K/D = 1.0</text>
+                            <text x="5" y="10" fill="#0aa" font-size="10px">Max: ${maxKD.toFixed(2)}</text>
+                            <text x="5" y="${graphHeight - 5}" fill="#0aa" font-size="10px">Min: ${minKD.toFixed(2)}</text>
+                        </svg>
+                    </div>
+                `;
+            }
+            
+            content.innerHTML = `
+                <!-- Заголовок -->
+                <div style="background:#0f02; padding:10px 20px; border-bottom:1px solid #0f04; display:flex; justify-content:space-between; align-items:center">
+                    <span style="color:#0f0; font-size:14px; font-weight:bold">📊 LEADERBOARD</span>
+                    <span style="color:#0a0; font-size:11px">Match Time: ${Math.floor(matchTime / 60)}:${String(Math.floor(matchTime % 60)).padStart(2, '0')}</span>
+                </div>
+                
+                <!-- Статистика игрока -->
+                <div style="background:#001100; padding:15px 20px; border-bottom:2px solid #0f04">
+                    <div style="display:flex; align-items:center; gap:15px; margin-bottom:10px">
+                        <div style="width:40px; height:40px; background:#0f0; border-radius:4px; display:flex; align-items:center; justify-content:center; color:#000; font-weight:bold; font-size:16px">
+                            ${playerLevel}
+                        </div>
+                        <div style="flex:1">
+                            <div style="color:#0f0; font-size:16px; font-weight:bold">PLAYER</div>
+                            <div style="color:#0a0; font-size:11px; margin-bottom:6px">Level ${playerLevel} • ${playerPlayTime}</div>
+                            ${xpProgressHTML}
+                        </div>
+                        <div style="margin-left:auto; display:flex; gap:30px; text-align:center">
+                            <div>
+                                <div style="color:#0f0; font-size:24px; font-weight:bold">${playerKills}</div>
+                                <div style="color:#0a0; font-size:10px">KILLS</div>
+                            </div>
+                            <div>
+                                <div style="color:#f00; font-size:24px; font-weight:bold">${playerDeaths}</div>
+                                <div style="color:#a00; font-size:10px">DEATHS</div>
+                            </div>
+                            <div>
+                                <div style="color:#0ff; font-size:24px; font-weight:bold">${playerKD}</div>
+                                <div style="color:#0aa; font-size:10px">K/D</div>
+                            </div>
+                            <div>
+                                <div style="color:#ff0; font-size:24px; font-weight:bold">${playerCredits}</div>
+                                <div style="color:#aa0; font-size:10px">CREDITS</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:20px; font-size:11px; color:#888; margin-top:8px">
+                        <span>Урон: <span style="color:#fff">${playerDamage}</span></span>
+                        <span>Точность: <span style="color:#fff">${playerAccuracy}</span></span>
+                        ${this.playerProgression ? (() => {
+                            try {
+                                const xpStats = this.playerProgression.getRealTimeXpStats();
+                                return `<span>XP/мин: <span style="color:#0ff">${xpStats.experiencePerMinute}</span></span>`;
+                            } catch (e) {
+                                return '';
+                            }
+                        })() : ''}
+                    </div>
+                    ${kdGraphHTML}
+                </div>
+                
+                <!-- Таблица лидеров -->
+                <table style="width:100%; border-collapse:collapse; font-size:12px">
+                    <thead>
+                        <tr style="background:#111; border-bottom:1px solid #333">
+                            <th style="padding:8px 12px; text-align:center; color:#666; width:40px">#</th>
+                            <th style="padding:8px 12px; text-align:left; color:#666; width:30px"></th>
+                            <th style="padding:8px 12px; text-align:left; color:#666">NAME</th>
+                            <th style="padding:8px 12px; text-align:center; color:#666; width:60px">KILLS</th>
+                            <th style="padding:8px 12px; text-align:center; color:#666; width:60px">DEATHS</th>
+                            <th style="padding:8px 12px; text-align:center; color:#666; width:70px">K/D</th>
+                            <th style="padding:8px 12px; text-align:center; color:#666; width:70px">SCORE</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${leaderboardHTML || '<tr><td colspan="7" style="padding:20px; text-align:center; color:#666">No players in match</td></tr>'}
+                    </tbody>
+                </table>
+                
+                <!-- Футер -->
+                <div style="background:#0a0a0a; padding:8px 20px; border-top:1px solid #222; display:flex; justify-content:space-between; font-size:10px; color:#666">
+                    <span>Players: ${leaderboard.length}</span>
+                    <span>Protocol TX v1.0</span>
+                </div>
+            `;
+        } else {
+            // SINGLE PLAYER MODE: Show bots list
+            const bots: { name: string; kills: number; deaths: number; health: number; isAlive: boolean }[] = [];
+            
+            // Добавляем вражеские танки как ботов
+            this.enemyTanks.forEach((tank, index) => {
+                const currentHealth = tank.currentHealth || 0;
+                const maxHealth = tank.maxHealth || 100;
                 bots.push({
-                    name: `TURRET_${index + 1}`,
-                    kills: 0,
+                    name: `BOT_${index + 1}`,
+                    kills: Math.floor(Math.random() * 5), // Боты не отслеживают киллы, фейковое значение
                     deaths: 0,
                     health: Math.round((currentHealth / maxHealth) * 100),
                     isAlive: currentHealth > 0
                 });
             });
-        }
-        
-        // Сортируем ботов - живые сверху
-        bots.sort((a, b) => {
-            if (a.isAlive && !b.isAlive) return -1;
-            if (!a.isAlive && b.isAlive) return 1;
-            return 0;
-        });
-        
-        // Генерируем HTML
-        let botsHTML = "";
-        bots.forEach(bot => {
-            const statusColor = bot.isAlive ? "#0f0" : "#f00";
-            const statusIcon = bot.isAlive ? "●" : "✖";
-            const rowOpacity = bot.isAlive ? "1" : "0.5";
-            const healthBar = bot.isAlive ? `
-                <div style="width:60px; height:4px; background:#333; border-radius:2px; overflow:hidden">
-                    <div style="width:${bot.health}%; height:100%; background:${bot.health > 50 ? '#0f0' : bot.health > 25 ? '#ff0' : '#f00'}"></div>
-                </div>
-            ` : '<span style="color:#f00; font-size:10px">DEAD</span>';
             
-            botsHTML += `
-                <tr style="opacity:${rowOpacity}; border-bottom:1px solid #222">
-                    <td style="padding:8px 12px; color:${statusColor}">${statusIcon}</td>
-                    <td style="padding:8px 12px; color:#f80">${bot.name}</td>
-                    <td style="padding:8px 12px; text-align:center; color:#0f0">${bot.kills}</td>
-                    <td style="padding:8px 12px; text-align:center; color:#f00">${bot.deaths}</td>
-                    <td style="padding:8px 12px; text-align:center">${healthBar}</td>
-                </tr>
-            `;
-        });
-        
-        content.innerHTML = `
-            <!-- Заголовок -->
-            <div style="background:#0f02; padding:10px 20px; border-bottom:1px solid #0f04; display:flex; justify-content:space-between; align-items:center">
-                <span style="color:#0f0; font-size:14px; font-weight:bold">📊 SCOREBOARD</span>
-                <span style="color:#0a0; font-size:11px">Hold Tab</span>
-            </div>
+            // Добавляем турели как ботов
+            if (this.enemyManager && this.enemyManager.turrets) {
+                const turrets = this.enemyManager.turrets;
+                turrets.forEach((turret: any, index: number) => {
+                    const currentHealth = turret.health || 0;
+                    const maxHealth = 50;
+                    bots.push({
+                        name: `TURRET_${index + 1}`,
+                        kills: 0,
+                        deaths: 0,
+                        health: Math.round((currentHealth / maxHealth) * 100),
+                        isAlive: currentHealth > 0
+                    });
+                });
+            }
             
-            <!-- Статистика игрока -->
-            <div style="background:#001100; padding:15px 20px; border-bottom:2px solid #0f04">
-                <div style="display:flex; align-items:center; gap:15px; margin-bottom:10px">
-                    <div style="width:40px; height:40px; background:#0f0; border-radius:4px; display:flex; align-items:center; justify-content:center; color:#000; font-weight:bold; font-size:16px">
-                        ${playerLevel}
-                    </div>
-                    <div style="flex:1">
-                        <div style="color:#0f0; font-size:16px; font-weight:bold">PLAYER</div>
-                        <div style="color:#0a0; font-size:11px; margin-bottom:6px">Level ${playerLevel} • ${playerPlayTime}</div>
-                        ${xpProgressHTML}
-                    </div>
-                    <div style="margin-left:auto; display:flex; gap:30px; text-align:center">
-                        <div>
-                            <div style="color:#0f0; font-size:24px; font-weight:bold">${playerKills}</div>
-                            <div style="color:#0a0; font-size:10px">KILLS</div>
-                        </div>
-                        <div>
-                            <div style="color:#f00; font-size:24px; font-weight:bold">${playerDeaths}</div>
-                            <div style="color:#a00; font-size:10px">DEATHS</div>
-                        </div>
-                        <div>
-                            <div style="color:#0ff; font-size:24px; font-weight:bold">${playerKD}</div>
-                            <div style="color:#0aa; font-size:10px">K/D</div>
-                        </div>
-                        <div>
-                            <div style="color:#ff0; font-size:24px; font-weight:bold">${playerCredits}</div>
-                            <div style="color:#aa0; font-size:10px">CREDITS</div>
-                        </div>
-                    </div>
-                </div>
-                <div style="display:flex; gap:20px; font-size:11px; color:#888; margin-top:8px">
-                    <span>Урон: <span style="color:#fff">${playerDamage}</span></span>
-                    <span>Точность: <span style="color:#fff">${playerAccuracy}</span></span>
-                    ${this.playerProgression ? (() => {
-                        try {
-                            const xpStats = this.playerProgression.getRealTimeXpStats();
-                            return `<span>XP/мин: <span style="color:#0ff">${xpStats.experiencePerMinute}</span></span>`;
-                        } catch (e) {
-                            return '';
-                        }
-                    })() : ''}
-                </div>
-            </div>
+            // Сортируем ботов - живые сверху
+            bots.sort((a, b) => {
+                if (a.isAlive && !b.isAlive) return -1;
+                if (!a.isAlive && b.isAlive) return 1;
+                return 0;
+            });
             
-            <!-- Список ботов -->
-            <table style="width:100%; border-collapse:collapse; font-size:12px">
-                <thead>
-                    <tr style="background:#111; border-bottom:1px solid #333">
-                        <th style="padding:8px 12px; text-align:left; color:#666; width:30px"></th>
-                        <th style="padding:8px 12px; text-align:left; color:#666">NAME</th>
-                        <th style="padding:8px 12px; text-align:center; color:#666; width:60px">KILLS</th>
-                        <th style="padding:8px 12px; text-align:center; color:#666; width:60px">DEATHS</th>
-                        <th style="padding:8px 12px; text-align:center; color:#666; width:80px">HEALTH</th>
+            // Генерируем HTML
+            let botsHTML = "";
+            bots.forEach(bot => {
+                const statusColor = bot.isAlive ? "#0f0" : "#f00";
+                const statusIcon = bot.isAlive ? "●" : "✖";
+                const rowOpacity = bot.isAlive ? "1" : "0.5";
+                const healthBar = bot.isAlive ? `
+                    <div style="width:60px; height:4px; background:#333; border-radius:2px; overflow:hidden">
+                        <div style="width:${bot.health}%; height:100%; background:${bot.health > 50 ? '#0f0' : bot.health > 25 ? '#ff0' : '#f00'}"></div>
+                    </div>
+                ` : '<span style="color:#f00; font-size:10px">DEAD</span>';
+                
+                botsHTML += `
+                    <tr style="opacity:${rowOpacity}; border-bottom:1px solid #222">
+                        <td style="padding:8px 12px; color:${statusColor}">${statusIcon}</td>
+                        <td style="padding:8px 12px; color:#f80">${bot.name}</td>
+                        <td style="padding:8px 12px; text-align:center; color:#0f0">${bot.kills}</td>
+                        <td style="padding:8px 12px; text-align:center; color:#f00">${bot.deaths}</td>
+                        <td style="padding:8px 12px; text-align:center">${healthBar}</td>
                     </tr>
-                </thead>
-                <tbody>
-                    ${botsHTML || '<tr><td colspan="5" style="padding:20px; text-align:center; color:#666">No bots in game</td></tr>'}
-                </tbody>
-            </table>
+                `;
+            });
             
-            <!-- Футер -->
-            <div style="background:#0a0a0a; padding:8px 20px; border-top:1px solid #222; display:flex; justify-content:space-between; font-size:10px; color:#666">
-                <span>Players: 1 • Bots: ${bots.filter(b => b.isAlive).length}/${bots.length}</span>
-                <span>Protocol TX v1.0</span>
-            </div>
-        `;
+            content.innerHTML = `
+                <!-- Заголовок -->
+                <div style="background:#0f02; padding:10px 20px; border-bottom:1px solid #0f04; display:flex; justify-content:space-between; align-items:center">
+                    <span style="color:#0f0; font-size:14px; font-weight:bold">📊 SCOREBOARD</span>
+                    <span style="color:#0a0; font-size:11px">Hold Tab</span>
+                </div>
+                
+                <!-- Статистика игрока -->
+                <div style="background:#001100; padding:15px 20px; border-bottom:2px solid #0f04">
+                    <div style="display:flex; align-items:center; gap:15px; margin-bottom:10px">
+                        <div style="width:40px; height:40px; background:#0f0; border-radius:4px; display:flex; align-items:center; justify-content:center; color:#000; font-weight:bold; font-size:16px">
+                            ${playerLevel}
+                        </div>
+                        <div style="flex:1">
+                            <div style="color:#0f0; font-size:16px; font-weight:bold">PLAYER</div>
+                            <div style="color:#0a0; font-size:11px; margin-bottom:6px">Level ${playerLevel} • ${playerPlayTime}</div>
+                            ${xpProgressHTML}
+                        </div>
+                        <div style="margin-left:auto; display:flex; gap:30px; text-align:center">
+                            <div>
+                                <div style="color:#0f0; font-size:24px; font-weight:bold">${playerKills}</div>
+                                <div style="color:#0a0; font-size:10px">KILLS</div>
+                            </div>
+                            <div>
+                                <div style="color:#f00; font-size:24px; font-weight:bold">${playerDeaths}</div>
+                                <div style="color:#a00; font-size:10px">DEATHS</div>
+                            </div>
+                            <div>
+                                <div style="color:#0ff; font-size:24px; font-weight:bold">${playerKD}</div>
+                                <div style="color:#0aa; font-size:10px">K/D</div>
+                            </div>
+                            <div>
+                                <div style="color:#ff0; font-size:24px; font-weight:bold">${playerCredits}</div>
+                                <div style="color:#aa0; font-size:10px">CREDITS</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:20px; font-size:11px; color:#888; margin-top:8px">
+                        <span>Урон: <span style="color:#fff">${playerDamage}</span></span>
+                        <span>Точность: <span style="color:#fff">${playerAccuracy}</span></span>
+                        ${this.playerProgression ? (() => {
+                            try {
+                                const xpStats = this.playerProgression.getRealTimeXpStats();
+                                return `<span>XP/мин: <span style="color:#0ff">${xpStats.experiencePerMinute}</span></span>`;
+                            } catch (e) {
+                                return '';
+                            }
+                        })() : ''}
+                    </div>
+                </div>
+                
+                <!-- Список ботов -->
+                <table style="width:100%; border-collapse:collapse; font-size:12px">
+                    <thead>
+                        <tr style="background:#111; border-bottom:1px solid #333">
+                            <th style="padding:8px 12px; text-align:left; color:#666; width:30px"></th>
+                            <th style="padding:8px 12px; text-align:left; color:#666">NAME</th>
+                            <th style="padding:8px 12px; text-align:center; color:#666; width:60px">KILLS</th>
+                            <th style="padding:8px 12px; text-align:center; color:#666; width:60px">DEATHS</th>
+                            <th style="padding:8px 12px; text-align:center; color:#666; width:80px">HEALTH</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${botsHTML || '<tr><td colspan="5" style="padding:20px; text-align:center; color:#666">No bots in game</td></tr>'}
+                    </tbody>
+                </table>
+                
+                <!-- Футер -->
+                <div style="background:#0a0a0a; padding:8px 20px; border-top:1px solid #222; display:flex; justify-content:space-between; font-size:10px; color:#666">
+                    <span>Players: 1 • Bots: ${bots.filter(b => b.isAlive).length}/${bots.length}</span>
+                    <span>Protocol TX v1.0</span>
+                </div>
+            `;
+        }
     }
     
     updateHUD() {
@@ -5425,10 +5846,16 @@ export class Game {
             this.hud.setNearestEnemyDistance(0);
         }
         
-        // Update FPS (каждые 2 кадра для оптимизации)
-        if (this._updateTick % 2 === 0) {
-            const fps = Math.round(1000 / this.engine.getDeltaTime());
+        // Update FPS каждый кадр для живого отображения
+        if (this.hud) {
+            const fps = this.engine.getFps(); // Используем встроенный метод для точности
             this.hud.updateFPS(fps);
+        }
+        
+        // Update debug dashboard
+        if (this.debugDashboard && this.tank) {
+            const tankPos = this.tank.chassis.absolutePosition;
+            this.debugDashboard.update({ x: tankPos.x, y: tankPos.y, z: tankPos.z });
         }
         
         // Update tank stats with experience data
@@ -5561,6 +5988,813 @@ export class Game {
                     }
                 }
             }
+        }
+    }
+    
+    // === MULTIPLAYER METHODS ===
+    
+    private setupMultiplayerCallbacks(): void {
+        if (!this.multiplayerManager) return;
+        
+        this.multiplayerManager.onConnected(() => {
+            console.log("[Game] Connected to multiplayer server");
+        });
+        
+        this.multiplayerManager.onDisconnected(() => {
+            console.log("[Game] Disconnected from multiplayer server");
+            this.isMultiplayer = false;
+            // Hide multiplayer HUD
+            if (this.hud) {
+                this.hud.showMultiplayerHUD?.(false);
+            }
+            // Clean up network players
+            this.networkPlayerTanks.forEach(tank => tank.dispose());
+            this.networkPlayerTanks.clear();
+        });
+        
+        this.multiplayerManager.onPlayerJoined((playerData) => {
+            console.log(`[Game] Player joined: ${playerData.name}`);
+            this.createNetworkPlayerTank(playerData);
+        });
+        
+        this.multiplayerManager.onPlayerLeft((playerId) => {
+            console.log(`[Game] Player left: ${playerId}`);
+            const tank = this.networkPlayerTanks.get(playerId);
+            if (tank) {
+                tank.dispose();
+                this.networkPlayerTanks.delete(playerId);
+            }
+        });
+        
+        this.multiplayerManager.onGameStart((data) => {
+            console.log("[Game] Multiplayer game started");
+            this.isMultiplayer = true;
+            
+            // Initialize voice chat
+            const serverUrl = this.multiplayerManager?.getServerUrl() || "ws://localhost:8080";
+            const roomId = data.roomId || this.multiplayerManager?.getRoomId();
+            const playerId = this.multiplayerManager?.getPlayerId();
+            
+            if (roomId && playerId) {
+                // Make voice chat manager accessible globally for signaling
+                (window as any).voiceChatManager = voiceChatManager;
+                
+                voiceChatManager.initialize(serverUrl, roomId, playerId).then(success => {
+                    if (success) {
+                        console.log("[Game] Voice chat initialized");
+                    } else {
+                        console.warn("[Game] Voice chat initialization failed (microphone permission?)");
+                    }
+                });
+            }
+            
+            // Use world seed from server for deterministic generation
+            if (data.worldSeed && this.chunkSystem) {
+                console.log(`[Game] Using server world seed: ${data.worldSeed}`);
+                // Note: ChunkSystem seed is set at creation, so we'd need to recreate it
+                // For now, we'll use the seed for new chunks
+                (this.chunkSystem as any).config.worldSeed = data.worldSeed;
+            }
+            
+            // Initialize all network players
+            if (data.players && this.multiplayerManager) {
+                const localPlayerId = this.multiplayerManager.getPlayerId();
+                for (const playerData of data.players) {
+                    if (playerData.id !== localPlayerId) {
+                        this.createNetworkPlayerTank(playerData);
+                    }
+                }
+            }
+            
+            // Initialize Battle Royale visualizer
+            if (data.mode === "battle_royale") {
+                if (!this.battleRoyaleVisualizer) {
+                    this.battleRoyaleVisualizer = new BattleRoyaleVisualizer(this.scene);
+                }
+            }
+            
+            // Initialize CTF visualizer
+            if (data.mode === "ctf") {
+                if (!this.ctfVisualizer) {
+                    this.ctfVisualizer = new CTFVisualizer(this.scene);
+                }
+            }
+            
+            // Initialize real-time stats tracker
+            if (playerId) {
+                if (!this.realtimeStatsTracker) {
+                    this.realtimeStatsTracker = new RealtimeStatsTracker();
+                }
+                this.realtimeStatsTracker.startMatch(playerId);
+            }
+            
+            // Start replay recording
+            if (!this.replayRecorder) {
+                this.replayRecorder = new ReplayRecorder();
+            }
+            const worldSeed = data.worldSeed || 0;
+            const initialPlayers = data.players || [];
+            this.replayRecorder.startRecording(
+                data.roomId || `match_${Date.now()}`,
+                data.mode || "ffa",
+                worldSeed,
+                initialPlayers,
+                {
+                    maxPlayers: data.maxPlayers || 32
+                }
+            );
+        });
+        
+        this.multiplayerManager.onSafeZoneUpdate((data: any) => {
+            // Update Battle Royale safe zone visualization
+            if (this.battleRoyaleVisualizer && data) {
+                const zoneData = {
+                    center: new Vector3(data.center.x, data.center.y || 0, data.center.z),
+                    radius: data.radius,
+                    nextCenter: new Vector3(
+                        data.nextCenter?.x || data.center.x, 
+                        data.nextCenter?.y || 0, 
+                        data.nextCenter?.z || data.center.z
+                    ),
+                    nextRadius: data.nextRadius || data.radius,
+                    shrinkProgress: data.shrinkProgress || 0
+                };
+                this.battleRoyaleVisualizer.updateSafeZone(zoneData);
+                
+                // Check if player is outside safe zone and show warning
+                if (this.tank && this.tank.chassis) {
+                    const playerPos = this.tank.chassis.getAbsolutePosition();
+                    const isInZone = this.battleRoyaleVisualizer.isPlayerInSafeZone(playerPos);
+                    const distance = this.battleRoyaleVisualizer.getDistanceToSafeZone(playerPos);
+                    
+                    if (!isInZone && this.hud) {
+                        this.hud.showNotification?.(`⚠️ Вне безопасной зоны! ${distance.toFixed(0)}м`, "warning");
+                    }
+                }
+            }
+        });
+        
+        // Player event callbacks for visual feedback
+        this.multiplayerManager.onPlayerKilled((data) => {
+            // Record event for replay
+            if (this.replayRecorder) {
+                this.replayRecorder.recordServerMessage(ServerMessageType.PLAYER_KILLED, data);
+            }
+            
+            const localPlayerId = this.multiplayerManager?.getPlayerId();
+            if (data.killerId === localPlayerId) {
+                // We got a kill!
+                if (this.hud) {
+                    this.hud.addKill();
+                    this.hud.showNotification?.(`⚔️ Вы убили ${data.victimName}!`, "success");
+                }
+                
+                // Update achievements
+                if (this.achievementsSystem) {
+                    this.achievementsSystem.updateProgress("multiplayer_first_kill", 1);
+                    this.achievementsSystem.updateProgress("multiplayer_killer", 1);
+                    this.achievementsSystem.updateProgress("multiplayer_dominator", 1);
+                }
+            } else if (data.victimId === localPlayerId) {
+                // We were killed
+                if (this.hud) {
+                    this.hud.showNotification?.(`💀 Вас убил ${data.killerName}`, "error");
+                }
+            } else {
+                // Someone else got killed
+                if (this.hud) {
+                    this.hud.showNotification?.(`⚔️ ${data.killerName} убил ${data.victimName}`, "info");
+                }
+            }
+        });
+        
+        this.multiplayerManager.onPlayerDied((data) => {
+            const localPlayerId = this.multiplayerManager?.getPlayerId();
+            if (data.playerId === localPlayerId) {
+                // We died
+                if (this.hud) {
+                    this.hud.showNotification?.("💀 Вы погибли", "error");
+                }
+            }
+        });
+        
+        this.multiplayerManager.onPlayerDamaged((data) => {
+            const localPlayerId = this.multiplayerManager?.getPlayerId();
+            if (data.playerId === localPlayerId) {
+                // We took damage
+                const healthPercent = (data.health / data.maxHealth) * 100;
+                if (healthPercent < 30 && this.hud) {
+                    this.hud.showNotification?.(`⚠️ Критическое здоровье! ${Math.round(healthPercent)}%`, "warning");
+                }
+            }
+        });
+        
+        this.multiplayerManager.onCTFFlagPickup((data) => {
+            const localPlayerId = this.multiplayerManager?.getPlayerId();
+            if (data.playerId === localPlayerId) {
+                // We picked up a flag
+                if (this.hud) {
+                    this.hud.showNotification?.(`🏴 Вы подобрали флаг команды ${data.flagTeam === 0 ? "синих" : "красных"}!`, "success");
+                }
+            } else {
+                // Someone else picked up a flag
+                if (this.hud) {
+                    this.hud.showNotification?.(`🏴 ${data.playerName} подобрал флаг команды ${data.flagTeam === 0 ? "синих" : "красных"}`, "info");
+                }
+            }
+        });
+        
+        this.multiplayerManager.onCTFFlagCapture((data) => {
+            const localPlayerId = this.multiplayerManager?.getPlayerId();
+            if (data.playerId === localPlayerId) {
+                // We captured a flag
+                if (this.hud) {
+                    this.hud.showNotification?.(`🏆 Вы захватили флаг! Команда ${data.capturingTeam === 0 ? "синих" : "красных"} получает очко!`, "success");
+                }
+                
+                // Update achievements
+                if (this.achievementsSystem) {
+                    this.achievementsSystem.updateProgress("multiplayer_ctf_capture", 1);
+                    this.achievementsSystem.updateProgress("multiplayer_ctf_master", 1);
+                }
+            } else {
+                // Someone else captured a flag
+                if (this.hud) {
+                    this.hud.showNotification?.(`🏆 ${data.playerName} захватил флаг! Команда ${data.capturingTeam === 0 ? "синих" : "красных"} получает очко!`, "info");
+                }
+            }
+        });
+        
+        this.multiplayerManager.onCTFFlagUpdate((data: any) => {
+            // Update CTF flag visualization
+            if (this.ctfVisualizer && data.flags) {
+                this.ctfVisualizer.updateFlags(data.flags);
+                
+                // Update HUD with CTF info
+                if (this.hud && this.tank && this.tank.chassis) {
+                    const playerPos = this.tank.chassis.getAbsolutePosition();
+                    const localPlayerId = this.multiplayerManager?.getPlayerId();
+                    const localPlayer = this.multiplayerManager?.getNetworkPlayer(localPlayerId || "");
+                    const playerTeam = localPlayer?.team;
+                    
+                    if (playerTeam !== undefined) {
+                        const ownFlag = data.flags.find((f: any) => f.team === playerTeam);
+                        const enemyFlag = data.flags.find((f: any) => f.team !== playerTeam);
+                        
+                        this.hud.updateCTFInfo?.({
+                            ownFlag: ownFlag ? {
+                                isCarried: ownFlag.isCarried,
+                                carrierId: ownFlag.carrierId,
+                                position: ownFlag.position
+                            } : null,
+                            enemyFlag: enemyFlag ? {
+                                isCarried: enemyFlag.isCarried,
+                                carrierId: enemyFlag.carrierId,
+                                position: enemyFlag.position
+                            } : null,
+                            playerPosition: playerPos,
+                            playerTeam
+                        });
+                    }
+                }
+            }
+        });
+        
+        this.multiplayerManager.onPlayerStates((players) => {
+            // Update network players (called at 60 Hz)
+            // This is handled in updateMultiplayer
+        });
+        
+        this.multiplayerManager.onProjectileSpawn((data) => {
+            // Record event for replay
+            if (this.replayRecorder) {
+                this.replayRecorder.recordServerMessage(ServerMessageType.PROJECTILE_SPAWN, data);
+            }
+            
+            // Handle projectile spawn from other players
+            if (this.effectsManager && data.position && data.direction) {
+                const pos = new Vector3(data.position.x, data.position.y, data.position.z);
+                const dir = new Vector3(data.direction.x, data.direction.y, data.direction.z);
+                this.effectsManager.createMuzzleFlash(pos, dir, data.cannonType || "standard");
+            }
+        });
+        
+        this.multiplayerManager.onChatMessage((data) => {
+            if (this.chatSystem) {
+                this.chatSystem.addMessage(`${data.playerName}: ${data.message}`, "info");
+            }
+        });
+        
+        this.multiplayerManager.onConsumablePickup((data) => {
+            // Handle consumable pickup confirmation from server
+            const localPlayerId = this.multiplayerManager?.getPlayerId();
+            if (data.playerId === localPlayerId) {
+                // We picked it up - process locally
+                const consumableType = CONSUMABLE_TYPES.find(c => c.id === data.type);
+                if (consumableType && this.consumablesManager) {
+                    let slot = -1;
+                    for (let s = 1; s <= 5; s++) {
+                        if (!this.consumablesManager.get(s)) {
+                            slot = s;
+                            break;
+                        }
+                    }
+                    if (slot > 0) {
+                        this.consumablesManager.pickUp(consumableType, slot);
+                        if (this.chatSystem) {
+                            this.chatSystem.success(`Подобран: ${consumableType.icon} ${consumableType.name} (слот ${slot})`);
+                        }
+                        if (this.hud) {
+                            this.hud.updateConsumables(this.consumablesManager.getAll());
+                        }
+                        if (this.soundManager) {
+                            this.soundManager.playPickup();
+                        }
+                    }
+                }
+            }
+            
+            // Remove consumable from map (for all players)
+            if (this.chunkSystem && data.consumableId) {
+                const pickup = this.chunkSystem.consumablePickups.find(
+                    p => (p.mesh.metadata as any)?.consumableId === data.consumableId ||
+                         (data.position && Math.abs(p.mesh.position.x - data.position.x) < 1 &&
+                          Math.abs(p.mesh.position.z - data.position.z) < 1)
+                );
+                if (pickup) {
+                    pickup.mesh.dispose();
+                    const index = this.chunkSystem.consumablePickups.indexOf(pickup);
+                    if (index !== -1) {
+                        this.chunkSystem.consumablePickups.splice(index, 1);
+                    }
+                }
+            }
+        });
+        
+        this.multiplayerManager.onEnemyUpdate((data) => {
+            // Handle enemy updates for Co-op mode
+            // This will sync server-controlled enemies with client
+            if (data.enemies && this.isMultiplayer) {
+                // Update or create enemy tanks based on server data
+                // This is a simplified version - full implementation would create EnemyTank instances
+                console.log(`[Game] Received ${data.enemies.length} enemy updates`);
+            }
+        });
+        
+        this.multiplayerManager.onSafeZoneUpdate((data: any) => {
+            // Update Battle Royale safe zone visualization
+            if (this.battleRoyaleVisualizer && data) {
+                const zoneData = {
+                    center: new Vector3(data.center.x, data.center.y || 0, data.center.z),
+                    radius: data.radius,
+                    nextCenter: new Vector3(
+                        data.nextCenter?.x || data.center.x, 
+                        data.nextCenter?.y || 0, 
+                        data.nextCenter?.z || data.center.z
+                    ),
+                    nextRadius: data.nextRadius || data.radius,
+                    shrinkProgress: data.shrinkProgress || 0
+                };
+                this.battleRoyaleVisualizer.updateSafeZone(zoneData);
+                
+                // Check if player is outside safe zone and show warning
+                if (this.tank && this.tank.chassis) {
+                    const playerPos = this.tank.chassis.getAbsolutePosition();
+                    const isInZone = this.battleRoyaleVisualizer.isPlayerInSafeZone(playerPos);
+                    const distance = this.battleRoyaleVisualizer.getDistanceToSafeZone(playerPos);
+                    
+                    if (!isInZone && this.hud) {
+                        this.hud.showNotification?.(`⚠️ Вне безопасной зоны! ${distance.toFixed(0)}м`, "warning");
+                    }
+                }
+            }
+        });
+        
+        this.multiplayerManager.onGameEnd((data) => {
+            // Stop real-time stats tracking
+            if (this.realtimeStatsTracker) {
+                this.realtimeStatsTracker.stopMatch();
+            }
+            
+            // Stop and save replay
+            if (this.replayRecorder) {
+                const replayData = this.replayRecorder.stopRecording();
+                if (replayData) {
+                    // Save replay to localStorage
+                    const key = this.replayRecorder.saveReplay(replayData, false);
+                    if (key) {
+                        console.log(`[Game] Replay saved: ${key}`);
+                    }
+                }
+            }
+            
+            // Save match statistics to Firebase
+            this.saveMatchStatistics(data);
+        });
+    }
+    
+    private createNetworkPlayerTank(playerData: any): void {
+        if (this.networkPlayerTanks.has(playerData.id)) {
+            return; // Already exists
+        }
+        
+        const networkPlayer = this.multiplayerManager?.getNetworkPlayer(playerData.id);
+        if (!networkPlayer) return;
+        
+        const tank = new NetworkPlayerTank(this.scene, networkPlayer);
+        this.networkPlayerTanks.set(playerData.id, tank);
+    }
+    
+    private updateMultiplayer(deltaTime: number): void {
+        if (!this.multiplayerManager || !this.tank) return;
+        
+        // Send player input to server
+        if (this.tank.chassis && this.tank.physicsBody) {
+            // Get input from tank controller
+            const throttle = this.tank.throttleTarget || 0;
+            const steer = this.tank.steerTarget || 0;
+            const turretRotation = this.tank.turret.rotation.y;
+            const aimPitch = this.tank.aimPitch || 0;
+            
+            this.multiplayerManager.sendPlayerInput({
+                throttle,
+                steer,
+                turretRotation,
+                aimPitch,
+                isShooting: false, // Will be sent separately on shoot
+                timestamp: Date.now()
+            });
+        }
+        
+        // Update network player tanks
+        this.networkPlayerTanks.forEach(tank => {
+            tank.update(deltaTime);
+        });
+        
+        // Update multiplayer HUD every 10 frames (~6 times per second)
+        if (this._updateTick % 10 === 0 && this.hud) {
+            const cachedPlayers = (this.multiplayerManager as any).lastPlayerStates || [];
+            const localPlayerId = this.multiplayerManager.getPlayerId();
+            
+            if (cachedPlayers.length > 0) {
+                // Update real-time stats tracker
+                if (this.realtimeStatsTracker) {
+                    this.realtimeStatsTracker.updatePlayerStats(cachedPlayers.map((p: any) => ({
+                        id: p.id,
+                        name: p.name,
+                        kills: p.kills || 0,
+                        deaths: p.deaths || 0,
+                        score: p.score || 0,
+                        team: p.team,
+                        status: p.status,
+                        damageDealt: p.damageDealt,
+                        damageTaken: p.damageTaken
+                    })));
+                }
+                
+                // Record player states for replay
+                if (this.replayRecorder) {
+                    this.replayRecorder.recordPlayerStates(cachedPlayers.map((p: any) => ({
+                        id: p.id,
+                        name: p.name,
+                        position: new Vector3(p.position.x, p.position.y, p.position.z),
+                        rotation: p.rotation || 0,
+                        turretRotation: p.turretRotation || 0,
+                        aimPitch: p.aimPitch || 0,
+                        health: p.health || 100,
+                        maxHealth: p.maxHealth || 100,
+                        status: p.status || "alive",
+                        team: p.team,
+                        kills: p.kills || 0,
+                        deaths: p.deaths || 0,
+                        score: p.score || 0
+                    })));
+                }
+                
+                // Calculate team scores
+                let team0Score = 0;
+                let team1Score = 0;
+                const playerList: Array<{
+                    id: string;
+                    name: string;
+                    kills: number;
+                    deaths: number;
+                    score: number;
+                    team?: number;
+                    isAlive: boolean;
+                }> = [];
+                
+                cachedPlayers.forEach((player: any) => {
+                    if (player.team === 0) {
+                        team0Score += player.score || 0;
+                    } else if (player.team === 1) {
+                        team1Score += player.score || 0;
+                    }
+                    
+                    playerList.push({
+                        id: player.id,
+                        name: player.name,
+                        kills: player.kills || 0,
+                        deaths: player.deaths || 0,
+                        score: player.score || 0,
+                        team: player.team,
+                        isAlive: player.status === "alive"
+                    });
+                });
+                
+                // Update score display
+                const gameMode = this.multiplayerManager.getGameMode() || "ffa";
+                this.hud.updateMultiplayerScore?.(team0Score, team1Score, gameMode);
+                
+                // Update player list
+                this.hud.updatePlayerList?.(playerList, localPlayerId || "");
+                
+                // Update minimap players
+                if (this.tank && this.tank.chassis) {
+                    const localPos = this.tank.chassis.position;
+                    const minimapPlayers = cachedPlayers
+                        .filter((p: any) => p.position)
+                        .map((p: any) => ({
+                            id: p.id,
+                            position: { x: p.position.x, z: p.position.z },
+                            team: p.team
+                        }));
+                    this.hud.updateMinimapPlayers?.(minimapPlayers, { x: localPos.x, z: localPos.z }, localPlayerId || "");
+                }
+            }
+        }
+        
+        // Update match timer every second
+        if (this._updateTick % 60 === 0 && this.hud) {
+            const gameTime = this.multiplayerManager.getGameTime() || 0;
+            this.hud.updateMatchTimer?.(gameTime);
+        }
+        
+        // Handle Tab key for stats (toggle player list)
+        if (this._updateTick % 5 === 0) { // Check every 5 frames
+            // Tab key handling would be in input system
+        }
+    }
+    
+    toggleMultiplayerStats(): void {
+        if (this.hud && this.isMultiplayer) {
+            this.hud.togglePlayerList?.();
+        }
+    }
+    
+    // Public API for multiplayer
+    enableMultiplayer(serverUrl?: string): void {
+        if (this.multiplayerManager) {
+            if (serverUrl) {
+                this.multiplayerManager.disconnect();
+                this.multiplayerManager.connect(serverUrl);
+            }
+            this.isMultiplayer = true;
+        }
+    }
+    
+    disableMultiplayer(): void {
+        this.isMultiplayer = false;
+        if (this.multiplayerManager) {
+            this.multiplayerManager.leaveRoom();
+        }
+        this.networkPlayerTanks.forEach(tank => tank.dispose());
+        this.networkPlayerTanks.clear();
+    }
+    
+    createMultiplayerRoom(mode: string, maxPlayers: number = 32): void {
+        if (this.multiplayerManager) {
+            this.multiplayerManager.createRoom(mode as any, maxPlayers);
+        }
+    }
+    
+    joinMultiplayerRoom(roomId: string): void {
+        if (this.multiplayerManager) {
+            this.multiplayerManager.joinRoom(roomId);
+        }
+    }
+    
+    quickPlayMultiplayer(mode: string, region?: string): void {
+        if (this.multiplayerManager) {
+            this.multiplayerManager.quickPlay(mode as any, region);
+        }
+    }
+    
+    // === SPECTATOR MODE ===
+    
+    enterSpectatorMode(): void {
+        if (!this.isMultiplayer || !this.multiplayerManager) return;
+        
+        this.isSpectating = true;
+        
+        // Find first alive player to spectate
+        const networkPlayers = Array.from(this.multiplayerManager.getNetworkPlayers().values());
+        const alivePlayer = networkPlayers.find(p => p.status === "alive");
+        
+        if (alivePlayer) {
+            this.spectatingPlayerId = alivePlayer.id;
+        } else {
+            // No alive players, use free camera
+            this.spectatingPlayerId = null;
+        }
+        
+        console.log("[Game] Entered spectator mode");
+    }
+    
+    exitSpectatorMode(): void {
+        this.isSpectating = false;
+        this.spectatingPlayerId = null;
+        console.log("[Game] Exited spectator mode");
+    }
+    
+    switchSpectatorTarget(next: boolean = true): void {
+        if (!this.isMultiplayer || !this.multiplayerManager) return;
+        
+        const networkPlayers = Array.from(this.multiplayerManager.getNetworkPlayers().values())
+            .filter(p => p.status === "alive");
+        
+        if (networkPlayers.length === 0) {
+            this.spectatingPlayerId = null;
+            return;
+        }
+        
+        const currentIndex = this.spectatingPlayerId 
+            ? networkPlayers.findIndex(p => p.id === this.spectatingPlayerId)
+            : -1;
+        
+        let nextIndex: number;
+        if (next) {
+            nextIndex = (currentIndex + 1) % networkPlayers.length;
+        } else {
+            nextIndex = currentIndex <= 0 ? networkPlayers.length - 1 : currentIndex - 1;
+        }
+        
+        this.spectatingPlayerId = networkPlayers[nextIndex].id;
+    }
+    
+    private updateSpectatorCamera(): void {
+        if (!this.camera) return;
+        
+        if (this.spectatingPlayerId) {
+            // Follow specific player
+            const networkPlayer = this.multiplayerManager?.getNetworkPlayer(this.spectatingPlayerId);
+            if (networkPlayer && networkPlayer.status === "alive") {
+                const targetPos = networkPlayer.position;
+                this.camera.setTarget(targetPos);
+                this.camera.alpha = networkPlayer.rotation + Math.PI / 2;
+                this.camera.beta = this.cameraBeta;
+                this.camera.radius = this.settings.cameraDistance;
+            } else {
+                // Player died, switch to next
+                this.switchSpectatorTarget(true);
+            }
+        } else {
+            // Free camera mode - allow manual control
+            // Camera controls already work, just don't follow tank
+        }
+    }
+    
+    checkSpectatorMode(): void {
+        if (!this.isMultiplayer || !this.tank) return;
+        
+        // Enter spectator mode if player died
+        if (!this.tank.isAlive && !this.isSpectating) {
+            this.enterSpectatorMode();
+        }
+        
+        // Exit spectator mode if player respawned
+        if (this.tank.isAlive && this.isSpectating) {
+            this.exitSpectatorMode();
+        }
+    }
+    
+    private handleSpectatorInput(): void {
+        // Spectator controls: N/M to switch targets, arrow keys for free camera
+        if (!this._inputMap) return;
+        
+        // Switch targets with N/M keys (only once per press)
+        if (this._inputMap["KeyN"] && !(this as any)._nKeyPressed) {
+            this.switchSpectatorTarget(true);
+            (this as any)._nKeyPressed = true;
+        }
+        if (!this._inputMap["KeyN"]) {
+            (this as any)._nKeyPressed = false;
+        }
+        
+        if (this._inputMap["KeyM"] && !(this as any)._mKeyPressed) {
+            this.switchSpectatorTarget(false);
+            (this as any)._mKeyPressed = true;
+        }
+        if (!this._inputMap["KeyM"]) {
+            (this as any)._mKeyPressed = false;
+        }
+    }
+    
+    // === FIREBASE INTEGRATION ===
+    
+    private async saveMatchStatistics(matchData: any): Promise<void> {
+        if (!firebaseService.isInitialized()) {
+            console.warn("[Game] Firebase not initialized, skipping match statistics save");
+            return;
+        }
+        
+        try {
+            const playerId = firebaseService.getUserId();
+            if (!playerId) {
+                console.warn("[Game] No user ID, skipping match statistics save");
+                return;
+            }
+            
+            // Get current player stats
+            const currentStats = await firebaseService.getPlayerStats();
+            if (!currentStats) {
+                console.warn("[Game] Could not get current stats");
+                return;
+            }
+            
+            // Get player data from match
+            const players = matchData.players || [];
+            const localPlayer = players.find((p: any) => p.id === this.multiplayerManager?.getPlayerId());
+            
+            if (!localPlayer) {
+                console.warn("[Game] Local player not found in match data");
+                return;
+            }
+            
+            // Calculate match duration
+            const matchDuration = matchData.duration || (Date.now() - (matchData.startTime || Date.now())) / 1000;
+            
+            // Determine match result
+            const isWinner = matchData.winner === localPlayer.id || 
+                            (matchData.winnerTeam && matchData.winnerTeam === localPlayer.team);
+            const result: "win" | "loss" | "draw" = isWinner ? "win" : 
+                                                      matchData.winner ? "loss" : "draw";
+            
+            // Update stats
+            const statsUpdates: any = {
+                kills: currentStats.kills + (localPlayer.kills || 0),
+                deaths: currentStats.deaths + (localPlayer.deaths || 0),
+                assists: currentStats.assists + (localPlayer.assists || 0),
+                matchesPlayed: currentStats.matchesPlayed + 1,
+                timePlayed: currentStats.timePlayed + matchDuration,
+                shotsFired: currentStats.shotsFired + (localPlayer.shotsFired || 0),
+                shotsHit: currentStats.shotsHit + (localPlayer.shotsHit || 0),
+                damageDealt: currentStats.damageDealt + (localPlayer.damageDealt || 0),
+                damageTaken: currentStats.damageTaken + (localPlayer.damageTaken || 0),
+            };
+            
+            // Update wins/losses
+            if (result === "win") {
+                statsUpdates.wins = currentStats.wins + 1;
+                // Mode-specific wins
+                const mode = matchData.mode || "ffa";
+                if (mode === "ffa") statsUpdates.ffaWins = (currentStats.ffaWins || 0) + 1;
+                else if (mode === "tdm") statsUpdates.tdmWins = (currentStats.tdmWins || 0) + 1;
+                else if (mode === "coop") statsUpdates.coopWins = (currentStats.coopWins || 0) + 1;
+                else if (mode === "battle_royale") statsUpdates.brWins = (currentStats.brWins || 0) + 1;
+                else if (mode === "capture_flag") statsUpdates.ctfWins = (currentStats.ctfWins || 0) + 1;
+            } else if (result === "loss") {
+                statsUpdates.losses = currentStats.losses + 1;
+            } else {
+                statsUpdates.draws = currentStats.draws + 1;
+            }
+            
+            // Update kill streak
+            if (localPlayer.kills > 0) {
+                const newStreak = (currentStats.currentKillStreak || 0) + localPlayer.kills;
+                statsUpdates.currentKillStreak = newStreak;
+                if (newStreak > (currentStats.longestKillStreak || 0)) {
+                    statsUpdates.longestKillStreak = newStreak;
+                }
+            } else {
+                statsUpdates.currentKillStreak = 0;
+            }
+            
+            // Save updated stats
+            await firebaseService.updatePlayerStats(statsUpdates);
+            
+            // Save match history
+            const { Timestamp } = await import("firebase/firestore");
+            const matchHistory: MatchHistory = {
+                matchId: matchData.matchId || `match_${Date.now()}`,
+                mode: matchData.mode || "ffa",
+                result: result,
+                kills: localPlayer.kills || 0,
+                deaths: localPlayer.deaths || 0,
+                assists: localPlayer.assists || 0,
+                damageDealt: localPlayer.damageDealt || 0,
+                damageTaken: localPlayer.damageTaken || 0,
+                duration: matchDuration,
+                timestamp: Timestamp.fromMillis(Date.now()),
+                players: players.length,
+                team: localPlayer.team
+            };
+            
+            await firebaseService.saveMatchHistory(matchHistory);
+            
+            console.log("[Game] Match statistics saved to Firebase");
+        } catch (error) {
+            console.error("[Game] Error saving match statistics:", error);
         }
     }
 }

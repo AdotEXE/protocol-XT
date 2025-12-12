@@ -12,7 +12,7 @@ import {
 } from "@babylonjs/core";
 import { MapType } from "./menu";
 import { RoadNetwork } from "./roadNetwork";
-import { TerrainGenerator } from "./noiseGenerator";
+import { TerrainGenerator, NoiseGenerator } from "./noiseGenerator";
 import { CoverGenerator } from "./coverGenerator";
 import { POISystem, POI } from "./poiSystem";
 
@@ -114,6 +114,12 @@ export class ChunkSystem {
     // POI system for points of interest
     private poiSystem: POISystem | null = null;
     
+    // Noise generator for biome transitions
+    private biomeNoise: NoiseGenerator | null = null;
+    
+    // Biome cache for optimization
+    private biomeCache: Map<string, BiomeType> = new Map();
+    
     public stats = {
         loadedChunks: 0,
         totalMeshes: 0,
@@ -135,14 +141,19 @@ export class ChunkSystem {
         
         // Initialize road network and terrain generator for normal map
         if (this.config.mapType === "normal") {
+            // Create terrain generator FIRST, so it can be passed to road network
+            this.terrainGenerator = new TerrainGenerator(this.config.worldSeed);
+            
+            // Create separate noise generator for biome transitions (different seed offset)
+            this.biomeNoise = new NoiseGenerator(this.config.worldSeed + 12345);
+            
             this.roadNetwork = new RoadNetwork(this.scene, {
                 worldSeed: this.config.worldSeed,
                 chunkSize: this.config.chunkSize,
                 highwaySpacing: 200,
-                streetSpacing: 40
+                streetSpacing: 40,
+                terrainGenerator: this.terrainGenerator
             });
-            
-            this.terrainGenerator = new TerrainGenerator(this.config.worldSeed);
             
             this.coverGenerator = new CoverGenerator(this.scene, {
                 worldSeed: this.config.worldSeed
@@ -197,6 +208,8 @@ export class ChunkSystem {
             ["grassDark", 0.22, 0.30, 0.18],    // Dark grass
             ["treeTrunk", 0.35, 0.28, 0.20],    // Tree trunk
             ["leaves", 0.25, 0.35, 0.20],       // Dark green leaves
+            ["water", 0.15, 0.25, 0.35],        // Water (dark blue-green)
+            ["rock", 0.35, 0.32, 0.30],         // Rock/stone
         ];
         
         mats.forEach(([name, r, g, b]) => {
@@ -1784,47 +1797,297 @@ export class ChunkSystem {
         this.chunks.set(key, chunk);
     }
     
+    // Get completely random biome for normal map (no distance dependency)
+    private getRandomBiome(worldX: number, worldZ: number, random: SeededRandom): BiomeType {
+        const cacheKey = `rand_${Math.floor(worldX / 10)}_${Math.floor(worldZ / 10)}`;
+        if (this.biomeCache.has(cacheKey)) {
+            return this.biomeCache.get(cacheKey)!;
+        }
+        
+        // Use noise for smooth transitions, but random distribution
+        const biomeNoiseScale = 0.003;
+        const biomeNoise1 = this.biomeNoise ? 
+            (this.biomeNoise.fbm(worldX * biomeNoiseScale, worldZ * biomeNoiseScale, 3, 2, 0.5) + 1) / 2 : 
+            random.next();
+        const biomeNoise2 = this.biomeNoise ? 
+            (this.biomeNoise.fbm(worldX * biomeNoiseScale * 1.7, worldZ * biomeNoiseScale * 1.7, 2, 2, 0.6) + 1) / 2 : 
+            random.next();
+        
+        // Completely random distribution of all biomes
+        const allBiomes: BiomeType[] = ["city", "industrial", "residential", "park", "wasteland", "military"];
+        const weights = [0.2, 0.15, 0.2, 0.15, 0.15, 0.15]; // Equal-ish distribution
+        
+        // Select biome based on combined noise
+        const combinedNoise = (biomeNoise1 + biomeNoise2) / 2;
+        const cumulative = weights.reduce((acc, w, i) => {
+            acc.push(acc[i] + w);
+            return acc;
+        }, [0] as number[]);
+        const total = cumulative[cumulative.length - 1];
+        const normalizedNoise = combinedNoise * total;
+        
+        let selectedBiome = allBiomes[0];
+        for (let i = 0; i < cumulative.length - 1; i++) {
+            if (normalizedNoise >= cumulative[i] && normalizedNoise < cumulative[i + 1]) {
+                selectedBiome = allBiomes[i];
+                break;
+            }
+        }
+        
+        // Smooth transitions between biomes using neighbor sampling
+        const sampleRadius = this.config.chunkSize * 1.5;
+        const samples: Array<{ biome: BiomeType, weight: number }> = [];
+        
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dz = -1; dz <= 1; dz++) {
+                const sampleX = worldX + dx * sampleRadius / 2;
+                const sampleZ = worldZ + dz * sampleRadius / 2;
+                
+                const sampleNoise = this.biomeNoise ? 
+                    (this.biomeNoise.fbm(sampleX * biomeNoiseScale, sampleZ * biomeNoiseScale, 2, 2, 0.5) + 1) / 2 : 
+                    random.next();
+                
+                const sampleCombined = (sampleNoise + random.next()) / 2;
+                const sampleNormalized = sampleCombined * total;
+                
+                let sampleBiome = allBiomes[0];
+                for (let i = 0; i < cumulative.length - 1; i++) {
+                    if (sampleNormalized >= cumulative[i] && sampleNormalized < cumulative[i + 1]) {
+                        sampleBiome = allBiomes[i];
+                        break;
+                    }
+                }
+                
+                const weight = dx === 0 && dz === 0 ? 0.4 : 0.075;
+                samples.push({ biome: sampleBiome, weight });
+            }
+        }
+        
+        // Blend in transition zones
+        const boundaryNoise = this.biomeNoise ? 
+            (this.biomeNoise.fbm(worldX * biomeNoiseScale * 3, worldZ * biomeNoiseScale * 3, 2, 2, 0.5) + 1) / 2 : 
+            biomeNoise2;
+        
+        const isTransitionZone = boundaryNoise > 0.4 && boundaryNoise < 0.6;
+        if (isTransitionZone && samples.length > 0) {
+            const biomeVotes = new Map<BiomeType, number>();
+            samples.forEach(s => {
+                biomeVotes.set(s.biome, (biomeVotes.get(s.biome) || 0) + s.weight);
+            });
+            
+            let maxVotes = 0;
+            let blendedBiome = selectedBiome;
+            biomeVotes.forEach((votes, biome) => {
+                if (votes > maxVotes) {
+                    maxVotes = votes;
+                    blendedBiome = biome;
+                }
+            });
+            
+            const blendFactor = (boundaryNoise - 0.4) / 0.2;
+            if (blendFactor > 0.3 && blendFactor < 0.7) {
+                selectedBiome = blendedBiome;
+            }
+        }
+        
+        this.biomeCache.set(cacheKey, selectedBiome);
+        return selectedBiome;
+    }
+    
     private getBiome(worldX: number, worldZ: number, random: SeededRandom): BiomeType {
+        // Check cache first
+        const cacheKey = `${Math.floor(worldX / 10)}_${Math.floor(worldZ / 10)}`;
+        if (this.biomeCache.has(cacheKey)) {
+            return this.biomeCache.get(cacheKey)!;
+        }
+        
         const dist = Math.sqrt(worldX * worldX + worldZ * worldZ);
         
-        // УЛУЧШЕННАЯ процедурная генерация - более реалистичное распределение биомов
-        // Центр - всегда город
+        // Use noise-based biome determination for organic transitions
+        // Multiple noise layers for smooth, natural transitions over 2-3 chunks
+        const biomeNoiseScale = 0.003; // Scale for biome transitions (~2-3 chunks)
+        const biomeNoise1 = this.biomeNoise ? 
+            (this.biomeNoise.fbm(worldX * biomeNoiseScale, worldZ * biomeNoiseScale, 3, 2, 0.5) + 1) / 2 : 
+            random.next();
+        const biomeNoise2 = this.biomeNoise ? 
+            (this.biomeNoise.fbm(worldX * biomeNoiseScale * 1.7, worldZ * biomeNoiseScale * 1.7, 2, 2, 0.6) + 1) / 2 : 
+            random.next();
+        
+        // Combine distance-based zones with noise for smooth transitions
+        let baseBiome: BiomeType;
+        let biomeOptions: BiomeType[] = [];
+        let weights: number[] = [];
+        
         if (dist < 100) {
-            // В центре - плотный город с редкими парками
-            const noiseVal = random.next();
-            if (noiseVal < 0.85) return "city";
-            if (noiseVal < 0.95) return "industrial";
-            return "park";
+            // Center zone - dense city with rare parks
+            baseBiome = "city";
+            if (biomeNoise1 < 0.85) {
+                biomeOptions = ["city"];
+                weights = [1.0];
+            } else if (biomeNoise1 < 0.95) {
+                biomeOptions = ["city", "industrial"];
+                weights = [0.7, 0.3];
+            } else {
+                biomeOptions = ["city", "park"];
+                weights = [0.6, 0.4];
+            }
+        } else if (dist < 200) {
+            // Middle zone - mixed development with gradual transitions
+            const transitionFactor = (dist - 100) / 100; // 0 to 1
+            
+            if (transitionFactor < 0.3) {
+                // Still mostly city, transitioning to residential
+                biomeOptions = ["city", "residential", "industrial", "park"];
+                weights = [
+                    0.5 - transitionFactor * 0.3,
+                    0.2 + transitionFactor * 0.2,
+                    0.15,
+                    0.15 + transitionFactor * 0.1
+                ];
+            } else {
+                // More suburban mix
+                biomeOptions = ["city", "residential", "industrial", "park", "military"];
+                weights = [
+                    0.25 - transitionFactor * 0.1,
+                    0.3 + transitionFactor * 0.1,
+                    0.2,
+                    0.2,
+                    0.05
+                ];
+            }
+            baseBiome = "residential";
+        } else if (dist < 350) {
+            // Outer zone - suburb and nature
+            const transitionFactor = (dist - 200) / 150; // 0 to 1
+            
+            biomeOptions = ["residential", "park", "industrial", "wasteland", "military"];
+            weights = [
+                0.3 - transitionFactor * 0.2,
+                0.25 + transitionFactor * 0.1,
+                0.15 - transitionFactor * 0.1,
+                0.2 + transitionFactor * 0.15,
+                0.1
+            ];
+            baseBiome = "park";
+        } else {
+            // Far zone - nature and military
+            const transitionFactor = Math.min((dist - 350) / 200, 1); // 0 to 1
+            
+            biomeOptions = ["wasteland", "park", "military", "residential", "industrial"];
+            weights = [
+                0.35 + transitionFactor * 0.15,
+                0.25 - transitionFactor * 0.15,
+                0.2 + transitionFactor * 0.1,
+                0.15 - transitionFactor * 0.1,
+                0.05
+            ];
+            baseBiome = "wasteland";
         }
         
-        // Средняя зона - смешанная застройка
-        if (dist < 200) {
-        const noiseVal = random.next();
-            // Более реалистичное распределение
-            if (noiseVal < 0.35) return "city";        // Город продолжается
-            if (noiseVal < 0.55) return "residential"; // Жилые районы
-            if (noiseVal < 0.75) return "industrial";  // Промзона
-            if (noiseVal < 0.90) return "park";        // Парки
-            return "military";                          // Редкие военные объекты
+        // Use noise to select from options with weighted probability
+        let selectedBiome = baseBiome;
+        if (biomeOptions.length > 0) {
+            const cumulative = weights.reduce((acc, w, i) => {
+                acc.push(acc[i] + w);
+                return acc;
+            }, [0] as number[]);
+            const total = cumulative[cumulative.length - 1];
+            const normalizedNoise = biomeNoise1 * total;
+            
+            for (let i = 0; i < cumulative.length - 1; i++) {
+                if (normalizedNoise >= cumulative[i] && normalizedNoise < cumulative[i + 1]) {
+                    selectedBiome = biomeOptions[i];
+                    break;
+                }
+            }
         }
         
-        // Дальняя зона - пригород и природа
-        if (dist < 350) {
-            const noiseVal = random.next();
-            if (noiseVal < 0.25) return "residential"; // Пригород
-            if (noiseVal < 0.45) return "park";         // Больше парков
-            if (noiseVal < 0.65) return "industrial";  // Промзона на окраине
-            if (noiseVal < 0.80) return "wasteland";    // Заброшенные территории
-            return "military";                          // Военные объекты
+        // Apply additional noise for organic boundary variation
+        // This creates irregular, non-rectangular biome boundaries
+        const boundaryNoise = this.biomeNoise ? 
+            (this.biomeNoise.fbm(worldX * biomeNoiseScale * 3, worldZ * biomeNoiseScale * 3, 2, 2, 0.5) + 1) / 2 : 
+            biomeNoise2;
+        
+        // Sample neighboring regions for gradient blending
+        const sampleRadius = this.config.chunkSize * 1.5; // ~1.5 chunks
+        const samples: Array<{ biome: BiomeType, weight: number }> = [];
+        
+        // Sample center and 8 surrounding points
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dz = -1; dz <= 1; dz++) {
+                const sampleX = worldX + dx * sampleRadius / 2;
+                const sampleZ = worldZ + dz * sampleRadius / 2;
+                const sampleDist = Math.sqrt(sampleX * sampleX + sampleZ * sampleZ);
+                
+                // Quick biome estimation for sample point
+                let sampleBiome: BiomeType;
+                if (sampleDist < 100) {
+                    sampleBiome = "city";
+                } else if (sampleDist < 200) {
+                    const sampleNoise = this.biomeNoise ? 
+                        (this.biomeNoise.fbm(sampleX * biomeNoiseScale, sampleZ * biomeNoiseScale, 2, 2, 0.5) + 1) / 2 : 
+                        random.next();
+                    if (sampleNoise < 0.4) sampleBiome = "city";
+                    else if (sampleNoise < 0.6) sampleBiome = "residential";
+                    else if (sampleNoise < 0.8) sampleBiome = "industrial";
+                    else if (sampleNoise < 0.92) sampleBiome = "park";
+                    else sampleBiome = "military";
+                } else if (sampleDist < 350) {
+                    const sampleNoise = this.biomeNoise ? 
+                        (this.biomeNoise.fbm(sampleX * biomeNoiseScale, sampleZ * biomeNoiseScale, 2, 2, 0.5) + 1) / 2 : 
+                        random.next();
+                    if (sampleNoise < 0.3) sampleBiome = "residential";
+                    else if (sampleNoise < 0.5) sampleBiome = "park";
+                    else if (sampleNoise < 0.7) sampleBiome = "industrial";
+                    else if (sampleNoise < 0.85) sampleBiome = "wasteland";
+                    else sampleBiome = "military";
+                } else {
+                    const sampleNoise = this.biomeNoise ? 
+                        (this.biomeNoise.fbm(sampleX * biomeNoiseScale, sampleZ * biomeNoiseScale, 2, 2, 0.5) + 1) / 2 : 
+                        random.next();
+                    if (sampleNoise < 0.35) sampleBiome = "wasteland";
+                    else if (sampleNoise < 0.6) sampleBiome = "park";
+                    else if (sampleNoise < 0.8) sampleBiome = "military";
+                    else if (sampleNoise < 0.92) sampleBiome = "residential";
+                    else sampleBiome = "industrial";
+                }
+                
+                // Weight based on distance (center gets highest weight)
+                const weight = dx === 0 && dz === 0 ? 0.4 : 0.075;
+                samples.push({ biome: sampleBiome, weight });
+            }
         }
         
-        // Очень дальняя зона - природа и военные объекты
-        const noiseVal = random.next();
-        if (noiseVal < 0.30) return "wasteland";   // Пустоши
-        if (noiseVal < 0.55) return "park";        // Природные парки
-        if (noiseVal < 0.75) return "military";    // Военные базы
-        if (noiseVal < 0.90) return "residential"; // Редкие поселения
-        return "industrial";                         // Редкая промышленность
+        // Blend samples if we're in transition zone (boundaryNoise indicates edge)
+        const isTransitionZone = boundaryNoise > 0.4 && boundaryNoise < 0.6;
+        if (isTransitionZone && samples.length > 0) {
+            // Count biome votes
+            const biomeVotes = new Map<BiomeType, number>();
+            samples.forEach(s => {
+                biomeVotes.set(s.biome, (biomeVotes.get(s.biome) || 0) + s.weight);
+            });
+            
+            // Find most common neighboring biome
+            let maxVotes = 0;
+            let blendedBiome = selectedBiome;
+            biomeVotes.forEach((votes, biome) => {
+                if (votes > maxVotes) {
+                    maxVotes = votes;
+                    blendedBiome = biome;
+                }
+            });
+            
+            // Blend between primary and neighboring biome
+            const blendFactor = (boundaryNoise - 0.4) / 0.2; // 0 to 1
+            if (blendFactor > 0.3 && blendFactor < 0.7) {
+                selectedBiome = blendedBiome;
+            }
+        }
+        
+        // Cache result
+        this.biomeCache.set(cacheKey, selectedBiome);
+        
+        return selectedBiome;
     }
     
     private generateChunkContent(chunk: ChunkData, worldX: number, worldZ: number): void {
@@ -1852,7 +2115,44 @@ export class ChunkSystem {
             return;
         }
         
-        const biome = this.getBiome(worldX + size/2, worldZ + size/2, random);
+        // Новые карты
+        if (this.config.mapType === "ruins") {
+            this.generateRuinsContent(chunk, worldX, worldZ, size, random);
+            return;
+        }
+        
+        if (this.config.mapType === "canyon") {
+            this.generateCanyonContent(chunk, worldX, worldZ, size, random);
+            return;
+        }
+        
+        if (this.config.mapType === "industrial") {
+            this.generateIndustrialMapContent(chunk, worldX, worldZ, size, random);
+            return;
+        }
+        
+        if (this.config.mapType === "urban_warfare") {
+            this.generateUrbanWarfareContent(chunk, worldX, worldZ, size, random);
+            return;
+        }
+        
+        if (this.config.mapType === "underground") {
+            this.generateUndergroundContent(chunk, worldX, worldZ, size, random);
+            return;
+        }
+        
+        if (this.config.mapType === "coastal") {
+            this.generateCoastalContent(chunk, worldX, worldZ, size, random);
+            return;
+        }
+        
+        // For normal map, use completely random biomes (no distance dependency)
+        let biome: BiomeType;
+        if (this.config.mapType === "normal") {
+            biome = this.getRandomBiome(worldX + size/2, worldZ + size/2, random);
+        } else {
+            biome = this.getBiome(worldX + size/2, worldZ + size/2, random);
+        }
         
         // Ground based on biome
         this.createGround(chunk, size, biome, random);
@@ -1879,6 +2179,11 @@ export class ChunkSystem {
         // Terrain features (hills, water, craters, platforms)
         this.addTerrainFeatures(chunk, size, random, biome);
         
+        // Add terrain details (rocks, boulders) for natural biomes
+        if (biome === "park" || biome === "wasteland" || biome === "military") {
+            this.addTerrainDetails(chunk, size, random, biome);
+        }
+        
         // Generate cover objects (containers, cars, barriers, etc.)
         this.generateCoverObjects(chunk, worldX, worldZ, size, biome);
         
@@ -1892,7 +2197,7 @@ export class ChunkSystem {
         this.generateConsumables(chunk, worldX, worldZ, size, random);
     }
     
-    private createGround(chunk: ChunkData, size: number, biome: BiomeType, _random: SeededRandom): void {
+    private createGround(chunk: ChunkData, size: number, biome: BiomeType, random: SeededRandom): void {
         // Ground with biome-specific color
         let groundMat: string;
         switch (biome) {
@@ -1905,13 +2210,15 @@ export class ChunkSystem {
             default: groundMat = "dirt";
         }
         
-        // Ground at Y=0.005 (very slightly above physics ground)
-        const ground = MeshBuilder.CreateBox("g", { width: size - 0.5, height: 0.01, depth: size - 0.5 }, this.scene);
-        ground.position = new Vector3(size/2, 0.005, size/2);
+        // Create flat ground (LOW POLY style - all biomes use flat ground)
+        // Terrain variation is created by createTerrainFromNoise using rectangular blocks
+        const ground = MeshBuilder.CreateBox("ground", { width: size, height: 0.1, depth: size }, this.scene);
+        ground.position = new Vector3(size / 2, -0.05, size / 2);
         ground.material = this.getMat(groundMat);
         ground.parent = chunk.node;
         ground.freezeWorldMatrix();
         chunk.meshes.push(ground);
+        new PhysicsAggregate(ground, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
     }
     
     private createRoads(chunk: ChunkData, size: number, random: SeededRandom, biome?: BiomeType): void {
@@ -1983,12 +2290,334 @@ export class ChunkSystem {
         }
     }
     
+    // Object placement helpers with clustering and context awareness
+    private generateClusteredPositions(
+        count: number,
+        chunkSize: number,
+        minRadius: number,
+        maxRadius: number,
+        clusterCount: number,
+        random: SeededRandom
+    ): Vector3[] {
+        const positions: Vector3[] = [];
+        const placed: Vector3[] = [];
+        
+        // Generate cluster centers
+        const clusters: Vector3[] = [];
+        for (let i = 0; i < clusterCount; i++) {
+            clusters.push(new Vector3(
+                random.range(10, chunkSize - 10),
+                0,
+                random.range(10, chunkSize - 10)
+            ));
+        }
+        
+        // Place objects around cluster centers
+        for (let i = 0; i < count; i++) {
+            let attempts = 0;
+            let validPos: Vector3 | null = null;
+            
+            while (attempts < 30 && !validPos) {
+                const cluster = random.pick(clusters);
+                const angle = random.range(0, Math.PI * 2);
+                const distance = random.range(minRadius, maxRadius);
+                const candidate = new Vector3(
+                    cluster.x + Math.cos(angle) * distance,
+                    0,
+                    cluster.z + Math.sin(angle) * distance
+                );
+                
+                // Check bounds
+                if (candidate.x < 5 || candidate.x > chunkSize - 5 ||
+                    candidate.z < 5 || candidate.z > chunkSize - 5) {
+                    attempts++;
+                    continue;
+                }
+                
+                // Check minimum distance from other objects
+                let tooClose = false;
+                for (const placedPos of placed) {
+                    const dist = Vector3.Distance(candidate, placedPos);
+                    if (dist < minRadius * 0.8) {
+                        tooClose = true;
+                        break;
+                    }
+                }
+                
+                if (!tooClose) {
+                    validPos = candidate;
+                    placed.push(candidate);
+                }
+                
+                attempts++;
+            }
+            
+            if (validPos) {
+                positions.push(validPos);
+            }
+        }
+        
+        return positions;
+    }
+    
+    private isPositionNearRoad(worldX: number, worldZ: number, threshold: number = 5): boolean {
+        if (!this.roadNetwork) return false;
+        return this.roadNetwork.isOnRoad(worldX, worldZ) || 
+               this.roadNetwork.getRoadWidth(worldX, worldZ) > 0;
+    }
+    
+    private getTerrainHeight(worldX: number, worldZ: number, biome: BiomeType): number {
+        if (!this.terrainGenerator) return 0;
+        return this.terrainGenerator.getHeight(worldX, worldZ, biome);
+    }
+    
+    // Add terrain details (rocks, boulders, small features) - ENHANCED with more variety
+    private addTerrainDetails(chunk: ChunkData, size: number, random: SeededRandom, biome: BiomeType): void {
+        // More details for natural biomes
+        let detailCount = random.int(3, 8);
+        if (biome === "park" || biome === "residential" || biome === "wasteland") {
+            detailCount = random.int(5, 12);
+        } else if (biome === "city" || biome === "industrial") {
+            detailCount = random.int(2, 5);
+        }
+        
+        for (let i = 0; i < detailCount; i++) {
+            const dx = random.range(5, size - 5);
+            const dz = random.range(5, size - 5);
+            const dWorldX = chunk.x * this.config.chunkSize + dx;
+            const dWorldZ = chunk.z * this.config.chunkSize + dz;
+            
+            if (this.isPositionInGarageArea(dWorldX, dWorldZ, 2)) continue;
+            if (this.isPositionNearRoad(dWorldX, dWorldZ, 2)) continue;
+            
+            const terrainHeight = this.getTerrainHeight(dWorldX, dWorldZ, biome);
+            
+            // Biome-specific detail types
+            let detailType: string;
+            if (biome === "park" || biome === "residential") {
+                detailType = random.pick(["rock", "small_rock", "moss_rock", "boulder"]);
+            } else if (biome === "wasteland") {
+                detailType = random.pick(["rock", "boulder", "debris", "rubble"]);
+            } else if (biome === "military") {
+                detailType = random.pick(["rock", "boulder", "stone"]);
+            } else if (biome === "city" || biome === "industrial") {
+                detailType = random.pick(["debris", "rubble", "concrete_chunk"]);
+            } else {
+                detailType = random.pick(["rock", "boulder", "small_rock"]);
+            }
+            
+            let detail: Mesh;
+            switch (detailType) {
+                case "rock":
+                    // Natural rock - rectangular block (LOW POLY)
+                    const rockW = random.range(0.8, 1.5);
+                    const rockH = random.range(0.5, 1);
+                    const rockD = random.range(0.8, 1.5);
+                    detail = MeshBuilder.CreateBox("rock", {
+                        width: rockW,
+                        height: rockH,
+                        depth: rockD
+                    }, this.scene);
+                    detail.position = new Vector3(dx, terrainHeight + rockH / 2, dz);
+                    detail.rotation.y = random.range(0, Math.PI * 2);
+                    detail.rotation.x = random.range(-0.3, 0.3);
+                    detail.rotation.z = random.range(-0.3, 0.3);
+                    detail.material = this.getMat("rock") || this.getMat("gravel");
+                    break;
+                case "boulder":
+                    // Large boulder - rectangular block (LOW POLY)
+                    const boulderW = random.range(2, 3.5);
+                    const boulderH = random.range(1.5, 2.5);
+                    const boulderD = random.range(2, 3.5);
+                    detail = MeshBuilder.CreateBox("boulder", {
+                        width: boulderW,
+                        height: boulderH,
+                        depth: boulderD
+                    }, this.scene);
+                    detail.position = new Vector3(dx, terrainHeight + boulderH / 2, dz);
+                    detail.rotation.y = random.range(0, Math.PI * 2);
+                    detail.rotation.x = random.range(-0.4, 0.4);
+                    detail.rotation.z = random.range(-0.4, 0.4);
+                    detail.material = this.getMat("rock") || this.getMat("gravel");
+                    new PhysicsAggregate(detail, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                    break;
+                case "small_rock":
+                    // Small natural rock - rectangular block
+                    const smallW = random.range(0.4, 0.8);
+                    const smallH = random.range(0.2, 0.5);
+                    const smallD = random.range(0.4, 0.8);
+                    detail = MeshBuilder.CreateBox("smallRock", {
+                        width: smallW,
+                        height: smallH,
+                        depth: smallD
+                    }, this.scene);
+                    detail.position = new Vector3(dx, terrainHeight + smallH / 2, dz);
+                    detail.rotation.y = random.range(0, Math.PI * 2);
+                    detail.material = this.getMat("gravel");
+                    break;
+                case "moss_rock":
+                    // Rock with moss - rectangular block
+                    const mossW = random.range(0.6, 1.2);
+                    const mossH = random.range(0.4, 0.8);
+                    const mossD = random.range(0.6, 1.2);
+                    detail = MeshBuilder.CreateBox("mossRock", {
+                        width: mossW,
+                        height: mossH,
+                        depth: mossD
+                    }, this.scene);
+                    detail.position = new Vector3(dx, terrainHeight + mossH / 2, dz);
+                    detail.rotation.y = random.range(0, Math.PI * 2);
+                    detail.material = this.getMat("grassDark") || this.getMat("gravel");
+                    break;
+                case "debris":
+                    // Debris chunk - irregular rectangular block
+                    const debrisW = random.range(0.5, 1.2);
+                    const debrisH = random.range(0.3, 0.7);
+                    const debrisD = random.range(0.5, 1.2);
+                    detail = MeshBuilder.CreateBox("debris", {
+                        width: debrisW,
+                        height: debrisH,
+                        depth: debrisD
+                    }, this.scene);
+                    detail.position = new Vector3(dx, terrainHeight + debrisH / 2, dz);
+                    detail.rotation.y = random.range(0, Math.PI * 2);
+                    detail.rotation.x = random.range(-0.5, 0.5);
+                    detail.rotation.z = random.range(-0.5, 0.5);
+                    detail.material = this.getMat("concrete") || this.getMat("gravel");
+                    break;
+                case "rubble":
+                    // Rubble pile - multiple small rectangular blocks
+                    const rubbleCount = random.int(2, 4);
+                    for (let j = 0; j < rubbleCount; j++) {
+                        const rubbleW = random.range(0.3, 0.7);
+                        const rubbleH = random.range(0.2, 0.5);
+                        const rubbleD = random.range(0.3, 0.7);
+                        const rubblePiece = MeshBuilder.CreateBox(`rubble_${j}`, {
+                            width: rubbleW,
+                            height: rubbleH,
+                            depth: rubbleD
+                        }, this.scene);
+                        rubblePiece.position = new Vector3(
+                            dx + random.range(-0.5, 0.5),
+                            terrainHeight + rubbleH / 2,
+                            dz + random.range(-0.5, 0.5)
+                        );
+                        rubblePiece.rotation.y = random.range(0, Math.PI * 2);
+                        rubblePiece.rotation.x = random.range(-0.5, 0.5);
+                        rubblePiece.rotation.z = random.range(-0.5, 0.5);
+                        rubblePiece.material = this.getMat("concrete") || this.getMat("gravel");
+                        rubblePiece.parent = chunk.node;
+                        this.optimizeMesh(rubblePiece);
+                        chunk.meshes.push(rubblePiece);
+                    }
+                    continue; // Skip the standard detail creation
+                case "concrete_chunk":
+                    // Concrete chunk - angular rectangular block
+                    const chunkW = random.range(0.6, 1.4);
+                    const chunkH = random.range(0.4, 1);
+                    const chunkD = random.range(0.6, 1.4);
+                    detail = MeshBuilder.CreateBox("concreteChunk", {
+                        width: chunkW,
+                        height: chunkH,
+                        depth: chunkD
+                    }, this.scene);
+                    detail.position = new Vector3(dx, terrainHeight + chunkH / 2, dz);
+                    detail.rotation.y = random.range(0, Math.PI * 2);
+                    detail.rotation.x = random.range(-0.3, 0.3);
+                    detail.rotation.z = random.range(-0.3, 0.3);
+                    detail.material = this.getMat("concrete");
+                    break;
+                case "stone":
+                    // Stone - rectangular block
+                    const stoneW = random.range(1, 2);
+                    const stoneH = random.range(0.6, 1.2);
+                    const stoneD = random.range(1, 2);
+                    detail = MeshBuilder.CreateBox("stone", {
+                        width: stoneW,
+                        height: stoneH,
+                        depth: stoneD
+                    }, this.scene);
+                    detail.position = new Vector3(dx, terrainHeight + stoneH / 2, dz);
+                    detail.rotation.y = random.range(0, Math.PI * 2);
+                    detail.rotation.x = random.range(-0.2, 0.2);
+                    detail.rotation.z = random.range(-0.2, 0.2);
+                    detail.material = this.getMat("rock") || this.getMat("gravel");
+                    break;
+                default:
+                    continue;
+            }
+            
+            detail.parent = chunk.node;
+            this.optimizeMesh(detail); // Use optimized mesh function for better performance
+            chunk.meshes.push(detail);
+        }
+    }
+    
+    private checkObjectCollision(
+        pos: Vector3,
+        radius: number,
+        existingObjects: Array<{ pos: Vector3, radius: number }>
+    ): boolean {
+        for (const obj of existingObjects) {
+            const dist = Vector3.Distance(pos, obj.pos);
+            if (dist < radius + obj.radius) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    // Add building details (windows, doors)
+    private addBuildingDetails(building: Mesh, width: number, height: number, depth: number, random: SeededRandom, chunk: ChunkData): void {
+        // Add windows (simple dark rectangles)
+        const windowRows = Math.floor(height / 4);
+        const windowCols = Math.floor(width / 4);
+        
+        for (let row = 1; row < windowRows; row++) {
+            for (let col = 0; col < windowCols; col++) {
+                if (random.chance(0.7)) { // Not every window position has a window
+                    const window = MeshBuilder.CreateBox("window", { width: 1.5, height: 1.5, depth: 0.1 }, this.scene);
+                    const windowX = (col - (windowCols - 1) / 2) * (width / (windowCols + 1));
+                    const windowY = (row * (height / (windowRows + 1))) - height / 2;
+                    window.position = new Vector3(windowX, windowY, depth / 2 + 0.05);
+                    const windowMat = new StandardMaterial("windowMat", this.scene);
+                    windowMat.diffuseColor = random.chance(0.3) ? new Color3(0.8, 0.9, 1) : new Color3(0.1, 0.1, 0.15); // Some lit, some dark
+                    window.material = windowMat;
+                    window.parent = building;
+                    chunk.meshes.push(window);
+                }
+            }
+        }
+        
+        // Add door at ground level (if building is tall enough)
+        if (height > 5 && random.chance(0.8)) {
+            const door = MeshBuilder.CreateBox("door", { width: 2, height: 3, depth: 0.1 }, this.scene);
+            door.position = new Vector3(0, -height / 2 + 1.5, depth / 2 + 0.05);
+            const doorMat = new StandardMaterial("doorMat", this.scene);
+            doorMat.diffuseColor = new Color3(0.2, 0.15, 0.1); // Brown door
+            door.material = doorMat;
+            door.parent = building;
+            chunk.meshes.push(door);
+        }
+    }
+    
     private generateCity(chunk: ChunkData, size: number, random: SeededRandom): void {
         // UNIQUE buildings - each chunk different! ЕЩЁ БОЛЬШЕ РАЗНООБРАЗИЯ!
         const buildingTypes = [
+            // Tall buildings
             { w: 12, h: 25, d: 12, mat: "concrete" },   // Office
             { w: 15, h: 35, d: 15, mat: "glass" },      // Skyscraper
+            { w: 18, h: 30, d: 18, mat: "concrete" },   // Tower
+            { w: 14, h: 28, d: 14, mat: "plaster" },    // Residential tower
+            // Medium buildings
             { w: 20, h: 20, d: 20, mat: "plaster" },    // Mall
+            { w: 16, h: 16, d: 16, mat: "brick" },      // Commercial
+            { w: 18, h: 18, d: 18, mat: "concrete" },   // Office block
+            { w: 14, h: 14, d: 14, mat: "brickDark" },  // Warehouse style
+            // Wide buildings
+            { w: 25, h: 15, d: 20, mat: "plaster" },    // Shopping center
+            { w: 22, h: 12, d: 18, mat: "concrete" },   // Factory/industrial
+            { w: 30, h: 10, d: 25, mat: "brick" },      // Large warehouse
             { w: 10, h: 40, d: 10, mat: "metal" },      // Tower
             { w: 18, h: 15, d: 25, mat: "brick" },      // Warehouse
             { w: 8, h: 12, d: 8, mat: "plasterYellow" },// Kiosk
@@ -2006,17 +2635,87 @@ export class ChunkSystem {
             { w: 17, h: 14, d: 19, mat: "brick" },      // Mixed-use building
         ];
         
-        // Main building
-        const type = random.pick(buildingTypes);
-        const bx = size / 2 + random.range(-15, 15);
-        const bz = size / 2 + random.range(-15, 15);
+        // Generate clustered buildings - cities have building clusters
+        const buildingCount = random.int(1, 3);
+        const clusterCount = Math.min(buildingCount, 2); // 1-2 clusters
+        const buildingPositions = this.generateClusteredPositions(
+            buildingCount,
+            size,
+            8, // min distance between buildings
+            25, // max distance from cluster center
+            clusterCount,
+            random
+        );
         
-        // Проверяем, не находится ли здание внутри гаража
-        const worldX = chunk.x * this.config.chunkSize + bx;
-        const worldZ = chunk.z * this.config.chunkSize + bz;
-        if (this.isPositionInGarageArea(worldX, worldZ, Math.max(type.w, type.d) / 2)) {
-            return; // Пропускаем генерацию этого чанка, если здание попадает в гараж
+        const existingObjects: Array<{ pos: Vector3, radius: number }> = [];
+        
+        for (const buildingPos of buildingPositions) {
+            const type = random.pick(buildingTypes);
+            const bx = buildingPos.x;
+            const bz = buildingPos.z;
+            
+            // Проверяем, не находится ли здание внутри гаража
+            const worldX = chunk.x * this.config.chunkSize + bx;
+            const worldZ = chunk.z * this.config.chunkSize + bz;
+            if (this.isPositionInGarageArea(worldX, worldZ, Math.max(type.w, type.d) / 2)) {
+                continue; // Пропускаем это здание
+            }
+            
+            // Check collision with other objects
+            const buildingRadius = Math.max(type.w, type.d) / 2;
+            if (this.checkObjectCollision(new Vector3(bx, 0, bz), buildingRadius, existingObjects)) {
+                continue;
+            }
+            
+            // Adjust height based on terrain
+            const terrainHeight = this.getTerrainHeight(worldX, worldZ, "city");
+            
+            const building = MeshBuilder.CreateBox("b", { width: type.w, height: type.h, depth: type.d }, this.scene);
+            building.position = new Vector3(bx, type.h / 2 + terrainHeight, bz);
+            
+            // Add size variation
+            const scale = random.range(0.85, 1.15);
+            building.scaling = new Vector3(scale, scale, scale);
+            
+            building.material = this.getMat(type.mat);
+            building.parent = chunk.node;
+            building.freezeWorldMatrix();
+            chunk.meshes.push(building);
+            new PhysicsAggregate(building, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            
+            // Add building details (windows, doors) for taller buildings
+            if (type.h > 10 && random.chance(0.6)) {
+                this.addBuildingDetails(building, type.w * scale, type.h * scale, type.d * scale, random, chunk);
+            }
+            
+            existingObjects.push({ pos: new Vector3(bx, 0, bz), radius: buildingRadius });
         }
+        
+        // If no buildings were placed, try placing one at center (fallback)
+        if (existingObjects.length === 0) {
+            const type = random.pick(buildingTypes);
+            const bx = size / 2 + random.range(-15, 15);
+            const bz = size / 2 + random.range(-15, 15);
+            
+            const worldX = chunk.x * this.config.chunkSize + bx;
+            const worldZ = chunk.z * this.config.chunkSize + bz;
+            if (!this.isPositionInGarageArea(worldX, worldZ, Math.max(type.w, type.d) / 2)) {
+                const terrainHeight = this.getTerrainHeight(worldX, worldZ, "city");
+                const building = MeshBuilder.CreateBox("b", { width: type.w, height: type.h, depth: type.d }, this.scene);
+                building.position = new Vector3(bx, type.h / 2 + terrainHeight, bz);
+                building.material = this.getMat(type.mat);
+                building.parent = chunk.node;
+                building.freezeWorldMatrix();
+                chunk.meshes.push(building);
+                new PhysicsAggregate(building, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            }
+            return;
+        }
+        
+        // Continue with rest of generation using first building position as reference
+        const mainBuilding = existingObjects[0];
+        const bx = mainBuilding.pos.x;
+        const bz = mainBuilding.pos.z;
         
         const building = MeshBuilder.CreateBox("b", { width: type.w, height: type.h, depth: type.d }, this.scene);
         building.position = new Vector3(bx, type.h / 2, bz);
@@ -2366,7 +3065,7 @@ export class ChunkSystem {
     }
     
     private generateResidential(chunk: ChunkData, size: number, random: SeededRandom): void {
-        // UNIQUE residential area!
+        // UNIQUE residential area with more diversity!
         const houseTypes = [
             { w: 7, h: 4, d: 7, mat: "plaster" },
             { w: 8, h: 5, d: 6, mat: "brick" },
@@ -2374,10 +3073,27 @@ export class ChunkSystem {
             { w: 9, h: 6, d: 9, mat: "wood" },
             { w: 10, h: 4, d: 8, mat: "plaster" },      // Bungalow
             { w: 6, h: 8, d: 6, mat: "brick" },         // Tall house
+            { w: 11, h: 5, d: 10, mat: "brick" },       // Large house
+            { w: 5, h: 3.5, d: 6, mat: "plaster" },     // Small cottage
+            { w: 12, h: 7, d: 11, mat: "wood" },        // Mansion
+            { w: 8, h: 6, d: 8, mat: "brickDark" },     // Modern house
+            { w: 9, h: 4.5, d: 9, mat: "plasterYellow" }, // Yellow house
+            { w: 7, h: 5.5, d: 7, mat: "wood" },        // Wooden house
         ];
         
-        // 1-2 houses
-        const houseCount = random.int(1, 2);
+        // Use clustering for natural neighborhood feel
+        const houseCount = random.int(2, 4);
+        const clusterCount = Math.min(houseCount, 2);
+        const housePositions = this.generateClusteredPositions(
+            houseCount,
+            size,
+            6, // min distance between houses
+            20, // max distance from cluster center
+            clusterCount,
+            random
+        );
+        
+        const existingObjects: Array<{ pos: Vector3, radius: number }> = [];
         for (let i = 0; i < houseCount; i++) {
             const type = random.pick(houseTypes);
             const hx = size / 3 + i * (size / 3) + random.range(-10, 10);
@@ -2442,11 +3158,21 @@ export class ChunkSystem {
             chunk.meshes.push(car);
         }
         
-        // TREES
-        const treeCount = random.int(1, 3);
-        for (let i = 0; i < treeCount; i++) {
-            const tx = random.range(5, size - 5);
-            const tz = random.range(5, size - 5);
+        // TREES with clustering (groves) and more variety
+        const treeCount = random.int(2, 5);
+        const treeClusterCount = Math.min(treeCount, 3);
+        const treePositions = this.generateClusteredPositions(
+            treeCount,
+            size,
+            3, // min distance between trees
+            15, // max distance from cluster center (groves)
+            treeClusterCount,
+            random
+        );
+        
+        for (const treePos of treePositions) {
+            const tx = treePos.x;
+            const tz = treePos.z;
             
             // Проверяем, не находится ли дерево внутри гаража
             const tWorldX = chunk.x * this.config.chunkSize + tx;
@@ -2455,9 +3181,47 @@ export class ChunkSystem {
                 continue; // Пропускаем это дерево
             }
             
-            const th = random.range(4, 7);
-            const tree = MeshBuilder.CreateBox("t", { width: 2, height: th, depth: 2 }, this.scene);
-            tree.position = new Vector3(tx, th / 2 + 0.01, tz);
+            // Avoid placing trees on roads
+            if (this.isPositionNearRoad(tWorldX, tWorldZ, 3)) {
+                continue;
+            }
+            
+            // More variety in tree sizes and shapes
+            const treeType = random.pick(["tall", "medium", "short", "wide"]);
+            let th: number, tw: number, td: number;
+            
+            switch (treeType) {
+                case "tall":
+                    th = random.range(8, 12);
+                    tw = random.range(2, 3.5);
+                    td = random.range(2, 3.5);
+                    break;
+                case "medium":
+                    th = random.range(5, 8);
+                    tw = random.range(2.5, 4);
+                    td = random.range(2.5, 4);
+                    break;
+                case "short":
+                    th = random.range(3, 6);
+                    tw = random.range(3, 5);
+                    td = random.range(3, 5);
+                    break;
+                case "wide":
+                    th = random.range(4, 7);
+                    tw = random.range(4, 6);
+                    td = random.range(4, 6);
+                    break;
+                default:
+                    th = random.range(5, 8);
+                    tw = random.range(2, 4);
+                    td = random.range(2, 4);
+            }
+            
+            // Adjust height based on terrain
+            const terrainHeight = this.getTerrainHeight(tWorldX, tWorldZ, "residential");
+            
+            const tree = MeshBuilder.CreateBox("t", { width: tw, height: th, depth: td }, this.scene);
+            tree.position = new Vector3(tx, th / 2 + terrainHeight, tz);
             tree.material = this.getMat("leaves");
             tree.parent = chunk.node;
             tree.freezeWorldMatrix();
@@ -2528,11 +3292,23 @@ export class ChunkSystem {
     }
     
     private generatePark(chunk: ChunkData, size: number, random: SeededRandom): void {
-        // 2-4 trees with variety
-        const treeCount = random.int(2, 4);
-        for (let i = 0; i < treeCount; i++) {
-            const tx = random.range(10, size - 10);
-            const tz = random.range(10, size - 10);
+        // Trees in groves with more variety
+        const treeCount = random.int(4, 8);
+        const groveCount = random.int(2, 4);
+        const treePositions = this.generateClusteredPositions(
+            treeCount,
+            size,
+            2, // min distance between trees (can be closer in groves)
+            12, // max distance from cluster center (grove radius)
+            groveCount,
+            random
+        );
+        
+        const existingObjects: Array<{ pos: Vector3, radius: number }> = [];
+        
+        for (const treePos of treePositions) {
+            const tx = treePos.x;
+            const tz = treePos.z;
             
             // Проверяем, не находится ли дерево внутри гаража
             const tWorldX = chunk.x * this.config.chunkSize + tx;
@@ -2541,15 +3317,32 @@ export class ChunkSystem {
                 continue; // Пропускаем это дерево
             }
             
-            const h = random.range(4, 7);
-            const w = random.range(2, 4);
+            // Avoid roads
+            if (this.isPositionNearRoad(tWorldX, tWorldZ, 3)) {
+                continue;
+            }
             
-            const tree = MeshBuilder.CreateBox("t", { width: w, height: h, depth: w }, this.scene);
-            tree.position = new Vector3(tx, h / 2, tz);
+            // Check collision
+            if (this.checkObjectCollision(new Vector3(tx, 0, tz), 2, existingObjects)) {
+                continue;
+            }
+            
+            // More variety in tree sizes and shapes
+            const h = random.range(5, 9);
+            const w = random.range(2, 5);
+            const d = random.range(2, 5);
+            
+            // Adjust height based on terrain
+            const terrainHeight = this.getTerrainHeight(tWorldX, tWorldZ, "park");
+            
+            const tree = MeshBuilder.CreateBox("t", { width: w, height: h, depth: d }, this.scene);
+            tree.position = new Vector3(tx, h / 2 + terrainHeight, tz);
             tree.material = this.getMat("leaves");
             tree.parent = chunk.node;
             tree.freezeWorldMatrix();
             chunk.meshes.push(tree);
+            
+            existingObjects.push({ pos: new Vector3(tx, 0, tz), radius: Math.max(w, d) / 2 });
         }
         
         // Bench
@@ -2650,6 +3443,243 @@ export class ChunkSystem {
         }
     }
     
+    // === HELPER METHODS FOR MAP GENERATION ===
+    
+    // Create craters for frontline/ruins maps
+    private createCraters(chunk: ChunkData, size: number, random: SeededRandom, worldX: number, worldZ: number, count: number = 3): void {
+        for (let i = 0; i < count; i++) {
+            const cx = random.range(5, size - 5);
+            const cz = random.range(5, size - 5);
+            const cWorldX = chunk.x * this.config.chunkSize + cx;
+            const cWorldZ = chunk.z * this.config.chunkSize + cz;
+            
+            if (this.isPositionInGarageArea(cWorldX, cWorldZ, 5)) continue;
+            
+            const radius = random.range(3, 8);
+            const depth = random.range(1, 3);
+            
+            // Create crater as rectangular depression (LOW POLY)
+            const crater = MeshBuilder.CreateBox("crater", {
+                width: radius * 2,
+                height: depth,
+                depth: radius * 2
+            }, this.scene);
+            crater.position = new Vector3(cx, -depth / 2, cz);
+            crater.material = this.getMat("dirt");
+            crater.parent = chunk.node;
+            crater.freezeWorldMatrix();
+            chunk.meshes.push(crater);
+        }
+    }
+    
+    // Create trenches (linear depressions)
+    private createTrenches(chunk: ChunkData, size: number, random: SeededRandom, worldX: number, worldZ: number): void {
+        if (random.chance(0.4)) {
+            const length = random.range(15, 30);
+            const width = 2;
+            const depth = 1.5;
+            const tx = random.range(10, size - 10);
+            const tz = random.range(10, size - 10);
+            const angle = random.range(0, Math.PI * 2);
+            
+            // Create rectangular trench (LOW POLY)
+            const trench = MeshBuilder.CreateBox("trench", {
+                width: length,
+                height: depth,
+                depth: width
+            }, this.scene);
+            
+            trench.position = new Vector3(tx, -depth / 2, tz);
+            trench.rotation.y = angle;
+            trench.material = this.getMat("dirt");
+            trench.parent = chunk.node;
+            trench.freezeWorldMatrix();
+            chunk.meshes.push(trench);
+        }
+    }
+    
+    // Create ruined building (partially destroyed)
+    private createRuinedBuilding(chunk: ChunkData, x: number, z: number, w: number, h: number, d: number, random: SeededRandom): void {
+        // Create partial walls (not complete building)
+        const wallCount = random.int(1, 3); // 1-3 walls remain
+        
+        for (let i = 0; i < wallCount; i++) {
+            const wallType = random.int(0, 3);
+            let wall: Mesh;
+            
+            if (wallType === 0) {
+                // Front wall (partial)
+                const wallW = w * random.range(0.4, 0.8);
+                const wallH = h * random.range(0.5, 1.0);
+                wall = MeshBuilder.CreateBox("ruinWall", { width: wallW, height: wallH, depth: 0.3 }, this.scene);
+                wall.position = new Vector3(x, wallH / 2, z - d / 2);
+            } else if (wallType === 1) {
+                // Side wall (partial)
+                const wallH = h * random.range(0.5, 1.0);
+                const wallD = d * random.range(0.4, 0.8);
+                wall = MeshBuilder.CreateBox("ruinWall", { width: 0.3, height: wallH, depth: wallD }, this.scene);
+                wall.position = new Vector3(x + w / 2, wallH / 2, z);
+            } else {
+                // Corner piece
+                const size = random.range(2, 4);
+                const wallH = h * random.range(0.3, 0.7);
+                wall = MeshBuilder.CreateBox("ruinCorner", { width: size, height: wallH, depth: size }, this.scene);
+                wall.position = new Vector3(x + random.range(-w/2, w/2), wallH / 2, z + random.range(-d/2, d/2));
+            }
+            
+            wall.material = this.getMat(random.pick(["brick", "concrete", "brickDark"]));
+            wall.parent = chunk.node;
+            wall.freezeWorldMatrix();
+            chunk.meshes.push(wall);
+            new PhysicsAggregate(wall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        }
+    }
+    
+    // Create mountain/rock formation using rectangular blocks (LOW POLY)
+    private createMountain(chunk: ChunkData, x: number, z: number, baseSize: number, height: number, random: SeededRandom): void {
+        // Create irregular mountain using overlapping rectangular blocks
+        const segments = random.int(2, 4);
+        for (let i = 0; i < segments; i++) {
+            const segmentW = baseSize * random.range(0.4, 0.8);
+            const segmentD = baseSize * random.range(0.4, 0.8);
+            const segmentHeight = height * random.range(0.5, 1.0);
+            const offsetX = random.range(-baseSize/3, baseSize/3);
+            const offsetZ = random.range(-baseSize/3, baseSize/3);
+            
+            // Use rectangular block for mountain (LOW POLY)
+            const segment = MeshBuilder.CreateBox("mountain", {
+                width: segmentW,
+                height: segmentHeight,
+                depth: segmentD
+            }, this.scene);
+            
+            segment.position = new Vector3(x + offsetX, segmentHeight / 2, z + offsetZ);
+            segment.material = this.getMat("rock") || this.getMat("gravel");
+            segment.parent = chunk.node;
+            segment.freezeWorldMatrix();
+            chunk.meshes.push(segment);
+            new PhysicsAggregate(segment, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        }
+    }
+    
+    // Create river (flat depression with water-like appearance)
+    private createRiver(chunk: ChunkData, startX: number, startZ: number, endX: number, endZ: number, width: number, random: SeededRandom): void {
+        const length = Math.sqrt((endX - startX) ** 2 + (endZ - startZ) ** 2);
+        const angle = Math.atan2(endZ - startZ, endX - startX);
+        const centerX = (startX + endX) / 2;
+        const centerZ = (startZ + endZ) / 2;
+        
+        // Create rectangular river valley (LOW POLY)
+        const river = MeshBuilder.CreateBox("river", {
+            width: length,
+            height: 1.5,
+            depth: width
+        }, this.scene);
+        
+        river.position = new Vector3(centerX, -1.5 / 2, centerZ);
+        river.rotation.y = angle;
+        
+        const waterMat = this.materials.has("water") ? this.getMat("water") : this.getMat("glass");
+        river.material = waterMat;
+        river.parent = chunk.node;
+        river.freezeWorldMatrix();
+        chunk.meshes.push(river);
+    }
+    
+    // Create watchtower
+    private createWatchtower(chunk: ChunkData, x: number, z: number, random: SeededRandom): void {
+        const towerHeight = random.range(8, 12);
+        const baseSize = 2;
+        
+        // Base
+        const base = MeshBuilder.CreateBox("towerBase", { width: baseSize, height: 3, depth: baseSize }, this.scene);
+        base.position = new Vector3(x, 1.5, z);
+        base.material = this.getMat("concrete");
+        base.parent = chunk.node;
+        base.freezeWorldMatrix();
+        chunk.meshes.push(base);
+        new PhysicsAggregate(base, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        
+        // Tower
+        const tower = MeshBuilder.CreateBox("tower", { width: 1.5, height: towerHeight - 3, depth: 1.5 }, this.scene);
+        tower.position = new Vector3(x, 3 + (towerHeight - 3) / 2, z);
+        tower.material = this.getMat("metal");
+        tower.parent = chunk.node;
+        tower.freezeWorldMatrix();
+        chunk.meshes.push(tower);
+        new PhysicsAggregate(tower, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        
+        // Top platform
+        const platform = MeshBuilder.CreateBox("towerPlatform", { width: 2.5, height: 0.3, depth: 2.5 }, this.scene);
+        platform.position = new Vector3(x, towerHeight, z);
+        platform.material = this.getMat("concrete");
+        platform.parent = chunk.node;
+        platform.freezeWorldMatrix();
+        chunk.meshes.push(platform);
+    }
+    
+    // Create military vehicle (tank wreck, truck, etc.)
+    private createMilitaryVehicle(chunk: ChunkData, x: number, z: number, random: SeededRandom, type: "tank" | "truck" | "apc" = "tank"): void {
+        if (type === "tank") {
+            // Tank wreck
+            const body = MeshBuilder.CreateBox("tankWreck", { width: 4, height: 2, depth: 6 }, this.scene);
+            body.position = new Vector3(x, 1, z);
+            body.rotation.y = random.range(0, Math.PI * 2);
+            body.material = this.getMat("metalRust");
+            body.parent = chunk.node;
+            body.freezeWorldMatrix();
+            chunk.meshes.push(body);
+            new PhysicsAggregate(body, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            
+            // Turret (fallen off)
+            if (random.chance(0.5)) {
+                const turret = MeshBuilder.CreateBox("tankTurret", { width: 2.5, height: 1.5, depth: 2.5 }, this.scene);
+                turret.position = new Vector3(x + random.range(-2, 2), 0.75, z + random.range(-2, 2));
+                turret.rotation.y = random.range(0, Math.PI * 2);
+                turret.material = this.getMat("metalRust");
+                turret.parent = chunk.node;
+                turret.freezeWorldMatrix();
+                chunk.meshes.push(turret);
+            }
+        } else if (type === "truck") {
+            const cab = MeshBuilder.CreateBox("truckCab", { width: 2.5, height: 2, depth: 3 }, this.scene);
+            cab.position = new Vector3(x, 1, z);
+            cab.rotation.y = random.range(0, Math.PI * 2);
+            cab.material = this.getMat("metalRust");
+            cab.parent = chunk.node;
+            cab.freezeWorldMatrix();
+            chunk.meshes.push(cab);
+            
+            const trailer = MeshBuilder.CreateBox("truckTrailer", { width: 2.5, height: 2.5, depth: 6 }, this.scene);
+            trailer.position = new Vector3(x, 1.25, z - 4.5);
+            trailer.rotation.y = random.range(0, Math.PI * 2);
+            trailer.material = this.getMat("metalRust");
+            trailer.parent = chunk.node;
+            trailer.freezeWorldMatrix();
+            chunk.meshes.push(trailer);
+        }
+    }
+    
+    // Create barricade (vehicles stacked/arranged)
+    private createBarricade(chunk: ChunkData, x: number, z: number, length: number, random: SeededRandom): void {
+        const vehicleCount = random.int(2, 4);
+        for (let i = 0; i < vehicleCount; i++) {
+            const offset = (i - vehicleCount / 2) * 3;
+            const angle = random.pick([0, Math.PI / 2]);
+            const vx = x + (angle === 0 ? offset : 0);
+            const vz = z + (angle === 0 ? 0 : offset);
+            
+            const vehicle = MeshBuilder.CreateBox("barricadeVehicle", { width: 2, height: 1.5, depth: 4 }, this.scene);
+            vehicle.position = new Vector3(vx, 0.75, vz);
+            vehicle.rotation.y = angle;
+            vehicle.material = this.getMat(random.pick(["metal", "metalRust", "red"]));
+            vehicle.parent = chunk.node;
+            vehicle.freezeWorldMatrix();
+            chunk.meshes.push(vehicle);
+            new PhysicsAggregate(vehicle, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        }
+    }
+    
     // === POLYGON (Training Ground) GENERATION ===
     
     // Размер арены полигона
@@ -2711,10 +3741,10 @@ export class ChunkSystem {
         return "empty"; // Центральная область - пустое пространство
     }
     
-    private generatePolygonPerimeter(chunk: ChunkData, worldX: number, worldZ: number, size: number, _random: SeededRandom): void {
+    private generatePolygonPerimeter(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
         const arenaHalf = this.POLYGON_ARENA_SIZE / 2;
-        const wallHeight = this.POLYGON_WALL_HEIGHT;
-        const wallThickness = 2;
+        const fenceHeight = 3; // Fence instead of wall
+        const fenceThickness = 0.2;
         
         // Проверяем, находится ли чанк на границе арены
         const chunkLeft = worldX;
@@ -2729,13 +3759,27 @@ export class ChunkSystem {
             const wallLength = Math.min(chunkRight, arenaHalf) - Math.max(chunkLeft, -arenaHalf);
             if (wallLength > 0) {
                 const wallX = (Math.max(chunkLeft, -arenaHalf) + Math.min(chunkRight, arenaHalf)) / 2 - worldX;
-                const wall = MeshBuilder.CreateBox("pwall_n", { width: wallLength, height: wallHeight, depth: wallThickness }, this.scene);
-                wall.position = new Vector3(wallX, wallHeight / 2, arenaHalf - worldZ);
-                wall.material = this.getMat("concrete");
-                wall.parent = chunk.node;
-                wall.freezeWorldMatrix();
-                chunk.meshes.push(wall);
-                new PhysicsAggregate(wall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                // Create fence with posts
+                const postSpacing = 5;
+                const postCount = Math.floor(wallLength / postSpacing);
+                for (let i = 0; i < postCount; i++) {
+                    const postX = wallX + (i - postCount / 2) * postSpacing;
+                    const post = MeshBuilder.CreateBox("fencePost", { width: 0.3, height: fenceHeight, depth: 0.3 }, this.scene);
+                    post.position = new Vector3(postX, fenceHeight / 2, arenaHalf - worldZ);
+                    post.material = this.getMat("metal");
+                    post.parent = chunk.node;
+                    post.freezeWorldMatrix();
+                    chunk.meshes.push(post);
+                }
+                
+                // Fence mesh between posts
+                const fence = MeshBuilder.CreateBox("pfence_n", { width: wallLength, height: fenceHeight * 0.7, depth: fenceThickness }, this.scene);
+                fence.position = new Vector3(wallX, fenceHeight * 0.5, arenaHalf - worldZ);
+                fence.material = this.getMat("metal");
+                fence.parent = chunk.node;
+                fence.freezeWorldMatrix();
+                chunk.meshes.push(fence);
+                new PhysicsAggregate(fence, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
             }
         }
         
@@ -2821,18 +3865,41 @@ export class ChunkSystem {
             target.freezeWorldMatrix();
             chunk.meshes.push(target);
             
-            // Круглые кольца на мишени
+            // Квадратные рамки на мишени (LOW POLY)
             for (let ring = 1; ring <= 3; ring++) {
                 const ringSize = ring * 0.4;
-                const ringMesh = MeshBuilder.CreateTorus("ring", { diameter: ringSize, thickness: 0.05 }, this.scene);
-                ringMesh.position = new Vector3(x, 2 + targetHeight / 2, z + 0.35);
-                ringMesh.rotation.x = Math.PI / 2;
-                const ringMat = new StandardMaterial("ringMat", this.scene);
-                ringMat.diffuseColor = ring % 2 === 0 ? new Color3(1, 1, 1) : new Color3(0, 0, 0);
-                ringMesh.material = ringMat;
-                ringMesh.parent = chunk.node;
-                ringMesh.freezeWorldMatrix();
-                chunk.meshes.push(ringMesh);
+                const ringThickness = 0.1;
+                // Создаём квадратную рамку из 4 прямоугольных блоков
+                // Верх
+                const top = MeshBuilder.CreateBox("ring_top", { width: ringSize * 2, height: ringThickness, depth: ringThickness }, this.scene);
+                top.position = new Vector3(x, 2 + targetHeight / 2, z + 0.35 - ringSize);
+                const topMat = new StandardMaterial("ringMat", this.scene);
+                topMat.diffuseColor = ring % 2 === 0 ? new Color3(1, 1, 1) : new Color3(0, 0, 0);
+                top.material = topMat;
+                top.parent = chunk.node;
+                top.freezeWorldMatrix();
+                chunk.meshes.push(top);
+                // Низ
+                const bottom = MeshBuilder.CreateBox("ring_bottom", { width: ringSize * 2, height: ringThickness, depth: ringThickness }, this.scene);
+                bottom.position = new Vector3(x, 2 + targetHeight / 2, z + 0.35 + ringSize);
+                bottom.material = topMat;
+                bottom.parent = chunk.node;
+                bottom.freezeWorldMatrix();
+                chunk.meshes.push(bottom);
+                // Лево
+                const left = MeshBuilder.CreateBox("ring_left", { width: ringThickness, height: ringThickness, depth: ringSize * 2 }, this.scene);
+                left.position = new Vector3(x - ringSize, 2 + targetHeight / 2, z + 0.35);
+                left.material = topMat;
+                left.parent = chunk.node;
+                left.freezeWorldMatrix();
+                chunk.meshes.push(left);
+                // Право
+                const right = MeshBuilder.CreateBox("ring_right", { width: ringThickness, height: ringThickness, depth: ringSize * 2 }, this.scene);
+                right.position = new Vector3(x + ringSize, 2 + targetHeight / 2, z + 0.35);
+                right.material = topMat;
+                right.parent = chunk.node;
+                right.freezeWorldMatrix();
+                chunk.meshes.push(right);
             }
         }
         
@@ -2924,12 +3991,12 @@ export class ChunkSystem {
                 chunk.meshes.push(beam);
             }
             
-            // Физика для ежа (упрощённая - сфера)
-            const hedgehogPhysics = MeshBuilder.CreateSphere("hedgehog_phys", { diameter: 2 }, this.scene);
+            // Физика для ежа (LOW POLY - box)
+            const hedgehogPhysics = MeshBuilder.CreateBox("hedgehog_phys", { width: 2, height: 2, depth: 2 }, this.scene);
             hedgehogPhysics.position = new Vector3(x, 1, z);
             hedgehogPhysics.isVisible = false;
             hedgehogPhysics.parent = chunk.node;
-            new PhysicsAggregate(hedgehogPhysics, PhysicsShapeType.SPHERE, { mass: 0 }, this.scene);
+            new PhysicsAggregate(hedgehogPhysics, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
             chunk.meshes.push(hedgehogPhysics);
         }
     }
@@ -2998,7 +4065,171 @@ export class ChunkSystem {
     }
     
     private generatePolygonBuildings(chunk: ChunkData, size: number, random: SeededRandom): void {
-        // Военная база - бункеры, башни, казармы
+        // Военная база - бункеры, башни, казармы, ангары, склады, техника
+        
+        // Hangars (large enclosed buildings for vehicles)
+        const hangarCount = random.int(1, 3);
+        for (let i = 0; i < hangarCount; i++) {
+            const hx = random.range(15, size - 15);
+            const hz = random.range(15, size - 15);
+            const hWorldX = chunk.x * this.config.chunkSize + hx;
+            const hWorldZ = chunk.z * this.config.chunkSize + hz;
+            
+            if (this.isPositionInGarageArea(hWorldX, hWorldZ, 15)) continue;
+            
+            const hangarW = random.range(20, 30);
+            const hangarH = random.range(6, 10);
+            const hangarD = random.range(25, 35);
+            
+            // Main hangar building
+            const hangar = MeshBuilder.CreateBox("hangar", { width: hangarW, height: hangarH, depth: hangarD }, this.scene);
+            hangar.position = new Vector3(hx, hangarH / 2, hz);
+            hangar.material = this.getMat("metal");
+            hangar.parent = chunk.node;
+            hangar.freezeWorldMatrix();
+            chunk.meshes.push(hangar);
+            new PhysicsAggregate(hangar, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            
+            // Large door opening (front missing wall)
+            // Door frame
+            const doorHeight = hangarH * 0.7;
+            const leftFrame = MeshBuilder.CreateBox("doorFrame", { width: 1, height: doorHeight, depth: 1 }, this.scene);
+            leftFrame.position = new Vector3(hx - hangarW / 2 + 1, doorHeight / 2, hz - hangarD / 2);
+            leftFrame.material = this.getMat("metal");
+            leftFrame.parent = chunk.node;
+            leftFrame.freezeWorldMatrix();
+            chunk.meshes.push(leftFrame);
+            
+            const rightFrame = MeshBuilder.CreateBox("doorFrame", { width: 1, height: doorHeight, depth: 1 }, this.scene);
+            rightFrame.position = new Vector3(hx + hangarW / 2 - 1, doorHeight / 2, hz - hangarD / 2);
+            rightFrame.material = this.getMat("metal");
+            rightFrame.parent = chunk.node;
+            rightFrame.freezeWorldMatrix();
+            chunk.meshes.push(rightFrame);
+            
+            // Top frame
+            const topFrame = MeshBuilder.CreateBox("doorFrame", { width: hangarW - 2, height: 1, depth: 1 }, this.scene);
+            topFrame.position = new Vector3(hx, doorHeight, hz - hangarD / 2);
+            topFrame.material = this.getMat("metal");
+            topFrame.parent = chunk.node;
+            topFrame.freezeWorldMatrix();
+            chunk.meshes.push(topFrame);
+            
+            // Vehicles inside hangar (occasionally)
+            if (random.chance(0.5)) {
+                this.createMilitaryVehicle(chunk, hx, hz, random, random.pick(["tank", "truck", "apc"]));
+            }
+        }
+        
+        // Warehouses (storage buildings)
+        const warehouseCount = random.int(1, 3);
+        for (let i = 0; i < warehouseCount; i++) {
+            const wx = random.range(10, size - 10);
+            const wz = random.range(10, size - 10);
+            const wWorldX = chunk.x * this.config.chunkSize + wx;
+            const wWorldZ = chunk.z * this.config.chunkSize + wz;
+            
+            if (this.isPositionInGarageArea(wWorldX, wWorldZ, 12)) continue;
+            
+            const warehouse = MeshBuilder.CreateBox("warehouse", { width: random.range(15, 25), height: random.range(5, 8), depth: random.range(20, 30) }, this.scene);
+            warehouse.position = new Vector3(wx, random.range(2.5, 4), wz);
+            warehouse.material = this.getMat("metalRust");
+            warehouse.parent = chunk.node;
+            warehouse.freezeWorldMatrix();
+            chunk.meshes.push(warehouse);
+            new PhysicsAggregate(warehouse, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            
+            // Containers near warehouse
+            for (let j = 0; j < random.int(2, 5); j++) {
+                const cx = wx + random.range(-12, 12);
+                const cz = wz + random.range(-12, 12);
+                const cWorldX = chunk.x * this.config.chunkSize + cx;
+                const cWorldZ = chunk.z * this.config.chunkSize + cz;
+                
+                if (this.isPositionInGarageArea(cWorldX, cWorldZ, 2)) continue;
+                
+                const container = MeshBuilder.CreateBox("warehouseContainer", { width: 2.5, height: 2.5, depth: 6 }, this.scene);
+                container.position = new Vector3(cx, 1.26, cz);
+                container.rotation.y = random.pick([0, Math.PI / 2]);
+                container.material = this.getMat(random.pick(["red", "yellow", "blue", "metal"]));
+                container.parent = chunk.node;
+                container.freezeWorldMatrix();
+                chunk.meshes.push(container);
+                new PhysicsAggregate(container, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            }
+        }
+        
+        // Watchtowers
+        const towerCount = random.int(1, 3);
+        for (let i = 0; i < towerCount; i++) {
+            const tx = random.range(10, size - 10);
+            const tz = random.range(10, size - 10);
+            const tWorldX = chunk.x * this.config.chunkSize + tx;
+            const tWorldZ = chunk.z * this.config.chunkSize + tz;
+            
+            if (this.isPositionInGarageArea(tWorldX, tWorldZ, 5)) continue;
+            
+            this.createWatchtower(chunk, tx, tz, random);
+        }
+        
+        // Cranes (for loading/unloading)
+        if (random.chance(0.6)) {
+            const cx = random.range(15, size - 15);
+            const cz = random.range(15, size - 15);
+            const cWorldX = chunk.x * this.config.chunkSize + cx;
+            const cWorldZ = chunk.z * this.config.chunkSize + cz;
+            
+            if (!this.isPositionInGarageArea(cWorldX, cWorldZ, 10)) {
+                const tower = MeshBuilder.CreateBox("craneTower", { width: 2, height: 15, depth: 2 }, this.scene);
+                tower.position = new Vector3(cx, 7.5, cz);
+                tower.material = this.getMat("yellow");
+                tower.parent = chunk.node;
+                tower.freezeWorldMatrix();
+                chunk.meshes.push(tower);
+                
+                const arm = MeshBuilder.CreateBox("craneArm", { width: 1, height: 1, depth: 20 }, this.scene);
+                arm.position = new Vector3(cx, 14, cz + 10);
+                arm.material = this.getMat("yellow");
+                arm.parent = chunk.node;
+                arm.freezeWorldMatrix();
+                chunk.meshes.push(arm);
+            }
+        }
+        
+        // Military vehicles (parked/driving range)
+        const vehicleCount = random.int(2, 5);
+        for (let i = 0; i < vehicleCount; i++) {
+            const vx = random.range(10, size - 10);
+            const vz = random.range(10, size - 10);
+            const vWorldX = chunk.x * this.config.chunkSize + vx;
+            const vWorldZ = chunk.z * this.config.chunkSize + vz;
+            
+            if (this.isPositionInGarageArea(vWorldX, vWorldZ, 4)) continue;
+            
+            this.createMilitaryVehicle(chunk, vx, vz, random, random.pick(["tank", "truck", "apc"]));
+        }
+        
+        // Barracks/Administrative buildings
+        if (random.chance(0.7)) {
+            const kx = random.range(15, size - 15);
+            const kz = random.range(15, size - 15);
+            
+            const worldX = chunk.x * this.config.chunkSize + kx;
+            const worldZ = chunk.z * this.config.chunkSize + kz;
+            if (!this.isPositionInGarageArea(worldX, worldZ, 10)) {
+                const barrackW = random.range(12, 20);
+                const barrackH = 4;
+                const barrackD = 8;
+                
+                const barrack = MeshBuilder.CreateBox("barrack", { width: barrackW, height: barrackH, depth: barrackD }, this.scene);
+                barrack.position = new Vector3(kx, barrackH / 2, kz);
+                barrack.material = this.getMat("metalRust");
+                barrack.parent = chunk.node;
+                barrack.freezeWorldMatrix();
+                chunk.meshes.push(barrack);
+                new PhysicsAggregate(barrack, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            }
+        }
         
         // Бункер
         if (random.chance(0.6)) {
@@ -3133,11 +4364,14 @@ export class ChunkSystem {
                 this.generateFrontlineBunkers(chunk, size, random, "allied");
                 break;
             case "nomansland":
-                // Нейтральная полоса - опасная зона
+                // Нейтральная полоса - опасная зона с множеством кратеров, окопов, укреплений
                 this.generateFrontlineCraters(chunk, size, random);
+                this.generateFrontlineTrenches(chunk, size, random, "neutral");
                 this.generateFrontlineRuins(chunk, size, random);
                 this.generateFrontlineWire(chunk, size, random);
                 this.generateFrontlineWrecks(chunk, size, random);
+                // Add sandbag fortifications
+                this.generateFrontlineSandbags(chunk, size, random);
                 break;
             case "enemy":
                 // Восточная сторона - вражеская база
@@ -3238,9 +4472,9 @@ export class ChunkSystem {
         }
     }
     
-    private generateFrontlineTrenches(chunk: ChunkData, size: number, random: SeededRandom, side: "allied" | "enemy"): void {
+    private generateFrontlineTrenches(chunk: ChunkData, size: number, random: SeededRandom, side: "allied" | "enemy" | "neutral"): void {
         // Окопы - длинные траншеи с земляными валами
-        const trenchCount = random.int(1, 2);
+        const trenchCount = side === "neutral" ? random.int(2, 4) : random.int(1, 3); // Больше окопов в нейтральной зоне
         
         for (let i = 0; i < trenchCount; i++) {
             const x = random.range(10, size - 10);
@@ -3292,8 +4526,8 @@ export class ChunkSystem {
     }
     
     private generateFrontlineCraters(chunk: ChunkData, size: number, random: SeededRandom): void {
-        // Воронки от взрывов в нейтральной полосе
-        const craterCount = random.int(3, 7);
+        // Воронки от взрывов в нейтральной полосе - много кратеров
+        const craterCount = random.int(5, 12); // Увеличено количество кратеров
         
         for (let i = 0; i < craterCount; i++) {
             const x = random.range(8, size - 8);
@@ -3306,22 +4540,41 @@ export class ChunkSystem {
             const craterRadius = random.range(3, 8);
             const craterDepth = random.range(0.5, 1.5);
             
-            // Воронка представлена как кольцо вокруг центра
+            // Воронка представлена как прямоугольные блоки вокруг центра (LOW POLY)
             const rimHeight = craterDepth * 0.5;
-            const rim = MeshBuilder.CreateTorus("crater_rim", { 
-                diameter: craterRadius * 2, 
-                thickness: craterRadius * 0.3,
-                tessellation: 16
-            }, this.scene);
-            rim.position = new Vector3(x, rimHeight / 2, z);
-            rim.rotation.x = Math.PI / 2;
-            rim.material = this.getMat("dirt");
-            rim.parent = chunk.node;
-            rim.freezeWorldMatrix();
-            chunk.meshes.push(rim);
+            const rimW = craterRadius * 0.4;
+            // Создаём квадратный обод из 4 прямоугольных блоков
+            // Север
+            const rimN = MeshBuilder.CreateBox("crater_rim_n", { width: craterRadius * 2.2, height: rimHeight, depth: rimW }, this.scene);
+            rimN.position = new Vector3(x, rimHeight / 2, z - craterRadius - rimW / 2);
+            rimN.material = this.getMat("dirt");
+            rimN.parent = chunk.node;
+            rimN.freezeWorldMatrix();
+            chunk.meshes.push(rimN);
+            // Юг
+            const rimS = MeshBuilder.CreateBox("crater_rim_s", { width: craterRadius * 2.2, height: rimHeight, depth: rimW }, this.scene);
+            rimS.position = new Vector3(x, rimHeight / 2, z + craterRadius + rimW / 2);
+            rimS.material = this.getMat("dirt");
+            rimS.parent = chunk.node;
+            rimS.freezeWorldMatrix();
+            chunk.meshes.push(rimS);
+            // Восток
+            const rimE = MeshBuilder.CreateBox("crater_rim_e", { width: rimW, height: rimHeight, depth: craterRadius * 2.2 }, this.scene);
+            rimE.position = new Vector3(x + craterRadius + rimW / 2, rimHeight / 2, z);
+            rimE.material = this.getMat("dirt");
+            rimE.parent = chunk.node;
+            rimE.freezeWorldMatrix();
+            chunk.meshes.push(rimE);
+            // Запад
+            const rimWest = MeshBuilder.CreateBox("crater_rim_w", { width: rimW, height: rimHeight, depth: craterRadius * 2.2 }, this.scene);
+            rimWest.position = new Vector3(x - craterRadius - rimW / 2, rimHeight / 2, z);
+            rimWest.material = this.getMat("dirt");
+            rimWest.parent = chunk.node;
+            rimWest.freezeWorldMatrix();
+            chunk.meshes.push(rimWest);
             
-            // Физика для обода воронки
-            const rimPhysics = MeshBuilder.CreateCylinder("crater_phys", { diameter: craterRadius * 2.2, height: rimHeight }, this.scene);
+            // Физика для обода воронки (box вместо cylinder)
+            const rimPhysics = MeshBuilder.CreateBox("crater_phys", { width: craterRadius * 2.2, height: rimHeight, depth: craterRadius * 2.2 }, this.scene);
             rimPhysics.position = new Vector3(x, rimHeight / 2, z);
             rimPhysics.isVisible = false;
             rimPhysics.parent = chunk.node;
@@ -3441,12 +4694,12 @@ export class ChunkSystem {
                     chunk.meshes.push(beam);
                 }
                 
-                // Физика
-                const hedgehogPhysics = MeshBuilder.CreateSphere("hh_phys", { diameter: 2.5 }, this.scene);
+                // Физика (LOW POLY - box)
+                const hedgehogPhysics = MeshBuilder.CreateBox("hh_phys", { width: 2.5, height: 2.5, depth: 2.5 }, this.scene);
                 hedgehogPhysics.position = new Vector3(x, 1.2, z);
                 hedgehogPhysics.isVisible = false;
                 hedgehogPhysics.parent = chunk.node;
-                new PhysicsAggregate(hedgehogPhysics, PhysicsShapeType.SPHERE, { mass: 0 }, this.scene);
+                new PhysicsAggregate(hedgehogPhysics, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
                 chunk.meshes.push(hedgehogPhysics);
             } else {
                 // Мешки с песком
@@ -3476,41 +4729,76 @@ export class ChunkSystem {
         }
     }
     
-    private generateFrontlineBunkers(chunk: ChunkData, size: number, random: SeededRandom, side: "allied" | "enemy"): void {
-        // Бункеры на позициях
-        if (!random.chance(0.35)) return;
+    // Generate sandbag fortifications
+    private generateFrontlineSandbags(chunk: ChunkData, size: number, random: SeededRandom): void {
+        // Sandbag piles and barriers in no man's land
+        const sandbagCount = random.int(3, 7);
         
-        const x = random.range(15, size - 15);
-        const z = random.range(15, size - 15);
+        for (let i = 0; i < sandbagCount; i++) {
+            const x = random.range(8, size - 8);
+            const z = random.range(8, size - 8);
+            const worldX = chunk.x * this.config.chunkSize + x;
+            const worldZ = chunk.z * this.config.chunkSize + z;
+            
+            if (this.isPositionInGarageArea(worldX, worldZ, 3)) continue;
+            
+            // Create sandbag pile
+            for (let row = 0; row < 3; row++) {
+                for (let col = 0; col < 3 - row; col++) {
+                    const bag = MeshBuilder.CreateBox("sandbag", { width: 1.2, height: 0.4, depth: 0.6 }, this.scene);
+                    bag.position = new Vector3(
+                        x + (col - (3 - row - 1) / 2) * 1.2,
+                        row * 0.4,
+                        z + random.range(-0.5, 0.5)
+                    );
+                    bag.material = this.getMat("dirt");
+                    bag.parent = chunk.node;
+                    bag.freezeWorldMatrix();
+                    chunk.meshes.push(bag);
+                }
+            }
+        }
+    }
+    
+    private generateFrontlineBunkers(chunk: ChunkData, size: number, random: SeededRandom, side: "allied" | "enemy"): void {
+        // Бункеры на позициях - больше бункеров
+        const bunkerCount = random.int(1, 3); // Больше бункеров
+        
+        for (let i = 0; i < bunkerCount; i++) {
+            if (random.chance(0.7)) {
+                const x = random.range(15, size - 15);
+                const z = random.range(15, size - 15);
         
         const worldX = chunk.x * this.config.chunkSize + x;
         const worldZ = chunk.z * this.config.chunkSize + z;
         if (this.isPositionInGarageArea(worldX, worldZ, 10)) return;
         
         const bunkerW = random.range(8, 14);
-        const bunkerH = random.range(3, 5);
-        const bunkerD = random.range(6, 10);
-        
-        const bunker = MeshBuilder.CreateBox("bunker", { width: bunkerW, height: bunkerH, depth: bunkerD }, this.scene);
-        bunker.position = new Vector3(x, bunkerH / 2, z);
+                const bunkerH = random.range(3, 5);
+                const bunkerD = random.range(6, 10);
+                
+                const bunker = MeshBuilder.CreateBox("bunker", { width: bunkerW, height: bunkerH, depth: bunkerD }, this.scene);
+                bunker.position = new Vector3(x, bunkerH / 2, z);
         bunker.material = this.getMat("concrete");
         bunker.parent = chunk.node;
         bunker.freezeWorldMatrix();
         chunk.meshes.push(bunker);
         new PhysicsAggregate(bunker, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         
-        // Амбразура
-        const slitW = bunkerW * 0.5;
-        const slit = MeshBuilder.CreateBox("slit", { width: slitW, height: 0.6, depth: 0.5 }, this.scene);
-        // Амбразура направлена к центру карты (в сторону врага для союзников, в сторону союзников для врага)
-        const slitZ = side === "allied" ? z + bunkerD / 2 : z - bunkerD / 2;
-        slit.position = new Vector3(x, bunkerH - 0.6, slitZ);
+                // Амбразура
+                const slitW = bunkerW * 0.5;
+                const slit = MeshBuilder.CreateBox("slit", { width: slitW, height: 0.6, depth: 0.5 }, this.scene);
+                // Амбразура направлена к центру карты (в сторону врага для союзников, в сторону союзников для врага)
+                const slitZ = side === "allied" ? z + bunkerD / 2 : z - bunkerD / 2;
+                slit.position = new Vector3(x, bunkerH - 0.6, slitZ);
         const slitMat = new StandardMaterial("slitMat", this.scene);
         slitMat.diffuseColor = new Color3(0.05, 0.05, 0.05);
         slit.material = slitMat;
-        slit.parent = chunk.node;
-        slit.freezeWorldMatrix();
-        chunk.meshes.push(slit);
+                slit.parent = chunk.node;
+                slit.freezeWorldMatrix();
+                chunk.meshes.push(slit);
+            }
+        }
     }
     
     private generateFrontlineWire(chunk: ChunkData, size: number, random: SeededRandom): void {
@@ -3697,108 +4985,94 @@ export class ChunkSystem {
         }
     }
 
-    // Create terrain features based on noise heightmap
+    // Create BLOCKY terrain features based on noise heightmap - LOW POLY STYLE (rectangular blocks only)
     private createTerrainFromNoise(chunk: ChunkData, worldX: number, worldZ: number, size: number, biome: BiomeType, random: SeededRandom): void {
         if (!this.terrainGenerator) return;
         
-        // Skip flat biomes (cities have minimal terrain)
-        if (biome === "city" || biome === "industrial") {
-            // Only add occasional small bumps
-            if (random.chance(0.3)) {
-                const bumpX = random.range(10, size - 10);
-                const bumpZ = random.range(10, size - 10);
-                const bump = MeshBuilder.CreateBox("bump", { width: 4, height: 0.3, depth: 4 }, this.scene);
-                bump.position = new Vector3(bumpX, 0.15, bumpZ);
-                bump.material = this.getMat("concrete");
-                bump.parent = chunk.node;
-                bump.freezeWorldMatrix();
-                chunk.meshes.push(bump);
-            }
-            return;
-        }
-        
-        // Sample terrain at several points and create hills
-        const gridSize = 3; // 3x3 grid of potential terrain features
+        // Use grid for blocky terrain (voxel-style)
+        const gridSize = 8; // Grid for block-based terrain
         const cellSize = size / gridSize;
         
+        // Sample heights at grid points - HEIGHTS ARE ALREADY QUANTIZED in terrainGenerator
+        const heights: number[][] = [];
+        for (let gx = 0; gx <= gridSize; gx++) {
+            heights[gx] = [];
+            for (let gz = 0; gz <= gridSize; gz++) {
+                const sampleX = worldX + gx * cellSize;
+                const sampleZ = worldZ + gz * cellSize;
+                heights[gx][gz] = this.terrainGenerator.getHeight(sampleX, sampleZ, biome);
+            }
+        }
+        
+        // Create blocky terrain mesh - each cell is a rectangular block
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gz = 0; gz < gridSize; gz++) {
-                const localX = (gx + 0.5) * cellSize;
-                const localZ = (gz + 0.5) * cellSize;
-                const sampleX = worldX + localX;
-                const sampleZ = worldZ + localZ;
+                const localX = gx * cellSize + cellSize / 2;
+                const localZ = gz * cellSize + cellSize / 2;
                 
-                // Get height from terrain generator
-                const height = this.terrainGenerator.getHeight(sampleX, sampleZ, biome);
+                // Get heights at cell corners (for stepped/blended blocks)
+                const h00 = heights[gx][gz];
+                const h10 = heights[gx + 1][gz];
+                const h01 = heights[gx][gz + 1];
+                const h11 = heights[gx + 1][gz + 1];
                 
-                // Only create terrain mesh if height is significant
-                if (Math.abs(height) > 0.5) {
-                    if (height > 0) {
-                        // Create a hill
-                        const hillWidth = cellSize * 0.6 + random.range(-2, 2);
-                        const hillDepth = cellSize * 0.6 + random.range(-2, 2);
-                        const hillHeight = Math.min(height, 8); // Cap height
-                        
-                        const hill = MeshBuilder.CreateBox(`terrainHill_${gx}_${gz}`, {
-                            width: hillWidth,
-                            height: hillHeight,
-                            depth: hillDepth
+                // Use average height for this cell (or use stepped approach)
+                const avgHeight = (h00 + h10 + h01 + h11) / 4;
+                const finalHeight = avgHeight;
+                
+                // Create blocky terrain - only rectangular blocks (LOW POLY style)
+                // Only create blocks for significant height differences
+                if (Math.abs(finalHeight) > 0.5) {
+                    // Create rectangular block based on height
+                    const blockSize = cellSize * 0.95; // Slightly smaller to avoid z-fighting
+                    const blockHeight = Math.max(Math.abs(finalHeight), 0.5);
+                    
+                    if (finalHeight > 0.5) {
+                        // Hill/raised terrain - rectangular block
+                        const hillBlock = MeshBuilder.CreateBox(`terrainHill_${gx}_${gz}`, {
+                            width: blockSize,
+                            height: blockHeight,
+                            depth: blockSize
                         }, this.scene);
                         
-                        hill.position = new Vector3(localX, hillHeight / 2, localZ);
+                        hillBlock.position = new Vector3(localX, blockHeight / 2, localZ);
                         
                         // Material based on biome
                         let matName = "dirt";
-                        if (biome === "park" || biome === "residential") matName = "grass";
+                        if (biome === "park" || biome === "residential") matName = random.chance(0.7) ? "grass" : "grassDark";
                         else if (biome === "military") matName = "sand";
-                        else if (biome === "wasteland") matName = "gravel";
+                        else if (biome === "wasteland") matName = random.chance(0.5) ? "gravel" : "dirt";
+                        else if (biome === "city" || biome === "industrial") matName = "concrete";
                         
-                        hill.material = this.getMat(matName);
-                        hill.parent = chunk.node;
-                        hill.freezeWorldMatrix();
-                        chunk.meshes.push(hill);
+                        hillBlock.material = this.getMat(matName);
+                        hillBlock.parent = chunk.node;
+                        this.optimizeMesh(hillBlock);
+                        chunk.meshes.push(hillBlock);
                         
-                        // Add physics for significant hills
-                        if (hillHeight > 1.5) {
-                            new PhysicsAggregate(hill, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                        // Add physics for significant blocks
+                        if (blockHeight > 1.5) {
+                            new PhysicsAggregate(hillBlock, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
                         }
-                    } else {
-                        // Create a depression/crater
-                        const craterWidth = cellSize * 0.5 + random.range(-1, 1);
-                        const craterDepth = cellSize * 0.5 + random.range(-1, 1);
-                        
-                        // Visual crater floor
-                        const crater = MeshBuilder.CreateBox(`terrainCrater_${gx}_${gz}`, {
-                            width: craterWidth,
-                            height: 0.1,
-                            depth: craterDepth
+                    } else if (finalHeight < -0.5) {
+                        // Depression/valley - create hollow rectangular block
+                        const depDepth = Math.min(Math.abs(finalHeight), 15);
+                        const depBlock = MeshBuilder.CreateBox(`terrainDep_${gx}_${gz}`, {
+                            width: blockSize,
+                            height: depDepth,
+                            depth: blockSize
                         }, this.scene);
                         
-                        crater.position = new Vector3(localX, -0.05, localZ);
-                        crater.material = this.getMat("dirt");
-                        crater.parent = chunk.node;
-                        crater.freezeWorldMatrix();
-                        chunk.meshes.push(crater);
+                        depBlock.position = new Vector3(localX, -depDepth / 2, localZ);
                         
-                        // Crater rim
-                        const rimHeight = Math.min(Math.abs(height) * 0.3, 1.5);
-                        if (rimHeight > 0.3) {
-                            const rim1 = MeshBuilder.CreateBox(`rim1_${gx}_${gz}`, {
-                                width: craterWidth + 2,
-                                height: rimHeight,
-                                depth: 0.8
-                            }, this.scene);
-                            rim1.position = new Vector3(localX, rimHeight / 2, localZ + craterDepth / 2 + 0.5);
-                            rim1.material = this.getMat("dirt");
-                            rim1.parent = chunk.node;
-                            rim1.freezeWorldMatrix();
-                            chunk.meshes.push(rim1);
-                            
-                            const rim2 = rim1.clone(`rim2_${gx}_${gz}`);
-                            rim2.position = new Vector3(localX, rimHeight / 2, localZ - craterDepth / 2 - 0.5);
-                            rim2.parent = chunk.node;
-                            chunk.meshes.push(rim2);
-                        }
+                        // Material based on biome
+                        let matName = "dirt";
+                        if (biome === "park") matName = "grassDark";
+                        else if (biome === "wasteland") matName = random.chance(0.6) ? "gravel" : "dirt";
+                        
+                        depBlock.material = this.getMat(matName);
+                        depBlock.parent = chunk.node;
+                        this.optimizeMesh(depBlock);
+                        chunk.meshes.push(depBlock);
                     }
                 }
             }
@@ -3813,54 +5087,90 @@ export class ChunkSystem {
             const x = random.range(8, size - 8);
             const z = random.range(8, size - 8);
             if (kind === 0) {
-                // Small hill - РАЗНООБРАЗНЫЕ размеры
+                // Small natural hill - rectangular block (LOW POLY)
                 const h = random.range(1, 3);
-                const w = random.range(6, 15);
-                const d = random.range(6, 15);
-                const hill = MeshBuilder.CreateBox("hill", { width: w, height: h, depth: d }, this.scene);
+                const w = random.range(3, 7.5);
+                const d = random.range(3, 7.5);
+                const hill = MeshBuilder.CreateBox("hill", {
+                    width: w,
+                    height: h,
+                    depth: d
+                }, this.scene);
+                
                 hill.position = new Vector3(x, h / 2 + 0.01, z);
                 hill.material = this.getMat(biome === "residential" || biome === "park" ? "grass" : "dirt");
                 hill.parent = chunk.node;
                 hill.freezeWorldMatrix();
                 chunk.meshes.push(hill);
-                // Убрана физика для декоративных холмов (оптимизация)
             } else if (kind === 1) {
-                // БОЛЬШАЯ ГОРА - высокий холм
+                // БОЛЬШАЯ ГОРА - высокий холм прямоугольной формы (LOW POLY)
                 const h = random.range(4, 8);
-                const w = random.range(12, 25);
-                const d = random.range(12, 25);
-                const mountain = MeshBuilder.CreateBox("mountain", { width: w, height: h, depth: d }, this.scene);
+                const w = random.range(6, 12.5);
+                const d = random.range(6, 12.5);
+                const mountain = MeshBuilder.CreateBox("mountain", {
+                    width: w,
+                    height: h,
+                    depth: d
+                }, this.scene);
+                
                 mountain.position = new Vector3(x, h / 2 + 0.01, z);
                 mountain.material = this.getMat("dirt");
                 mountain.parent = chunk.node;
                 mountain.freezeWorldMatrix();
                 chunk.meshes.push(mountain);
-                // Убрана физика для декоративных гор (оптимизация)
             } else if (kind === 2) {
-                // Crater (depression + rim)
-                const crater = MeshBuilder.CreateBox("crater", { width: 10, height: 0.01, depth: 10 }, this.scene);
-                crater.position = new Vector3(x, -0.02, z);
+                // Natural crater - rectangular depression with rectangular rim blocks (LOW POLY)
+                const craterW = random.range(4, 7);
+                const craterD = random.range(4, 7);
+                const craterDepth = random.range(0.8, 2.5);
+                const crater = MeshBuilder.CreateBox("crater", {
+                    width: craterW,
+                    height: craterDepth,
+                    depth: craterD
+                }, this.scene);
+                
+                crater.position = new Vector3(x, -craterDepth / 2 - 0.01, z);
                 crater.material = this.getMat("dirt");
                 crater.parent = chunk.node;
                 crater.freezeWorldMatrix();
                 chunk.meshes.push(crater);
-                const rimH = 0.8;
-                const rim = MeshBuilder.CreateBox("rim", { width: 12, height: rimH, depth: 1 }, this.scene);
-                rim.position = new Vector3(x, rimH / 2 + 0.01, z + 6);
-                rim.material = this.getMat("dirt");
-                rim.parent = chunk.node;
-                rim.freezeWorldMatrix();
-                chunk.meshes.push(rim);
-                const rim2 = rim.clone("rim2");
-                rim2.position = new Vector3(x, rimH / 2 + 0.01, z - 6);
-                const rim3 = MeshBuilder.CreateBox("rim3", { width: 1, height: rimH, depth: 12 }, this.scene);
-                rim3.position = new Vector3(x + 6, rimH / 2 + 0.01, z);
-                rim3.material = this.getMat("dirt");
-                rim3.parent = chunk.node;
-                rim3.freezeWorldMatrix();
-                chunk.meshes.push(rim3);
-                const rim4 = rim3.clone("rim4");
-                rim4.position = new Vector3(x - 6, rimH / 2 + 0.01, z);
+                
+                // Rectangular rim blocks around crater
+                const rimHeight = random.range(0.6, 1.2);
+                const rimW = craterW * 0.3;
+                const rimD = craterD * 0.3;
+                
+                // North rim
+                const rimN = MeshBuilder.CreateBox("rim_n", { width: craterW * 1.4, height: rimHeight, depth: rimW }, this.scene);
+                rimN.position = new Vector3(x, rimHeight / 2 + 0.01, z - craterD / 2 - rimW / 2);
+                rimN.material = this.getMat("dirt");
+                rimN.parent = chunk.node;
+                rimN.freezeWorldMatrix();
+                chunk.meshes.push(rimN);
+                
+                // South rim
+                const rimS = MeshBuilder.CreateBox("rim_s", { width: craterW * 1.4, height: rimHeight, depth: rimW }, this.scene);
+                rimS.position = new Vector3(x, rimHeight / 2 + 0.01, z + craterD / 2 + rimW / 2);
+                rimS.material = this.getMat("dirt");
+                rimS.parent = chunk.node;
+                rimS.freezeWorldMatrix();
+                chunk.meshes.push(rimS);
+                
+                // East rim
+                const rimE = MeshBuilder.CreateBox("rim_e", { width: rimD, height: rimHeight, depth: craterD * 1.4 }, this.scene);
+                rimE.position = new Vector3(x + craterW / 2 + rimD / 2, rimHeight / 2 + 0.01, z);
+                rimE.material = this.getMat("dirt");
+                rimE.parent = chunk.node;
+                rimE.freezeWorldMatrix();
+                chunk.meshes.push(rimE);
+                
+                // West rim
+                const rimWest = MeshBuilder.CreateBox("rim_w", { width: rimD, height: rimHeight, depth: craterD * 1.4 }, this.scene);
+                rimWest.position = new Vector3(x - craterW / 2 - rimD / 2, rimHeight / 2 + 0.01, z);
+                rimWest.material = this.getMat("dirt");
+                rimWest.parent = chunk.node;
+                rimWest.freezeWorldMatrix();
+                chunk.meshes.push(rimWest);
             } else if (kind === 3) {
                 // Lake - РАЗНООБРАЗНЫЕ размеры и формы
                 const lakeType = random.int(0, 2);
@@ -4360,7 +5670,12 @@ export class ChunkSystem {
                     const h = random.range(2, 4);
                     const w = random.range(12, 20);
                     const d = random.range(6, 12);
-                    const hill = MeshBuilder.CreateBox("hill", { width: w, height: h, depth: d }, this.scene);
+                    // Natural hill using rectangular block (LOW POLY)
+                    const hill = MeshBuilder.CreateBox("hill", {
+                        width: w,
+                        height: h,
+                        depth: d
+                    }, this.scene);
                     hill.position = new Vector3(x, h / 2 + 0.01, z);
                     hill.rotation.y = random.range(0, Math.PI);
                     hill.material = this.getMat(biome === "residential" || biome === "park" ? "grass" : "dirt");
@@ -4615,6 +5930,524 @@ export class ChunkSystem {
     // Get POI system for direct access
     public getPOISystem(): POISystem | null {
         return this.poiSystem;
+    }
+    
+    // === NEW MAP GENERATION METHODS ===
+    
+    // Generate Ruins map - half-destroyed war-torn city
+    private generateRuinsContent(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+        this.createGround(chunk, size, "wasteland", random);
+        this.generateGarages(chunk, worldX, worldZ, size, random);
+        
+        // Create roads first
+        this.createRoads(chunk, size, random, "city");
+        
+        // Generate ruined buildings
+        const buildingCount = random.int(2, 5);
+        const buildingPositions = this.generateClusteredPositions(
+            buildingCount,
+            size,
+            10,
+            30,
+            Math.min(buildingCount, 3),
+            random
+        );
+        
+        for (const pos of buildingPositions) {
+            const w = random.range(8, 20);
+            const h = random.range(4, 15);
+            const d = random.range(8, 20);
+            
+            const worldX_pos = chunk.x * this.config.chunkSize + pos.x;
+            const worldZ_pos = chunk.z * this.config.chunkSize + pos.z;
+            
+            if (this.isPositionInGarageArea(worldX_pos, worldZ_pos, Math.max(w, d) / 2)) continue;
+            
+            // Create partially destroyed building
+            this.createRuinedBuilding(chunk, pos.x, pos.z, w, h, d, random);
+        }
+        
+        // Add rubble and debris
+        for (let i = 0; i < random.int(3, 6); i++) {
+            const rx = random.range(5, size - 5);
+            const rz = random.range(5, size - 5);
+            const rWorldX = chunk.x * this.config.chunkSize + rx;
+            const rWorldZ = chunk.z * this.config.chunkSize + rz;
+            
+            if (this.isPositionInGarageArea(rWorldX, rWorldZ, 2)) continue;
+            
+            const rubble = MeshBuilder.CreateBox("rubble", { width: random.range(1, 4), height: random.range(0.5, 2), depth: random.range(1, 4) }, this.scene);
+            rubble.position = new Vector3(rx, random.range(0.25, 1), rz);
+            rubble.rotation.y = random.range(0, Math.PI * 2);
+            rubble.material = this.getMat(random.pick(["concrete", "brick", "brickDark"]));
+            rubble.parent = chunk.node;
+            rubble.freezeWorldMatrix();
+            chunk.meshes.push(rubble);
+        }
+        
+        // Add wrecked vehicles
+        for (let i = 0; i < random.int(1, 3); i++) {
+            const vx = random.range(10, size - 10);
+            const vz = random.range(10, size - 10);
+            const vWorldX = chunk.x * this.config.chunkSize + vx;
+            const vWorldZ = chunk.z * this.config.chunkSize + vz;
+            
+            if (this.isPositionInGarageArea(vWorldX, vWorldZ, 3)) continue;
+            if (this.isPositionNearRoad(vWorldX, vWorldZ, 2)) {
+                this.createMilitaryVehicle(chunk, vx, vz, random, random.pick(["tank", "truck"]));
+            }
+        }
+        
+        // Add craters
+        this.createCraters(chunk, size, random, worldX, worldZ, random.int(1, 3));
+        
+        // Generate cover objects
+        this.generateCoverObjects(chunk, worldX, worldZ, size, "wasteland");
+        this.generatePOIs(chunk, worldX, worldZ, size, "wasteland");
+        this.generateConsumables(chunk, worldX, worldZ, size, random);
+    }
+    
+    // Generate Canyon map - mountainous terrain with passes, rivers, lakes, forests
+    private generateCanyonContent(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+        this.createGround(chunk, size, "park", random);
+        this.generateGarages(chunk, worldX, worldZ, size, random);
+        
+        // Use dramatic terrain for mountains
+        if (this.terrainGenerator) {
+            const gridSize = 5;
+            const cellSize = size / gridSize;
+            for (let gx = 0; gx < gridSize; gx++) {
+                for (let gz = 0; gz < gridSize; gz++) {
+                    const localX = (gx + 0.5) * cellSize;
+                    const localZ = (gz + 0.5) * cellSize;
+                    const sampleX = worldX + localX;
+                    const sampleZ = worldZ + localZ;
+                    
+                    const height = this.terrainGenerator.getHeight(sampleX, sampleZ, "snow");
+                    if (height > 5) {
+                        // Create mountain
+                        this.createMountain(chunk, localX, localZ, cellSize * 0.8, Math.min(height, 12), random);
+                    }
+                }
+            }
+        }
+        
+        // Create rivers (occasionally)
+        if (random.chance(0.3)) {
+            const startX = random.range(0, size);
+            const startZ = random.range(0, size);
+            const endX = random.range(0, size);
+            const endZ = random.range(0, size);
+            this.createRiver(chunk, startX, startZ, endX, endZ, random.range(3, 6), random);
+        }
+        
+        // Create forests in valleys
+        const treeCount = random.int(4, 10);
+        const treePositions = this.generateClusteredPositions(treeCount, size, 2, 15, random.int(2, 4), random);
+        
+        for (const pos of treePositions) {
+            const tWorldX = chunk.x * this.config.chunkSize + pos.x;
+            const tWorldZ = chunk.z * this.config.chunkSize + pos.z;
+            if (this.isPositionInGarageArea(tWorldX, tWorldZ, 2)) continue;
+            
+            const th = random.range(5, 10);
+            const tw = random.range(2, 4);
+            const terrainHeight = this.getTerrainHeight(tWorldX, tWorldZ, "park");
+            
+            const tree = MeshBuilder.CreateBox("tree", { width: tw, height: th, depth: tw }, this.scene);
+            tree.position = new Vector3(pos.x, th / 2 + terrainHeight, pos.z);
+            tree.material = this.getMat("leaves");
+            tree.parent = chunk.node;
+            tree.freezeWorldMatrix();
+            chunk.meshes.push(tree);
+        }
+        
+        // Create small villages (rare)
+        if (random.chance(0.2)) {
+            const villagePos = this.generateClusteredPositions(2, size, 8, 20, 1, random);
+            for (const pos of villagePos) {
+                const hWorldX = chunk.x * this.config.chunkSize + pos.x;
+                const hWorldZ = chunk.z * this.config.chunkSize + pos.z;
+                if (this.isPositionInGarageArea(hWorldX, hWorldZ, 4)) continue;
+                
+                const house = MeshBuilder.CreateBox("villageHouse", { width: 6, height: 4, depth: 6 }, this.scene);
+                house.position = new Vector3(pos.x, 2, pos.z);
+                house.material = this.getMat("wood");
+                house.parent = chunk.node;
+                house.freezeWorldMatrix();
+                chunk.meshes.push(house);
+                new PhysicsAggregate(house, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            }
+        }
+        
+        // Create paths
+        this.createRoads(chunk, size, random, "park");
+        this.generatePOIs(chunk, worldX, worldZ, size, "park");
+        this.generateConsumables(chunk, worldX, worldZ, size, random);
+    }
+    
+    // Generate Industrial map - large industrial zone with factories, port, railway
+    private generateIndustrialMapContent(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+        this.createGround(chunk, size, "gravel", random);
+        this.generateGarages(chunk, worldX, worldZ, size, random);
+        this.createRoads(chunk, size, random, "industrial");
+        
+        // Large factory buildings
+        const factoryCount = random.int(1, 3);
+        for (let i = 0; i < factoryCount; i++) {
+            const fx = random.range(10, size - 10);
+            const fz = random.range(10, size - 10);
+            const fWorldX = chunk.x * this.config.chunkSize + fx;
+            const fWorldZ = chunk.z * this.config.chunkSize + fz;
+            
+            if (this.isPositionInGarageArea(fWorldX, fWorldZ, 15)) continue;
+            
+            const factory = MeshBuilder.CreateBox("factory", { width: random.range(20, 35), height: random.range(8, 15), depth: random.range(25, 40) }, this.scene);
+            factory.position = new Vector3(fx, random.range(4, 7.5), fz);
+            factory.material = this.getMat(random.pick(["metal", "concrete", "metalRust"]));
+            factory.parent = chunk.node;
+            factory.freezeWorldMatrix();
+            chunk.meshes.push(factory);
+            new PhysicsAggregate(factory, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            
+            // Add smokestacks
+            if (random.chance(0.7)) {
+                const stack = MeshBuilder.CreateBox("stack", { width: 2, height: random.range(10, 18), depth: 2 }, this.scene);
+                stack.position = new Vector3(fx + random.range(-10, 10), random.range(5, 9), fz + random.range(-10, 10));
+                stack.material = this.getMat("brickDark");
+                stack.parent = chunk.node;
+                stack.freezeWorldMatrix();
+                chunk.meshes.push(stack);
+                new PhysicsAggregate(stack, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            }
+        }
+        
+        // Containers (many)
+        const containerCount = random.int(5, 12);
+        for (let i = 0; i < containerCount; i++) {
+            const cx = random.range(5, size - 5);
+            const cz = random.range(5, size - 5);
+            const cWorldX = chunk.x * this.config.chunkSize + cx;
+            const cWorldZ = chunk.z * this.config.chunkSize + cz;
+            
+            if (this.isPositionInGarageArea(cWorldX, cWorldZ, 3)) continue;
+            
+            const container = MeshBuilder.CreateBox("container", { width: 2.5, height: 2.5, depth: 6 }, this.scene);
+            const stackHeight = random.int(0, 2);
+            container.position = new Vector3(cx, 1.26 + stackHeight * 2.5, cz);
+            container.rotation.y = random.pick([0, Math.PI / 2]);
+            container.material = this.getMat(random.pick(["red", "yellow", "metal", "metalRust", "blue"]));
+            container.parent = chunk.node;
+            container.freezeWorldMatrix();
+            chunk.meshes.push(container);
+            new PhysicsAggregate(container, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        }
+        
+        // Port cranes (occasionally)
+        if (random.chance(0.3)) {
+            const craneX = random.range(15, size - 15);
+            const craneZ = random.range(15, size - 15);
+            const cWorldX = chunk.x * this.config.chunkSize + craneX;
+            const cWorldZ = chunk.z * this.config.chunkSize + craneZ;
+            
+            if (!this.isPositionInGarageArea(cWorldX, cWorldZ, 10)) {
+                const tower = MeshBuilder.CreateBox("craneTower", { width: 2, height: 15, depth: 2 }, this.scene);
+                tower.position = new Vector3(craneX, 7.5, craneZ);
+                tower.material = this.getMat("yellow");
+                tower.parent = chunk.node;
+                tower.freezeWorldMatrix();
+                chunk.meshes.push(tower);
+                
+                const arm = MeshBuilder.CreateBox("craneArm", { width: 1, height: 1, depth: 18 }, this.scene);
+                arm.position = new Vector3(craneX, 14, craneZ + 8);
+                arm.material = this.getMat("yellow");
+                arm.parent = chunk.node;
+                arm.freezeWorldMatrix();
+                chunk.meshes.push(arm);
+            }
+        }
+        
+        // Railway tracks (straight lines)
+        if (random.chance(0.4)) {
+            const trackZ = random.range(size * 0.2, size * 0.8);
+            const track = MeshBuilder.CreateBox("railway", { width: size, height: 0.2, depth: 0.5 }, this.scene);
+            track.position = new Vector3(size / 2, 0.1, trackZ);
+            track.material = this.getMat("metal");
+            track.parent = chunk.node;
+            track.freezeWorldMatrix();
+            chunk.meshes.push(track);
+        }
+        
+        this.generateCoverObjects(chunk, worldX, worldZ, size, "industrial");
+        this.generatePOIs(chunk, worldX, worldZ, size, "industrial");
+        this.generateConsumables(chunk, worldX, worldZ, size, random);
+    }
+    
+    // Generate Urban Warfare map - dense urban environment with barricades
+    private generateUrbanWarfareContent(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+        this.createGround(chunk, size, "asphalt", random);
+        this.generateGarages(chunk, worldX, worldZ, size, random);
+        
+        // Dense grid of streets
+        this.createRoads(chunk, size, random, "city");
+        
+        // Dense buildings
+        const buildingCount = random.int(4, 8);
+        const buildingPositions = this.generateClusteredPositions(
+            buildingCount,
+            size,
+            8,
+            20,
+            Math.min(buildingCount, 4),
+            random
+        );
+        
+        for (const pos of buildingPositions) {
+            const w = random.range(10, 18);
+            const h = random.range(12, 25);
+            const d = random.range(10, 18);
+            
+            const worldX_pos = chunk.x * this.config.chunkSize + pos.x;
+            const worldZ_pos = chunk.z * this.config.chunkSize + pos.z;
+            
+            if (this.isPositionInGarageArea(worldX_pos, worldZ_pos, Math.max(w, d) / 2)) continue;
+            if (this.isPositionNearRoad(worldX_pos, worldZ_pos, 4)) continue; // Don't place on roads
+            
+            const building = MeshBuilder.CreateBox("urbanBuilding", { width: w, height: h, depth: d }, this.scene);
+            building.position = new Vector3(pos.x, h / 2, pos.z);
+            building.material = this.getMat(random.pick(["concrete", "brick", "plaster"]));
+            building.parent = chunk.node;
+            building.freezeWorldMatrix();
+            chunk.meshes.push(building);
+            new PhysicsAggregate(building, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        }
+        
+        // Barricades on roads
+        for (let i = 0; i < random.int(2, 4); i++) {
+            const bx = random.range(10, size - 10);
+            const bz = random.range(10, size - 10);
+            const bWorldX = chunk.x * this.config.chunkSize + bx;
+            const bWorldZ = chunk.z * this.config.chunkSize + bz;
+            
+            if (this.isPositionInGarageArea(bWorldX, bWorldZ, 5)) continue;
+            if (this.isPositionNearRoad(bWorldX, bWorldZ, 2)) {
+                this.createBarricade(chunk, bx, bz, 10, random);
+            }
+        }
+        
+        // Parked vehicles as cover
+        for (let i = 0; i < random.int(3, 6); i++) {
+            const vx = random.range(5, size - 5);
+            const vz = random.range(5, size - 5);
+            const vWorldX = chunk.x * this.config.chunkSize + vx;
+            const vWorldZ = chunk.z * this.config.chunkSize + vz;
+            
+            if (this.isPositionInGarageArea(vWorldX, vWorldZ, 2)) continue;
+            if (this.isPositionNearRoad(vWorldX, vWorldZ, 3)) {
+                const car = MeshBuilder.CreateBox("parkedCar", { width: 2, height: 1.5, depth: 4 }, this.scene);
+                car.position = new Vector3(vx, 0.75, vz);
+                car.rotation.y = random.range(0, Math.PI * 2);
+                car.material = this.getMat(random.pick(["red", "metal", "brickDark"]));
+                car.parent = chunk.node;
+                car.freezeWorldMatrix();
+                chunk.meshes.push(car);
+            }
+        }
+        
+        this.generateCoverObjects(chunk, worldX, worldZ, size, "city");
+        this.generatePOIs(chunk, worldX, worldZ, size, "city");
+        this.generateConsumables(chunk, worldX, worldZ, size, random);
+    }
+    
+    // Generate Underground map - cave system, mines, tunnels
+    private generateUndergroundContent(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+        this.createGround(chunk, size, "gravel", random);
+        this.generateGarages(chunk, worldX, worldZ, size, random);
+        
+        // Create cave entrances (large openings)
+        if (random.chance(0.3)) {
+            const caveX = random.range(15, size - 15);
+            const caveZ = random.range(15, size - 15);
+            const caveWorldX = chunk.x * this.config.chunkSize + caveX;
+            const caveWorldZ = chunk.z * this.config.chunkSize + caveZ;
+            
+            if (!this.isPositionInGarageArea(caveWorldX, caveWorldZ, 8)) {
+                // Cave opening as arch/tunnel entrance
+                const archHeight = random.range(6, 10);
+                const archWidth = random.range(8, 12);
+                
+                // Left pillar
+                const leftPillar = MeshBuilder.CreateBox("cavePillar", { width: 1.5, height: archHeight, depth: 1.5 }, this.scene);
+                leftPillar.position = new Vector3(caveX - archWidth / 2, archHeight / 2, caveZ);
+                leftPillar.material = this.getMat("rock");
+                leftPillar.parent = chunk.node;
+                leftPillar.freezeWorldMatrix();
+                chunk.meshes.push(leftPillar);
+                
+                // Right pillar
+                const rightPillar = MeshBuilder.CreateBox("cavePillar", { width: 1.5, height: archHeight, depth: 1.5 }, this.scene);
+                rightPillar.position = new Vector3(caveX + archWidth / 2, archHeight / 2, caveZ);
+                rightPillar.material = this.getMat("rock");
+                rightPillar.parent = chunk.node;
+                rightPillar.freezeWorldMatrix();
+                chunk.meshes.push(rightPillar);
+                
+                // Top arch
+                const arch = MeshBuilder.CreateBox("caveArch", { width: archWidth, height: 2, depth: 2 }, this.scene);
+                arch.position = new Vector3(caveX, archHeight, caveZ);
+                arch.material = this.getMat("rock");
+                arch.parent = chunk.node;
+                arch.freezeWorldMatrix();
+                chunk.meshes.push(arch);
+            }
+        }
+        
+        // Mine carts/tracks
+        if (random.chance(0.4)) {
+            const trackLen = random.range(20, 40);
+            const trackX = random.range(5, size - 5);
+            const trackZ = random.range(5, size - 5);
+            const angle = random.pick([0, Math.PI / 2]);
+            
+            const track = MeshBuilder.CreateBox("mineTrack", { width: trackLen, height: 0.3, depth: 0.5 }, this.scene);
+            track.position = new Vector3(trackX, 0.15, trackZ);
+            track.rotation.y = angle;
+            track.material = this.getMat("metal");
+            track.parent = chunk.node;
+            track.freezeWorldMatrix();
+            chunk.meshes.push(track);
+        }
+        
+        // Support pillars
+        for (let i = 0; i < random.int(2, 5); i++) {
+            const px = random.range(8, size - 8);
+            const pz = random.range(8, size - 8);
+            const pWorldX = chunk.x * this.config.chunkSize + px;
+            const pWorldZ = chunk.z * this.config.chunkSize + pz;
+            
+            if (this.isPositionInGarageArea(pWorldX, pWorldZ, 2)) continue;
+            
+            const pillar = MeshBuilder.CreateBox("supportPillar", { width: 1.5, height: random.range(6, 10), depth: 1.5 }, this.scene);
+            pillar.position = new Vector3(px, random.range(3, 5), pz);
+            pillar.material = this.getMat("concrete");
+            pillar.parent = chunk.node;
+            pillar.freezeWorldMatrix();
+            chunk.meshes.push(pillar);
+            new PhysicsAggregate(pillar, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        }
+        
+        this.generateCoverObjects(chunk, worldX, worldZ, size, "military");
+        this.generatePOIs(chunk, worldX, worldZ, size, "military");
+        this.generateConsumables(chunk, worldX, worldZ, size, random);
+    }
+    
+    // Generate Coastal map - coastline with port, lighthouses, beaches, cliffs
+    private generateCoastalContent(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+        this.createGround(chunk, size, "sand", random);
+        this.generateGarages(chunk, worldX, worldZ, size, random);
+        
+        // Create water (large flat area)
+        if (random.chance(0.5)) {
+            const waterX = random.range(0, size);
+            const waterZ = random.range(0, size);
+            const waterSize = random.range(size * 0.3, size * 0.6);
+            
+            const water = MeshBuilder.CreateBox("water", { width: waterSize, height: 0.1, depth: waterSize }, this.scene);
+            water.position = new Vector3(waterX, -0.05, waterZ);
+            water.material = this.getMat("water");
+            water.parent = chunk.node;
+            water.freezeWorldMatrix();
+            chunk.meshes.push(water);
+        }
+        
+        // Lighthouse (rare)
+        if (random.chance(0.2)) {
+            const lx = random.range(15, size - 15);
+            const lz = random.range(15, size - 15);
+            const lWorldX = chunk.x * this.config.chunkSize + lx;
+            const lWorldZ = chunk.z * this.config.chunkSize + lz;
+            
+            if (!this.isPositionInGarageArea(lWorldX, lWorldZ, 5)) {
+                const base = MeshBuilder.CreateBox("lighthouseBase", { width: 4, height: 3, depth: 4 }, this.scene);
+                base.position = new Vector3(lx, 1.5, lz);
+                base.material = this.getMat("concrete");
+                base.parent = chunk.node;
+                base.freezeWorldMatrix();
+                chunk.meshes.push(base);
+                
+                const tower = MeshBuilder.CreateBox("lighthouseTower", { width: 2, height: 12, depth: 2 }, this.scene);
+                tower.position = new Vector3(lx, 9, lz);
+                tower.material = this.getMat("white");
+                tower.parent = chunk.node;
+                tower.freezeWorldMatrix();
+                chunk.meshes.push(tower);
+                
+                const top = MeshBuilder.CreateBox("lighthouseTop", { width: 3, height: 1, depth: 3 }, this.scene);
+                top.position = new Vector3(lx, 16.5, lz);
+                top.material = this.getMat("yellow");
+                top.parent = chunk.node;
+                top.freezeWorldMatrix();
+                chunk.meshes.push(top);
+            }
+        }
+        
+        // Port structures
+        if (random.chance(0.3)) {
+            const portX = random.range(10, size - 10);
+            const portZ = random.range(10, size - 10);
+            const portWorldX = chunk.x * this.config.chunkSize + portX;
+            const portWorldZ = chunk.z * this.config.chunkSize + portZ;
+            
+            if (!this.isPositionInGarageArea(portWorldX, portWorldZ, 8)) {
+                // Pier/platform
+                const pier = MeshBuilder.CreateBox("pier", { width: 15, height: 1, depth: 20 }, this.scene);
+                pier.position = new Vector3(portX, 0.5, portZ);
+                pier.material = this.getMat("wood");
+                pier.parent = chunk.node;
+                pier.freezeWorldMatrix();
+                chunk.meshes.push(pier);
+            }
+        }
+        
+        // Coastal vegetation
+        for (let i = 0; i < random.int(2, 5); i++) {
+            const vx = random.range(5, size - 5);
+            const vz = random.range(5, size - 5);
+            const vWorldX = chunk.x * this.config.chunkSize + vx;
+            const vWorldZ = chunk.z * this.config.chunkSize + vz;
+            
+            if (this.isPositionInGarageArea(vWorldX, vWorldZ, 1)) continue;
+            
+            const bush = MeshBuilder.CreateBox("coastalBush", { width: 2, height: 1.5, depth: 2 }, this.scene);
+            bush.position = new Vector3(vx, 0.75, vz);
+            bush.material = this.getMat("leaves");
+            bush.parent = chunk.node;
+            bush.freezeWorldMatrix();
+            chunk.meshes.push(bush);
+        }
+        
+        // Cliffs (elevated terrain)
+        if (random.chance(0.4)) {
+            const cliffX = random.range(10, size - 10);
+            const cliffZ = random.range(10, size - 10);
+            const cliffWorldX = chunk.x * this.config.chunkSize + cliffX;
+            const cliffWorldZ = chunk.z * this.config.chunkSize + cliffZ;
+            
+            if (!this.isPositionInGarageArea(cliffWorldX, cliffWorldZ, 5)) {
+                const cliff = MeshBuilder.CreateBox("cliff", { width: random.range(10, 20), height: random.range(4, 8), depth: random.range(8, 15) }, this.scene);
+                cliff.position = new Vector3(cliffX, random.range(2, 4), cliffZ);
+                cliff.material = this.getMat("rock");
+                cliff.parent = chunk.node;
+                cliff.freezeWorldMatrix();
+                chunk.meshes.push(cliff);
+                new PhysicsAggregate(cliff, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            }
+        }
+        
+        this.createRoads(chunk, size, random, "park");
+        this.generateCoverObjects(chunk, worldX, worldZ, size, "park");
+        this.generatePOIs(chunk, worldX, worldZ, size, "park");
+        this.generateConsumables(chunk, worldX, worldZ, size, random);
     }
     
     // Генерация припасов на карте

@@ -13,7 +13,7 @@ export interface Achievement {
         amount?: number;
         unlockId?: string;
     };
-    category: "combat" | "exploration" | "survival" | "special";
+    category: "combat" | "exploration" | "survival" | "special" | "multiplayer";
     hidden?: boolean;
 }
 

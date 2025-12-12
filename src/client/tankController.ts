@@ -41,6 +41,12 @@ export class TankController {
     // Callback для получения позиции респавна (гараж)
     private respawnPositionCallback: (() => Vector3 | null) | null = null;
     
+    // Callback для отправки выстрела на сервер (мультиплеер)
+    private onShootCallback: ((data: any) => void) | null = null;
+    
+    // Reference to network players for hit detection
+    networkPlayers: Map<string, any> | null = null; // NetworkPlayerTank instances
+    
     // Респавн с таймером
     private respawnCountdown = 0; // Секунды до респавна
     private respawnIntervalId: number | null = null;
@@ -53,6 +59,25 @@ export class TankController {
     
     // Эффекты движения
     private _lastMovementSoundTime: number = 0;
+    private _lastSmokeTime: number = 0;
+    
+    // Special chassis abilities
+    private chassisAnimationElements: {
+        stealthActive?: boolean;
+        stealthMesh?: Mesh;
+        hoverThrusters?: Mesh[];
+        shieldMesh?: Mesh;
+        shieldActive?: boolean;
+        droneMeshes?: Mesh[];
+        commandAura?: Mesh;
+        animationTime?: number;
+    } = { animationTime: 0 };
+    
+    // Special ability cooldowns
+    private stealthCooldown = 0;
+    private shieldCooldown = 0;
+    private droneCooldown = 0;
+    private commandCooldown = 0;
     
     // Отдача при выстреле
     private barrelRecoilOffset = 0; // Текущий откат пушки (0 = норма, <0 = откат назад)
@@ -73,12 +98,36 @@ export class TankController {
         lifetime: number;
     }> = [];
     
+    // Cannon animation elements (for animated cannons)
+    private cannonAnimationElements: {
+        gatlingBarrels?: Mesh[];
+        teslaCoils?: Mesh[];
+        plasmaCore?: Mesh;
+        laserLens?: Mesh;
+        vortexRings?: Mesh[];
+        supportEmitter?: Mesh;
+        supportRings?: Mesh[];
+        // All other cannons for animations
+        rocketTube?: Mesh;
+        mortarBase?: Mesh;
+        clusterTubes?: Mesh[];
+        acidTank?: Mesh;
+        freezeFins?: Mesh[];
+        empDish?: Mesh;
+        multishotBarrels?: Mesh[];
+        homingGuidance?: Mesh;
+        piercingTip?: Mesh;
+        shockwaveAmp?: Mesh;
+        beamFocuser?: Mesh;
+        animationTime?: number;
+    } = { animationTime: 0 };
+    
     // Tank type configuration
     chassisType: ChassisType;
     cannonType: CannonType;
     
     // Config (будут переопределены типом корпуса)
-    mass = 1875;
+    mass = 2100;
     hoverHeight = 1.0;  // Hover height
     
     // Movement Settings (будут переопределены типом корпуса)
@@ -88,7 +137,7 @@ export class TankController {
     turnAccel = 11000;      // Угловое ускорение поворота
     stabilityTorque = 2000; // Стабилизация при повороте на скорости
     yawDamping = 4500;      // Демпфирование рыскания
-    sideFriction = 13000;   // Боковое трение
+    sideFriction = 17000;   // Боковое трение
     sideDrag = 8000;        // Боковое сопротивление при остановке
     fwdDrag = 7000;         // Продольное сопротивление при остановке
     angularDrag = 5000;     // Угловое сопротивление при остановке
@@ -341,9 +390,9 @@ export class TankController {
         
         this.physicsBody = new PhysicsBody(this.chassis, PhysicsMotionType.DYNAMIC, false, scene);
         this.physicsBody.shape = shape;
-        this.physicsBody.setMassProperties({ mass: this.mass, centerOfMass: new Vector3(0, -0.4, 0) }); // Very low COM
-        this.physicsBody.setLinearDamping(0.5);   // More damping
-        this.physicsBody.setAngularDamping(3.0);  // Prevent wild rotations 
+        this.physicsBody.setMassProperties({ mass: this.mass, centerOfMass: new Vector3(0, -0.55, 0) }); // Lower COM for stability
+        this.physicsBody.setLinearDamping(0.6);   // More damping
+        this.physicsBody.setAngularDamping(3.5);  // Prevent wild rotations 
         // this.physicsBody.setActivationState(PhysicsMotionType.ALWAYS_ACTIVE); // Removed: Not supported in V2
 
         // 3. Loop
@@ -384,6 +433,10 @@ export class TankController {
     setRespawnPositionCallback(callback: () => Vector3 | null) {
         this.respawnPositionCallback = callback;
     }
+    
+    setOnShootCallback(callback: ((data: any) => void)) {
+        this.onShootCallback = callback;
+    }
 
     // Запуск обратного отсчёта респавна
     startRespawnCountdown() {
@@ -418,6 +471,26 @@ export class TankController {
 
     takeDamage(amount: number, attackerPosition?: Vector3) {
         if (!this.isAlive) return;
+        
+        // Shield reduces damage by 50%
+        if (this.chassisAnimationElements.shieldActive) {
+            amount = Math.round(amount * 0.5);
+        }
+        
+        // Stealth reduces damage by 30% (harder to hit)
+        if (this.chassisAnimationElements.stealthActive) {
+            amount = Math.round(amount * 0.7);
+        }
+        
+        // Shield reduces damage by 50%
+        if (this.chassisAnimationElements.shieldActive) {
+            amount = Math.round(amount * 0.5);
+        }
+        
+        // Stealth reduces damage by 30% (harder to hit)
+        if (this.chassisAnimationElements.stealthActive) {
+            amount = Math.round(amount * 0.7);
+        }
         
         // Применяем бонус брони от уровня опыта
         let finalDamage = amount;
@@ -940,6 +1013,96 @@ export class TankController {
                 }, scene);
                 break;
                 
+            case "stealth":
+                // Stealth - угловатый, низкий профиль
+                chassis = MeshBuilder.CreateBox("tankHull", { 
+                    width: w * 0.95, 
+                    height: h * 0.9, 
+                    depth: d * 1.05 
+                }, scene);
+                break;
+                
+            case "hover":
+                // Hover - обтекаемый, с реактивными двигателями
+                chassis = MeshBuilder.CreateBox("tankHull", { 
+                    width: w * 1.0, 
+                    height: h * 0.95, 
+                    depth: d * 1.0 
+                }, scene);
+                break;
+                
+            case "siege":
+                // Siege - массивный, очень большой
+                chassis = MeshBuilder.CreateBox("tankHull", { 
+                    width: w * 1.1, 
+                    height: h * 1.2, 
+                    depth: d * 1.1 
+                }, scene);
+                break;
+                
+            case "racer":
+                // Racer - очень низкий, спортивный
+                chassis = MeshBuilder.CreateBox("tankHull", { 
+                    width: w * 0.9, 
+                    height: h * 0.75, 
+                    depth: d * 0.9 
+                }, scene);
+                break;
+                
+            case "amphibious":
+                // Amphibious - с поплавками
+                chassis = MeshBuilder.CreateBox("tankHull", { 
+                    width: w * 1.05, 
+                    height: h * 1.0, 
+                    depth: d * 1.05 
+                }, scene);
+                break;
+                
+            case "shield":
+                // Shield - с генератором щита
+                chassis = MeshBuilder.CreateBox("tankHull", { 
+                    width: w * 1.15, 
+                    height: h * 1.0, 
+                    depth: d * 1.05 
+                }, scene);
+                break;
+                
+            case "drone":
+                // Drone - с платформами для дронов
+                chassis = MeshBuilder.CreateBox("tankHull", { 
+                    width: w * 1.0, 
+                    height: h * 1.05, 
+                    depth: d * 1.0 
+                }, scene);
+                break;
+                
+            case "artillery":
+                // Artillery - с стабилизаторами
+                chassis = MeshBuilder.CreateBox("tankHull", { 
+                    width: w * 1.1, 
+                    height: h * 1.1, 
+                    depth: d * 1.1 
+                }, scene);
+                break;
+                
+            case "destroyer":
+                // Destroyer - длинный, низкий
+                chassis = MeshBuilder.CreateBox("tankHull", { 
+                    width: w * 1.0, 
+                    height: h * 0.9, 
+                    depth: d * 1.15 
+                }, scene);
+                break;
+                
+            case "command":
+                // Command - с антеннами и аурой
+                chassis = MeshBuilder.CreateBox("tankHull", { 
+                    width: w * 1.0, 
+                    height: h * 1.1, 
+                    depth: d * 1.05 
+                }, scene);
+                break;
+                
             default: // medium
                 // Medium - сбалансированный
                 chassis = MeshBuilder.CreateBox("tankHull", { 
@@ -1030,6 +1193,241 @@ export class TankController {
                 sideWing2.parent = chassis;
                 sideWing2.material = armorMat;
                 break;
+                
+            // === NEW CHASSIS TYPES ===
+            case "stealth":
+                // Stealth - угловатый, низкий профиль
+                break; // Visual details added below
+                
+            case "hover":
+                // Hover - обтекаемый, с реактивными двигателями
+                break; // Visual details added below
+                
+            case "siege":
+                // Siege - массивный, очень большой
+                break; // Visual details added below
+                
+            case "racer":
+                // Racer - очень низкий, спортивный
+                break; // Visual details added below
+                
+            case "amphibious":
+                // Amphibious - с поплавками
+                break; // Visual details added below
+                
+            case "shield":
+                // Shield - с генератором щита
+                break; // Visual details added below
+                
+            case "drone":
+                // Drone - с платформами для дронов
+                break; // Visual details added below
+                
+            case "artillery":
+                // Artillery - с стабилизаторами
+                break; // Visual details added below
+                
+            case "destroyer":
+                // Destroyer - длинный, низкий
+                break; // Visual details added below
+                
+            case "command":
+                // Command - с антеннами и аурой
+                break; // Visual details added below
+        }
+        
+        // === NEW CHASSIS TYPES DETAILS ===
+        
+        if (this.chassisType.id === "stealth") {
+            // Stealth - генератор невидимости
+            const stealthGen = MeshBuilder.CreateBox("stealthGen", {
+                width: w * 0.3,
+                height: h * 0.4,
+                depth: w * 0.3
+            }, scene);
+            stealthGen.position = new Vector3(0, h * 0.3, -d * 0.3);
+            stealthGen.parent = chassis;
+            const stealthMat = new StandardMaterial("stealthMat", scene);
+            stealthMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
+            stealthMat.emissiveColor = new Color3(0.1, 0.1, 0.1);
+            stealthGen.material = stealthMat;
+            this.chassisAnimationElements.stealthMesh = stealthGen;
+        }
+        
+        if (this.chassisType.id === "hover") {
+            // Hover - реактивные двигатели
+            this.chassisAnimationElements.hoverThrusters = [];
+            for (let i = 0; i < 4; i++) {
+                const thruster = MeshBuilder.CreateCylinder(`thruster${i}`, {
+                    height: 0.2,
+                    diameter: 0.15
+                }, scene);
+                const posX = (i % 2 === 0 ? -1 : 1) * w * 0.35;
+                const posZ = (i < 2 ? -1 : 1) * d * 0.35;
+                thruster.position = new Vector3(posX, -h * 0.4, posZ);
+                thruster.parent = chassis;
+                const thrusterMat = new StandardMaterial(`thrusterMat${i}`, scene);
+                thrusterMat.diffuseColor = new Color3(0, 0.5, 1);
+                thrusterMat.emissiveColor = new Color3(0, 0.3, 0.6);
+                thruster.material = thrusterMat;
+                this.chassisAnimationElements.hoverThrusters.push(thruster);
+            }
+        }
+        
+        if (this.chassisType.id === "siege") {
+            // Siege - массивные бронеплиты
+            const siegePlates = [
+                { pos: new Vector3(-w * 0.6, 0, 0), size: new Vector3(0.2, h * 0.9, d * 0.7) },
+                { pos: new Vector3(w * 0.6, 0, 0), size: new Vector3(0.2, h * 0.9, d * 0.7) },
+                { pos: new Vector3(0, h * 0.3, d * 0.6), size: new Vector3(w * 0.8, h * 0.2, 0.15) },
+                { pos: new Vector3(0, -h * 0.3, 0), size: new Vector3(w * 0.9, 0.15, d * 0.9) }
+            ];
+            siegePlates.forEach((plate, i) => {
+                const plateMesh = MeshBuilder.CreateBox(`siegePlate${i}`, {
+                    width: plate.size.x,
+                    height: plate.size.y,
+                    depth: plate.size.z
+                }, scene);
+                plateMesh.position = plate.pos;
+                plateMesh.parent = chassis;
+                plateMesh.material = armorMat;
+            });
+        }
+        
+        if (this.chassisType.id === "racer") {
+            // Racer - спойлер
+            const spoiler = MeshBuilder.CreateBox("spoiler", {
+                width: w * 1.1,
+                height: 0.1,
+                depth: 0.15
+            }, scene);
+            spoiler.position = new Vector3(0, h * 0.5, -d * 0.45);
+            spoiler.parent = chassis;
+            spoiler.material = armorMat;
+            
+            // Side wings
+            for (let i = 0; i < 2; i++) {
+                const wing = MeshBuilder.CreateBox(`wing${i}`, {
+                    width: 0.08,
+                    height: h * 0.5,
+                    depth: d * 0.4
+                }, scene);
+                wing.position = new Vector3((i === 0 ? -1 : 1) * w * 0.5, 0, d * 0.2);
+                wing.parent = chassis;
+                wing.material = armorMat;
+            }
+        }
+        
+        if (this.chassisType.id === "amphibious") {
+            // Amphibious - поплавки
+            for (let i = 0; i < 2; i++) {
+                const float = MeshBuilder.CreateCylinder(`float${i}`, {
+                    height: h * 0.6,
+                    diameter: w * 0.3
+                }, scene);
+                float.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, -h * 0.2, 0);
+                float.parent = chassis;
+                float.material = armorMat;
+            }
+        }
+        
+        if (this.chassisType.id === "shield") {
+            // Shield - генератор щита
+            const shieldGen = MeshBuilder.CreateSphere("shieldGen", {
+                diameter: w * 0.4,
+                segments: 12
+            }, scene);
+            shieldGen.position = new Vector3(0, h * 0.4, -d * 0.2);
+            shieldGen.parent = chassis;
+            const shieldGenMat = new StandardMaterial("shieldGenMat", scene);
+            shieldGenMat.diffuseColor = new Color3(0, 1, 0.5);
+            shieldGenMat.emissiveColor = new Color3(0, 0.5, 0.25);
+            shieldGen.material = shieldGenMat;
+            this.chassisAnimationElements.shieldMesh = shieldGen;
+        }
+        
+        if (this.chassisType.id === "drone") {
+            // Drone - платформы для дронов
+            this.chassisAnimationElements.droneMeshes = [];
+            for (let i = 0; i < 2; i++) {
+                const platform = MeshBuilder.CreateBox(`dronePlatform${i}`, {
+                    width: w * 0.4,
+                    height: 0.1,
+                    depth: w * 0.4
+                }, scene);
+                platform.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.6, 0);
+                platform.parent = chassis;
+                const platformMat = new StandardMaterial(`platformMat${i}`, scene);
+                platformMat.diffuseColor = new Color3(0.5, 0, 1);
+                platformMat.emissiveColor = new Color3(0.3, 0, 0.6);
+                platform.material = platformMat;
+                this.chassisAnimationElements.droneMeshes.push(platform);
+            }
+        }
+        
+        if (this.chassisType.id === "artillery") {
+            // Artillery - стабилизаторы
+            for (let i = 0; i < 4; i++) {
+                const stabilizer = MeshBuilder.CreateCylinder(`stabilizer${i}`, {
+                    height: 0.3,
+                    diameter: 0.2
+                }, scene);
+                const angle = (i * Math.PI * 2) / 4;
+                stabilizer.position = new Vector3(
+                    Math.cos(angle) * w * 0.6,
+                    -h * 0.4,
+                    Math.sin(angle) * d * 0.6
+                );
+                stabilizer.parent = chassis;
+                stabilizer.material = armorMat;
+            }
+        }
+        
+        if (this.chassisType.id === "destroyer") {
+            // Destroyer - длинный нос
+            const destroyerNose = MeshBuilder.CreateBox("destroyerNose", {
+                width: w * 0.8,
+                height: h * 0.6,
+                depth: 0.3
+            }, scene);
+            destroyerNose.position = new Vector3(0, 0, d * 0.5);
+            destroyerNose.parent = chassis;
+            destroyerNose.material = armorMat;
+        }
+        
+        if (this.chassisType.id === "command") {
+            // Command - аура и антенны
+            const commandAura = MeshBuilder.CreateTorus("commandAura", {
+                diameter: w * 1.5,
+                thickness: 0.05,
+                tessellation: 16
+            }, scene);
+            commandAura.position = new Vector3(0, h * 0.5, 0);
+            commandAura.rotation.x = Math.PI / 2;
+            commandAura.parent = chassis;
+            const auraMat = new StandardMaterial("auraMat", scene);
+            auraMat.diffuseColor = new Color3(1, 0.84, 0);
+            auraMat.emissiveColor = new Color3(0.5, 0.42, 0);
+            auraMat.disableLighting = true;
+            commandAura.material = auraMat;
+            this.chassisAnimationElements.commandAura = commandAura;
+            
+            // Multiple antennas
+            for (let i = 0; i < 3; i++) {
+                const antenna = MeshBuilder.CreateCylinder(`cmdAntenna${i}`, {
+                    height: 0.4,
+                    diameter: 0.02
+                }, scene);
+                antenna.position = new Vector3(
+                    (i - 1) * w * 0.3,
+                    h * 0.6,
+                    -d * 0.4
+                );
+                antenna.parent = chassis;
+                const antennaMat = new StandardMaterial(`cmdAntennaMat${i}`, scene);
+                antennaMat.diffuseColor = new Color3(1, 0.84, 0);
+                antenna.material = antennaMat;
+            }
         }
         
         // Antenna for medium/heavy/assault
@@ -1079,7 +1477,8 @@ export class TankController {
                     height: barrelWidth * 1.4, 
                     depth: barrelLength * 0.85 
                 }, scene);
-                // Add multiple barrel effect (small cylinders around main)
+                // Add multiple barrel effect (small cylinders around main) - ANIMATED
+                this.cannonAnimationElements.gatlingBarrels = [];
                 for (let i = 0; i < 3; i++) {
                     const miniBarrel = MeshBuilder.CreateCylinder(`minibarrel${i}`, {
                         height: barrelLength * 0.7,
@@ -1093,6 +1492,7 @@ export class TankController {
                     );
                     miniBarrel.parent = barrel;
                     miniBarrel.material = barrel.material;
+                    this.cannonAnimationElements.gatlingBarrels.push(miniBarrel);
                 }
                 break;
                 
@@ -1123,6 +1523,430 @@ export class TankController {
                     height: barrelWidth * 0.9, 
                     depth: barrelLength * 0.9 
                 }, scene);
+                break;
+                
+            // === ENERGY WEAPONS ===
+            case "plasma":
+                // Plasma - энергетическая, с генератором - ANIMATED
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 1.3, 
+                    height: barrelWidth * 1.3, 
+                    depth: barrelLength * 1.0 
+                }, scene);
+                // Add energy core - ANIMATED
+                const plasmaCore = MeshBuilder.CreateSphere("plasmaCore", { diameter: barrelWidth * 0.8 }, scene);
+                plasmaCore.position = new Vector3(0, 0, -barrelLength * 0.3);
+                plasmaCore.parent = barrel;
+                const coreMat = new StandardMaterial("plasmaCoreMat", scene);
+                coreMat.diffuseColor = new Color3(1, 0, 1);
+                coreMat.emissiveColor = new Color3(0.5, 0, 0.5);
+                plasmaCore.material = coreMat;
+                this.cannonAnimationElements.plasmaCore = plasmaCore;
+                break;
+                
+            case "laser":
+                // Laser - длинная, тонкая, с линзой - ANIMATED
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 0.85, 
+                    height: barrelWidth * 0.85, 
+                    depth: barrelLength * 1.2 
+                }, scene);
+                // Add lens - ANIMATED
+                const lens = MeshBuilder.CreateCylinder("lens", {
+                    height: barrelWidth * 0.3,
+                    diameter: barrelWidth * 0.6
+                }, scene);
+                lens.position = new Vector3(0, 0, barrelLength * 0.5);
+                lens.parent = barrel;
+                const lensMat = new StandardMaterial("lensMat", scene);
+                lensMat.diffuseColor = new Color3(1, 0, 0);
+                lensMat.emissiveColor = new Color3(0.3, 0, 0);
+                lens.material = lensMat;
+                this.cannonAnimationElements.laserLens = lens;
+                break;
+                
+            case "tesla":
+                // Tesla - с катушками - ANIMATED
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 1.5, 
+                    height: barrelWidth * 1.2, 
+                    depth: barrelLength * 0.9 
+                }, scene);
+                // Add coils - ANIMATED
+                this.cannonAnimationElements.teslaCoils = [];
+                for (let i = 0; i < 3; i++) {
+                    const coil = MeshBuilder.CreateTorus("coil", {
+                        diameter: barrelWidth * 0.6,
+                        thickness: barrelWidth * 0.1
+                    }, scene);
+                    coil.position = new Vector3(0, 0, -barrelLength * 0.2 + i * barrelLength * 0.2);
+                    coil.parent = barrel;
+                    coil.material = barrel.material;
+                    this.cannonAnimationElements.teslaCoils.push(coil);
+                }
+                break;
+                
+            case "railgun":
+                // Railgun - очень длинная, с рельсами
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 0.9, 
+                    height: barrelWidth * 0.9, 
+                    depth: barrelLength * 1.4 
+                }, scene);
+                // Add rails
+                const rail1 = MeshBuilder.CreateBox("rail1", {
+                    width: barrelWidth * 0.1,
+                    height: barrelWidth * 0.6,
+                    depth: barrelLength * 1.4
+                }, scene);
+                rail1.position = new Vector3(-barrelWidth * 0.4, 0, 0);
+                rail1.parent = barrel;
+                rail1.material = barrel.material;
+                
+                const rail2 = MeshBuilder.CreateBox("rail2", {
+                    width: barrelWidth * 0.1,
+                    height: barrelWidth * 0.6,
+                    depth: barrelLength * 1.4
+                }, scene);
+                rail2.position = new Vector3(barrelWidth * 0.4, 0, 0);
+                rail2.parent = barrel;
+                rail2.material = barrel.material;
+                break;
+                
+            // === EXPLOSIVE WEAPONS ===
+            case "rocket":
+                // Rocket - толстая, с направляющими - ANIMATED
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 1.4, 
+                    height: barrelWidth * 1.4, 
+                    depth: barrelLength * 1.0 
+                }, scene);
+                // Add launch tube - ANIMATED
+                const tube = MeshBuilder.CreateCylinder("tube", {
+                    height: barrelLength,
+                    diameter: barrelWidth * 1.2
+                }, scene);
+                tube.position = new Vector3(0, 0, 0);
+                tube.parent = barrel;
+                tube.material = barrel.material;
+                this.cannonAnimationElements.rocketTube = tube;
+                break;
+                
+            case "mortar":
+                // Mortar - короткая, очень толстая - ANIMATED
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 1.8, 
+                    height: barrelWidth * 1.8, 
+                    depth: barrelLength * 0.7 
+                }, scene);
+                // Add base - ANIMATED
+                const mortarBase = MeshBuilder.CreateCylinder("mortarBase", {
+                    height: barrelWidth * 0.4,
+                    diameter: barrelWidth * 2.0
+                }, scene);
+                mortarBase.position = new Vector3(0, -barrelWidth * 0.6, 0);
+                mortarBase.parent = barrel;
+                mortarBase.material = barrel.material;
+                this.cannonAnimationElements.mortarBase = mortarBase;
+                break;
+                
+            case "cluster":
+                // Cluster - множественные стволы - ANIMATED
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 1.3, 
+                    height: barrelWidth * 1.3, 
+                    depth: barrelLength * 1.0 
+                }, scene);
+                // Add cluster tubes - ANIMATED
+                this.cannonAnimationElements.clusterTubes = [];
+                for (let i = 0; i < 4; i++) {
+                    const clusterTube = MeshBuilder.CreateCylinder(`cluster${i}`, {
+                        height: barrelLength * 0.8,
+                        diameter: barrelWidth * 0.3
+                    }, scene);
+                    const angle = (i * Math.PI * 2 / 4);
+                    clusterTube.position = new Vector3(
+                        Math.cos(angle) * barrelWidth * 0.35,
+                        Math.sin(angle) * barrelWidth * 0.35,
+                        0
+                    );
+                    clusterTube.parent = barrel;
+                    clusterTube.material = barrel.material;
+                    this.cannonAnimationElements.clusterTubes.push(clusterTube);
+                }
+                break;
+                
+            case "explosive":
+                // Explosive - стандартная с усилением
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 1.3, 
+                    height: barrelWidth * 1.3, 
+                    depth: barrelLength * 1.05 
+                }, scene);
+                break;
+                
+            // === SPECIAL EFFECT WEAPONS ===
+            case "flamethrower":
+                // Flamethrower - короткая, широкая
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 1.2, 
+                    height: barrelWidth * 1.2, 
+                    depth: barrelLength * 0.8 
+                }, scene);
+                // Add nozzle
+                const nozzle = MeshBuilder.CreateCylinder("nozzle", {
+                    height: barrelLength * 0.3,
+                    diameter: barrelWidth * 0.8
+                }, scene);
+                nozzle.position = new Vector3(0, 0, barrelLength * 0.4);
+                nozzle.parent = barrel;
+                nozzle.material = barrel.material;
+                break;
+                
+            case "acid":
+                // Acid - с резервуаром - ANIMATED
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 1.1, 
+                    height: barrelWidth * 1.1, 
+                    depth: barrelLength * 1.0 
+                }, scene);
+                // Add tank - ANIMATED
+                const acidTank = MeshBuilder.CreateBox("acidTank", {
+                    width: barrelWidth * 0.8,
+                    height: barrelWidth * 1.5,
+                    depth: barrelWidth * 0.8
+                }, scene);
+                acidTank.position = new Vector3(0, barrelWidth * 0.5, -barrelLength * 0.3);
+                acidTank.parent = barrel;
+                acidTank.material = barrel.material;
+                this.cannonAnimationElements.acidTank = acidTank;
+                break;
+                
+            case "freeze":
+                // Freeze - с охладителем - ANIMATED
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 1.0, 
+                    height: barrelWidth * 1.0, 
+                    depth: barrelLength * 1.0 
+                }, scene);
+                // Add cooling fins - ANIMATED
+                this.cannonAnimationElements.freezeFins = [];
+                for (let i = 0; i < 4; i++) {
+                    const fin = MeshBuilder.CreateBox(`fin${i}`, {
+                        width: barrelWidth * 0.1,
+                        height: barrelLength * 0.6,
+                        depth: barrelWidth * 0.3
+                    }, scene);
+                    const angle = (i * Math.PI * 2 / 4);
+                    fin.position = new Vector3(
+                        Math.cos(angle) * barrelWidth * 0.5,
+                        0,
+                        Math.sin(angle) * barrelWidth * 0.2
+                    );
+                    fin.parent = barrel;
+                    fin.material = barrel.material;
+                    this.cannonAnimationElements.freezeFins.push(fin);
+                }
+                break;
+                
+            case "poison":
+                // Poison - с инжектором
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 1.05, 
+                    height: barrelWidth * 1.05, 
+                    depth: barrelLength * 0.95 
+                }, scene);
+                // Add injector
+                const injector = MeshBuilder.CreateCylinder("injector", {
+                    height: barrelWidth * 0.4,
+                    diameter: barrelWidth * 0.3
+                }, scene);
+                injector.position = new Vector3(0, 0, barrelLength * 0.4);
+                injector.parent = barrel;
+                injector.material = barrel.material;
+                break;
+                
+            case "emp":
+                // EMP - с излучателем - ANIMATED
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 1.25, 
+                    height: barrelWidth * 1.25, 
+                    depth: barrelLength * 1.0 
+                }, scene);
+                // Add emitter dish - ANIMATED
+                const dish = MeshBuilder.CreateCylinder("dish", {
+                    height: barrelWidth * 0.2,
+                    diameter: barrelWidth * 1.4
+                }, scene);
+                dish.position = new Vector3(0, 0, barrelLength * 0.5);
+                dish.parent = barrel;
+                dish.material = barrel.material;
+                this.cannonAnimationElements.empDish = dish;
+                break;
+                
+            // === MULTI-SHOT WEAPONS ===
+            case "shotgun":
+                // Shotgun - очень широкая
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 1.7, 
+                    height: barrelWidth * 1.7, 
+                    depth: barrelLength * 0.7 
+                }, scene);
+                break;
+                
+            case "multishot":
+                // Multishot - три ствола - ANIMATED
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 1.9, 
+                    height: barrelWidth * 1.9, 
+                    depth: barrelLength * 1.0 
+                }, scene);
+                // Add 3 barrels - ANIMATED
+                this.cannonAnimationElements.multishotBarrels = [];
+                for (let i = 0; i < 3; i++) {
+                    const multiBarrel = MeshBuilder.CreateCylinder(`multi${i}`, {
+                        height: barrelLength,
+                        diameter: barrelWidth * 0.4
+                    }, scene);
+                    multiBarrel.position = new Vector3(
+                        (i - 1) * barrelWidth * 0.5,
+                        0,
+                        0
+                    );
+                    multiBarrel.parent = barrel;
+                    multiBarrel.material = barrel.material;
+                    this.cannonAnimationElements.multishotBarrels.push(multiBarrel);
+                }
+                break;
+                
+            // === ADVANCED WEAPONS ===
+            case "homing":
+                // Homing - с навигацией - ANIMATED
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 1.35, 
+                    height: barrelWidth * 1.35, 
+                    depth: barrelLength * 1.0 
+                }, scene);
+                // Add guidance system - ANIMATED
+                const guidance = MeshBuilder.CreateBox("guidance", {
+                    width: barrelWidth * 0.6,
+                    height: barrelWidth * 0.4,
+                    depth: barrelWidth * 0.6
+                }, scene);
+                guidance.position = new Vector3(0, barrelWidth * 0.5, -barrelLength * 0.2);
+                guidance.parent = barrel;
+                const guidanceMat = new StandardMaterial("guidanceMat", scene);
+                guidanceMat.diffuseColor = new Color3(0.2, 0.8, 0.2);
+                guidance.material = guidanceMat;
+                this.cannonAnimationElements.homingGuidance = guidance;
+                break;
+                
+            case "piercing":
+                // Piercing - очень длинная и тонкая - ANIMATED
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 0.85, 
+                    height: barrelWidth * 0.85, 
+                    depth: barrelLength * 1.5 
+                }, scene);
+                // Add tip - ANIMATED
+                const tip = MeshBuilder.CreateCylinder("tip", {
+                    height: barrelLength * 0.2,
+                    diameter: barrelWidth * 0.6
+                }, scene);
+                tip.position = new Vector3(0, 0, barrelLength * 0.6);
+                tip.parent = barrel;
+                tip.material = barrel.material;
+                this.cannonAnimationElements.piercingTip = tip;
+                break;
+                
+            case "shockwave":
+                // Shockwave - очень толстая - ANIMATED
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 1.6, 
+                    height: barrelWidth * 1.6, 
+                    depth: barrelLength * 0.9 
+                }, scene);
+                // Add amplifier - ANIMATED
+                const amp = MeshBuilder.CreateCylinder("amp", {
+                    height: barrelWidth * 0.5,
+                    diameter: barrelWidth * 1.8
+                }, scene);
+                amp.position = new Vector3(0, 0, barrelLength * 0.4);
+                amp.parent = barrel;
+                amp.material = barrel.material;
+                this.cannonAnimationElements.shockwaveAmp = amp;
+                break;
+                
+            case "beam":
+                // Beam - длинная, с фокусировщиком - ANIMATED
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 0.95, 
+                    height: barrelWidth * 0.95, 
+                    depth: barrelLength * 1.3 
+                }, scene);
+                // Add focuser - ANIMATED
+                const focuser = MeshBuilder.CreateCylinder("focuser", {
+                    height: barrelWidth * 0.3,
+                    diameter: barrelWidth * 0.7
+                }, scene);
+                focuser.position = new Vector3(0, 0, barrelLength * 0.6);
+                focuser.parent = barrel;
+                focuser.material = barrel.material;
+                this.cannonAnimationElements.beamFocuser = focuser;
+                break;
+                
+            case "vortex":
+                // Vortex - с вихревым генератором - ANIMATED
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 1.45, 
+                    height: barrelWidth * 1.45, 
+                    depth: barrelLength * 1.0 
+                }, scene);
+                // Add vortex rings - ANIMATED
+                this.cannonAnimationElements.vortexRings = [];
+                for (let i = 0; i < 3; i++) {
+                    const ring = MeshBuilder.CreateTorus(`vortex${i}`, {
+                        diameter: barrelWidth * (1.0 + i * 0.2),
+                        thickness: barrelWidth * 0.1
+                    }, scene);
+                    ring.position = new Vector3(0, 0, -barrelLength * 0.2 + i * barrelLength * 0.2);
+                    ring.parent = barrel;
+                    ring.material = barrel.material;
+                    this.cannonAnimationElements.vortexRings.push(ring);
+                }
+                break;
+                
+            case "support":
+                // Support - с ремонтным лучом - ANIMATED
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 1.1, 
+                    height: barrelWidth * 1.1, 
+                    depth: barrelLength * 1.0 
+                }, scene);
+                // Add repair emitter - ANIMATED
+                const emitter = MeshBuilder.CreateCylinder("emitter", {
+                    height: barrelWidth * 0.4,
+                    diameter: barrelWidth * 0.7
+                }, scene);
+                emitter.position = new Vector3(0, 0, barrelLength * 0.5);
+                emitter.parent = barrel;
+                const emitterMat = new StandardMaterial("emitterMat", scene);
+                emitterMat.diffuseColor = new Color3(0, 1, 0.5);
+                emitterMat.emissiveColor = new Color3(0, 0.3, 0.15);
+                emitter.material = emitterMat;
+                this.cannonAnimationElements.supportEmitter = emitter;
+                // Add healing rings
+                this.cannonAnimationElements.supportRings = [];
+                for (let i = 0; i < 2; i++) {
+                    const ring = MeshBuilder.CreateTorus(`supportRing${i}`, {
+                        diameter: barrelWidth * (0.8 + i * 0.2),
+                        thickness: barrelWidth * 0.08
+                    }, scene);
+                    ring.position = new Vector3(0, 0, barrelLength * 0.4);
+                    ring.parent = barrel;
+                    ring.material = emitterMat;
+                    this.cannonAnimationElements.supportRings.push(ring);
+                }
                 break;
                 
             default: // standard
@@ -1201,6 +2025,9 @@ export class TankController {
             
             // Tracer (T key) - fires tracer round if available and not reloading
             if (code === "KeyT") this.fireTracer();
+            
+            // Special chassis abilities (V key)
+            if (code === "KeyV") this.activateChassisAbility();
             
             // Модули (кнопки 6-0)
             if (code === "Digit6" || code === "Numpad6") {
@@ -1561,29 +2388,138 @@ export class TankController {
             
             console.log("[FIRE] Cannon fired!");
             
-            // Create muzzle flash effect
+            // Send shoot event to multiplayer server
+            if (this.onShootCallback) {
+                this.onShootCallback({
+                    position: { x: muzzlePos.x, y: muzzlePos.y, z: muzzlePos.z },
+                    direction: { x: shootDirection.x, y: shootDirection.y, z: shootDirection.z },
+                    aimPitch: this.aimPitch,
+                    cannonType: this.cannonType.id,
+                    damage: this.damage,
+                    timestamp: Date.now()
+                });
+            }
+            
+            // Create muzzle flash effect with cannon type
             if (this.effectsManager) {
-                this.effectsManager.createMuzzleFlash(muzzlePos, shootDirection);
+                this.effectsManager.createMuzzleFlash(muzzlePos, shootDirection, this.cannonType.id);
             }
 
+            // Special handling for Support cannon
+            if (this.cannonType.id === "support") {
+                this.fireSupportBeam(muzzlePos, shootDirection);
+                return; // Support doesn't create regular projectile
+            }
+            
             // Create projectile - используем параметры пушки
             const forward = shootDirection;
             
             // Размер снаряда из типа пушки
             const bulletSize = this.projectileSize;
-            const ball = MeshBuilder.CreateBox("bullet", { 
-                width: bulletSize, 
-                height: bulletSize, 
-                depth: bulletSize * 3 
-            }, this.scene);
-            ball.position.copyFrom(muzzlePos);
-            ball.lookAt(ball.position.add(forward));
-            ball.material = this.bulletMat; // Bright glowing yellow
-            ball.metadata = { type: "bullet", owner: "player", damage: this.damage }; // Metadata с уроном
+            
+            // Special handling for different cannon types
+            let projectileMesh: Mesh;
+            let projectileMaterial: StandardMaterial;
+            let projectileColor: Color3;
+            
+            // Set unique colors and materials based on cannon type
+            switch (this.cannonType.id) {
+                case "plasma":
+                    projectileColor = new Color3(1, 0, 1); // Magenta
+                    break;
+                case "laser":
+                    projectileColor = new Color3(1, 0, 0); // Red
+                    break;
+                case "tesla":
+                    projectileColor = new Color3(0, 1, 1); // Cyan
+                    break;
+                case "rocket":
+                case "explosive":
+                case "mortar":
+                case "cluster":
+                    projectileColor = new Color3(1, 0.5, 0); // Orange
+                    break;
+                case "flamethrower":
+                    projectileColor = new Color3(1, 0.3, 0); // Fire orange
+                    break;
+                case "acid":
+                    projectileColor = new Color3(0, 1, 0); // Green
+                    break;
+                case "freeze":
+                    projectileColor = new Color3(0.5, 0.8, 1); // Light blue
+                    break;
+                case "poison":
+                    projectileColor = new Color3(0.5, 0, 1); // Purple
+                    break;
+                case "emp":
+                    projectileColor = new Color3(1, 1, 0); // Yellow
+                    break;
+                case "beam":
+                    projectileColor = new Color3(1, 0, 0.5); // Pink
+                    break;
+                default:
+                    projectileColor = new Color3(1, 1, 0); // Yellow (default)
+            }
+            
+            // Create projectile mesh with unique shape for some types
+            if (this.cannonType.id === "shotgun") {
+                // Shotgun fires multiple projectiles
+                this.fireShotgunSpread(muzzlePos, shootDirection);
+                return; // Shotgun handled separately
+            } else if (this.cannonType.id === "cluster") {
+                // Cluster splits into multiple projectiles
+                this.fireClusterProjectiles(muzzlePos, shootDirection);
+                return; // Cluster handled separately
+            } else {
+                // Standard projectile
+                projectileMesh = MeshBuilder.CreateBox("bullet", { 
+                    width: bulletSize, 
+                    height: bulletSize, 
+                    depth: bulletSize * 3 
+                }, this.scene);
+            }
+            
+            projectileMesh.position.copyFrom(muzzlePos);
+            projectileMesh.lookAt(projectileMesh.position.add(forward));
+            
+            // Create unique material for projectile
+            projectileMaterial = new StandardMaterial("projectileMat", this.scene);
+            projectileMaterial.diffuseColor = projectileColor;
+            projectileMaterial.emissiveColor = projectileColor.scale(0.8);
+            projectileMaterial.disableLighting = true;
+            projectileMesh.material = projectileMaterial;
+            
+            // Enhanced metadata with special properties
+            const specialProperties: any = {
+                isHoming: this.cannonType.id === "homing",
+                isExplosive: ["rocket", "explosive", "mortar", "cluster"].includes(this.cannonType.id),
+                isPiercing: this.cannonType.id === "piercing",
+                isChain: this.cannonType.id === "tesla",
+                explosionRadius: this.cannonType.id === "rocket" ? 8 : this.cannonType.id === "mortar" ? 12 : this.cannonType.id === "explosive" ? 6 : 0,
+                chainRange: this.cannonType.id === "tesla" ? 15 : 0,
+                chainTargets: this.cannonType.id === "tesla" ? 3 : 0,
+                effectType: this.cannonType.id // For hit effects
+            };
+            
+            projectileMesh.metadata = { 
+                type: "bullet", 
+                owner: "player", 
+                damage: this.damage,
+                cannonType: this.cannonType.id,
+                ...specialProperties
+            };
 
-            // Create bullet trail effect
+            // Create unique bullet trail effect
             if (this.effectsManager) {
-                this.effectsManager.createBulletTrail(ball);
+                this.effectsManager.createBulletTrail(projectileMesh, projectileColor, this.cannonType.id);
+            }
+            
+            const ball = projectileMesh; // For compatibility with existing code
+            
+            // Special handling for homing projectiles
+            if (specialProperties.isHoming && this.enemyTanks) {
+                ball.metadata.homingTarget = null;
+                ball.metadata.homingStrength = 0.15; // How strongly it tracks
             }
 
             const shape = new PhysicsShape({ 
@@ -1640,6 +2576,38 @@ export class TankController {
                 if (hasHit || ball.isDisposed()) return;
                 
                 const bulletPos = ball.absolutePosition;
+                const bulletMeta = ball.metadata as any;
+                
+                // Homing projectile guidance
+                if (bulletMeta?.isHoming && this.enemyTanks && this.enemyTanks.length > 0) {
+                    // Find nearest enemy
+                    let nearestEnemy: any = null;
+                    let nearestDist = 50; // Max homing range
+                    
+                    for (const enemy of this.enemyTanks) {
+                        if (!enemy || !enemy.isAlive || !enemy.chassis || enemy.chassis.isDisposed()) continue;
+                        
+                        const dist = Vector3.Distance(bulletPos, enemy.chassis.absolutePosition);
+                        if (dist < nearestDist) {
+                            nearestDist = dist;
+                            nearestEnemy = enemy;
+                        }
+                    }
+                    
+                    if (nearestEnemy) {
+                        // Steer towards target
+                        const targetPos = nearestEnemy.chassis.absolutePosition;
+                        const toTarget = targetPos.subtract(bulletPos).normalize();
+                        const currentVel = body.getLinearVelocity();
+                        if (currentVel) {
+                            const currentDir = currentVel.normalize();
+                            const steerDir = currentDir.add(toTarget.scale(bulletMeta.homingStrength || 0.15)).normalize();
+                            const speed = currentVel.length();
+                            body.setLinearVelocity(steerDir.scale(speed));
+                            ball.lookAt(ball.position.add(steerDir));
+                        }
+                    }
+                }
                 
                 // === ПРОВЕРКА СТОЛКНОВЕНИЯ СО СТЕНКАМИ ===
                 for (const wallData of this.module6Walls) {
@@ -1773,18 +2741,41 @@ export class TankController {
                     
                     if (dist < HIT_RADIUS_TANK) {
                         hasHit = true;
+                        const bulletMeta = ball.metadata as any;
+                        const cannonTypeId = bulletMeta?.cannonType || this.cannonType.id;
+                        const effectType = bulletMeta?.effectType || cannonTypeId;
+                        
                         console.log("%c[HIT] ENEMY TANK! Damage: " + projectileDamage + " | Distance: " + dist.toFixed(1), "color: red; font-weight: bold");
-                        enemy.takeDamage(projectileDamage);
-                        if (this.effectsManager) this.effectsManager.createExplosion(bulletPos, 1.2);
-                        if (this.soundManager) {
-                            const hitType = projectileDamage > this.cannonType.damage * 1.2 ? "critical" : projectileDamage > this.cannonType.damage * 0.8 ? "armor" : "normal";
-                            this.soundManager.playHit(hitType, bulletPos);
+                        
+                        // Handle special mechanics
+                        if (bulletMeta?.isExplosive && bulletMeta?.explosionRadius > 0) {
+                            // Explosive AOE damage
+                            this.handleExplosiveHit(bulletPos, projectileDamage, bulletMeta.explosionRadius, effectType);
+                        } else if (bulletMeta?.isChain && bulletMeta?.chainRange > 0) {
+                            // Chain lightning
+                            this.handleChainLightning(bulletPos, enemy, projectileDamage, bulletMeta.chainRange, bulletMeta.chainTargets || 3);
+                        } else {
+                            // Normal hit
+                            enemy.takeDamage(projectileDamage);
+                            this.createHitEffect(bulletPos, effectType);
                         }
-                        // Записываем попадание и урон для опыта (критический если больше базового урона)
-                        if (this.experienceSystem) {
-                            const isCritical = projectileDamage > this.cannonType.damage * 1.2;
-                            this.experienceSystem.recordHit(this.cannonType.id, isCritical);
-                            this.experienceSystem.recordDamageDealt(this.chassisType.id, this.cannonType.id, projectileDamage);
+                        
+                        // Piercing projectiles continue through
+                        if (!bulletMeta?.isPiercing) {
+                            if (this.soundManager) {
+                                const hitType = projectileDamage > this.cannonType.damage * 1.2 ? "critical" : projectileDamage > this.cannonType.damage * 0.8 ? "armor" : "normal";
+                                this.soundManager.playHit(hitType, bulletPos);
+                            }
+                            // Записываем попадание и урон для опыта (критический если больше базового урона)
+                            if (this.experienceSystem) {
+                                const isCritical = projectileDamage > this.cannonType.damage * 1.2;
+                                this.experienceSystem.recordHit(this.cannonType.id, isCritical);
+                                this.experienceSystem.recordDamageDealt(this.chassisType.id, this.cannonType.id, projectileDamage);
+                            }
+                        } else {
+                            // Piercing: reduce damage for next target
+                            (ball.metadata as any).damage = Math.max(projectileDamage * 0.7, 5);
+                            hasHit = false; // Continue through
                         }
                         // Записываем урон в статистику игрока
                         if (this.playerProgression) {
@@ -1883,9 +2874,406 @@ export class TankController {
         } catch (e) { console.error("[FIRE ERROR]", e); }
     }
 
+    // ============ SPECIAL MECHANICS ============
+    
+    private fireShotgunSpread(muzzlePos: Vector3, direction: Vector3): void {
+        // Shotgun fires 5 projectiles in a spread pattern
+        const spreadAngle = 0.3; // 30 degrees total spread
+        const pelletCount = 5;
+        
+        for (let i = 0; i < pelletCount; i++) {
+            const angle = (i - (pelletCount - 1) / 2) * spreadAngle / (pelletCount - 1);
+            const right = Vector3.Cross(direction, Vector3.Up()).normalize();
+            const up = Vector3.Up();
+            const spreadDir = direction.clone();
+            spreadDir.addInPlace(right.scale(Math.sin(angle)));
+            spreadDir.addInPlace(up.scale(Math.sin(angle * 0.5)));
+            spreadDir.normalize();
+            
+            // Create smaller projectile
+            const pellet = MeshBuilder.CreateBox("shotgunPellet", {
+                width: this.projectileSize * 0.6,
+                height: this.projectileSize * 0.6,
+                depth: this.projectileSize * 2
+            }, this.scene);
+            pellet.position = muzzlePos.clone();
+            pellet.lookAt(pellet.position.add(spreadDir));
+            
+            const pelletMat = new StandardMaterial("pelletMat", this.scene);
+            pelletMat.diffuseColor = new Color3(1, 0.7, 0.2);
+            pelletMat.emissiveColor = new Color3(1, 0.5, 0.1);
+            pelletMat.disableLighting = true;
+            pellet.material = pelletMat;
+            
+            pellet.metadata = {
+                type: "bullet",
+                owner: "player",
+                damage: this.damage * 0.4, // Each pellet does less damage
+                cannonType: "shotgun"
+            };
+            
+            // Physics
+            const shape = new PhysicsShape({
+                type: PhysicsShapeType.BOX,
+                parameters: { extents: new Vector3(this.projectileSize * 0.5, this.projectileSize * 0.5, this.projectileSize * 1.5) }
+            }, this.scene);
+            shape.filterMembershipMask = 4;
+            shape.filterCollideMask = 2 | 8 | 32;
+            
+            const body = new PhysicsBody(pellet, PhysicsMotionType.DYNAMIC, false, this.scene);
+            body.shape = shape;
+            body.setMassProperties({ mass: 10 });
+            body.setLinearDamping(0.01);
+            body.applyImpulse(spreadDir.scale(this.projectileSpeed * 18), pellet.position);
+            
+            // Trail
+            if (this.effectsManager) {
+                this.effectsManager.createBulletTrail(pellet, new Color3(1, 0.7, 0.2), "shotgun");
+            }
+            
+            // Hit detection (same as normal projectile)
+            this.setupProjectileHitDetection(pellet, body);
+        }
+    }
+    
+    private fireClusterProjectiles(muzzlePos: Vector3, direction: Vector3): void {
+        // Cluster fires main projectile that splits into 4 smaller ones after distance
+        const mainProjectile = this.createStandardProjectile(muzzlePos, direction, this.damage, "cluster");
+        const splitDistance = 20; // Split after 20 units
+        const splitTime = splitDistance / this.projectileSpeed;
+        
+        setTimeout(() => {
+            if (mainProjectile && !mainProjectile.isDisposed()) {
+                const splitPos = mainProjectile.absolutePosition.clone();
+                mainProjectile.dispose();
+                
+                // Create 4 smaller projectiles
+                for (let i = 0; i < 4; i++) {
+                    const angle = (i * Math.PI * 2) / 4;
+                    const right = Vector3.Cross(direction, Vector3.Up()).normalize();
+                    const spreadDir = direction.clone();
+                    spreadDir.addInPlace(right.scale(Math.cos(angle) * 0.2));
+                    spreadDir.normalize();
+                    
+                    const cluster = this.createStandardProjectile(splitPos, spreadDir, this.damage * 0.6, "cluster");
+                    // Trail
+                    if (this.effectsManager) {
+                        this.effectsManager.createBulletTrail(cluster, new Color3(1, 0.5, 0), "cluster");
+                    }
+                }
+            }
+        }, splitTime * 1000);
+    }
+    
+    private createStandardProjectile(pos: Vector3, dir: Vector3, damage: number, cannonType: string): Mesh {
+        const bulletSize = this.projectileSize;
+        const ball = MeshBuilder.CreateBox("bullet", {
+            width: bulletSize,
+            height: bulletSize,
+            depth: bulletSize * 3
+        }, this.scene);
+        ball.position = pos.clone();
+        ball.lookAt(ball.position.add(dir));
+        
+        const mat = new StandardMaterial("bulletMat", this.scene);
+        mat.diffuseColor = new Color3(1, 1, 0);
+        mat.emissiveColor = new Color3(1, 0.8, 0);
+        mat.disableLighting = true;
+        ball.material = mat;
+        
+        ball.metadata = {
+            type: "bullet",
+            owner: "player",
+            damage: damage,
+            cannonType: cannonType
+        };
+        
+        const shape = new PhysicsShape({
+            type: PhysicsShapeType.BOX,
+            parameters: { extents: new Vector3(bulletSize * 0.75, bulletSize * 0.75, bulletSize * 2) }
+        }, this.scene);
+        shape.filterMembershipMask = 4;
+        shape.filterCollideMask = 2 | 8 | 32;
+        
+        const body = new PhysicsBody(ball, PhysicsMotionType.DYNAMIC, false, this.scene);
+        body.shape = shape;
+        body.setMassProperties({ mass: 15 });
+        body.setLinearDamping(0.01);
+        body.applyImpulse(dir.scale(this.projectileSpeed * 18), ball.position);
+        
+        this.setupProjectileHitDetection(ball, body);
+        return ball;
+    }
+    
+    private setupProjectileHitDetection(ball: Mesh, body: PhysicsBody): void {
+        // Use the same hit detection logic as main fire() method
+        // This is a simplified version that integrates with existing checkHit
+        let hasHit = false;
+        const HIT_RADIUS_TANK = 4.0;
+        
+        const checkHit = () => {
+            if (hasHit || ball.isDisposed()) return;
+            
+            const bulletPos = ball.absolutePosition;
+            const bulletMeta = ball.metadata as any;
+            const projectileDamage = bulletMeta?.damage || this.damage;
+            
+            // Check enemy hits
+            const enemies = this.enemyTanks || [];
+            for (const enemy of enemies) {
+                if (!enemy || !enemy.isAlive || !enemy.chassis || enemy.chassis.isDisposed()) continue;
+                
+                const dist = Vector3.Distance(bulletPos, enemy.chassis.absolutePosition);
+                if (dist < HIT_RADIUS_TANK) {
+                    hasHit = true;
+                    enemy.takeDamage(projectileDamage);
+                    this.createHitEffect(bulletPos, bulletMeta?.cannonType || "standard");
+                    if (this.soundManager) this.soundManager.playHit("normal", bulletPos);
+                    ball.dispose();
+                    return;
+                }
+            }
+            
+            // Check network player hits (with lag compensation)
+            if (this.networkPlayers) {
+                const shootTime = bulletMeta?.shootTime || Date.now();
+                const estimatedPing = 100; // Could be measured from multiplayer manager
+                const rewindTime = shootTime - estimatedPing; // Rewind to when shot was fired
+                
+                for (const [, networkTank] of this.networkPlayers.entries()) {
+                    if (!networkTank || !networkTank.chassis) continue;
+                    
+                    // Get position at time of shot (lag compensation)
+                    const targetPos = networkTank.getPositionAtTime?.(rewindTime) || networkTank.chassis.position;
+                    
+                    const dist = Vector3.Distance(bulletPos, targetPos);
+                    if (dist < HIT_RADIUS_TANK) {
+                        hasHit = true;
+                        // Hit detected - server will validate and apply damage
+                        this.createHitEffect(bulletPos, bulletMeta?.cannonType || "standard");
+                        if (this.soundManager) this.soundManager.playHit("normal", bulletPos);
+                        ball.dispose();
+                        return;
+                    }
+                }
+            }
+            
+            // Bounds check
+            if (bulletPos.y < -10 || Math.abs(bulletPos.x) > 1200 || Math.abs(bulletPos.z) > 1200) {
+                ball.dispose();
+                return;
+            }
+            
+            requestAnimationFrame(checkHit);
+        };
+        
+        checkHit();
+        
+        // Auto-remove after 6 seconds
+        setTimeout(() => {
+            if (ball && !ball.isDisposed()) ball.dispose();
+        }, 6000);
+    }
+    
+    private handleExplosiveHit(center: Vector3, damage: number, radius: number, effectType: string): void {
+        // AOE damage to all enemies in radius
+        const enemies = this.enemyTanks || [];
+        let hitCount = 0;
+        
+        for (const enemy of enemies) {
+            if (!enemy || !enemy.isAlive || !enemy.chassis || enemy.chassis.isDisposed()) continue;
+            
+            const dist = Vector3.Distance(center, enemy.chassis.absolutePosition);
+            if (dist <= radius) {
+                // Damage falls off with distance
+                const damageMultiplier = 1 - (dist / radius) * 0.5; // 50% damage at edge
+                const finalDamage = Math.round(damage * damageMultiplier);
+                enemy.takeDamage(finalDamage);
+                hitCount++;
+            }
+        }
+        
+        // Create explosion effect
+        if (this.effectsManager) {
+            this.effectsManager.createExplosion(center, radius / 5);
+        }
+        this.createHitEffect(center, effectType);
+        
+        console.log(`[EXPLOSIVE] Hit ${hitCount} enemies in ${radius}m radius`);
+    }
+    
+    private handleChainLightning(startPos: Vector3, firstTarget: any, damage: number, range: number, maxTargets: number): void {
+        const hitTargets = new Set<any>();
+        hitTargets.add(firstTarget);
+        firstTarget.takeDamage(damage);
+        
+        let currentPos = firstTarget.chassis.absolutePosition.clone();
+        let currentDamage = damage;
+        
+        // Chain to nearby enemies
+        for (let chain = 1; chain < maxTargets; chain++) {
+            const enemies = this.enemyTanks || [];
+            let nearestEnemy: any = null;
+            let nearestDist = range;
+            
+            for (const enemy of enemies) {
+                if (!enemy || !enemy.isAlive || hitTargets.has(enemy) || !enemy.chassis || enemy.chassis.isDisposed()) continue;
+                
+                const dist = Vector3.Distance(currentPos, enemy.chassis.absolutePosition);
+                if (dist < nearestDist) {
+                    nearestDist = dist;
+                    nearestEnemy = enemy;
+                }
+            }
+            
+            if (nearestEnemy) {
+                hitTargets.add(nearestEnemy);
+                currentDamage = Math.round(currentDamage * 0.7); // Damage reduces with each chain
+                nearestEnemy.takeDamage(currentDamage);
+                
+                // Visual chain effect
+                if (this.effectsManager) {
+                    this.createLightningBolt(currentPos, nearestEnemy.chassis.absolutePosition);
+                }
+                
+                currentPos = nearestEnemy.chassis.absolutePosition.clone();
+            } else {
+                break; // No more targets
+            }
+        }
+        
+        this.createHitEffect(startPos, "tesla");
+        console.log(`[CHAIN] Hit ${hitTargets.size} enemies`);
+    }
+    
+    private createLightningBolt(start: Vector3, end: Vector3): void {
+        // Simple lightning bolt visual
+        const mid = start.add(end).scale(0.5);
+        mid.y += 2; // Arc upward
+        
+        const bolt = MeshBuilder.CreateBox("lightning", {
+            width: 0.1,
+            height: 0.1,
+            depth: Vector3.Distance(start, end)
+        }, this.scene);
+        bolt.position = mid;
+        bolt.lookAt(end);
+        
+        const boltMat = new StandardMaterial("lightningMat", this.scene);
+        boltMat.diffuseColor = new Color3(0, 1, 1);
+        boltMat.emissiveColor = new Color3(0, 0.8, 0.8);
+        boltMat.disableLighting = true;
+        bolt.material = boltMat;
+        
+        setTimeout(() => {
+            if (bolt && !bolt.isDisposed()) bolt.dispose();
+        }, 200);
+    }
+    
+    private createHitEffect(position: Vector3, effectType: string): void {
+        if (!this.effectsManager) return;
+        
+        switch (effectType) {
+            case "plasma":
+                this.effectsManager.createPlasmaBurst(position);
+                break;
+            case "freeze":
+                this.effectsManager.createIceShards(position);
+                break;
+            case "poison":
+            case "acid":
+                this.effectsManager.createPoisonCloud(position);
+                break;
+            case "flamethrower":
+                this.effectsManager.createFireEffect(position);
+                break;
+            default:
+                this.effectsManager.createExplosion(position, 1.0);
+        }
+    }
+    
     // ============ TRACER SYSTEM ============
     // Tracer round - special marking projectile fired with T key
     // Uses same cooldown as normal fire, limited ammo, marks enemies on hit
+    // ============ SUPPORT BEAM ============
+    private fireSupportBeam(muzzlePos: Vector3, direction: Vector3): void {
+        // Support beam - instant hit, repairs allies or damages enemies
+        const maxRange = 50; // Maximum range for support beam
+        const beamEnd = muzzlePos.add(direction.scale(maxRange));
+        
+        // Raycast to find target
+        const ray = new Ray(muzzlePos, direction);
+        ray.length = maxRange;
+        
+        // Check for hits
+        const hit = this.scene.pickWithRay(ray);
+        
+        if (hit && hit.pickedMesh) {
+            const target = hit.pickedMesh;
+            const targetPos = target.absolutePosition;
+            const distance = Vector3.Distance(muzzlePos, targetPos);
+            
+            // Check if target is enemy tank
+            if (target.metadata && target.metadata.type === "enemyTank" && target.metadata.instance) {
+                const enemy = target.metadata.instance;
+                if (enemy.isAlive && distance <= maxRange) {
+                    // Damage enemy
+                    enemy.takeDamage(this.damage, muzzlePos);
+                    console.log(`[SUPPORT] Damaged enemy for ${this.damage} damage`);
+                    
+                    // Visual effect
+                    if (this.effectsManager) {
+                        this.effectsManager.createMuzzleFlash(targetPos, direction.scale(-1));
+                    }
+                }
+            }
+            // Check if target is player tank (self-repair or future ally system)
+            else if (target.metadata && target.metadata.type === "playerTank") {
+                // Self-repair if damaged
+                if (this.currentHealth < this.maxHealth && distance <= maxRange) {
+                    const healAmount = Math.min(15, this.maxHealth - this.currentHealth);
+                    this.currentHealth += healAmount;
+                    if (this.hud) {
+                        this.hud.setHealth(this.currentHealth, this.maxHealth);
+                    }
+                    console.log(`[SUPPORT] Repaired ${healAmount} HP`);
+                }
+            }
+        }
+        
+        // Create visual beam effect
+        if (this.effectsManager) {
+            // Create beam line
+            const beamLength = hit ? Vector3.Distance(muzzlePos, hit.pickedPoint || beamEnd) : maxRange;
+            const beamEndPoint = muzzlePos.add(direction.scale(beamLength));
+            
+            // Create green healing beam or red damage beam
+            const isHealing = hit && hit.pickedMesh && hit.pickedMesh.metadata && hit.pickedMesh.metadata.type === "playerTank";
+            const beamColor = isHealing ? new Color3(0, 1, 0.5) : new Color3(1, 0.5, 0);
+            
+            // Create temporary beam mesh
+            const beam = MeshBuilder.CreateBox("supportBeam", {
+                width: 0.1,
+                height: 0.1,
+                depth: beamLength
+            }, this.scene);
+            beam.position = muzzlePos.add(direction.scale(beamLength / 2));
+            beam.lookAt(beamEndPoint);
+            
+            const beamMat = new StandardMaterial("supportBeamMat", this.scene);
+            beamMat.diffuseColor = beamColor;
+            beamMat.emissiveColor = beamColor.scale(0.5);
+            beam.material = beamMat;
+            
+            // Remove beam after short time
+            setTimeout(() => {
+                if (beam && !beam.isDisposed()) {
+                    beam.dispose();
+                }
+            }, 200);
+        }
+    }
+    
     fireTracer() {
         try {
             if (!this.isAlive) return;
@@ -2142,6 +3530,19 @@ export class TankController {
                 this.experienceSystem.updatePlayTime(this.chassisType.id, this.cannonType.id);
             }
             
+            // Low health smoke effect - subtle, barely visible
+            const healthPercent = this.currentHealth / this.maxHealth;
+            if (healthPercent < 0.3 && this.effectsManager && this.chassis) {
+                // Only create smoke occasionally (every 2 seconds) to keep it subtle
+                const now = performance.now();
+                if (!this._lastSmokeTime || now - this._lastSmokeTime > 2000) {
+                    const smokePos = this.chassis.getAbsolutePosition().clone();
+                    smokePos.y = 0.5;
+                    this.effectsManager.createLowHealthSmoke(smokePos);
+                    this._lastSmokeTime = now;
+                }
+            }
+            
             // КРИТИЧЕСКИ ВАЖНО: Физика танка НЕ зависит от режима прицеливания!
             // isAiming влияет ТОЛЬКО на камеру и прицел, НЕ на физику, позицию, скорость или вращение танка!
             // Танк должен вести себя одинаково независимо от режима прицеливания!
@@ -2180,6 +3581,37 @@ export class TankController {
             if (!isFinite(vel.x) || !isFinite(vel.y) || !isFinite(vel.z) ||
                 !isFinite(angVel.x) || !isFinite(angVel.y) || !isFinite(angVel.z)) {
                 return;
+            }
+
+            // Ограничиваем вертикальную скорость и угловую скорость, чтобы исключить "взлёты"
+            let velocityClamped = false;
+            const maxUpwardSpeed = 12;
+            const maxDownwardSpeed = 35;
+            if (vel.y > maxUpwardSpeed) {
+                vel.y = maxUpwardSpeed;
+                velocityClamped = true;
+            } else if (vel.y < -maxDownwardSpeed) {
+                vel.y = -maxDownwardSpeed;
+                velocityClamped = true;
+            }
+            
+            const maxAngularSpeed = 2.5;
+            const angMag = angVel.length();
+            if (angMag > maxAngularSpeed) {
+                angVel.scaleInPlace(maxAngularSpeed / Math.max(angMag, 0.0001));
+                try {
+                    body.setAngularVelocity(angVel);
+                } catch (_e) {
+                    // ignore
+                }
+            }
+            
+            if (velocityClamped) {
+                try {
+                    body.setLinearVelocity(vel);
+                } catch (_e) {
+                    // ignore
+                }
             }
 
             // Get tank orientation vectors (in world space) - оптимизировано
@@ -2565,10 +3997,10 @@ export class TankController {
                     if (obstacleData.hasObstacle && obstacleData.obstacleHeight > 0.05 && obstacleData.obstacleHeight <= chassisHeight * 1.1) {
                         // Вычисляем силу для подъема (более агрессивная формула)
                         // Базовое усилие + пропорциональное препятствию
-                        const baseClimbForce = this.mass * 800; // Базовая сила для любых препятствий
-                        const proportionalForce = obstacleData.obstacleHeight * this.mass * 500; // Пропорциональная часть
+                        const baseClimbForce = this.mass * 500; // Базовая сила для любых препятствий
+                        const proportionalForce = obstacleData.obstacleHeight * this.mass * 250; // Пропорциональная часть (снижено)
                         const climbForce = baseClimbForce + proportionalForce;
-                        const maxClimbForce = this.mass * 4000; // Увеличена максимальная сила
+                        const maxClimbForce = this.mass * 2200; // Ограниченная максимальная сила
                         const clampedClimbForce = Math.min(climbForce, maxClimbForce);
                         
                         // Применяем силу вверх (более сильную)
@@ -2583,7 +4015,7 @@ export class TankController {
                         
                         // Значительно усиливаем движение вперед для преодоления
                         // Чем выше препятствие, тем больше дополнительной силы
-                        const extraForceMultiplier = 0.8 + (obstacleData.obstacleHeight / chassisHeight) * 0.7; // От +80% до +150%
+                        const extraForceMultiplier = 0.4 + (obstacleData.obstacleHeight / chassisHeight) * 0.4; // От +40% до +80%
                         const extraForwardForce = clampedAccelForce * extraForceMultiplier;
                         if (body && isFinite(extraForwardForce) && clampedAccelForce > 0) {
                             forward.scaleToRef(extraForwardForce, this._tmpVector8);
@@ -2596,9 +4028,9 @@ export class TankController {
                         
                         // Дополнительный импульс вверх-вперед для более плавного подъема
                         const upwardForward = forward.clone();
-                        upwardForward.y += 0.4; // Направление вверх-вперед
+                        upwardForward.y += 0.2; // Направление вверх-вперед
                         upwardForward.normalize();
-                        const boostForce = this.mass * 300 * Math.min(obstacleData.obstacleHeight / chassisHeight, 1.0);
+                        const boostForce = this.mass * 150 * Math.min(obstacleData.obstacleHeight / chassisHeight, 1.0);
                         if (body && isFinite(boostForce)) {
                             upwardForward.scaleToRef(boostForce, this._tmpVector8);
                             try {
@@ -2733,15 +4165,7 @@ export class TankController {
                     if (this.soundManager) {
                         this.soundManager.playMovement();
                     }
-                    // Create dust particles when moving
-                    if (this.effectsManager && this.chassis) {
-                        const dustPos = this.chassis.absolutePosition.clone();
-                        dustPos.y = 0.1;
-                        // Dust spawns at rear of tank
-                        const backward = this.chassis.forward.scale(-2);
-                        dustPos.addInPlace(backward);
-                        this.effectsManager.createMovementDust(dustPos, this.chassis.forward, Math.abs(this.smoothThrottle));
-                    }
+                    // Movement dust removed - replaced with low health smoke effect
                     this._lastMovementSoundTime = now;
                 }
             }
@@ -2795,6 +4219,12 @@ export class TankController {
             
             // Обновляем гильзы
             this.updateShellCasings();
+            
+            // Animate Cannon (for animated cannons)
+            this.updateCannonAnimations();
+            
+            // Animate Chassis (for animated chassis)
+            this.updateChassisAnimations();
 
             // Animate Wheels (оптимизировано с for циклом)
             // Используем кэшированное значение fwdSpeed для оптимизации
@@ -3613,6 +5043,513 @@ export class TankController {
     }
     
     // Обновление гильз
+    // ============ CANNON ANIMATIONS ============
+    private updateCannonAnimations(): void {
+        if (!this.cannonAnimationElements || !this.barrel || this.barrel.isDisposed()) return;
+        
+        const deltaTime = this.scene.getEngine().getDeltaTime() / 1000; // Convert to seconds
+        if (!this.cannonAnimationElements.animationTime) this.cannonAnimationElements.animationTime = 0;
+        this.cannonAnimationElements.animationTime += deltaTime;
+        
+        const time = this.cannonAnimationElements.animationTime;
+        
+        // Gatling - вращение стволов
+        if (this.cannonAnimationElements.gatlingBarrels) {
+            const rotationSpeed = 10; // Radians per second
+            this.cannonAnimationElements.gatlingBarrels.forEach((barrel, i) => {
+                if (barrel && !barrel.isDisposed()) {
+                    barrel.rotation.z += rotationSpeed * deltaTime;
+                }
+            });
+        }
+        
+        // Tesla - пульсация катушек
+        if (this.cannonAnimationElements.teslaCoils) {
+            this.cannonAnimationElements.teslaCoils.forEach((coil, i) => {
+                if (coil && !coil.isDisposed()) {
+                    const pulse = Math.sin(time * 3 + i * 0.5) * 0.1 + 1.0;
+                    coil.scaling.setAll(pulse);
+                    // Rotate coils
+                    coil.rotation.y += deltaTime * 2;
+                }
+            });
+        }
+        
+        // Plasma - пульсация ядра
+        if (this.cannonAnimationElements.plasmaCore) {
+            const core = this.cannonAnimationElements.plasmaCore;
+            if (!core.isDisposed()) {
+                const pulse = Math.sin(time * 4) * 0.15 + 1.0;
+                core.scaling.setAll(pulse);
+                // Rotate core
+                core.rotation.y += deltaTime * 3;
+                core.rotation.x += deltaTime * 2;
+                // Update emissive color
+                const mat = core.material as StandardMaterial;
+                if (mat && mat.emissiveColor) {
+                    const intensity = (Math.sin(time * 4) + 1) * 0.5;
+                    mat.emissiveColor = new Color3(0.5 * intensity, 0, 0.5 * intensity);
+                }
+            }
+        }
+        
+        // Laser - мерцание линзы
+        if (this.cannonAnimationElements.laserLens) {
+            const lens = this.cannonAnimationElements.laserLens;
+            if (!lens.isDisposed()) {
+                const flicker = Math.sin(time * 8) * 0.1 + 1.0;
+                lens.scaling.setAll(flicker);
+                // Update emissive color
+                const mat = lens.material as StandardMaterial;
+                if (mat && mat.emissiveColor) {
+                    const intensity = (Math.sin(time * 8) + 1) * 0.5;
+                    mat.emissiveColor = new Color3(0.3 * intensity, 0, 0);
+                }
+            }
+        }
+        
+        // Vortex - вращение колец
+        if (this.cannonAnimationElements.vortexRings) {
+            this.cannonAnimationElements.vortexRings.forEach((ring, i) => {
+                if (ring && !ring.isDisposed()) {
+                    const speed = (i + 1) * 2; // Different speeds for each ring
+                    ring.rotation.x += deltaTime * speed;
+                    ring.rotation.z += deltaTime * speed * 0.5;
+                    // Pulsing size
+                    const pulse = Math.sin(time * 2 + i * 0.8) * 0.05 + 1.0;
+                    ring.scaling.setAll(pulse);
+                }
+            });
+        }
+        
+        // Support - вращение колец и пульсация эмиттера
+        if (this.cannonAnimationElements.supportEmitter) {
+            const emitter = this.cannonAnimationElements.supportEmitter;
+            if (!emitter.isDisposed()) {
+                const pulse = Math.sin(time * 3) * 0.1 + 1.0;
+                emitter.scaling.setAll(pulse);
+                emitter.rotation.y += deltaTime * 2;
+                // Update emissive color
+                const mat = emitter.material as StandardMaterial;
+                if (mat && mat.emissiveColor) {
+                    const intensity = (Math.sin(time * 3) + 1) * 0.5;
+                    mat.emissiveColor = new Color3(0, 0.3 * intensity, 0.15 * intensity);
+                }
+            }
+        }
+        if (this.cannonAnimationElements.supportRings) {
+            this.cannonAnimationElements.supportRings.forEach((ring, i) => {
+                if (ring && !ring.isDisposed()) {
+                    ring.rotation.y += deltaTime * (3 + i * 1);
+                    const pulse = Math.sin(time * 4 + i * 0.5) * 0.08 + 1.0;
+                    ring.scaling.setAll(pulse);
+                }
+            });
+        }
+        
+        // Rocket - пульсация трубы
+        if (this.cannonAnimationElements.rocketTube) {
+            const tube = this.cannonAnimationElements.rocketTube;
+            if (!tube.isDisposed()) {
+                const pulse = Math.sin(time * 2) * 0.05 + 1.0;
+                tube.scaling.y = pulse;
+            }
+        }
+        
+        // Mortar - вибрация базы
+        if (this.cannonAnimationElements.mortarBase) {
+            const base = this.cannonAnimationElements.mortarBase;
+            if (!base.isDisposed()) {
+                const shake = Math.sin(time * 5) * 0.02;
+                base.rotation.z = shake;
+            }
+        }
+        
+        // Cluster - вращение трубок
+        if (this.cannonAnimationElements.clusterTubes) {
+            this.cannonAnimationElements.clusterTubes.forEach((tube, i) => {
+                if (tube && !tube.isDisposed()) {
+                    tube.rotation.z += deltaTime * (2 + i * 0.5);
+                }
+            });
+        }
+        
+        // Acid - пульсация резервуара
+        if (this.cannonAnimationElements.acidTank) {
+            const tank = this.cannonAnimationElements.acidTank;
+            if (!tank.isDisposed()) {
+                const pulse = Math.sin(time * 1.5) * 0.08 + 1.0;
+                tank.scaling.y = pulse;
+                // Slight rotation
+                tank.rotation.y += deltaTime * 0.5;
+            }
+        }
+        
+        // Freeze - вибрация рёбер охлаждения
+        if (this.cannonAnimationElements.freezeFins) {
+            this.cannonAnimationElements.freezeFins.forEach((fin, i) => {
+                if (fin && !fin.isDisposed()) {
+                    const shake = Math.sin(time * 4 + i * 0.5) * 0.03;
+                    fin.rotation.x = shake;
+                }
+            });
+        }
+        
+        // EMP - вращение и пульсация излучателя
+        if (this.cannonAnimationElements.empDish) {
+            const dish = this.cannonAnimationElements.empDish;
+            if (!dish.isDisposed()) {
+                dish.rotation.y += deltaTime * 1.5;
+                const pulse = Math.sin(time * 3) * 0.1 + 1.0;
+                dish.scaling.setAll(pulse);
+            }
+        }
+        
+        // Multishot - вращение стволов
+        if (this.cannonAnimationElements.multishotBarrels) {
+            this.cannonAnimationElements.multishotBarrels.forEach((barrel, i) => {
+                if (barrel && !barrel.isDisposed()) {
+                    barrel.rotation.z += deltaTime * (1 + i * 0.3);
+                }
+            });
+        }
+        
+        // Homing - пульсация системы наведения
+        if (this.cannonAnimationElements.homingGuidance) {
+            const guidance = this.cannonAnimationElements.homingGuidance;
+            if (!guidance.isDisposed()) {
+                const pulse = Math.sin(time * 4) * 0.1 + 1.0;
+                guidance.scaling.setAll(pulse);
+                guidance.rotation.y += deltaTime * 3;
+                // Update color
+                const mat = guidance.material as StandardMaterial;
+                if (mat && mat.diffuseColor) {
+                    const intensity = (Math.sin(time * 4) + 1) * 0.5;
+                    mat.diffuseColor = new Color3(0.2, 0.8 * intensity, 0.2 * intensity);
+                }
+            }
+        }
+        
+        // Piercing - вращение острия
+        if (this.cannonAnimationElements.piercingTip) {
+            const tip = this.cannonAnimationElements.piercingTip;
+            if (!tip.isDisposed()) {
+                tip.rotation.y += deltaTime * 5;
+            }
+        }
+        
+        // Shockwave - пульсация усилителя
+        if (this.cannonAnimationElements.shockwaveAmp) {
+            const amp = this.cannonAnimationElements.shockwaveAmp;
+            if (!amp.isDisposed()) {
+                const pulse = Math.sin(time * 2.5) * 0.12 + 1.0;
+                amp.scaling.setAll(pulse);
+                amp.rotation.y += deltaTime * 1;
+            }
+        }
+        
+        // Beam - вращение и пульсация фокусировщика
+        if (this.cannonAnimationElements.beamFocuser) {
+            const focuser = this.cannonAnimationElements.beamFocuser;
+            if (!focuser.isDisposed()) {
+                focuser.rotation.y += deltaTime * 4;
+                const pulse = Math.sin(time * 5) * 0.08 + 1.0;
+                focuser.scaling.setAll(pulse);
+            }
+        }
+        
+        // Standard, Rapid, Heavy, Sniper, Explosive, Flamethrower, Poison, Shotgun - subtle idle animations
+        if (this.barrel && !this.barrel.isDisposed()) {
+            const cannonId = this.cannonType.id;
+            if (["standard", "rapid", "heavy", "sniper", "explosive", "flamethrower", "poison", "shotgun"].includes(cannonId)) {
+                // Subtle breathing/pulsing effect
+                const breath = Math.sin(time * 0.5) * 0.01 + 1.0;
+                this.barrel.scaling.y = breath;
+            }
+        }
+    }
+    
+    // ============ CHASSIS ANIMATIONS ============
+    private updateChassisAnimations(): void {
+        if (!this.chassisAnimationElements || !this.chassis || this.chassis.isDisposed()) return;
+        
+        const deltaTime = this.scene.getEngine().getDeltaTime() / 1000;
+        if (!this.chassisAnimationElements.animationTime) this.chassisAnimationElements.animationTime = 0;
+        this.chassisAnimationElements.animationTime += deltaTime;
+        
+        const time = this.chassisAnimationElements.animationTime;
+        
+        // Stealth - пульсация генератора невидимости
+        if (this.chassisAnimationElements.stealthMesh) {
+            const gen = this.chassisAnimationElements.stealthMesh;
+            if (!gen.isDisposed()) {
+                const pulse = Math.sin(time * 2) * 0.1 + 1.0;
+                gen.scaling.setAll(pulse);
+                gen.rotation.y += deltaTime * 2;
+                const mat = gen.material as StandardMaterial;
+                if (mat && mat.emissiveColor) {
+                    const intensity = (Math.sin(time * 2) + 1) * 0.5;
+                    mat.emissiveColor = new Color3(0.1 * intensity, 0.1 * intensity, 0.1 * intensity);
+                }
+            }
+        }
+        
+        // Hover - пульсация реактивных двигателей
+        if (this.chassisAnimationElements.hoverThrusters) {
+            this.chassisAnimationElements.hoverThrusters.forEach((thruster, i) => {
+                if (thruster && !thruster.isDisposed()) {
+                    const pulse = Math.sin(time * 3 + i * 0.5) * 0.15 + 1.0;
+                    thruster.scaling.setAll(pulse);
+                    const mat = thruster.material as StandardMaterial;
+                    if (mat && mat.emissiveColor) {
+                        const intensity = (Math.sin(time * 3 + i * 0.5) + 1) * 0.5;
+                        mat.emissiveColor = new Color3(0, 0.3 * intensity, 0.6 * intensity);
+                    }
+                }
+            });
+        }
+        
+        // Shield - пульсация генератора щита
+        if (this.chassisAnimationElements.shieldMesh) {
+            const gen = this.chassisAnimationElements.shieldMesh;
+            if (!gen.isDisposed()) {
+                const pulse = Math.sin(time * 2.5) * 0.12 + 1.0;
+                gen.scaling.setAll(pulse);
+                gen.rotation.y += deltaTime * 3;
+                gen.rotation.x += deltaTime * 2;
+                const mat = gen.material as StandardMaterial;
+                if (mat && mat.emissiveColor) {
+                    const intensity = (Math.sin(time * 2.5) + 1) * 0.5;
+                    mat.emissiveColor = new Color3(0, 0.5 * intensity, 0.25 * intensity);
+                }
+            }
+        }
+        
+        // Drone - пульсация платформ
+        if (this.chassisAnimationElements.droneMeshes) {
+            this.chassisAnimationElements.droneMeshes.forEach((platform, i) => {
+                if (platform && !platform.isDisposed()) {
+                    const pulse = Math.sin(time * 2 + i * 0.8) * 0.1 + 1.0;
+                    platform.scaling.setAll(pulse);
+                    platform.rotation.y += deltaTime * (1 + i * 0.5);
+                    const mat = platform.material as StandardMaterial;
+                    if (mat && mat.emissiveColor) {
+                        const intensity = (Math.sin(time * 2 + i * 0.8) + 1) * 0.5;
+                        mat.emissiveColor = new Color3(0.3 * intensity, 0, 0.6 * intensity);
+                    }
+                }
+            });
+        }
+        
+        // Command - вращение ауры
+        if (this.chassisAnimationElements.commandAura) {
+            const aura = this.chassisAnimationElements.commandAura;
+            if (!aura.isDisposed()) {
+                aura.rotation.y += deltaTime * 1.5;
+                const pulse = Math.sin(time * 1.5) * 0.08 + 1.0;
+                aura.scaling.setAll(pulse);
+                const mat = aura.material as StandardMaterial;
+                if (mat && mat.emissiveColor) {
+                    const intensity = (Math.sin(time * 1.5) + 1) * 0.5;
+                    mat.emissiveColor = new Color3(0.5 * intensity, 0.42 * intensity, 0);
+                }
+            }
+        }
+    }
+    
+    // ============ CHASSIS SPECIAL ABILITIES ============
+    private activateChassisAbility(): void {
+        if (!this.isAlive) return;
+        
+        const ability = this.chassisType.specialAbility;
+        if (!ability) return;
+        
+        const now = Date.now();
+        
+        switch (ability) {
+            case "stealth":
+                if (this.stealthCooldown > now) {
+                    if (this.chatSystem) {
+                        const remaining = ((this.stealthCooldown - now) / 1000).toFixed(1);
+                        this.chatSystem.warning(`Stealth cooldown: ${remaining}s`);
+                    }
+                    return;
+                }
+                this.activateStealth();
+                break;
+                
+            case "shield":
+                if (this.shieldCooldown > now) {
+                    if (this.chatSystem) {
+                        const remaining = ((this.shieldCooldown - now) / 1000).toFixed(1);
+                        this.chatSystem.warning(`Shield cooldown: ${remaining}s`);
+                    }
+                    return;
+                }
+                this.activateShield();
+                break;
+                
+            case "drone":
+                if (this.droneCooldown > now) {
+                    if (this.chatSystem) {
+                        const remaining = ((this.droneCooldown - now) / 1000).toFixed(1);
+                        this.chatSystem.warning(`Drone cooldown: ${remaining}s`);
+                    }
+                    return;
+                }
+                this.activateDrones();
+                break;
+                
+            case "command":
+                if (this.commandCooldown > now) {
+                    if (this.chatSystem) {
+                        const remaining = ((this.commandCooldown - now) / 1000).toFixed(1);
+                        this.chatSystem.warning(`Command cooldown: ${remaining}s`);
+                    }
+                    return;
+                }
+                this.activateCommandAura();
+                break;
+                
+            case "racer":
+                this.activateRacerBoost();
+                break;
+                
+            case "siege":
+                this.activateSiegeRegen();
+                break;
+        }
+    }
+    
+    private activateStealth(): void {
+        this.chassisAnimationElements.stealthActive = true;
+        this.stealthCooldown = Date.now() + 20000;
+        if (this.chassis && !this.chassis.isDisposed()) {
+            const mat = this.chassis.material as StandardMaterial;
+            if (mat) mat.alpha = 0.3;
+        }
+        if (this.hud) this.hud.addActiveEffect("Невидимость", "👁️", "#333", 5000);
+        if (this.chatSystem) this.chatSystem.success("👁️ Невидимость активирована!");
+        setTimeout(() => {
+            this.chassisAnimationElements.stealthActive = false;
+            if (this.chassis && !this.chassis.isDisposed()) {
+                const mat = this.chassis.material as StandardMaterial;
+                if (mat) mat.alpha = 1.0;
+            }
+            if (this.hud) this.hud.removeActiveEffect("Невидимость");
+        }, 5000);
+    }
+    
+    private activateShield(): void {
+        this.chassisAnimationElements.shieldActive = true;
+        this.shieldCooldown = Date.now() + 30000;
+        if (this.chassis && !this.chassis.isDisposed() && this.effectsManager) {
+            const shield = MeshBuilder.CreateSphere("energyShield", {
+                diameter: this.chassisType.width * 1.5,
+                segments: 16
+            }, this.scene);
+            shield.position = this.chassis.absolutePosition.clone();
+            shield.parent = this.chassis;
+            const shieldMat = new StandardMaterial("energyShieldMat", this.scene);
+            shieldMat.diffuseColor = new Color3(0, 1, 0.5);
+            shieldMat.emissiveColor = new Color3(0, 0.5, 0.25);
+            shieldMat.disableLighting = true;
+            shield.material = shieldMat;
+            let frame = 0;
+            const animate = () => {
+                if (!this.chassisAnimationElements.shieldActive || shield.isDisposed()) {
+                    shield.dispose();
+                    return;
+                }
+                frame++;
+                shield.scaling.setAll(Math.sin(frame * 0.1) * 0.05 + 1.0);
+                shield.rotation.y += 0.02;
+                setTimeout(animate, 50);
+            };
+            animate();
+            (this.chassisAnimationElements as any).shieldVisual = shield;
+        }
+        if (this.hud) this.hud.addActiveEffect("Энергощит", "🛡️", "#0f5", 8000);
+        if (this.chatSystem) this.chatSystem.success("🛡️ Энергощит активирован!");
+        setTimeout(() => {
+            this.chassisAnimationElements.shieldActive = false;
+            if (this.hud) this.hud.removeActiveEffect("Энергощит");
+        }, 8000);
+    }
+    
+    private activateDrones(): void {
+        this.droneCooldown = Date.now() + 25000;
+        if (this.chatSystem) this.chatSystem.success("🚁 Боевые дроны выпущены!");
+        if (this.hud) this.hud.addActiveEffect("Дроны", "🚁", "#a0f", 15000);
+        if (this.chassis && !this.chassis.isDisposed()) {
+            for (let i = 0; i < 2; i++) {
+                const drone = MeshBuilder.CreateBox(`drone${i}`, { width: 0.3, height: 0.2, depth: 0.3 }, this.scene);
+                drone.position = this.chassis.absolutePosition.clone();
+                drone.position.y += 2;
+                drone.position.x += (i === 0 ? -1 : 1) * 1.5;
+                const droneMat = new StandardMaterial(`droneMat${i}`, this.scene);
+                droneMat.diffuseColor = new Color3(0.5, 0, 1);
+                droneMat.emissiveColor = new Color3(0.3, 0, 0.6);
+                droneMat.disableLighting = true;
+                drone.material = droneMat;
+                let t = 0;
+                const animate = () => {
+                    if (t > 15 || drone.isDisposed()) {
+                        drone.dispose();
+                        return;
+                    }
+                    t += 0.1;
+                    drone.position.y = this.chassis.absolutePosition.y + 2 + Math.sin(t) * 0.3;
+                    drone.rotation.y += 0.1;
+                    setTimeout(animate, 50);
+                };
+                animate();
+            }
+        }
+        setTimeout(() => { if (this.hud) this.hud.removeActiveEffect("Дроны"); }, 15000);
+    }
+    
+    private activateCommandAura(): void {
+        this.commandCooldown = Date.now() + 20000;
+        const originalDamage = this.damage;
+        const originalSpeed = this.moveSpeed;
+        this.damage = Math.round(originalDamage * 1.2);
+        this.moveSpeed = originalSpeed * 1.15;
+        if (this.hud) this.hud.addActiveEffect("Командная аура", "⭐", "#ffd700", 10000);
+        if (this.chatSystem) this.chatSystem.success("⭐ Командная аура активирована! +20% урон, +15% скорость");
+        setTimeout(() => {
+            this.damage = originalDamage;
+            this.moveSpeed = originalSpeed;
+            if (this.hud) this.hud.removeActiveEffect("Командная аура");
+        }, 10000);
+    }
+    
+    private activateRacerBoost(): void {
+        const originalSpeed = this.moveSpeed;
+        const originalAccel = this.acceleration;
+        this.moveSpeed = originalSpeed * 1.5;
+        this.acceleration = originalAccel * 1.3;
+        if (this.hud) this.hud.addActiveEffect("Ускорение", "⚡", "#f00", 3000);
+        if (this.chatSystem) this.chatSystem.success("⚡ Ускорение активировано!");
+        setTimeout(() => {
+            this.moveSpeed = originalSpeed;
+            this.acceleration = originalAccel;
+            if (this.hud) this.hud.removeActiveEffect("Ускорение");
+        }, 3000);
+    }
+    
+    private activateSiegeRegen(): void {
+        if (this.currentHealth >= this.maxHealth) return;
+        const regenAmount = 30;
+        this.currentHealth = Math.min(this.currentHealth + regenAmount, this.maxHealth);
+        if (this.hud) {
+            this.hud.setHealth(this.currentHealth, this.maxHealth);
+            this.hud.addActiveEffect("Регенерация", "💚", "#0f0", 2000);
+        }
+        if (this.chatSystem) this.chatSystem.success(`💚 Восстановлено ${regenAmount} HP`);
+        setTimeout(() => { if (this.hud) this.hud.removeActiveEffect("Регенерация"); }, 2000);
+    }
+    
     private updateShellCasings(): void {
         for (let i = this.shellCasings.length - 1; i >= 0; i--) {
             const casing = this.shellCasings[i];

@@ -12,6 +12,7 @@ import {
     PhysicsAggregate,
     PhysicsShapeType
 } from "@babylonjs/core";
+import { TerrainGenerator, NoiseGenerator } from "./noiseGenerator";
 
 // Seeded random for consistent generation
 class SeededRandom {
@@ -44,6 +45,7 @@ interface RoadNetworkConfig {
     chunkSize: number;
     highwaySpacing: number;  // Distance between main highways
     streetSpacing: number;   // Distance between streets
+    terrainGenerator?: TerrainGenerator | null; // Optional terrain generator for following terrain
 }
 
 export class RoadNetwork {
@@ -52,6 +54,7 @@ export class RoadNetwork {
     private roads: Map<string, RoadSegment[]> = new Map();
     private intersections: Map<string, Intersection[]> = new Map();
     private materials: Map<string, StandardMaterial> = new Map();
+    private noise: NoiseGenerator;
     
     constructor(scene: Scene, config?: Partial<RoadNetworkConfig>) {
         this.scene = scene;
@@ -60,9 +63,12 @@ export class RoadNetwork {
             chunkSize: 80,
             highwaySpacing: 200,
             streetSpacing: 40,
+            terrainGenerator: null,
             ...config
         };
         this.createMaterials();
+        // Create noise generator for curved road generation
+        this.noise = new NoiseGenerator(this.config.worldSeed + 54321);
     }
     
     private createMaterials(): void {
@@ -104,6 +110,138 @@ export class RoadNetwork {
         this.materials.set("markingYellow", yellowMarkingMat);
     }
     
+    // Generate curved road path following terrain
+    private generateCurvedRoad(
+        start: Vector3, 
+        end: Vector3, 
+        biome: string, 
+        curvature: number = 0.3
+    ): Vector3[] {
+        const points: Vector3[] = [start];
+        const segments = 8; // Number of intermediate points
+        
+        // Calculate base direction
+        const direction = end.subtract(start);
+        const length = direction.length();
+        const normalizedDir = direction.normalize();
+        
+        // Add curvature using noise for organic feel
+        const midPoint = start.add(direction.scale(0.5));
+        const perpDir = new Vector3(-normalizedDir.z, 0, normalizedDir.x);
+        
+        for (let i = 1; i < segments; i++) {
+            const t = i / segments;
+            const basePoint = start.add(direction.scale(t));
+            
+            // Add perpendicular offset using noise for organic curves
+            const noiseScale = 0.02;
+            const offsetNoise = this.noise.fbm(
+                basePoint.x * noiseScale, 
+                basePoint.z * noiseScale, 
+                2, 2, 0.5
+            );
+            
+            // Apply curvature with noise variation
+            const offsetAmount = (Math.sin(t * Math.PI) * curvature + offsetNoise * 0.2) * length * 0.15;
+            const offset = perpDir.scale(offsetAmount);
+            
+            let curvedPoint = basePoint.add(offset);
+            
+            // Adjust height based on terrain if terrain generator is available
+            if (this.config.terrainGenerator) {
+                const terrainHeight = this.config.terrainGenerator.getHeight(curvedPoint.x, curvedPoint.z, biome);
+                curvedPoint.y = terrainHeight + 0.02;
+            } else {
+                curvedPoint.y = 0.02;
+            }
+            
+            points.push(curvedPoint);
+        }
+        
+        points.push(end);
+        return points;
+    }
+    
+    // Generate road path that follows terrain (avoids steep slopes, follows valleys)
+    private generateTerrainFollowingRoad(
+        start: Vector3,
+        end: Vector3,
+        biome: string,
+        stepSize: number = 5
+    ): Vector3[] {
+        if (!this.config.terrainGenerator) {
+            // Fallback to curved road if no terrain generator
+            return this.generateCurvedRoad(start, end, biome);
+        }
+        
+        const points: Vector3[] = [start];
+        const direction = end.subtract(start);
+        const totalLength = direction.length();
+        const normalizedDir = direction.normalize();
+        const perpDir = new Vector3(-normalizedDir.z, 0, normalizedDir.x);
+        
+        const steps = Math.ceil(totalLength / stepSize);
+        let currentPos = start.clone();
+        
+        for (let i = 0; i < steps; i++) {
+            const t = (i + 1) / steps;
+            const targetPos = start.add(direction.scale(t));
+            
+            // Sample terrain in front and to the sides to find best path
+            const sampleDist = stepSize * 1.5;
+            const samples: Array<{ pos: Vector3, cost: number }> = [];
+            
+            // Sample center and sides
+            for (let sideOffset = -1; sideOffset <= 1; sideOffset++) {
+                const samplePos = targetPos.add(perpDir.scale(sideOffset * stepSize * 0.5));
+                const height = this.config.terrainGenerator!.getHeight(samplePos.x, samplePos.z, biome);
+                
+                // Calculate slope cost (steep slopes are expensive)
+                const currentHeight = this.config.terrainGenerator!.getHeight(currentPos.x, currentPos.z, biome);
+                const heightDiff = Math.abs(height - currentHeight);
+                const distance = Vector3.Distance(currentPos, samplePos);
+                const slope = distance > 0 ? heightDiff / distance : 0;
+                
+                // Cost: prefer lower slopes and lower elevations (valleys)
+                const slopeCost = Math.pow(slope, 2) * 100; // Penalize steep slopes
+                const heightCost = height * 0.1; // Slightly prefer lower elevations
+                const deviationCost = Math.abs(sideOffset) * 2; // Prefer straight paths
+                
+                samples.push({
+                    pos: new Vector3(samplePos.x, height + 0.02, samplePos.z),
+                    cost: slopeCost + heightCost + deviationCost
+                });
+            }
+            
+            // Choose best sample (lowest cost)
+            samples.sort((a, b) => a.cost - b.cost);
+            currentPos = samples[0].pos;
+            points.push(currentPos.clone());
+        }
+        
+        // Ensure we end at the target
+        const finalHeight = this.config.terrainGenerator.getHeight(end.x, end.z, biome);
+        points[points.length - 1] = new Vector3(end.x, finalHeight + 0.02, end.z);
+        
+        return points;
+    }
+    
+    // Convert point list to road segments
+    private pointsToSegments(points: Vector3[], width: number, type: "highway" | "street" | "path"): RoadSegment[] {
+        const segments: RoadSegment[] = [];
+        
+        for (let i = 0; i < points.length - 1; i++) {
+            segments.push({
+                start: points[i],
+                end: points[i + 1],
+                width: width,
+                type: type
+            });
+        }
+        
+        return segments;
+    }
+    
     // Generate roads for a chunk
     generateRoadsForChunk(chunkX: number, chunkZ: number, biome: string): RoadSegment[] {
         const key = `${chunkX}_${chunkZ}`;
@@ -124,82 +262,94 @@ export class RoadNetwork {
         const hasHorizontalHighway = Math.abs(worldZ % this.config.highwaySpacing) < size;
         const hasVerticalHighway = Math.abs(worldX % this.config.highwaySpacing) < size;
         
-        // Generate highways
+        // Generate highways with curved/terrain-following paths
         if (hasHorizontalHighway && biome !== "wasteland" && biome !== "park") {
-            roads.push({
-                start: new Vector3(worldX, 0.02, worldZ + size / 2),
-                end: new Vector3(worldX + size, 0.02, worldZ + size / 2),
-                width: 12,
-                type: "highway"
-            });
+            const start = new Vector3(worldX, 0.02, worldZ + size / 2);
+            const end = new Vector3(worldX + size, 0.02, worldZ + size / 2);
+            
+            // Highways follow terrain but with less curvature (straighter)
+            const highwayPoints = this.generateTerrainFollowingRoad(start, end, biome, 8);
+            roads.push(...this.pointsToSegments(highwayPoints, 12, "highway"));
         }
         
         if (hasVerticalHighway && biome !== "wasteland" && biome !== "park") {
-            roads.push({
-                start: new Vector3(worldX + size / 2, 0.02, worldZ),
-                end: new Vector3(worldX + size / 2, 0.02, worldZ + size),
-                width: 12,
-                type: "highway"
-            });
+            const start = new Vector3(worldX + size / 2, 0.02, worldZ);
+            const end = new Vector3(worldX + size / 2, 0.02, worldZ + size);
+            
+            // Highways follow terrain but with less curvature (straighter)
+            const highwayPoints = this.generateTerrainFollowingRoad(start, end, biome, 8);
+            roads.push(...this.pointsToSegments(highwayPoints, 12, "highway"));
         }
         
-        // Generate streets based on biome
+        // Generate streets based on biome with realistic hierarchy
         if (biome === "city" || biome === "industrial" || biome === "residential") {
-            // Grid-based streets
-            const numStreets = random.int(1, 3);
+            // Realistic street density - more streets in city centers
+            const numStreets = biome === "city" ? random.int(2, 4) : random.int(1, 3);
+            
             for (let i = 0; i < numStreets; i++) {
                 if (random.chance(0.5)) {
-                    // Horizontal street
+                    // Horizontal street with some curvature
                     const z = worldZ + random.range(10, size - 10);
-                    roads.push({
-                        start: new Vector3(worldX, 0.02, z),
-                        end: new Vector3(worldX + size, 0.02, z),
-                        width: 8,
-                        type: "street"
-                    });
+                    const start = new Vector3(worldX, 0.02, z);
+                    const end = new Vector3(worldX + size, 0.02, z);
+                    
+                    // Streets have moderate curvature
+                    const streetPoints = this.generateCurvedRoad(start, end, biome, 0.2);
+                    roads.push(...this.pointsToSegments(streetPoints, 8, "street"));
                 } else {
-                    // Vertical street
+                    // Vertical street with some curvature
                     const x = worldX + random.range(10, size - 10);
-                    roads.push({
-                        start: new Vector3(x, 0.02, worldZ),
-                        end: new Vector3(x, 0.02, worldZ + size),
-                        width: 8,
-                        type: "street"
-                    });
+                    const start = new Vector3(x, 0.02, worldZ);
+                    const end = new Vector3(x, 0.02, worldZ + size);
+                    
+                    // Streets have moderate curvature
+                    const streetPoints = this.generateCurvedRoad(start, end, biome, 0.2);
+                    roads.push(...this.pointsToSegments(streetPoints, 8, "street"));
                 }
             }
         } else if (biome === "park" || biome === "desert") {
-            // Organic paths
+            // Organic paths with more curvature
             if (random.chance(0.4)) {
                 const startX = worldX + random.range(0, size);
                 const startZ = worldZ + random.range(0, size);
                 const endX = worldX + random.range(0, size);
                 const endZ = worldZ + random.range(0, size);
                 
-                roads.push({
-                    start: new Vector3(startX, 0.02, startZ),
-                    end: new Vector3(endX, 0.02, endZ),
-                    width: 4,
-                    type: "path"
-                });
+                const start = new Vector3(startX, 0.02, startZ);
+                const end = new Vector3(endX, 0.02, endZ);
+                
+                // Paths follow terrain and have high curvature
+                const pathPoints = this.generateTerrainFollowingRoad(start, end, biome, 4);
+                roads.push(...this.pointsToSegments(pathPoints, 4, "path"));
             }
         } else if (biome === "military") {
-            // Military base has organized roads
+            // Military base has organized roads with slight curves
             if (random.chance(0.6)) {
-                roads.push({
-                    start: new Vector3(worldX, 0.02, worldZ + size / 2),
-                    end: new Vector3(worldX + size, 0.02, worldZ + size / 2),
-                    width: 10,
-                    type: "street"
-                });
+                const start = new Vector3(worldX, 0.02, worldZ + size / 2);
+                const end = new Vector3(worldX + size, 0.02, worldZ + size / 2);
+                const roadPoints = this.generateCurvedRoad(start, end, biome, 0.15);
+                roads.push(...this.pointsToSegments(roadPoints, 10, "street"));
             }
             if (random.chance(0.6)) {
-                roads.push({
-                    start: new Vector3(worldX + size / 2, 0.02, worldZ),
-                    end: new Vector3(worldX + size / 2, 0.02, worldZ + size),
-                    width: 10,
-                    type: "street"
-                });
+                const start = new Vector3(worldX + size / 2, 0.02, worldZ);
+                const end = new Vector3(worldX + size / 2, 0.02, worldZ + size);
+                const roadPoints = this.generateCurvedRoad(start, end, biome, 0.15);
+                roads.push(...this.pointsToSegments(roadPoints, 10, "street"));
+            }
+        } else if (biome === "wasteland") {
+            // Wasteland has rare, winding paths
+            if (random.chance(0.2)) {
+                const startX = worldX + random.range(5, size - 5);
+                const startZ = worldZ + random.range(5, size - 5);
+                const endX = worldX + random.range(5, size - 5);
+                const endZ = worldZ + random.range(5, size - 5);
+                
+                const start = new Vector3(startX, 0.02, startZ);
+                const end = new Vector3(endX, 0.02, endZ);
+                
+                // Winding paths following terrain
+                const pathPoints = this.generateTerrainFollowingRoad(start, end, biome, 3);
+                roads.push(...this.pointsToSegments(pathPoints, 3, "path"));
             }
         }
         

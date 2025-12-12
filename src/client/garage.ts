@@ -1,6 +1,17 @@
 // Garage System - HTML/CSS based UI for reliability
 import { CurrencyManager } from "./currencyManager";
-import { Scene } from "@babylonjs/core";
+import { 
+    Scene, 
+    Engine, 
+    Mesh, 
+    ArcRotateCamera, 
+    HemisphericLight, 
+    MeshBuilder, 
+    StandardMaterial, 
+    Color3,
+    Color4,
+    Vector3 
+} from "@babylonjs/core";
 import { CHASSIS_TYPES, CANNON_TYPES, getChassisById, getCannonById } from "./tankTypes";
 
 // ============ INTERFACES ============
@@ -46,9 +57,18 @@ export class Garage {
     private _experienceSystem: any = null;
     private _playerProgression: any = null;
     private soundManager: any = null;
+    private onCloseCallback: (() => void) | null = null;
     
     // HTML Elements
     private overlay: HTMLDivElement | null = null;
+    
+    // 3D Preview
+    private previewEngine: Engine | null = null;
+    private previewScene: Scene | null = null;
+    private previewCanvas: HTMLCanvasElement | null = null;
+    private previewTank: { chassis: Mesh, turret: Mesh, barrel: Mesh } | null = null;
+    private previewCamera: ArcRotateCamera | null = null;
+    private previewRenderLoop: number | null = null;
     
     // State
     private currentCategory: CategoryType = "chassis";
@@ -65,20 +85,44 @@ export class Garage {
     
     // ============ DATA ============
     private chassisParts: TankPart[] = CHASSIS_TYPES.map(chassis => {
-        const costs: Record<string, number> = { light: 400, medium: 0, heavy: 600, scout: 500, assault: 800 };
+        // Pricing: original 5 + new 10
+        const costs: Record<string, number> = {
+            // Original
+            light: 400, medium: 0, heavy: 600, scout: 500, assault: 800,
+            // New chassis types
+            stealth: 800, hover: 750, siege: 1200, racer: 650, amphibious: 700,
+            shield: 900, drone: 950, artillery: 1100, destroyer: 850, command: 1000
+        };
+        const abilityText = chassis.specialAbility ? ` [Ability: ${chassis.specialAbility}]` : "";
         return {
-            id: chassis.id, name: chassis.name, description: chassis.description,
-            cost: costs[chassis.id] || 0, unlocked: chassis.id === "medium",
+            id: chassis.id, name: chassis.name, description: chassis.description + abilityText,
+            cost: costs[chassis.id] || 500, unlocked: chassis.id === "medium",
             type: "chassis" as const,
             stats: { health: chassis.maxHealth, speed: chassis.moveSpeed, armor: chassis.maxHealth / 50 }
         };
     });
     
     private cannonParts: TankPart[] = CANNON_TYPES.map(cannon => {
-        const costs: Record<string, number> = { standard: 0, rapid: 450, heavy: 600, sniper: 800, gatling: 550 };
+        // Pricing: original 5 + new 20
+        const costs: Record<string, number> = {
+            // Original
+            standard: 0, rapid: 450, heavy: 600, sniper: 800, gatling: 550,
+            // Energy weapons (expensive)
+            plasma: 1200, laser: 1100, tesla: 1300, railgun: 2000,
+            // Explosive weapons (medium-high)
+            rocket: 1000, mortar: 1400, cluster: 950, explosive: 1050,
+            // Special effect (medium)
+            flamethrower: 700, acid: 750, freeze: 800, poison: 720, emp: 1500,
+            // Multi-shot (medium)
+            shotgun: 600, multishot: 650,
+            // Advanced (expensive)
+            homing: 1600, piercing: 1250, shockwave: 1150, beam: 1180, vortex: 1350,
+            // Support
+            support: 1100
+        };
         return {
             id: cannon.id, name: cannon.name, description: cannon.description,
-            cost: costs[cannon.id] || 0, unlocked: cannon.id === "standard",
+            cost: costs[cannon.id] || 500, unlocked: cannon.id === "standard",
             type: "barrel" as const,
             stats: { damage: cannon.damage, reload: cannon.cooldown }
         };
@@ -135,6 +179,7 @@ export class Garage {
                 align-items: center;
                 font-family: 'Consolas', 'Monaco', monospace;
                 animation: fadeIn 0.3s ease-out;
+                cursor: default;
             }
             @keyframes fadeIn {
                 from { opacity: 0; }
@@ -150,6 +195,7 @@ export class Garage {
                 max-width: 900px;
                 max-height: 580px;
                 background: rgba(5, 15, 5, 0.98);
+                cursor: default;
                 border: 2px solid #0f0;
                 display: flex;
                 flex-direction: column;
@@ -431,6 +477,7 @@ export class Garage {
     setExperienceSystem(experienceSystem: any): void { this._experienceSystem = experienceSystem; }
     setSoundManager(soundManager: any): void { this.soundManager = soundManager; }
     setPlayerProgression(playerProgression: any): void { this._playerProgression = playerProgression; }
+    setOnCloseCallback(callback: () => void): void { this.onCloseCallback = callback; }
     setGuiTexture(_texture: any): void { /* Not needed for HTML version */ }
     getGUI(): any { return null; }
     
@@ -475,11 +522,19 @@ export class Garage {
         if (this.isOpen) return;
         console.log("[Garage] Opening HTML garage...");
         
+        // Show cursor and unlock pointer lock
+        this.showCursor();
+        
         this.isOpen = true;
         this.currentChassisId = localStorage.getItem("selectedChassis") || "medium";
         this.currentCannonId = localStorage.getItem("selectedCannon") || "standard";
         
         this.createUI();
+        
+        // Initialize 3D preview after UI is created
+        setTimeout(() => {
+            this.init3DPreview();
+        }, 100);
         
         if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
         console.log("[Garage] Opened");
@@ -490,13 +545,244 @@ export class Garage {
         console.log("[Garage] Closing...");
         
         this.isOpen = false;
+        
+        // Cleanup 3D preview
+        this.cleanup3DPreview();
+        
         if (this.overlay) {
             this.overlay.remove();
             this.overlay = null;
         }
         
+        // Hide cursor (will be shown again when user clicks on canvas)
+        this.hideCursor();
+        
         if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
+        
+        // Call close callback if set
+        if (this.onCloseCallback) {
+            this.onCloseCallback();
+        }
+        
         console.log("[Garage] Closed");
+    }
+    
+    // ============ 3D PREVIEW ============
+    private init3DPreview(): void {
+        const previewContainer = this.overlay?.querySelector('.garage-preview');
+        if (!previewContainer) {
+            console.warn("[Garage] Preview container not found");
+            return;
+        }
+        
+        // Create canvas
+        this.previewCanvas = document.createElement('canvas');
+        this.previewCanvas.className = 'garage-preview-canvas';
+        this.previewCanvas.width = 400;
+        this.previewCanvas.height = 300;
+        previewContainer.appendChild(this.previewCanvas);
+        
+        // Create engine
+        this.previewEngine = new Engine(this.previewCanvas, true, {
+            preserveDrawingBuffer: true,
+            stencil: true,
+            antialias: true
+        });
+        
+        // Create scene
+        this.previewScene = new Scene(this.previewEngine);
+        this.previewScene.clearColor = new Color4(0.05, 0.05, 0.08, 1.0);
+        
+        // Camera - rotate around tank
+        this.previewCamera = new ArcRotateCamera(
+            "previewCamera",
+            Math.PI / 3,
+            Math.PI / 3,
+            8,
+            Vector3.Zero(),
+            this.previewScene
+        );
+        // Don't attach controls - camera will rotate automatically
+        // this.previewCamera.attachControl(this.previewCanvas, false);
+        this.previewCamera.lowerRadiusLimit = 5;
+        this.previewCamera.upperRadiusLimit = 12;
+        
+        // Light
+        const light = new HemisphericLight("previewLight", new Vector3(0, 1, 0), this.previewScene);
+        light.intensity = 0.8;
+        light.diffuse = new Color3(0.9, 0.9, 0.85);
+        light.groundColor = new Color3(0.2, 0.2, 0.25);
+        
+        // Simple ground plane
+        const ground = MeshBuilder.CreateGround("previewGround", { width: 10, height: 10 }, this.previewScene);
+        const groundMat = new StandardMaterial("previewGroundMat", this.previewScene);
+        groundMat.diffuseColor = new Color3(0.2, 0.2, 0.25);
+        groundMat.specularColor = Color3.Black();
+        ground.material = groundMat;
+        ground.position.y = -2;
+        
+        // Initial render
+        this.renderTankPreview(this.currentChassisId, this.currentCannonId);
+        
+        // Start render loop with limited FPS (30 FPS)
+        let lastTime = Date.now();
+        const targetFPS = 30;
+        const frameTime = 1000 / targetFPS;
+        
+        this.previewRenderLoop = window.setInterval(() => {
+            const now = Date.now();
+            if (now - lastTime >= frameTime) {
+                if (this.previewScene && this.previewEngine) {
+                    this.previewScene.render();
+                }
+                lastTime = now;
+            }
+        }, frameTime);
+        
+        console.log("[Garage] 3D preview initialized");
+    }
+    
+    private renderTankPreview(chassisId: string, cannonId: string): void {
+        if (!this.previewScene) {
+            console.warn("[Garage] Preview scene not initialized");
+            return;
+        }
+        
+        // Cleanup old tank
+        if (this.previewTank) {
+            this.previewTank.chassis.dispose();
+            this.previewTank.turret.dispose();
+            this.previewTank.barrel.dispose();
+            this.previewTank = null;
+        }
+        
+        const chassisType = getChassisById(chassisId);
+        const cannonType = getCannonById(cannonId);
+        
+        // Create simplified chassis
+        const w = chassisType.width;
+        const h = chassisType.height;
+        const d = chassisType.depth;
+        const chassisColor = Color3.FromHexString(chassisType.color);
+        
+        const chassis = MeshBuilder.CreateBox("previewChassis", { width: w, height: h, depth: d }, this.previewScene);
+        chassis.position = new Vector3(0, 0, 0);
+        const chassisMat = new StandardMaterial("previewChassisMat", this.previewScene);
+        chassisMat.diffuseColor = chassisColor;
+        chassisMat.specularColor = Color3.Black();
+        chassis.material = chassisMat;
+        
+        // Create turret
+        const turretWidth = w * 0.65;
+        const turretHeight = h * 0.75;
+        const turretDepth = d * 0.6;
+        
+        const turret = MeshBuilder.CreateBox("previewTurret", { 
+            width: turretWidth, 
+            height: turretHeight, 
+            depth: turretDepth 
+        }, this.previewScene);
+        turret.position.y = h / 2 + turretHeight / 2;
+        turret.parent = chassis;
+        const turretMat = new StandardMaterial("previewTurretMat", this.previewScene);
+        turretMat.diffuseColor = chassisColor.scale(0.8);
+        turretMat.specularColor = Color3.Black();
+        turret.material = turretMat;
+        
+        // Create barrel
+        const barrelWidth = cannonType.barrelWidth;
+        const barrelLength = cannonType.barrelLength;
+        const baseBarrelZ = turretDepth / 2 + barrelLength / 2;
+        
+        const barrel = MeshBuilder.CreateBox("previewBarrel", { 
+            width: barrelWidth, 
+            height: barrelWidth, 
+            depth: barrelLength 
+        }, this.previewScene);
+        barrel.position.z = baseBarrelZ;
+        barrel.position.y = 0;
+        barrel.parent = turret;
+        const barrelColor = Color3.FromHexString(cannonType.color);
+        const barrelMat = new StandardMaterial("previewBarrelMat", this.previewScene);
+        barrelMat.diffuseColor = barrelColor;
+        barrelMat.specularColor = Color3.Black();
+        barrel.material = barrelMat;
+        
+        this.previewTank = { chassis, turret, barrel };
+        
+        // Animate camera rotation
+        if (this.previewCamera) {
+            let angle = 0;
+            const animateCamera = () => {
+                if (!this.previewCamera || !this.isOpen) return;
+                angle += 0.005;
+                this.previewCamera.alpha = Math.PI / 3 + Math.sin(angle) * 0.3;
+                this.previewCamera.beta = Math.PI / 3 + Math.cos(angle * 0.7) * 0.2;
+            };
+            this.previewScene.registerBeforeRender(animateCamera);
+        }
+        
+        console.log("[Garage] Tank preview rendered:", chassisId, cannonId);
+    }
+    
+    private cleanup3DPreview(): void {
+        // Stop render loop
+        if (this.previewRenderLoop !== null) {
+            clearInterval(this.previewRenderLoop);
+            this.previewRenderLoop = null;
+        }
+        
+        // Dispose tank
+        if (this.previewTank) {
+            this.previewTank.chassis.dispose();
+            this.previewTank.turret.dispose();
+            this.previewTank.barrel.dispose();
+            this.previewTank = null;
+        }
+        
+        // Dispose scene and engine
+        if (this.previewScene) {
+            this.previewScene.dispose();
+            this.previewScene = null;
+        }
+        
+        if (this.previewEngine) {
+            this.previewEngine.dispose();
+            this.previewEngine = null;
+        }
+        
+        // Remove canvas
+        if (this.previewCanvas) {
+            this.previewCanvas.remove();
+            this.previewCanvas = null;
+        }
+        
+        this.previewCamera = null;
+        console.log("[Garage] 3D preview cleaned up");
+    }
+    
+    // ============ CURSOR MANAGEMENT ============
+    private showCursor(): void {
+        // Unlock pointer lock if active
+        if (document.pointerLockElement) {
+            document.exitPointerLock();
+        }
+        
+        // Show cursor
+        const canvas = this._scene?.getEngine()?.getRenderingCanvas() as HTMLCanvasElement;
+        if (canvas) {
+            canvas.style.cursor = "default";
+        }
+        document.body.style.cursor = "default";
+    }
+    
+    private hideCursor(): void {
+        // Hide cursor (will be locked again when user clicks on canvas)
+        const canvas = this._scene?.getEngine()?.getRenderingCanvas() as HTMLCanvasElement;
+        if (canvas) {
+            canvas.style.cursor = "none";
+        }
+        document.body.style.cursor = "none";
     }
     
     // ============ UI CREATION ============
@@ -556,6 +842,10 @@ export class Garage {
         `;
         
         document.body.appendChild(this.overlay);
+        
+        // Ensure cursor is visible (in case createUI is called separately)
+        this.showCursor();
+        
         this.setupEventListeners();
         this.refreshItemList();
     }
@@ -750,11 +1040,15 @@ export class Garage {
             const part = item as TankPart;
             let chassisName = getChassisById(this.currentChassisId).name;
             let cannonName = getCannonById(this.currentCannonId).name;
+            let previewChassisId = this.currentChassisId;
+            let previewCannonId = this.currentCannonId;
             
             if (part.type === 'chassis') {
                 chassisName = part.name;
+                previewChassisId = part.id;
             } else if (part.type === 'barrel') {
                 cannonName = part.name;
+                previewCannonId = part.id;
             }
             
             previewInfo.innerHTML = `
@@ -763,6 +1057,11 @@ export class Garage {
                 ${part.type === 'chassis' || part.type === 'barrel' ? 
                     '<div style="color: #ff0; font-size: 10px; margin-top: 8px;">[ PREVIEW ]</div>' : ''}
             `;
+            
+            // Update 3D preview if chassis or barrel changed
+            if (part.type === 'chassis' || part.type === 'barrel') {
+                this.renderTankPreview(previewChassisId, previewCannonId);
+            }
         }
     }
     
@@ -961,6 +1260,9 @@ export class Garage {
         if (previewInfo) {
             previewInfo.innerHTML = `CHASSIS: ${getChassisById(this.currentChassisId).name}<br>CANNON: ${getCannonById(this.currentCannonId).name}`;
         }
+        
+        // Update 3D preview
+        this.renderTankPreview(this.currentChassisId, this.currentCannonId);
         
         if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
     }

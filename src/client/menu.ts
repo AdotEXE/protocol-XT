@@ -31,6 +31,7 @@ const debugError = (...args: any[]) => {
 };
 
 export interface GameSettings {
+    // Existing settings
     renderDistance: number;
     soundVolume: number;
     musicVolume: number;
@@ -51,9 +52,63 @@ export interface GameSettings {
     enemyDifficulty: "easy" | "medium" | "hard"; // Сложность противников
     worldSeed: number; // Сид карты для процедурной генерации
     useRandomSeed: boolean; // Использовать случайный сид при каждом запуске
+    
+    // Graphics
+    particleQuality: number; // 0-2
+    shadowQuality: number; // 0-2
+    antiAliasing: boolean;
+    bloom: boolean;
+    motionBlur: boolean;
+    textureQuality: number; // 0-2
+    lightingQuality: number; // 0-2
+    
+    // Audio
+    masterVolume: number; // 0-100
+    ambientVolume: number; // 0-100
+    voiceVolume: number; // 0-100
+    muteOnFocusLoss: boolean;
+    
+    // Controls
+    invertMouseY: boolean;
+    keyboardLayout: string;
+    autoReload: boolean;
+    holdToAim: boolean;
+    
+    // Gameplay
+    showTutorial: boolean;
+    showHints: boolean;
+    showCrosshair: boolean;
+    crosshairStyle: string;
+    showHealthBar: boolean;
+    showAmmoCounter: boolean;
+    autoSave: boolean;
+    autoSaveInterval: number; // seconds
+    
+    // Camera
+    cameraSmoothing: number; // 0-1
+    cameraShakeIntensity: number; // 0-1
+    firstPersonMode: boolean;
+    cameraFOV: number;
+    
+    // Network
+    showPing: boolean;
+    showNetworkStats: boolean;
+    networkQuality: number; // 0-2
+    
+    // Accessibility
+    colorBlindMode: string;
+    fontSize: number;
+    highContrast: boolean;
+    subtitles: boolean;
+    
+    // Additional
+    showDebugInfo: boolean;
+    enableCheats: boolean;
+    maxFPS: number; // 0 = unlimited
 }
 
 const DEFAULT_SETTINGS: GameSettings = {
+    // Existing settings
     renderDistance: 3,
     soundVolume: 70,
     musicVolume: 50,
@@ -73,13 +128,67 @@ const DEFAULT_SETTINGS: GameSettings = {
     language: "ru", // Russian by default
     enemyDifficulty: "medium", // Средняя сложность по умолчанию
     worldSeed: 12345, // Сид по умолчанию
-    useRandomSeed: true // Случайный сид по умолчанию
+    useRandomSeed: true, // Случайный сид по умолчанию
+    
+    // Graphics
+    particleQuality: 2,
+    shadowQuality: 2,
+    antiAliasing: true,
+    bloom: false,
+    motionBlur: false,
+    textureQuality: 2,
+    lightingQuality: 2,
+    
+    // Audio
+    masterVolume: 100,
+    ambientVolume: 20,
+    voiceVolume: 100,
+    muteOnFocusLoss: false,
+    
+    // Controls
+    invertMouseY: false,
+    keyboardLayout: "qwerty",
+    autoReload: false,
+    holdToAim: false,
+    
+    // Gameplay
+    showTutorial: true,
+    showHints: true,
+    showCrosshair: true,
+    crosshairStyle: "default",
+    showHealthBar: true,
+    showAmmoCounter: true,
+    autoSave: true,
+    autoSaveInterval: 300, // 5 minutes
+    
+    // Camera
+    cameraSmoothing: 0.7,
+    cameraShakeIntensity: 1.0,
+    firstPersonMode: false,
+    cameraFOV: 60,
+    
+    // Network
+    showPing: false,
+    showNetworkStats: false,
+    networkQuality: 2,
+    
+    // Accessibility
+    colorBlindMode: "none",
+    fontSize: 14,
+    highContrast: false,
+    subtitles: false,
+    
+    // Additional
+    showDebugInfo: false,
+    enableCheats: false,
+    maxFPS: 0 // 0 = unlimited
 };
 
 // === LANGUAGE STRINGS ===
 const LANG = {
     ru: {
         play: "ИГРАТЬ",
+        quickStart: "БЫСТРЫЙ СТАРТ",
         selectMap: "ВЫБОР КАРТЫ",
         garage: "ГАРАЖ",
         stats: "СТАТИСТИКА",
@@ -90,14 +199,31 @@ const LANG = {
         tankCombat: "ТАНКОВЫЙ БОЙ",
         mapSelection: "ВЫБОР КАРТЫ",
         normalMap: "Эта самая карта",
+        normalMapDesc: "Полностью случайная генерация с разнообразными биомами, дорогами и природой",
         sandboxMap: "Песочница",
+        sandboxMapDesc: "Чистая плоская поверхность для тестирования",
         polygonMap: "Полигон",
+        polygonMapDesc: "Военный полигон с ангарами, техникой, складами, кранами и вышками",
         frontlineMap: "Передовая",
+        frontlineMapDesc: "Разрушенная линия фронта с кратерами, окопами и укреплениями",
+        ruinsMap: "Руины",
+        ruinsMapDesc: "Полуразрушенный город военного времени с обрушенными зданиями",
+        canyonMap: "Ущелье",
+        canyonMapDesc: "Горная местность с проходами, реками, озёрами, лесами и деревнями",
+        industrialMap: "Промзона",
+        industrialMapDesc: "Крупная промышленная зона с заводами, портом и ж/д терминалом",
+        urbanWarfareMap: "Городские бои",
+        urbanWarfareMapDesc: "Плотная городская застройка с баррикадами и укреплениями",
+        undergroundMap: "Подземелье",
+        undergroundMapDesc: "Система пещер, шахт и туннелей под землёй",
+        coastalMap: "Побережье",
+        coastalMapDesc: "Береговая линия с портом, маяками, пляжами и утёсами",
         // Controls
         movement: "Движение",
         combat: "Бой",
         interface: "Интерфейс",
         camera: "Камера",
+        comms: "Связь",
         moveTank: "Движение",
         rotateTurret: "Башня",
         turretLR: "Башня Л/П",
@@ -105,6 +231,12 @@ const LANG = {
         aimMode: "Прицел",
         useConsumables: "Расходники",
         zoom: "Зум",
+        generalChat: "Общий чат",
+        teamChat: "Командный чат",
+        voicePTT: "Голосовой чат (PTT)",
+        voiceToggle: "Вкл/Выкл голосовой связи",
+        voiceMenu: "Меню/индикатор голоса",
+        tracerHotkey: "Трассер",
         garageKey: "Гараж",
         map: "Карта",
         statsKey: "Статистика",
@@ -148,6 +280,7 @@ const LANG = {
     },
     en: {
         play: "PLAY",
+        quickStart: "QUICK START",
         selectMap: "SELECT MAP",
         garage: "GARAGE",
         stats: "STATS",
@@ -158,14 +291,31 @@ const LANG = {
         tankCombat: "TANK COMBAT",
         mapSelection: "MAP SELECTION",
         normalMap: "Normal Map",
+        normalMapDesc: "Fully random generation with diverse biomes, roads and nature",
         sandboxMap: "Sandbox",
+        sandboxMapDesc: "Clean flat surface for testing",
         polygonMap: "Training Ground",
+        polygonMapDesc: "Military training ground with hangars, vehicles, warehouses, cranes and watchtowers",
         frontlineMap: "Frontline",
+        frontlineMapDesc: "Destroyed frontline with craters, trenches and fortifications",
+        ruinsMap: "Ruins",
+        ruinsMapDesc: "Half-destroyed war-torn city with collapsed buildings",
+        canyonMap: "Canyon",
+        canyonMapDesc: "Mountainous terrain with passes, rivers, lakes, forests and villages",
+        industrialMap: "Industrial Zone",
+        industrialMapDesc: "Large industrial area with factories, port and railway terminal",
+        urbanWarfareMap: "Urban Warfare",
+        urbanWarfareMapDesc: "Dense urban environment with barricades and fortifications",
+        undergroundMap: "Underground",
+        undergroundMapDesc: "Cave system, mines and tunnels underground",
+        coastalMap: "Coastal",
+        coastalMapDesc: "Coastline with port, lighthouses, beaches and cliffs",
         // Controls
         movement: "Movement",
         combat: "Combat",
         interface: "Interface",
         camera: "Camera",
+        comms: "Comms",
         moveTank: "Move tank",
         rotateTurret: "Rotate turret",
         turretLR: "Turret L/R",
@@ -173,6 +323,12 @@ const LANG = {
         aimMode: "Aim mode",
         useConsumables: "Use consumables",
         zoom: "Zoom (aim)",
+        generalChat: "General chat",
+        teamChat: "Team chat",
+        voicePTT: "Voice chat (PTT)",
+        voiceToggle: "Voice toggle on/off",
+        voiceMenu: "Voice menu/indicator",
+        tracerHotkey: "Tracer",
         garageKey: "Garage",
         map: "Map",
         statsKey: "Stats",
@@ -237,7 +393,7 @@ const DEFAULT_TANK: TankConfig = {
     firepower: 2
 };
 
-export type MapType = "normal" | "sandbox" | "polygon" | "frontline";
+export type MapType = "normal" | "sandbox" | "polygon" | "frontline" | "ruins" | "canyon" | "industrial" | "urban_warfare" | "underground" | "coastal";
 
 export class MainMenu {
     private container!: HTMLDivElement;
@@ -246,13 +402,22 @@ export class MainMenu {
     private statsPanel!: HTMLDivElement;
     private skillsPanel!: HTMLDivElement;
     private mapSelectionPanel!: HTMLDivElement;
+    private playMenuPanel!: HTMLDivElement;
     private onStartGame: (mapType?: MapType) => void = () => {};
+    private selectedGameMode: string = "";
+    private selectedMapType: MapType | null = null;
+    private selectedChassis: string = "";
+    private selectedCannon: string = "";
+    private ownedChassisIds: Set<string> = new Set();
+    private ownedCannonIds: Set<string> = new Set();
     private onPlayIntroSound: () => void = () => {};
     private settings!: GameSettings;
     private tankConfig!: TankConfig;
     private playerProgression: any = null;
     private experienceSubscription: any = null;
     private introSoundPlayed = false;
+    private garage: any = null; // Reference to Garage instance
+    private returnToPlayMenuAfterGarage = false;
     
     private canvasObserver: MutationObserver | null = null;
     private canvasPointerEventsCheckInterval: number | null = null;
@@ -263,12 +428,15 @@ export class MainMenu {
     constructor() {
         this.settings = this.loadSettings();
         this.tankConfig = this.loadTankConfig();
+        this.ownedChassisIds = this.loadOwnedIds("ownedChassis", ["medium"]);
+        this.ownedCannonIds = this.loadOwnedIds("ownedCannons", ["standard"]);
         this.createMenuUI();
         this.createSettingsUI();
         this.createGarageUI();
         this.createStatsPanel();
         this.createSkillsPanel();
         this.createMapSelectionPanel();
+        this.createPlayMenuPanel();
         this.startAnimations();
         this.setupCanvasPointerEventsProtection();
         this.setupGlobalEventBlocking();
@@ -278,7 +446,8 @@ export class MainMenu {
     private setupFullscreenListener(): void {
         // Слушаем изменения полноэкранного режима для обновления кнопки
         document.addEventListener("fullscreenchange", () => {
-            this.updateFullscreenButton(!!document.fullscreenElement);
+            const isFullscreen = !!document.fullscreenElement;
+            this.syncFullscreenState(isFullscreen);
         });
     }
     
@@ -541,6 +710,11 @@ export class MainMenu {
         }
     }
     
+    setGarage(garage: any): void {
+        this.garage = garage;
+        console.log("[MainMenu] Garage reference set");
+    }
+    
     private createMenuUI(): void {
         this.container = document.createElement("div");
         this.container.id = "main-menu";
@@ -571,9 +745,13 @@ export class MainMenu {
                 </div>
                 
                 <div class="menu-buttons">
-                    <button class="menu-btn play-btn" id="btn-select-map">
-                        <span class="btn-icon">🗺</span>
-                        <span class="btn-label">${L.selectMap}</span>
+                    <button class="menu-btn play-btn" id="btn-play">
+                        <span class="btn-icon">▶</span>
+                        <span class="btn-label">${L.play || "ИГРАТЬ"}</span>
+                    </button>
+                    <button class="menu-btn secondary" id="btn-quick-start">
+                        <span class="btn-icon">⚡</span>
+                        <span class="btn-label">${L.quickStart || "БЫСТРЫЙ СТАРТ"}</span>
                     </button>
                     <div class="btn-row">
                         <button class="menu-btn secondary" id="btn-garage">
@@ -668,6 +846,33 @@ export class MainMenu {
                                 <div class="control-item">
                                     <span class="key">C</span>
                                     <span class="control-desc">${L.center}</span>
+                                </div>
+                            </div>
+                            <div class="control-category">
+                                <div class="category-header">📡 ${L.comms}</div>
+                                <div class="control-item">
+                                    <span class="key">Enter</span>
+                                    <span class="control-desc">${L.generalChat}</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">T</span>
+                                    <span class="control-desc">${L.teamChat}</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">V</span>
+                                    <span class="control-desc">${L.voicePTT}</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">J</span>
+                                    <span class="control-desc">${L.voiceToggle}</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">M</span>
+                                    <span class="control-desc">${L.voiceMenu}</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">Y</span>
+                                    <span class="control-desc">${L.tracerHotkey}</span>
                                 </div>
                             </div>
                         </div>
@@ -973,7 +1178,7 @@ export class MainMenu {
             
             .controls-grid {
                 display: grid;
-                grid-template-columns: repeat(4, 1fr);
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
                 gap: 10px;
             }
             
@@ -1069,6 +1274,72 @@ export class MainMenu {
                 text-align: center;
                 margin-bottom: 20px;
                 text-shadow: 0 0 10px #0f0;
+            }
+            
+            .play-menu-section {
+                margin-bottom: 30px;
+                padding: 20px;
+                background: rgba(0, 0, 0, 0.4);
+                border-radius: 8px;
+                border: 1px solid rgba(90, 170, 136, 0.3);
+            }
+            
+            .section-title {
+                font-size: 18px;
+                font-weight: bold;
+                margin-bottom: 15px;
+                color: #5a8;
+                text-transform: uppercase;
+            }
+            
+            .mode-buttons, .map-buttons, .tank-options {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            /* Многослойные окна шагов */
+            .play-window {
+                position: absolute;
+                top: 40px;
+                left: 40px;
+                right: 40px;
+                padding: 20px;
+                background: rgba(0, 0, 0, 0.92);
+                border: 2px solid #0f0;
+                box-shadow: 10px 10px 0 rgba(0, 255, 0, 0.25);
+                border-radius: 8px;
+                display: none;
+                flex-direction: column;
+                gap: 12px;
+                z-index: 100002;
+                pointer-events: auto;
+            }
+
+            .play-window.visible {
+                display: flex !important;
+            }
+            
+            .play-menu-section {
+                margin-bottom: 30px;
+                padding: 20px;
+                background: rgba(0, 0, 0, 0.4);
+                border-radius: 8px;
+                border: 1px solid rgba(90, 170, 136, 0.3);
+            }
+            
+            .section-title {
+                font-size: 18px;
+                font-weight: bold;
+                margin-bottom: 15px;
+                color: #5a8;
+                text-transform: uppercase;
+            }
+            
+            .mode-buttons, .map-buttons, .tank-options {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
             }
             
             .panel-close {
@@ -1519,7 +1790,8 @@ export class MainMenu {
         try {
             // Добавляем обработчики напрямую на каждую кнопку для максимальной надежности
             const buttons = [
-                { id: "btn-select-map", handler: () => this.showMapSelection() },
+                { id: "btn-play", handler: () => this.showPlayMenu() },
+                { id: "btn-quick-start", handler: () => this.quickStart() },
                 { id: "btn-garage", handler: () => this.showGarage() },
                 { id: "btn-skills", handler: () => this.showSkills() },
                 { id: "btn-stats", handler: () => this.showStats() },
@@ -1732,9 +2004,13 @@ export class MainMenu {
             this.enforceCanvasPointerEvents();
             
             switch (buttonId) {
-                case "btn-select-map":
-                    debugLog("[Menu] Showing map selection");
-                    this.showMapSelection();
+                case "btn-play":
+                    debugLog("[Menu] Showing play menu");
+                    this.showPlayMenu();
+                    break;
+                case "btn-quick-start":
+                    debugLog("[Menu] Quick start");
+                    this.quickStart();
                     break;
                 case "btn-garage":
                     debugLog("[Menu] Showing garage");
@@ -1876,105 +2152,404 @@ export class MainMenu {
         this.settingsPanel.id = "settings-panel";
         const L = getLang(this.settings);
         this.settingsPanel.innerHTML = `
-            <div class="panel-content">
+            <div class="panel-content" style="max-width: 800px; max-height: 90vh; overflow-y: auto;">
                 <button class="panel-close" id="settings-close">✕</button>
                 <div class="panel-title">${L.options}</div>
                 
-                <div class="setting-row">
-                    <span class="setting-label">${L.language}</span>
-                    <div class="setting-value lang-toggle">
-                        <button class="lang-btn ${this.settings.language === 'ru' ? 'active' : ''}" id="lang-ru">RU</button>
-                        <button class="lang-btn ${this.settings.language === 'en' ? 'active' : ''}" id="lang-en">EN</button>
+                <div class="settings-tabs" style="display: flex; gap: 5px; margin-bottom: 20px; border-bottom: 1px solid #444;">
+                    <button class="settings-tab active" data-tab="general">Общие</button>
+                    <button class="settings-tab" data-tab="graphics">Графика</button>
+                    <button class="settings-tab" data-tab="audio">Аудио</button>
+                    <button class="settings-tab" data-tab="controls">Управление</button>
+                    <button class="settings-tab" data-tab="gameplay">Игровой процесс</button>
+                    <button class="settings-tab" data-tab="camera">Камера</button>
+                    <button class="settings-tab" data-tab="network">Сеть</button>
+                    <button class="settings-tab" data-tab="accessibility">Доступность</button>
+                    <button class="settings-tab" data-tab="advanced">Дополнительно</button>
+                </div>
+                
+                <div id="settings-content">
+                    <!-- General Tab -->
+                    <div class="settings-tab-content active" data-content="general">
+                        <div class="setting-row">
+                            <span class="setting-label">${L.language}</span>
+                            <div class="setting-value lang-toggle">
+                                <button class="lang-btn ${this.settings.language === 'ru' ? 'active' : ''}" id="lang-ru">RU</button>
+                                <button class="lang-btn ${this.settings.language === 'en' ? 'active' : ''}" id="lang-en">EN</button>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">${L.enemyDifficulty}</span>
+                            <div class="setting-value difficulty-selector">
+                                <button class="diff-btn ${this.settings.enemyDifficulty === 'easy' ? 'active' : ''}" id="diff-easy" data-diff="easy">${L.diffEasy}</button>
+                                <button class="diff-btn ${this.settings.enemyDifficulty === 'medium' ? 'active' : ''}" id="diff-medium" data-diff="medium">${L.diffMedium}</button>
+                                <button class="diff-btn ${this.settings.enemyDifficulty === 'hard' ? 'active' : ''}" id="diff-hard" data-diff="hard">${L.diffHard}</button>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">${L.worldSeed}</span>
+                            <div class="setting-value seed-control">
+                                <input type="number" class="seed-input" id="set-seed" value="${this.settings.worldSeed}" ${this.settings.useRandomSeed ? 'disabled' : ''}>
+                                <button class="seed-btn" id="seed-copy" title="${L.copySeed}">📋</button>
+                                <button class="seed-btn" id="seed-random" title="${L.randomSeed}">🎲</button>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">${L.randomSeed}</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-random-seed" ${this.settings.useRandomSeed ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Показывать FPS</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-fps" ${this.settings.showFPS ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Показывать миникарту</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-minimap" ${this.settings.showMinimap ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Показывать числа урона</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-damage-numbers" ${this.settings.showDamageNumbers ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Помощь при прицеливании</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-aim-assist" ${this.settings.aimAssist ? 'checked' : ''}>
+                        </div>
+                    </div>
+                    
+                    <!-- Graphics Tab -->
+                    <div class="settings-tab-content" data-content="graphics">
+                        <div class="setting-row">
+                            <span class="setting-label">Качество графики</span>
+                            <div class="setting-value">
+                                <select class="setting-select" id="set-graphics">
+                                    <option value="0" ${this.settings.graphicsQuality === 0 ? 'selected' : ''}>Низкое</option>
+                                    <option value="1" ${this.settings.graphicsQuality === 1 ? 'selected' : ''}>Среднее</option>
+                                    <option value="2" ${this.settings.graphicsQuality === 2 ? 'selected' : ''}>Высокое</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Дальность прорисовки</span>
+                            <div class="setting-value">
+                                <input type="range" class="setting-range" id="set-render" min="1" max="5" value="${this.settings.renderDistance}">
+                                <span id="set-render-val">${this.settings.renderDistance}</span>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Качество частиц</span>
+                            <div class="setting-value">
+                                <select class="setting-select" id="set-particle-quality">
+                                    <option value="0" ${this.settings.particleQuality === 0 ? 'selected' : ''}>Низкое</option>
+                                    <option value="1" ${this.settings.particleQuality === 1 ? 'selected' : ''}>Среднее</option>
+                                    <option value="2" ${this.settings.particleQuality === 2 ? 'selected' : ''}>Высокое</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Качество теней</span>
+                            <div class="setting-value">
+                                <select class="setting-select" id="set-shadow-quality">
+                                    <option value="0" ${this.settings.shadowQuality === 0 ? 'selected' : ''}>Низкое</option>
+                                    <option value="1" ${this.settings.shadowQuality === 1 ? 'selected' : ''}>Среднее</option>
+                                    <option value="2" ${this.settings.shadowQuality === 2 ? 'selected' : ''}>Высокое</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Качество текстур</span>
+                            <div class="setting-value">
+                                <select class="setting-select" id="set-texture-quality">
+                                    <option value="0" ${this.settings.textureQuality === 0 ? 'selected' : ''}>Низкое</option>
+                                    <option value="1" ${this.settings.textureQuality === 1 ? 'selected' : ''}>Среднее</option>
+                                    <option value="2" ${this.settings.textureQuality === 2 ? 'selected' : ''}>Высокое</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Качество освещения</span>
+                            <div class="setting-value">
+                                <select class="setting-select" id="set-lighting-quality">
+                                    <option value="0" ${this.settings.lightingQuality === 0 ? 'selected' : ''}>Низкое</option>
+                                    <option value="1" ${this.settings.lightingQuality === 1 ? 'selected' : ''}>Среднее</option>
+                                    <option value="2" ${this.settings.lightingQuality === 2 ? 'selected' : ''}>Высокое</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Сглаживание (AA)</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-anti-aliasing" ${this.settings.antiAliasing ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Эффект свечения (Bloom)</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-bloom" ${this.settings.bloom ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Размытие движения</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-motion-blur" ${this.settings.motionBlur ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">VSync</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-vsync" ${this.settings.vsync ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Полноэкранный режим</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-fullscreen" ${this.settings.fullscreen ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Ограничение FPS</span>
+                            <div class="setting-value">
+                                <input type="range" class="setting-range" id="set-max-fps" min="0" max="240" step="30" value="${this.settings.maxFPS}">
+                                <span id="set-max-fps-val">${this.settings.maxFPS === 0 ? 'Без ограничений' : this.settings.maxFPS}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Audio Tab -->
+                    <div class="settings-tab-content" data-content="audio">
+                        <div class="setting-row">
+                            <span class="setting-label">Общая громкость</span>
+                            <div class="setting-value">
+                                <input type="range" class="setting-range" id="set-master-volume" min="0" max="100" value="${this.settings.masterVolume}">
+                                <span id="set-master-volume-val">${this.settings.masterVolume}%</span>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Громкость звуков</span>
+                            <div class="setting-value">
+                                <input type="range" class="setting-range" id="set-sound" min="0" max="100" value="${this.settings.soundVolume}">
+                                <span id="set-sound-val">${this.settings.soundVolume}%</span>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Громкость музыки</span>
+                            <div class="setting-value">
+                                <input type="range" class="setting-range" id="set-music" min="0" max="100" value="${this.settings.musicVolume}">
+                                <span id="set-music-val">${this.settings.musicVolume}%</span>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Громкость окружения</span>
+                            <div class="setting-value">
+                                <input type="range" class="setting-range" id="set-ambient-volume" min="0" max="100" value="${this.settings.ambientVolume}">
+                                <span id="set-ambient-volume-val">${this.settings.ambientVolume}%</span>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Громкость голоса</span>
+                            <div class="setting-value">
+                                <input type="range" class="setting-range" id="set-voice-volume" min="0" max="100" value="${this.settings.voiceVolume}">
+                                <span id="set-voice-volume-val">${this.settings.voiceVolume}%</span>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Отключить звук при потере фокуса</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-mute-on-focus-loss" ${this.settings.muteOnFocusLoss ? 'checked' : ''}>
+                        </div>
+                    </div>
+                    
+                    <!-- Controls Tab -->
+                    <div class="settings-tab-content" data-content="controls">
+                        <div class="setting-row">
+                            <span class="setting-label">Чувствительность мыши</span>
+                            <div class="setting-value">
+                                <input type="range" class="setting-range" id="set-mouse" min="1" max="10" value="${this.settings.mouseSensitivity}">
+                                <span id="set-mouse-val">${this.settings.mouseSensitivity}</span>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Инверсия мыши по Y</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-invert-mouse-y" ${this.settings.invertMouseY ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Раскладка клавиатуры</span>
+                            <div class="setting-value">
+                                <select class="setting-select" id="set-keyboard-layout">
+                                    <option value="qwerty" ${this.settings.keyboardLayout === 'qwerty' ? 'selected' : ''}>QWERTY</option>
+                                    <option value="azerty" ${this.settings.keyboardLayout === 'azerty' ? 'selected' : ''}>AZERTY</option>
+                                    <option value="qwertz" ${this.settings.keyboardLayout === 'qwertz' ? 'selected' : ''}>QWERTZ</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Автоматическая перезарядка</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-auto-reload" ${this.settings.autoReload ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Удержание для прицеливания</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-hold-to-aim" ${this.settings.holdToAim ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Виртуальная фиксация башни</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-virtual-fixation" ${this.settings.virtualTurretFixation ? 'checked' : ''}>
+                        </div>
+                    </div>
+                    
+                    <!-- Gameplay Tab -->
+                    <div class="settings-tab-content" data-content="gameplay">
+                        <div class="setting-row">
+                            <span class="setting-label">Показывать обучение</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-show-tutorial" ${this.settings.showTutorial ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Показывать подсказки</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-show-hints" ${this.settings.showHints ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Показывать прицел</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-show-crosshair" ${this.settings.showCrosshair ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Стиль прицела</span>
+                            <div class="setting-value">
+                                <select class="setting-select" id="set-crosshair-style">
+                                    <option value="default" ${this.settings.crosshairStyle === 'default' ? 'selected' : ''}>По умолчанию</option>
+                                    <option value="dot" ${this.settings.crosshairStyle === 'dot' ? 'selected' : ''}>Точка</option>
+                                    <option value="cross" ${this.settings.crosshairStyle === 'cross' ? 'selected' : ''}>Крест</option>
+                                    <option value="circle" ${this.settings.crosshairStyle === 'circle' ? 'selected' : ''}>Круг</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Показывать полоску здоровья</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-show-health-bar" ${this.settings.showHealthBar ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Показывать счетчик патронов</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-show-ammo-counter" ${this.settings.showAmmoCounter ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Автосохранение</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-auto-save" ${this.settings.autoSave ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Интервал автосохранения (сек)</span>
+                            <div class="setting-value">
+                                <input type="range" class="setting-range" id="set-auto-save-interval" min="60" max="600" step="60" value="${this.settings.autoSaveInterval}">
+                                <span id="set-auto-save-interval-val">${this.settings.autoSaveInterval}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Camera Tab -->
+                    <div class="settings-tab-content" data-content="camera">
+                        <div class="setting-row">
+                            <span class="setting-label">Расстояние камеры</span>
+                            <div class="setting-value">
+                                <input type="range" class="setting-range" id="set-camera-dist" min="5" max="25" value="${this.settings.cameraDistance}">
+                                <span id="set-camera-dist-val">${this.settings.cameraDistance}</span>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Высота камеры</span>
+                            <div class="setting-value">
+                                <input type="range" class="setting-range" id="set-camera-height" min="3" max="10" step="0.5" value="${this.settings.cameraHeight}">
+                                <span id="set-camera-height-val">${this.settings.cameraHeight}</span>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Поле зрения (FOV)</span>
+                            <div class="setting-value">
+                                <input type="range" class="setting-range" id="set-camera-fov" min="45" max="90" value="${this.settings.cameraFOV}">
+                                <span id="set-camera-fov-val">${this.settings.cameraFOV}</span>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Сглаживание камеры</span>
+                            <div class="setting-value">
+                                <input type="range" class="setting-range" id="set-camera-smoothing" min="0" max="1" step="0.1" value="${this.settings.cameraSmoothing}">
+                                <span id="set-camera-smoothing-val">${this.settings.cameraSmoothing}</span>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Тряска экрана</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-screen-shake" ${this.settings.screenShake ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Интенсивность тряски</span>
+                            <div class="setting-value">
+                                <input type="range" class="setting-range" id="set-camera-shake-intensity" min="0" max="1" step="0.1" value="${this.settings.cameraShakeIntensity}">
+                                <span id="set-camera-shake-intensity-val">${this.settings.cameraShakeIntensity}</span>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Режим от первого лица</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-first-person-mode" ${this.settings.firstPersonMode ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">FOV прицеливания</span>
+                            <div class="setting-value">
+                                <input type="range" class="setting-range" id="set-aim-fov" min="0.1" max="1" step="0.1" value="${this.settings.aimFOV}">
+                                <span id="set-aim-fov-val">${this.settings.aimFOV}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Network Tab -->
+                    <div class="settings-tab-content" data-content="network">
+                        <div class="setting-row">
+                            <span class="setting-label">Показывать пинг</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-show-ping" ${this.settings.showPing ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Показывать сетевую статистику</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-show-network-stats" ${this.settings.showNetworkStats ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Качество сети</span>
+                            <div class="setting-value">
+                                <select class="setting-select" id="set-network-quality">
+                                    <option value="0" ${this.settings.networkQuality === 0 ? 'selected' : ''}>Низкое</option>
+                                    <option value="1" ${this.settings.networkQuality === 1 ? 'selected' : ''}>Среднее</option>
+                                    <option value="2" ${this.settings.networkQuality === 2 ? 'selected' : ''}>Высокое</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Accessibility Tab -->
+                    <div class="settings-tab-content" data-content="accessibility">
+                        <div class="setting-row">
+                            <span class="setting-label">Режим для дальтоников</span>
+                            <div class="setting-value">
+                                <select class="setting-select" id="set-color-blind-mode">
+                                    <option value="none" ${this.settings.colorBlindMode === 'none' ? 'selected' : ''}>Отключено</option>
+                                    <option value="protanopia" ${this.settings.colorBlindMode === 'protanopia' ? 'selected' : ''}>Протанопия</option>
+                                    <option value="deuteranopia" ${this.settings.colorBlindMode === 'deuteranopia' ? 'selected' : ''}>Дейтеранопия</option>
+                                    <option value="tritanopia" ${this.settings.colorBlindMode === 'tritanopia' ? 'selected' : ''}>Тританопия</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Размер шрифта</span>
+                            <div class="setting-value">
+                                <input type="range" class="setting-range" id="set-font-size" min="10" max="24" value="${this.settings.fontSize}">
+                                <span id="set-font-size-val">${this.settings.fontSize}</span>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Высокий контраст</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-high-contrast" ${this.settings.highContrast ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Субтитры</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-subtitles" ${this.settings.subtitles ? 'checked' : ''}>
+                        </div>
+                    </div>
+                    
+                    <!-- Advanced Tab -->
+                    <div class="settings-tab-content" data-content="advanced">
+                        <div class="setting-row">
+                            <span class="setting-label">Показывать отладочную информацию</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-show-debug-info" ${this.settings.showDebugInfo ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Включить читы (для разработки)</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-enable-cheats" ${this.settings.enableCheats ? 'checked' : ''}>
+                        </div>
                     </div>
                 </div>
                 
-                <div class="setting-row">
-                    <span class="setting-label">Дальность прорисовки</span>
-                    <div class="setting-value">
-                        <input type="range" class="setting-range" id="set-render" min="1" max="5" value="${this.settings.renderDistance}">
-                        <span id="set-render-val">${this.settings.renderDistance}</span>
-                    </div>
-                </div>
-                
-                <div class="setting-row">
-                    <span class="setting-label">Качество графики</span>
-                    <div class="setting-value">
-                        <select class="setting-select" id="set-graphics">
-                            <option value="0" ${this.settings.graphicsQuality === 0 ? 'selected' : ''}>Низкое</option>
-                            <option value="1" ${this.settings.graphicsQuality === 1 ? 'selected' : ''}>Среднее</option>
-                            <option value="2" ${this.settings.graphicsQuality === 2 ? 'selected' : ''}>Высокое</option>
-                        </select>
-                    </div>
-                </div>
-                
-                <div class="setting-row">
-                    <span class="setting-label">Громкость звуков</span>
-                    <div class="setting-value">
-                        <input type="range" class="setting-range" id="set-sound" min="0" max="100" value="${this.settings.soundVolume}">
-                        <span id="set-sound-val">${this.settings.soundVolume}%</span>
-                    </div>
-                </div>
-                
-                <div class="setting-row">
-                    <span class="setting-label">Чувствительность мыши</span>
-                    <div class="setting-value">
-                        <input type="range" class="setting-range" id="set-mouse" min="1" max="10" value="${this.settings.mouseSensitivity}">
-                        <span id="set-mouse-val">${this.settings.mouseSensitivity}</span>
-                    </div>
-                </div>
-                
-                <div class="setting-row">
-                    <span class="setting-label">Расстояние камеры</span>
-                    <div class="setting-value">
-                        <input type="range" class="setting-range" id="set-camera-dist" min="5" max="25" value="${this.settings.cameraDistance}">
-                        <span id="set-camera-dist-val">${this.settings.cameraDistance}</span>
-                    </div>
-                </div>
-                
-                <div class="setting-row">
-                    <span class="setting-label">Показывать FPS</span>
-                    <input type="checkbox" class="setting-checkbox" id="set-fps" ${this.settings.showFPS ? 'checked' : ''}>
-                </div>
-                
-                <div class="setting-row">
-                    <span class="setting-label">Показывать миникарту</span>
-                    <input type="checkbox" class="setting-checkbox" id="set-minimap" ${this.settings.showMinimap ? 'checked' : ''}>
-                </div>
-                
-                <div class="setting-row">
-                    <span class="setting-label">Тряска экрана</span>
-                    <input type="checkbox" class="setting-checkbox" id="set-screen-shake" ${this.settings.screenShake ? 'checked' : ''}>
-                </div>
-                
-                <div class="setting-row">
-                    <span class="setting-label">Виртуальная фиксация башни</span>
-                    <input type="checkbox" class="setting-checkbox" id="set-virtual-fixation" ${this.settings.virtualTurretFixation ? 'checked' : ''}>
-                </div>
-                
-                <div class="setting-row">
-                    <span class="setting-label">${L.enemyDifficulty}</span>
-                    <div class="setting-value difficulty-selector">
-                        <button class="diff-btn ${this.settings.enemyDifficulty === 'easy' ? 'active' : ''}" id="diff-easy" data-diff="easy">${L.diffEasy}</button>
-                        <button class="diff-btn ${this.settings.enemyDifficulty === 'medium' ? 'active' : ''}" id="diff-medium" data-diff="medium">${L.diffMedium}</button>
-                        <button class="diff-btn ${this.settings.enemyDifficulty === 'hard' ? 'active' : ''}" id="diff-hard" data-diff="hard">${L.diffHard}</button>
-                    </div>
-                </div>
-                
-                <div class="setting-row">
-                    <span class="setting-label">${L.worldSeed}</span>
-                    <div class="setting-value seed-control">
-                        <input type="number" class="seed-input" id="set-seed" value="${this.settings.worldSeed}" ${this.settings.useRandomSeed ? 'disabled' : ''}>
-                        <button class="seed-btn" id="seed-copy" title="${L.copySeed}">📋</button>
-                        <button class="seed-btn" id="seed-random" title="${L.randomSeed}">🎲</button>
-                    </div>
-                </div>
-                
-                <div class="setting-row">
-                    <span class="setting-label">${L.randomSeed}</span>
-                    <input type="checkbox" class="setting-checkbox" id="set-random-seed" ${this.settings.useRandomSeed ? 'checked' : ''}>
-                </div>
-                
-                <div class="panel-buttons">
+                <div class="panel-buttons" style="margin-top: 20px;">
                     <button class="panel-btn primary" id="settings-save">Сохранить</button>
                     <button class="panel-btn danger" id="settings-reset">Сброс</button>
                 </div>
@@ -1983,20 +2558,82 @@ export class MainMenu {
         
         document.body.appendChild(this.settingsPanel);
         
+        // Add CSS for tabs
+        const style = document.createElement("style");
+        style.textContent = `
+            .settings-tabs {
+                display: flex;
+                gap: 5px;
+                margin-bottom: 20px;
+                border-bottom: 1px solid #444;
+                flex-wrap: wrap;
+            }
+            .settings-tab {
+                padding: 8px 16px;
+                background: #2a2a2a;
+                border: none;
+                color: #aaa;
+                cursor: pointer;
+                border-bottom: 2px solid transparent;
+                transition: all 0.2s;
+            }
+            .settings-tab:hover {
+                background: #333;
+                color: #fff;
+            }
+            .settings-tab.active {
+                color: #5a8;
+                border-bottom-color: #5a8;
+                background: #1a1a1a;
+            }
+            .settings-tab-content {
+                display: none;
+            }
+            .settings-tab-content.active {
+                display: block;
+            }
+        `;
+        document.head.appendChild(style);
+        
         this.setupPanelCloseOnBackground(this.settingsPanel, () => this.hideSettings());
         
-        const setupSlider = (id: string, valId: string, suffix: string = "") => {
+        // Tab switching
+        document.querySelectorAll(".settings-tab").forEach(tab => {
+            tab.addEventListener("click", () => {
+                const tabName = (tab as HTMLElement).dataset.tab;
+                document.querySelectorAll(".settings-tab").forEach(t => t.classList.remove("active"));
+                document.querySelectorAll(".settings-tab-content").forEach(c => c.classList.remove("active"));
+                tab.classList.add("active");
+                document.querySelector(`[data-content="${tabName}"]`)?.classList.add("active");
+            });
+        });
+        
+        const setupSlider = (id: string, valId: string, suffix: string = "", formatter?: (val: string) => string) => {
             const slider = document.getElementById(id) as HTMLInputElement;
             const val = document.getElementById(valId);
             slider?.addEventListener("input", () => {
-                if (val) val.textContent = slider.value + suffix;
+                if (val) {
+                    val.textContent = formatter ? formatter(slider.value) : slider.value + suffix;
+                }
             });
         };
         
         setupSlider("set-render", "set-render-val");
         setupSlider("set-sound", "set-sound-val", "%");
+        setupSlider("set-music", "set-music-val", "%");
         setupSlider("set-mouse", "set-mouse-val");
         setupSlider("set-camera-dist", "set-camera-dist-val");
+        setupSlider("set-camera-height", "set-camera-height-val");
+        setupSlider("set-camera-fov", "set-camera-fov-val");
+        setupSlider("set-camera-smoothing", "set-camera-smoothing-val");
+        setupSlider("set-camera-shake-intensity", "set-camera-shake-intensity-val");
+        setupSlider("set-aim-fov", "set-aim-fov-val");
+        setupSlider("set-master-volume", "set-master-volume-val", "%");
+        setupSlider("set-ambient-volume", "set-ambient-volume-val", "%");
+        setupSlider("set-voice-volume", "set-voice-volume-val", "%");
+        setupSlider("set-auto-save-interval", "set-auto-save-interval-val");
+        setupSlider("set-font-size", "set-font-size-val");
+        setupSlider("set-max-fps", "set-max-fps-val", "", (val) => val === "0" ? "Без ограничений" : val);
         
         // Language toggle
         document.getElementById("lang-ru")?.addEventListener("click", () => {
@@ -2015,7 +2652,6 @@ export class MainMenu {
         ["easy", "medium", "hard"].forEach(diff => {
             document.getElementById(`diff-${diff}`)?.addEventListener("click", () => {
                 this.settings.enemyDifficulty = diff as "easy" | "medium" | "hard";
-                // Update active button
                 document.querySelectorAll(".diff-btn").forEach(btn => btn.classList.remove("active"));
                 document.getElementById(`diff-${diff}`)?.classList.add("active");
             });
@@ -2025,13 +2661,11 @@ export class MainMenu {
         const seedInput = document.getElementById("set-seed") as HTMLInputElement;
         const randomSeedCheckbox = document.getElementById("set-random-seed") as HTMLInputElement;
         
-        // Random seed checkbox
         randomSeedCheckbox?.addEventListener("change", () => {
             this.settings.useRandomSeed = randomSeedCheckbox.checked;
             if (seedInput) {
                 seedInput.disabled = randomSeedCheckbox.checked;
                 if (randomSeedCheckbox.checked) {
-                    // Generate new random seed
                     const newSeed = Math.floor(Math.random() * 999999999);
                     seedInput.value = newSeed.toString();
                     this.settings.worldSeed = newSeed;
@@ -2039,14 +2673,12 @@ export class MainMenu {
             }
         });
         
-        // Seed input change
         seedInput?.addEventListener("change", () => {
             const value = parseInt(seedInput.value) || 12345;
             this.settings.worldSeed = value;
             seedInput.value = value.toString();
         });
         
-        // Copy seed button
         document.getElementById("seed-copy")?.addEventListener("click", () => {
             const seed = this.settings.worldSeed.toString();
             navigator.clipboard.writeText(seed).then(() => {
@@ -2059,7 +2691,6 @@ export class MainMenu {
             });
         });
         
-        // Random seed button
         document.getElementById("seed-random")?.addEventListener("click", () => {
             const newSeed = Math.floor(Math.random() * 999999999);
             this.settings.worldSeed = newSeed;
@@ -2067,11 +2698,16 @@ export class MainMenu {
                 seedInput.value = newSeed.toString();
             }
         });
+
+        const fullscreenCheckbox = document.getElementById("set-fullscreen") as HTMLInputElement | null;
+        fullscreenCheckbox?.addEventListener("change", (e) => {
+            const target = e.target as HTMLInputElement;
+            this.handleFullscreenCheckbox(!!target?.checked);
+        });
         
         document.getElementById("settings-save")?.addEventListener("click", () => {
             this.saveSettingsFromUI();
             this.hideSettings();
-            // Reload to apply language changes
             location.reload();
         });
         
@@ -2139,22 +2775,76 @@ export class MainMenu {
                 <button class="panel-close" id="map-selection-close">✕</button>
                 <div class="panel-title">${L.mapSelection}</div>
                 
-                <div style="display: flex; flex-direction: column; gap: 15px; margin-top: 20px;">
-                    <button class="menu-btn play-btn" id="btn-map-normal" style="width: 100%; padding: 20px;">
-                        <span class="btn-icon">🗺</span>
-                        <span class="btn-label">${L.normalMap}</span>
+                <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 20px; max-height: 70vh; overflow-y: auto; padding-right: 10px;">
+                    <button class="menu-btn play-btn" id="btn-map-normal" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="btn-icon">🗺</span>
+                            <span class="btn-label">${L.normalMap}</span>
+                        </div>
+                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.normalMapDesc}</div>
                     </button>
-                    <button class="menu-btn secondary" id="btn-map-sandbox" style="width: 100%; padding: 20px;">
-                        <span class="btn-icon">🏖</span>
-                        <span class="btn-label">${L.sandboxMap}</span>
+                    <button class="menu-btn secondary" id="btn-map-sandbox" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="btn-icon">🏖</span>
+                            <span class="btn-label">${L.sandboxMap}</span>
+                        </div>
+                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.sandboxMapDesc}</div>
                     </button>
-                    <button class="menu-btn" id="btn-map-polygon" style="width: 100%; padding: 20px;">
-                        <span class="btn-icon">🎯</span>
-                        <span class="btn-label">${L.polygonMap}</span>
+                    <button class="menu-btn" id="btn-map-polygon" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="btn-icon">🎯</span>
+                            <span class="btn-label">${L.polygonMap}</span>
+                        </div>
+                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.polygonMapDesc}</div>
                     </button>
-                    <button class="menu-btn" id="btn-map-frontline" style="width: 100%; padding: 20px;">
-                        <span class="btn-icon">⚔️</span>
-                        <span class="btn-label">${L.frontlineMap}</span>
+                    <button class="menu-btn" id="btn-map-frontline" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="btn-icon">⚔️</span>
+                            <span class="btn-label">${L.frontlineMap}</span>
+                        </div>
+                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.frontlineMapDesc}</div>
+                    </button>
+                    <button class="menu-btn" id="btn-map-ruins" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="btn-icon">🏚</span>
+                            <span class="btn-label">${L.ruinsMap}</span>
+                        </div>
+                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.ruinsMapDesc}</div>
+                    </button>
+                    <button class="menu-btn" id="btn-map-canyon" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="btn-icon">⛰</span>
+                            <span class="btn-label">${L.canyonMap}</span>
+                        </div>
+                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.canyonMapDesc}</div>
+                    </button>
+                    <button class="menu-btn" id="btn-map-industrial" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="btn-icon">🏭</span>
+                            <span class="btn-label">${L.industrialMap}</span>
+                        </div>
+                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.industrialMapDesc}</div>
+                    </button>
+                    <button class="menu-btn" id="btn-map-urban_warfare" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="btn-icon">🏙</span>
+                            <span class="btn-label">${L.urbanWarfareMap}</span>
+                        </div>
+                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.urbanWarfareMapDesc}</div>
+                    </button>
+                    <button class="menu-btn" id="btn-map-underground" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="btn-icon">🕳</span>
+                            <span class="btn-label">${L.undergroundMap}</span>
+                        </div>
+                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.undergroundMapDesc}</div>
+                    </button>
+                    <button class="menu-btn" id="btn-map-coastal" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="btn-icon">🌊</span>
+                            <span class="btn-label">${L.coastalMap}</span>
+                        </div>
+                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.coastalMapDesc}</div>
                     </button>
                 </div>
                 
@@ -2190,9 +2880,556 @@ export class MainMenu {
             this.onStartGame("frontline");
         });
         
+        document.getElementById("btn-map-ruins")?.addEventListener("click", () => {
+            this.hide();
+            this.hideMapSelection();
+            this.onStartGame("ruins");
+        });
+        
+        document.getElementById("btn-map-canyon")?.addEventListener("click", () => {
+            this.hide();
+            this.hideMapSelection();
+            this.onStartGame("canyon");
+        });
+        
+        document.getElementById("btn-map-industrial")?.addEventListener("click", () => {
+            this.hide();
+            this.hideMapSelection();
+            this.onStartGame("industrial");
+        });
+        
+        document.getElementById("btn-map-urban_warfare")?.addEventListener("click", () => {
+            this.hide();
+            this.hideMapSelection();
+            this.onStartGame("urban_warfare");
+        });
+        
+        document.getElementById("btn-map-underground")?.addEventListener("click", () => {
+            this.hide();
+            this.hideMapSelection();
+            this.onStartGame("underground");
+        });
+        
+        document.getElementById("btn-map-coastal")?.addEventListener("click", () => {
+            this.hide();
+            this.hideMapSelection();
+            this.onStartGame("coastal");
+        });
+        
         this.setupCloseButton("map-selection-close", () => this.hideMapSelection());
         this.setupCloseButton("map-selection-back", () => this.hideMapSelection());
         this.setupPanelCloseOnBackground(this.mapSelectionPanel, () => this.hideMapSelection());
+    }
+    
+    private createPlayMenuPanel(): void {
+        this.playMenuPanel = document.createElement("div");
+        this.playMenuPanel.className = "panel";
+        this.playMenuPanel.id = "play-menu-panel";
+        const L = getLang(this.settings);
+        
+        // Загружаем сохраненные выборы
+        const savedChassis = localStorage.getItem("selectedChassis") || "medium";
+        const savedCannon = localStorage.getItem("selectedCannon") || "standard";
+        this.selectedChassis = savedChassis;
+        this.selectedCannon = savedCannon;
+        
+        this.playMenuPanel.innerHTML = `
+                <div class="panel-content" style="position: relative; min-height: 70vh;">
+                <button class="panel-close" id="play-menu-close">✕</button>
+                <div class="panel-title">${L.play || "ИГРАТЬ"}</div>
+                
+                <!-- 1. Выбор режима игры -->
+                <div class="play-window" id="play-window-mode" data-order="0" style="display: none;">
+                    <div class="section-title">1. Выбор режима игры</div>
+                    <div class="mode-buttons" style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px;">
+                        <button class="menu-btn play-btn" id="btn-mode-single" data-mode="single">
+                            <span class="btn-icon">🎮</span>
+                            <span class="btn-label">Одиночная игра</span>
+                        </button>
+                        <button class="menu-btn secondary" id="btn-mode-ffa" data-mode="ffa">
+                            <span class="btn-icon">⚔️</span>
+                            <span class="btn-label">Free-for-All</span>
+                        </button>
+                        <button class="menu-btn secondary" id="btn-mode-tdm" data-mode="tdm">
+                            <span class="btn-icon">👥</span>
+                            <span class="btn-label">Team Deathmatch</span>
+                        </button>
+                        <button class="menu-btn secondary" id="btn-mode-coop" data-mode="coop">
+                            <span class="btn-icon">🤝</span>
+                            <span class="btn-label">Co-op PvE</span>
+                        </button>
+                        <button class="menu-btn secondary" id="btn-mode-br" data-mode="battle_royale">
+                            <span class="btn-icon">👑</span>
+                            <span class="btn-label">Battle Royale</span>
+                        </button>
+                        <button class="menu-btn secondary" id="btn-mode-ctf" data-mode="ctf">
+                            <span class="btn-icon">🚩</span>
+                            <span class="btn-label">Capture the Flag</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 2. Выбор карты -->
+                <div class="play-window" id="play-window-map" data-order="1">
+                    <div class="section-title">2. Выбор карты</div>
+                    <div class="map-buttons" style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px; max-height: 50vh; overflow-y: auto;">
+                        <button class="menu-btn play-btn" id="play-btn-map-normal" data-map="normal">
+                            <span class="btn-icon">🗺</span>
+                            <span class="btn-label">${L.normalMap}</span>
+                        </button>
+                        <button class="menu-btn secondary" id="play-btn-map-sandbox" data-map="sandbox">
+                            <span class="btn-icon">🏖</span>
+                            <span class="btn-label">${L.sandboxMap}</span>
+                        </button>
+                        <button class="menu-btn" id="play-btn-map-polygon" data-map="polygon">
+                            <span class="btn-icon">🎯</span>
+                            <span class="btn-label">${L.polygonMap}</span>
+                        </button>
+                        <button class="menu-btn" id="play-btn-map-frontline" data-map="frontline">
+                            <span class="btn-icon">⚔️</span>
+                            <span class="btn-label">${L.frontlineMap}</span>
+                        </button>
+                        <button class="menu-btn" id="play-btn-map-ruins" data-map="ruins">
+                            <span class="btn-icon">🏚</span>
+                            <span class="btn-label">${L.ruinsMap}</span>
+                        </button>
+                        <button class="menu-btn" id="play-btn-map-canyon" data-map="canyon">
+                            <span class="btn-icon">⛰</span>
+                            <span class="btn-label">${L.canyonMap}</span>
+                        </button>
+                        <button class="menu-btn" id="play-btn-map-industrial" data-map="industrial">
+                            <span class="btn-icon">🏭</span>
+                            <span class="btn-label">${L.industrialMap}</span>
+                        </button>
+                        <button class="menu-btn" id="play-btn-map-urban_warfare" data-map="urban_warfare">
+                            <span class="btn-icon">🏙</span>
+                            <span class="btn-label">${L.urbanWarfareMap}</span>
+                        </button>
+                        <button class="menu-btn" id="play-btn-map-underground" data-map="underground">
+                            <span class="btn-icon">🕳</span>
+                            <span class="btn-label">${L.undergroundMap}</span>
+                        </button>
+                        <button class="menu-btn" id="play-btn-map-coastal" data-map="coastal">
+                            <span class="btn-icon">🌊</span>
+                            <span class="btn-label">${L.coastalMap}</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 3. Выбор танка -->
+                <div class="play-window" id="play-window-tank" data-order="2">
+                    <div class="section-title">3. Выбор танка</div>
+                    
+                    <!-- Пресеты танков -->
+                    <div style="margin-bottom: 20px;">
+                        <div style="font-weight: bold; margin-bottom: 10px;">Пресет танка:</div>
+                        <div class="preset-buttons" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                            <button class="menu-btn play-btn" id="preset-balanced" data-preset="balanced">
+                                <span class="btn-label">⚖️ Баланс</span>
+                            </button>
+                            <button class="menu-btn secondary" id="preset-speed" data-preset="speed">
+                                <span class="btn-label">⚡ Скорость</span>
+                            </button>
+                            <button class="menu-btn secondary" id="preset-defense" data-preset="defense">
+                                <span class="btn-label">🛡️ Защита</span>
+                            </button>
+                            <button class="menu-btn secondary" id="preset-damage" data-preset="damage">
+                                <span class="btn-label">💥 Урон</span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Детальный выбор -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;">
+                        <div>
+                            <div style="font-weight: bold; margin-bottom: 10px;">Корпус:</div>
+                            <div class="tank-options" id="chassis-options" style="display: flex; flex-direction: column; gap: 8px;">
+                                <!-- Заполнится динамически -->
+                            </div>
+                        </div>
+                        <div>
+                            <div style="font-weight: bold; margin-bottom: 10px;">Пушка:</div>
+                            <div class="tank-options" id="cannon-options" style="display: flex; flex-direction: column; gap: 8px;">
+                                <!-- Заполнится динамически -->
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Кнопки действий -->
+                    <div class="panel-buttons" style="margin-top: 20px; display: flex; gap: 10px;">
+                        <button class="panel-btn" id="btn-tank-garage" style="flex: 1;">⚙️ ГАРАЖ</button>
+                        <button class="panel-btn primary" id="btn-start-game" style="flex: 2;">В БОЙ!</button>
+                    </div>
+                </div>
+                
+                
+                <!-- Кнопка назад -->
+                <div class="panel-buttons" style="margin-top: 20px;">
+                    <button class="panel-btn" id="play-menu-back">Назад</button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(this.playMenuPanel);
+        
+        // Заполняем опции танков
+        this.populateTankOptions();
+        
+        // Обработчики выбора режима
+        document.getElementById("btn-mode-single")?.addEventListener("click", () => this.selectGameMode("single"));
+        document.getElementById("btn-mode-ffa")?.addEventListener("click", () => this.selectGameMode("ffa"));
+        document.getElementById("btn-mode-tdm")?.addEventListener("click", () => this.selectGameMode("tdm"));
+        document.getElementById("btn-mode-coop")?.addEventListener("click", () => this.selectGameMode("coop"));
+        document.getElementById("btn-mode-br")?.addEventListener("click", () => this.selectGameMode("battle_royale"));
+        document.getElementById("btn-mode-ctf")?.addEventListener("click", () => this.selectGameMode("ctf"));
+        
+        // Обработчики выбора карты
+        const mapButtons = ["normal", "sandbox", "polygon", "frontline", "ruins", "canyon", "industrial", "urban_warfare", "underground", "coastal"];
+        mapButtons.forEach(map => {
+            document.getElementById(`play-btn-map-${map}`)?.addEventListener("click", () => this.selectMap(map as MapType));
+        });
+        
+        // Обработчики пресетов танков
+        document.getElementById("preset-balanced")?.addEventListener("click", () => this.selectPreset("balanced"));
+        document.getElementById("preset-speed")?.addEventListener("click", () => this.selectPreset("speed"));
+        document.getElementById("preset-defense")?.addEventListener("click", () => this.selectPreset("defense"));
+        document.getElementById("preset-damage")?.addEventListener("click", () => this.selectPreset("damage"));
+        
+        // Обработчик кнопки "Гараж" в окне выбора танка
+        document.getElementById("btn-tank-garage")?.addEventListener("click", () => {
+            this.returnToPlayMenuAfterGarage = true;
+            this.hidePlayMenu();
+            this.showGarage();
+        });
+        
+        // Обработчик запуска игры
+        document.getElementById("btn-start-game")?.addEventListener("click", () => this.startSelectedGame());
+        
+        this.setupCloseButton("play-menu-close", () => this.hidePlayMenu());
+        this.setupCloseButton("play-menu-back", () => this.hidePlayMenu());
+        this.setupPanelCloseOnBackground(this.playMenuPanel, () => this.hidePlayMenu());
+    }
+    
+    private populateTankOptions(): void {
+        // Импортируем типы танков динамически
+        import("./tankTypes").then(({ CHASSIS_TYPES, CANNON_TYPES }) => {
+            const chassisContainer = document.getElementById("chassis-options");
+            const cannonContainer = document.getElementById("cannon-options");
+            
+            if (chassisContainer) {
+                chassisContainer.innerHTML = ""; // Очищаем перед заполнением
+                CHASSIS_TYPES.filter(chassis => this.ownedChassisIds.has(chassis.id)).forEach(chassis => {
+                    const btn = document.createElement("button");
+                    btn.className = `menu-btn ${this.selectedChassis === chassis.id ? "play-btn" : ""}`;
+                    btn.innerHTML = `
+                        <span class="btn-label">${chassis.name}</span>
+                        <span style="font-size:10px; opacity:0.8;">
+                            ${Math.round(chassis.maxHealth)} HP • ${Math.round(chassis.moveSpeed)} SPD
+                        </span>`;
+                    btn.dataset.chassis = chassis.id;
+                    btn.addEventListener("click", () => this.selectChassis(chassis.id));
+                    chassisContainer.appendChild(btn);
+                });
+            }
+            
+            if (cannonContainer) {
+                cannonContainer.innerHTML = ""; // Очищаем перед заполнением
+                CANNON_TYPES.filter(cannon => this.ownedCannonIds.has(cannon.id)).forEach(cannon => {
+                    const btn = document.createElement("button");
+                    btn.className = `menu-btn ${this.selectedCannon === cannon.id ? "play-btn" : ""}`;
+                    btn.innerHTML = `
+                        <span class="btn-label">${cannon.name}</span>
+                        <span style="font-size:10px; opacity:0.8;">
+                            ${Math.round(cannon.damage)} DMG • ${(cannon.cooldown / 1000).toFixed(1)}s CD
+                        </span>`;
+                    btn.dataset.cannon = cannon.id;
+                    btn.addEventListener("click", () => this.selectCannon(cannon.id));
+                    cannonContainer.appendChild(btn);
+                });
+            }
+        }).catch(error => {
+            debugError("[Menu] Error loading tank types:", error);
+        });
+    }
+    
+    private selectGameMode(mode: string): void {
+        this.selectedGameMode = mode;
+        debugLog("[Menu] Selected game mode:", mode);
+        
+        // Обновляем визуал выбранной кнопки
+        document.querySelectorAll("[data-mode]").forEach(btn => {
+            const button = btn as HTMLButtonElement;
+            if (button.dataset.mode === mode) {
+                button.className = "menu-btn play-btn";
+            } else {
+                button.className = "menu-btn secondary";
+            }
+        });
+        
+        // Показываем следующий шаг - выбор карты
+        this.showPlayWindow("play-window-map", 1);
+    }
+    
+    private selectMap(map: MapType): void {
+        this.selectedMapType = map;
+        debugLog("[Menu] Selected map:", map);
+        
+        // Обновляем визуал
+        document.querySelectorAll("[data-map]").forEach(btn => {
+            const button = btn as HTMLButtonElement;
+            if (button.dataset.map === map) {
+                button.className = "menu-btn play-btn";
+            } else {
+                button.className = "menu-btn secondary";
+            }
+        });
+        
+        // Показываем следующий шаг - выбор танка поверх
+        this.showPlayWindow("play-window-tank", 2);
+        
+        this.checkCanStartGame();
+    }
+    
+    private selectChassis(chassisId: string): void {
+        if (!this.ownedChassisIds.has(chassisId)) {
+            debugLog("[Menu] Attempt to select chassis not owned:", chassisId);
+            return;
+        }
+        this.selectedChassis = chassisId;
+        localStorage.setItem("selectedChassis", chassisId);
+        debugLog("[Menu] Selected chassis:", chassisId);
+        
+        // Обновляем визуал
+        document.querySelectorAll("[data-chassis]").forEach(btn => {
+            const button = btn as HTMLButtonElement;
+            if (button.dataset.chassis === chassisId) {
+                button.className = "menu-btn play-btn";
+            } else {
+                button.className = "menu-btn";
+            }
+        });
+        
+        this.checkCanStartGame();
+    }
+    
+    private selectCannon(cannonId: string): void {
+        if (!this.ownedCannonIds.has(cannonId)) {
+            debugLog("[Menu] Attempt to select cannon not owned:", cannonId);
+            return;
+        }
+        this.selectedCannon = cannonId;
+        localStorage.setItem("selectedCannon", cannonId);
+        debugLog("[Menu] Selected cannon:", cannonId);
+        
+        // Обновляем визуал
+        document.querySelectorAll("[data-cannon]").forEach(btn => {
+            const button = btn as HTMLButtonElement;
+            if (button.dataset.cannon === cannonId) {
+                button.className = "menu-btn play-btn";
+            } else {
+                button.className = "menu-btn";
+            }
+        });
+        
+        this.checkCanStartGame();
+    }
+    
+    private selectPreset(preset: string): void {
+        debugLog("[Menu] Selected preset:", preset);
+        
+        // Обновляем визуал выбранного пресета
+        document.querySelectorAll("[data-preset]").forEach(btn => {
+            const button = btn as HTMLButtonElement;
+            if (button.dataset.preset === preset) {
+                button.className = "menu-btn play-btn";
+            } else {
+                button.className = "menu-btn secondary";
+            }
+        });
+        
+        // Применяем пресет
+        import("./tankTypes").then(() => {
+            let chassisId = "medium";
+            let cannonId = "standard";
+            
+            switch (preset) {
+                case "balanced":
+                    chassisId = "medium";
+                    cannonId = "standard";
+                    break;
+                case "speed":
+                    chassisId = "light";
+                    cannonId = "rapid";
+                    break;
+                case "defense":
+                    chassisId = "heavy";
+                    cannonId = "heavy";
+                    break;
+                case "damage":
+                    chassisId = "assault";
+                    cannonId = "sniper";
+                    break;
+            }
+
+            // Если нет владения — берем первый доступный из owned
+            const ownedChassis = Array.from(this.ownedChassisIds);
+            const ownedCannon = Array.from(this.ownedCannonIds);
+            if (!this.ownedChassisIds.has(chassisId) && ownedChassis.length > 0) {
+                chassisId = ownedChassis[0];
+            }
+            if (!this.ownedCannonIds.has(cannonId) && ownedCannon.length > 0) {
+                cannonId = ownedCannon[0];
+            }
+            
+            this.selectChassis(chassisId);
+            this.selectCannon(cannonId);
+        }).catch(error => {
+            debugError("[Menu] Error loading tank types for preset:", error);
+        });
+    }
+    
+    private checkCanStartGame(): void {
+        // Проверяем, все ли выбрано
+        const canStart = this.selectedGameMode && 
+                        this.selectedMapType && 
+                        this.selectedChassis && 
+                        this.selectedCannon;
+        
+        // Кнопка "В БОЙ!" всегда видна в окне выбора танка, но может быть disabled
+        const startButton = document.getElementById("btn-start-game");
+        if (startButton) {
+            (startButton as HTMLButtonElement).disabled = !canStart;
+            if (!canStart) {
+                startButton.style.opacity = "0.5";
+                startButton.style.cursor = "not-allowed";
+            } else {
+                startButton.style.opacity = "1";
+                startButton.style.cursor = "pointer";
+            }
+        }
+    }
+
+    private hideAllPlayWindows(): void {
+        document.querySelectorAll(".play-window").forEach(win => {
+            const el = win as HTMLDivElement;
+            el.classList.remove("visible");
+            el.style.zIndex = "100002";
+            el.style.transform = "translate(0,0)";
+        });
+    }
+
+    private showPlayWindow(id: string, order: number): void {
+        const el = document.getElementById(id) as HTMLDivElement | null;
+        if (!el) return;
+        el.classList.add("visible");
+        el.style.zIndex = (100002 + order).toString();
+        el.style.transform = `translate(${order * 12}px, ${order * 12}px)`;
+    }
+    
+    private startSelectedGame(): void {
+        if (!this.selectedMapType) return;
+        
+        // Сохраняем выборы
+        if (this.selectedGameMode) localStorage.setItem("selectedGameMode", this.selectedGameMode);
+        if (this.selectedMapType) localStorage.setItem("selectedMapType", this.selectedMapType);
+        if (this.selectedChassis) localStorage.setItem("selectedChassis", this.selectedChassis);
+        if (this.selectedCannon) localStorage.setItem("selectedCannon", this.selectedCannon);
+        
+        // Закрываем меню и запускаем игру
+        this.hide();
+        this.hidePlayMenu();
+        this.onStartGame(this.selectedMapType);
+    }
+    
+    private quickStart(): void {
+        const savedMap = localStorage.getItem("selectedMapType") as MapType | null;
+        if (!savedMap) {
+            debugLog("[Menu] Quick start: no saved map, showing play menu");
+            this.showPlayMenu();
+            return;
+        }
+        // Используем сохраненные настройки, если есть
+        this.selectedMapType = savedMap;
+        this.selectedGameMode = localStorage.getItem("selectedGameMode") || "";
+        this.selectedChassis = localStorage.getItem("selectedChassis") || this.selectedChassis;
+        this.selectedCannon = localStorage.getItem("selectedCannon") || this.selectedCannon;
+        
+        this.hide();
+        this.hidePlayMenu();
+        this.onStartGame(savedMap);
+    }
+    
+    private showPlayMenu(): void {
+        debugLog("[Menu] showPlayMenu() called");
+        if (this.playMenuPanel) {
+            // Сбрасываем состояние
+            this.selectedGameMode = "";
+            this.selectedMapType = null;
+            
+            // Скрываем все окна шагов
+            this.hideAllPlayWindows();
+            
+            // Показываем только окно выбора режима
+            this.showPlayWindow("play-window-mode", 0);
+            
+            // Сбрасываем выборы кнопок
+            document.querySelectorAll("[data-mode]").forEach(btn => {
+                (btn as HTMLButtonElement).className = "menu-btn secondary";
+            });
+            document.querySelectorAll("[data-map]").forEach(btn => {
+                (btn as HTMLButtonElement).className = "menu-btn secondary";
+            });
+            document.querySelectorAll("[data-preset]").forEach(btn => {
+                (btn as HTMLButtonElement).className = "menu-btn secondary";
+            });
+            
+            // Восстанавливаем сохраненные выборы (если есть)
+            const savedMode = localStorage.getItem("selectedGameMode");
+            const savedMap = localStorage.getItem("selectedMapType") as MapType | null;
+            const savedChassis = localStorage.getItem("selectedChassis");
+            const savedCannon = localStorage.getItem("selectedCannon");
+            
+            // Если сохраненного нет или его нет в владении — сбросим
+            if (savedChassis && !this.ownedChassisIds.has(savedChassis)) {
+                localStorage.removeItem("selectedChassis");
+            }
+            if (savedCannon && !this.ownedCannonIds.has(savedCannon)) {
+                localStorage.removeItem("selectedCannon");
+            }
+
+            if (savedMode) {
+                this.selectGameMode(savedMode);
+            }
+            if (savedMap) {
+                this.selectMap(savedMap);
+            }
+            if (savedChassis) {
+                this.selectChassis(savedChassis);
+            }
+            if (savedCannon) {
+                this.selectCannon(savedCannon);
+            }
+            
+            // Если нет сохраненных данных — открываем первый шаг
+            if (!savedMode) this.showPlayWindow("play-window-mode", 0);
+            
+            this.playMenuPanel.classList.add("visible");
+            this.playMenuPanel.style.setProperty("display", "flex", "important");
+            this.playMenuPanel.style.setProperty("visibility", "visible", "important");
+            this.playMenuPanel.style.setProperty("opacity", "1", "important");
+            this.playMenuPanel.style.setProperty("z-index", "100002", "important");
+            this.enforceCanvasPointerEvents();
+        }
+    }
+    
+    private hidePlayMenu(): void {
+        debugLog("[Menu] hidePlayMenu() called");
+        if (this.playMenuPanel) {
+            this.playMenuPanel.classList.remove("visible");
+            this.playMenuPanel.style.setProperty("display", "none", "important");
+            this.playMenuPanel.style.setProperty("visibility", "hidden", "important");
+            this.enforceCanvasPointerEvents();
+        }
     }
     
     private showMapSelection(): void {
@@ -2449,6 +3686,38 @@ export class MainMenu {
     
     private showGarage(): void {
         debugLog("[Menu] showGarage() called");
+        
+        const wantsPlayMenuBack = this.returnToPlayMenuAfterGarage;
+        const wasPlayVisible = this.playMenuPanel?.classList.contains("visible");
+        
+        // If Garage class is available, use it instead of old panel
+        if (this.garage) {
+            debugLog("[Menu] Opening Garage class");
+            const wasVisible = this.isVisible();
+            if (wasVisible) {
+                this.hide();
+            }
+            this.garage.setOnCloseCallback(() => {
+                const shouldReturnToPlay = this.returnToPlayMenuAfterGarage || wantsPlayMenuBack || wasPlayVisible;
+                this.returnToPlayMenuAfterGarage = false;
+                const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
+                if (canvas && canvas.style.display !== "none") {
+                    debugLog("[Menu] Game is running, not showing menu after garage close");
+                    return;
+                }
+                if (shouldReturnToPlay) {
+                    debugLog("[Menu] Returning to play menu after garage close");
+                    this.showPlayMenu();
+                } else if (wasVisible) {
+                    debugLog("[Menu] Showing menu after garage close");
+                    this.show();
+                }
+            });
+            this.garage.open();
+            return;
+        }
+        
+        // Fallback to old panel if Garage is not available
         debugLog("[Menu] garagePanel exists:", !!this.garagePanel);
         if (this.garagePanel) {
             this.garagePanel.classList.add("visible");
@@ -2474,6 +3743,11 @@ export class MainMenu {
             this.garagePanel.style.setProperty("visibility", "hidden", "important");
             this.enforceCanvasPointerEvents(); // Обновляем состояние canvas
         }
+        
+        if (this.returnToPlayMenuAfterGarage) {
+            this.returnToPlayMenuAfterGarage = false;
+            this.showPlayMenu();
+        }
     }
     
     private saveTankConfig(): void {
@@ -2489,6 +3763,21 @@ export class MainMenu {
             } catch (e) {}
         }
         return { ...DEFAULT_TANK };
+    }
+
+    // Заглушка для владения: читаем из localStorage, иначе дефолт
+    private loadOwnedIds(key: string, fallback: string[]): Set<string> {
+        const raw = localStorage.getItem(key);
+        if (!raw) return new Set(fallback);
+        try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+                return new Set(parsed.map((v) => String(v)));
+            }
+        } catch (_e) {
+            // ignore parse errors
+        }
+        return new Set(fallback);
     }
     
     private showSettings(): void {
@@ -2520,21 +3809,28 @@ export class MainMenu {
         }
     }
     
-    private toggleFullscreen(): void {
-        if (!document.fullscreenElement) {
-            // Входим в полноэкранный режим
-            document.documentElement.requestFullscreen().then(() => {
-                this.updateFullscreenButton(true);
-            }).catch((err) => {
-                console.error(`Error entering fullscreen: ${err.message}`);
-            });
+    private async toggleFullscreen(): Promise<void> {
+        const entering = !document.fullscreenElement;
+        if (entering) {
+            try {
+                if (document.documentElement.requestFullscreen) {
+                    await document.documentElement.requestFullscreen();
+                    this.syncFullscreenState(true);
+                }
+            } catch (err: any) {
+                console.error(`Error entering fullscreen: ${err?.message || err}`);
+                this.syncFullscreenState(false);
+            }
         } else {
-            // Выходим из полноэкранного режима
-            document.exitFullscreen().then(() => {
-                this.updateFullscreenButton(false);
-            }).catch((err) => {
-                console.error(`Error exiting fullscreen: ${err.message}`);
-            });
+            try {
+                if (document.exitFullscreen) {
+                    await document.exitFullscreen();
+                    this.syncFullscreenState(false);
+                }
+            } catch (err: any) {
+                console.error(`Error exiting fullscreen: ${err?.message || err}`);
+                this.syncFullscreenState(!!document.fullscreenElement);
+            }
         }
     }
     
@@ -2549,6 +3845,26 @@ export class MainMenu {
         if (label) {
             label.textContent = isFullscreen ? L.exitFullscreen : L.fullscreen;
         }
+
+        const checkbox = document.getElementById("set-fullscreen") as HTMLInputElement | null;
+        if (checkbox) {
+            checkbox.checked = isFullscreen;
+        }
+    }
+
+    private syncFullscreenState(isFullscreen: boolean): void {
+        this.settings.fullscreen = isFullscreen;
+        this.updateFullscreenButton(isFullscreen);
+    }
+
+    private handleFullscreenCheckbox(checked: boolean): void {
+        if (checked && !document.fullscreenElement) {
+            this.toggleFullscreen();
+        } else if (!checked && document.fullscreenElement) {
+            this.toggleFullscreen();
+        } else {
+            this.syncFullscreenState(!!document.fullscreenElement);
+        }
     }
     
     private saveSettingsFromUI(): void {
@@ -2559,27 +3875,86 @@ export class MainMenu {
             worldSeed = Math.floor(Math.random() * 999999999);
         }
         
+        const getInt = (id: string, def: number) => parseInt((document.getElementById(id) as HTMLInputElement)?.value || def.toString());
+        const getFloat = (id: string, def: number) => parseFloat((document.getElementById(id) as HTMLInputElement)?.value || def.toString());
+        const getBool = (id: string, def: boolean) => (document.getElementById(id) as HTMLInputElement)?.checked ?? def;
+        const getSelect = (id: string, def: string) => (document.getElementById(id) as HTMLSelectElement)?.value || def;
+        
         this.settings = {
-            renderDistance: parseInt((document.getElementById("set-render") as HTMLInputElement)?.value || "3"),
-            soundVolume: parseInt((document.getElementById("set-sound") as HTMLInputElement)?.value || "70"),
-            musicVolume: parseInt((document.getElementById("set-music") as HTMLInputElement)?.value || "50"),
-            mouseSensitivity: parseInt((document.getElementById("set-mouse") as HTMLInputElement)?.value || "5"),
-            showFPS: (document.getElementById("set-fps") as HTMLInputElement)?.checked ?? true,
-            showMinimap: (document.getElementById("set-minimap") as HTMLInputElement)?.checked ?? true,
-            cameraDistance: parseInt((document.getElementById("set-camera-dist") as HTMLInputElement)?.value || "12"),
-            cameraHeight: 5,
-            aimFOV: 0.4,
-            graphicsQuality: parseInt((document.getElementById("set-graphics") as HTMLSelectElement)?.value || "2"),
-            vsync: false,
-            fullscreen: false,
-            aimAssist: true,
-            showDamageNumbers: true,
-            screenShake: (document.getElementById("set-screen-shake") as HTMLInputElement)?.checked ?? true,
-            virtualTurretFixation: (document.getElementById("set-virtual-fixation") as HTMLInputElement)?.checked ?? false,
-            language: this.settings.language, // Preserve current language selection
-            enemyDifficulty: this.settings.enemyDifficulty, // Preserve difficulty selection
+            // Existing settings
+            renderDistance: getInt("set-render", 3),
+            soundVolume: getInt("set-sound", 70),
+            musicVolume: getInt("set-music", 50),
+            mouseSensitivity: getInt("set-mouse", 5),
+            showFPS: getBool("set-fps", true),
+            showMinimap: getBool("set-minimap", true),
+            cameraDistance: getInt("set-camera-dist", 12),
+            cameraHeight: getFloat("set-camera-height", 5),
+            aimFOV: getFloat("set-aim-fov", 0.4),
+            graphicsQuality: parseInt(getSelect("set-graphics", "2")),
+            vsync: getBool("set-vsync", false),
+            fullscreen: getBool("set-fullscreen", false),
+            aimAssist: getBool("set-aim-assist", true),
+            showDamageNumbers: getBool("set-damage-numbers", true),
+            screenShake: getBool("set-screen-shake", true),
+            virtualTurretFixation: getBool("set-virtual-fixation", false),
+            language: this.settings.language,
+            enemyDifficulty: this.settings.enemyDifficulty,
             worldSeed: worldSeed,
-            useRandomSeed: useRandomSeed
+            useRandomSeed: useRandomSeed,
+            
+            // Graphics
+            particleQuality: parseInt(getSelect("set-particle-quality", "2")),
+            shadowQuality: parseInt(getSelect("set-shadow-quality", "2")),
+            antiAliasing: getBool("set-anti-aliasing", true),
+            bloom: getBool("set-bloom", false),
+            motionBlur: getBool("set-motion-blur", false),
+            textureQuality: parseInt(getSelect("set-texture-quality", "2")),
+            lightingQuality: parseInt(getSelect("set-lighting-quality", "2")),
+            
+            // Audio
+            masterVolume: getInt("set-master-volume", 100),
+            ambientVolume: getInt("set-ambient-volume", 20),
+            voiceVolume: getInt("set-voice-volume", 100),
+            muteOnFocusLoss: getBool("set-mute-on-focus-loss", false),
+            
+            // Controls
+            invertMouseY: getBool("set-invert-mouse-y", false),
+            keyboardLayout: getSelect("set-keyboard-layout", "qwerty"),
+            autoReload: getBool("set-auto-reload", false),
+            holdToAim: getBool("set-hold-to-aim", false),
+            
+            // Gameplay
+            showTutorial: getBool("set-show-tutorial", true),
+            showHints: getBool("set-show-hints", true),
+            showCrosshair: getBool("set-show-crosshair", true),
+            crosshairStyle: getSelect("set-crosshair-style", "default"),
+            showHealthBar: getBool("set-show-health-bar", true),
+            showAmmoCounter: getBool("set-show-ammo-counter", true),
+            autoSave: getBool("set-auto-save", true),
+            autoSaveInterval: getInt("set-auto-save-interval", 300),
+            
+            // Camera
+            cameraSmoothing: getFloat("set-camera-smoothing", 0.7),
+            cameraShakeIntensity: getFloat("set-camera-shake-intensity", 1.0),
+            firstPersonMode: getBool("set-first-person-mode", false),
+            cameraFOV: getInt("set-camera-fov", 60),
+            
+            // Network
+            showPing: getBool("set-show-ping", false),
+            showNetworkStats: getBool("set-show-network-stats", false),
+            networkQuality: parseInt(getSelect("set-network-quality", "2")),
+            
+            // Accessibility
+            colorBlindMode: getSelect("set-color-blind-mode", "none"),
+            fontSize: getInt("set-font-size", 14),
+            highContrast: getBool("set-high-contrast", false),
+            subtitles: getBool("set-subtitles", false),
+            
+            // Additional
+            showDebugInfo: getBool("set-show-debug-info", false),
+            enableCheats: getBool("set-enable-cheats", false),
+            maxFPS: getInt("set-max-fps", 0)
         };
         
         localStorage.setItem("gameSettings", JSON.stringify(this.settings));

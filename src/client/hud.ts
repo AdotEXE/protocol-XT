@@ -198,6 +198,16 @@ export class HUD {
     private experienceSystem: any = null; // ExperienceSystem для комбо
     private glowElements: Map<string, { element: Rectangle | TextBlock, baseColor: string, glowColor: string }> = new Map();
     
+    // Multiplayer HUD elements
+    private multiplayerScoreContainer: Rectangle | null = null;
+    private team0ScoreText: TextBlock | null = null;
+    private team1ScoreText: TextBlock | null = null;
+    private matchTimerText: TextBlock | null = null;
+    private playerListContainer: Rectangle | null = null;
+    private playerListItems: Map<string, Rectangle> = new Map();
+    private minimapPlayerMarkers: Map<string, Rectangle> = new Map();
+    private minimapPlayerPool: Rectangle[] = [];
+    
     // Invulnerability indicator
     private invulnerabilityIndicator: Rectangle | null = null;
     private invulnerabilityText: TextBlock | null = null;
@@ -252,6 +262,7 @@ export class HUD {
         this.createCompass();          // Живой компас сверху (без буквенных обозначений)
         this.createMinimap();          // Квадратный радар справа внизу (со спидометром и координатами)
         this.createSpeedometer();      // Спидометр (скрытый, но работает)
+        this.createMultiplayerHUD();   // Multiplayer HUD elements
         this.createPositionDisplay();  // Координаты (скрытые, но работают)
         this.createConsumablesDisplay(); // Слоты 1-5 внизу
         this.createCentralXpBar();     // XP bar внизу
@@ -271,6 +282,7 @@ export class HUD {
         this.createMissionPanel();     // Панель миссий
         this.createTutorial();         // Система туториала
         this.createTracerCounter();    // Счётчик трассеров
+        this._createFPSCounter();      // FPS счётчик
         
         // Убеждаемся, что прицел скрыт по умолчанию
         this.setAimMode(false);
@@ -3802,9 +3814,9 @@ export class HUD {
     private _createFPSCounter() {
         // === FPS COUNTER - ЛЕВЫЙ ВЕРХНИЙ УГОЛ ===
         this.fpsContainer = new Rectangle("fpsContainer");
-        this.fpsContainer.width = "50px";
-        this.fpsContainer.height = "18px";
-        this.fpsContainer.cornerRadius = 0;
+        this.fpsContainer.width = "60px"; // Увеличено для лучшей читаемости
+        this.fpsContainer.height = "20px"; // Увеличено немного
+        this.fpsContainer.cornerRadius = 2;
         this.fpsContainer.thickness = 1;
         this.fpsContainer.color = "#0f03";
         this.fpsContainer.background = "#00000099";
@@ -3812,38 +3824,64 @@ export class HUD {
         this.fpsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.fpsContainer.left = "15px";
         this.fpsContainer.top = "10px";
+        this.fpsContainer.zIndex = 1000; // Поверх других элементов
         this.guiTexture.addControl(this.fpsContainer);
         
         this.fpsText = new TextBlock("fpsText");
-        this.fpsText.text = "60";
+        this.fpsText.text = "60 FPS"; // Явно добавляем " FPS" для отладки
         this.fpsText.color = "#0f0";
-        this.fpsText.fontSize = 10;
-        this.fpsText.fontFamily = "'Press Start 2P', monospace";
+        this.fpsText.fontSize = 11;
+        this.fpsText.fontFamily = "Consolas, monospace"; // Меняем на более читаемый шрифт
+        this.fpsText.fontWeight = "bold";
         this.fpsText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.fpsText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.fpsText.zIndex = 1001;
         this.fpsContainer.addControl(this.fpsText);
+        
+        // FPS виден по умолчанию (можно будет изменить через настройки)
+        this.fpsContainer.isVisible = true;
+        this.fpsText.isVisible = true;
+        
+        console.log("[HUD] FPS counter created:", this.fpsText.text);
     }
     
     updateFPS(fps: number) {
-        if (!this.fpsText) return;
+        if (!this.fpsText || !this.fpsContainer) {
+            return;
+        }
         
+        // Добавляем текущий FPS в историю для усреднения (плавность отображения)
         this.fpsHistory.push(fps);
-        if (this.fpsHistory.length > 10) {
+        if (this.fpsHistory.length > 5) { // Маленький буфер для быстрой реакции
             this.fpsHistory.shift();
         }
         
+        // Вычисляем средний FPS для плавности
         const avgFps = Math.round(this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length);
-        this.fpsText.text = `${avgFps}`;
+        
+        // Обновляем текст (всегда обновляем для "живого" отображения)
+        this.fpsText.text = `${avgFps} FPS`;
         
         // Цвет в зависимости от FPS
         if (avgFps >= 55) {
             this.fpsText.color = "#00ff88";
-            if (this.fpsContainer) this.fpsContainer.color = "#00ff8833";
+            this.fpsContainer.color = "#00ff8833";
         } else if (avgFps >= 30) {
             this.fpsText.color = "#ffaa00";
-            if (this.fpsContainer) this.fpsContainer.color = "#ffaa0033";
+            this.fpsContainer.color = "#ffaa0033";
         } else {
             this.fpsText.color = "#ff3366";
-            if (this.fpsContainer) this.fpsContainer.color = "#ff336633";
+            this.fpsContainer.color = "#ff336633";
+        }
+    }
+    
+    // Установить видимость FPS счётчика
+    setShowFPS(show: boolean): void {
+        if (this.fpsContainer) {
+            this.fpsContainer.isVisible = show;
+        }
+        if (this.fpsText) {
+            this.fpsText.isVisible = show;
         }
     }
     
@@ -5346,6 +5384,518 @@ export class HUD {
             case "radarStation": return "📡";
             default: return "●";
         }
+    }
+    
+    // === MULTIPLAYER HUD ===
+    
+    createMultiplayerHUD(): void {
+        // Score container (top center)
+        this.multiplayerScoreContainer = new Rectangle("multiplayerScore");
+        this.multiplayerScoreContainer.width = "400px";
+        this.multiplayerScoreContainer.height = "60px";
+        this.multiplayerScoreContainer.cornerRadius = 5;
+        this.multiplayerScoreContainer.thickness = 2;
+        this.multiplayerScoreContainer.color = "#666";
+        this.multiplayerScoreContainer.background = "rgba(0, 0, 0, 0.7)";
+        this.multiplayerScoreContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.multiplayerScoreContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.multiplayerScoreContainer.top = "10px";
+        this.multiplayerScoreContainer.isVisible = false;
+        this.guiTexture.addControl(this.multiplayerScoreContainer);
+        
+        // Team 0 score (left)
+        this.team0ScoreText = new TextBlock("team0Score");
+        this.team0ScoreText.text = "Синие: 0";
+        this.team0ScoreText.color = "#4a9eff";
+        this.team0ScoreText.fontSize = "20px";
+        this.team0ScoreText.fontFamily = "monospace";
+        this.team0ScoreText.fontWeight = "bold";
+        this.team0ScoreText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.team0ScoreText.left = "20px";
+        this.team0ScoreText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.multiplayerScoreContainer.addControl(this.team0ScoreText);
+        
+        // Match timer (center)
+        this.matchTimerText = new TextBlock("matchTimer");
+        this.matchTimerText.text = "00:00";
+        this.matchTimerText.color = "#fff";
+        this.matchTimerText.fontSize = "18px";
+        this.matchTimerText.fontFamily = "monospace";
+        this.matchTimerText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.matchTimerText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.multiplayerScoreContainer.addControl(this.matchTimerText);
+        
+        // Team 1 score (right)
+        this.team1ScoreText = new TextBlock("team1Score");
+        this.team1ScoreText.text = "Красные: 0";
+        this.team1ScoreText.color = "#ff4a4a";
+        this.team1ScoreText.fontSize = "20px";
+        this.team1ScoreText.fontFamily = "monospace";
+        this.team1ScoreText.fontWeight = "bold";
+        this.team1ScoreText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.team1ScoreText.right = "20px";
+        this.team1ScoreText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.multiplayerScoreContainer.addControl(this.team1ScoreText);
+        
+        // Player list container (right side)
+        this.playerListContainer = new Rectangle("playerList");
+        this.playerListContainer.width = "250px";
+        this.playerListContainer.height = "400px";
+        this.playerListContainer.cornerRadius = 5;
+        this.playerListContainer.thickness = 2;
+        this.playerListContainer.color = "#666";
+        this.playerListContainer.background = "rgba(0, 0, 0, 0.7)";
+        this.playerListContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.playerListContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.playerListContainer.right = "10px";
+        this.playerListContainer.top = "80px";
+        this.playerListContainer.isVisible = false;
+        this.guiTexture.addControl(this.playerListContainer);
+        
+        // Title
+        const playerListTitle = new TextBlock("playerListTitle");
+        playerListTitle.text = "ИГРОКИ";
+        playerListTitle.color = "#fff";
+        playerListTitle.fontSize = "14px";
+        playerListTitle.fontFamily = "monospace";
+        playerListTitle.fontWeight = "bold";
+        playerListTitle.top = "5px";
+        playerListTitle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.playerListContainer.addControl(playerListTitle);
+        
+        // Initialize player marker pool for minimap
+        for (let i = 0; i < 32; i++) {
+            const marker = new Rectangle(`playerMarker_${i}`);
+            marker.width = "6px";
+            marker.height = "6px";
+            marker.cornerRadius = 3;
+            marker.thickness = 1;
+            marker.color = "#0f0";
+            marker.background = "#0f0";
+            marker.isVisible = false;
+            this.minimapPlayerPool.push(marker);
+        }
+    }
+    
+    showMultiplayerHUD(show: boolean): void {
+        if (this.multiplayerScoreContainer) {
+            this.multiplayerScoreContainer.isVisible = show;
+        }
+        if (this.playerListContainer) {
+            this.playerListContainer.isVisible = show;
+        }
+    }
+    
+    updateMultiplayerScore(team0Score: number, team1Score: number, gameMode: string): void {
+        if (!this.team0ScoreText || !this.team1ScoreText) return;
+        
+        if (gameMode === "tdm" || gameMode === "ctf") {
+            // Team-based modes
+            this.team0ScoreText.text = `Синие: ${team0Score}`;
+            this.team1ScoreText.text = `Красные: ${team1Score}`;
+            this.team0ScoreText.isVisible = true;
+            this.team1ScoreText.isVisible = true;
+        } else if (gameMode === "ffa") {
+            // FFA - hide team scores, show only timer
+            this.team0ScoreText.isVisible = false;
+            this.team1ScoreText.isVisible = false;
+        } else {
+            // Other modes
+            this.team0ScoreText.isVisible = false;
+            this.team1ScoreText.isVisible = false;
+        }
+    }
+    
+    updateMatchTimer(seconds: number): void {
+        if (!this.matchTimerText) return;
+        
+        const minutes = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        this.matchTimerText.text = `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    
+    updatePlayerList(players: Array<{
+        id: string;
+        name: string;
+        kills: number;
+        deaths: number;
+        score: number;
+        team?: number;
+        isAlive: boolean;
+    }>, localPlayerId: string): void {
+        if (!this.playerListContainer) return;
+        
+        // Clear existing items
+        for (const item of this.playerListItems.values()) {
+            item.dispose();
+        }
+        this.playerListItems.clear();
+        
+        // Sort players by score (descending)
+        const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
+        
+        sortedPlayers.forEach((player, index) => {
+            const item = new Rectangle(`playerListItem_${player.id}`);
+            item.width = "230px";
+            item.height = "30px";
+            item.cornerRadius = 3;
+            item.thickness = 1;
+            item.color = player.id === localPlayerId ? "#0f0" : "#666";
+            item.background = player.id === localPlayerId 
+                ? "rgba(0, 50, 0, 0.5)" 
+                : player.isAlive 
+                    ? "rgba(20, 20, 20, 0.5)" 
+                    : "rgba(50, 0, 0, 0.5)";
+            item.top = `${25 + index * 35}px`;
+            item.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            this.playerListContainer!.addControl(item);
+            this.playerListItems.set(player.id, item);
+            
+            // Rank number
+            const rankText = new TextBlock(`playerRank_${player.id}`);
+            rankText.text = `${index + 1}.`;
+            rankText.fontSize = "10px";
+            rankText.fontFamily = "monospace";
+            rankText.color = index < 3 ? "#ffaa00" : "#888";
+            rankText.left = "5px";
+            rankText.top = "10px";
+            rankText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            item.addControl(rankText);
+            
+            // Player name
+            const nameText = new TextBlock(`playerName_${player.id}`);
+            nameText.text = player.name.length > 12 ? player.name.substring(0, 12) + "..." : player.name;
+            nameText.fontSize = "11px";
+            nameText.fontFamily = "monospace";
+            nameText.color = player.isAlive ? "#fff" : "#888";
+            nameText.left = "25px";
+            nameText.top = "5px";
+            nameText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            item.addControl(nameText);
+            
+            // Team indicator (if team-based)
+            if (player.team !== undefined) {
+                const teamIndicator = new Rectangle(`teamIndicator_${player.id}`);
+                teamIndicator.width = "4px";
+                teamIndicator.height = "20px";
+                teamIndicator.background = player.team === 0 ? "#4a9eff" : "#ff4a4a";
+                teamIndicator.left = "0px";
+                teamIndicator.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+                item.addControl(teamIndicator);
+            }
+            
+            // K/D stats
+            const kdText = new TextBlock(`playerKD_${player.id}`);
+            const kdRatio = player.deaths > 0 ? (player.kills / player.deaths).toFixed(2) : player.kills.toString();
+            kdText.text = `${player.kills}/${player.deaths} (${kdRatio})`;
+            kdText.fontSize = "9px";
+            kdText.fontFamily = "monospace";
+            kdText.color = "#aaa";
+            kdText.right = "5px";
+            kdText.top = "5px";
+            kdText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            item.addControl(kdText);
+            
+            // Score
+            const scoreText = new TextBlock(`playerScore_${player.id}`);
+            scoreText.text = `${player.score}`;
+            scoreText.fontSize = "10px";
+            scoreText.fontFamily = "monospace";
+            scoreText.color = "#ffaa00";
+            scoreText.right = "5px";
+            scoreText.top = "18px";
+            scoreText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            item.addControl(scoreText);
+        });
+    }
+    
+    togglePlayerList(): void {
+        if (this.playerListContainer) {
+            this.playerListContainer.isVisible = !this.playerListContainer.isVisible;
+        }
+    }
+    
+    // Battle Royale HUD elements
+    private battleRoyaleContainer: Rectangle | null = null;
+    private battleRoyaleZoneStatus: TextBlock | null = null;
+    private battleRoyaleDistance: TextBlock | null = null;
+    private battleRoyaleTimer: TextBlock | null = null;
+    private battleRoyaleDamage: TextBlock | null = null;
+    
+    updateBattleRoyaleInfo(info: {
+        isInZone: boolean;
+        distance: number;
+        timeUntilShrink: number;
+        damagePerSecond: number;
+        zoneRadius: number;
+    }): void {
+        // Create container if it doesn't exist
+        if (!this.battleRoyaleContainer) {
+            this.battleRoyaleContainer = new Rectangle("battleRoyaleContainer");
+            this.battleRoyaleContainer.width = "250px";
+            this.battleRoyaleContainer.height = "120px";
+            this.battleRoyaleContainer.cornerRadius = 5;
+            this.battleRoyaleContainer.thickness = 2;
+            this.battleRoyaleContainer.color = "#0f0";
+            this.battleRoyaleContainer.background = "rgba(0, 20, 0, 0.8)";
+            this.battleRoyaleContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            this.battleRoyaleContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            this.battleRoyaleContainer.left = "-20px";
+            this.battleRoyaleContainer.top = "150px";
+            this.guiTexture.addControl(this.battleRoyaleContainer);
+            
+            // Zone status
+            this.battleRoyaleZoneStatus = new TextBlock("brZoneStatus");
+            this.battleRoyaleZoneStatus.text = "SAFE ZONE";
+            this.battleRoyaleZoneStatus.fontSize = "14px";
+            this.battleRoyaleZoneStatus.fontFamily = "monospace";
+            this.battleRoyaleZoneStatus.color = "#0f0";
+            this.battleRoyaleZoneStatus.top = "10px";
+            this.battleRoyaleContainer.addControl(this.battleRoyaleZoneStatus);
+            
+            // Distance
+            this.battleRoyaleDistance = new TextBlock("brDistance");
+            this.battleRoyaleDistance.text = "Distance: 0m";
+            this.battleRoyaleDistance.fontSize = "12px";
+            this.battleRoyaleDistance.fontFamily = "monospace";
+            this.battleRoyaleDistance.color = "#fff";
+            this.battleRoyaleDistance.top = "35px";
+            this.battleRoyaleContainer.addControl(this.battleRoyaleDistance);
+            
+            // Timer
+            this.battleRoyaleTimer = new TextBlock("brTimer");
+            this.battleRoyaleTimer.text = "Next shrink: --:--";
+            this.battleRoyaleTimer.fontSize = "12px";
+            this.battleRoyaleTimer.fontFamily = "monospace";
+            this.battleRoyaleTimer.color = "#ff0";
+            this.battleRoyaleTimer.top = "60px";
+            this.battleRoyaleContainer.addControl(this.battleRoyaleTimer);
+            
+            // Damage
+            this.battleRoyaleDamage = new TextBlock("brDamage");
+            this.battleRoyaleDamage.text = "Damage: 0/sec";
+            this.battleRoyaleDamage.fontSize = "12px";
+            this.battleRoyaleDamage.fontFamily = "monospace";
+            this.battleRoyaleDamage.color = "#f00";
+            this.battleRoyaleDamage.top = "85px";
+            this.battleRoyaleContainer.addControl(this.battleRoyaleDamage);
+        }
+        
+        // Update values
+        if (this.battleRoyaleZoneStatus) {
+            this.battleRoyaleZoneStatus.text = info.isInZone ? "SAFE ZONE" : "OUTSIDE ZONE";
+            this.battleRoyaleZoneStatus.color = info.isInZone ? "#0f0" : "#f00";
+        }
+        
+        if (this.battleRoyaleDistance) {
+            this.battleRoyaleDistance.text = `Distance: ${info.distance.toFixed(0)}m`;
+            this.battleRoyaleDistance.color = info.isInZone ? "#0f0" : "#f00";
+        }
+        
+        if (this.battleRoyaleTimer) {
+            const minutes = Math.floor(info.timeUntilShrink / 60);
+            const seconds = Math.floor(info.timeUntilShrink % 60);
+            this.battleRoyaleTimer.text = `Next shrink: ${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            this.battleRoyaleTimer.color = info.timeUntilShrink < 30 ? "#f00" : info.timeUntilShrink < 60 ? "#ff0" : "#0f0";
+        }
+        
+        if (this.battleRoyaleDamage) {
+            this.battleRoyaleDamage.text = `Damage: ${info.damagePerSecond}/sec`;
+            this.battleRoyaleDamage.color = info.isInZone ? "#888" : "#f00";
+            this.battleRoyaleDamage.isVisible = !info.isInZone;
+        }
+        
+        // Update container color based on status
+        if (this.battleRoyaleContainer) {
+            this.battleRoyaleContainer.color = info.isInZone ? "#0f0" : "#f00";
+            this.battleRoyaleContainer.background = info.isInZone 
+                ? "rgba(0, 20, 0, 0.8)" 
+                : "rgba(20, 0, 0, 0.8)";
+        }
+    }
+    
+    // CTF HUD elements
+    private ctfContainer: Rectangle | null = null;
+    private ctfOwnFlagStatus: TextBlock | null = null;
+    private ctfEnemyFlagStatus: TextBlock | null = null;
+    private ctfOwnFlagDistance: TextBlock | null = null;
+    private ctfEnemyFlagDistance: TextBlock | null = null;
+    
+    updateCTFInfo(info: {
+        ownFlag: { isCarried: boolean; carrierId: string | null; position: any } | null;
+        enemyFlag: { isCarried: boolean; carrierId: string | null; position: any } | null;
+        playerPosition: Vector3;
+        playerTeam: number;
+    }): void {
+        // Create container if it doesn't exist
+        if (!this.ctfContainer) {
+            this.ctfContainer = new Rectangle("ctfContainer");
+            this.ctfContainer.width = "250px";
+            this.ctfContainer.height = "100px";
+            this.ctfContainer.cornerRadius = 5;
+            this.ctfContainer.thickness = 2;
+            this.ctfContainer.color = "#0f0";
+            this.ctfContainer.background = "rgba(0, 20, 0, 0.8)";
+            this.ctfContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            this.ctfContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            this.ctfContainer.left = "-20px";
+            this.ctfContainer.top = "280px";
+            this.guiTexture.addControl(this.ctfContainer);
+            
+            // Own flag status
+            this.ctfOwnFlagStatus = new TextBlock("ctfOwnFlagStatus");
+            this.ctfOwnFlagStatus.text = "Your Flag: SAFE";
+            this.ctfOwnFlagStatus.fontSize = "12px";
+            this.ctfOwnFlagStatus.fontFamily = "monospace";
+            this.ctfOwnFlagStatus.color = info.playerTeam === 0 ? "#4a9eff" : "#ff4a4a";
+            this.ctfOwnFlagStatus.top = "10px";
+            this.ctfContainer.addControl(this.ctfOwnFlagStatus);
+            
+            // Own flag distance
+            this.ctfOwnFlagDistance = new TextBlock("ctfOwnFlagDistance");
+            this.ctfOwnFlagDistance.text = "Distance: --m";
+            this.ctfOwnFlagDistance.fontSize = "11px";
+            this.ctfOwnFlagDistance.fontFamily = "monospace";
+            this.ctfOwnFlagDistance.color = "#aaa";
+            this.ctfOwnFlagDistance.top = "30px";
+            this.ctfContainer.addControl(this.ctfOwnFlagDistance);
+            
+            // Enemy flag status
+            this.ctfEnemyFlagStatus = new TextBlock("ctfEnemyFlagStatus");
+            this.ctfEnemyFlagStatus.text = "Enemy Flag: AT BASE";
+            this.ctfEnemyFlagStatus.fontSize = "12px";
+            this.ctfEnemyFlagStatus.fontFamily = "monospace";
+            this.ctfEnemyFlagStatus.color = info.playerTeam === 0 ? "#ff4a4a" : "#4a9eff";
+            this.ctfEnemyFlagStatus.top = "55px";
+            this.ctfContainer.addControl(this.ctfEnemyFlagStatus);
+            
+            // Enemy flag distance
+            this.ctfEnemyFlagDistance = new TextBlock("ctfEnemyFlagDistance");
+            this.ctfEnemyFlagDistance.text = "Distance: --m";
+            this.ctfEnemyFlagDistance.fontSize = "11px";
+            this.ctfEnemyFlagDistance.fontFamily = "monospace";
+            this.ctfEnemyFlagDistance.color = "#aaa";
+            this.ctfEnemyFlagDistance.top = "75px";
+            this.ctfContainer.addControl(this.ctfEnemyFlagDistance);
+        }
+        
+        // Update own flag status
+        if (this.ctfOwnFlagStatus && info.ownFlag) {
+            if (info.ownFlag.isCarried) {
+                this.ctfOwnFlagStatus.text = "Your Flag: CARRIED!";
+                this.ctfOwnFlagStatus.color = "#f00";
+            } else {
+                this.ctfOwnFlagStatus.text = "Your Flag: SAFE";
+                this.ctfOwnFlagStatus.color = info.playerTeam === 0 ? "#4a9eff" : "#ff4a4a";
+            }
+        }
+        
+        // Update own flag distance
+        if (this.ctfOwnFlagDistance && info.ownFlag) {
+            const flagPos = new Vector3(
+                info.ownFlag.position.x || 0,
+                info.ownFlag.position.y || 0,
+                info.ownFlag.position.z || 0
+            );
+            const distance = Vector3.Distance(info.playerPosition, flagPos);
+            this.ctfOwnFlagDistance.text = `Distance: ${distance.toFixed(0)}m`;
+            this.ctfOwnFlagDistance.color = info.ownFlag.isCarried ? "#f00" : "#0f0";
+        }
+        
+        // Update enemy flag status
+        if (this.ctfEnemyFlagStatus && info.enemyFlag) {
+            if (info.enemyFlag.isCarried) {
+                this.ctfEnemyFlagStatus.text = "Enemy Flag: CARRIED";
+                this.ctfEnemyFlagStatus.color = "#ff0";
+            } else {
+                this.ctfEnemyFlagStatus.text = "Enemy Flag: AT BASE";
+                this.ctfEnemyFlagStatus.color = info.playerTeam === 0 ? "#ff4a4a" : "#4a9eff";
+            }
+        }
+        
+        // Update enemy flag distance
+        if (this.ctfEnemyFlagDistance && info.enemyFlag) {
+            const flagPos = new Vector3(
+                info.enemyFlag.position.x || 0,
+                info.enemyFlag.position.y || 0,
+                info.enemyFlag.position.z || 0
+            );
+            const distance = Vector3.Distance(info.playerPosition, flagPos);
+            this.ctfEnemyFlagDistance.text = `Distance: ${distance.toFixed(0)}m`;
+            this.ctfEnemyFlagDistance.color = info.enemyFlag.isCarried ? "#ff0" : "#0f0";
+        }
+    }
+    
+    updateMinimapPlayers(players: Array<{
+        id: string;
+        position: { x: number; z: number };
+        team?: number;
+    }>, localPlayerPos: { x: number; z: number }, localPlayerId: string): void {
+        if (!this.radarArea) return;
+        
+        // Clear existing markers
+        for (const marker of this.minimapPlayerMarkers.values()) {
+            marker.isVisible = false;
+        }
+        this.minimapPlayerMarkers.clear();
+        
+        // Radar range (same as minimap range)
+        const radarRange = 100; // meters
+        const radarSize = 130; // pixels (from createMinimap)
+        
+        players.forEach((player, index) => {
+            if (player.id === localPlayerId) return; // Don't show local player
+            
+            // Calculate relative position
+            const dx = player.position.x - localPlayerPos.x;
+            const dz = player.position.z - localPlayerPos.z;
+            const distance = Math.sqrt(dx * dx + dz * dz);
+            
+            if (distance > radarRange) return; // Too far
+            
+            // Get or create marker from pool
+            let marker = this.minimapPlayerPool[index];
+            if (!marker) {
+                marker = new Rectangle(`minimapPlayer_${player.id}`);
+                marker.width = "6px";
+                marker.height = "6px";
+                marker.cornerRadius = 3;
+                marker.thickness = 1;
+                marker.color = player.team === 0 ? "#4a9eff" : player.team === 1 ? "#ff4a4a" : "#0f0";
+                marker.background = player.team === 0 ? "#4a9eff" : player.team === 1 ? "#ff4a4a" : "#0f0";
+                marker.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                marker.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                this.radarArea.addControl(marker);
+                this.minimapPlayerPool.push(marker);
+            }
+            
+            // Position marker on radar (normalized to -1..1, then scaled to radar size)
+            const normalizedX = dx / radarRange;
+            const normalizedZ = dz / radarRange;
+            
+            // Clamp to radar bounds
+            const clampedX = Math.max(-1, Math.min(1, normalizedX));
+            const clampedZ = Math.max(-1, Math.min(1, normalizedZ));
+            
+            // Convert to pixel coordinates (center is at radarSize/2)
+            const pixelX = (radarSize / 2) + clampedX * (radarSize / 2 - 5);
+            const pixelZ = (radarSize / 2) + clampedZ * (radarSize / 2 - 5);
+            
+            marker.left = `${pixelX - 3}px`;
+            marker.top = `${pixelZ - 3}px`;
+            marker.isVisible = true;
+            
+            // Update color based on team
+            if (player.team !== undefined) {
+                marker.color = player.team === 0 ? "#4a9eff" : "#ff4a4a";
+                marker.background = player.team === 0 ? "#4a9eff" : "#ff4a4a";
+            } else {
+                marker.color = "#0f0";
+                marker.background = "#0f0";
+            }
+            
+            this.minimapPlayerMarkers.set(player.id, marker);
+        });
     }
     
     // === MISSION PANEL ===
