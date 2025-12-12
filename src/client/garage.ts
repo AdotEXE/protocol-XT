@@ -2,7 +2,7 @@
 import { CurrencyManager } from "./currencyManager";
 import { AdvancedDynamicTexture, Rectangle, TextBlock, Control, Button, ScrollViewer, InputText } from "@babylonjs/gui";
 import { Scene } from "@babylonjs/core";
-import { CHASSIS_TYPES, CANNON_TYPES, type ChassisType, type CannonType } from "./tankTypes";
+import { CHASSIS_TYPES, CANNON_TYPES } from "./tankTypes";
 
 export interface TankUpgrade {
     id: string;
@@ -65,14 +65,13 @@ export class Garage {
     private searchText: string = "";
     private sortBy: "name" | "cost" | "stats" = "name";
     private filterUnlocked: boolean | null = null; // null = все, true = только разблокированные, false = только заблокированные
-    private filterPrice: "all" | "cheap" | "medium" | "expensive" = "all"; // Фильтр по цене
+    private _filterPrice: "all" | "cheap" | "medium" | "expensive" = "all"; // Фильтр по цене
     private searchInput: any = null;
     
-    // Счётчик для обновлений
-    private _updateTick: number = 0;
+    // Счётчик для обновлений (зарезервирован для будущего использования)
     
     // Интервал для периодического обновления статистики
-    private _statsUpdateInterval: number | null = null;
+    private _statsUpdateInterval: ReturnType<typeof setInterval> | null = null;
     
     // Навигация клавиатурой
     private selectedItemIndex: number = -1;
@@ -132,7 +131,7 @@ export class Garage {
     
     // Старые части для совместимости (можно удалить позже)
     private turretParts: TankPart[] = [];
-    private barrelParts: TankPart[] = [];
+    private _barrelParts: TankPart[] = [];
     
     private upgrades: TankUpgrade[] = [
         { id: "health_1", name: "Health +20", description: "Increases health", cost: 200, level: 0, maxLevel: 5, stat: "health", value: 20 },
@@ -289,7 +288,7 @@ export class Garage {
                 e.preventDefault();
                 this.switchCategory("chassis");
                 // Обновляем кнопки категорий
-                this.categoryButtons.forEach((btn, i) => {
+                this.categoryButtons.forEach((btn) => {
                     const btnId = (btn as any).name;
                     if (btnId === "cat_chassis") {
                         btn.color = "#0f0";
@@ -306,7 +305,7 @@ export class Garage {
             } else if (e.code === "Digit2" || e.code === "Numpad2") {
                 e.preventDefault();
                 this.switchCategory("barrel");
-                this.categoryButtons.forEach((btn, i) => {
+                this.categoryButtons.forEach((btn) => {
                     const btnId = (btn as any).name;
                     if (btnId === "cat_barrel") {
                         btn.color = "#0f0";
@@ -323,7 +322,7 @@ export class Garage {
             } else if (e.code === "Digit3" || e.code === "Numpad3") {
                 e.preventDefault();
                 this.switchCategory("upgrades");
-                this.categoryButtons.forEach((btn, i) => {
+                this.categoryButtons.forEach((btn) => {
                     const btnId = (btn as any).name;
                     if (btnId === "cat_upgrades") {
                         btn.color = "#0f0";
@@ -356,13 +355,11 @@ export class Garage {
                 e.preventDefault();
                 this.searchText = "";
                 this.filterUnlocked = null;
-                this.filterPrice = "all";
+                this._filterPrice = "all";
                 this.sortBy = "name";
                 if (this.searchInput) {
-                    if (this.searchInput.text !== undefined) {
+                    if (this.searchInput) {
                         this.searchInput.text = "";
-                    } else if (this.searchInput.textBlock) {
-                        this.searchInput.textBlock.text = "";
                     }
                 }
                 // Сбрасываем кнопки фильтров
@@ -515,7 +512,7 @@ export class Garage {
         
         console.log("[Garage] GUI texture settings:", {
             isForeground: this.guiTexture.isForeground,
-            layerMask: this.guiTexture.layerMask,
+            layerMask: this.guiTexture.layer?.layerMask,
             rootContainerVisible: this.guiTexture.rootContainer?.isVisible,
             rootContainerAlpha: this.guiTexture.rootContainer?.alpha
         });
@@ -581,20 +578,19 @@ export class Garage {
         }
     }
     
-    // Создать UI гаража - полностью переделанный с нуля
+    // Создать UI гаража - полностью переделанный с нуля в современном Low Poly стиле
     private createGarageUI(): void {
-        // Main container - чистая структура без лишних эффектов
+        // Main container - компактный и современный дизайн
         this.garageContainer = new Rectangle("garageMain");
-        this.garageContainer.width = "920px";
-        this.garageContainer.height = "720px";
+        this.garageContainer.width = "1000px";
+        this.garageContainer.height = "700px";
         this.garageContainer.cornerRadius = 0;
-        this.garageContainer.thickness = 2;
+        this.garageContainer.thickness = 3;
         this.garageContainer.color = "#0f0";
-        this.garageContainer.background = "rgba(0, 0, 0, 0.9)";
+        this.garageContainer.background = "rgba(10, 20, 10, 0.95)";
         this.garageContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.garageContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.garageContainer.isPointerBlocker = true;
-        this.garageContainer.layerMask = 0xFFFFFFFF;
         // Гараж должен быть скрыт по умолчанию, пока не будет открыт
         this.garageContainer.alpha = 0.0;
         this.garageContainer.isVisible = false;
@@ -603,63 +599,63 @@ export class Garage {
         // Добавляем в GUI texture
         this.guiTexture.addControl(this.garageContainer);
         
-        // ========== HEADER SECTION ==========
-        // Header background - фиксированная высота 60px
+        // ========== HEADER SECTION (компактный) ==========
+        // Header background - компактная высота 50px
         const headerBg = new Rectangle("garageHeader");
         headerBg.width = "100%";
-        headerBg.height = "60px";
+        headerBg.height = "50px";
         headerBg.cornerRadius = 0;
         headerBg.thickness = 0;
-        headerBg.background = "rgba(0, 50, 0, 0.7)";
-        headerBg.top = "-360px";
+        headerBg.background = "rgba(0, 40, 0, 0.85)";
+        headerBg.top = "-350px";
         headerBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.garageContainer.addControl(headerBg);
         
-        // Title - простой и читаемый
+        // Title - компактный
         const title = new TextBlock("garageTitle");
         title.text = "GARAGE";
         title.color = "#0f0";
-        title.fontSize = 20;
+        title.fontSize = 18;
         title.fontWeight = "bold";
         title.fontFamily = "Consolas, Monaco, monospace";
-        title.top = "-340px";
-        title.left = "-400px";
+        title.top = "-330px";
+        title.left = "-480px";
         title.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.garageContainer.addControl(title);
         
-        // Currency display - простой и читаемый
+        // Currency display - компактный, справа от заголовка
         const currencyContainer = new Rectangle("currencyContainer");
-        currencyContainer.width = "180px";
-        currencyContainer.height = "32px";
+        currencyContainer.width = "160px";
+        currencyContainer.height = "28px";
         currencyContainer.cornerRadius = 0;
         currencyContainer.thickness = 1;
         currencyContainer.color = "#ff0";
-        currencyContainer.background = "rgba(0, 0, 0, 0.9)";
-        currencyContainer.left = "360px";
-        currencyContainer.top = "-338px";
+        currencyContainer.background = "rgba(20, 20, 0, 0.9)";
+        currencyContainer.left = "200px";
+        currencyContainer.top = "-332px";
         this.garageContainer.addControl(currencyContainer);
         
         const currencyLabel = new TextBlock("currencyLabel");
         currencyLabel.text = "CR:";
         currencyLabel.color = "#0ff";
-        currencyLabel.fontSize = 12;
+        currencyLabel.fontSize = 11;
         currencyLabel.fontFamily = "Consolas, Monaco, monospace";
         currencyLabel.fontWeight = "normal";
-        currencyLabel.left = "-75px";
+        currencyLabel.left = "-65px";
         currencyLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         currencyContainer.addControl(currencyLabel);
         
         const currencyText = new TextBlock("garageCurrency");
         currencyText.text = `${this.currencyManager.getCurrency()}`;
         currencyText.color = "#ff0";
-        currencyText.fontSize = 16;
+        currencyText.fontSize = 14;
         currencyText.fontWeight = "bold";
         currencyText.fontFamily = "Consolas, Monaco, monospace";
-        currencyText.left = "10px";
+        currencyText.left = "8px";
         currencyText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         currencyContainer.addControl(currencyText);
         
-        // Player stats panel (справа от валюты) - безопасный вызов
+        // Player stats panel (компактный, справа от валюты) - безопасный вызов
         try {
             if (this.createPlayerStatsPanel) {
                 this.createPlayerStatsPanel();
@@ -679,50 +675,23 @@ export class Garage {
         headerLine.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.garageContainer.addControl(headerLine);
         
-        // ========== CONTENT SECTION ==========
-        // Player stats panel
-        try {
-            if (this.createPlayerStatsPanel) {
-                this.createPlayerStatsPanel();
-            }
-        } catch (e) {
-            console.warn("[Garage] Failed to create player stats panel:", e);
-        }
-        
-        // Quick actions
-        this.createQuickActions();
-        
-        // Current tank preview
-        try {
-            if (this.createCurrentTankPreview) {
-                this.createCurrentTankPreview();
-            }
-        } catch (e) {
-            console.warn("[Garage] Failed to create current tank preview:", e);
-        }
-        
-        // Recommendations panel
-        this.createRecommendationsPanel();
-        
-        // Action history panel
-        this.createActionHistoryPanel();
-        
-        // Message display - простой и читаемый
+        // ========== CONTENT SECTION (компактная двухколоночная структура) ==========
+        // Message display - компактный, вверху контента
         const messageContainer = new Rectangle("messageContainer");
-        messageContainer.width = "860px";
-        messageContainer.height = "24px";
+        messageContainer.width = "960px";
+        messageContainer.height = "22px";
         messageContainer.cornerRadius = 0;
         messageContainer.thickness = 1;
         messageContainer.color = "#0f0";
-        messageContainer.background = "rgba(0, 0, 0, 0.9)";
-        messageContainer.top = "-210px";
+        messageContainer.background = "rgba(0, 20, 0, 0.9)";
+        messageContainer.top = "-280px";
         messageContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.garageContainer.addControl(messageContainer);
         
         const messageText = new TextBlock("garageMessage");
         messageText.text = "";
         messageText.color = "#0f0";
-        messageText.fontSize = 12;
+        messageText.fontSize = 11;
         messageText.fontFamily = "Consolas, Monaco, monospace";
         messageText.fontWeight = "normal";
         messageText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -743,15 +712,15 @@ export class Garage {
         // Apply button (применить изменения сразу) - улучшенный
         this.createApplyButton();
         
-        // ========== FOOTER SECTION ==========
-        // Footer background - фиксированная высота 50px
+        // ========== FOOTER SECTION (компактный) ==========
+        // Footer background - компактная высота 45px
         const footerBg = new Rectangle("garageFooter");
         footerBg.width = "100%";
-        footerBg.height = "50px";
+        footerBg.height = "45px";
         footerBg.cornerRadius = 0;
         footerBg.thickness = 0;
-        footerBg.background = "rgba(0, 40, 0, 0.7)";
-        footerBg.top = "320px";
+        footerBg.background = "rgba(0, 30, 0, 0.85)";
+        footerBg.top = "310px";
         footerBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.garageContainer.addControl(footerBg);
         
@@ -762,19 +731,19 @@ export class Garage {
         footerLine.cornerRadius = 0;
         footerLine.thickness = 0;
         footerLine.background = "#0f0";
-        footerLine.top = "320px";
+        footerLine.top = "310px";
         footerLine.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.garageContainer.addControl(footerLine);
         
-        // Changes indicator - простой без лишних анимаций
+        // Changes indicator - компактный
         const changesIndicator = new Rectangle("changesIndicator");
-        changesIndicator.width = "420px";
-        changesIndicator.height = "24px";
+        changesIndicator.width = "380px";
+        changesIndicator.height = "22px";
         changesIndicator.cornerRadius = 0;
         changesIndicator.thickness = 1;
         changesIndicator.color = "#0ff";
-        changesIndicator.background = "rgba(0, 0, 0, 0.9)";
-        changesIndicator.top = "300px";
+        changesIndicator.background = "rgba(0, 20, 20, 0.9)";
+        changesIndicator.top = "290px";
         changesIndicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         changesIndicator.isVisible = false;
         this.garageContainer.addControl(changesIndicator);
@@ -782,36 +751,36 @@ export class Garage {
         const changesText = new TextBlock("changesText");
         changesText.text = "> PENDING CHANGES | [Enter] to apply";
         changesText.color = "#0ff";
-        changesText.fontSize = 11;
+        changesText.fontSize = 10;
         changesText.fontFamily = "Consolas, Monaco, monospace";
         changesText.fontWeight = "bold";
         changesText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         changesIndicator.addControl(changesText);
         
-        // Navigation hint - простой и читаемый
+        // Navigation hint - компактный
         const navHint = new TextBlock("navHint");
-        navHint.text = "[Arrow Keys] Navigate | [Space/Enter] Select | [1-3] Categories | [F] Quick Buy | [R] Reset";
+        navHint.text = "[↑↓] Navigate | [Space/Enter] Select | [1-3] Categories | [F] Quick Buy | [R] Reset";
         navHint.color = "#0aa";
-        navHint.fontSize = 10;
+        navHint.fontSize = 9;
         navHint.fontFamily = "Consolas, Monaco, monospace";
         navHint.fontWeight = "normal";
-        navHint.top = "285px";
+        navHint.top = "270px";
         navHint.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.garageContainer.addControl(navHint);
         
-        // Close button в терминальном стиле - оптимизированный
+        // Close button - компактный
         const closeBtn = Button.CreateSimpleButton("closeGarage", "CLOSE [ESC]");
-        closeBtn.width = "130px";
-        closeBtn.height = "35px";
+        closeBtn.width = "120px";
+        closeBtn.height = "32px";
         closeBtn.cornerRadius = 0;
         closeBtn.fontFamily = "Consolas, Monaco, monospace";
         closeBtn.color = "#f00";
-        closeBtn.background = "rgba(255, 0, 0, 0.2)";
+        closeBtn.background = "rgba(255, 0, 0, 0.25)";
         closeBtn.thickness = 1;
-        closeBtn.fontSize = 11;
+        closeBtn.fontSize = 10;
         closeBtn.fontWeight = "bold";
-        closeBtn.top = "328px";
-        closeBtn.left = "300px";
+        closeBtn.top = "318px";
+        closeBtn.left = "280px";
         closeBtn.isPointerBlocker = true;
         
         // Hover эффект для кнопки закрытия
@@ -836,24 +805,24 @@ export class Garage {
             if (this.isOpen && changesIndicator) {
                 const hasChanges = (this.previewChassisId && this.previewChassisId !== this.currentChassisId) ||
                                 (this.previewCannonId && this.previewCannonId !== this.currentCannonId);
-                if (changesIndicator.isVisible !== hasChanges) {
-                    changesIndicator.isVisible = hasChanges;
+                if (changesIndicator.isVisible !== !!hasChanges) {
+                    changesIndicator.isVisible = !!hasChanges;
                 }
             }
         }, 300);
         
-        // Кнопка сброса фильтров в терминальном стиле - оптимизированная
+        // Кнопка сброса фильтров - компактная
         const resetFiltersBtn = Button.CreateSimpleButton("resetFilters", "RESET [R]");
-        resetFiltersBtn.width = "100px";
-        resetFiltersBtn.height = "28px";
+        resetFiltersBtn.width = "90px";
+        resetFiltersBtn.height = "26px";
         resetFiltersBtn.cornerRadius = 0;
         resetFiltersBtn.fontFamily = "Consolas, Monaco, monospace";
         resetFiltersBtn.color = "#0aa";
-        resetFiltersBtn.background = "rgba(0, 255, 0, 0.1)";
+        resetFiltersBtn.background = "rgba(0, 255, 0, 0.15)";
         resetFiltersBtn.thickness = 1;
-        resetFiltersBtn.fontSize = 10;
-        resetFiltersBtn.top = "330px";
-        resetFiltersBtn.left = "-400px";
+        resetFiltersBtn.fontSize = 9;
+        resetFiltersBtn.top = "320px";
+        resetFiltersBtn.left = "-450px";
         
         // Hover эффект для кнопки сброса
         resetFiltersBtn.onPointerEnterObservable.add(() => {
@@ -870,14 +839,10 @@ export class Garage {
         resetFiltersBtn.onPointerClickObservable.add(() => {
             this.searchText = "";
             this.filterUnlocked = null;
-            this.filterPrice = "all";
+            this._filterPrice = "all";
             this.sortBy = "name";
             if (this.searchInput) {
-                if (this.searchInput.text !== undefined) {
-                    this.searchInput.text = "";
-                } else if (this.searchInput.textBlock) {
-                    this.searchInput.textBlock.text = "";
-                }
+                this.searchInput.text = "";
             }
             // Сбрасываем кнопки фильтров
             const filterAll = this.garageContainer!.getChildByName("filterAll") as Button;
@@ -979,12 +944,12 @@ export class Garage {
         }, 100); // Проверяем каждые 100мс, но обновляем с разной частотой для оптимизации
     }
     
-    // Создать поиск и фильтры
+    // Создать поиск и фильтры - компактная версия
     private createSearchAndFilters(): void {
-        // Контейнер для поиска и фильтров - оптимизированный с улучшенным spacing
+        // Контейнер для поиска и фильтров - компактный
         const searchContainer = new Rectangle("searchContainer");
-        searchContainer.width = "860px";
-        searchContainer.height = "40px";
+        searchContainer.width = "960px";
+        searchContainer.height = "32px";
         searchContainer.cornerRadius = 0;
         searchContainer.thickness = 0;
         searchContainer.background = "#00000000";
@@ -994,71 +959,71 @@ export class Garage {
         
         // Визуальный разделитель между поиском и категориями
         const categorySeparator = new Rectangle("categorySeparator");
-        categorySeparator.width = "860px";
+        categorySeparator.width = "960px";
         categorySeparator.height = "1px";
         categorySeparator.cornerRadius = 0;
         categorySeparator.thickness = 0;
         categorySeparator.background = "#0aa";
-        categorySeparator.top = "-195px";
+        categorySeparator.top = "-210px";
         categorySeparator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.garageContainer!.addControl(categorySeparator);
         
-        // Поиск - единый стиль
+        // Поиск - компактный
         const searchLabel = new TextBlock("searchLabel");
         searchLabel.text = "SEARCH:";
         searchLabel.color = "#0ff";
-        searchLabel.fontSize = 12;
+        searchLabel.fontSize = 10;
         searchLabel.fontFamily = "Consolas, Monaco, monospace";
         searchLabel.fontWeight = "normal";
-        searchLabel.left = "-420px";
+        searchLabel.left = "-470px";
         searchLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         searchContainer.addControl(searchLabel);
         
-        // Поле поиска в реальном времени в терминальном стиле
+        // Поле поиска - компактное
         const searchInput = new InputText("searchInput");
-        searchInput.width = "180px";
-        searchInput.height = "26px";
+        searchInput.width = "160px";
+        searchInput.height = "24px";
         searchInput.text = this.searchText || "";
         searchInput.placeholderText = "Name...";
         searchInput.color = "#0aa";
         searchInput.background = "rgba(0, 0, 0, 0.8)";
         searchInput.focusedBackground = "rgba(0, 20, 20, 0.9)";
-        searchInput.fontSize = 10;
+        searchInput.fontSize = 9;
         searchInput.fontFamily = "Consolas, Monaco, monospace";
         searchInput.thickness = 1;
         searchInput.focusedColor = "#0f0";
-        searchInput.left = "-320px";
-        searchInput.top = "7px";
+        searchInput.left = "-380px";
+        searchInput.top = "4px";
         searchInput.onTextChangedObservable.add((text) => {
-            this.searchText = text;
+            this.searchText = typeof text === 'string' ? text : String(text || '');
             this.selectedItemIndex = -1; // Сбрасываем выбор при поиске
             this.updateItemList();
         });
         searchContainer.addControl(searchInput);
-        this.searchInput = searchInput;
+        this.searchInput = searchInput as any;
         
-        // Фильтр - единый стиль
+        // Фильтр - компактный
         const filterLabel = new TextBlock("filterLabel");
         filterLabel.text = "FILTER:";
         filterLabel.color = "#0ff";
-        filterLabel.fontSize = 12;
+        filterLabel.fontSize = 10;
         filterLabel.fontFamily = "Consolas, Monaco, monospace";
         filterLabel.fontWeight = "normal";
-        filterLabel.left = "-100px";
+        filterLabel.left = "-180px";
         filterLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         searchContainer.addControl(filterLabel);
         
         const filterAll = Button.CreateSimpleButton("filterAll", "ALL");
-        filterAll.width = "55px";
-        filterAll.height = "26px";
+        filterAll.width = "50px";
+        filterAll.height = "24px";
         filterAll.cornerRadius = 0;
         filterAll.fontFamily = "Consolas, Monaco, monospace";
         filterAll.color = this.filterUnlocked === null ? "#0f0" : "#0aa";
         filterAll.background = this.filterUnlocked === null ? "rgba(0, 255, 0, 0.15)" : "rgba(0, 0, 0, 0.8)";
         filterAll.thickness = 1;
-        filterAll.fontSize = 10;
-        filterAll.left = "-30px";
-        filterAll.top = "7px";
+        filterAll.fontSize = 9;
+        filterAll.left = "-110px";
+        filterAll.top = "4px";
         
         // Hover эффект для кнопки фильтра
         filterAll.onPointerEnterObservable.add(() => {
@@ -1087,16 +1052,16 @@ export class Garage {
         searchContainer.addControl(filterAll);
         
         const filterOwned = Button.CreateSimpleButton("filterOwned", "OWNED");
-        filterOwned.width = "65px";
-        filterOwned.height = "26px";
+        filterOwned.width = "60px";
+        filterOwned.height = "24px";
         filterOwned.cornerRadius = 0;
         filterOwned.fontFamily = "Consolas, Monaco, monospace";
         filterOwned.color = this.filterUnlocked === true ? "#0f0" : "#0aa";
         filterOwned.background = this.filterUnlocked === true ? "rgba(0, 255, 0, 0.15)" : "rgba(0, 0, 0, 0.8)";
         filterOwned.thickness = 1;
-        filterOwned.fontSize = 10;
-        filterOwned.left = "35px";
-        filterOwned.top = "7px";
+        filterOwned.fontSize = 9;
+        filterOwned.left = "-50px";
+        filterOwned.top = "4px";
         
         // Hover эффект для кнопки фильтра
         filterOwned.onPointerEnterObservable.add(() => {
@@ -1125,16 +1090,16 @@ export class Garage {
         searchContainer.addControl(filterOwned);
         
         const filterLocked = Button.CreateSimpleButton("filterLocked", "LOCKED");
-        filterLocked.width = "70px";
-        filterLocked.height = "26px";
+        filterLocked.width = "65px";
+        filterLocked.height = "24px";
         filterLocked.cornerRadius = 0;
         filterLocked.fontFamily = "Consolas, Monaco, monospace";
         filterLocked.color = this.filterUnlocked === false ? "#0f0" : "#0aa";
         filterLocked.background = this.filterUnlocked === false ? "rgba(0, 255, 0, 0.15)" : "rgba(0, 0, 0, 0.8)";
         filterLocked.thickness = 1;
-        filterLocked.fontSize = 10;
-        filterLocked.left = "110px";
-        filterLocked.top = "7px";
+        filterLocked.fontSize = 9;
+        filterLocked.left = "20px";
+        filterLocked.top = "4px";
         
         // Hover эффект для кнопки фильтра
         filterLocked.onPointerEnterObservable.add(() => {
@@ -1162,28 +1127,28 @@ export class Garage {
         });
         searchContainer.addControl(filterLocked);
         
-        // Сортировка в терминальном стиле
+        // Сортировка - компактная
         const sortLabel = new TextBlock("sortLabel");
         sortLabel.text = "SORT:";
         sortLabel.color = "#0ff";
-        sortLabel.fontSize = 12;
+        sortLabel.fontSize = 10;
         sortLabel.fontFamily = "Consolas, Monaco, monospace";
         sortLabel.fontWeight = "normal";
-        sortLabel.left = "200px";
+        sortLabel.left = "100px";
         sortLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         searchContainer.addControl(sortLabel);
         
         const sortBtn = Button.CreateSimpleButton("sortBtn", this.sortBy === "name" ? "NAME" : this.sortBy === "cost" ? "COST" : "STATS");
-        sortBtn.width = "70px";
-        sortBtn.height = "26px";
+        sortBtn.width = "60px";
+        sortBtn.height = "24px";
         sortBtn.cornerRadius = 0;
         sortBtn.fontFamily = "Consolas, Monaco, monospace";
         sortBtn.color = "#0ff";
         sortBtn.background = "rgba(0, 255, 255, 0.1)";
         sortBtn.thickness = 1;
-        sortBtn.fontSize = 10;
-        sortBtn.left = "250px";
-        sortBtn.top = "7px";
+        sortBtn.fontSize = 9;
+        sortBtn.left = "150px";
+        sortBtn.top = "4px";
         
         // Hover эффект для кнопки сортировки
         sortBtn.onPointerEnterObservable.add(() => {
@@ -1214,7 +1179,7 @@ export class Garage {
         searchContainer.addControl(sortBtn);
     }
     
-    // Создать кнопки категорий
+    // Создать кнопки категорий - компактные
     private createCategoryButtons(): void {
         const categories = [
             { name: "CHASSIS", id: "chassis" as const },
@@ -1224,20 +1189,20 @@ export class Garage {
         
         categories.forEach((cat, i) => {
             const btn = Button.CreateSimpleButton(`cat_${cat.id}`, cat.name);
-            btn.width = "160px";
-            btn.height = "32px";
-            btn.cornerRadius = 0; // Без скруглений
+            btn.width = "180px";
+            btn.height = "30px";
+            btn.cornerRadius = 0;
             btn.color = this.currentCategory === cat.id ? "#0f0" : "#0aa";
-            btn.background = this.currentCategory === cat.id ? "rgba(0, 255, 0, 0.2)" : "rgba(0, 0, 0, 0.8)";
+            btn.background = this.currentCategory === cat.id ? "rgba(0, 255, 0, 0.25)" : "rgba(0, 0, 0, 0.8)";
             btn.thickness = this.currentCategory === cat.id ? 2 : 1;
-            btn.fontSize = 11;
+            btn.fontSize = 10;
             btn.fontFamily = "Consolas, Monaco, monospace";
             btn.fontWeight = this.currentCategory === cat.id ? "bold" : "normal";
             // Выравнивание кнопок категорий по центру с равными отступами
-            const totalWidth = 160 * 3 + 20 * 2; // ширина кнопок + отступы
-            const startPos = -totalWidth / 2 + 80; // центр первой кнопки
-            btn.left = `${startPos + i * 180}px`; // 180 = 160 (ширина) + 20 (отступ)
-            btn.top = "-200px";
+            const totalWidth = 180 * 3 + 15 * 2; // ширина кнопок + отступы
+            const startPos = -totalWidth / 2 + 90; // центр первой кнопки
+            btn.left = `${startPos + i * 195}px`; // 195 = 180 (ширина) + 15 (отступ)
+            btn.top = "-195px";
             btn.isPointerBlocker = true;
             
             // Hover эффекты для кнопок категорий
@@ -1285,36 +1250,36 @@ export class Garage {
         });
     }
     
-    // Создать список товаров с прокруткой в терминальном стиле
+    // Создать список товаров с прокруткой - компактный
     private createItemList(): void {
-        // Контейнер для прокрутки - оптимизированный
+        // Контейнер для прокрутки - компактный, занимает левую часть
         this.scrollViewer = new ScrollViewer("itemScrollViewer");
-        this.scrollViewer.width = "880px";
-        this.scrollViewer.height = "450px";
+        this.scrollViewer.width = "480px";
+        this.scrollViewer.height = "480px";
         this.scrollViewer.cornerRadius = 0;
         this.scrollViewer.thickness = 2;
         this.scrollViewer.color = "#0f0";
-        this.scrollViewer.background = "rgba(0, 0, 0, 0.9)"; // Более тёмный фон для лучшего контраста
-        this.scrollViewer.top = "-60px";
-        this.scrollViewer.barSize = 10;
+        this.scrollViewer.background = "rgba(0, 0, 0, 0.9)";
+        this.scrollViewer.top = "-150px";
+        this.scrollViewer.left = "-480px";
+        this.scrollViewer.barSize = 8;
         this.scrollViewer.barColor = "rgba(0, 255, 0, 0.15)";
-        this.scrollViewer.thumbColor = "#0f0";
         this.garageContainer!.addControl(this.scrollViewer);
         
         // Разделительная линия перед списком элементов
         const listSeparator = new Rectangle("listSeparator");
-        listSeparator.width = "880px";
+        listSeparator.width = "480px";
         listSeparator.height = "1px";
         listSeparator.cornerRadius = 0;
         listSeparator.thickness = 0;
         listSeparator.background = "#0aa";
-        listSeparator.top = "-65px";
-        listSeparator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        listSeparator.top = "-155px";
+        listSeparator.left = "-480px";
         this.garageContainer!.addControl(listSeparator);
         
-        // Контейнер для элементов (будет обновляться динамически) - улучшенный
+        // Контейнер для элементов (будет обновляться динамически)
         this.itemList = new Rectangle("itemListContainer");
-        this.itemList.width = "860px";
+        this.itemList.width = "460px";
         this.itemList.height = "1px"; // Будет обновляться
         this.itemList.cornerRadius = 0;
         this.itemList.thickness = 0;
@@ -1403,19 +1368,19 @@ export class Garage {
         
         console.log(`[Garage] Showing ${items.length} items (filtered and sorted)`);
         
-        // Обновляем высоту контейнера - оптимизированный spacing для лучшей читаемости
-        const itemHeight = 115; // Значительно увеличен для лучшей читаемости
-        const spacing = 15; // Увеличен spacing для лучшей визуальной группировки и читаемости
+        // Обновляем высоту контейнера - компактный spacing
+        const itemHeight = 95; // Компактная высота
+        const spacing = 10; // Компактный spacing
         const totalHeight = items.length > 0 ? items.length * itemHeight + (items.length - 1) * spacing : 1;
         this.itemList!.height = `${totalHeight}px`;
         
         items.forEach((item, i) => {
             const itemContainer = new Rectangle(`item_${i}`);
-            itemContainer.width = "840px";
-            itemContainer.height = "110px"; // Значительно увеличен для лучшей читаемости
-            itemContainer.cornerRadius = 0; // Без скруглений
-            itemContainer.thickness = 2; // Более заметная граница
-            itemContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER; // Центрирование элементов
+            itemContainer.width = "440px";
+            itemContainer.height = "90px"; // Компактная высота
+            itemContainer.cornerRadius = 0;
+            itemContainer.thickness = 2;
+            itemContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             
             // Определяем, выбран ли этот предмет
             let isSelected = false;
@@ -1438,7 +1403,7 @@ export class Garage {
                 itemContainer.color = "#0ff";
                 itemContainer.background = "rgba(0, 255, 255, 0.25)"; // Более заметный фон
                 itemContainer.thickness = 3; // Увеличенная толщина для акцента
-            } else if (item.unlocked || (item as TankUpgrade).level > 0) {
+            } else if ((!("level" in item) && (item as TankPart).unlocked) || (("level" in item) && (item as TankUpgrade).level > 0)) {
                 itemContainer.color = "#0f0"; // Яркий зелёный для разблокированных
                 itemContainer.background = "rgba(0, 255, 0, 0.08)"; // Более заметный фон
                 itemContainer.thickness = 1;
@@ -1532,6 +1497,8 @@ export class Garage {
                 namePrefix = "> ";
             } else if (!("level" in item) && (item as TankPart).unlocked) {
                 namePrefix = "+ ";
+            } else if ("level" in item && (item as TankUpgrade).level > 0) {
+                namePrefix = "+ ";
             }
             
             // Показываем уровень опыта для корпусов и пушек
@@ -1550,7 +1517,8 @@ export class Garage {
             
             nameText.text = `${namePrefix}${icon}${item.name}${levelSuffix}`;
             // Улучшенная цветовая кодировка: выбранный - жёлтый, разблокированный - яркий зелёный, заблокированный - приглушённый
-            nameText.color = isSelected ? "#ff0" : (item.unlocked || (item as TankUpgrade).level > 0 ? "#0ff0" : "#0aa");
+            const isUnlocked = (!("level" in item) && (item as TankPart).unlocked) || (("level" in item) && (item as TankUpgrade).level > 0);
+            nameText.color = isSelected ? "#ff0" : (isUnlocked ? "#0ff0" : "#0aa");
             nameText.fontSize = 15; // Согласно плану: названия предметов 15px
             nameText.fontFamily = "Consolas, Monaco, monospace";
             nameText.fontWeight = "bold";
@@ -1928,7 +1896,6 @@ export class Garage {
             // Update currency display с улучшенной анимацией
             const currencyText = this.garageContainer!.getChildByName("garageCurrency") as TextBlock;
             if (currencyText) {
-                const oldValue = parseInt(currencyText.text) || 0;
                 const newValue = this.currencyManager.getCurrency();
                 currencyText.text = `${newValue}`;
                 
@@ -2115,13 +2082,14 @@ export class Garage {
     // Создать панель сравнения в терминальном стиле
     private createComparisonPanel(): void {
         this.comparisonPanel = new Rectangle("comparisonPanel");
-        this.comparisonPanel.width = "860px";
-        this.comparisonPanel.height = "120px";
+        this.comparisonPanel.width = "480px";
+        this.comparisonPanel.height = "200px";
         this.comparisonPanel.cornerRadius = 0;
         this.comparisonPanel.thickness = 1;
         this.comparisonPanel.color = "#0ff";
         this.comparisonPanel.background = "rgba(0, 0, 0, 0.8)";
-        this.comparisonPanel.top = "200px";
+        this.comparisonPanel.top = "-150px";
+        this.comparisonPanel.left = "20px";
         this.garageContainer!.addControl(this.comparisonPanel);
         
         this.updateComparisonPanel();
@@ -2173,13 +2141,14 @@ export class Garage {
             }
         };
         
-        // Вспомогательная функция для форматирования изменения
-        const formatChange = (diff: number, isBetter: boolean): string => {
+        // Вспомогательная функция для форматирования изменения (зарезервирована для будущего использования)
+        const _formatChange = (diff: number, _isBetter: boolean): string => {
             if (diff === 0) return "";
             const sign = diff > 0 ? "+" : "";
-            const color = getChangeColor(diff, isBetter);
+            void getChangeColor; // Сохраняем ссылку
             return ` [${sign}${diff.toFixed(1)}]`;
         };
+        void _formatChange;
         
         // Текущий корпус с бонусами от опыта
         const currentChassis = CHASSIS_TYPES.find(c => c.id === this.currentChassisId);
@@ -2371,24 +2340,24 @@ export class Garage {
         // Показываем панель только если есть изменения (упрощено, без анимации)
         const hasChanges = (this.previewChassisId && this.previewChassisId !== this.currentChassisId) ||
                           (this.previewCannonId && this.previewCannonId !== this.currentCannonId);
-        this.comparisonPanel.isVisible = hasChanges;
+        this.comparisonPanel.isVisible = !!hasChanges;
         this.comparisonPanel.alpha = 1.0;
     }
     
-        // Создать кнопку применения в терминальном стиле - оптимизированная
+        // Создать кнопку применения - компактная
     private createApplyButton(): void {
         const applyBtn = Button.CreateSimpleButton("applySelection", "APPLY [Enter]");
-        applyBtn.width = "160px";
-        applyBtn.height = "35px";
+        applyBtn.width = "140px";
+        applyBtn.height = "32px";
         applyBtn.cornerRadius = 0;
         applyBtn.fontFamily = "Consolas, Monaco, monospace";
         applyBtn.color = "#0f0";
-        applyBtn.background = "rgba(0, 255, 0, 0.2)";
+        applyBtn.background = "rgba(0, 255, 0, 0.25)";
         applyBtn.thickness = 1;
-        applyBtn.fontSize = 11;
+        applyBtn.fontSize = 10;
         applyBtn.fontWeight = "bold";
-        applyBtn.top = "328px";
-        applyBtn.left = "-100px";
+        applyBtn.top = "318px";
+        applyBtn.left = "-80px";
         
         // Проверяем, есть ли изменения для применения
         const hasChanges = (this.previewChassisId && this.previewChassisId !== this.currentChassisId) ||
@@ -2397,7 +2366,7 @@ export class Garage {
         if (!hasChanges) {
             applyBtn.color = "#666";
             applyBtn.background = "#001100aa";
-            applyBtn.isEnabled = false;
+            (applyBtn as any).isEnabled = false;
         }
         
         // Hover эффект для кнопки применения
@@ -2473,80 +2442,51 @@ export class Garage {
         const stats = this.playerProgression.getStats();
         const xpProgress = this.playerProgression.getExperienceProgress();
         
-        // Контейнер для статистики - упрощенный и компактный
+        // Контейнер для статистики - компактный, справа от валюты
         const statsContainer = new Rectangle("playerStatsContainer");
-        statsContainer.width = "200px";
-        statsContainer.height = "100px";
+        statsContainer.width = "180px";
+        statsContainer.height = "40px";
         statsContainer.cornerRadius = 0;
         statsContainer.thickness = 1;
         statsContainer.color = "#0ff";
-        statsContainer.background = "rgba(0, 0, 0, 0.8)";
-        statsContainer.left = "340px";
-        statsContainer.top = "-250px";
+        statsContainer.background = "rgba(0, 20, 20, 0.9)";
+        statsContainer.left = "380px";
+        statsContainer.top = "-332px";
         this.garageContainer!.addControl(statsContainer);
         
-        // Заголовок - упрощенный
-        const statsTitle = new TextBlock("statsTitle");
-        statsTitle.text = "STATS";
-        statsTitle.color = "#0ff";
-        statsTitle.fontSize = 10;
-        statsTitle.fontFamily = "Consolas, Monaco, monospace";
-        statsTitle.fontWeight = "bold";
-        statsTitle.top = "-45px";
-        statsTitle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        statsContainer.addControl(statsTitle);
+        // Компактная статистика в одну строку
+        const statsText = new TextBlock("playerStatsText");
+        const kd = this.playerProgression.getKDRatio();
+        statsText.text = `Lv.${stats.level} | K/D:${kd} | ${xpProgress.current}/${xpProgress.required}XP`;
+        statsText.color = "#0ff";
+        statsText.fontSize = 10;
+        statsText.fontFamily = "Consolas, Monaco, monospace";
+        statsText.fontWeight = "normal";
+        statsText.top = "-20px";
+        statsText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        statsContainer.addControl(statsText);
         
-        // Уровень в терминальном стиле - упрощенный
-        const levelText = new TextBlock("playerLevel");
-        levelText.text = `Lv.${stats.level}`;
-        levelText.color = "#0f0";
-        levelText.fontSize = 12;
-        levelText.fontFamily = "Consolas, Monaco, monospace";
-        levelText.top = "-30px";
-        levelText.left = "-90px";
-        statsContainer.addControl(levelText);
-        
-        // Опыт в терминальном стиле - упрощенный
-        const xpText = new TextBlock("playerXP");
-        xpText.text = `${xpProgress.current}/${xpProgress.required} XP`;
-        xpText.color = "#0aa";
-        xpText.fontSize = 11;
-        xpText.fontFamily = "Consolas, Monaco, monospace";
-        xpText.top = "-15px";
-        xpText.left = "-90px";
-        statsContainer.addControl(xpText);
-        
-        // Прогресс-бар опыта в терминальном стиле - упрощенный
+        // Прогресс-бар опыта - компактный
         const xpBarBg = new Rectangle("xpBarBg");
-        xpBarBg.width = "180px";
-        xpBarBg.height = "5px";
+        xpBarBg.width = "160px";
+        xpBarBg.height = "4px";
         xpBarBg.background = "rgba(0, 0, 0, 0.8)";
         xpBarBg.thickness = 1;
         xpBarBg.color = "#0aa";
         xpBarBg.cornerRadius = 0;
-        xpBarBg.top = "0px";
+        xpBarBg.top = "5px";
+        xpBarBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         statsContainer.addControl(xpBarBg);
         
         const xpBarFill = new Rectangle("xpBarFill");
         const xpPercent = xpProgress.required > 0 ? (xpProgress.current / xpProgress.required) : 0;
-        xpBarFill.width = `${180 * Math.min(xpPercent, 1)}px`;
-        xpBarFill.height = "3px";
+        xpBarFill.width = `${160 * Math.min(xpPercent, 1)}px`;
+        xpBarFill.height = "2px";
         xpBarFill.cornerRadius = 0;
         xpBarFill.background = "#0ff";
-        xpBarFill.top = "0px";
+        xpBarFill.top = "5px";
         xpBarFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         xpBarBg.addControl(xpBarFill);
-        
-        // K/D в терминальном стиле - упрощенный
-        const kdText = new TextBlock("playerKD");
-        const kd = this.playerProgression.getKDRatio();
-        kdText.text = `K/D: ${kd}`;
-        kdText.color = "#0ff";
-        kdText.fontSize = 11;
-        kdText.fontFamily = "Consolas, Monaco, monospace";
-        kdText.top = "15px";
-        kdText.left = "-90px";
-        statsContainer.addControl(kdText);
     }
     
     // Обновить панель статистики игрока
@@ -2758,7 +2698,7 @@ export class Garage {
                 statLine.top = `${-50 + i * 16}px`;
                 statLine.left = "-170px";
                 statLine.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                tooltip.addControl(statLine);
+                if (tooltip) tooltip.addControl(statLine);
             });
             
             // Рекомендация в терминальном стиле
@@ -2808,16 +2748,16 @@ export class Garage {
             cannonBonus = this.experienceSystem.getCannonLevelBonus(this.currentCannonId) || cannonBonus;
         }
         
-        // Контейнер для превью в терминальном стиле - упрощенный
+        // Контейнер для превью - компактный, справа вверху
         const previewContainer = new Rectangle("tankPreviewContainer");
-        previewContainer.width = "240px";
-        previewContainer.height = "90px";
+        previewContainer.width = "220px";
+        previewContainer.height = "80px";
         previewContainer.cornerRadius = 0;
         previewContainer.thickness = 1;
         previewContainer.color = "#0f0";
         previewContainer.background = "rgba(0, 0, 0, 0.8)";
-        previewContainer.left = "-350px";
-        previewContainer.top = "-330px";
+        previewContainer.left = "20px";
+        previewContainer.top = "-250px";
         this.garageContainer!.addControl(previewContainer);
         
         // Заголовок в терминальном стиле - упрощенный
@@ -2867,32 +2807,31 @@ export class Garage {
         previewContainer.addControl(statsText);
     }
     
-    // Создать быстрые действия
-    private createQuickActions(): void {
+    // Создать быстрые действия (вызывается из createGarageUI)
+    public createQuickActions(): void {
         const quickContainer = new Rectangle("quickActions");
-        quickContainer.width = "860px";
-        quickContainer.height = "50px";
+        quickContainer.width = "480px";
+        quickContainer.height = "40px";
         quickContainer.cornerRadius = 0;
         quickContainer.thickness = 0;
         quickContainer.background = "#00000000";
-        quickContainer.top = "-160px";
-        quickContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        quickContainer.top = "-150px";
+        quickContainer.left = "20px";
         this.garageContainer!.addControl(quickContainer);
         
-        // Быстрая покупка в терминальном стиле
+        // Быстрая покупка - компактная
         const quickBuyBtn = Button.CreateSimpleButton("quickBuy", "QUICK BUY [F]");
-        quickBuyBtn.width = "160px";
-        quickBuyBtn.height = "30px";
+        quickBuyBtn.width = "140px";
+        quickBuyBtn.height = "28px";
         quickBuyBtn.cornerRadius = 0;
         quickBuyBtn.fontFamily = "Consolas, Monaco, monospace";
         quickBuyBtn.color = "#0f0";
-        quickBuyBtn.background = "rgba(0, 255, 0, 0.15)";
+        quickBuyBtn.background = "rgba(0, 255, 0, 0.2)";
         quickBuyBtn.thickness = 1;
-        quickBuyBtn.fontSize = 10;
+        quickBuyBtn.fontSize = 9;
         quickBuyBtn.fontWeight = "bold";
-        // Выравнивание кнопок быстрых действий с равными отступами
-        quickBuyBtn.left = "-400px";
-        quickBuyBtn.top = "10px";
+        quickBuyBtn.left = "-230px";
+        quickBuyBtn.top = "6px";
         
         // Hover эффект для кнопки быстрой покупки
         quickBuyBtn.onPointerEnterObservable.add(() => {
@@ -2911,18 +2850,18 @@ export class Garage {
         });
         quickContainer.addControl(quickBuyBtn);
         
-        // Показать только доступные в терминальном стиле
+        // Показать только доступные - компактная
         const showAffordableBtn = Button.CreateSimpleButton("showAffordable", "AFFORDABLE");
-        showAffordableBtn.width = "140px";
-        showAffordableBtn.height = "30px";
+        showAffordableBtn.width = "120px";
+        showAffordableBtn.height = "28px";
         showAffordableBtn.cornerRadius = 0;
         showAffordableBtn.fontFamily = "Consolas, Monaco, monospace";
         showAffordableBtn.color = "#0ff";
-        showAffordableBtn.background = "rgba(0, 255, 255, 0.1)";
+        showAffordableBtn.background = "rgba(0, 255, 255, 0.15)";
         showAffordableBtn.thickness = 1;
-        showAffordableBtn.fontSize = 10;
-        showAffordableBtn.left = "-200px";
-        showAffordableBtn.top = "10px";
+        showAffordableBtn.fontSize = 9;
+        showAffordableBtn.left = "-70px";
+        showAffordableBtn.top = "6px";
         
         // Hover эффект для кнопки доступных
         showAffordableBtn.onPointerEnterObservable.add(() => {
@@ -2950,18 +2889,18 @@ export class Garage {
         });
         quickContainer.addControl(showAffordableBtn);
         
-        // Показать статистику категории в терминальном стиле
+        // Показать статистику категории - компактная
         const statsBtn = Button.CreateSimpleButton("categoryStats", "STATS");
-        statsBtn.width = "100px";
-        statsBtn.height = "30px";
+        statsBtn.width = "90px";
+        statsBtn.height = "28px";
         statsBtn.cornerRadius = 0;
         statsBtn.fontFamily = "Consolas, Monaco, monospace";
         statsBtn.color = "#0aa";
-        statsBtn.background = "rgba(0, 255, 0, 0.1)";
+        statsBtn.background = "rgba(0, 255, 0, 0.15)";
         statsBtn.thickness = 1;
-        statsBtn.fontSize = 10;
-        statsBtn.left = "-80px";
-        statsBtn.top = "10px";
+        statsBtn.fontSize = 9;
+        statsBtn.left = "60px";
+        statsBtn.top = "6px";
         
         // Hover эффект для кнопки статистики
         statsBtn.onPointerEnterObservable.add(() => {
@@ -3008,7 +2947,11 @@ export class Garage {
             this.purchaseItem(cheapest);
             const msg = this.garageContainer!.getChildByName("garageMessage") as TextBlock;
             if (msg) {
-                msg.text = `[QUICK] Quick buy: ${cheapest.name}`;
+                let itemName = "Unknown";
+                if (cheapest && typeof cheapest === 'object' && 'name' in cheapest) {
+                    itemName = (cheapest as { name: string }).name;
+                }
+                msg.text = `[QUICK] Quick buy: ${itemName}`;
                 msg.color = "#0f0";
             }
         } else {
@@ -3061,14 +3004,14 @@ export class Garage {
         }
         
         const recContainer = new Rectangle("recommendationsPanel");
-        recContainer.width = "240px";
-        recContainer.height = "120px";
+        recContainer.width = "220px";
+        recContainer.height = "100px";
         recContainer.cornerRadius = 0;
         recContainer.thickness = 1;
         recContainer.color = "#0ff";
         recContainer.background = "rgba(0, 0, 0, 0.8)";
-        recContainer.left = "-350px";
-        recContainer.top = "-230px";
+        recContainer.left = "20px";
+        recContainer.top = "-160px";
         this.garageContainer!.addControl(recContainer);
         
         const recTitle = new TextBlock("recTitle");
@@ -3231,6 +3174,7 @@ export class Garage {
             const levelInfo = this.experienceSystem.getLevelInfo(part.id, expType);
             
             // Находим контейнер элемента по индексу отображения
+            if (!this.itemList) return;
             const itemContainer = this.itemList.getChildByName(`item_${displayIndex}`) as Rectangle;
             if (!itemContainer) return;
             
@@ -3287,7 +3231,6 @@ export class Garage {
                 const levelSuffix = level > 1 ? ` [${levelInfo?.title || `Lv.${level}`}]` : "";
                 
                 // Сохраняем префикс (ASCII формат: > или +)
-                const currentText = nameText.text;
                 let prefix = "";
                 let icon = "";
                 
@@ -3328,7 +3271,7 @@ export class Garage {
         if (!this.itemList) return;
         
         // Обновляем все элементы для подсветки выбранного
-        this.itemList.children.forEach((child: any, i: number) => {
+        this.itemList.children.forEach((child: any) => {
             if (child.name && child.name.startsWith("item_")) {
                 const itemIndex = parseInt(child.name.split("_")[1]);
                 const isKeyboardSelected = itemIndex === this.selectedItemIndex;
@@ -3354,7 +3297,7 @@ export class Garage {
                         child.color = "#0ff";
                         child.background = "rgba(0, 255, 255, 0.3)"; // Более заметный фон для клавиатурной навигации
                         child.thickness = 3; // Увеличенная толщина для акцента
-                    } else if (item.unlocked || (item as TankUpgrade).level > 0) {
+                    } else if ((!("level" in item) && (item as TankPart).unlocked) || (("level" in item) && (item as TankUpgrade).level > 0)) {
                         child.color = "#0f0";
                         child.background = "rgba(0, 255, 0, 0.08)";
                         child.thickness = 1;
@@ -3388,8 +3331,8 @@ export class Garage {
         }
     }
     
-    // Создать визуальные прогресс-бары для статистики
-    private createStatBars(container: Rectangle, index: number, stats: { [key: string]: { value: number, max: number, diff: number, label: string } }): void {
+    // Создать визуальные прогресс-бары для статистики (используется в updateItemList)
+    public createStatBars(container: Rectangle, index: number, stats: { [key: string]: { value: number, max: number, diff: number, label: string } }): void {
         const barY = 60;
         const barWidth = 150;
         const barHeight = 6;
@@ -3464,17 +3407,17 @@ export class Garage {
         this.updateActionHistoryPanel();
     }
     
-    // Создать панель истории действий
-    private createActionHistoryPanel(): void {
+    // Создать панель истории действий (вызывается из createGarageUI)
+    public createActionHistoryPanel(): void {
         const historyContainer = new Rectangle("actionHistoryPanel");
-        historyContainer.width = "240px";
-        historyContainer.height = "100px";
+        historyContainer.width = "220px";
+        historyContainer.height = "90px";
         historyContainer.cornerRadius = 0;
         historyContainer.thickness = 1;
         historyContainer.color = "#0aa";
         historyContainer.background = "rgba(0, 0, 0, 0.8)";
-        historyContainer.left = "-350px";
-        historyContainer.top = "250px";
+        historyContainer.left = "20px";
+        historyContainer.top = "-50px";
         this.garageContainer!.addControl(historyContainer);
         
         const historyTitle = new TextBlock("historyTitle");
@@ -3540,8 +3483,8 @@ export class Garage {
         }
     }
     
-    // Упрощенный визуальный эффект при покупке (без лишних анимаций)
-    private createPurchaseEffect(container: Rectangle | null, color: string): void {
+    // Упрощенный визуальный эффект при покупке (без лишних анимаций, используется при покупке)
+    public createPurchaseEffect(container: Rectangle | null, color: string): void {
         if (!container || !this.garageContainer) return;
         
         // Простая вспышка без частиц

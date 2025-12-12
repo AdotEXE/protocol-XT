@@ -115,6 +115,28 @@ export class EnemyTank {
     private _tmpRight?: Vector3;
     private _tmpUp?: Vector3;
     
+    // === ANTI-STUCK SYSTEM ===
+    private stuckTimer = 0;
+    private lastStuckCheckPos = new Vector3();
+    private readonly STUCK_CHECK_INTERVAL = 1000; // мс
+    private readonly STUCK_THRESHOLD = 2.0; // минимальное перемещение за интервал
+    private consecutiveStuckCount = 0;
+    
+    // === OBSTACLE AVOIDANCE ===
+    private obstacleAvoidanceDir = 0; // -1 = лево, 0 = прямо, 1 = право
+    private lastObstacleCheck = 0;
+    private readonly OBSTACLE_CHECK_INTERVAL = 200; // мс
+    
+    // === PROTECTIVE WALL (Module 6) ===
+    private wallMesh: Mesh | null = null;
+    private wallPhysics: PhysicsBody | null = null;
+    private wallHealth = 100;
+    private readonly WALL_MAX_HEALTH = 100;
+    private lastWallTime = 0;
+    private readonly WALL_COOLDOWN = 18000; // 18 секунд
+    private readonly WALL_DURATION = 8000;  // 8 секунд
+    private wallTimeout: number = 0;
+    
     constructor(
         scene: Scene,
         position: Vector3,
@@ -168,36 +190,36 @@ export class EnemyTank {
         switch (this.difficulty) {
             case "easy":
                 // Легкая сложность: медленная реакция, низкая точность
-                this.cooldown = 4000; // 4 секунды перезарядка
-                this.aimAccuracy = 0.65; // 65% точность
+                this.cooldown = 3500; // 3.5 секунды перезарядка (было 4000)
+                this.aimAccuracy = 0.70; // 70% точность (было 65%)
                 this.detectRange = 150; // Радиус обнаружения
-                this.range = 45;
-                this.optimalRange = 25;
-                this.decisionInterval = 1000; // Решения каждую секунду
-                this.turretSpeed = 0.04; // Медленнее поворачивает башню
-                this.moveSpeed = 8; // Медленнее
+                this.range = 50;
+                this.optimalRange = 28;
+                this.decisionInterval = 800; // Решения каждые 800мс (было 1000)
+                this.turretSpeed = 0.045; // Медленнее поворачивает башню
+                this.moveSpeed = 10; // Медленнее (было 8)
                 break;
             case "medium":
                 // Средняя сложность: средняя реакция, средняя точность
-                this.cooldown = 3000; // 3 секунды перезарядка
-                this.aimAccuracy = 0.80; // 80% точность
-                this.detectRange = 175;
-                this.range = 55;
-                this.optimalRange = 30;
-                this.decisionInterval = 700;
-                this.moveSpeed = 10;
-                this.turretSpeed = 0.05;
+                this.cooldown = 2500; // 2.5 секунды перезарядка (было 3000)
+                this.aimAccuracy = 0.85; // 85% точность (было 80%)
+                this.detectRange = 180;
+                this.range = 60;
+                this.optimalRange = 32;
+                this.decisionInterval = 500; // Решения каждые 500мс (было 700)
+                this.moveSpeed = 14; // Быстрее (было 10)
+                this.turretSpeed = 0.055;
                 break;
             case "hard":
                 // Сложная сложность: быстрая реакция, высокая точность
-                this.cooldown = 2500; // 2.5 секунды перезарядка
+                this.cooldown = 2000; // 2 секунды перезарядка (было 2500)
                 this.aimAccuracy = 0.95; // 95% точность
-                this.detectRange = 200; // Полный радиус обнаружения
-                this.range = 65;
-                this.optimalRange = 35;
-                this.decisionInterval = 500; // Решения каждые 500мс
-                this.turretSpeed = 0.06;
-                this.moveSpeed = 12; // Быстрее игрока
+                this.detectRange = 220; // Увеличенный радиус обнаружения (было 200)
+                this.range = 70;
+                this.optimalRange = 38;
+                this.decisionInterval = 300; // Решения каждые 300мс (было 500)
+                this.turretSpeed = 0.07;
+                this.moveSpeed = 18; // Значительно быстрее (было 12)
                 break;
         }
     }
@@ -599,9 +621,144 @@ export class EnemyTank {
                 this.reset();
             }
             
+            // --- ANTI-STUCK CHECK ---
+            this.checkAndFixStuck();
+            
         } catch (e) {
             // Silent fail
         }
+    }
+    
+    // === ANTI-STUCK SYSTEM ===
+    
+    private checkAndFixStuck(): boolean {
+        const now = Date.now();
+        if (now - this.stuckTimer < this.STUCK_CHECK_INTERVAL) return false;
+        
+        const pos = this.chassis.position;
+        
+        // Проверка 1: Высота выше нормы (застряли на крыше)
+        if (pos.y > 5.0) {
+            console.log(`[EnemyTank ${this.id}] Stuck on roof (y=${pos.y.toFixed(2)}), resetting to ground`);
+            this.forceResetToGround();
+            this.consecutiveStuckCount = 0;
+            this.stuckTimer = now;
+            return true;
+        }
+        
+        // Проверка 2: Не двигаемся при попытке движения
+        const moved = Vector3.Distance(pos, this.lastStuckCheckPos);
+        if (moved < this.STUCK_THRESHOLD && Math.abs(this.throttleTarget) > 0.1) {
+            this.consecutiveStuckCount++;
+            if (this.consecutiveStuckCount >= 3) {
+                console.log(`[EnemyTank ${this.id}] Stuck in place (moved ${moved.toFixed(2)}), forcing unstuck`);
+                this.forceUnstuck();
+                this.consecutiveStuckCount = 0;
+                this.stuckTimer = now;
+                return true;
+            }
+        } else {
+            this.consecutiveStuckCount = 0;
+        }
+        
+        this.lastStuckCheckPos.copyFrom(pos);
+        this.stuckTimer = now;
+        return false;
+    }
+    
+    private forceResetToGround(): void {
+        if (!this.chassis || !this.physicsBody) return;
+        
+        const pos = this.chassis.position.clone();
+        pos.y = 2.0; // Стандартная высота hover
+        
+        // Сбрасываем скорости
+        this.physicsBody.setLinearVelocity(Vector3.Zero());
+        this.physicsBody.setAngularVelocity(Vector3.Zero());
+        
+        // Телепортируем на землю
+        this.chassis.position.copyFrom(pos);
+        this.chassis.rotationQuaternion = Quaternion.Identity();
+        
+        // Небольшой импульс вниз для стабилизации
+        this.physicsBody.applyImpulse(new Vector3(0, -5000, 0), pos);
+        
+        // Сбрасываем цели движения
+        this.throttleTarget = 0;
+        this.steerTarget = 0;
+    }
+    
+    private forceUnstuck(): void {
+        if (!this.chassis || !this.physicsBody) return;
+        
+        // Пробуем двигаться в случайном направлении
+        const randomAngle = Math.random() * Math.PI * 2;
+        const unstuckDir = new Vector3(Math.cos(randomAngle), 0, Math.sin(randomAngle));
+        
+        // Сильный импульс в случайном направлении
+        this.physicsBody.applyImpulse(unstuckDir.scale(15000), this.chassis.absolutePosition);
+        
+        // Небольшой импульс вверх
+        this.physicsBody.applyImpulse(new Vector3(0, 8000, 0), this.chassis.absolutePosition);
+        
+        // Меняем направление обхода препятствий
+        this.obstacleAvoidanceDir = Math.random() > 0.5 ? 1 : -1;
+        
+        // Если застряли слишком много раз подряд, телепортируемся
+        if (this.consecutiveStuckCount > 5) {
+            this.forceResetToGround();
+        }
+    }
+    
+    // === OBSTACLE AVOIDANCE ===
+    
+    private checkObstacles(): number {
+        const now = Date.now();
+        if (now - this.lastObstacleCheck < this.OBSTACLE_CHECK_INTERVAL) {
+            return this.obstacleAvoidanceDir;
+        }
+        this.lastObstacleCheck = now;
+        
+        if (!this.chassis) return 0;
+        
+        const pos = this.chassis.absolutePosition;
+        const forward = this.chassis.getDirection(Vector3.Forward()).normalize();
+        const right = this.chassis.getDirection(Vector3.Right()).normalize();
+        
+        const rayLength = 12;
+        const rayHeight = pos.y + 0.5;
+        const rayStart = new Vector3(pos.x, rayHeight, pos.z);
+        
+        // Три луча: прямо, влево-вперёд (45°), вправо-вперёд (45°)
+        const directions = [
+            forward.clone(),
+            forward.clone().add(right.scale(-0.7)).normalize(),
+            forward.clone().add(right.scale(0.7)).normalize()
+        ];
+        
+        const hits = directions.map(dir => {
+            const ray = new Ray(rayStart, dir, rayLength);
+            const pick = this.scene.pickWithRay(ray, mesh => {
+                if (!mesh || !mesh.isEnabled()) return false;
+                const meta = mesh.metadata;
+                // Игнорируем другие танки, пули, расходники
+                if (meta && (meta.type === "enemyTank" || meta.type === "playerTank" || 
+                    meta.type === "bullet" || meta.type === "enemyBullet" || meta.type === "consumable")) return false;
+                // Игнорируем билборды
+                if (mesh.name.includes("billboard") || mesh.name.includes("hp") || mesh.name.includes("Hp")) return false;
+                return mesh.isPickable;
+            });
+            return pick && pick.hit ? pick.distance : rayLength;
+        });
+        
+        // Выбираем направление с наибольшим свободным пространством
+        if (hits[0] < 8) { // Препятствие впереди ближе 8м
+            this.obstacleAvoidanceDir = hits[1] > hits[2] ? -1 : 1;
+        } else {
+            this.obstacleAvoidanceDir = 0;
+        }
+        
+        return this.obstacleAvoidanceDir;
     }
     
     private applyTorque(torque: Vector3) {
@@ -786,19 +943,25 @@ export class EnemyTank {
         const healthPercent = this.currentHealth / this.maxHealth;
         const targetHealthPercent = this.target?.currentHealth ? this.target.currentHealth / 100 : 1.0;
         
-        // Улучшенная логика принятия решений
-        // Priority 1: Retreat if very low health (улучшенная логика)
-        if (healthPercent < 0.15) {
+        // === ПРОВЕРКА ИСПОЛЬЗОВАНИЯ СТЕНКИ ===
+        if (this.shouldUseWall()) {
+            this.activateWall();
+        }
+        
+        // Улучшенная логика принятия решений - более агрессивная!
+        
+        // Priority 1: Retreat only at CRITICAL health (было 15%, теперь 10%)
+        if (healthPercent < 0.10) {
             this.state = "retreat";
-            this.stateTimer = 5000; // Отступаем дольше
+            this.stateTimer = 4000;
             return;
         }
         
-        // Priority 2: Evade if taking heavy damage
-        if (healthPercent < 0.4 && distance < 25) {
-            if (Math.random() < 0.3) {
+        // Priority 2: Evade if taking heavy damage (было 40%, теперь 25%)
+        if (healthPercent < 0.25 && distance < 20) {
+            if (Math.random() < 0.4) {
                 this.state = "evade";
-                this.stateTimer = 2000;
+                this.stateTimer = 1500;
                 // Выбираем направление уклонения
                 const angle = Math.random() * Math.PI * 2;
                 this.evadeDirection = new Vector3(Math.cos(angle), 0, Math.sin(angle));
@@ -808,35 +971,35 @@ export class EnemyTank {
         
         // Priority 3: In range - attack or flank (улучшенная логика)
         if (distance < this.range) {
-            // Более умный выбор тактики
-            const shouldFlank = distance > 20 && distance < this.optimalRange && healthPercent > 0.5;
-            const flankChance = shouldFlank ? 0.25 : 0.1; // Больше шанс фланга в оптимальной дистанции
+            // Более умный выбор тактики - больше фланга
+            const shouldFlank = distance > 25 && distance < this.optimalRange * 1.5 && healthPercent > 0.4;
+            const flankChance = shouldFlank ? 0.35 : 0.20; // Больше шанс фланга (было 25%/10%)
             
             if (Math.random() < flankChance) {
                 this.state = "flank";
                 this.flankDirection = Math.random() > 0.5 ? 1 : -1;
-                this.stateTimer = 3000; // Flank дольше
-        } else {
+                this.stateTimer = 2500;
+            } else {
                 this.state = "attack";
-                // Если цель слабая - агрессивнее атакуем
-                if (targetHealthPercent < 0.3) {
+                // Если цель слабая - агрессивнее атакуем (добиваем)
+                if (targetHealthPercent < 0.4) {
                     this.stateTimer = 0; // Не переключаемся на другую тактику
                 }
             }
         } 
-        // Priority 4: Detected but not in range - chase (цель уже видна через raycast)
+        // Priority 4: Detected but not in range - chase aggressively!
         else if (distance < this.detectRange) {
             this.state = "chase";
-            // Если цель далеко и у нас мало здоровья - не преследуем слишком агрессивно
-            if (healthPercent < 0.3 && distance > 100) {
-                this.state = "patrol"; // Возвращаемся к патрулированию
+            // Менее осторожны - преследуем даже при низком здоровье если цель слабее
+            if (healthPercent < 0.25 && distance > 120 && targetHealthPercent > healthPercent) {
+                this.state = "patrol"; // Возвращаемся к патрулированию только если враг сильнее
             }
         } 
-        // Priority 5: Not detected - patrol (не должно происходить, так как проверка в updateAI)
+        // Priority 5: Not detected - patrol
         else {
             this.state = "patrol";
         }
-        }
+    }
         
     private executeState(): void {
         switch (this.state) {
@@ -913,47 +1076,60 @@ export class EnemyTank {
         const myPos = this.chassis.absolutePosition;
         const distance = Vector3.Distance(targetPos, myPos);
         const healthPercent = this.currentHealth / this.maxHealth;
+        const targetHealthPercent = this.target?.currentHealth ? this.target.currentHealth / 100 : 1.0;
         
         // Aim at target (with prediction!)
         this.aimAtTarget();
         
-        // Check if we can shoot (улучшенная логика стрельбы)
+        // Check if we can shoot - более агрессивная стрельба!
         const canShoot = this.isAimedAtTarget() && !this.isReloading;
         
         if (canShoot) {
-        const now = Date.now();
-        if (now - this.lastShotTime > this.cooldown) {
-                // Улучшенная логика: более агрессивная стрельба при низком здоровье цели
-                const targetHealthPercent = this.target?.currentHealth ? this.target.currentHealth / 100 : 1.0;
-                const shouldFire = targetHealthPercent < 0.5 || healthPercent > 0.6 || Math.random() < 0.8;
+            const now = Date.now();
+            if (now - this.lastShotTime > this.cooldown) {
+                // Стреляем почти всегда когда можем
+                const shouldFire = targetHealthPercent < 0.6 || healthPercent > 0.4 || Math.random() < 0.9;
                 
                 if (shouldFire) {
-            this.fire();
-            this.lastShotTime = now;
+                    this.fire();
+                    this.lastShotTime = now;
                 }
             }
         }
         
+        // === МИКРО-МАНЕВРЫ для живости ===
+        if (this._tick % 60 === 0) {
+            const microManeuver = (Math.random() - 0.5) * 0.6;
+            this.steerTarget += microManeuver;
+        }
+        
+        // === АГРЕССИВНОЕ СБЛИЖЕНИЕ при преимуществе HP ===
+        if (healthPercent > 0.6 && targetHealthPercent < 0.4) {
+            // Добить раненую цель - приближаемся агрессивно!
+            this.driveToward(targetPos, 0.8);
+            return;
+        }
+        
         // Улучшенное поддержание оптимальной дистанции
-        if (distance < this.optimalRange * 0.5) {
-            // Слишком близко - отступаем быстрее
-            this.throttleTarget = -0.6;
-            this.steerTarget = Math.sin(this._tick * 0.03) * 0.4; // Зигзаг при отступлении
-        } else if (distance < this.optimalRange * 0.8) {
-            // Близко - медленно отступаем
-            this.throttleTarget = -0.2;
-            this.steerTarget = Math.sin(this._tick * 0.02) * 0.2;
-        } else if (distance > this.optimalRange * 1.5) {
-            // Слишком далеко - приближаемся
-            this.driveToward(targetPos, 0.5);
-        } else if (distance > this.optimalRange * 1.2) {
-            // Немного далеко - медленно приближаемся
-            this.driveToward(targetPos, 0.3);
+        if (distance < this.optimalRange * 0.4) {
+            // Слишком близко - отступаем быстрее с зигзагом
+            this.throttleTarget = -0.7;
+            this.steerTarget = Math.sin(this._tick * 0.04) * 0.5;
+        } else if (distance < this.optimalRange * 0.7) {
+            // Близко - активный зигзаг
+            this.throttleTarget = -0.3;
+            this.steerTarget = Math.sin(this._tick * 0.03) * 0.4;
+        } else if (distance > this.optimalRange * 1.4) {
+            // Слишком далеко - быстро приближаемся
+            this.driveToward(targetPos, 0.7);
+        } else if (distance > this.optimalRange * 1.1) {
+            // Немного далеко - приближаемся
+            this.driveToward(targetPos, 0.4);
         } else {
             // Оптимальная дистанция - активное маневрирование
-            const strafeSpeed = healthPercent > 0.5 ? 0.4 : 0.2; // Меньше маневров при низком HP
-            this.throttleTarget = Math.sin(this._tick * 0.015) * strafeSpeed;
-            this.steerTarget = Math.cos(this._tick * 0.02) * 0.4;
+            const strafeSpeed = healthPercent > 0.5 ? 0.5 : 0.3;
+            this.throttleTarget = Math.sin(this._tick * 0.02) * strafeSpeed;
+            this.steerTarget = Math.cos(this._tick * 0.025) * 0.5;
         }
     }
     
@@ -970,7 +1146,7 @@ export class EnemyTank {
         
         // Perpendicular direction
         const perpendicular = new Vector3(toTarget.z * this.flankDirection, 0, -toTarget.x * this.flankDirection);
-        const flankPos = myPos.add(perpendicular.scale(15));
+        const flankPos = myPos.clone().add(perpendicular.scale(15));
         
         this.driveToward(flankPos, 0.8);
         this.aimAtTarget();
@@ -993,7 +1169,7 @@ export class EnemyTank {
         awayDir.y = 0;
         awayDir.normalize();
         
-        const retreatPos = myPos.add(awayDir.scale(30));
+        const retreatPos = myPos.clone().add(awayDir.scale(30));
         this.driveToward(retreatPos, 1.0);
         
         // Still aim at enemy while retreating (fighting retreat)
@@ -1031,7 +1207,7 @@ export class EnemyTank {
         }
         
         // Движение в направлении уклонения
-        const evadePos = myPos.add(this.evadeDirection.scale(15));
+        const evadePos = myPos.clone().add(this.evadeDirection.scale(15));
         this.driveToward(evadePos, 1.0);
         
         // Все ещё целимся в цель (боевое уклонение)
@@ -1060,7 +1236,7 @@ export class EnemyTank {
     
     private driveToward(targetPos: Vector3, speedMult: number): void {
         const pos = this.chassis.absolutePosition;
-        const direction = targetPos.subtract(pos);
+        let direction = targetPos.subtract(pos);
         direction.y = 0;
         
         if (direction.length() < 0.5) {
@@ -1070,6 +1246,15 @@ export class EnemyTank {
         }
         
         direction.normalize();
+        
+        // === OBSTACLE AVOIDANCE ===
+        const avoidDir = this.checkObstacles();
+        if (avoidDir !== 0) {
+            // Корректируем направление для обхода препятствия
+            const right = new Vector3(direction.z, 0, -direction.x);
+            direction = direction.add(right.scale(avoidDir * 0.6)).normalize();
+            speedMult *= 0.7; // Замедляемся при обходе
+        }
         
         // Get current facing
         const chassisQuat = this.chassis.rotationQuaternion;
@@ -1329,18 +1514,158 @@ export class EnemyTank {
         this.currentHealth -= amount;
         console.log(`[EnemyTank ${this.id}] Took ${amount} damage, HP: ${this.currentHealth}`);
         
-        // React to damage - evade!
-        if (this.currentHealth > 0 && Math.random() < 0.4) {
-            this.state = "evade";
-            this.stateTimer = 1000;
-            // Random evade direction
-            const angle = Math.random() * Math.PI * 2;
-            this.evadeDirection = new Vector3(Math.cos(angle), 0, Math.sin(angle));
+        // React to damage - evade or use wall!
+        if (this.currentHealth > 0) {
+            // Реакция на урон - резкий маневр
+            if (Math.random() < 0.5) {
+                this.steerTarget = Math.random() > 0.5 ? 1.0 : -1.0;
+                this.throttleTarget = 0.8;
+            }
+            
+            // Попытка использовать стенку при получении урона
+            if (this.shouldUseWall()) {
+                this.activateWall();
+            } else if (Math.random() < 0.4) {
+                this.state = "evade";
+                this.stateTimer = 1000;
+                // Random evade direction
+                const angle = Math.random() * Math.PI * 2;
+                this.evadeDirection = new Vector3(Math.cos(angle), 0, Math.sin(angle));
+            }
         }
         
         if (this.currentHealth <= 0) {
             this.die();
         }
+    }
+    
+    // === PROTECTIVE WALL MODULE ===
+    
+    private canUseWall(): boolean {
+        const now = Date.now();
+        
+        // Кулдаун не прошёл
+        if (now - this.lastWallTime < this.WALL_COOLDOWN) return false;
+        
+        // Уже есть активная стенка
+        if (this.wallMesh && !this.wallMesh.isDisposed()) return false;
+        
+        // Нет цели или цель далеко
+        if (!this.target || !this.target.chassis) return false;
+        const dist = Vector3.Distance(this.chassis.position, this.target.chassis.position);
+        if (dist > 60 || dist < 10) return false;
+        
+        return true;
+    }
+    
+    private shouldUseWall(): boolean {
+        if (!this.canUseWall()) return false;
+        
+        const healthPercent = this.currentHealth / this.maxHealth;
+        
+        // Приоритет 1: Критически низкое здоровье при бое
+        if (healthPercent < 0.35 && this.state === "attack") return true;
+        
+        // Приоритет 2: Отступление/уклонение
+        if ((this.state === "retreat" || this.state === "evade") && healthPercent < 0.5) {
+            return Math.random() < 0.6; // 60% шанс
+        }
+        
+        // Приоритет 3: Перезарядка под огнём
+        if (this.isReloading && healthPercent < 0.6) {
+            return Math.random() < 0.3; // 30% шанс
+        }
+        
+        return false;
+    }
+    
+    private activateWall(): void {
+        if (!this.chassis || !this.target || !this.target.chassis) return;
+        
+        this.lastWallTime = Date.now();
+        
+        // Позиция между ботом и целью
+        const myPos = this.chassis.absolutePosition;
+        const targetPos = this.target.chassis.absolutePosition;
+        const toTarget = targetPos.subtract(myPos).normalize();
+        
+        const wallPos = myPos.clone().add(toTarget.scale(5));
+        wallPos.y = 2.0; // Центр стенки
+        
+        // Создаём стенку
+        this.wallMesh = MeshBuilder.CreateBox(`enemyWall_${this.id}_${Date.now()}`, {
+            width: 5,
+            height: 3.5,
+            depth: 0.4
+        }, this.scene);
+        
+        this.wallMesh.position.copyFrom(wallPos);
+        this.wallMesh.rotation.y = Math.atan2(toTarget.x, toTarget.z);
+        
+        // Материал (тёмно-красный, как и танк)
+        const mat = new StandardMaterial(`enemyWallMat_${this.id}_${Date.now()}`, this.scene);
+        mat.diffuseColor = new Color3(0.4, 0.1, 0.1);
+        mat.emissiveColor = new Color3(0.2, 0.05, 0.05);
+        mat.specularColor = Color3.Black();
+        this.wallMesh.material = mat;
+        
+        this.wallMesh.metadata = { type: "enemyWall", owner: this };
+        this.wallHealth = this.WALL_MAX_HEALTH;
+        
+        // Физика
+        const shape = new PhysicsShape({
+            type: PhysicsShapeType.BOX,
+            parameters: { extents: new Vector3(5, 3.5, 0.4) }
+        }, this.scene);
+        shape.filterMembershipMask = 64; // Стенки врагов
+        shape.filterCollideMask = 1 | 2 | 4; // Игрок, окружение, пули игрока
+        
+        this.wallPhysics = new PhysicsBody(this.wallMesh, PhysicsMotionType.STATIC, false, this.scene);
+        this.wallPhysics.shape = shape;
+        
+        // Таймер удаления
+        this.wallTimeout = window.setTimeout(() => this.destroyWall(), this.WALL_DURATION);
+        
+        console.log(`[EnemyTank ${this.id}] Wall activated!`);
+    }
+    
+    private destroyWall(): void {
+        if (this.wallTimeout) {
+            clearTimeout(this.wallTimeout);
+            this.wallTimeout = 0;
+        }
+        
+        if (this.wallPhysics) {
+            this.wallPhysics.dispose();
+            this.wallPhysics = null;
+        }
+        
+        if (this.wallMesh && !this.wallMesh.isDisposed()) {
+            // Эффект разрушения
+            if (this.effectsManager) {
+                this.effectsManager.createHitSpark(this.wallMesh.absolutePosition);
+            }
+            // Удаляем материал
+            if (this.wallMesh.material) {
+                this.wallMesh.material.dispose();
+            }
+            this.wallMesh.dispose();
+            this.wallMesh = null;
+        }
+    }
+    
+    // Публичный метод для нанесения урона стенке врага
+    public damageEnemyWall(damage: number): boolean {
+        if (!this.wallMesh || this.wallMesh.isDisposed()) return false;
+        
+        this.wallHealth -= damage;
+        console.log(`[EnemyTank ${this.id}] Wall took ${damage} damage, HP: ${this.wallHealth}`);
+        
+        if (this.wallHealth <= 0) {
+            this.destroyWall();
+            return true; // Стенка разрушена
+        }
+        return false; // Стенка повреждена
     }
     
     private die(): void {
@@ -1382,8 +1707,12 @@ export class EnemyTank {
     
     dispose(): void {
         this.isAlive = false;
+        
+        // Уничтожаем стенку если есть
+        this.destroyWall();
+        
         if (this.chassis && !this.chassis.isDisposed()) {
-        this.chassis.dispose();
+            this.chassis.dispose();
         }
         if (this.hpBillboard && !this.hpBillboard.isDisposed()) {
             this.hpBillboard.dispose();

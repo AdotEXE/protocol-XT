@@ -1423,6 +1423,51 @@ export class TankController {
                     }
                 }
                 
+                // === ПРОВЕРКА ПОПАДАНИЯ В СТЕНКИ ВРАГОВ ===
+                const enemyWalls = this.scene.meshes.filter(mesh => 
+                    mesh.metadata && mesh.metadata.type === "enemyWall" && !mesh.isDisposed()
+                );
+                for (const wall of enemyWalls) {
+                    const wallPos = wall.absolutePosition;
+                    const wallRotation = wall.rotation.y;
+                    
+                    // Размеры стенки врага: width=5, height=3.5, depth=0.4
+                    const wallHalfWidth = 2.5;
+                    const wallHalfHeight = 1.75;
+                    const wallHalfDepth = 0.2;
+                    
+                    // Переводим позицию пули в локальную систему координат стенки
+                    const localPos = bulletPos.subtract(wallPos);
+                    const cosY = Math.cos(-wallRotation);
+                    const sinY = Math.sin(-wallRotation);
+                    
+                    const localX = localPos.x * cosY - localPos.z * sinY;
+                    const localY = localPos.y;
+                    const localZ = localPos.x * sinY + localPos.z * cosY;
+                    
+                    // Проверяем, находится ли пуля внутри границ стенки
+                    if (Math.abs(localX) < wallHalfWidth && 
+                        Math.abs(localY) < wallHalfHeight && 
+                        Math.abs(localZ) < wallHalfDepth) {
+                        hasHit = true;
+                        
+                        const bulletDamage = (ball.metadata && (ball.metadata as any).damage) ? (ball.metadata as any).damage : 25;
+                        
+                        // Наносим урон стенке врага через owner
+                        const wallMeta = wall.metadata as any;
+                        if (wallMeta && wallMeta.owner && typeof wallMeta.owner.damageEnemyWall === 'function') {
+                            wallMeta.owner.damageEnemyWall(bulletDamage);
+                        }
+                        
+                        console.log(`[TANK] Hit enemy wall! Damage: ${bulletDamage}`);
+                        if (this.effectsManager) this.effectsManager.createHitSpark(bulletPos);
+                        if (this.soundManager) this.soundManager.playHit("armor", bulletPos);
+                        ball.dispose();
+                        
+                        return;
+                    }
+                }
+                
                 // === ПРОВЕРКА ПОПАДАНИЯ В ТУРЕЛИ ===
                 if (this.enemyManager) {
                     for (const turret of this.enemyManager.turrets) {

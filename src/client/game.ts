@@ -1,4 +1,5 @@
 import "@babylonjs/core/Debug/debugLayer";
+import { logger } from "./utils/logger";
 import { 
     Engine, 
     Scene, 
@@ -169,11 +170,11 @@ export class Game {
                 console.log(`[Game] Initializing game with map type: ${this.currentMapType}`);
                 await this.init();
                 this.gameInitialized = true;
-                console.log("[Game] Game initialized successfully");
+                logger.log("Game initialized successfully");
             } else {
                 // Если игра уже инициализирована, но тип карты изменился, пересоздаем ChunkSystem
                 if (mapType && this.chunkSystem) {
-                    console.log(`[Game] Recreating ChunkSystem for map type: ${mapType}`);
+                    logger.log(`Recreating ChunkSystem for map type: ${mapType}`);
                     
                     // Очищаем старые враги
                     this.enemyTanks.forEach(enemy => {
@@ -265,7 +266,6 @@ export class Game {
         this.scene.autoClearDepthAndStencil = true;
         
         // Дополнительные оптимизации для production
-        const isProduction = import.meta.env.PROD;
         if (isProduction) {
             // Блокируем обновления материалов для производительности
             this.scene.blockMaterialDirtyMechanism = true;
@@ -279,16 +279,16 @@ export class Game {
                 e.stopPropagation(); // Останавливаем распространение события
                 e.stopImmediatePropagation(); // Останавливаем все обработчики
                 
-                console.log("[Game] ===== KeyB pressed =====");
-                console.log("[Game] Event code:", e.code);
-                console.log("[Game] Event key:", e.key);
-                console.log("[Game] Garage exists:", !!this.garage);
-                console.log("[Game] Game started:", this.gameStarted);
+                logger.debug("===== KeyB pressed =====");
+                logger.debug("Event code:", e.code);
+                logger.debug("Event key:", e.key);
+                logger.debug("Garage exists:", !!this.garage);
+                logger.debug("Game started:", this.gameStarted);
                 
                 // Функция для переключения гаража
                 const toggleGarage = () => {
                 if (!this.garage) {
-                        console.error("[Game] ERROR: Garage is null!");
+                        logger.error("ERROR: Garage is null!");
                     return;
                 }
                     
@@ -298,7 +298,7 @@ export class Game {
                         
                         if (isCurrentlyOpen) {
                     this.garage.close();
-                            console.log("[Game] ✓ Garage menu CLOSED");
+                            logger.log("✓ Garage menu CLOSED");
                 } else {
                             // Закрываем карту при открытии гаража
                             if (this.hud && this.hud.isFullMapVisible()) {
@@ -306,16 +306,16 @@ export class Game {
                             }
                             
                     this.garage.open();
-                            console.log("[Game] ✓ Garage menu OPENED");
+                            logger.log("✓ Garage menu OPENED");
                             
                             // Дополнительная проверка через небольшую задержку
                             setTimeout(() => {
                                 if (this.garage && this.garage.isGarageOpen()) {
-                                    console.log("[Game] ✓ Garage confirmed open");
+                                    logger.debug("✓ Garage confirmed open");
                                     // Проверяем видимость GUI
                                     const garageUI = this.garage.getGUI();
                                     if (garageUI) {
-                                        console.log("[Game] Garage GUI settings:", {
+                                        logger.debug("Garage GUI settings:", {
                                             isForeground: garageUI.isForeground,
                                             layerMask: garageUI.layer?.layerMask,
                                             rootContainerVisible: garageUI.rootContainer?.isVisible,
@@ -323,16 +323,16 @@ export class Game {
                                             controlsCount: garageUI.rootContainer?.children?.length || 0
                                         });
                                     } else {
-                                        console.error("[Game] ✗ Garage GUI is null!");
+                                        logger.error("✗ Garage GUI is null!");
                                     }
                                 } else {
-                                    console.error("[Game] ✗ Garage failed to open!");
+                                    logger.error("✗ Garage failed to open!");
                                 }
                             }, 200);
                         }
                     } catch (error) {
-                        console.error("[Game] ✗ Error toggling garage:", error);
-                        console.error("[Game] Error stack:", (error as Error).stack);
+                        logger.error("✗ Error toggling garage:", error);
+                        logger.error("Error stack:", (error as Error).stack);
                     }
                 };
                 
@@ -341,10 +341,10 @@ export class Game {
                     // Если garage еще не создан, ждем немного и пробуем снова
                     setTimeout(() => {
                         if (this.garage) {
-                            console.log("[Game] Garage now available, toggling...");
+                            logger.debug("Garage now available, toggling...");
                             toggleGarage();
                         } else {
-                            console.error("[Game] Garage still not available after timeout!");
+                            logger.error("Garage still not available after timeout!");
                         }
                     }, 300);
                 return;
@@ -377,7 +377,7 @@ export class Game {
                     
                     // Если игрок рядом с гаражом (в пределах 50 единиц), переключаем ворота
                     if (nearestGarage === null) {
-                        console.log(`[Game] No garage found`);
+                        logger.warn(`No garage found`);
                     } else {
                         const ng: NearestGarageType = nearestGarage; // Явное указание типа для TypeScript
                         if (ng.distance < 50) {
@@ -407,17 +407,17 @@ export class Game {
                             if (frontDot > backDot) {
                                 // Передняя ворота ближе к направлению взгляда
                                 doorData.frontDoorOpen = !doorData.frontDoorOpen;
-                                console.log(`[Game] Front garage door ${doorData.frontDoorOpen ? 'opening' : 'closing'} manually (G key)`);
+                                logger.debug(`Front garage door ${doorData.frontDoorOpen ? 'opening' : 'closing'} manually (G key)`);
                             } else {
                                 // Задняя ворота ближе к направлению взгляда
                                 doorData.backDoorOpen = !doorData.backDoorOpen;
-                                console.log(`[Game] Back garage door ${doorData.backDoorOpen ? 'opening' : 'closing'} manually (G key)`);
+                                logger.debug(`Back garage door ${doorData.backDoorOpen ? 'opening' : 'closing'} manually (G key)`);
                             }
                             
                             // Ворота остаются в выбранном состоянии (ручное управление постоянно активно)
                             doorData.manualControl = true;
                         } else {
-                            console.log(`[Game] No garage nearby (distance: ${ng.distance.toFixed(1)})`);
+                            logger.debug(`No garage nearby (distance: ${ng.distance.toFixed(1)})`);
                         }
                     }
                 }
@@ -502,7 +502,7 @@ export class Game {
                     } else if (this.scene) {
                         // Создаем временную камеру по умолчанию, если камера еще не создана
                         this.scene.createDefaultCamera(true);
-                        console.log("[Game] Created default camera for render loop");
+                        logger.warn("Created default camera for render loop");
                     } else {
                         // Если сцена еще не создана, пропускаем рендеринг
                         return;
@@ -554,7 +554,7 @@ export class Game {
     }
     
     startGame(): void {
-        console.log("[Game] startGame() called, mapType:", this.currentMapType);
+        logger.log("startGame() called, mapType:", this.currentMapType);
         this.gameStarted = true;
         this.gamePaused = false;
         this.settings = this.mainMenu.getSettings();
@@ -580,8 +580,8 @@ export class Game {
             // Принудительно обновляем размер canvas
             this.engine.resize();
             
-            console.log("[Game] Canvas visible, size:", this.canvas.width, "x", this.canvas.height);
-            console.log("[Game] Canvas style:", {
+            logger.debug("Canvas visible, size:", this.canvas.width, "x", this.canvas.height);
+            logger.debug("Canvas style:", {
                 display: this.canvas.style.display,
                 visibility: this.canvas.style.visibility,
                 opacity: this.canvas.style.opacity,
@@ -589,13 +589,13 @@ export class Game {
                 position: this.canvas.style.position
             });
         } else {
-            console.error("[Game] ERROR: Canvas not initialized!");
+            logger.error("ERROR: Canvas not initialized!");
             return; // Не продолжаем, если canvas не инициализирован
         }
         
         // КРИТИЧЕСКИ ВАЖНО: Убеждаемся, что камера активна
         if (this.camera && this.scene) {
-            console.log("[Game] Setting active camera...");
+            logger.debug("Setting active camera...");
             this.scene.activeCamera = this.camera;
             this.camera.setEnabled(true);
             // Контролы камеры уже настроены через setupCameraInput() в init()
@@ -615,7 +615,7 @@ export class Game {
             // Принудительно обновляем камеру сразу
             this.updateCamera();
         } else {
-            console.error("[Game] ERROR: Camera or scene not initialized!", {
+            logger.error("ERROR: Camera or scene not initialized!", {
                 camera: !!this.camera,
                 scene: !!this.scene
             });
@@ -657,7 +657,7 @@ export class Game {
         // Apply settings
         if (this.chunkSystem) {
             // Update render distance from settings
-            console.log(`[Game] Render distance: ${this.settings.renderDistance}`);
+            logger.debug(`Render distance: ${this.settings.renderDistance}`);
         }
         
         if (this.debugDashboard) {
@@ -727,18 +727,18 @@ export class Game {
                 this.canvas.style.left = "0";
                 this.canvas.style.width = "100%";
                 this.canvas.style.height = "100%";
-                console.log("[Game] Canvas visibility ensured");
+                logger.debug("Canvas visibility ensured");
             } else {
-                console.error("[Game] ERROR: Canvas is null in init()!");
+                logger.error("ERROR: Canvas is null in init()!");
                 return;
             }
             
             // Убеждаемся, что engine запущен
-            console.log("[Game] Engine initialized:", !!this.engine);
+            logger.debug("Engine initialized:", !!this.engine);
             
             // Принудительно обновляем размер canvas
             this.engine.resize();
-            console.log("[Game] Canvas resized, size:", this.canvas.width, "x", this.canvas.height);
+            logger.debug("Canvas resized, size:", this.canvas.width, "x", this.canvas.height);
             
             // Убеждаемся, что все overlay скрыты
             this.hideStatsOverlay();
@@ -888,7 +888,7 @@ export class Game {
                 this.hud = new HUD(this.scene);
                 this.tank.setHUD(this.hud);
             } catch (e) {
-                console.error("[Game] HUD creation error:", e);
+                logger.error("HUD creation error:", e);
                 // Продолжаем без HUD
             }
             
@@ -1090,7 +1090,7 @@ export class Game {
             });
             
             // === CHUNK SYSTEM (MAXIMUM OPTIMIZATION!) ===
-            console.log(`[Game] Creating ChunkSystem with mapType: ${this.currentMapType}`);
+            logger.log(`Creating ChunkSystem with mapType: ${this.currentMapType}`);
             // В production используем более агрессивные настройки производительности
             const isProduction = import.meta.env.PROD;
             this.chunkSystem = new ChunkSystem(this.scene, {
@@ -1100,7 +1100,7 @@ export class Game {
                 worldSeed: Math.floor(Math.random() * 1000000),
                 mapType: this.currentMapType
             });
-            console.log(`[Game] Chunk system created with ${this.chunkSystem.garagePositions.length} garages`);
+            logger.log(`Chunk system created with ${this.chunkSystem.garagePositions.length} garages`);
             
             // КРИТИЧЕСКИ ВАЖНО: Запускаем генерацию чанков сразу, чтобы гаражи начали генерироваться
             // Используем позицию танка (0, 2, 0) для начальной генерации
@@ -1127,9 +1127,9 @@ export class Game {
 
             // Game initialized - Press F3 for debug info
             // Scene meshes count logged (disabled for performance)
-            console.log("[Game] Active camera:", this.scene.activeCamera?.name);
+            logger.debug("Active camera:", this.scene.activeCamera?.name);
         } catch (e) {
-            console.error("Game init error:", e);
+            logger.error("Game init error:", e);
         }
     }
     
@@ -1182,8 +1182,9 @@ export class Game {
         }
         
         spawnPositions.forEach((pos) => {
-            // Все враги на сложной сложности по умолчанию
-            const enemyTank = new EnemyTank(this.scene, pos, this.soundManager!, this.effectsManager!, "hard");
+            // Используем сложность из настроек меню
+            const difficulty = this.mainMenu?.getSettings().enemyDifficulty || "medium";
+            const enemyTank = new EnemyTank(this.scene, pos, this.soundManager!, this.effectsManager!, difficulty);
             if (this.tank) {
                 enemyTank.setTarget(this.tank);
             }
@@ -1251,7 +1252,7 @@ export class Game {
     // Ожидание генерации гаражей и спавн игрока/врагов
     waitForGaragesAndSpawn() {
         if (!this.chunkSystem) {
-            console.error("[Game] ChunkSystem not initialized!");
+            logger.error("ChunkSystem not initialized!");
             // Fallback на обычный спавн
             this.spawnEnemyTanks();
             if (this.tank) {
@@ -1543,17 +1544,17 @@ export class Game {
     // Спавн врагов в гаражах
     spawnEnemiesInGarages() {
         if (!this.soundManager || !this.effectsManager) {
-            console.warn("[Game] Sound/Effects not ready, skipping enemy spawn");
+            logger.warn("Sound/Effects not ready, skipping enemy spawn");
             return;
         }
         if (!this.chunkSystem || !this.chunkSystem.garagePositions.length) {
-            console.warn("[Game] No garages available, NOT spawning enemies!");
+            logger.warn("No garages available, NOT spawning enemies!");
             return; // НЕ используем fallback - враги НЕ спавнятся без гаражей!
         }
         
         // КРИТИЧЕСКИ ВАЖНО: Если гараж игрока ещё не определён, НЕ СПАВНИМ врагов!
         if (!this.playerGaragePosition) {
-            console.error("[Game] CRITICAL: Player garage NOT SET! Aborting enemy spawn!");
+            logger.error("CRITICAL: Player garage NOT SET! Aborting enemy spawn!");
             return;
         }
         
@@ -1597,7 +1598,9 @@ export class Game {
         // Спавним врагов в первых N гаражах
         for (let i = 0; i < enemyCount; i++) {
             const garagePos = availableGarages[i];
-            const enemyTank = new EnemyTank(this.scene, garagePos, this.soundManager, this.effectsManager, "hard");
+            // Используем сложность из настроек меню
+            const difficulty = this.mainMenu?.getSettings().enemyDifficulty || "medium";
+            const enemyTank = new EnemyTank(this.scene, garagePos, this.soundManager, this.effectsManager, difficulty);
             if (this.tank) {
                 enemyTank.setTarget(this.tank);
             }
@@ -1665,7 +1668,9 @@ export class Game {
             }
         }
         
-        const enemyTank = new EnemyTank(this.scene, garagePos, this.soundManager, this.effectsManager, "hard");
+        // Используем сложность из настроек меню
+        const difficulty = this.mainMenu?.getSettings().enemyDifficulty || "medium";
+        const enemyTank = new EnemyTank(this.scene, garagePos, this.soundManager, this.effectsManager, difficulty);
         if (this.tank) {
             enemyTank.setTarget(this.tank);
         }

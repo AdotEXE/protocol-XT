@@ -48,6 +48,7 @@ export interface GameSettings {
     screenShake: boolean;
     virtualTurretFixation: boolean; // Виртуальная фиксация башни
     language: string; // "ru" or "en"
+    enemyDifficulty: "easy" | "medium" | "hard"; // Сложность противников
 }
 
 const DEFAULT_SETTINGS: GameSettings = {
@@ -67,7 +68,8 @@ const DEFAULT_SETTINGS: GameSettings = {
     showDamageNumbers: true,
     screenShake: true,
     virtualTurretFixation: false, // Виртуальная фиксация отключена по умолчанию
-    language: "ru" // Russian by default
+    language: "ru", // Russian by default
+    enemyDifficulty: "medium" // Средняя сложность по умолчанию
 };
 
 // === LANGUAGE STRINGS ===
@@ -108,6 +110,10 @@ const LANG = {
         music: "Музыка",
         graphics: "Графика",
         language: "Язык",
+        enemyDifficulty: "Сложность ботов",
+        diffEasy: "ЛЕГКО",
+        diffMedium: "СРЕДНЕ",
+        diffHard: "СЛОЖНО",
         close: "ЗАКРЫТЬ",
         apply: "ПРИМЕНИТЬ",
         reset: "СБРОС",
@@ -164,6 +170,10 @@ const LANG = {
         music: "Music",
         graphics: "Graphics",
         language: "Language",
+        enemyDifficulty: "Bot Difficulty",
+        diffEasy: "EASY",
+        diffMedium: "MEDIUM",
+        diffHard: "HARD",
         close: "CLOSE",
         apply: "APPLY",
         reset: "RESET",
@@ -1105,6 +1115,49 @@ export class MainMenu {
                 color: #000;
             }
             
+            /* Difficulty selector */
+            .difficulty-selector {
+                display: flex;
+                gap: 5px;
+            }
+            
+            .diff-btn {
+                padding: 6px 12px;
+                font-family: 'Press Start 2P', monospace;
+                font-size: 8px;
+                background: rgba(0, 40, 0, 0.8);
+                color: #0f0;
+                border: 2px solid #0a0;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+            
+            .diff-btn:hover {
+                background: rgba(0, 80, 0, 0.8);
+            }
+            
+            .diff-btn.active {
+                box-shadow: 0 0 10px currentColor;
+            }
+            
+            #diff-easy.active {
+                background: #0a0;
+                border-color: #0f0;
+                color: #000;
+            }
+            
+            #diff-medium.active {
+                background: #aa0;
+                border-color: #ff0;
+                color: #000;
+            }
+            
+            #diff-hard.active {
+                background: #a00;
+                border-color: #f00;
+                color: #fff;
+            }
+            
             .panel-buttons {
                 display: flex;
                 gap: 10px;
@@ -1775,6 +1828,15 @@ export class MainMenu {
                     <input type="checkbox" class="setting-checkbox" id="set-virtual-fixation" ${this.settings.virtualTurretFixation ? 'checked' : ''}>
                 </div>
                 
+                <div class="setting-row">
+                    <span class="setting-label">${L.enemyDifficulty}</span>
+                    <div class="setting-value difficulty-selector">
+                        <button class="diff-btn ${this.settings.enemyDifficulty === 'easy' ? 'active' : ''}" id="diff-easy" data-diff="easy">${L.diffEasy}</button>
+                        <button class="diff-btn ${this.settings.enemyDifficulty === 'medium' ? 'active' : ''}" id="diff-medium" data-diff="medium">${L.diffMedium}</button>
+                        <button class="diff-btn ${this.settings.enemyDifficulty === 'hard' ? 'active' : ''}" id="diff-hard" data-diff="hard">${L.diffHard}</button>
+                    </div>
+                </div>
+                
                 <div class="panel-buttons">
                     <button class="panel-btn primary" id="settings-save">Сохранить</button>
                     <button class="panel-btn danger" id="settings-reset">Сброс</button>
@@ -1810,6 +1872,16 @@ export class MainMenu {
             this.settings.language = "en";
             document.getElementById("lang-en")?.classList.add("active");
             document.getElementById("lang-ru")?.classList.remove("active");
+        });
+        
+        // Difficulty selector
+        ["easy", "medium", "hard"].forEach(diff => {
+            document.getElementById(`diff-${diff}`)?.addEventListener("click", () => {
+                this.settings.enemyDifficulty = diff as "easy" | "medium" | "hard";
+                // Update active button
+                document.querySelectorAll(".diff-btn").forEach(btn => btn.classList.remove("active"));
+                document.getElementById(`diff-${diff}`)?.classList.add("active");
+            });
         });
         
         document.getElementById("settings-save")?.addEventListener("click", () => {
@@ -2262,7 +2334,8 @@ export class MainMenu {
             showDamageNumbers: true,
             screenShake: (document.getElementById("set-screen-shake") as HTMLInputElement)?.checked ?? true,
             virtualTurretFixation: (document.getElementById("set-virtual-fixation") as HTMLInputElement)?.checked ?? false,
-            language: this.settings.language // Preserve current language selection
+            language: this.settings.language, // Preserve current language selection
+            enemyDifficulty: this.settings.enemyDifficulty // Preserve difficulty selection
         };
         
         localStorage.setItem("gameSettings", JSON.stringify(this.settings));
