@@ -60,3 +60,5 @@ outputs/
 
 # Temporary scripts
 *.ps1
+
+.vercel
