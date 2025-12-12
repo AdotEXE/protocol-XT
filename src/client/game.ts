@@ -1922,8 +1922,44 @@ export class Game {
         this.chunkSystem.garageDoors.forEach(doorData => {
             if (!doorData.frontDoor || !doorData.backDoor) return;
             
-            // Используем только ручное управление - состояние каждой ворота отдельно
-            // Ворота остаются в том состоянии, в которое их поставил игрок
+            // === АВТООТКРЫТИЕ ВОРОТ ДЛЯ БОТОВ ===
+            // Проверяем приближение вражеских танков к воротам
+            const doorOpenDistance = 12; // Дистанция для открытия ворот
+            const garagePos = doorData.position;
+            const garageDepth = doorData.garageDepth || 20;
+            
+            // Позиции передних и задних ворот
+            const frontDoorPos = new Vector3(garagePos.x, 0, garagePos.z + garageDepth / 2);
+            const backDoorPos = new Vector3(garagePos.x, 0, garagePos.z - garageDepth / 2);
+            
+            // Проверяем всех вражеских танков
+            for (const enemy of this.enemyTanks) {
+                if (!enemy || !enemy.isAlive || !enemy.chassis) continue;
+                
+                const enemyPos = enemy.chassis.absolutePosition;
+                
+                // Проверяем расстояние до передних ворот
+                const distToFront = Vector3.Distance(
+                    new Vector3(enemyPos.x, 0, enemyPos.z),
+                    frontDoorPos
+                );
+                if (distToFront < doorOpenDistance && !doorData.frontDoorOpen) {
+                    // Бот близко к передним воротам - открываем
+                    doorData.frontDoorOpen = true;
+                }
+                
+                // Проверяем расстояние до задних ворот
+                const distToBack = Vector3.Distance(
+                    new Vector3(enemyPos.x, 0, enemyPos.z),
+                    backDoorPos
+                );
+                if (distToBack < doorOpenDistance && !doorData.backDoorOpen) {
+                    // Бот близко к задним воротам - открываем
+                    doorData.backDoorOpen = true;
+                }
+            }
+            
+            // Используем состояние каждой ворота (ручное управление + автооткрытие для ботов)
             const targetFrontOpen = doorData.frontDoorOpen !== undefined ? doorData.frontDoorOpen : false;
             const targetBackOpen = doorData.backDoorOpen !== undefined ? doorData.backDoorOpen : false;
             

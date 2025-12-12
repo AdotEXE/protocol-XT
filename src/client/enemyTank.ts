@@ -613,6 +613,18 @@ export class EnemyTank {
                 this.applyTorque(torqueVec);
             }
             
+            // --- ANTI-FLY: Clamp vertical velocity ---
+            // Боты не должны летать - ограничиваем вертикальную скорость
+            if (vel.y > 6) {
+                body.setLinearVelocity(new Vector3(vel.x, 6, vel.z));
+            }
+            // Ограничиваем максимальную высоту
+            if (pos.y > 4.0) {
+                // Сильная сила вниз
+                this._tmpUp!.set(0, -20000, 0);
+                body.applyForce(this._tmpUp!, pos);
+            }
+            
             // --- Auto reset if fallen (Enhanced detection) ---
             const isFallen = pos.y < -10 || up.y < 0.3 || Math.abs(tiltX) > 1.0 || Math.abs(tiltZ) > 1.0;
             const isStuck = Math.abs(vel.length()) < 0.5 && Math.abs(angVel.length()) < 0.1 && up.y < 0.5;
@@ -636,17 +648,28 @@ export class EnemyTank {
         if (now - this.stuckTimer < this.STUCK_CHECK_INTERVAL) return false;
         
         const pos = this.chassis.position;
+        const vel = this.physicsBody?.getLinearVelocity();
         
-        // Проверка 1: Высота выше нормы (застряли на крыше)
-        if (pos.y > 5.0) {
-            console.log(`[EnemyTank ${this.id}] Stuck on roof (y=${pos.y.toFixed(2)}), resetting to ground`);
+        // Проверка 1: Высота выше нормы (застряли на крыше гаража ~3м высота)
+        // Снижаем порог до 3.5 - нормальный hover height = 1.0-2.0
+        if (pos.y > 3.5) {
+            console.log(`[EnemyTank ${this.id}] Too high (y=${pos.y.toFixed(2)}), resetting to ground`);
             this.forceResetToGround();
             this.consecutiveStuckCount = 0;
             this.stuckTimer = now;
             return true;
         }
         
-        // Проверка 2: Не двигаемся при попытке движения
+        // Проверка 2: Летим вверх слишком быстро (анти-полёт)
+        if (vel && vel.y > 8) {
+            console.log(`[EnemyTank ${this.id}] Flying up too fast (velY=${vel.y.toFixed(2)}), clamping`);
+            // Сбрасываем вертикальную скорость
+            this.physicsBody.setLinearVelocity(new Vector3(vel.x, Math.min(vel.y, 2), vel.z));
+            this.stuckTimer = now;
+            return true;
+        }
+        
+        // Проверка 3: Не двигаемся при попытке движения
         const moved = Vector3.Distance(pos, this.lastStuckCheckPos);
         if (moved < this.STUCK_THRESHOLD && Math.abs(this.throttleTarget) > 0.1) {
             this.consecutiveStuckCount++;
@@ -691,18 +714,22 @@ export class EnemyTank {
     private forceUnstuck(): void {
         if (!this.chassis || !this.physicsBody) return;
         
-        // Пробуем двигаться в случайном направлении
+        // Пробуем двигаться в случайном направлении (назад чаще - чтобы отъехать от препятствия)
         const randomAngle = Math.random() * Math.PI * 2;
         const unstuckDir = new Vector3(Math.cos(randomAngle), 0, Math.sin(randomAngle));
         
-        // Сильный импульс в случайном направлении
-        this.physicsBody.applyImpulse(unstuckDir.scale(15000), this.chassis.absolutePosition);
+        // Умеренный импульс в случайном направлении (снижено с 15000)
+        this.physicsBody.applyImpulse(unstuckDir.scale(8000), this.chassis.absolutePosition);
         
-        // Небольшой импульс вверх
-        this.physicsBody.applyImpulse(new Vector3(0, 8000, 0), this.chassis.absolutePosition);
+        // Минимальный импульс вверх только для подскока (снижено с 8000 до 2000)
+        this.physicsBody.applyImpulse(new Vector3(0, 2000, 0), this.chassis.absolutePosition);
         
         // Меняем направление обхода препятствий
         this.obstacleAvoidanceDir = Math.random() > 0.5 ? 1 : -1;
+        
+        // Даём команду двигаться назад
+        this.throttleTarget = -0.8;
+        this.steerTarget = (Math.random() - 0.5) * 2;
         
         // Если застряли слишком много раз подряд, телепортируемся
         if (this.consecutiveStuckCount > 5) {
@@ -725,15 +752,17 @@ export class EnemyTank {
         const forward = this.chassis.getDirection(Vector3.Forward()).normalize();
         const right = this.chassis.getDirection(Vector3.Right()).normalize();
         
-        const rayLength = 12;
+        const rayLength = 15; // Увеличена дальность для лучшего обнаружения
         const rayHeight = pos.y + 0.5;
         const rayStart = new Vector3(pos.x, rayHeight, pos.z);
         
-        // Три луча: прямо, влево-вперёд (45°), вправо-вперёд (45°)
+        // Пять лучей: прямо, слегка влево/вправо, сильнее влево/вправо
         const directions = [
             forward.clone(),
-            forward.clone().add(right.scale(-0.7)).normalize(),
-            forward.clone().add(right.scale(0.7)).normalize()
+            forward.clone().add(right.scale(-0.4)).normalize(), // 22° влево
+            forward.clone().add(right.scale(0.4)).normalize(),  // 22° вправо
+            forward.clone().add(right.scale(-0.8)).normalize(), // 45° влево
+            forward.clone().add(right.scale(0.8)).normalize()   // 45° вправо
         ];
         
         const hits = directions.map(dir => {
@@ -741,19 +770,47 @@ export class EnemyTank {
             const pick = this.scene.pickWithRay(ray, mesh => {
                 if (!mesh || !mesh.isEnabled()) return false;
                 const meta = mesh.metadata;
+                
                 // Игнорируем другие танки, пули, расходники
                 if (meta && (meta.type === "enemyTank" || meta.type === "playerTank" || 
                     meta.type === "bullet" || meta.type === "enemyBullet" || meta.type === "consumable")) return false;
+                
                 // Игнорируем билборды
                 if (mesh.name.includes("billboard") || mesh.name.includes("hp") || mesh.name.includes("Hp")) return false;
+                
+                // Гаражные ворота - проверяем открыты ли они
+                if (mesh.name.includes("garageFrontDoor") || mesh.name.includes("garageBackDoor")) {
+                    // Если ворота высоко (открыты), игнорируем их
+                    if (mesh.position.y > 3.5) return false;
+                    // Закрытые ворота - это препятствие
+                    return true;
+                }
+                
                 return mesh.isPickable;
             });
             return pick && pick.hit ? pick.distance : rayLength;
         });
         
+        // Оценка препятствий с весами (центральные лучи важнее)
+        const centerHit = hits[0];
+        const leftHits = Math.min(hits[1], hits[3]);
+        const rightHits = Math.min(hits[2], hits[4]);
+        
         // Выбираем направление с наибольшим свободным пространством
-        if (hits[0] < 8) { // Препятствие впереди ближе 8м
-            this.obstacleAvoidanceDir = hits[1] > hits[2] ? -1 : 1;
+        if (centerHit < 10) { // Препятствие впереди ближе 10м
+            // Выбираем сторону с большим пространством
+            if (leftHits > rightHits + 2) {
+                this.obstacleAvoidanceDir = -1; // Влево
+            } else if (rightHits > leftHits + 2) {
+                this.obstacleAvoidanceDir = 1;  // Вправо
+            } else {
+                // Примерно одинаково - выбираем случайно но консистентно
+                this.obstacleAvoidanceDir = this.obstacleAvoidanceDir !== 0 ? this.obstacleAvoidanceDir : (Math.random() > 0.5 ? 1 : -1);
+            }
+        } else if (centerHit < 6) {
+            // Очень близко - резкий манёвр
+            this.obstacleAvoidanceDir = leftHits > rightHits ? -1 : 1;
+            this.throttleTarget = -0.5; // Отъезжаем назад
         } else {
             this.obstacleAvoidanceDir = 0;
         }
