@@ -8,7 +8,8 @@ import {
     PhysicsShapeType,
     PhysicsMotionType,
     Mesh,
-    TransformNode
+    TransformNode,
+    VertexBuffer
 } from "@babylonjs/core";
 import { MapType } from "./menu";
 import { RoadNetwork } from "./roadNetwork";
@@ -2098,7 +2099,7 @@ export class ChunkSystem {
         // В режиме песочницы генерируем только землю
         if (this.config.mapType === "sandbox") {
             // Простая плоская земля для песочницы
-            this.createGround(chunk, size, "wasteland", random);
+            this.createGround(chunk, worldX, worldZ, size, "wasteland", random);
             // Гаражи уже созданы в createAllGarages(), пропускаем generateGarages
             return;
         }
@@ -2154,17 +2155,14 @@ export class ChunkSystem {
             biome = this.getBiome(worldX + size/2, worldZ + size/2, random);
         }
         
-        // Ground based on biome
-        this.createGround(chunk, size, biome, random);
+        // Ground based on biome (heightmap)
+        this.createGround(chunk, worldX, worldZ, size, biome, random);
         
         // КРИТИЧЕСКИ ВАЖНО: Гаражи генерируем ПЕРВЫМИ, чтобы исключить их области из генерации других объектов
         this.generateGarages(chunk, worldX, worldZ, size, random);
         
         // Roads - use RoadNetwork for better procedural roads
         this.createRoads(chunk, size, random, biome);
-        
-        // Terrain hills and valleys based on noise
-        this.createTerrainFromNoise(chunk, worldX, worldZ, size, biome, random);
         
         // Content based on biome
         switch (biome) {
@@ -2197,7 +2195,7 @@ export class ChunkSystem {
         this.generateConsumables(chunk, worldX, worldZ, size, random);
     }
     
-    private createGround(chunk: ChunkData, size: number, biome: BiomeType, random: SeededRandom): void {
+    private createGround(chunk: ChunkData, worldX: number, worldZ: number, size: number, biome: BiomeType | string, random: SeededRandom): void {
         // Ground with biome-specific color
         let groundMat: string;
         switch (biome) {
@@ -2207,16 +2205,50 @@ export class ChunkSystem {
             case "park": groundMat = "grass"; break;
             case "wasteland": groundMat = "dirt"; break;
             case "military": groundMat = "sand"; break;
-            default: groundMat = "dirt";
+            default: groundMat = typeof biome === "string" ? biome : "dirt";
         }
         
-        // Create flat ground (LOW POLY style - all biomes use flat ground)
-        // Terrain variation is created by createTerrainFromNoise using rectangular blocks
+        // If terrain generator is available, build a single heightmap ground mesh instead of many blocky boxes
+        if (this.terrainGenerator) {
+            const subdivisions = 32; // finer grid for smooth terrain
+            const ground = MeshBuilder.CreateGround("ground", {
+                width: size,
+                height: size,
+                subdivisions,
+                updatable: true
+            }, this.scene);
+            
+            // Sample heights from terrain generator
+            const positions = ground.getVerticesData(VertexBuffer.PositionKind);
+            if (positions) {
+                const vertsPerSide = subdivisions + 1;
+                for (let gz = 0; gz < vertsPerSide; gz++) {
+                    for (let gx = 0; gx < vertsPerSide; gx++) {
+                        const idx = (gz * vertsPerSide + gx) * 3;
+                        const sampleX = worldX + (gx / subdivisions) * size;
+                        const sampleZ = worldZ + (gz / subdivisions) * size;
+                        positions[idx + 1] = this.terrainGenerator.getHeight(sampleX, sampleZ, typeof biome === "string" ? biome : "dirt");
+                    }
+                }
+                ground.updateVerticesData(VertexBuffer.PositionKind, positions, true);
+                ground.refreshBoundingInfo(true);
+            }
+            
+            ground.position = new Vector3(size / 2, 0, size / 2);
+            ground.material = this.getMat(groundMat);
+            ground.parent = chunk.node;
+            this.optimizeMesh(ground);
+            chunk.meshes.push(ground);
+            new PhysicsAggregate(ground, PhysicsShapeType.MESH, { mass: 0 }, this.scene);
+            return;
+        }
+        
+        // Fallback: flat ground if no terrain generator
         const ground = MeshBuilder.CreateBox("ground", { width: size, height: 0.1, depth: size }, this.scene);
         ground.position = new Vector3(size / 2, -0.05, size / 2);
         ground.material = this.getMat(groundMat);
         ground.parent = chunk.node;
-        ground.freezeWorldMatrix();
+        this.optimizeMesh(ground);
         chunk.meshes.push(ground);
         new PhysicsAggregate(ground, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
     }
@@ -3689,7 +3721,7 @@ export class ChunkSystem {
     
     private generatePolygonContent(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
         // Земля военного типа (песок/грязь)
-        this.createGround(chunk, size, "military", random);
+        this.createGround(chunk, worldX, worldZ, size, "military", random);
         
         // Определяем границы арены
         const arenaHalf = this.POLYGON_ARENA_SIZE / 2;
@@ -4344,7 +4376,7 @@ export class ChunkSystem {
     
     private generateFrontlineContent(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
         // Земля военного типа (грязь)
-        this.createGround(chunk, size, "wasteland", random);
+        this.createGround(chunk, worldX, worldZ, size, "wasteland", random);
         
         // Определяем границы карты
         const arenaHalf = this.FRONTLINE_ARENA_SIZE / 2;
@@ -4985,7 +5017,8 @@ export class ChunkSystem {
         }
     }
 
-    // Create BLOCKY terrain features based on noise heightmap - LOW POLY STYLE (rectangular blocks only)
+    // Legacy BLOCKY terrain generator (kept for reference; not used after heightmap switch)
+    // eslint-disable-next-line @typescript-eslint/no-unused-private-class-members
     private createTerrainFromNoise(chunk: ChunkData, worldX: number, worldZ: number, size: number, biome: BiomeType, random: SeededRandom): void {
         if (!this.terrainGenerator) return;
         
@@ -5936,7 +5969,7 @@ export class ChunkSystem {
     
     // Generate Ruins map - half-destroyed war-torn city
     private generateRuinsContent(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
-        this.createGround(chunk, size, "wasteland", random);
+        this.createGround(chunk, worldX, worldZ, size, "wasteland", random);
         this.generateGarages(chunk, worldX, worldZ, size, random);
         
         // Create roads first
@@ -6009,7 +6042,7 @@ export class ChunkSystem {
     
     // Generate Canyon map - mountainous terrain with passes, rivers, lakes, forests
     private generateCanyonContent(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
-        this.createGround(chunk, size, "park", random);
+        this.createGround(chunk, worldX, worldZ, size, "park", random);
         this.generateGarages(chunk, worldX, worldZ, size, random);
         
         // Use dramatic terrain for mountains
@@ -6088,7 +6121,7 @@ export class ChunkSystem {
     
     // Generate Industrial map - large industrial zone with factories, port, railway
     private generateIndustrialMapContent(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
-        this.createGround(chunk, size, "gravel", random);
+        this.createGround(chunk, worldX, worldZ, size, "gravel", random);
         this.generateGarages(chunk, worldX, worldZ, size, random);
         this.createRoads(chunk, size, random, "industrial");
         
@@ -6185,7 +6218,7 @@ export class ChunkSystem {
     
     // Generate Urban Warfare map - dense urban environment with barricades
     private generateUrbanWarfareContent(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
-        this.createGround(chunk, size, "asphalt", random);
+        this.createGround(chunk, worldX, worldZ, size, "asphalt", random);
         this.generateGarages(chunk, worldX, worldZ, size, random);
         
         // Dense grid of streets
@@ -6261,7 +6294,7 @@ export class ChunkSystem {
     
     // Generate Underground map - cave system, mines, tunnels
     private generateUndergroundContent(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
-        this.createGround(chunk, size, "gravel", random);
+        this.createGround(chunk, worldX, worldZ, size, "gravel", random);
         this.generateGarages(chunk, worldX, worldZ, size, random);
         
         // Create cave entrances (large openings)
@@ -6343,7 +6376,7 @@ export class ChunkSystem {
     
     // Generate Coastal map - coastline with port, lighthouses, beaches, cliffs
     private generateCoastalContent(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
-        this.createGround(chunk, size, "sand", random);
+        this.createGround(chunk, worldX, worldZ, size, "sand", random);
         this.generateGarages(chunk, worldX, worldZ, size, random);
         
         // Create water (large flat area)

@@ -605,10 +605,15 @@ export class Game {
                 if (!this.scene.activeCamera) {
                     if (this.camera) {
                         this.scene.activeCamera = this.camera;
-                    } else if (this.scene) {
-                        // Создаем временную камеру по умолчанию, если камера еще не создана
+                    } else if (this.scene && !this.gameInitialized) {
+                        // Создаем временную камеру по умолчанию только если игра еще не инициализирована
+                        // Это нормально - камера будет заменена на игровую после init()
                         this.scene.createDefaultCamera(true);
-                        logger.warn("Created default camera for render loop");
+                        // Не логируем - это нормальное поведение до инициализации
+                    } else if (this.scene) {
+                        // Если игра инициализирована, но камеры нет - это проблема
+                        this.scene.createDefaultCamera(true);
+                        logger.warn("Created default camera - game camera missing");
                     } else {
                         // Если сцена еще не создана, пропускаем рендеринг
                         return;
@@ -1449,6 +1454,15 @@ export class Game {
             // Create Currency Manager
             this.currencyManager = new CurrencyManager();
             
+            // Create Garage System EARLY (so it's available in menu before game starts)
+            this.updateLoadingProgress(52, "Инициализация гаража...");
+            this.garage = new Garage(this.scene, this.currencyManager);
+            // Connect garage to main menu immediately
+            if (this.mainMenu) {
+                this.mainMenu.setGarage(this.garage);
+                console.log("[Game] Garage created and connected to menu");
+            }
+            
             // Create Consumables Manager
             this.consumablesManager = new ConsumablesManager();
             
@@ -1562,27 +1576,30 @@ export class Game {
                 this.mainMenu.hide();
             }
             
-            // Create Garage System (HTML-based)
-            this.garage = new Garage(this.scene, this.currencyManager);
-            if (this.chatSystem) {
-                this.garage.setChatSystem(this.chatSystem);
-            }
-            if (this.soundManager) {
-                this.garage.setSoundManager(this.soundManager);
-            }
-            if (this.tank) {
-                this.garage.setTankController(this.tank);
-            }
-            if (this.experienceSystem) {
-                this.garage.setExperienceSystem(this.experienceSystem);
-            }
-            if (this.playerProgression) {
-                this.garage.setPlayerProgression(this.playerProgression);
-            }
-            
-            // Connect garage to main menu
-            if (this.mainMenu) {
-                this.mainMenu.setGarage(this.garage);
+            // Connect additional systems to Garage (already created in init())
+            if (this.garage) {
+                if (this.chatSystem) {
+                    this.garage.setChatSystem(this.chatSystem);
+                }
+                if (this.soundManager) {
+                    this.garage.setSoundManager(this.soundManager);
+                }
+                if (this.tank) {
+                    this.garage.setTankController(this.tank);
+                }
+                if (this.experienceSystem) {
+                    this.garage.setExperienceSystem(this.experienceSystem);
+                }
+                if (this.playerProgression) {
+                    this.garage.setPlayerProgression(this.playerProgression);
+                }
+                console.log("[Game] Garage systems connected");
+            } else {
+                console.warn("[Game] Garage not found! Creating it now...");
+                this.garage = new Garage(this.scene, this.currencyManager);
+                if (this.mainMenu) {
+                    this.mainMenu.setGarage(this.garage);
+                }
             }
             
             // Connect chat system to tank

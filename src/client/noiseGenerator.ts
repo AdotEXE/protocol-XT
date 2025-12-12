@@ -166,6 +166,7 @@ export class TerrainGenerator {
     private noise: NoiseGenerator;
     private seed: number;
     private heightCache: Map<string, number> = new Map();
+    private static readonly MAX_CACHE_SIZE = 200000;
     
     constructor(seed: number) {
         this.seed = seed;
@@ -436,8 +437,12 @@ export class TerrainGenerator {
         // Quantize to create stepped/blocky terrain
         height = Math.round(height / stepSize) * stepSize;
         
-        // Cache result
+        // Cache result with cap to avoid unbounded growth
         this.heightCache.set(cacheKey, height);
+        if (this.heightCache.size > TerrainGenerator.MAX_CACHE_SIZE) {
+            // Simple reset strategy keeps memory bounded without heavy bookkeeping
+            this.heightCache.clear();
+        }
         
         return height;
     }
