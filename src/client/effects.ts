@@ -425,4 +425,112 @@ export class EffectsManager {
         
         setTimeout(() => tracer.dispose(), 100);
     }
+    
+    // Bullet trail - follows projectile and fades out
+    createBulletTrail(bullet: Mesh): void {
+        if (!bullet || bullet.isDisposed()) return;
+        
+        // Trail material - yellow/orange glowing
+        const trailMat = new StandardMaterial("trailMat", this.scene);
+        trailMat.diffuseColor = new Color3(1, 0.7, 0.2);
+        trailMat.emissiveColor = new Color3(1, 0.5, 0.1);
+        trailMat.disableLighting = true;
+        
+        const trailSegments: Mesh[] = [];
+        let lastPos = bullet.absolutePosition.clone();
+        let frameCount = 0;
+        
+        const updateTrail = () => {
+            if (bullet.isDisposed()) {
+                // Fade out remaining segments
+                trailSegments.forEach((seg, i) => {
+                    setTimeout(() => {
+                        if (!seg.isDisposed()) seg.dispose();
+                    }, i * 20);
+                });
+                trailMat.dispose();
+                return;
+            }
+            
+            frameCount++;
+            const currentPos = bullet.absolutePosition.clone();
+            const dist = Vector3.Distance(lastPos, currentPos);
+            
+            // Only create segment if moved enough
+            if (dist > 0.5) {
+                const segment = MeshBuilder.CreateBox("trailSeg", { 
+                    width: 0.15, 
+                    height: 0.15, 
+                    depth: dist 
+                }, this.scene);
+                
+                const mid = lastPos.add(currentPos).scale(0.5);
+                segment.position = mid;
+                segment.lookAt(currentPos);
+                segment.material = trailMat;
+                
+                trailSegments.push(segment);
+                lastPos = currentPos.clone();
+                
+                // Remove old segments (keep max 15)
+                while (trailSegments.length > 15) {
+                    const old = trailSegments.shift();
+                    if (old && !old.isDisposed()) old.dispose();
+                }
+            }
+            
+            // Fade out older segments
+            trailSegments.forEach((seg, i) => {
+                const age = trailSegments.length - i;
+                seg.scaling.x = Math.max(0.1, 1 - age * 0.05);
+                seg.scaling.y = Math.max(0.1, 1 - age * 0.05);
+            });
+            
+            // Continue for max 6 seconds
+            if (frameCount < 360) {
+                requestAnimationFrame(updateTrail);
+            } else {
+                trailSegments.forEach(seg => { if (!seg.isDisposed()) seg.dispose(); });
+                trailMat.dispose();
+            }
+        };
+        
+        requestAnimationFrame(updateTrail);
+    }
+    
+    // Movement dust - particles from tank tracks
+    createMovementDust(position: Vector3, direction: Vector3, intensity: number = 1): void {
+        // Create 2-4 dust particles based on intensity
+        const particleCount = Math.floor(2 + intensity * 2);
+        
+        for (let i = 0; i < particleCount; i++) {
+            const dust = MeshBuilder.CreateBox("moveDust", { size: 0.4 + Math.random() * 0.3 }, this.scene);
+            dust.position = position.clone();
+            dust.position.x += (Math.random() - 0.5) * 2;
+            dust.position.z += (Math.random() - 0.5) * 2;
+            dust.position.y = 0.2;
+            dust.material = this.dustMat;
+            
+            // Random drift
+            const driftX = (Math.random() - 0.5) * 0.1 - direction.x * 0.05;
+            const driftZ = (Math.random() - 0.5) * 0.1 - direction.z * 0.05;
+            const driftY = 0.03 + Math.random() * 0.02;
+            
+            let frame = 0;
+            const animateDust = () => {
+                frame++;
+                dust.position.x += driftX;
+                dust.position.y += driftY;
+                dust.position.z += driftZ;
+                dust.scaling.setAll(1 + frame * 0.08);
+                
+                if (frame >= 20) {
+                    dust.dispose();
+                    return;
+                }
+                setTimeout(animateDust, 40);
+            };
+            animateDust();
+        }
+    }
 }

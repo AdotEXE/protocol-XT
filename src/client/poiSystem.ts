@@ -1159,30 +1159,75 @@ export class POISystem {
         const worldX = chunkX * chunkSize;
         const worldZ = chunkZ * chunkSize;
         
-        // POI probability based on biome
+        // POI probability and count based on biome - УВЕЛИЧЕННЫЕ ШАНСЫ
         let poiChance = 0;
+        let maxPOIs = 1;
         switch (biome) {
-            case "military": poiChance = 0.5; break;
-            case "industrial": poiChance = 0.35; break;
-            case "city": poiChance = 0.2; break;
-            case "wasteland": poiChance = 0.25; break;
-            default: poiChance = 0.15;
+            case "military": 
+                poiChance = 0.85; // Военные базы - почти всегда есть POI
+                maxPOIs = 3;
+                break;
+            case "industrial": 
+                poiChance = 0.7; // Индустриальные зоны - много складов
+                maxPOIs = 2;
+                break;
+            case "city": 
+                poiChance = 0.5; // Городские районы - средняя плотность
+                maxPOIs = 2;
+                break;
+            case "wasteland": 
+                poiChance = 0.6; // Пустоши - много точек захвата
+                maxPOIs = 2;
+                break;
+            case "residential":
+                poiChance = 0.4; // Жилые районы - ремонтные станции
+                maxPOIs = 1;
+                break;
+            case "park":
+                poiChance = 0.3; // Парки - редко
+                maxPOIs = 1;
+                break;
+            default: 
+                poiChance = 0.35;
+                maxPOIs = 1;
         }
         
-        // Reduce near center
+        // Reduce near center (player spawn area)
         const distFromCenter = Math.sqrt(worldX * worldX + worldZ * worldZ);
-        if (distFromCenter < 100) poiChance *= 0.2;
+        if (distFromCenter < 80) {
+            poiChance *= 0.1; // Меньше POI у спавна
+        } else if (distFromCenter < 150) {
+            poiChance *= 0.5; // Постепенное увеличение
+        }
         
-        if (random.chance(poiChance)) {
-            const x = worldX + random.range(15, chunkSize - 15);
-            const z = worldZ + random.range(15, chunkSize - 15);
+        // Generate POIs
+        const numPOIs = random.chance(poiChance) ? random.int(1, maxPOIs) : 0;
+        
+        for (let i = 0; i < numPOIs; i++) {
+            // Случайная позиция в чанке с отступами от краёв
+            const margin = 20;
+            const x = worldX + random.range(margin, chunkSize - margin);
+            const z = worldZ + random.range(margin, chunkSize - margin);
+            
+            // Проверяем расстояние до других POI в этом чанке
+            let tooClose = false;
+            for (const existingPoi of createdPOIs) {
+                const dist = Vector3.Distance(new Vector3(x, 0, z), existingPoi.worldPosition);
+                if (dist < 30) { // Минимум 30м между POI
+                    tooClose = true;
+                    break;
+                }
+            }
+            if (tooClose) continue;
+            
             const localPos = new Vector3(x - worldX, 0, z - worldZ);
             const worldPos = new Vector3(x, 0, z);
-            const id = `poi_${chunkX}_${chunkZ}_${random.int(0, 9999)}`;
+            const id = `poi_${chunkX}_${chunkZ}_${i}_${random.int(0, 9999)}`;
             
             let poi: POI;
             
             if (biome === "military") {
+                // Военные базы - все типы POI
                 const type = random.int(0, 4);
                 if (type === 0) poi = this.createCapturePoint(localPos, id, parent, worldPos);
                 else if (type === 1) poi = this.createAmmoDepot(localPos, id, parent, worldPos);
@@ -1190,19 +1235,45 @@ export class POISystem {
                 else if (type === 3) poi = this.createFuelDepot(localPos, id, parent, worldPos);
                 else poi = this.createRepairStation(localPos, id, parent, worldPos);
             } else if (biome === "industrial") {
-                const type = random.int(0, 2);
+                // Индустриальные зоны - топливо, ремонт, боеприпасы
+                const type = random.int(0, 3);
                 if (type === 0) poi = this.createFuelDepot(localPos, id, parent, worldPos);
                 else if (type === 1) poi = this.createRepairStation(localPos, id, parent, worldPos);
-                else poi = this.createAmmoDepot(localPos, id, parent, worldPos);
-            } else {
-                const type = random.int(0, 1);
+                else if (type === 2) poi = this.createAmmoDepot(localPos, id, parent, worldPos);
+                else poi = this.createCapturePoint(localPos, id, parent, worldPos);
+            } else if (biome === "city") {
+                // Город - точки захвата, ремонт, склады
+                const type = random.int(0, 3);
                 if (type === 0) poi = this.createCapturePoint(localPos, id, parent, worldPos);
+                else if (type === 1) poi = this.createRepairStation(localPos, id, parent, worldPos);
+                else if (type === 2) poi = this.createAmmoDepot(localPos, id, parent, worldPos);
+                else poi = this.createFuelDepot(localPos, id, parent, worldPos);
+            } else if (biome === "wasteland") {
+                // Пустоши - точки захвата, радары
+                const type = random.int(0, 3);
+                if (type === 0) poi = this.createCapturePoint(localPos, id, parent, worldPos);
+                else if (type === 1) poi = this.createRadarStation(localPos, id, parent, worldPos);
+                else if (type === 2) poi = this.createAmmoDepot(localPos, id, parent, worldPos);
                 else poi = this.createRepairStation(localPos, id, parent, worldPos);
+            } else if (biome === "residential") {
+                // Жилые районы - ремонт, топливо
+                const type = random.int(0, 2);
+                if (type === 0) poi = this.createRepairStation(localPos, id, parent, worldPos);
+                else if (type === 1) poi = this.createFuelDepot(localPos, id, parent, worldPos);
+                else poi = this.createCapturePoint(localPos, id, parent, worldPos);
+            } else {
+                // Парки и другие биомы - в основном точки захвата
+                const type = random.int(0, 2);
+                if (type === 0) poi = this.createCapturePoint(localPos, id, parent, worldPos);
+                else if (type === 1) poi = this.createRepairStation(localPos, id, parent, worldPos);
+                else poi = this.createAmmoDepot(localPos, id, parent, worldPos);
             }
             
             this.pois.set(id, poi);
             poiIds.push(id);
             createdPOIs.push(poi);
+            
+            console.log(`[POI] Generated ${poi.type} at (${Math.round(x)}, ${Math.round(z)}) in ${biome}`);
         }
         
         this.chunkPOIs.set(key, poiIds);

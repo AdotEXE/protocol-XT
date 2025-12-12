@@ -1366,6 +1366,11 @@ export class TankController {
             ball.material = this.bulletMat; // Bright glowing yellow
             ball.metadata = { type: "bullet", owner: "player", damage: this.damage }; // Metadata с уроном
 
+            // Create bullet trail effect
+            if (this.effectsManager) {
+                this.effectsManager.createBulletTrail(ball);
+            }
+
             const shape = new PhysicsShape({ 
                 type: PhysicsShapeType.BOX, 
                 parameters: { extents: new Vector3(bulletSize * 0.75, bulletSize * 0.75, bulletSize * 2) } 
@@ -1532,6 +1537,10 @@ export class TankController {
                             this.playerProgression.recordShot(true);
                             this.playerProgression.recordDamageDealt(projectileDamage);
                         }
+                        // Show hit marker on HUD
+                        if (this.hud) {
+                            this.hud.showHitMarker(false);
+                        }
                             ball.dispose();
                             return;
                         }
@@ -1566,6 +1575,11 @@ export class TankController {
                         if (this.playerProgression) {
                             this.playerProgression.recordShot(true);
                             this.playerProgression.recordDamageDealt(projectileDamage);
+                        }
+                        // Show hit marker on HUD (critical if damage > 120% of base)
+                        if (this.hud) {
+                            const isCritical = projectileDamage > this.cannonType.damage * 1.2;
+                            this.hud.showHitMarker(isCritical);
                         }
                         ball.dispose();
                         return;
@@ -2145,11 +2159,22 @@ export class TankController {
             // }
             
             // --- 7. MOVEMENT SOUNDS (Track sounds when moving) ---
-            if (this.soundManager && Math.abs(this.smoothThrottle) > 0.2) {
+            if (Math.abs(this.smoothThrottle) > 0.2) {
                 const now = Date.now();
                 if (!this._lastMovementSoundTime) this._lastMovementSoundTime = 0;
                 if (now - this._lastMovementSoundTime > 300) {
-                    this.soundManager.playMovement();
+                    if (this.soundManager) {
+                        this.soundManager.playMovement();
+                    }
+                    // Create dust particles when moving
+                    if (this.effectsManager && this.chassis) {
+                        const dustPos = this.chassis.absolutePosition.clone();
+                        dustPos.y = 0.1;
+                        // Dust spawns at rear of tank
+                        const backward = this.chassis.forward.scale(-2);
+                        dustPos.addInPlace(backward);
+                        this.effectsManager.createMovementDust(dustPos, this.chassis.forward, Math.abs(this.smoothThrottle));
+                    }
                     this._lastMovementSoundTime = now;
                 }
             }

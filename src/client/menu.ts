@@ -1875,6 +1875,17 @@ export class MainMenu {
                 </div>
                 
                 <div class="setting-row">
+                    <span class="setting-label">Качество графики</span>
+                    <div class="setting-value">
+                        <select class="setting-select" id="set-graphics">
+                            <option value="0" ${this.settings.graphicsQuality === 0 ? 'selected' : ''}>Низкое</option>
+                            <option value="1" ${this.settings.graphicsQuality === 1 ? 'selected' : ''}>Среднее</option>
+                            <option value="2" ${this.settings.graphicsQuality === 2 ? 'selected' : ''}>Высокое</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="setting-row">
                     <span class="setting-label">Громкость звуков</span>
                     <div class="setting-value">
                         <input type="range" class="setting-range" id="set-sound" min="0" max="100" value="${this.settings.soundVolume}">
