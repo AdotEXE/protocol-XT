@@ -238,13 +238,29 @@ export class EnemyTank {
     // === VISUALS (same as player) ===
     
     private createChassis(position: Vector3): Mesh {
-        // Same size as player tank!
+        // Random visual variation for enemies (light/medium/heavy look)
+        const variant = this.id % 5; // 5 variants
+        let width = 2.2, height = 0.8, depth = 3.5;
+        
+        if (variant === 0) {
+            // Light variant - smaller
+            width = 1.8; height = 0.7; depth = 3.0;
+        } else if (variant === 1) {
+            // Heavy variant - larger
+            width = 2.6; height = 0.9; depth = 4.0;
+        } else if (variant === 2) {
+            // Scout variant - very small
+            width = 1.6; height = 0.6; depth = 2.8;
+        } else if (variant === 3) {
+            // Assault variant - medium-large
+            width = 2.4; height = 0.85; depth = 3.8;
+        }
+        // variant 4 = standard (medium)
+        
         const chassis = MeshBuilder.CreateBox(`enemyTank_${this.id}`, {
-            width: 2.2,
-            height: 0.8,
-            depth: 3.5
+            width, height, depth
         }, this.scene);
-        chassis.position = position.add(new Vector3(0, 0.5, 0));  // Spawn close to ground
+        chassis.position = position.add(new Vector3(0, 0.5, 0));
         
         const mat = new StandardMaterial(`enemyTankMat_${this.id}`, this.scene);
         mat.diffuseColor = new Color3(0.5, 0.15, 0.1); // Dark red/brown
@@ -252,6 +268,27 @@ export class EnemyTank {
         mat.freeze();
         chassis.material = mat;
         chassis.metadata = { type: "enemyTank", instance: this };
+        
+        // Add visual details for heavy variant
+        if (variant === 1) {
+            const armorMat = new StandardMaterial(`enemyArmor_${this.id}`, this.scene);
+            armorMat.diffuseColor = new Color3(0.4, 0.12, 0.08);
+            armorMat.freeze();
+            
+            const leftPlate = MeshBuilder.CreateBox(`armorL_${this.id}`, {
+                width: 0.12, height: height * 0.8, depth: depth * 0.5
+            }, this.scene);
+            leftPlate.position = new Vector3(-width * 0.55, 0, 0);
+            leftPlate.parent = chassis;
+            leftPlate.material = armorMat;
+            
+            const rightPlate = MeshBuilder.CreateBox(`armorR_${this.id}`, {
+                width: 0.12, height: height * 0.8, depth: depth * 0.5
+            }, this.scene);
+            rightPlate.position = new Vector3(width * 0.55, 0, 0);
+            rightPlate.parent = chassis;
+            rightPlate.material = armorMat;
+        }
         
         return chassis;
     }
@@ -278,11 +315,27 @@ export class EnemyTank {
     }
     
     private createBarrel(): Mesh {
-        // Same as player barrel!
+        // Random barrel variation for visual diversity
+        const barrelVariant = this.id % 5;
+        let width = 0.2, height = 0.2, depth = 2.5;
+        
+        if (barrelVariant === 0) {
+            // Sniper-like - long and thin
+            width = 0.15; height = 0.15; depth = 3.0;
+        } else if (barrelVariant === 1) {
+            // Heavy-like - thick
+            width = 0.25; height = 0.25; depth = 2.5;
+        } else if (barrelVariant === 2) {
+            // Gatling-like - short and thick
+            width = 0.22; height = 0.22; depth = 1.9;
+        } else if (barrelVariant === 3) {
+            // Rapid-like - short and thin
+            width = 0.18; height = 0.18; depth = 1.7;
+        }
+        // variant 4 = standard
+        
         const barrel = MeshBuilder.CreateBox(`enemyBarrel_${this.id}`, {
-            width: 0.2,
-            height: 0.2,
-            depth: 2.5
+            width, height, depth
         }, this.scene);
         barrel.parent = this.turret;
         barrel.position = new Vector3(0, 0.2, 1.5);

@@ -243,44 +243,92 @@ export class EffectsManager {
         animate();
     }
     
-    // Simple explosion - expanding box
+    // Enhanced explosion - multiple expanding rings and debris
     createExplosion(position: Vector3, scale: number = 1.0): void {
-        const explosion = MeshBuilder.CreateBox("explosion", { size: 1 * scale }, this.scene);
+        // Main explosion sphere (expanding)
+        const explosion = MeshBuilder.CreateSphere("explosion", { diameter: 0.5 * scale, segments: 8 }, this.scene);
         explosion.position = position.clone();
         explosion.material = this.explosionMat;
         
-        // Simple expand and fade
+        // Expand and fade
         let frame = 0;
         const animate = () => {
             frame++;
-            explosion.scaling.setAll(1 + frame * 0.5);
+            const scaleFactor = 1 + frame * 0.8;
+            explosion.scaling.setAll(scaleFactor);
             
-            if (frame >= 6) {
+            // Fade effect (reduce opacity by scaling material brightness)
+            const brightness = Math.max(0, 1 - frame * 0.15);
+            (explosion.material as StandardMaterial).diffuseColor = new Color3(
+                1 * brightness,
+                0.5 * brightness,
+                0 * brightness
+            );
+            
+            if (frame >= 8) {
                 explosion.dispose();
                 return;
             }
-            setTimeout(animate, 50);
+            setTimeout(animate, 40);
         };
         animate();
         
-        // Add debris boxes
-        for (let i = 0; i < 4; i++) {
-            const debris = MeshBuilder.CreateBox("debris", { size: 0.3 * scale }, this.scene);
+        // Secondary explosion rings
+        for (let ring = 0; ring < 2; ring++) {
+            setTimeout(() => {
+                const ringMesh = MeshBuilder.CreateTorus("explosionRing", {
+                    diameter: 0.3 * scale,
+                    thickness: 0.1 * scale,
+                    tessellation: 16
+                }, this.scene);
+                ringMesh.position = position.clone();
+                ringMesh.position.y += ring * 0.5;
+                ringMesh.material = this.explosionMat;
+                
+                let ringFrame = 0;
+                const ringAnimate = () => {
+                    ringFrame++;
+                    ringMesh.scaling.setAll(1 + ringFrame * 0.6);
+                    ringMesh.rotation.y += 0.1;
+                    
+                    if (ringFrame >= 6) {
+                        ringMesh.dispose();
+                        return;
+                    }
+                    setTimeout(ringAnimate, 40);
+                };
+                ringAnimate();
+            }, ring * 50);
+        }
+        
+        // Enhanced debris with more variety
+        const debrisCount = Math.floor(6 * scale);
+        for (let i = 0; i < debrisCount; i++) {
+            const debrisSize = (0.2 + Math.random() * 0.3) * scale;
+            const debris = MeshBuilder.CreateBox("debris", { size: debrisSize }, this.scene);
             debris.position = position.clone();
             debris.material = this.explosionMat;
+            debris.rotation.set(
+                Math.random() * Math.PI * 2,
+                Math.random() * Math.PI * 2,
+                Math.random() * Math.PI * 2
+            );
             
-            const vx = (Math.random() - 0.5) * 10;
-            const vy = Math.random() * 8;
-            const vz = (Math.random() - 0.5) * 10;
+            const vx = (Math.random() - 0.5) * 12 * scale;
+            const vy = Math.random() * 10 * scale;
+            const vz = (Math.random() - 0.5) * 12 * scale;
+            const rotSpeed = (Math.random() - 0.5) * 0.3;
             
             let t = 0;
             const moveDebris = () => {
-                t += 0.05;
-                debris.position.x += vx * 0.05;
-                debris.position.y += (vy - t * 20) * 0.05;
-                debris.position.z += vz * 0.05;
+                t += 0.04;
+                debris.position.x += vx * 0.04;
+                debris.position.y += (vy - t * 25) * 0.04;
+                debris.position.z += vz * 0.04;
+                debris.rotation.x += rotSpeed;
+                debris.rotation.y += rotSpeed;
                 
-                if (t > 1 || debris.position.y < 0) {
+                if (t > 1.2 || debris.position.y < 0) {
                     debris.dispose();
                     return;
                 }
@@ -288,6 +336,26 @@ export class EffectsManager {
             };
             moveDebris();
         }
+        
+        // Flash effect
+        const flash = MeshBuilder.CreateSphere("flash", { diameter: 0.3 * scale, segments: 8 }, this.scene);
+        flash.position = position.clone();
+        const flashMat = new StandardMaterial("flashMat", this.scene);
+        flashMat.diffuseColor = new Color3(1, 1, 0.8); // Bright yellow-white
+        flash.material = flashMat;
+        
+        let flashFrame = 0;
+        const flashAnimate = () => {
+            flashFrame++;
+            flash.scaling.setAll(1 + flashFrame * 2);
+            
+            if (flashFrame >= 3) {
+                flash.dispose();
+                return;
+            }
+            setTimeout(flashAnimate, 30);
+        };
+        flashAnimate();
     }
     
     // Simple dust - just a semi-transparent box
@@ -416,14 +484,71 @@ export class EffectsManager {
     // Simple tracer - elongated box
     createTracer(start: Vector3, end: Vector3): void {
         const length = Vector3.Distance(start, end);
-        const tracer = MeshBuilder.CreateBox("tracer", { width: 0.1, height: 0.1, depth: length }, this.scene);
+        const direction = end.subtract(start).normalize();
+        
+        // Main tracer line - brighter and thicker
+        const tracer = MeshBuilder.CreateCylinder("tracer", {
+            height: length,
+            diameter: 0.15,
+            tessellation: 8
+        }, this.scene);
         
         const mid = start.add(end).scale(0.5);
         tracer.position = mid;
         tracer.lookAt(end);
-        tracer.material = this.flashMat;
         
-        setTimeout(() => tracer.dispose(), 100);
+        // Bright yellow-orange material
+        const tracerMat = new StandardMaterial("tracerMat", this.scene);
+        tracerMat.diffuseColor = new Color3(1, 0.8, 0.2);
+        tracerMat.emissiveColor = new Color3(1, 0.6, 0.1);
+        tracerMat.disableLighting = true;
+        tracer.material = tracerMat;
+        
+        // Fade out animation
+        let frame = 0;
+        const fade = () => {
+            frame++;
+            const alpha = 1 - (frame / 10);
+            tracer.scaling.y = alpha;
+            tracer.scaling.x = alpha;
+            tracer.scaling.z = alpha;
+            
+            if (frame >= 10) {
+                tracer.dispose();
+                return;
+            }
+            setTimeout(fade, 15);
+        };
+        fade();
+        
+        // Glow effect at start
+        const glow = MeshBuilder.CreateSphere("tracerGlow", { diameter: 0.3, segments: 8 }, this.scene);
+        glow.position = start.clone();
+        const glowMat = new StandardMaterial("tracerGlowMat", this.scene);
+        glowMat.diffuseColor = new Color3(1, 1, 0.5);
+        glowMat.emissiveColor = new Color3(1, 0.8, 0.2);
+        glowMat.disableLighting = true;
+        glow.material = glowMat;
+        
+        let glowFrame = 0;
+        const glowFade = () => {
+            glowFrame++;
+            const scale = 1 + glowFrame * 0.3;
+            const alpha = 1 - (glowFrame / 8);
+            glow.scaling.setAll(scale);
+            (glow.material as StandardMaterial).diffuseColor = new Color3(
+                1 * alpha,
+                1 * alpha,
+                0.5 * alpha
+            );
+            
+            if (glowFrame >= 8) {
+                glow.dispose();
+                return;
+            }
+            setTimeout(glowFade, 15);
+        };
+        glowFade();
     }
     
     // Bullet trail - follows projectile and fades out

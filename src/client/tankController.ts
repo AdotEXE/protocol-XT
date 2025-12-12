@@ -276,38 +276,8 @@ export class TankController {
         // Применяем улучшения из гаража
         this.applyUpgrades();
         
-        // 1. Visuals - используем размеры из типа корпуса
-        // Разные корпуса имеют разные формы для визуального различия
-        if (this.chassisType.id === "light" || this.chassisType.id === "scout") {
-            // Лёгкие корпуса - более угловатые
-            this.chassis = MeshBuilder.CreateBox("tankHull", { 
-                width: this.chassisType.width, 
-                height: this.chassisType.height * 0.9, 
-                depth: this.chassisType.depth 
-            }, scene);
-        } else if (this.chassisType.id === "heavy") {
-            // Тяжёлые корпуса - более массивные
-            this.chassis = MeshBuilder.CreateBox("tankHull", { 
-                width: this.chassisType.width, 
-                height: this.chassisType.height * 1.1, 
-                depth: this.chassisType.depth 
-            }, scene);
-        } else {
-            // Стандартные корпуса
-            this.chassis = MeshBuilder.CreateBox("tankHull", { 
-                width: this.chassisType.width, 
-                height: this.chassisType.height, 
-                depth: this.chassisType.depth 
-            }, scene);
-        }
-        this.chassis.position.copyFrom(position);
-        
-        const mat = new StandardMaterial("tankMat", scene);
-        mat.diffuseColor = Color3.FromHexString(this.chassisType.color);
-        mat.specularColor = Color3.Black();
-        mat.disableLighting = false; // Используем освещение для реализма
-        mat.freeze(); // Замораживаем материал для производительности
-        this.chassis.material = mat;
+        // 1. Visuals - создаём уникальные формы для каждого типа корпуса
+        this.chassis = this.createUniqueChassis(scene, position);
         
         // ВАЖНО: Metadata для обнаружения снарядами врагов
         this.chassis.metadata = { type: "playerTank", instance: this };
@@ -336,53 +306,16 @@ export class TankController {
         // Render after hull to avoid artifacts
         this.turret.renderingGroupId = 1;
         
-        // Пушка - используем размеры из типа пушки
-        // Разные пушки имеют разные размеры для визуального различия
+        // Пушка - создаём уникальные формы для каждого типа
         const barrelWidth = this.cannonType.barrelWidth;
         const barrelLength = this.cannonType.barrelLength;
-        
-        // Снайперская пушка - длиннее и тоньше
-        if (this.cannonType.id === "sniper") {
-            this.barrel = MeshBuilder.CreateBox("barrel", { 
-                width: barrelWidth * 0.8, 
-                height: barrelWidth * 0.8, 
-                depth: barrelLength * 1.2 
-            }, scene);
-        } 
-        // Гатлинг - короче и толще
-        else if (this.cannonType.id === "gatling") {
-            this.barrel = MeshBuilder.CreateBox("barrel", { 
-                width: barrelWidth * 1.3, 
-                height: barrelWidth * 1.3, 
-                depth: barrelLength * 0.8 
-            }, scene);
-        }
-        // Тяжёлая пушка - толще
-        else if (this.cannonType.id === "heavy") {
-            this.barrel = MeshBuilder.CreateBox("barrel", { 
-                width: barrelWidth * 1.2, 
-                height: barrelWidth * 1.2, 
-                depth: barrelLength 
-            }, scene);
-        }
-        // Остальные - стандартные
-        else {
-            this.barrel = MeshBuilder.CreateBox("barrel", { 
-                width: barrelWidth, 
-                height: barrelWidth, 
-                depth: barrelLength 
-            }, scene);
-        }
-        // Позиция ствола - начинается от края башни (логично!)
-        // Край башни находится на turretDepth / 2, начало ствола должно быть там же
-        // Центр ствола находится на расстоянии barrelLength / 2 от начала
         const baseBarrelZ = turretDepth / 2 + barrelLength / 2;
+        
+        this.barrel = this.createUniqueCannon(scene, barrelWidth, barrelLength);
         this.barrel.position.z = baseBarrelZ;
         this.barrel.position.y = 0;
         this.barrel.parent = this.turret;
-        this.barrel.renderingGroupId = 1; // Тот же renderingGroupId что и у башни, чтобы ствол не рендерился поверх
-        
-        // Устанавливаем начальный масштаб ствола
+        this.barrel.renderingGroupId = 1;
         this.barrel.scaling.set(1.0, 1.0, 1.0);
         
         // Сохраняем исходную позицию пушки для отката
@@ -958,6 +891,257 @@ export class TankController {
         }
         
         console.log("[TANK] Respawned!");
+    }
+
+    // ============ UNIQUE CHASSIS CREATION ============
+    private createUniqueChassis(scene: Scene, position: Vector3): Mesh {
+        const w = this.chassisType.width;
+        const h = this.chassisType.height;
+        const d = this.chassisType.depth;
+        const color = Color3.FromHexString(this.chassisType.color);
+        
+        // Base chassis mesh
+        let chassis: Mesh;
+        
+        switch (this.chassisType.id) {
+            case "light":
+                // Light - узкий, низкий, спортивный
+                chassis = MeshBuilder.CreateBox("tankHull", { 
+                    width: w * 0.9, 
+                    height: h * 0.85, 
+                    depth: d * 1.05 
+                }, scene);
+                break;
+                
+            case "scout":
+                // Scout - очень маленький, обтекаемый
+                chassis = MeshBuilder.CreateBox("tankHull", { 
+                    width: w * 0.85, 
+                    height: h * 0.8, 
+                    depth: d * 0.95 
+                }, scene);
+                break;
+                
+            case "heavy":
+                // Heavy - большой, массивный, с бронеплитами
+                chassis = MeshBuilder.CreateBox("tankHull", { 
+                    width: w * 1.05, 
+                    height: h * 1.15, 
+                    depth: d * 1.05 
+                }, scene);
+                break;
+                
+            case "assault":
+                // Assault - средний, угловатый, агрессивный
+                chassis = MeshBuilder.CreateBox("tankHull", { 
+                    width: w * 1.0, 
+                    height: h * 1.05, 
+                    depth: d * 1.0 
+                }, scene);
+                break;
+                
+            default: // medium
+                // Medium - сбалансированный
+                chassis = MeshBuilder.CreateBox("tankHull", { 
+                    width: w, 
+                    height: h, 
+                    depth: d 
+                }, scene);
+        }
+        
+        chassis.position.copyFrom(position);
+        
+        // Base material
+        const mat = new StandardMaterial("tankMat", scene);
+        mat.diffuseColor = color;
+        mat.specularColor = Color3.Black();
+        mat.disableLighting = false;
+        mat.freeze();
+        chassis.material = mat;
+        
+        // Add visual details based on type
+        this.addChassisDetails(chassis, scene, color);
+        
+        return chassis;
+    }
+    
+    private addChassisDetails(chassis: Mesh, scene: Scene, baseColor: Color3): void {
+        const w = this.chassisType.width;
+        const h = this.chassisType.height;
+        const d = this.chassisType.depth;
+        
+        // Armor plates material (darker)
+        const armorMat = new StandardMaterial("armorMat", scene);
+        armorMat.diffuseColor = baseColor.scale(0.7);
+        armorMat.specularColor = Color3.Black();
+        armorMat.freeze();
+        
+        switch (this.chassisType.id) {
+            case "heavy":
+                // Heavy - толстые бронеплиты по бокам
+                const leftPlate = MeshBuilder.CreateBox("armorLeft", {
+                    width: 0.15,
+                    height: h * 0.8,
+                    depth: d * 0.6
+                }, scene);
+                leftPlate.position = new Vector3(-w * 0.55, 0, 0);
+                leftPlate.parent = chassis;
+                leftPlate.material = armorMat;
+                
+                const rightPlate = MeshBuilder.CreateBox("armorRight", {
+                    width: 0.15,
+                    height: h * 0.8,
+                    depth: d * 0.6
+                }, scene);
+                rightPlate.position = new Vector3(w * 0.55, 0, 0);
+                rightPlate.parent = chassis;
+                rightPlate.material = armorMat;
+                break;
+                
+            case "assault":
+                // Assault - угловые бронеплиты спереди
+                const frontPlate = MeshBuilder.CreateBox("frontPlate", {
+                    width: w * 0.7,
+                    height: h * 0.3,
+                    depth: 0.1
+                }, scene);
+                frontPlate.position = new Vector3(0, h * 0.2, d * 0.5);
+                frontPlate.parent = chassis;
+                frontPlate.material = armorMat;
+                break;
+                
+            case "scout":
+                // Scout - обтекаемые детали (маленькие боковые элементы)
+                const sideWing1 = MeshBuilder.CreateBox("wing1", {
+                    width: 0.05,
+                    height: h * 0.4,
+                    depth: d * 0.3
+                }, scene);
+                sideWing1.position = new Vector3(-w * 0.48, -h * 0.2, d * 0.2);
+                sideWing1.parent = chassis;
+                sideWing1.material = armorMat;
+                
+                const sideWing2 = MeshBuilder.CreateBox("wing2", {
+                    width: 0.05,
+                    height: h * 0.4,
+                    depth: d * 0.3
+                }, scene);
+                sideWing2.position = new Vector3(w * 0.48, -h * 0.2, d * 0.2);
+                sideWing2.parent = chassis;
+                sideWing2.material = armorMat;
+                break;
+        }
+        
+        // Antenna for medium/heavy/assault
+        if (this.chassisType.id === "medium" || this.chassisType.id === "heavy" || this.chassisType.id === "assault") {
+            const antenna = MeshBuilder.CreateCylinder("antenna", {
+                height: 0.3,
+                diameter: 0.02
+            }, scene);
+            antenna.position = new Vector3(w * 0.4, h * 0.6, -d * 0.4);
+            antenna.parent = chassis;
+            const antennaMat = new StandardMaterial("antennaMat", scene);
+            antennaMat.diffuseColor = new Color3(0.3, 0.3, 0.3);
+            antenna.material = antennaMat;
+        }
+    }
+    
+    // ============ UNIQUE CANNON CREATION ============
+    private createUniqueCannon(scene: Scene, barrelWidth: number, barrelLength: number): Mesh {
+        const cannonColor = Color3.FromHexString(this.cannonType.color);
+        
+        let barrel: Mesh;
+        
+        switch (this.cannonType.id) {
+            case "sniper":
+                // Sniper - очень длинная, тонкая, с оптикой
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 0.75, 
+                    height: barrelWidth * 0.75, 
+                    depth: barrelLength * 1.3 
+                }, scene);
+                // Add scope/optics
+                const scope = MeshBuilder.CreateCylinder("scope", {
+                    height: barrelWidth * 0.6,
+                    diameter: barrelWidth * 0.4
+                }, scene);
+                scope.position = new Vector3(barrelWidth * 0.5, barrelWidth * 0.3, barrelLength * 0.3);
+                scope.parent = barrel;
+                const scopeMat = new StandardMaterial("scopeMat", scene);
+                scopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
+                scope.material = scopeMat;
+                break;
+                
+            case "gatling":
+                // Gatling - короткая, толстая, множественные стволы
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 1.4, 
+                    height: barrelWidth * 1.4, 
+                    depth: barrelLength * 0.85 
+                }, scene);
+                // Add multiple barrel effect (small cylinders around main)
+                for (let i = 0; i < 3; i++) {
+                    const miniBarrel = MeshBuilder.CreateCylinder(`minibarrel${i}`, {
+                        height: barrelLength * 0.7,
+                        diameter: barrelWidth * 0.3
+                    }, scene);
+                    const angle = (i * Math.PI * 2 / 3);
+                    miniBarrel.position = new Vector3(
+                        Math.cos(angle) * barrelWidth * 0.4,
+                        Math.sin(angle) * barrelWidth * 0.4,
+                        0
+                    );
+                    miniBarrel.parent = barrel;
+                    miniBarrel.material = barrel.material;
+                }
+                break;
+                
+            case "heavy":
+                // Heavy - длинная, толстая, массивный казённик
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 1.25, 
+                    height: barrelWidth * 1.25, 
+                    depth: barrelLength * 1.1 
+                }, scene);
+                // Add breech (казённик)
+                const breech = MeshBuilder.CreateBox("breech", {
+                    width: barrelWidth * 1.6,
+                    height: barrelWidth * 1.6,
+                    depth: barrelWidth * 1.2
+                }, scene);
+                breech.position = new Vector3(0, 0, -barrelLength * 0.45);
+                breech.parent = barrel;
+                const breechMat = new StandardMaterial("breechMat", scene);
+                breechMat.diffuseColor = cannonColor.scale(0.6);
+                breech.material = breechMat;
+                break;
+                
+            case "rapid":
+                // Rapid - короткая, тонкая, быстрая
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth * 0.9, 
+                    height: barrelWidth * 0.9, 
+                    depth: barrelLength * 0.9 
+                }, scene);
+                break;
+                
+            default: // standard
+                // Standard - сбалансированная
+                barrel = MeshBuilder.CreateBox("barrel", { 
+                    width: barrelWidth, 
+                    height: barrelWidth, 
+                    depth: barrelLength 
+                }, scene);
+        }
+        
+        // Barrel material
+        const barrelMat = new StandardMaterial("barrelMat", scene);
+        barrelMat.diffuseColor = cannonColor;
+        barrelMat.specularColor = Color3.Black();
+        barrelMat.freeze();
+        barrel.material = barrelMat;
+        
+        return barrel;
     }
 
     createVisualWheels() {
@@ -2297,7 +2481,7 @@ export class TankController {
                     console.log(`  [MOVEMENT] TargetSpeed: ${targetSpeed.toFixed(2)} | Current: ${fwdSpeed.toFixed(2)} | Diff: ${speedDiff.toFixed(2)} | Force: ${clampedAccelForce.toFixed(0)}`);
                 }
                 
-                // --- OBSTACLE CLIMBING (преодоление небольших препятствий) ---
+                // --- OBSTACLE CLIMBING (преодоление небольших препятствий, включая тротуары) ---
                 if (this.smoothThrottle > 0.05) { // Только при движении вперед
                     const chassisHeight = this.chassisType.height;
                     const currentFrame = this._logFrameCounter;
@@ -2305,14 +2489,15 @@ export class TankController {
                     // Проверяем препятствие с кэшированием
                     let obstacleData = this._obstacleRaycastCache;
                     if (!obstacleData || (currentFrame - obstacleData.frame) >= this.OBSTACLE_RAYCAST_CACHE_FRAMES) {
-                        // Raycast вперед на небольшое расстояние
-                        const rayStart = pos.clone();
-                        rayStart.y += 0.5; // Немного выше земли
-                        const rayDir = forward.clone();
-                        const rayLength = 3.0; // Проверяем на 3 метра вперед
-                        const ray = new Ray(rayStart, rayDir, rayLength);
+                        // Множественные проверки для лучшего обнаружения препятствий
+                        // 1. Горизонтальный луч вперед (на уровне земли)
+                        // 2. Луч вперед-вверх (под углом для обнаружения препятствий)
+                        // 3. Луч немного выше земли
                         
-                        const pick = this.scene.pickWithRay(ray, (mesh) => {
+                        let maxObstacleHeight = 0;
+                        let hasObstacle = false;
+                        
+                        const filter = (mesh: any) => {
                             if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
                             const meta = mesh.metadata;
                             // Игнорируем снаряды, припасы, сам танк
@@ -2322,34 +2507,71 @@ export class TankController {
                             if (mesh === this.chassis || mesh === this.turret || mesh === this.barrel) return false;
                             if (mesh.parent === this.chassis || mesh.parent === this.turret) return false;
                             return true;
-                        });
+                        };
                         
-                        if (pick && pick.hit && pick.pickedPoint) {
-                            // Вычисляем высоту препятствия относительно позиции танка
-                            const obstacleHeight = pick.pickedPoint.y - pos.y;
-                            obstacleData = {
-                                hasObstacle: true,
-                                obstacleHeight: obstacleHeight,
-                                frame: currentFrame
-                            };
-                        } else {
-                            obstacleData = {
-                                hasObstacle: false,
-                                obstacleHeight: 0,
-                                frame: currentFrame
-                            };
+                        // Проверка 1: Горизонтально вперед на уровне земли (для тротуаров)
+                        const rayStart1 = pos.clone();
+                        rayStart1.y += 0.2; // Очень низко, для обнаружения тротуаров
+                        const rayDir1 = forward.clone();
+                        const rayLength1 = 2.5; // Ближе, чтобы быстрее реагировать
+                        const ray1 = new Ray(rayStart1, rayDir1, rayLength1);
+                        const pick1 = this.scene.pickWithRay(ray1, filter);
+                        
+                        // Проверка 2: Вперед под небольшим углом вверх (для препятствий)
+                        const rayStart2 = pos.clone();
+                        rayStart2.y += 0.3;
+                        const rayDir2 = forward.clone();
+                        rayDir2.y += 0.3; // Угол вверх
+                        rayDir2.normalize();
+                        const rayLength2 = 2.0;
+                        const ray2 = new Ray(rayStart2, rayDir2, rayLength2);
+                        const pick2 = this.scene.pickWithRay(ray2, filter);
+                        
+                        // Проверка 3: Немного выше, горизонтально (для высоких препятствий)
+                        const rayStart3 = pos.clone();
+                        rayStart3.y += chassisHeight * 0.3;
+                        const rayDir3 = forward.clone();
+                        const rayLength3 = 1.5;
+                        const ray3 = new Ray(rayStart3, rayDir3, rayLength3);
+                        const pick3 = this.scene.pickWithRay(ray3, filter);
+                        
+                        // Находим максимальную высоту препятствия
+                        if (pick1 && pick1.hit && pick1.pickedPoint) {
+                            const height1 = pick1.pickedPoint.y - pos.y;
+                            if (height1 > maxObstacleHeight) maxObstacleHeight = height1;
+                            hasObstacle = true;
                         }
+                        if (pick2 && pick2.hit && pick2.pickedPoint) {
+                            const height2 = pick2.pickedPoint.y - pos.y;
+                            if (height2 > maxObstacleHeight) maxObstacleHeight = height2;
+                            hasObstacle = true;
+                        }
+                        if (pick3 && pick3.hit && pick3.pickedPoint) {
+                            const height3 = pick3.pickedPoint.y - pos.y;
+                            if (height3 > maxObstacleHeight) maxObstacleHeight = height3;
+                            hasObstacle = true;
+                        }
+                        
+                        obstacleData = {
+                            hasObstacle: hasObstacle,
+                            obstacleHeight: maxObstacleHeight,
+                            frame: currentFrame
+                        };
                         this._obstacleRaycastCache = obstacleData;
                     }
                     
                     // Если есть препятствие и оно не выше корпуса, помогаем преодолеть
-                    if (obstacleData.hasObstacle && obstacleData.obstacleHeight > 0.1 && obstacleData.obstacleHeight < chassisHeight * 0.8) {
-                        // Вычисляем силу для подъема (пропорционально высоте препятствия)
-                        const climbForce = obstacleData.obstacleHeight * this.mass * 200; // Усилие для подъема
-                        const maxClimbForce = this.mass * 1500; // Максимальное усилие
+                    // Увеличена максимальная высота до полной высоты корпуса + небольшой запас
+                    if (obstacleData.hasObstacle && obstacleData.obstacleHeight > 0.05 && obstacleData.obstacleHeight <= chassisHeight * 1.1) {
+                        // Вычисляем силу для подъема (более агрессивная формула)
+                        // Базовое усилие + пропорциональное препятствию
+                        const baseClimbForce = this.mass * 800; // Базовая сила для любых препятствий
+                        const proportionalForce = obstacleData.obstacleHeight * this.mass * 500; // Пропорциональная часть
+                        const climbForce = baseClimbForce + proportionalForce;
+                        const maxClimbForce = this.mass * 4000; // Увеличена максимальная сила
                         const clampedClimbForce = Math.min(climbForce, maxClimbForce);
                         
-                        // Применяем силу вверх
+                        // Применяем силу вверх (более сильную)
                         if (body && isFinite(clampedClimbForce)) {
                             Vector3.Up().scaleToRef(clampedClimbForce, this._tmpVector8);
                             try {
@@ -2359,9 +2581,11 @@ export class TankController {
                             }
                         }
                         
-                        // Усиливаем движение вперед для преодоления
-                        const extraForwardForce = clampedAccelForce * 0.5; // +50% силы вперед
-                        if (body && isFinite(extraForwardForce)) {
+                        // Значительно усиливаем движение вперед для преодоления
+                        // Чем выше препятствие, тем больше дополнительной силы
+                        const extraForceMultiplier = 0.8 + (obstacleData.obstacleHeight / chassisHeight) * 0.7; // От +80% до +150%
+                        const extraForwardForce = clampedAccelForce * extraForceMultiplier;
+                        if (body && isFinite(extraForwardForce) && clampedAccelForce > 0) {
                             forward.scaleToRef(extraForwardForce, this._tmpVector8);
                             try {
                                 body.applyForce(this._tmpVector8, pos);
@@ -2370,8 +2594,22 @@ export class TankController {
                             }
                         }
                         
+                        // Дополнительный импульс вверх-вперед для более плавного подъема
+                        const upwardForward = forward.clone();
+                        upwardForward.y += 0.4; // Направление вверх-вперед
+                        upwardForward.normalize();
+                        const boostForce = this.mass * 300 * Math.min(obstacleData.obstacleHeight / chassisHeight, 1.0);
+                        if (body && isFinite(boostForce)) {
+                            upwardForward.scaleToRef(boostForce, this._tmpVector8);
+                            try {
+                                body.applyForce(this._tmpVector8, pos);
+                            } catch (e) {
+                                // Игнорируем ошибки
+                            }
+                        }
+                        
                         if (shouldLog) {
-                            console.log(`  [OBSTACLE] Height: ${obstacleData.obstacleHeight.toFixed(2)} | ClimbForce: ${clampedClimbForce.toFixed(0)}`);
+                            console.log(`  [OBSTACLE] Height: ${obstacleData.obstacleHeight.toFixed(2)} | ClimbForce: ${clampedClimbForce.toFixed(0)} | ExtraForward: ${(extraForceMultiplier * 100).toFixed(0)}%`);
                         }
                     }
                 }

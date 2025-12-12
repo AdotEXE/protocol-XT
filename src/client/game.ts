@@ -42,6 +42,7 @@ import { AimingSystem } from "./aimingSystem";
 import { AchievementsSystem, Achievement } from "./achievements";
 import { DestructionSystem } from "./destructionSystem";
 import { MissionSystem, Mission } from "./missionSystem";
+import { PlayerStatsSystem } from "./playerStats";
 
 export class Game {
     engine: Engine;
@@ -93,6 +94,9 @@ export class Game {
     
     // Mission system
     missionSystem: MissionSystem | undefined;
+    
+    // Player stats system
+    playerStats: PlayerStatsSystem | undefined;
     
     // Aiming system
     aimingSystem: AimingSystem | undefined;
@@ -1281,6 +1285,14 @@ export class Game {
             this.missionSystem.setOnMissionComplete((mission: Mission) => {
                 this.onMissionComplete(mission);
             });
+            
+            // Initialize player stats system
+            this.playerStats = new PlayerStatsSystem();
+            this.playerStats.setOnStatsUpdate((stats) => {
+                // Could update UI here
+                console.log("[Stats] Updated:", stats);
+            });
+            
             // Track session start
             this.achievementsSystem.updateProgress("dedication", 1);
             if (this.hud) {
@@ -1609,6 +1621,10 @@ export class Game {
                 // Track missions
                 if (this.missionSystem) {
                     this.missionSystem.updateProgress("kill", 1);
+                }
+                // Track stats
+                if (this.playerStats) {
+                    this.playerStats.recordKill();
                 }
                 // Начисляем валюту
                 const reward = 100;
@@ -2935,6 +2951,10 @@ export class Game {
                     if (this.missionSystem) {
                         this.missionSystem.updateProgress("capture", 1);
                     }
+                    // Stats tracking
+                    if (this.playerStats) {
+                        this.playerStats.recordPOICapture();
+                    }
                 } else if (newOwner === "enemy") {
                     // Enemy captured - warning sound
                     if (this.soundManager) {
@@ -2951,6 +2971,10 @@ export class Game {
                 if (this.soundManager) {
                     this.soundManager.playHit?.("armor", poi.worldPosition);
                 }
+                // Stats tracking
+                if (this.playerStats) {
+                    this.playerStats.recordPOIContest();
+                }
             },
             onAmmoPickup: (poi, amount, special) => {
                 if (this.tank && amount > 0) {
@@ -2965,6 +2989,10 @@ export class Game {
                     // Mission tracking
                     if (this.missionSystem) {
                         this.missionSystem.updateProgress("ammo", Math.floor(amount));
+                    }
+                    // Stats tracking
+                    if (this.playerStats) {
+                        this.playerStats.recordAmmoCollected(Math.floor(amount));
                     }
                 }
             },
@@ -2983,6 +3011,10 @@ export class Game {
                     if (this.missionSystem) {
                         this.missionSystem.updateProgress("repair", Math.floor(healAmount));
                     }
+                    // Stats tracking
+                    if (this.playerStats) {
+                        this.playerStats.recordHPRepaired(Math.floor(healAmount));
+                    }
                 }
             },
             onFuelRefill: (poi, amount) => {
@@ -2995,6 +3027,10 @@ export class Game {
                     if (this.achievementsSystem) {
                         this.achievementsSystem.updateProgress("fuel_tanker", Math.floor(amount));
                     }
+                    // Stats tracking
+                    if (this.playerStats) {
+                        this.playerStats.recordFuelCollected(Math.floor(amount));
+                    }
                 }
             },
             onExplosion: (poi, position, radius, damage) => {
@@ -3002,6 +3038,10 @@ export class Game {
                 // Achievement tracking
                 if (this.achievementsSystem) {
                     this.achievementsSystem.updateProgress("explosives_expert", 1);
+                }
+                // Stats tracking
+                if (this.playerStats) {
+                    this.playerStats.recordFuelDepotDestroyed();
                 }
                 // Play explosion sound
                 if (this.soundManager) {
