@@ -1043,12 +1043,12 @@ export class MainMenu {
                 text-align: center;
                 z-index: 100000 !important;
                 width: 90%;
-                max-width: 800px;
+                max-width: min(800px, 90vw);
                 max-height: 90vh;
-                padding: 20px;
+                padding: clamp(10px, 2vh, 20px);
                 display: flex;
                 flex-direction: column;
-                gap: 15px;
+                gap: clamp(8px, 1.5vh, 15px);
                 overflow-y: auto;
                 pointer-events: auto !important;
             }
@@ -1063,8 +1063,8 @@ export class MainMenu {
             .menu-content::-webkit-scrollbar,
             .panel-content::-webkit-scrollbar,
             .skill-tree-wrapper::-webkit-scrollbar {
-                width: 8px;
-                height: 8px;
+                width: clamp(6px, 0.5vw, 8px);
+                height: clamp(6px, 0.5vw, 8px);
             }
             
             .menu-content::-webkit-scrollbar-track,
@@ -4414,8 +4414,11 @@ export class MainMenu {
         const maxZoom = 2.5;
         const zoomStep = 0.1;
 
+        // Сохраняем предыдущий уровень зума для правильного вычисления
+        let previousZoom = zoomLevel;
+
         const applyZoom = (mouseX?: number, mouseY?: number) => {
-            if (mouseX !== undefined && mouseY !== undefined) {
+            if (mouseX !== undefined && mouseY !== undefined && wrapper) {
                 // Зум относительно позиции курсора
                 const rect = wrapper.getBoundingClientRect();
                 const x = mouseX - rect.left;
@@ -4425,24 +4428,27 @@ export class MainMenu {
                 const scrollX = wrapper.scrollLeft;
                 const scrollY = wrapper.scrollTop;
                 
-                // Позиция курсора относительно контента
-                const contentX = scrollX + x;
-                const contentY = scrollY + y;
+                // Позиция курсора относительно контента (до зума)
+                const contentX = (scrollX + x) / previousZoom;
+                const contentY = (scrollY + y) / previousZoom;
                 
                 // Применяем зум
                 skillTree.style.transform = `scale(${zoomLevel})`;
                 skillTree.style.transformOrigin = "top left";
                 
-                // Вычисляем новую позицию скролла, чтобы курсор оставался на том же месте
+                // Вычисляем новую позицию скролла, чтобы курсор оставался на том же месте контента
                 const newScrollX = contentX * zoomLevel - x;
                 const newScrollY = contentY * zoomLevel - y;
                 
-                wrapper.scrollLeft = newScrollX;
-                wrapper.scrollTop = newScrollY;
+                wrapper.scrollLeft = Math.max(0, newScrollX);
+                wrapper.scrollTop = Math.max(0, newScrollY);
+                
+                previousZoom = zoomLevel;
             } else {
                 // Обычный зум без учета курсора
                 skillTree.style.transform = `scale(${zoomLevel})`;
                 skillTree.style.transformOrigin = "top left";
+                previousZoom = zoomLevel;
             }
         };
 
@@ -4460,18 +4466,23 @@ export class MainMenu {
             wrapper.parentElement?.insertBefore(zoomControls, wrapper);
         }
 
-        // Колесико мыши для зума (работает всегда, зум относительно курсора)
+        // Колесико мыши для зума (Ctrl/Cmd + колесико, зум относительно курсора)
         wrapper.addEventListener("wheel", (e: WheelEvent) => {
-            e.preventDefault();
-            const delta = e.deltaY > 0 ? -zoomStep : zoomStep;
-            zoomLevel = Math.max(minZoom, Math.min(maxZoom, zoomLevel + delta));
-            
-            // Зум относительно позиции курсора
-            applyZoom(e.clientX, e.clientY);
-            
-            const zoomLevelEl = zoomControls.querySelector(".skill-zoom-level") as HTMLElement;
-            if (zoomLevelEl) {
-                zoomLevelEl.textContent = `${Math.round(zoomLevel * 100)}%`;
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                const oldZoom = zoomLevel;
+                const delta = e.deltaY > 0 ? -zoomStep : zoomStep;
+                zoomLevel = Math.max(minZoom, Math.min(maxZoom, zoomLevel + delta));
+                
+                if (zoomLevel !== oldZoom) {
+                    // Зум относительно позиции курсора
+                    applyZoom(e.clientX, e.clientY);
+                    
+                    const zoomLevelEl = zoomControls.querySelector(".skill-zoom-level") as HTMLElement;
+                    if (zoomLevelEl) {
+                        zoomLevelEl.textContent = `${Math.round(zoomLevel * 100)}%`;
+                    }
+                }
             }
         }, { passive: false });
 
@@ -4484,8 +4495,16 @@ export class MainMenu {
         if (zoomInBtn && !(zoomInBtn as any)._zoomBound) {
             (zoomInBtn as any)._zoomBound = true;
             zoomInBtn.addEventListener("click", () => {
+                const oldZoom = zoomLevel;
                 zoomLevel = Math.min(maxZoom, zoomLevel + zoomStep);
-                applyZoom();
+                if (zoomLevel !== oldZoom && wrapper) {
+                    // Зумим относительно центра видимой области
+                    const rect = wrapper.getBoundingClientRect();
+                    const centerX = rect.left + wrapper.clientWidth / 2;
+                    const centerY = rect.top + wrapper.clientHeight / 2;
+                    previousZoom = oldZoom;
+                    applyZoom(centerX, centerY);
+                }
                 if (zoomLevelDisplay) zoomLevelDisplay.textContent = `${Math.round(zoomLevel * 100)}%`;
             });
         }
@@ -4493,8 +4512,16 @@ export class MainMenu {
         if (zoomOutBtn && !(zoomOutBtn as any)._zoomBound) {
             (zoomOutBtn as any)._zoomBound = true;
             zoomOutBtn.addEventListener("click", () => {
+                const oldZoom = zoomLevel;
                 zoomLevel = Math.max(minZoom, zoomLevel - zoomStep);
-                applyZoom();
+                if (zoomLevel !== oldZoom && wrapper) {
+                    // Зумим относительно центра видимой области
+                    const rect = wrapper.getBoundingClientRect();
+                    const centerX = rect.left + wrapper.clientWidth / 2;
+                    const centerY = rect.top + wrapper.clientHeight / 2;
+                    previousZoom = oldZoom;
+                    applyZoom(centerX, centerY);
+                }
                 if (zoomLevelDisplay) zoomLevelDisplay.textContent = `${Math.round(zoomLevel * 100)}%`;
             });
         }
