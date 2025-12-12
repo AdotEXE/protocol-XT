@@ -87,6 +87,7 @@ const LANG = {
         mapSelection: "ВЫБОР КАРТЫ",
         normalMap: "Эта самая карта",
         sandboxMap: "Песочница",
+        polygonMap: "Полигон",
         // Controls
         movement: "Движение",
         combat: "Бой",
@@ -147,6 +148,7 @@ const LANG = {
         mapSelection: "MAP SELECTION",
         normalMap: "Normal Map",
         sandboxMap: "Sandbox",
+        polygonMap: "Training Ground",
         // Controls
         movement: "Movement",
         combat: "Combat",
@@ -217,7 +219,7 @@ const DEFAULT_TANK: TankConfig = {
     firepower: 2
 };
 
-export type MapType = "normal" | "sandbox";
+export type MapType = "normal" | "sandbox" | "polygon";
 
 export class MainMenu {
     private container!: HTMLDivElement;
@@ -1964,6 +1966,10 @@ export class MainMenu {
                         <span class="btn-icon">🏖</span>
                         <span class="btn-label">${L.sandboxMap}</span>
                     </button>
+                    <button class="menu-btn" id="btn-map-polygon" style="width: 100%; padding: 20px;">
+                        <span class="btn-icon">🎯</span>
+                        <span class="btn-label">${L.polygonMap}</span>
+                    </button>
                 </div>
                 
                 <div class="panel-buttons" style="margin-top: 20px;">
@@ -1984,6 +1990,12 @@ export class MainMenu {
             this.hide();
             this.hideMapSelection();
             this.onStartGame("sandbox");
+        });
+        
+        document.getElementById("btn-map-polygon")?.addEventListener("click", () => {
+            this.hide();
+            this.hideMapSelection();
+            this.onStartGame("polygon");
         });
         
         this.setupCloseButton("map-selection-close", () => this.hideMapSelection());

@@ -232,6 +232,16 @@ export class ChunkSystem {
             return;
         }
         
+        // В режиме полигона создаём гараж в углу арены
+        if (this.config.mapType === "polygon") {
+            // Гараж в юго-западном углу арены (арена 200x200)
+            this.createGarageAt(-70, -70, 0);
+            console.log(`[ChunkSystem] Polygon mode: Created 1 garage at corner`);
+            console.log(`[ChunkSystem] Created ${this.garageCapturePoints.length} capture points (workbenches)`);
+            console.log(`[ChunkSystem] Initialized ${this.garageOwnership.size} garage ownership records`);
+            return;
+        }
+        
         // Позиции гаражей по карте - МНОГО гаражей для врагов!
         // Центральный гараж (0, 0) - ТОЛЬКО для игрока!
         const garageLocations = [
@@ -1781,6 +1791,12 @@ export class ChunkSystem {
             return;
         }
         
+        // В режиме полигона генерируем арену с тренировочными элементами
+        if (this.config.mapType === "polygon") {
+            this.generatePolygonContent(chunk, worldX, worldZ, size, random);
+            return;
+        }
+        
         const biome = this.getBiome(worldX + size/2, worldZ + size/2, random);
         
         // Ground based on biome
@@ -2551,6 +2567,461 @@ export class ChunkSystem {
                 barrier.parent = chunk.node;
                 barrier.freezeWorldMatrix();
                 chunk.meshes.push(barrier);
+            }
+        }
+    }
+    
+    // === POLYGON (Training Ground) GENERATION ===
+    
+    // Размер арены полигона
+    private readonly POLYGON_ARENA_SIZE = 200;
+    private readonly POLYGON_WALL_HEIGHT = 6;
+    private polygonInitialized = false;
+    
+    private generatePolygonContent(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+        // Земля военного типа (песок/грязь)
+        this.createGround(chunk, size, "military", random);
+        
+        // Определяем границы арены
+        const arenaHalf = this.POLYGON_ARENA_SIZE / 2;
+        const chunkCenterX = worldX + size / 2;
+        const chunkCenterZ = worldZ + size / 2;
+        
+        // Генерируем периметр только один раз для чанков на границе
+        this.generatePolygonPerimeter(chunk, worldX, worldZ, size, random);
+        
+        // Определяем зону на основе позиции чанка
+        const zoneType = this.getPolygonZone(chunkCenterX, chunkCenterZ);
+        
+        switch (zoneType) {
+            case "shooting":
+                this.generatePolygonTargets(chunk, size, random);
+                break;
+            case "obstacles":
+                this.generatePolygonObstacles(chunk, size, random);
+                break;
+            case "combat":
+                // Зона боя - открытое пространство с укрытиями
+                this.generatePolygonCombatZone(chunk, size, random);
+                break;
+            case "base":
+                this.generatePolygonBuildings(chunk, size, random);
+                break;
+        }
+    }
+    
+    private getPolygonZone(x: number, z: number): "shooting" | "obstacles" | "combat" | "base" | "empty" {
+        const arenaHalf = this.POLYGON_ARENA_SIZE / 2;
+        
+        // За пределами арены
+        if (Math.abs(x) > arenaHalf || Math.abs(z) > arenaHalf) {
+            return "empty";
+        }
+        
+        // Квадранты арены:
+        // Северо-восток (x > 0, z > 0) - стрельбище
+        // Северо-запад (x < 0, z > 0) - полоса препятствий
+        // Юго-восток (x > 0, z < 0) - зона боя
+        // Юго-запад (x < 0, z < 0) - военная база (рядом с гаражом)
+        
+        if (x > 20 && z > 20) return "shooting";
+        if (x < -20 && z > 20) return "obstacles";
+        if (x > 20 && z < -20) return "combat";
+        if (x < -20 && z < -20) return "base";
+        
+        return "empty"; // Центральная область - пустое пространство
+    }
+    
+    private generatePolygonPerimeter(chunk: ChunkData, worldX: number, worldZ: number, size: number, _random: SeededRandom): void {
+        const arenaHalf = this.POLYGON_ARENA_SIZE / 2;
+        const wallHeight = this.POLYGON_WALL_HEIGHT;
+        const wallThickness = 2;
+        
+        // Проверяем, находится ли чанк на границе арены
+        const chunkLeft = worldX;
+        const chunkRight = worldX + size;
+        const chunkBottom = worldZ;
+        const chunkTop = worldZ + size;
+        
+        // Создаём стены только для чанков на границе арены
+        
+        // Северная стена (z = arenaHalf)
+        if (chunkBottom <= arenaHalf && chunkTop >= arenaHalf) {
+            const wallLength = Math.min(chunkRight, arenaHalf) - Math.max(chunkLeft, -arenaHalf);
+            if (wallLength > 0) {
+                const wallX = (Math.max(chunkLeft, -arenaHalf) + Math.min(chunkRight, arenaHalf)) / 2 - worldX;
+                const wall = MeshBuilder.CreateBox("pwall_n", { width: wallLength, height: wallHeight, depth: wallThickness }, this.scene);
+                wall.position = new Vector3(wallX, wallHeight / 2, arenaHalf - worldZ);
+                wall.material = this.getMat("concrete");
+                wall.parent = chunk.node;
+                wall.freezeWorldMatrix();
+                chunk.meshes.push(wall);
+                new PhysicsAggregate(wall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            }
+        }
+        
+        // Южная стена (z = -arenaHalf)
+        if (chunkBottom <= -arenaHalf && chunkTop >= -arenaHalf) {
+            const wallLength = Math.min(chunkRight, arenaHalf) - Math.max(chunkLeft, -arenaHalf);
+            if (wallLength > 0) {
+                const wallX = (Math.max(chunkLeft, -arenaHalf) + Math.min(chunkRight, arenaHalf)) / 2 - worldX;
+                const wall = MeshBuilder.CreateBox("pwall_s", { width: wallLength, height: wallHeight, depth: wallThickness }, this.scene);
+                wall.position = new Vector3(wallX, wallHeight / 2, -arenaHalf - worldZ);
+                wall.material = this.getMat("concrete");
+                wall.parent = chunk.node;
+                wall.freezeWorldMatrix();
+                chunk.meshes.push(wall);
+                new PhysicsAggregate(wall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            }
+        }
+        
+        // Восточная стена (x = arenaHalf)
+        if (chunkLeft <= arenaHalf && chunkRight >= arenaHalf) {
+            const wallLength = Math.min(chunkTop, arenaHalf) - Math.max(chunkBottom, -arenaHalf);
+            if (wallLength > 0) {
+                const wallZ = (Math.max(chunkBottom, -arenaHalf) + Math.min(chunkTop, arenaHalf)) / 2 - worldZ;
+                const wall = MeshBuilder.CreateBox("pwall_e", { width: wallThickness, height: wallHeight, depth: wallLength }, this.scene);
+                wall.position = new Vector3(arenaHalf - worldX, wallHeight / 2, wallZ);
+                wall.material = this.getMat("concrete");
+                wall.parent = chunk.node;
+                wall.freezeWorldMatrix();
+                chunk.meshes.push(wall);
+                new PhysicsAggregate(wall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            }
+        }
+        
+        // Западная стена (x = -arenaHalf)
+        if (chunkLeft <= -arenaHalf && chunkRight >= -arenaHalf) {
+            const wallLength = Math.min(chunkTop, arenaHalf) - Math.max(chunkBottom, -arenaHalf);
+            if (wallLength > 0) {
+                const wallZ = (Math.max(chunkBottom, -arenaHalf) + Math.min(chunkTop, arenaHalf)) / 2 - worldZ;
+                const wall = MeshBuilder.CreateBox("pwall_w", { width: wallThickness, height: wallHeight, depth: wallLength }, this.scene);
+                wall.position = new Vector3(-arenaHalf - worldX, wallHeight / 2, wallZ);
+                wall.material = this.getMat("concrete");
+                wall.parent = chunk.node;
+                wall.freezeWorldMatrix();
+                chunk.meshes.push(wall);
+                new PhysicsAggregate(wall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            }
+        }
+    }
+    
+    private generatePolygonTargets(chunk: ChunkData, size: number, random: SeededRandom): void {
+        // Стрельбище - мишени-силуэты танков
+        const targetCount = random.int(3, 6);
+        
+        for (let i = 0; i < targetCount; i++) {
+            const x = random.range(10, size - 10);
+            const z = random.range(10, size - 10);
+            
+            // Проверяем, не в гараже ли
+            const worldX = chunk.x * this.config.chunkSize + x;
+            const worldZ = chunk.z * this.config.chunkSize + z;
+            if (this.isPositionInGarageArea(worldX, worldZ, 3)) continue;
+            
+            // Основа мишени - вертикальный столб
+            const pole = MeshBuilder.CreateBox("target_pole", { width: 0.3, height: 3, depth: 0.3 }, this.scene);
+            pole.position = new Vector3(x, 1.5, z);
+            pole.material = this.getMat("metal");
+            pole.parent = chunk.node;
+            pole.freezeWorldMatrix();
+            chunk.meshes.push(pole);
+            
+            // Силуэт танка (упрощённый - прямоугольник)
+            const targetWidth = random.range(3, 5);
+            const targetHeight = random.range(2, 3);
+            const target = MeshBuilder.CreateBox("target", { width: targetWidth, height: targetHeight, depth: 0.2 }, this.scene);
+            target.position = new Vector3(x, targetHeight / 2 + 1, z + 0.3);
+            
+            // Красная мишень
+            const targetMat = new StandardMaterial("targetMat", this.scene);
+            targetMat.diffuseColor = new Color3(0.9, 0.1, 0.1);
+            targetMat.emissiveColor = new Color3(0.3, 0, 0);
+            target.material = targetMat;
+            target.parent = chunk.node;
+            target.freezeWorldMatrix();
+            chunk.meshes.push(target);
+            
+            // Круглые кольца на мишени
+            for (let ring = 1; ring <= 3; ring++) {
+                const ringSize = ring * 0.4;
+                const ringMesh = MeshBuilder.CreateTorus("ring", { diameter: ringSize, thickness: 0.05 }, this.scene);
+                ringMesh.position = new Vector3(x, 2 + targetHeight / 2, z + 0.35);
+                ringMesh.rotation.x = Math.PI / 2;
+                const ringMat = new StandardMaterial("ringMat", this.scene);
+                ringMat.diffuseColor = ring % 2 === 0 ? new Color3(1, 1, 1) : new Color3(0, 0, 0);
+                ringMesh.material = ringMat;
+                ringMesh.parent = chunk.node;
+                ringMesh.freezeWorldMatrix();
+                chunk.meshes.push(ringMesh);
+            }
+        }
+        
+        // Добавляем рельсы для движущихся мишеней (декоративные)
+        if (random.chance(0.5)) {
+            const railZ = random.range(size * 0.3, size * 0.7);
+            const rail = MeshBuilder.CreateBox("rail", { width: size - 20, height: 0.1, depth: 0.5 }, this.scene);
+            rail.position = new Vector3(size / 2, 0.05, railZ);
+            rail.material = this.getMat("metalRust");
+            rail.parent = chunk.node;
+            rail.freezeWorldMatrix();
+            chunk.meshes.push(rail);
+        }
+    }
+    
+    private generatePolygonObstacles(chunk: ChunkData, size: number, random: SeededRandom): void {
+        // Полоса препятствий - танкодром
+        
+        // Рампы
+        const rampCount = random.int(2, 4);
+        for (let i = 0; i < rampCount; i++) {
+            const x = random.range(8, size - 8);
+            const z = random.range(8, size - 8);
+            
+            const worldX = chunk.x * this.config.chunkSize + x;
+            const worldZ = chunk.z * this.config.chunkSize + z;
+            if (this.isPositionInGarageArea(worldX, worldZ, 4)) continue;
+            
+            const rampWidth = random.range(4, 8);
+            const rampHeight = random.range(1, 2.5);
+            const rampDepth = random.range(6, 10);
+            
+            const ramp = MeshBuilder.CreateBox("ramp", { width: rampWidth, height: rampHeight, depth: rampDepth }, this.scene);
+            ramp.position = new Vector3(x, rampHeight / 2, z);
+            ramp.rotation.x = -Math.PI * 0.1; // Небольшой наклон
+            ramp.material = this.getMat("concrete");
+            ramp.parent = chunk.node;
+            ramp.freezeWorldMatrix();
+            chunk.meshes.push(ramp);
+            new PhysicsAggregate(ramp, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        }
+        
+        // Бетонные блоки (укрытия)
+        const blockCount = random.int(4, 8);
+        for (let i = 0; i < blockCount; i++) {
+            const x = random.range(5, size - 5);
+            const z = random.range(5, size - 5);
+            
+            const worldX = chunk.x * this.config.chunkSize + x;
+            const worldZ = chunk.z * this.config.chunkSize + z;
+            if (this.isPositionInGarageArea(worldX, worldZ, 2)) continue;
+            
+            const blockW = random.range(2, 4);
+            const blockH = random.range(1, 2);
+            const blockD = random.range(2, 4);
+            
+            const block = MeshBuilder.CreateBox("block", { width: blockW, height: blockH, depth: blockD }, this.scene);
+            block.position = new Vector3(x, blockH / 2, z);
+            block.rotation.y = random.range(0, Math.PI);
+            block.material = this.getMat("concrete");
+            block.parent = chunk.node;
+            block.freezeWorldMatrix();
+            chunk.meshes.push(block);
+            new PhysicsAggregate(block, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        }
+        
+        // Противотанковые ежи
+        const hedgehogCount = random.int(3, 6);
+        for (let i = 0; i < hedgehogCount; i++) {
+            const x = random.range(5, size - 5);
+            const z = random.range(5, size - 5);
+            
+            const worldX = chunk.x * this.config.chunkSize + x;
+            const worldZ = chunk.z * this.config.chunkSize + z;
+            if (this.isPositionInGarageArea(worldX, worldZ, 2)) continue;
+            
+            // Создаём "ёж" из 3 пересекающихся балок
+            const beamLength = 3;
+            const beamThickness = 0.3;
+            
+            for (let j = 0; j < 3; j++) {
+                const beam = MeshBuilder.CreateBox("hedgehog", { width: beamThickness, height: beamLength, depth: beamThickness }, this.scene);
+                beam.position = new Vector3(x, beamLength / 2 * 0.7, z);
+                beam.rotation.x = Math.PI / 4;
+                beam.rotation.y = (j * Math.PI) / 3;
+                beam.material = this.getMat("metalRust");
+                beam.parent = chunk.node;
+                beam.freezeWorldMatrix();
+                chunk.meshes.push(beam);
+            }
+            
+            // Физика для ежа (упрощённая - сфера)
+            const hedgehogPhysics = MeshBuilder.CreateSphere("hedgehog_phys", { diameter: 2 }, this.scene);
+            hedgehogPhysics.position = new Vector3(x, 1, z);
+            hedgehogPhysics.isVisible = false;
+            hedgehogPhysics.parent = chunk.node;
+            new PhysicsAggregate(hedgehogPhysics, PhysicsShapeType.SPHERE, { mass: 0 }, this.scene);
+            chunk.meshes.push(hedgehogPhysics);
+        }
+    }
+    
+    private generatePolygonCombatZone(chunk: ChunkData, size: number, random: SeededRandom): void {
+        // Зона боя - открытое пространство с укрытиями для тренировки с ботами
+        
+        // Низкие укрытия
+        const coverCount = random.int(3, 6);
+        for (let i = 0; i < coverCount; i++) {
+            const x = random.range(8, size - 8);
+            const z = random.range(8, size - 8);
+            
+            const worldX = chunk.x * this.config.chunkSize + x;
+            const worldZ = chunk.z * this.config.chunkSize + z;
+            if (this.isPositionInGarageArea(worldX, worldZ, 3)) continue;
+            
+            // Низкая стена-укрытие
+            const coverWidth = random.range(4, 8);
+            const coverHeight = random.range(1.5, 2.5);
+            
+            const cover = MeshBuilder.CreateBox("cover", { width: coverWidth, height: coverHeight, depth: 1 }, this.scene);
+            cover.position = new Vector3(x, coverHeight / 2, z);
+            cover.rotation.y = random.range(0, Math.PI);
+            cover.material = this.getMat("concrete");
+            cover.parent = chunk.node;
+            cover.freezeWorldMatrix();
+            chunk.meshes.push(cover);
+            new PhysicsAggregate(cover, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        }
+        
+        // Песчаные мешки (декоративные кучи)
+        const sandbagCount = random.int(2, 4);
+        for (let i = 0; i < sandbagCount; i++) {
+            const x = random.range(5, size - 5);
+            const z = random.range(5, size - 5);
+            
+            const worldX = chunk.x * this.config.chunkSize + x;
+            const worldZ = chunk.z * this.config.chunkSize + z;
+            if (this.isPositionInGarageArea(worldX, worldZ, 2)) continue;
+            
+            // Куча мешков
+            for (let row = 0; row < 3; row++) {
+                for (let col = 0; col < 3 - row; col++) {
+                    const bag = MeshBuilder.CreateBox("sandbag", { width: 1.2, height: 0.4, depth: 0.6 }, this.scene);
+                    bag.position = new Vector3(
+                        x + col * 1.3 - (3 - row) * 0.65 + 0.65,
+                        row * 0.4 + 0.2,
+                        z
+                    );
+                    bag.material = this.getMat("sand");
+                    bag.parent = chunk.node;
+                    bag.freezeWorldMatrix();
+                    chunk.meshes.push(bag);
+                }
+            }
+            
+            // Физика для кучи (один бокс)
+            const sandbagPhysics = MeshBuilder.CreateBox("sandbag_phys", { width: 4, height: 1.2, depth: 1 }, this.scene);
+            sandbagPhysics.position = new Vector3(x, 0.6, z);
+            sandbagPhysics.isVisible = false;
+            sandbagPhysics.parent = chunk.node;
+            new PhysicsAggregate(sandbagPhysics, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            chunk.meshes.push(sandbagPhysics);
+        }
+    }
+    
+    private generatePolygonBuildings(chunk: ChunkData, size: number, random: SeededRandom): void {
+        // Военная база - бункеры, башни, казармы
+        
+        // Бункер
+        if (random.chance(0.6)) {
+            const bx = random.range(15, size - 15);
+            const bz = random.range(15, size - 15);
+            
+            const worldX = chunk.x * this.config.chunkSize + bx;
+            const worldZ = chunk.z * this.config.chunkSize + bz;
+            if (!this.isPositionInGarageArea(worldX, worldZ, 8)) {
+                const bunkerW = random.range(8, 12);
+                const bunkerH = random.range(3, 4);
+                const bunkerD = random.range(6, 10);
+                
+                const bunker = MeshBuilder.CreateBox("bunker", { width: bunkerW, height: bunkerH, depth: bunkerD }, this.scene);
+                bunker.position = new Vector3(bx, bunkerH / 2, bz);
+                bunker.material = this.getMat("concrete");
+                bunker.parent = chunk.node;
+                bunker.freezeWorldMatrix();
+                chunk.meshes.push(bunker);
+                new PhysicsAggregate(bunker, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                
+                // Амбразура на бункере
+                const slit = MeshBuilder.CreateBox("slit", { width: bunkerW * 0.6, height: 0.5, depth: 0.5 }, this.scene);
+                slit.position = new Vector3(bx, bunkerH - 0.5, bz + bunkerD / 2);
+                const slitMat = new StandardMaterial("slitMat", this.scene);
+                slitMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
+                slit.material = slitMat;
+                slit.parent = chunk.node;
+                slit.freezeWorldMatrix();
+                chunk.meshes.push(slit);
+            }
+        }
+        
+        // Смотровая башня
+        if (random.chance(0.4)) {
+            const tx = random.range(10, size - 10);
+            const tz = random.range(10, size - 10);
+            
+            const worldX = chunk.x * this.config.chunkSize + tx;
+            const worldZ = chunk.z * this.config.chunkSize + tz;
+            if (!this.isPositionInGarageArea(worldX, worldZ, 5)) {
+                const towerH = random.range(8, 12);
+                
+                // Основание башни
+                const base = MeshBuilder.CreateBox("tower_base", { width: 4, height: towerH, depth: 4 }, this.scene);
+                base.position = new Vector3(tx, towerH / 2, tz);
+                base.material = this.getMat("metal");
+                base.parent = chunk.node;
+                base.freezeWorldMatrix();
+                chunk.meshes.push(base);
+                new PhysicsAggregate(base, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                
+                // Платформа наверху
+                const platform = MeshBuilder.CreateBox("tower_platform", { width: 6, height: 0.5, depth: 6 }, this.scene);
+                platform.position = new Vector3(tx, towerH + 0.25, tz);
+                platform.material = this.getMat("metal");
+                platform.parent = chunk.node;
+                platform.freezeWorldMatrix();
+                chunk.meshes.push(platform);
+                
+                // Ограждение
+                const railH = 1.2;
+                for (let side = 0; side < 4; side++) {
+                    const rail = MeshBuilder.CreateBox("rail", { width: side % 2 === 0 ? 6 : 0.1, height: railH, depth: side % 2 === 0 ? 0.1 : 6 }, this.scene);
+                    const offsetX = side === 1 ? 3 : (side === 3 ? -3 : 0);
+                    const offsetZ = side === 0 ? 3 : (side === 2 ? -3 : 0);
+                    rail.position = new Vector3(tx + offsetX, towerH + 0.5 + railH / 2, tz + offsetZ);
+                    rail.material = this.getMat("metalRust");
+                    rail.parent = chunk.node;
+                    rail.freezeWorldMatrix();
+                    chunk.meshes.push(rail);
+                }
+            }
+        }
+        
+        // Казарма (длинное здание)
+        if (random.chance(0.3)) {
+            const kx = random.range(15, size - 15);
+            const kz = random.range(15, size - 15);
+            
+            const worldX = chunk.x * this.config.chunkSize + kx;
+            const worldZ = chunk.z * this.config.chunkSize + kz;
+            if (!this.isPositionInGarageArea(worldX, worldZ, 10)) {
+                const barrackW = random.range(12, 18);
+                const barrackH = 4;
+                const barrackD = 8;
+                
+                const barrack = MeshBuilder.CreateBox("barrack", { width: barrackW, height: barrackH, depth: barrackD }, this.scene);
+                barrack.position = new Vector3(kx, barrackH / 2, kz);
+                barrack.material = this.getMat("metalRust");
+                barrack.parent = chunk.node;
+                barrack.freezeWorldMatrix();
+                chunk.meshes.push(barrack);
+                new PhysicsAggregate(barrack, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                
+                // Крыша
+                const roof = MeshBuilder.CreateBox("roof", { width: barrackW + 1, height: 0.3, depth: barrackD + 1 }, this.scene);
+                roof.position = new Vector3(kx, barrackH + 0.15, kz);
+                roof.material = this.getMat("metal");
+                roof.parent = chunk.node;
+                roof.freezeWorldMatrix();
+                chunk.meshes.push(roof);
             }
         }
     }

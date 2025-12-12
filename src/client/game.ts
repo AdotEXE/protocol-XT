@@ -1142,6 +1142,12 @@ export class Game {
         
         if (!this.soundManager || !this.effectsManager) return;
         
+        // Для полигона - спавним ботов в зоне боя (юго-восточный квадрант)
+        if (this.currentMapType === "polygon") {
+            this.spawnPolygonTrainingBots();
+            return;
+        }
+        
         // Разбрасываем врагов по всей карте случайным образом
         const minDistance = 60; // Минимальное расстояние от центра
         const maxDistance = 180; // Максимальное расстояние от центра
@@ -1247,6 +1253,115 @@ export class Game {
         });
         
         console.log(`Spawned ${this.enemyTanks.length} enemy tanks`);
+    }
+    
+    // Спавн тренировочных ботов для режима полигона
+    spawnPolygonTrainingBots() {
+        if (!this.soundManager || !this.effectsManager) return;
+        
+        console.log("[Game] Polygon mode: Spawning training bots in combat zone");
+        
+        // Зона боя - юго-восточный квадрант (x > 20, z < -20)
+        // Арена 200x200, центр в (0,0)
+        const combatZoneMinX = 30;
+        const combatZoneMaxX = 90;
+        const combatZoneMinZ = -90;
+        const combatZoneMaxZ = -30;
+        
+        const trainingBotCount = 4; // Меньше ботов для тренировки
+        const spawnPositions: Vector3[] = [];
+        
+        for (let i = 0; i < trainingBotCount; i++) {
+            let attempts = 0;
+            let pos: Vector3;
+            
+            do {
+                // Случайная позиция в зоне боя
+                pos = new Vector3(
+                    combatZoneMinX + Math.random() * (combatZoneMaxX - combatZoneMinX),
+                    1.2,
+                    combatZoneMinZ + Math.random() * (combatZoneMaxZ - combatZoneMinZ)
+                );
+                
+                // Проверяем минимальное расстояние между ботами
+                let tooClose = false;
+                for (const existingPos of spawnPositions) {
+                    if (Vector3.Distance(pos, existingPos) < 20) {
+                        tooClose = true;
+                        break;
+                    }
+                }
+                
+                if (!tooClose) break;
+                attempts++;
+            } while (attempts < 30);
+            
+            spawnPositions.push(pos);
+        }
+        
+        spawnPositions.forEach((pos) => {
+            // Для полигона используем лёгкую сложность - тренировочные боты
+            const difficulty = "easy";
+            const enemyTank = new EnemyTank(this.scene, pos, this.soundManager!, this.effectsManager!, difficulty);
+            if (this.tank) {
+                enemyTank.setTarget(this.tank);
+            }
+            
+            // При уничтожении - быстрый респавн для тренировки
+            enemyTank.onDeathObservable.add(() => {
+                console.log("[GAME] Training bot destroyed!");
+                if (this.hud) {
+                    this.hud.addKill();
+                }
+                // Меньше награда за тренировочных ботов
+                const reward = 50;
+                if (this.currencyManager) {
+                    this.currencyManager.addCurrency(reward);
+                    if (this.hud) {
+                        this.hud.setCurrency(this.currencyManager.getCurrency());
+                        this.hud.showMessage(`+${reward} кредитов (тренировка)`, "#ffaa00", 2000);
+                    }
+                }
+                // Добавляем опыт
+                if (this.experienceSystem && this.tank) {
+                    const expGain = 15; // Меньше опыта за тренировочных ботов
+                    this.experienceSystem.addExperience(expGain);
+                    console.log(`[GAME] Training bot XP added: ${expGain}`);
+                }
+                // Записываем в прогресс
+                if (this.playerProgression) {
+                    this.playerProgression.recordKill();
+                    this.playerProgression.addCredits(reward);
+                }
+                
+                // Удаляем из массива
+                const idx = this.enemyTanks.indexOf(enemyTank);
+                if (idx !== -1) this.enemyTanks.splice(idx, 1);
+                
+                // Быстрый респавн для полигона - через 30 секунд
+                setTimeout(() => {
+                    if (this.currentMapType === "polygon" && this.soundManager && this.effectsManager) {
+                        // Новая случайная позиция в зоне боя
+                        const newPos = new Vector3(
+                            combatZoneMinX + Math.random() * (combatZoneMaxX - combatZoneMinX),
+                            1.2,
+                            combatZoneMinZ + Math.random() * (combatZoneMaxZ - combatZoneMinZ)
+                        );
+                        
+                        const newBot = new EnemyTank(this.scene, newPos, this.soundManager!, this.effectsManager!, "easy");
+                        if (this.tank) {
+                            newBot.setTarget(this.tank);
+                        }
+                        this.enemyTanks.push(newBot);
+                        console.log("[GAME] Training bot respawned");
+                    }
+                }, 30000); // 30 секунд
+            });
+            
+            this.enemyTanks.push(enemyTank);
+        });
+        
+        console.log(`[Game] Polygon: Spawned ${this.enemyTanks.length} training bots`);
     }
     
     // Ожидание генерации гаражей и спавн игрока/врагов
@@ -2736,6 +2851,7 @@ export class Game {
     // Mouse control for aiming
     aimMouseSensitivity = 0.00015; // Базовая чувствительность мыши в режиме прицеливания (горизонтальная) - такая же как вертикальная
     aimMouseSensitivityVertical = 0.00015; // Базовая вертикальная чувствительность в режиме прицеливания
+    aimMaxMouseSpeed = 25; // Максимальная скорость движения мыши (пиксели за кадр) - одинаковая для обеих осей
     aimPitchSmoothing = 0.12; // Коэффициент сглаживания для вертикального прицеливания (улучшено для плавности)
     aimYawSmoothing = 0.18; // Коэффициент сглаживания для горизонтального прицеливания (для плавности)
     targetAimPitch = 0; // Целевой угол вертикального прицеливания (для плавной интерполяции)
@@ -2889,8 +3005,18 @@ export class Game {
             if (!this.isPointerLocked) return;
             
             if (evt.movementX !== undefined) {
+                // В режиме прицеливания ограничиваем максимальную скорость движения мыши
+                let movementX = evt.movementX;
+                let movementY = evt.movementY || 0;
+                
+                if (this.isAiming) {
+                    // Ограничиваем скорость движения мыши одинаково для обеих осей
+                    movementX = Math.max(-this.aimMaxMouseSpeed, Math.min(this.aimMaxMouseSpeed, movementX));
+                    movementY = Math.max(-this.aimMaxMouseSpeed, Math.min(this.aimMaxMouseSpeed, movementY));
+                }
+                
                 const sensitivity = this.isAiming ? this.aimMouseSensitivity : this.mouseSensitivity;
-                const yawDelta = evt.movementX * sensitivity;
+                const yawDelta = movementX * sensitivity;
                 
                 // === КАМЕРА ВСЕГДА СЛЕДУЕТ ЗА МЫШКОЙ ===
                 this.cameraYaw += yawDelta;
@@ -2904,7 +3030,7 @@ export class Game {
                     // Адаптивная чувствительность в зависимости от зума (чем больше зум, тем ниже чувствительность)
                     const zoomFactor = 1.0 / (1.0 + this.aimZoom * 0.3); // При зуме 4x чувствительность снижается до ~45%
                     const adaptiveSensitivity = this.aimMouseSensitivity * zoomFactor;
-                    const adaptiveYawDelta = evt.movementX * adaptiveSensitivity;
+                    const adaptiveYawDelta = movementX * adaptiveSensitivity;
                     
                     this.targetAimYaw += adaptiveYawDelta;
                     
@@ -2938,11 +3064,11 @@ export class Game {
                     while (this.aimYaw < -Math.PI) this.aimYaw += Math.PI * 2;
                     
                     // Вертикальный поворот (pitch) - только в режиме прицеливания
-                    if (evt.movementY !== undefined) {
+                    if (movementY !== undefined) {
                         // Адаптивная чувствительность по вертикали в зависимости от зума
                         const zoomFactor = 1.0 / (1.0 + this.aimZoom * 0.3);
                         const adaptiveVerticalSensitivity = this.aimMouseSensitivityVertical * zoomFactor;
-                        const pitchDelta = -evt.movementY * adaptiveVerticalSensitivity;
+                        const pitchDelta = -movementY * adaptiveVerticalSensitivity;
                         let newPitch = this.targetAimPitch + pitchDelta;
                         
                         // Ограничиваем угол так, чтобы дальность не превышала 999 метров
