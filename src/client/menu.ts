@@ -2039,6 +2039,18 @@ export class MainMenu {
                 width: 2px;
             }
 
+            .skill-connectors-svg {
+                position: absolute;
+                top: 0;
+                left: 0;
+                pointer-events: none;
+                z-index: 1;
+            }
+
+            .skill-connectors-svg path {
+                filter: drop-shadow(0 0 4px rgba(0,255,80,0.6));
+            }
+
             .skill-empty {
                 color: #8f8;
                 font-size: 11px;
@@ -4228,12 +4240,12 @@ export class MainMenu {
 
         // Создаем SVG для извилистых коннекторов
         const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-        svg.className = "skill-connectors-svg";
+        svg.setAttribute("class", "skill-connectors-svg");
+        svg.setAttribute("width", `${treeWidth}`);
+        svg.setAttribute("height", `${treeHeight}`);
         svg.style.position = "absolute";
         svg.style.top = "0";
         svg.style.left = "0";
-        svg.style.width = `${skillTree.style.minWidth || "100%"}`;
-        svg.style.height = `${skillTree.style.minHeight || "100%"}`;
         svg.style.pointerEvents = "none";
         svg.style.zIndex = "0";
         
