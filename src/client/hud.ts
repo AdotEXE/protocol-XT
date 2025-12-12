@@ -44,6 +44,10 @@ export class HUD {
     // Kill counter
     private killsText!: TextBlock;
     private killsCount = 0;
+    
+    // Tracer counter
+    private tracerContainer!: Rectangle;
+    private tracerCountText!: TextBlock;
 
     // Currency display
     private currencyText!: TextBlock;
@@ -159,6 +163,7 @@ export class HUD {
     private tutorialStartTime = 0;
     private hasMoved = false;
     private hasShot = false;
+    private onTutorialCompleteCallback: (() => void) | null = null;
     
     // Game time tracking
     private gameTimeText: TextBlock | null = null;
@@ -259,6 +264,7 @@ export class HUD {
         this.createNotificationArea(); // Область уведомлений
         this.createPOI3DMarkersContainer(); // 3D маркеры POI
         this.createTutorial();         // Система туториала
+        this.createTracerCounter();    // Счётчик трассеров
         
         // Убеждаемся, что прицел скрыт по умолчанию
         this.setAimMode(false);
@@ -4765,6 +4771,51 @@ export class HUD {
         }
     }
     
+    // === TRACER COUNTER ===
+    
+    private createTracerCounter(): void {
+        // Tracer counter container (below fuel, left side)
+        this.tracerContainer = new Rectangle("tracerContainer");
+        this.tracerContainer.width = "80px";
+        this.tracerContainer.height = "22px";
+        this.tracerContainer.cornerRadius = 2;
+        this.tracerContainer.color = "#f60";
+        this.tracerContainer.thickness = 1;
+        this.tracerContainer.background = "rgba(50, 20, 0, 0.7)";
+        this.tracerContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.tracerContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.tracerContainer.left = "10px";
+        this.tracerContainer.top = "80px";
+        this.guiTexture.addControl(this.tracerContainer);
+        
+        // Tracer icon and count text
+        this.tracerCountText = new TextBlock("tracerCountText");
+        this.tracerCountText.text = "T: 5/5";
+        this.tracerCountText.color = "#f80";
+        this.tracerCountText.fontSize = "11px";
+        this.tracerCountText.fontWeight = "bold";
+        this.tracerCountText.fontFamily = "Consolas, monospace";
+        this.tracerContainer.addControl(this.tracerCountText);
+    }
+    
+    updateTracerCount(current: number, max: number): void {
+        if (!this.tracerCountText) return;
+        
+        this.tracerCountText.text = `T: ${current}/${max}`;
+        
+        // Color based on tracer count
+        if (current === 0) {
+            this.tracerCountText.color = "#f00";
+            this.tracerContainer.color = "#f00";
+        } else if (current <= 2) {
+            this.tracerCountText.color = "#fa0";
+            this.tracerContainer.color = "#fa0";
+        } else {
+            this.tracerCountText.color = "#f80";
+            this.tracerContainer.color = "#f60";
+        }
+    }
+    
     // === POI CAPTURE BAR ===
     
     private createPOICaptureBar(): void {
@@ -5047,7 +5098,17 @@ export class HUD {
             // localStorage not available
         }
         
+        // Notify callback
+        if (this.onTutorialCompleteCallback) {
+            this.onTutorialCompleteCallback();
+        }
+        
         console.log("[HUD] Tutorial completed");
+    }
+    
+    // Set callback for tutorial completion
+    setOnTutorialComplete(callback: () => void): void {
+        this.onTutorialCompleteCallback = callback;
     }
     
     // Reset tutorial (for debugging or settings)

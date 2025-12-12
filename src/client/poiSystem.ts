@@ -642,6 +642,9 @@ export class POISystem {
             }
         }
         
+        // Create smoke particle system for fuel depot
+        this.createFuelSmokeParticles(id, worldPos);
+        
         return {
             id,
             type: "fuelDepot",
@@ -668,6 +671,59 @@ export class POISystem {
                 fuelTanks: fuelTanks
             }
         };
+    }
+    
+    // Smoke particles for fuel depots
+    private createFuelSmokeParticles(poiId: string, position: Vector3): void {
+        const smoke = new ParticleSystem(`smoke_${poiId}`, 30, this.scene);
+        smoke.particleTexture = new Texture("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", this.scene);
+        smoke.emitter = position.add(new Vector3(0, 6, 0));
+        smoke.minEmitBox = new Vector3(-1, 0, -1);
+        smoke.maxEmitBox = new Vector3(1, 0, 1);
+        
+        smoke.color1 = new Color4(0.4, 0.4, 0.4, 0.3);
+        smoke.color2 = new Color4(0.3, 0.3, 0.3, 0.2);
+        smoke.colorDead = new Color4(0.2, 0.2, 0.2, 0);
+        
+        smoke.minSize = 1;
+        smoke.maxSize = 3;
+        smoke.minLifeTime = 2;
+        smoke.maxLifeTime = 4;
+        
+        smoke.emitRate = 5;
+        smoke.direction1 = new Vector3(-0.5, 2, -0.5);
+        smoke.direction2 = new Vector3(0.5, 4, 0.5);
+        smoke.gravity = new Vector3(0, 0.5, 0);
+        
+        smoke.start();
+        this.particleSystems.set(`smoke_${poiId}`, smoke);
+    }
+    
+    // Electric spark particles for radar stations
+    private createRadarSparkParticles(poiId: string, position: Vector3): void {
+        const sparks = new ParticleSystem(`sparks_${poiId}`, 20, this.scene);
+        sparks.particleTexture = new Texture("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIA7N/mDQAAAABJRU5ErkJggg==", this.scene);
+        sparks.emitter = position.add(new Vector3(0, 16, 0)); // At radar dish
+        sparks.minEmitBox = new Vector3(-2, 0, -2);
+        sparks.maxEmitBox = new Vector3(2, 0, 2);
+        
+        // Electric blue color
+        sparks.color1 = new Color4(0.3, 0.7, 1, 1);
+        sparks.color2 = new Color4(0.5, 0.8, 1, 1);
+        sparks.colorDead = new Color4(0.1, 0.3, 0.5, 0);
+        
+        sparks.minSize = 0.1;
+        sparks.maxSize = 0.3;
+        sparks.minLifeTime = 0.1;
+        sparks.maxLifeTime = 0.3;
+        
+        sparks.emitRate = 10;
+        sparks.direction1 = new Vector3(-2, -1, -2);
+        sparks.direction2 = new Vector3(2, 2, 2);
+        sparks.gravity = new Vector3(0, -5, 0);
+        
+        sparks.start();
+        this.particleSystems.set(`sparks_${poiId}`, sparks);
     }
     
     // ═══════════════════════════════════════════════════════════════════════
@@ -745,6 +801,9 @@ export class POISystem {
             mesh.freezeWorldMatrix();
             mesh.metadata = { type: "poi", poiType: "radarStation", poiId: id };
         }
+        
+        // Create electric spark particles for radar
+        this.createRadarSparkParticles(id, worldPos);
         
         return {
             id,

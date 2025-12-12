@@ -41,6 +41,7 @@ import { PlayerProgressionSystem } from "./playerProgression";
 import { AimingSystem } from "./aimingSystem";
 import { AchievementsSystem, Achievement } from "./achievements";
 import { DestructionSystem } from "./destructionSystem";
+import { MissionSystem, Mission } from "./missionSystem";
 
 export class Game {
     engine: Engine;
@@ -89,6 +90,9 @@ export class Game {
     
     // Achievements system
     achievementsSystem: AchievementsSystem | undefined;
+    
+    // Mission system
+    missionSystem: MissionSystem | undefined;
     
     // Aiming system
     aimingSystem: AimingSystem | undefined;
@@ -813,6 +817,35 @@ export class Game {
         }
     }
     
+    private onMissionComplete(mission: Mission): void {
+        console.log(`[Game] Mission completed: ${mission.name}`);
+        
+        // Show notification
+        if (this.hud) {
+            const name = this.missionSystem?.getName(mission) || mission.name;
+            this.hud.showNotification?.(`📋 Миссия выполнена: ${name}`, "success");
+        }
+        
+        // Play sound
+        if (this.soundManager) {
+            this.soundManager.playReloadComplete?.();
+        }
+        
+        // Auto-claim reward
+        if (mission.reward && this.missionSystem) {
+            const reward = this.missionSystem.claimReward(mission.id);
+            if (reward) {
+                if (reward.type === "experience" && this.playerProgression) {
+                    this.playerProgression.addExperience(reward.amount, "mission");
+                    console.log(`[Game] Awarded ${reward.amount} XP for mission`);
+                } else if (reward.type === "credits" && this.currencyManager) {
+                    this.currencyManager.addCredits(reward.amount);
+                    console.log(`[Game] Awarded ${reward.amount} credits for mission`);
+                }
+            }
+        }
+    }
+    
     startGame(): void {
         logger.log("startGame() called, mapType:", this.currentMapType);
         this.gameStarted = true;
@@ -821,6 +854,20 @@ export class Game {
         
         // Track survival time for achievements
         this.survivalStartTime = Date.now();
+        
+        // Track map exploration achievement
+        if (this.achievementsSystem) {
+            try {
+                const visitedMaps = JSON.parse(localStorage.getItem('visitedMaps') || '[]') as string[];
+                if (!visitedMaps.includes(this.currentMapType)) {
+                    visitedMaps.push(this.currentMapType);
+                    localStorage.setItem('visitedMaps', JSON.stringify(visitedMaps));
+                }
+                this.achievementsSystem.setProgress("explorer", visitedMaps.length);
+            } catch (e) {
+                // localStorage error
+            }
+        }
         
         // Apply mouse sensitivity from settings (1-10 scale to 0.001-0.006)
         const sensValue = this.settings.mouseSensitivity || 5;
@@ -1221,6 +1268,13 @@ export class Game {
             this.achievementsSystem.setOnAchievementUnlocked((achievement: Achievement) => {
                 this.onAchievementUnlocked(achievement);
             });
+            
+            // Initialize mission system
+            this.missionSystem = new MissionSystem();
+            this.missionSystem.setLanguage(this.settings.language as "ru" | "en" || "ru");
+            this.missionSystem.setOnMissionComplete((mission: Mission) => {
+                this.onMissionComplete(mission);
+            });
             // Track session start
             this.achievementsSystem.updateProgress("dedication", 1);
             if (this.hud) {
@@ -1447,6 +1501,11 @@ export class Game {
                 this.hideLoadingScreen();
                 // Start tutorial for new players
                 if (this.hud) {
+                    this.hud.setOnTutorialComplete(() => {
+                        if (this.achievementsSystem) {
+                            this.achievementsSystem.updateProgress("tutorial_complete", 1);
+                        }
+                    });
                     this.hud.startTutorial();
                 }
             }, 500);
@@ -1540,6 +1599,10 @@ export class Game {
                     if (this.tank && this.tank.currentHealth / this.tank.maxHealth < 0.2) {
                         this.achievementsSystem.updateProgress("comeback", 1);
                     }
+                }
+                // Track missions
+                if (this.missionSystem) {
+                    this.missionSystem.updateProgress("kill", 1);
                 }
                 // Начисляем валюту
                 const reward = 100;
@@ -1656,6 +1719,10 @@ export class Game {
                 if (this.achievementsSystem) {
                     this.achievementsSystem.updateProgress("first_blood", 1);
                     this.achievementsSystem.updateProgress("tank_hunter", 1);
+                }
+                // Track missions
+                if (this.missionSystem) {
+                    this.missionSystem.updateProgress("kill", 1);
                 }
                 // Меньше награда за тренировочных ботов
                 const reward = 50;
@@ -2838,8 +2905,26 @@ export class Game {
         poiSystem.setCallbacks({
             onCapture: (poi, newOwner) => {
                 console.log(`[POI] ${poi.type} captured by ${newOwner}`);
-                if (newOwner === "player" && this.hud) {
-                    this.hud.showNotification?.(`Точка захвачена!`, "success");
+                if (newOwner === "player") {
+                    if (this.hud) {
+                        this.hud.showNotification?.(`Точка захвачена!`, "success");
+                    }
+                    // Achievement tracking
+                    if (this.achievementsSystem) {
+                        this.achievementsSystem.updateProgress("poi_first_capture", 1);
+                        this.achievementsSystem.updateProgress("poi_conqueror", 1);
+                        this.achievementsSystem.updateProgress("poi_warlord", 1);
+                        
+                        // Check for domination (5 POIs at once)
+                        const ownedPOIs = poiSystem.getOwnedPOIs("player").length;
+                        if (ownedPOIs >= 5) {
+                            this.achievementsSystem.updateProgress("domination", 1);
+                        }
+                    }
+                    // Mission tracking
+                    if (this.missionSystem) {
+                        this.missionSystem.updateProgress("capture", 1);
+                    }
                 }
             },
             onContestStart: (poi) => {
@@ -2854,14 +2939,30 @@ export class Game {
                     if (special) {
                         console.log(`[POI] Special ammo pickup!`);
                     }
+                    // Achievement tracking
+                    if (this.achievementsSystem) {
+                        this.achievementsSystem.updateProgress("ammo_collector", Math.floor(amount));
+                    }
+                    // Mission tracking
+                    if (this.missionSystem) {
+                        this.missionSystem.updateProgress("ammo", Math.floor(amount));
+                    }
                 }
             },
             onRepair: (poi, amount) => {
-                if (this.tank && this.tank.currentHP < this.tank.maxHP) {
-                    const healAmount = (amount / 100) * this.tank.maxHP;
-                    this.tank.currentHP = Math.min(this.tank.maxHP, this.tank.currentHP + healAmount);
+                if (this.tank && this.tank.currentHealth < this.tank.maxHealth) {
+                    const healAmount = (amount / 100) * this.tank.maxHealth;
+                    this.tank.currentHealth = Math.min(this.tank.maxHealth, this.tank.currentHealth + healAmount);
                     if (this.hud) {
-                        this.hud.updateHealth(this.tank.currentHP, this.tank.maxHP);
+                        this.hud.updateHealth(this.tank.currentHealth, this.tank.maxHealth);
+                    }
+                    // Achievement tracking
+                    if (this.achievementsSystem) {
+                        this.achievementsSystem.updateProgress("repair_addict", Math.floor(healAmount));
+                    }
+                    // Mission tracking
+                    if (this.missionSystem) {
+                        this.missionSystem.updateProgress("repair", Math.floor(healAmount));
                     }
                 }
             },
@@ -2871,10 +2972,18 @@ export class Game {
                     if (this.hud) {
                         this.hud.updateFuel?.(this.tank.currentFuel, this.tank.maxFuel);
                     }
+                    // Achievement tracking
+                    if (this.achievementsSystem) {
+                        this.achievementsSystem.updateProgress("fuel_tanker", Math.floor(amount));
+                    }
                 }
             },
             onExplosion: (poi, position, radius, damage) => {
                 console.log(`[POI] Explosion at ${position}, radius ${radius}, damage ${damage}`);
+                // Achievement tracking
+                if (this.achievementsSystem) {
+                    this.achievementsSystem.updateProgress("explosives_expert", 1);
+                }
                 // Наносим урон танкам в радиусе
                 if (this.tank && this.tank.chassis) {
                     const dist = Vector3.Distance(this.tank.chassis.absolutePosition, position);
@@ -2901,10 +3010,21 @@ export class Game {
                 if (this.effectsManager) {
                     this.effectsManager.createExplosion?.(position);
                 }
+                // Notification
+                if (this.hud) {
+                    this.hud.showNotification?.("💥 Топливный склад взорван!", "warning");
+                }
             },
             onRadarPing: (poi, detectedPositions) => {
                 console.log(`[POI] Radar ping: ${detectedPositions.length} enemies detected`);
-                // Можно показать на миникарте
+                // Achievement tracking
+                if (this.achievementsSystem && detectedPositions.length > 0) {
+                    this.achievementsSystem.updateProgress("radar_operator", detectedPositions.length);
+                }
+                // Notification
+                if (this.hud && detectedPositions.length > 0) {
+                    this.hud.showNotification?.(`📡 Обнаружено врагов: ${detectedPositions.length}`, "info");
+                }
             },
             onBonusXP: (amount) => {
                 if (this.experienceSystem) {
@@ -3076,6 +3196,44 @@ export class Game {
             // Update fuel indicator
             if (this.tank) {
                 this.hud.updateFuel?.(this.tank.currentFuel, this.tank.maxFuel);
+            }
+            
+            // Update tracer count
+            if (this.tank) {
+                this.hud.updateTracerCount?.(this.tank.getTracerCount(), this.tank.getMaxTracerCount());
+            }
+            
+            // Update survival achievements and missions
+            if (this.tank) {
+                if (this.tank.isAlive) {
+                    const survivalTime = (Date.now() - this.survivalStartTime) / 1000;
+                    
+                    // Achievements
+                    if (this.achievementsSystem) {
+                        // Survivor achievement (5 minutes = 300 seconds)
+                        this.achievementsSystem.setProgress("survivor", Math.floor(survivalTime));
+                        
+                        // Iron will achievement (survive with HP below 10%)
+                        const hpPercent = this.tank.currentHealth / this.tank.maxHealth;
+                        if (hpPercent < 0.1 && hpPercent > 0) {
+                            this.achievementsSystem.updateProgress("iron_will", 1);
+                        }
+                    }
+                    
+                    // Missions
+                    if (this.missionSystem) {
+                        this.missionSystem.setProgress("survive", Math.floor(survivalTime));
+                    }
+                } else if (this.lastDeathTime === 0 || Date.now() - this.lastDeathTime > 1000) {
+                    // Tank just died - reset survival timer on respawn
+                    this.lastDeathTime = Date.now();
+                }
+                
+                // Reset survival timer when tank respawns
+                if (this.tank.isAlive && this.lastDeathTime > 0) {
+                    this.survivalStartTime = Date.now();
+                    this.lastDeathTime = 0;
+                }
             }
         }
         

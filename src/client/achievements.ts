@@ -143,6 +143,119 @@ export const ACHIEVEMENTS: Achievement[] = [
         category: "exploration"
     },
     
+    // POI achievements
+    {
+        id: "poi_first_capture",
+        name: "Первый захват",
+        nameEn: "First Capture",
+        description: "Захватить первую точку интереса",
+        descriptionEn: "Capture your first POI",
+        icon: "⚑",
+        requirement: 1,
+        reward: { type: "experience", amount: 50 },
+        category: "exploration"
+    },
+    {
+        id: "poi_conqueror",
+        name: "Завоеватель",
+        nameEn: "Conqueror",
+        description: "Захватить 10 точек интереса",
+        descriptionEn: "Capture 10 POIs",
+        icon: "🏴",
+        requirement: 10,
+        reward: { type: "experience", amount: 200 },
+        category: "exploration"
+    },
+    {
+        id: "poi_warlord",
+        name: "Полководец",
+        nameEn: "Warlord",
+        description: "Захватить 50 точек интереса",
+        descriptionEn: "Capture 50 POIs",
+        icon: "👑",
+        requirement: 50,
+        reward: { type: "experience", amount: 500 },
+        category: "exploration"
+    },
+    {
+        id: "ammo_collector",
+        name: "Сборщик припасов",
+        nameEn: "Ammo Collector",
+        description: "Получить 100 снарядов со складов",
+        descriptionEn: "Collect 100 ammo from depots",
+        icon: "🔫",
+        requirement: 100,
+        reward: { type: "experience", amount: 100 },
+        category: "exploration"
+    },
+    {
+        id: "repair_addict",
+        name: "Ремонтник",
+        nameEn: "Repair Addict",
+        description: "Восстановить 500 HP на ремонтных станциях",
+        descriptionEn: "Heal 500 HP at repair stations",
+        icon: "🔧",
+        requirement: 500,
+        reward: { type: "experience", amount: 100 },
+        category: "exploration"
+    },
+    {
+        id: "fuel_tanker",
+        name: "Заправщик",
+        nameEn: "Fuel Tanker",
+        description: "Заправить 1000 литров топлива",
+        descriptionEn: "Refuel 1000 liters",
+        icon: "⛽",
+        requirement: 1000,
+        reward: { type: "experience", amount: 100 },
+        category: "exploration"
+    },
+    {
+        id: "explosives_expert",
+        name: "Сапёр",
+        nameEn: "Explosives Expert",
+        description: "Взорвать 5 топливных складов",
+        descriptionEn: "Blow up 5 fuel depots",
+        icon: "💥",
+        requirement: 5,
+        reward: { type: "experience", amount: 150 },
+        category: "combat"
+    },
+    {
+        id: "radar_operator",
+        name: "Оператор радара",
+        nameEn: "Radar Operator",
+        description: "Обнаружить 50 врагов с помощью радара",
+        descriptionEn: "Detect 50 enemies with radar",
+        icon: "📡",
+        requirement: 50,
+        reward: { type: "experience", amount: 150 },
+        category: "exploration"
+    },
+    {
+        id: "contested_victory",
+        name: "Спорная победа",
+        nameEn: "Contested Victory",
+        description: "Выиграть контест на точке захвата",
+        descriptionEn: "Win a contested capture point",
+        icon: "⚔️",
+        requirement: 1,
+        reward: { type: "experience", amount: 75 },
+        category: "combat"
+    },
+    {
+        id: "domination",
+        name: "Доминация",
+        nameEn: "Domination",
+        description: "Владеть 5 точками одновременно",
+        descriptionEn: "Own 5 POIs at the same time",
+        icon: "🌟",
+        requirement: 1,
+        reward: { type: "experience", amount: 300 },
+        category: "special",
+        hidden: true
+    },
+    
     // Special achievements
     {
         id: "tutorial_complete",

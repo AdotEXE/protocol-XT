@@ -86,6 +86,11 @@ export class EnemyTank {
     currentHealth = 100;
     isAlive = true;
     
+    // === Tracer Marking ===
+    private isMarked = false;
+    private markedUntil = 0;
+    private markGlow: Mesh | null = null;
+    
     // === Combat ===
     private lastShotTime = 0;
     private cooldown = 2500; // 2.5 seconds reload
@@ -431,6 +436,9 @@ export class EnemyTank {
         if (!this.chassis || this.chassis.isDisposed()) return;
         
         this._tick++;
+        
+        // Update tracer mark status
+        this.updateMarkStatus();
         
         // Боты всегда активны и патрулируют независимо от расстояния
         const distToPlayer = (this.target && this.target.chassis) ? 
@@ -1659,6 +1667,67 @@ export class EnemyTank {
         
         if (this.currentHealth <= 0) {
             this.die();
+        }
+    }
+    
+    // === TRACER MARKING SYSTEM ===
+    
+    // Set this enemy as marked (visible through terrain, highlighted)
+    setMarked(marked: boolean, duration: number = 15000): void {
+        this.isMarked = marked;
+        
+        if (marked) {
+            this.markedUntil = Date.now() + duration;
+            
+            // Create visual glow effect
+            if (!this.markGlow && this.chassis && !this.chassis.isDisposed()) {
+                this.markGlow = MeshBuilder.CreateBox("markGlow", {
+                    width: this.chassis.scaling.x * 3.5,
+                    height: this.chassis.scaling.y * 4,
+                    depth: this.chassis.scaling.z * 5
+                }, this.scene);
+                this.markGlow.parent = this.chassis;
+                this.markGlow.position = new Vector3(0, 0.5, 0);
+                
+                const glowMat = new StandardMaterial("markGlowMat", this.scene);
+                glowMat.diffuseColor = new Color3(1, 0.3, 0); // Orange
+                glowMat.emissiveColor = new Color3(1, 0.4, 0); // Bright orange glow
+                glowMat.alpha = 0.3;
+                glowMat.disableLighting = true;
+                this.markGlow.material = glowMat;
+                this.markGlow.visibility = 0.4;
+            }
+            
+            console.log(`[EnemyTank ${this.id}] MARKED for ${duration/1000}s!`);
+        } else {
+            // Remove glow
+            if (this.markGlow) {
+                this.markGlow.dispose();
+                this.markGlow = null;
+            }
+        }
+    }
+    
+    // Check if enemy is currently marked
+    getIsMarked(): boolean {
+        // Auto-unmark if time expired
+        if (this.isMarked && Date.now() > this.markedUntil) {
+            this.setMarked(false);
+        }
+        return this.isMarked;
+    }
+    
+    // Update mark status (call from update loop)
+    private updateMarkStatus(): void {
+        if (this.isMarked && Date.now() > this.markedUntil) {
+            this.setMarked(false);
+            console.log(`[EnemyTank ${this.id}] Mark expired`);
+        }
+        
+        // Animate glow
+        if (this.markGlow && !this.markGlow.isDisposed()) {
+            const pulse = 0.3 + Math.sin(Date.now() / 200) * 0.15;
+            this.markGlow.visibility = pulse;
         }
     }
     

@@ -116,6 +116,13 @@ export class TankController {
     
     // Shooting (будет переопределено типом пушки)
     damage = 25; // Базовый урон
+    
+    // Tracer System (T key)
+    tracerCount = 5; // Количество трассеров
+    maxTracerCount = 5; // Максимум трассеров
+    tracerDamage = 10; // Урон трассера (меньше обычного)
+    tracerMarkDuration = 15000; // Время метки на враге (15 секунд)
+    private tracerMat: StandardMaterial | null = null; // Материал трассера (яркий)
 
     // State
     private _tmpVector = new Vector3();
@@ -229,6 +236,14 @@ export class TankController {
         this.bulletMat.specularColor = Color3.Black();
         this.bulletMat.disableLighting = true;
         this.bulletMat.freeze();
+        
+        // Pre-create tracer material - BRIGHT RED/ORANGE for visibility
+        this.tracerMat = new StandardMaterial("tracerMat", scene);
+        this.tracerMat.diffuseColor = new Color3(1, 0.2, 0); // Red-orange
+        this.tracerMat.emissiveColor = new Color3(1, 0.3, 0); // GLOW!
+        this.tracerMat.specularColor = Color3.Black();
+        this.tracerMat.disableLighting = true;
+        this.tracerMat.freeze();
         
         // Загружаем типы корпуса и пушки из localStorage или используем по умолчанию
         const savedChassisId = localStorage.getItem("selectedChassis") || "medium";
@@ -994,6 +1009,9 @@ export class TankController {
             
             if (code === "Space") this.fire();
             
+            // Tracer (T key) - fires tracer round if available and not reloading
+            if (code === "KeyT") this.fireTracer();
+            
             // Модули (кнопки 6-0)
             if (code === "Digit6" || code === "Numpad6") {
                 this.activateModule6();
@@ -1673,6 +1691,213 @@ export class TankController {
                 if (!ball.isDisposed()) ball.dispose();
             }, 6000);
         } catch (e) { console.error("[FIRE ERROR]", e); }
+    }
+
+    // ============ TRACER SYSTEM ============
+    // Tracer round - special marking projectile fired with T key
+    // Uses same cooldown as normal fire, limited ammo, marks enemies on hit
+    fireTracer() {
+        try {
+            if (!this.isAlive) return;
+            
+            // Check if we have tracers
+            if (this.tracerCount <= 0) {
+                if (this.chatSystem) {
+                    this.chatSystem.log("No tracers left!");
+                }
+                return;
+            }
+            
+            const now = Date.now();
+            
+            // Check cooldown (same as normal fire)
+            if (this.isReloading || now - this.lastShotTime < this.cooldown) {
+                if (this.chatSystem) {
+                    const remaining = ((this.cooldown - (now - this.lastShotTime)) / 1000).toFixed(1);
+                    this.chatSystem.log(`Reloading... ${remaining}s`);
+                }
+                return;
+            }
+            
+            // Use tracer
+            this.tracerCount--;
+            this.lastShotTime = now;
+            this.isReloading = true;
+            
+            // Update HUD for tracer count
+            if (this.hud) {
+                this.hud.startReload(this.cooldown);
+                // Could add tracer count display here
+            }
+            
+            // End reload after cooldown
+            setTimeout(() => {
+                this.isReloading = false;
+                if (this.soundManager) {
+                    this.soundManager.playReloadComplete();
+                }
+            }, this.cooldown);
+            
+            console.log(`[TRACER] Fired! ${this.tracerCount}/${this.maxTracerCount} remaining`);
+            
+            // Get muzzle position and direction
+            const wasBarrelEnabled = this.barrel.isEnabled();
+            if (!wasBarrelEnabled) this.barrel.setEnabled(true);
+            
+            this.chassis.computeWorldMatrix(true);
+            this.turret.computeWorldMatrix(true);
+            this.barrel.computeWorldMatrix(true);
+            
+            const barrelDir = this.barrel.getDirection(Vector3.Forward()).normalize();
+            const shootDirection = new Vector3(
+                barrelDir.x * Math.cos(this.aimPitch),
+                Math.sin(this.aimPitch),
+                barrelDir.z * Math.cos(this.aimPitch)
+            ).normalize();
+            
+            const muzzlePos = this.barrel.getAbsolutePosition().add(barrelDir.scale(1.6));
+            
+            if (!wasBarrelEnabled) this.barrel.setEnabled(false);
+            
+            // Play tracer sound (can use different sound if available)
+            if (this.soundManager) {
+                this.soundManager.playShoot(this.cannonType.id, muzzlePos.clone());
+            }
+            
+            // Create tracer muzzle flash (slightly different color)
+            if (this.effectsManager) {
+                this.effectsManager.createMuzzleFlash(muzzlePos, shootDirection);
+            }
+            
+            // Create tracer projectile - BRIGHT RED/ORANGE, larger, more visible
+            const tracerSize = this.projectileSize * 1.5; // Bigger than normal
+            const tracer = MeshBuilder.CreateBox("tracer", { 
+                width: tracerSize, 
+                height: tracerSize, 
+                depth: tracerSize * 4 // Longer trail
+            }, this.scene);
+            tracer.position.copyFrom(muzzlePos);
+            tracer.lookAt(tracer.position.add(shootDirection));
+            tracer.material = this.tracerMat!;
+            tracer.metadata = { type: "tracer", owner: "player", damage: this.tracerDamage, markDuration: this.tracerMarkDuration };
+            
+            // Create bullet trail effect
+            if (this.effectsManager) {
+                this.effectsManager.createBulletTrail(tracer);
+            }
+            
+            // Physics
+            const shape = new PhysicsShape({ 
+                type: PhysicsShapeType.BOX, 
+                parameters: { extents: new Vector3(tracerSize * 0.75, tracerSize * 0.75, tracerSize * 3) } 
+            }, this.scene);
+            shape.filterMembershipMask = 4;
+            shape.filterCollideMask = 2 | 8 | 32;
+            
+            const body = new PhysicsBody(tracer, PhysicsMotionType.DYNAMIC, false, this.scene);
+            body.shape = shape;
+            body.setMassProperties({ mass: 10 });
+            body.setLinearDamping(0.01);
+            
+            // Faster than normal projectile for better tracking
+            const impulse = this.projectileSpeed * 22;
+            body.applyImpulse(shootDirection.scale(impulse), tracer.position);
+            
+            // Light recoil for tracer
+            const recoilForceVec = shootDirection.scale(-this.recoilForce * 0.3);
+            this.physicsBody.applyImpulse(recoilForceVec, this.chassis.absolutePosition);
+            
+            // === TRACER HIT DETECTION ===
+            const tracerDamage = this.tracerDamage;
+            const markDuration = this.tracerMarkDuration;
+            const HIT_RADIUS = 4.5; // Slightly larger hit radius for tracer
+            
+            const checkInterval = setInterval(() => {
+                if (tracer.isDisposed()) {
+                    clearInterval(checkInterval);
+                    return;
+                }
+                
+                const tracerPos = tracer.absolutePosition;
+                
+                // Check enemy tanks
+                const enemies = this.enemyTanks || [];
+                for (let i = 0; i < enemies.length; i++) {
+                    const enemy = enemies[i];
+                    if (!enemy || !enemy.isAlive || !enemy.chassis || enemy.chassis.isDisposed()) continue;
+                    
+                    const enemyPos = enemy.chassis.absolutePosition;
+                    const dist = Vector3.Distance(tracerPos, enemyPos);
+                    
+                    if (dist < HIT_RADIUS) {
+                        console.log("%c[TRACER HIT] Enemy marked for " + (markDuration/1000) + "s!", "color: orange; font-weight: bold");
+                        
+                        // Deal tracer damage (reduced)
+                        enemy.takeDamage(tracerDamage);
+                        
+                        // MARK THE ENEMY - make them visible/highlighted
+                        if (enemy.setMarked) {
+                            enemy.setMarked(true, markDuration);
+                        }
+                        
+                        // Visual effect
+                        if (this.effectsManager) {
+                            this.effectsManager.createExplosion(tracerPos, 0.8);
+                        }
+                        
+                        // Sound
+                        if (this.soundManager) {
+                            this.soundManager.playHit("normal", tracerPos);
+                        }
+                        
+                        // Show special marker on HUD
+                        if (this.hud) {
+                            this.hud.showHitMarker(false);
+                        }
+                        
+                        // Chat notification
+                        if (this.chatSystem) {
+                            this.chatSystem.log(`Enemy marked for ${markDuration/1000}s!`);
+                        }
+                        
+                        tracer.dispose();
+                        clearInterval(checkInterval);
+                        return;
+                    }
+                }
+                
+                // Dispose if too far or too old
+                if (tracerPos.y < -10 || Vector3.Distance(tracerPos, muzzlePos) > 500) {
+                    tracer.dispose();
+                    clearInterval(checkInterval);
+                }
+            }, 16);
+            
+            // Auto-dispose after 5 seconds
+            setTimeout(() => {
+                clearInterval(checkInterval);
+                if (!tracer.isDisposed()) tracer.dispose();
+            }, 5000);
+            
+        } catch (e) { console.error("[TRACER ERROR]", e); }
+    }
+    
+    // Refill tracers (can be called from consumables or pickups)
+    refillTracers(amount: number = this.maxTracerCount): void {
+        this.tracerCount = Math.min(this.tracerCount + amount, this.maxTracerCount);
+        console.log(`[TRACER] Refilled! ${this.tracerCount}/${this.maxTracerCount}`);
+        if (this.chatSystem) {
+            this.chatSystem.log(`Tracers refilled: ${this.tracerCount}/${this.maxTracerCount}`);
+        }
+    }
+    
+    // Get current tracer count (for HUD display)
+    getTracerCount(): number {
+        return this.tracerCount;
+    }
+    
+    getMaxTracerCount(): number {
+        return this.maxTracerCount;
     }
 
     private applyTorque(torque: Vector3) {
