@@ -804,13 +804,13 @@ export class TankController {
                 console.log(`[TANK] === RESPAWN TO GARAGE: (${respawnPos.x.toFixed(1)}, ${respawnPos.y.toFixed(1)}, ${respawnPos.z.toFixed(1)}) ===`);
             } else {
                 // Fallback на центр гаража по умолчанию
-                respawnPos = new Vector3(0, 2.0, 0);
-                console.log(`[TANK] === RESPAWN TO DEFAULT GARAGE: (0, 2, 0) ===`);
+                respawnPos = new Vector3(0, 1.2, 0);
+                console.log(`[TANK] === RESPAWN TO DEFAULT GARAGE: (0, 1.2, 0) ===`);
             }
         } else {
             // Если callback не установлен, используем центр гаража по умолчанию
-            respawnPos = new Vector3(0, 2.0, 0);
-            console.log(`[TANK] === RESPAWN TO DEFAULT GARAGE (no callback): (0, 2, 0) ===`);
+            respawnPos = new Vector3(0, 1.2, 0);
+            console.log(`[TANK] === RESPAWN TO DEFAULT GARAGE (no callback): (0, 1.2, 0) ===`);
         }
         
         // Сообщение в чат о респавне (БЕЗ визуальных эффектов - пункт 16!)

@@ -233,7 +233,7 @@ export class EnemyTank {
             height: 0.8,
             depth: 3.5
         }, this.scene);
-        chassis.position = position.add(new Vector3(0, 2, 0));
+        chassis.position = position.add(new Vector3(0, 0.5, 0));  // Spawn close to ground
         
         const mat = new StandardMaterial(`enemyTankMat_${this.id}`, this.scene);
         mat.diffuseColor = new Color3(0.5, 0.15, 0.1); // Dark red/brown
@@ -693,7 +693,7 @@ export class EnemyTank {
         if (!this.chassis || !this.physicsBody) return;
         
         const pos = this.chassis.position.clone();
-        pos.y = 2.0; // Стандартная высота hover
+        pos.y = 1.2; // Стандартная высота hover (близко к земле)
         
         // Сбрасываем скорости
         this.physicsBody.setLinearVelocity(Vector3.Zero());

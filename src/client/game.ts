@@ -856,8 +856,8 @@ export class Game {
                 groundAgg.shape.filterCollideMask = 0xFFFFFFFF;
             }
 
-            // Create Tank
-            this.tank = new TankController(this.scene, new Vector3(0, 2, 0));
+            // Create Tank (spawn close to ground - hover height is ~1.0)
+            this.tank = new TankController(this.scene, new Vector3(0, 1.2, 0));
             
             // Устанавливаем callback для респавна в гараже
             this.tank.setRespawnPositionCallback(() => this.getPlayerGaragePosition());
@@ -1161,7 +1161,7 @@ export class Game {
                 
                 pos = new Vector3(
                     Math.cos(angle) * distance,
-                    2,
+                    1.2,  // Spawn close to ground
                     Math.sin(angle) * distance
                 );
                 
@@ -1807,7 +1807,7 @@ export class Game {
                             }
                         }
                         
-                        const garagePos = new Vector3(x, 2.5, z);
+                        const garagePos = new Vector3(x, 1.2, z);  // Spawn close to ground
                         this.respawnEnemyTank(garagePos);
                     }
                 }

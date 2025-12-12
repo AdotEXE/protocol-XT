@@ -552,8 +552,8 @@ export class ChunkSystem {
         
         // ПОЗИЦИЯ СПАВНА - ТОЧНО В ЦЕНТРЕ ГАРАЖА!
         // Гараж: X=0, Z=0, глубина=20 (от Z=-10 до Z=+10), ширина=16 (от X=-8 до X=+8)
-        // Танк спавнится в центре гаража, немного ближе к задней стене
-        const spawnPos = new Vector3(garageX, 2.0, garageZ);
+        // Танк спавнится в центре гаража, близко к земле
+        const spawnPos = new Vector3(garageX, 1.2, garageZ);
         this.garagePositions.push(spawnPos);
         
         // Сохраняем область гаража (с запасом чтобы ничего не спавнилось внутри)
