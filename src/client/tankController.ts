@@ -132,8 +132,14 @@ export class TankController {
     private _tmpVector5 = new Vector3(); // For torque scaling to avoid mutations
     private _tmpVector6 = new Vector3(); // For hoverForceVec (to avoid corrupting up)
     private _tmpVector7 = new Vector3(); // For correctiveTorque (to avoid corrupting forward)
+    private _tmpVector8 = new Vector3(); // For obstacle raycast
+    
     private _resetTimer: number = 0; // Таймер для автоматического сброса при опрокидывания
     private _logFrameCounter = 0; // Счетчик кадров для логирования
+    
+    // Obstacle climbing cache
+    private _obstacleRaycastCache: { hasObstacle: boolean, obstacleHeight: number, frame: number } | null = null;
+    private readonly OBSTACLE_RAYCAST_CACHE_FRAMES = 3; // Кэшируем на 3 кадра
     private _enableDetailedLogging = false; // Детальное логирование отключено по умолчанию для производительности
     private _tick = 0;
     
@@ -2289,6 +2295,85 @@ export class TankController {
                 
                 if (shouldLog) {
                     console.log(`  [MOVEMENT] TargetSpeed: ${targetSpeed.toFixed(2)} | Current: ${fwdSpeed.toFixed(2)} | Diff: ${speedDiff.toFixed(2)} | Force: ${clampedAccelForce.toFixed(0)}`);
+                }
+                
+                // --- OBSTACLE CLIMBING (преодоление небольших препятствий) ---
+                if (this.smoothThrottle > 0.05) { // Только при движении вперед
+                    const chassisHeight = this.chassisType.height;
+                    const currentFrame = this._logFrameCounter;
+                    
+                    // Проверяем препятствие с кэшированием
+                    let obstacleData = this._obstacleRaycastCache;
+                    if (!obstacleData || (currentFrame - obstacleData.frame) >= this.OBSTACLE_RAYCAST_CACHE_FRAMES) {
+                        // Raycast вперед на небольшое расстояние
+                        const rayStart = pos.clone();
+                        rayStart.y += 0.5; // Немного выше земли
+                        const rayDir = forward.clone();
+                        const rayLength = 3.0; // Проверяем на 3 метра вперед
+                        const ray = new Ray(rayStart, rayDir, rayLength);
+                        
+                        const pick = this.scene.pickWithRay(ray, (mesh) => {
+                            if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+                            const meta = mesh.metadata;
+                            // Игнорируем снаряды, припасы, сам танк
+                            if (meta && (meta.type === "bullet" || meta.type === "consumable" || meta.type === "playerTank")) return false;
+                            if (mesh.name.includes("billboard") || mesh.name.includes("hp")) return false;
+                            // Игнорируем сам танк и его части
+                            if (mesh === this.chassis || mesh === this.turret || mesh === this.barrel) return false;
+                            if (mesh.parent === this.chassis || mesh.parent === this.turret) return false;
+                            return true;
+                        });
+                        
+                        if (pick && pick.hit && pick.pickedPoint) {
+                            // Вычисляем высоту препятствия относительно позиции танка
+                            const obstacleHeight = pick.pickedPoint.y - pos.y;
+                            obstacleData = {
+                                hasObstacle: true,
+                                obstacleHeight: obstacleHeight,
+                                frame: currentFrame
+                            };
+                        } else {
+                            obstacleData = {
+                                hasObstacle: false,
+                                obstacleHeight: 0,
+                                frame: currentFrame
+                            };
+                        }
+                        this._obstacleRaycastCache = obstacleData;
+                    }
+                    
+                    // Если есть препятствие и оно не выше корпуса, помогаем преодолеть
+                    if (obstacleData.hasObstacle && obstacleData.obstacleHeight > 0.1 && obstacleData.obstacleHeight < chassisHeight * 0.8) {
+                        // Вычисляем силу для подъема (пропорционально высоте препятствия)
+                        const climbForce = obstacleData.obstacleHeight * this.mass * 200; // Усилие для подъема
+                        const maxClimbForce = this.mass * 1500; // Максимальное усилие
+                        const clampedClimbForce = Math.min(climbForce, maxClimbForce);
+                        
+                        // Применяем силу вверх
+                        if (body && isFinite(clampedClimbForce)) {
+                            Vector3.Up().scaleToRef(clampedClimbForce, this._tmpVector8);
+                            try {
+                                body.applyForce(this._tmpVector8, pos);
+                            } catch (e) {
+                                // Игнорируем ошибки
+                            }
+                        }
+                        
+                        // Усиливаем движение вперед для преодоления
+                        const extraForwardForce = clampedAccelForce * 0.5; // +50% силы вперед
+                        if (body && isFinite(extraForwardForce)) {
+                            forward.scaleToRef(extraForwardForce, this._tmpVector8);
+                            try {
+                                body.applyForce(this._tmpVector8, pos);
+                            } catch (e) {
+                                // Игнорируем ошибки
+                            }
+                        }
+                        
+                        if (shouldLog) {
+                            console.log(`  [OBSTACLE] Height: ${obstacleData.obstacleHeight.toFixed(2)} | ClimbForce: ${clampedClimbForce.toFixed(0)}`);
+                        }
+                    }
                 }
             }
 

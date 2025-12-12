@@ -491,6 +491,12 @@ export class Game {
                 return;
             }
             
+            // Открыть/закрыть панель миссий клавишей N
+            if (e.code === "KeyN" && this.gameStarted && this.hud) {
+                e.preventDefault();
+                this.hud.toggleMissionPanel?.();
+            }
+            
             // Открыть/закрыть карту клавишей M
             if (e.code === "KeyM" && this.gameStarted && this.hud) {
                 e.preventDefault();
@@ -2909,6 +2915,10 @@ export class Game {
                     if (this.hud) {
                         this.hud.showNotification?.(`Точка захвачена!`, "success");
                     }
+                    // Play capture sound
+                    if (this.soundManager) {
+                        this.soundManager.playReloadComplete?.(); // Success sound
+                    }
                     // Achievement tracking
                     if (this.achievementsSystem) {
                         this.achievementsSystem.updateProgress("poi_first_capture", 1);
@@ -2925,12 +2935,21 @@ export class Game {
                     if (this.missionSystem) {
                         this.missionSystem.updateProgress("capture", 1);
                     }
+                } else if (newOwner === "enemy") {
+                    // Enemy captured - warning sound
+                    if (this.soundManager) {
+                        this.soundManager.playHit?.("critical", poi.worldPosition);
+                    }
                 }
             },
             onContestStart: (poi) => {
                 console.log(`[POI] ${poi.type} contested!`);
                 if (this.hud) {
-                    this.hud.showNotification?.(`Контест!`, "warning");
+                    this.hud.showNotification?.(`⚔️ Контест!`, "warning");
+                }
+                // Warning sound for contest
+                if (this.soundManager) {
+                    this.soundManager.playHit?.("armor", poi.worldPosition);
                 }
             },
             onAmmoPickup: (poi, amount, special) => {
@@ -2984,6 +3003,10 @@ export class Game {
                 if (this.achievementsSystem) {
                     this.achievementsSystem.updateProgress("explosives_expert", 1);
                 }
+                // Play explosion sound
+                if (this.soundManager) {
+                    this.soundManager.playExplosion?.(position, 2.0); // Large explosion
+                }
                 // Наносим урон танкам в радиусе
                 if (this.tank && this.tank.chassis) {
                     const dist = Vector3.Distance(this.tank.chassis.absolutePosition, position);
@@ -3024,6 +3047,11 @@ export class Game {
                 // Notification
                 if (this.hud && detectedPositions.length > 0) {
                     this.hud.showNotification?.(`📡 Обнаружено врагов: ${detectedPositions.length}`, "info");
+                }
+                // Play radar ping sound (subtle beep)
+                if (this.soundManager && detectedPositions.length > 0) {
+                    // Use a subtle hit sound for radar ping
+                    this.soundManager.playHit?.("normal", poi.worldPosition);
                 }
             },
             onBonusXP: (amount) => {
@@ -3201,6 +3229,23 @@ export class Game {
             // Update tracer count
             if (this.tank) {
                 this.hud.updateTracerCount?.(this.tank.getTracerCount(), this.tank.getMaxTracerCount());
+            }
+            
+            // Update missions panel (every 60 frames ~1 second)
+            if (this._updateTick % 60 === 0 && this.missionSystem) {
+                const activeMissions = this.missionSystem.getActiveMissions();
+                const missionData = activeMissions.map(m => ({
+                    id: m.mission.id,
+                    name: this.missionSystem!.getName(m.mission),
+                    description: this.missionSystem!.getDescription(m.mission),
+                    icon: m.mission.icon,
+                    current: m.progress.current,
+                    requirement: m.mission.requirement,
+                    completed: m.progress.completed,
+                    claimed: m.progress.claimed,
+                    type: m.mission.type
+                }));
+                this.hud.updateMissions?.(missionData);
             }
             
             // Update survival achievements and missions

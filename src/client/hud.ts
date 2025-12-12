@@ -116,6 +116,11 @@ export class HUD {
     private notifications: Array<{ text: string, type: string, element: Rectangle }> = [];
     private notificationContainer: Rectangle | null = null;
     
+    // Mission panel
+    private missionPanel: Rectangle | null = null;
+    private missionItems: Map<string, Rectangle> = new Map();
+    private missionPanelVisible = false;
+    
     // Message
     private messageText!: TextBlock;
     private messageTimeout: any = null;
@@ -263,6 +268,7 @@ export class HUD {
         this.createPOICaptureBar();    // Прогресс-бар захвата POI
         this.createNotificationArea(); // Область уведомлений
         this.createPOI3DMarkersContainer(); // 3D маркеры POI
+        this.createMissionPanel();     // Панель миссий
         this.createTutorial();         // Система туториала
         this.createTracerCounter();    // Счётчик трассеров
         
@@ -5340,5 +5346,137 @@ export class HUD {
             case "radarStation": return "📡";
             default: return "●";
         }
+    }
+    
+    // === MISSION PANEL ===
+    
+    private createMissionPanel(): void {
+        // Mission panel (top right, below compass)
+        this.missionPanel = new Rectangle("missionPanel");
+        this.missionPanel.width = "250px";
+        this.missionPanel.height = "200px";
+        this.missionPanel.cornerRadius = 5;
+        this.missionPanel.thickness = 2;
+        this.missionPanel.color = "#666";
+        this.missionPanel.background = "rgba(0, 0, 0, 0.7)";
+        this.missionPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.missionPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.missionPanel.right = "10px";
+        this.missionPanel.top = "100px";
+        this.missionPanel.isVisible = false;
+        this.guiTexture.addControl(this.missionPanel);
+        
+        // Title
+        const title = new TextBlock("missionTitle");
+        title.text = "📋 МИССИИ";
+        title.color = "#fff";
+        title.fontSize = "12px";
+        title.fontFamily = "monospace";
+        title.top = "5px";
+        title.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.missionPanel.addControl(title);
+    }
+    
+    toggleMissionPanel(): void {
+        if (this.missionPanel) {
+            this.missionPanelVisible = !this.missionPanelVisible;
+            this.missionPanel.isVisible = this.missionPanelVisible;
+        }
+    }
+    
+    updateMissions(missions: Array<{
+        id: string,
+        name: string,
+        description: string,
+        icon: string,
+        current: number,
+        requirement: number,
+        completed: boolean,
+        claimed: boolean,
+        type: string
+    }>): void {
+        if (!this.missionPanel) return;
+        
+        // Clear existing mission items
+        for (const item of this.missionItems.values()) {
+            item.dispose();
+        }
+        this.missionItems.clear();
+        
+        // Show only first 3 missions
+        const visibleMissions = missions.slice(0, 3);
+        
+        visibleMissions.forEach((mission, index) => {
+            const item = new Rectangle(`mission_${mission.id}`);
+            item.width = "230px";
+            item.height = "45px";
+            item.cornerRadius = 3;
+            item.thickness = 1;
+            item.color = mission.completed ? "#0f0" : "#666";
+            item.background = mission.completed ? "rgba(0, 50, 0, 0.5)" : "rgba(20, 20, 20, 0.5)";
+            item.top = `${30 + index * 50}px`;
+            item.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            this.missionPanel!.addControl(item);
+            this.missionItems.set(mission.id, item);
+            
+            // Icon and name
+            const iconText = new TextBlock(`missionIcon_${mission.id}`);
+            iconText.text = mission.icon;
+            iconText.fontSize = "14px";
+            iconText.color = "#fff";
+            iconText.left = "5px";
+            iconText.top = "5px";
+            item.addControl(iconText);
+            
+            const nameText = new TextBlock(`missionName_${mission.id}`);
+            nameText.text = mission.name;
+            nameText.fontSize = "10px";
+            nameText.fontFamily = "monospace";
+            nameText.color = "#fff";
+            nameText.left = "25px";
+            nameText.top = "3px";
+            nameText.textWrapping = true;
+            nameText.width = "180px";
+            item.addControl(nameText);
+            
+            // Progress
+            const progress = Math.min(100, (mission.current / mission.requirement) * 100);
+            const progressText = new TextBlock(`missionProgress_${mission.id}`);
+            progressText.text = `${Math.floor(mission.current)}/${mission.requirement}`;
+            progressText.fontSize = "9px";
+            progressText.fontFamily = "monospace";
+            progressText.color = mission.completed ? "#0f0" : "#aaa";
+            progressText.left = "25px";
+            progressText.top = "18px";
+            item.addControl(progressText);
+            
+            // Progress bar
+            const progressBar = new Rectangle(`missionBar_${mission.id}`);
+            progressBar.width = "200px";
+            progressBar.height = "4px";
+            progressBar.cornerRadius = 2;
+            progressBar.background = "#333";
+            progressBar.left = "25px";
+            progressBar.top = "30px";
+            item.addControl(progressBar);
+            
+            const progressFill = new Rectangle(`missionFill_${mission.id}`);
+            progressFill.width = `${progress}%`;
+            progressFill.height = "100%";
+            progressFill.background = mission.completed ? "#0f0" : "#0af";
+            progressFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            progressBar.addControl(progressFill);
+            
+            // Completed checkmark
+            if (mission.completed) {
+                const checkmark = new TextBlock(`missionCheck_${mission.id}`);
+                checkmark.text = "✓";
+                checkmark.fontSize = "16px";
+                checkmark.color = "#0f0";
+                checkmark.left = "210px";
+                checkmark.top = "10px";
+                item.addControl(checkmark);
+            }
+        });
     }
 }
