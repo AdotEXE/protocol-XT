@@ -169,15 +169,22 @@ export class Garage {
         this._scene = scene;
         this.currencyManager = currencyManager;
         
-        this.guiTexture = AdvancedDynamicTexture.CreateFullscreenUI("GarageUI", true, scene);
-        this.guiTexture.isForeground = true;
-        
-        if (this.guiTexture.layer) {
-            this.guiTexture.layer.layerMask = 0xFFFFFFFF;
-        }
+        // GUI texture will be set from Game class using setGuiTexture
+        // Create a temporary one that will be replaced
+        this.guiTexture = AdvancedDynamicTexture.CreateFullscreenUI("GarageUI_temp", true, scene);
         
         this.loadProgress();
-        console.log("[Garage] Initialized with new grid-based UI");
+        console.log("[Garage] Initialized, waiting for GUI texture from HUD");
+    }
+    
+    // Set external GUI texture (from HUD)
+    setGuiTexture(texture: AdvancedDynamicTexture): void {
+        // Dispose old temp texture if it exists and is different
+        if (this.guiTexture && this.guiTexture !== texture) {
+            // Don't dispose as it might cause issues, just stop using it
+        }
+        this.guiTexture = texture;
+        console.log("[Garage] Using shared GUI texture from HUD");
     }
     
     // ============ EXTERNAL SETTERS ============
@@ -245,19 +252,13 @@ export class Garage {
         this.currentChassisId = localStorage.getItem("selectedChassis") || "medium";
         this.currentCannonId = localStorage.getItem("selectedCannon") || "standard";
         
-        // Ensure GUI texture is ready
-        this.guiTexture.isForeground = true;
-        if (this.guiTexture.rootContainer) {
-            this.guiTexture.rootContainer.isVisible = true;
-            this.guiTexture.rootContainer.alpha = 1.0;
-        }
-        
         this.createUI();
         
         // Ensure container is visible
         if (this.garageContainer) {
             this.garageContainer.isVisible = true;
             this.garageContainer.alpha = 1.0;
+            console.log("[Garage] Container added, visible:", this.garageContainer.isVisible);
         }
         
         this.setupKeyboardNavigation();
@@ -267,6 +268,19 @@ export class Garage {
         }, 500);
         
         if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
+        
+        // Debug: Log container state
+        if (this.garageContainer) {
+            console.log("[Garage] Container state:", {
+                isVisible: this.garageContainer.isVisible,
+                alpha: this.garageContainer.alpha,
+                width: this.garageContainer.width,
+                height: this.garageContainer.height,
+                zIndex: this.garageContainer.zIndex,
+                childrenCount: this.garageContainer.children?.length || 0,
+                parent: this.garageContainer.parent?.name || "none"
+            });
+        }
         console.log("[Garage] Opened successfully, container:", !!this.garageContainer);
     }
     
@@ -315,6 +329,8 @@ export class Garage {
     
     // ============ UI CREATION ============
     private createUI(): void {
+        console.log("[Garage] Creating UI on shared HUD texture...");
+        
         // Main container - fixed size that works well
         this.garageContainer = new Rectangle("garageMain");
         this.garageContainer.width = "1100px";
@@ -327,7 +343,11 @@ export class Garage {
         this.garageContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.garageContainer.zIndex = 1000;
         this.garageContainer.isPointerBlocker = true;
+        this.garageContainer.isVisible = true;
+        this.garageContainer.alpha = 1;
         this.guiTexture.addControl(this.garageContainer);
+        
+        console.log("[Garage] Main container created, adding to GUI texture");
         
         // Create layout sections
         this.createHeader();

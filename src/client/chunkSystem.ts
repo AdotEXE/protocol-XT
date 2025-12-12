@@ -4612,6 +4612,11 @@ export class ChunkSystem {
         return this.poiSystem?.getAllPOIs() || [];
     }
     
+    // Get POI system for direct access
+    public getPOISystem(): POISystem | null {
+        return this.poiSystem;
+    }
+    
     // Генерация припасов на карте
     private generateConsumables(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
         // Генерируем 1-3 припаса на чанк

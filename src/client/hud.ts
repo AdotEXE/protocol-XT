@@ -78,6 +78,21 @@ export class HUD {
     private lastScanTime = 0;
     private scannedEnemies: Map<string, { marker: Rectangle, fadeTime: number }> = new Map();
     
+    // Fuel indicator
+    private fuelBar: Rectangle | null = null;
+    private fuelFill: Rectangle | null = null;
+    private fuelText: TextBlock | null = null;
+    
+    // POI indicators
+    private poiMarkers: Map<string, Rectangle> = new Map();
+    private poiCaptureProgress: Rectangle | null = null;
+    private poiCaptureProgressFill: Rectangle | null = null;
+    private poiCaptureText: TextBlock | null = null;
+    
+    // Notifications queue
+    private notifications: Array<{ text: string, type: string, element: Rectangle }> = [];
+    private notificationContainer: Rectangle | null = null;
+    
     // Message
     private messageText!: TextBlock;
     private messageTimeout: any = null;
@@ -211,6 +226,9 @@ export class HUD {
         this.createComboIndicator();   // Индикатор комбо
         this.createDeathScreen();      // Экран результатов смерти
         this.createDirectionalDamageIndicators(); // Индикаторы направления урона
+        this.createFuelIndicator();    // Индикатор топлива
+        this.createPOICaptureBar();    // Прогресс-бар захвата POI
+        this.createNotificationArea(); // Область уведомлений
         
         // Убеждаемся, что прицел скрыт по умолчанию
         this.setAimMode(false);
@@ -250,6 +268,11 @@ export class HUD {
         } else {
             console.warn("[HUD] Cannot subscribe to experience changes - playerProgression or onExperienceChanged is null");
         }
+    }
+    
+    // Get GUI texture for external use (like Garage)
+    getGuiTexture(): AdvancedDynamicTexture {
+        return this.guiTexture;
     }
     
     // Создать индикатор защиты от урона
@@ -4497,6 +4520,213 @@ export class HUD {
             } else if (comboCount >= 5) {
                 this.comboIndicator.outlineWidth = 2;
             }
+        }
+    }
+    
+    // === FUEL INDICATOR ===
+    
+    private createFuelIndicator(): void {
+        // Fuel bar container (below health bar)
+        this.fuelBar = new Rectangle("fuelBar");
+        this.fuelBar.width = "120px";
+        this.fuelBar.height = "8px";
+        this.fuelBar.cornerRadius = 2;
+        this.fuelBar.color = "#444";
+        this.fuelBar.thickness = 1;
+        this.fuelBar.background = "#222";
+        this.fuelBar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.fuelBar.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.fuelBar.left = "10px";
+        this.fuelBar.top = "65px";
+        this.guiTexture.addControl(this.fuelBar);
+        
+        // Fuel fill
+        this.fuelFill = new Rectangle("fuelFill");
+        this.fuelFill.width = "100%";
+        this.fuelFill.height = "100%";
+        this.fuelFill.background = "#f90";
+        this.fuelFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.fuelBar.addControl(this.fuelFill);
+        
+        // Fuel text
+        this.fuelText = new TextBlock("fuelText");
+        this.fuelText.text = "⛽ 100%";
+        this.fuelText.color = "#f90";
+        this.fuelText.fontSize = "10px";
+        this.fuelText.fontFamily = "monospace";
+        this.fuelText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.fuelText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.fuelText.left = "135px";
+        this.fuelText.top = "63px";
+        this.guiTexture.addControl(this.fuelText);
+    }
+    
+    updateFuel(current: number, max: number): void {
+        if (!this.fuelFill || !this.fuelText) return;
+        
+        const percent = Math.max(0, Math.min(100, (current / max) * 100));
+        this.fuelFill.width = `${percent}%`;
+        this.fuelText.text = `⛽ ${Math.round(percent)}%`;
+        
+        // Color based on fuel level
+        if (percent > 50) {
+            this.fuelFill.background = "#f90";
+            this.fuelText.color = "#f90";
+        } else if (percent > 20) {
+            this.fuelFill.background = "#fa0";
+            this.fuelText.color = "#fa0";
+        } else {
+            this.fuelFill.background = "#f30";
+            this.fuelText.color = "#f30";
+        }
+    }
+    
+    // === POI CAPTURE BAR ===
+    
+    private createPOICaptureBar(): void {
+        // Capture progress bar (center top, below compass)
+        this.poiCaptureProgress = new Rectangle("poiCaptureBar");
+        this.poiCaptureProgress.width = "200px";
+        this.poiCaptureProgress.height = "12px";
+        this.poiCaptureProgress.cornerRadius = 3;
+        this.poiCaptureProgress.color = "#666";
+        this.poiCaptureProgress.thickness = 2;
+        this.poiCaptureProgress.background = "#222";
+        this.poiCaptureProgress.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.poiCaptureProgress.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.poiCaptureProgress.top = "80px";
+        this.poiCaptureProgress.isVisible = false;
+        this.guiTexture.addControl(this.poiCaptureProgress);
+        
+        // Capture fill
+        this.poiCaptureProgressFill = new Rectangle("poiCaptureFill");
+        this.poiCaptureProgressFill.width = "0%";
+        this.poiCaptureProgressFill.height = "100%";
+        this.poiCaptureProgressFill.background = "#0f0";
+        this.poiCaptureProgressFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.poiCaptureProgress.addControl(this.poiCaptureProgressFill);
+        
+        // Capture text
+        this.poiCaptureText = new TextBlock("poiCaptureText");
+        this.poiCaptureText.text = "ЗАХВАТ";
+        this.poiCaptureText.color = "#fff";
+        this.poiCaptureText.fontSize = "10px";
+        this.poiCaptureText.fontFamily = "monospace";
+        this.poiCaptureText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.poiCaptureText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.poiCaptureText.top = "95px";
+        this.poiCaptureText.isVisible = false;
+        this.guiTexture.addControl(this.poiCaptureText);
+    }
+    
+    showPOICaptureProgress(poiType: string, progress: number, contested: boolean): void {
+        if (!this.poiCaptureProgress || !this.poiCaptureProgressFill || !this.poiCaptureText) return;
+        
+        this.poiCaptureProgress.isVisible = true;
+        this.poiCaptureText.isVisible = true;
+        
+        this.poiCaptureProgressFill.width = `${Math.min(100, progress)}%`;
+        
+        // Text based on POI type
+        let typeName = "ТОЧКА";
+        switch (poiType) {
+            case "capturePoint": typeName = "ТОЧКА"; break;
+            case "ammoDepot": typeName = "СКЛАД"; break;
+            case "repairStation": typeName = "РЕМОНТ"; break;
+            case "fuelDepot": typeName = "ТОПЛИВО"; break;
+            case "radarStation": typeName = "РАДАР"; break;
+        }
+        
+        if (contested) {
+            this.poiCaptureText.text = `⚔️ КОНТЕСТ`;
+            this.poiCaptureProgressFill.background = "#fa0";
+            this.poiCaptureProgress.color = "#fa0";
+        } else {
+            this.poiCaptureText.text = `${typeName} - ${Math.round(progress)}%`;
+            this.poiCaptureProgressFill.background = "#0f0";
+            this.poiCaptureProgress.color = "#0f0";
+        }
+    }
+    
+    hidePOICaptureProgress(): void {
+        if (this.poiCaptureProgress) this.poiCaptureProgress.isVisible = false;
+        if (this.poiCaptureText) this.poiCaptureText.isVisible = false;
+    }
+    
+    // === NOTIFICATIONS ===
+    
+    private createNotificationArea(): void {
+        this.notificationContainer = new Rectangle("notificationArea");
+        this.notificationContainer.width = "300px";
+        this.notificationContainer.height = "150px";
+        this.notificationContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.notificationContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.notificationContainer.top = "120px";
+        this.notificationContainer.thickness = 0;
+        this.notificationContainer.isPointerBlocker = false;
+        this.guiTexture.addControl(this.notificationContainer);
+    }
+    
+    showNotification(text: string, type: "success" | "warning" | "error" | "info" = "info"): void {
+        if (!this.notificationContainer) return;
+        
+        const notification = new Rectangle("notification_" + Date.now());
+        notification.width = "280px";
+        notification.height = "30px";
+        notification.cornerRadius = 5;
+        notification.thickness = 2;
+        notification.paddingTop = "5px";
+        
+        // Color based on type
+        switch (type) {
+            case "success":
+                notification.background = "rgba(0, 80, 0, 0.9)";
+                notification.color = "#0f0";
+                break;
+            case "warning":
+                notification.background = "rgba(80, 60, 0, 0.9)";
+                notification.color = "#fa0";
+                break;
+            case "error":
+                notification.background = "rgba(80, 0, 0, 0.9)";
+                notification.color = "#f00";
+                break;
+            default:
+                notification.background = "rgba(0, 40, 80, 0.9)";
+                notification.color = "#0af";
+        }
+        
+        const textBlock = new TextBlock();
+        textBlock.text = text;
+        textBlock.color = "#fff";
+        textBlock.fontSize = "12px";
+        textBlock.fontFamily = "monospace";
+        notification.addControl(textBlock);
+        
+        // Position
+        const index = this.notifications.length;
+        notification.top = `${index * 35}px`;
+        notification.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        
+        this.notificationContainer.addControl(notification);
+        this.notifications.push({ text, type, element: notification });
+        
+        // Fade out and remove after 3 seconds
+        setTimeout(() => {
+            this.removeNotification(notification);
+        }, 3000);
+    }
+    
+    private removeNotification(notification: Rectangle): void {
+        const index = this.notifications.findIndex(n => n.element === notification);
+        if (index !== -1) {
+            this.notifications.splice(index, 1);
+            notification.dispose();
+            
+            // Reposition remaining notifications
+            this.notifications.forEach((n, i) => {
+                n.element.top = `${i * 35}px`;
+            });
         }
     }
 }

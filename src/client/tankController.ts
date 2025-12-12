@@ -107,6 +107,12 @@ export class TankController {
     currentHealth = 100;
     isAlive = true;
     
+    // Fuel System
+    maxFuel = 500; // Литров
+    currentFuel = 500;
+    fuelConsumptionRate = 0.5; // Литров в секунду при движении
+    isFuelEmpty = false;
+    
     // Shooting (будет переопределено типом пушки)
     damage = 25; // Базовый урон
 
@@ -521,6 +527,31 @@ export class TankController {
         }
     }
     
+    // Топливная система
+    addFuel(amount: number): void {
+        this.currentFuel = Math.min(this.maxFuel, this.currentFuel + amount);
+        this.isFuelEmpty = this.currentFuel <= 0;
+    }
+    
+    consumeFuel(deltaTime: number): void {
+        if (this.isFuelEmpty) return;
+        
+        // Потребляем топливо только при движении
+        const isMoving = Math.abs(this.smoothThrottle) > 0.1 || Math.abs(this.smoothSteer) > 0.1;
+        if (isMoving) {
+            this.currentFuel -= this.fuelConsumptionRate * deltaTime;
+            if (this.currentFuel <= 0) {
+                this.currentFuel = 0;
+                this.isFuelEmpty = true;
+                console.log("[TANK] Out of fuel!");
+            }
+        }
+    }
+    
+    getFuelPercent(): number {
+        return this.currentFuel / this.maxFuel;
+    }
+    
     // Активировать защиту от урона
     private activateInvulnerability(): void {
         this.isInvulnerable = true;
@@ -779,6 +810,8 @@ export class TankController {
         
         // ВОССТАНАВЛИВАЕМ здоровье и состояние
         this.currentHealth = this.maxHealth;
+        this.currentFuel = this.maxFuel;
+        this.isFuelEmpty = false;
         this.isAlive = true;
         this.isReloading = false;
         this.lastShotTime = 0;
@@ -1952,6 +1985,24 @@ export class TankController {
             }
 
             // --- 3. MOVEMENT (Forward/Backward acceleration) ---
+            // Проверяем топливо - если пусто, танк не едет
+            if (this.isFuelEmpty) {
+                this.smoothThrottle = 0;
+                this.smoothSteer = 0;
+            } else {
+                // Потребляем топливо при движении
+                const isMoving = Math.abs(this.throttleTarget) > 0.1 || Math.abs(this.steerTarget) > 0.1;
+                if (isMoving) {
+                    const deltaTime = 1 / 60; // Приблизительно 60 FPS
+                    this.currentFuel -= this.fuelConsumptionRate * deltaTime;
+                    if (this.currentFuel <= 0) {
+                        this.currentFuel = 0;
+                        this.isFuelEmpty = true;
+                        console.log("[TANK] Out of fuel!");
+                    }
+                }
+            }
+            
             // Плавная интерполяция throttle (увеличена плавность)
             this.smoothThrottle += (this.throttleTarget - this.smoothThrottle) * 0.12;
             this.smoothSteer += (this.steerTarget - this.smoothSteer) * 0.18;

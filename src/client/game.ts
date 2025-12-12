@@ -197,6 +197,19 @@ export class Game {
                     });
                     this.enemyTanks = [];
                     
+                    // Очищаем старые турели
+                    if (this.enemyManager?.turrets) {
+                        this.enemyManager.turrets.forEach(turret => {
+                            if (turret.base && !turret.base.isDisposed()) turret.base.dispose();
+                            if (turret.head && !turret.head.isDisposed()) turret.head.dispose();
+                            if (turret.barrel && !turret.barrel.isDisposed()) turret.barrel.dispose();
+                        });
+                        this.enemyManager.turrets = [];
+                    }
+                    
+                    // ВАЖНО: Dispose старой карты перед созданием новой!
+                    this.chunkSystem.dispose();
+                    
                     // Пересоздаем ChunkSystem с новым типом карты
                     const menuSettings = this.mainMenu?.getSettings();
                     let newWorldSeed = menuSettings?.worldSeed || 12345;
@@ -220,6 +233,12 @@ export class Game {
                     // Обновляем чанки
                     const initialPos = new Vector3(0, 2, 0);
                     this.chunkSystem.update(initialPos);
+                    
+                    // Восстанавливаем здоровье танка при смене карты
+                    if (this.tank) {
+                        this.tank.respawn();
+                        console.log("[Game] Player tank reset for new map");
+                    }
                     
                     // Ждём генерации гаражей и спавним игрока
                     this.waitForGaragesAndSpawn();
@@ -1224,6 +1243,10 @@ export class Game {
             
             // Create Garage System
             this.garage = new Garage(this.scene, this.currencyManager);
+            // Share HUD's GUI texture with Garage for proper layering
+            if (this.hud) {
+                this.garage.setGuiTexture(this.hud.getGuiTexture());
+            }
             if (this.chatSystem) {
                 this.garage.setChatSystem(this.chatSystem);
             }
@@ -1332,6 +1355,10 @@ export class Game {
                 mapType: this.currentMapType
             });
             logger.log(`Chunk system created with ${this.chunkSystem.garagePositions.length} garages`);
+            
+            // Настраиваем callbacks для POI системы
+            this.setupPOICallbacks();
+            
             this.updateLoadingProgress(85, "Размещение объектов...");
             
             // КРИТИЧЕСКИ ВАЖНО: Запускаем генерацию чанков сразу, чтобы гаражи начали генерироваться
@@ -2722,6 +2749,118 @@ export class Game {
         }
     }
     
+    // Настройка callbacks для POI системы
+    setupPOICallbacks(): void {
+        const poiSystem = this.chunkSystem?.getPOISystem?.();
+        if (!poiSystem) return;
+        
+        poiSystem.setCallbacks({
+            onCapture: (poi, newOwner) => {
+                console.log(`[POI] ${poi.type} captured by ${newOwner}`);
+                if (newOwner === "player" && this.hud) {
+                    this.hud.showNotification?.(`Точка захвачена!`, "success");
+                }
+            },
+            onContestStart: (poi) => {
+                console.log(`[POI] ${poi.type} contested!`);
+                if (this.hud) {
+                    this.hud.showNotification?.(`Контест!`, "warning");
+                }
+            },
+            onAmmoPickup: (poi, amount, special) => {
+                if (this.tank && amount > 0) {
+                    this.tank.addAmmo?.(Math.floor(amount));
+                    if (special) {
+                        console.log(`[POI] Special ammo pickup!`);
+                    }
+                }
+            },
+            onRepair: (poi, amount) => {
+                if (this.tank && this.tank.currentHP < this.tank.maxHP) {
+                    const healAmount = (amount / 100) * this.tank.maxHP;
+                    this.tank.currentHP = Math.min(this.tank.maxHP, this.tank.currentHP + healAmount);
+                    if (this.hud) {
+                        this.hud.updateHealth(this.tank.currentHP, this.tank.maxHP);
+                    }
+                }
+            },
+            onFuelRefill: (poi, amount) => {
+                if (this.tank) {
+                    this.tank.addFuel?.(amount);
+                    if (this.hud) {
+                        this.hud.updateFuel?.(this.tank.currentFuel, this.tank.maxFuel);
+                    }
+                }
+            },
+            onExplosion: (poi, position, radius, damage) => {
+                console.log(`[POI] Explosion at ${position}, radius ${radius}, damage ${damage}`);
+                // Наносим урон танкам в радиусе
+                if (this.tank && this.tank.chassis) {
+                    const dist = Vector3.Distance(this.tank.chassis.absolutePosition, position);
+                    if (dist < radius) {
+                        const dmgFactor = 1 - (dist / radius);
+                        const actualDamage = damage * dmgFactor;
+                        this.tank.takeDamage(actualDamage);
+                    }
+                }
+                // Урон ботам
+                if (this.enemyTanks) {
+                    for (const enemy of this.enemyTanks) {
+                        if (enemy && enemy.isAlive && enemy.chassis) {
+                            const dist = Vector3.Distance(enemy.chassis.absolutePosition, position);
+                            if (dist < radius) {
+                                const dmgFactor = 1 - (dist / radius);
+                                const actualDamage = damage * dmgFactor;
+                                enemy.takeDamage(actualDamage);
+                            }
+                        }
+                    }
+                }
+                // Визуальный эффект
+                if (this.effectsManager) {
+                    this.effectsManager.createExplosion?.(position);
+                }
+            },
+            onRadarPing: (poi, detectedPositions) => {
+                console.log(`[POI] Radar ping: ${detectedPositions.length} enemies detected`);
+                // Можно показать на миникарте
+            },
+            onBonusXP: (amount) => {
+                if (this.experienceSystem) {
+                    this.experienceSystem.addExperience(amount);
+                }
+            },
+            onBonusCredits: (amount) => {
+                if (this.currencyManager) {
+                    this.currencyManager.addCredits(amount);
+                }
+            }
+        });
+    }
+    
+    // Обновление системы POI
+    updatePOISystem(deltaTime: number): void {
+        if (!this.chunkSystem || !this.tank || !this.tank.chassis) return;
+        
+        const poiSystem = this.chunkSystem.getPOISystem?.();
+        if (!poiSystem) return;
+        
+        const playerPos = this.tank.chassis.absolutePosition;
+        
+        // Собираем позиции всех врагов
+        const enemyPositions: Vector3[] = [];
+        if (this.enemyTanks) {
+            for (const enemy of this.enemyTanks) {
+                if (enemy && enemy.isAlive && enemy.chassis) {
+                    enemyPositions.push(enemy.chassis.absolutePosition);
+                }
+            }
+        }
+        
+        // Обновляем POI систему
+        poiSystem.update(playerPos, enemyPositions, deltaTime);
+    }
+    
     update() {
         if (!this.scene || !this.engine) return;
         
@@ -2738,6 +2877,11 @@ export class Game {
         // HUD анимации (каждые 2 кадра для оптимизации)
         if (this._updateTick % 2 === 0 && this.hud) {
             this.hud.updateAnimations(deltaTime);
+            
+            // Update fuel indicator
+            if (this.tank) {
+                this.hud.updateFuel?.(this.tank.currentFuel, this.tank.maxFuel);
+            }
         }
         
         // Chat system анимации (каждые 4 кадра для оптимизации)
@@ -2970,6 +3114,11 @@ export class Game {
             this.updateGarageDoors();
             this.updateGarageWallsTransparency();
             this.updateGarageCapture(deltaTime);
+        }
+        
+        // 7.6. POI System - обновление точек интереса
+        if (this._updateTick % 2 === 0) { // Каждые 2 кадра
+            this.updatePOISystem(deltaTime);
         }
         
         // 8. Enemy tanks - оптимизированное обновление с улучшенной LOD системой
