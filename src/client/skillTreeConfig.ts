@@ -147,6 +147,45 @@ const MOBILITY_BRANCH: SkillNode[] = [
         parentId: "mobility4",
         maxLevel: 5,
         effects: ["+5% максимальная скорость"]
+    },
+    {
+        id: "mobility6",
+        title: "Ускорение реакции",
+        desc: "+2% скорость ускорения за уровень.",
+        icon: "⚡",
+        row: 7,
+        col: 0,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "mobility5",
+        maxLevel: 5,
+        effects: ["+2% скорость ускорения"]
+    },
+    {
+        id: "mobility7",
+        title: "Двойной прыжок",
+        desc: "Модуль: возможность второго прыжка в воздухе.",
+        icon: "🦘",
+        row: 8,
+        col: 0,
+        type: "module",
+        moduleId: "doubleJump",
+        parentId: "mobility6",
+        maxLevel: 5,
+        effects: ["Двойной прыжок"]
+    },
+    {
+        id: "mobility8",
+        title: "Максимальная скорость",
+        desc: "+3% максимальная скорость за уровень.",
+        icon: "🏎️",
+        row: 9,
+        col: 0,
+        type: "skill",
+        skillId: "tankMastery",
+        parentId: "mobility7",
+        maxLevel: 5,
+        effects: ["+3% максимальная скорость"]
     }
 ];
 
@@ -228,6 +267,45 @@ const ULTIMATE_BRANCH: SkillNode[] = [
         parentId: "ultimate4",
         maxLevel: 5,
         effects: ["+3% общий урон"]
+    },
+    {
+        id: "ultimate6",
+        title: "Разрушительный удар",
+        desc: "+4% урон по броне за уровень.",
+        icon: "💥",
+        row: 7,
+        col: 1,
+        type: "skill",
+        skillId: "combatExpert",
+        parentId: "ultimate5",
+        maxLevel: 5,
+        effects: ["+4% урон по броне"]
+    },
+    {
+        id: "ultimate7",
+        title: "Огненный шторм",
+        desc: "Модуль: множественные выстрелы одновременно.",
+        icon: "🌪️",
+        row: 8,
+        col: 1,
+        type: "module",
+        moduleId: "firestorm",
+        parentId: "ultimate6",
+        maxLevel: 5,
+        effects: ["Множественные выстрелы"]
+    },
+    {
+        id: "ultimate8",
+        title: "Абсолютное превосходство",
+        desc: "+5% общий урон за уровень.",
+        icon: "👑",
+        row: 9,
+        col: 1,
+        type: "skill",
+        skillId: "combatExpert",
+        parentId: "ultimate7",
+        maxLevel: 5,
+        effects: ["+5% общий урон"]
     }
 ];
 
@@ -309,6 +387,45 @@ const TECH_BRANCH: SkillNode[] = [
         parentId: "tech4",
         maxLevel: 5,
         effects: ["+1.5% скорость всех систем"]
+    },
+    {
+        id: "tech6",
+        title: "Улучшенные дроны",
+        desc: "+10% эффективность дронов за уровень.",
+        icon: "🤖",
+        row: 7,
+        col: 2,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "tech5",
+        maxLevel: 5,
+        effects: ["+10% эффективность дронов"]
+    },
+    {
+        id: "tech7",
+        title: "Ракетная система",
+        desc: "Модуль: запуск управляемых ракет.",
+        icon: "🚀",
+        row: 8,
+        col: 2,
+        type: "module",
+        moduleId: "missileSystem",
+        parentId: "tech6",
+        maxLevel: 5,
+        effects: ["Управляемые ракеты"]
+    },
+    {
+        id: "tech8",
+        title: "Квантовая синхронизация",
+        desc: "+2% скорость всех систем за уровень.",
+        icon: "⚛️",
+        row: 9,
+        col: 2,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "tech7",
+        maxLevel: 5,
+        effects: ["+2% скорость всех систем"]
     }
 ];
 
@@ -390,6 +507,45 @@ const SUPPORT_BRANCH: SkillNode[] = [
         parentId: "support4",
         maxLevel: 5,
         effects: ["+2% все характеристики"]
+    },
+    {
+        id: "support6",
+        title: "Массовое исцеление",
+        desc: "Модуль: исцеляет всех союзников в радиусе.",
+        icon: "💚",
+        row: 7,
+        col: 3,
+        type: "module",
+        moduleId: "massHeal",
+        parentId: "support5",
+        maxLevel: 5,
+        effects: ["Массовое исцеление"]
+    },
+    {
+        id: "support7",
+        title: "Усиленная поддержка",
+        desc: "+2.5% все характеристики за уровень.",
+        icon: "⭐",
+        row: 8,
+        col: 3,
+        type: "skill",
+        skillId: "survivalInstinct",
+        parentId: "support6",
+        maxLevel: 5,
+        effects: ["+2.5% все характеристики"]
+    },
+    {
+        id: "support8",
+        title: "Божественная защита",
+        desc: "Модуль: временная неуязвимость для союзников.",
+        icon: "✨",
+        row: 9,
+        col: 3,
+        type: "module",
+        moduleId: "divineProtection",
+        parentId: "support7",
+        maxLevel: 5,
+        effects: ["Неуязвимость союзников"]
     }
 ];
 
@@ -471,6 +627,45 @@ const STEALTH_BRANCH: SkillNode[] = [
         parentId: "stealth4",
         maxLevel: 5,
         effects: ["+1.5с длительность стелса"]
+    },
+    {
+        id: "stealth6",
+        title: "Фантомный след",
+        desc: "Модуль: оставляет ложные следы для врагов.",
+        icon: "👻",
+        row: 7,
+        col: 4,
+        type: "module",
+        moduleId: "phantomTrail",
+        parentId: "stealth5",
+        maxLevel: 5,
+        effects: ["Ложные следы"]
+    },
+    {
+        id: "stealth7",
+        title: "Невидимое присутствие",
+        desc: "+2с длительность стелса за уровень.",
+        icon: "🌙",
+        row: 8,
+        col: 4,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "stealth6",
+        maxLevel: 5,
+        effects: ["+2с длительность стелса"]
+    },
+    {
+        id: "stealth8",
+        title: "Теневой мастер",
+        desc: "Модуль: полная невидимость даже при атаке.",
+        icon: "🌌",
+        row: 9,
+        col: 4,
+        type: "module",
+        moduleId: "shadowMaster",
+        parentId: "stealth7",
+        maxLevel: 5,
+        effects: ["Невидимость при атаке"]
     }
 ];
 
@@ -552,6 +747,45 @@ const UTILITY_BRANCH: SkillNode[] = [
         parentId: "utility4",
         maxLevel: 5,
         effects: ["+2% опыт и кредиты"]
+    },
+    {
+        id: "utility6",
+        title: "Улучшенные мины",
+        desc: "Модуль: мины наносят больше урона.",
+        icon: "💣",
+        row: 7,
+        col: 6,
+        type: "module",
+        moduleId: "enhancedMines",
+        parentId: "utility5",
+        maxLevel: 5,
+        effects: ["+урон мин"]
+    },
+    {
+        id: "utility7",
+        title: "Тактическое превосходство",
+        desc: "+2.5% опыт и кредиты за уровень.",
+        icon: "🧠",
+        row: 8,
+        col: 6,
+        type: "skill",
+        skillId: "resourcefulness",
+        parentId: "utility6",
+        maxLevel: 5,
+        effects: ["+2.5% опыт и кредиты"]
+    },
+    {
+        id: "utility8",
+        title: "Телепорт",
+        desc: "Модуль: кратковременная телепортация.",
+        icon: "🌀",
+        row: 9,
+        col: 6,
+        type: "module",
+        moduleId: "teleport",
+        parentId: "utility7",
+        maxLevel: 5,
+        effects: ["Телепортация"]
     }
 ];
 
@@ -633,6 +867,45 @@ const FIREPOWER_BRANCH: SkillNode[] = [
         parentId: "firepower4",
         maxLevel: 5,
         effects: ["+3 урон"]
+    },
+    {
+        id: "firepower6",
+        title: "Снайперская точность",
+        desc: "+5% точность за уровень.",
+        icon: "🎯",
+        row: 7,
+        col: 7,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "firepower5",
+        maxLevel: 5,
+        effects: ["+5% точность"]
+    },
+    {
+        id: "firepower7",
+        title: "Плазменный залп",
+        desc: "Модуль: залп плазменных снарядов.",
+        icon: "⚡",
+        row: 8,
+        col: 7,
+        type: "module",
+        moduleId: "plasmaBurst",
+        parentId: "firepower6",
+        maxLevel: 5,
+        effects: ["Плазменный залп"]
+    },
+    {
+        id: "firepower8",
+        title: "Абсолютное разрушение",
+        desc: "+4 урон за уровень.",
+        icon: "💀",
+        row: 9,
+        col: 7,
+        type: "skill",
+        skillId: "combatExpert",
+        parentId: "firepower7",
+        maxLevel: 5,
+        effects: ["+4 урон"]
     }
 ];
 
@@ -714,6 +987,45 @@ const DEFENSE_BRANCH: SkillNode[] = [
         parentId: "defense4",
         maxLevel: 5,
         effects: ["+3% максимальное HP"]
+    },
+    {
+        id: "defense6",
+        title: "Усиленный щит",
+        desc: "Модуль: щит поглощает больше урона.",
+        icon: "🔰",
+        row: 7,
+        col: 8,
+        type: "module",
+        moduleId: "enhancedShield",
+        parentId: "defense5",
+        maxLevel: 5,
+        effects: ["+прочность щита"]
+    },
+    {
+        id: "defense7",
+        title: "Броневая пластина",
+        desc: "+3.5% максимальное HP за уровень.",
+        icon: "🛡️",
+        row: 8,
+        col: 8,
+        type: "skill",
+        skillId: "survivalInstinct",
+        parentId: "defense6",
+        maxLevel: 5,
+        effects: ["+3.5% максимальное HP"]
+    },
+    {
+        id: "defense8",
+        title: "Абсолютная защита",
+        desc: "Модуль: временная неуязвимость.",
+        icon: "💫",
+        row: 9,
+        col: 8,
+        type: "module",
+        moduleId: "absoluteDefense",
+        parentId: "defense7",
+        maxLevel: 5,
+        effects: ["Временная неуязвимость"]
     }
 ];
 
@@ -795,6 +1107,45 @@ const SUPPLY_BRANCH: SkillNode[] = [
         parentId: "supply4",
         maxLevel: 5,
         effects: ["+3% кредиты и опыт"]
+    },
+    {
+        id: "supply6",
+        title: "Автоматический сбор",
+        desc: "Модуль: автоматически собирает ресурсы.",
+        icon: "📦",
+        row: 7,
+        col: 9,
+        type: "module",
+        moduleId: "autoCollect",
+        parentId: "supply5",
+        maxLevel: 5,
+        effects: ["Автосбор ресурсов"]
+    },
+    {
+        id: "supply7",
+        title: "Финансовый гений",
+        desc: "+3.5% кредиты и опыт за уровень.",
+        icon: "💰",
+        row: 8,
+        col: 9,
+        type: "skill",
+        skillId: "resourcefulness",
+        parentId: "supply6",
+        maxLevel: 5,
+        effects: ["+3.5% кредиты и опыт"]
+    },
+    {
+        id: "supply8",
+        title: "Золотая лихорадка",
+        desc: "Модуль: удваивает награды за убийства.",
+        icon: "🏆",
+        row: 9,
+        col: 9,
+        type: "module",
+        moduleId: "goldRush",
+        parentId: "supply7",
+        maxLevel: 5,
+        effects: ["x2 награды"]
     }
 ];
 
@@ -876,6 +1227,45 @@ const COMMANDER_BRANCH: SkillNode[] = [
         parentId: "commander4",
         maxLevel: 5,
         effects: ["+2% все характеристики"]
+    },
+    {
+        id: "commander6",
+        title: "Боевая команда",
+        desc: "Модуль: призывает союзников в бой.",
+        icon: "👥",
+        row: 7,
+        col: 10,
+        type: "module",
+        moduleId: "battleTeam",
+        parentId: "commander5",
+        maxLevel: 5,
+        effects: ["Призыв союзников"]
+    },
+    {
+        id: "commander7",
+        title: "Тактическое господство",
+        desc: "+2.5% все характеристики за уровень.",
+        icon: "🎖️",
+        row: 8,
+        col: 10,
+        type: "skill",
+        skillId: "tankMastery",
+        parentId: "commander6",
+        maxLevel: 5,
+        effects: ["+2.5% все характеристики"]
+    },
+    {
+        id: "commander8",
+        title: "Имперская воля",
+        desc: "Модуль: увеличивает все характеристики союзников на 50%.",
+        icon: "👑",
+        row: 9,
+        col: 10,
+        type: "module",
+        moduleId: "imperialWill",
+        parentId: "commander7",
+        maxLevel: 5,
+        effects: ["+50% характеристики союзников"]
     }
 ];
 
@@ -885,7 +1275,7 @@ const SYNERGY_NODE: SkillNode = {
     title: "Элитные протоколы",
     desc: "Бонусы за общее вложение в дерево.",
     icon: "🚀",
-    row: 7,
+    row: 10,
     col: 5,
     type: "meta",
     parentId: "commandCore"

@@ -716,6 +716,11 @@ export class MainMenu {
         this.playerProgression = progression;
         this.updatePlayerInfo();
         
+        // Обновляем панель навыков, если она видима
+        if (this.skillsPanel && this.skillsPanel.classList.contains("visible")) {
+            this.updateSkillsPanel();
+        }
+        
         // Подписываемся на изменения опыта
         if (progression && progression.onExperienceChanged) {
             debugLog("[MainMenu] Subscribing to experience changes");
@@ -1883,6 +1888,51 @@ export class MainMenu {
                 color: #7f7;
                 margin-top: 4px;
                 line-height: 1.4;
+            }
+
+            .skill-zoom-controls {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                z-index: 1000;
+                background: rgba(0,0,0,0.8);
+                border: 1px solid #0f0;
+                padding: 6px 10px;
+                border-radius: 4px;
+            }
+
+            .skill-zoom-btn {
+                width: 28px;
+                height: 28px;
+                background: #000;
+                border: 1px solid #0f0;
+                color: #0f0;
+                font-family: 'Press Start 2P', monospace;
+                font-size: 14px;
+                cursor: pointer;
+                transition: all 0.15s;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .skill-zoom-btn:hover {
+                background: #0f0;
+                color: #000;
+            }
+
+            .skill-zoom-level {
+                font-size: 9px;
+                color: #0f0;
+                min-width: 40px;
+                text-align: center;
+            }
+
+            .skill-tree {
+                transition: transform 0.2s ease;
             }
 
             .skill-node-header {
@@ -4085,15 +4135,15 @@ export class MainMenu {
         }
         
         const wrapper = skillTree.closest(".skill-tree-wrapper") as HTMLElement | null;
-        if (!this.playerProgression) {
-            skillTree.innerHTML = `<div class="skill-empty">Нет данных о навыках. Зайдите в игру, чтобы загрузить прогресс.</div>`;
-            if (skillPointsDisplay) {
-                skillPointsDisplay.textContent = "Очков навыков: 0";
-            }
-            return;
-        }
-
-        const stats = this.playerProgression.getStats();
+        
+        // Создаем mock stats если playerProgression не установлен (для отображения дерева до инициализации игры)
+        const stats = this.playerProgression ? this.playerProgression.getStats() : {
+            skillPoints: 0,
+            skills: {} as Record<string, number>,
+            level: 1,
+            experience: 0,
+            experienceToNext: 100
+        };
 
         if (skillPointsDisplay) {
             skillPointsDisplay.textContent = `Очков навыков: ${stats.skillPoints}`;
@@ -4316,6 +4366,81 @@ export class MainMenu {
         const flag = "_skillNavBound";
         if ((wrapper as any)[flag]) return;
         (wrapper as any)[flag] = true;
+
+        const skillTree = document.getElementById("skill-tree");
+        if (!skillTree) return;
+
+        // Зум
+        let zoomLevel = 1.0;
+        const minZoom = 0.3;
+        const maxZoom = 2.5;
+        const zoomStep = 0.1;
+
+        const applyZoom = () => {
+            skillTree.style.transform = `scale(${zoomLevel})`;
+            skillTree.style.transformOrigin = "top left";
+        };
+
+        // Кнопки зума (создаём только один раз)
+        let zoomControls = wrapper.parentElement?.querySelector(".skill-zoom-controls") as HTMLElement;
+        if (!zoomControls) {
+            zoomControls = document.createElement("div");
+            zoomControls.className = "skill-zoom-controls";
+            zoomControls.innerHTML = `
+                <button class="skill-zoom-btn" id="zoom-out">−</button>
+                <span class="skill-zoom-level">${Math.round(zoomLevel * 100)}%</span>
+                <button class="skill-zoom-btn" id="zoom-in">+</button>
+                <button class="skill-zoom-btn" id="zoom-reset">⌂</button>
+            `;
+            wrapper.parentElement?.insertBefore(zoomControls, wrapper);
+        }
+
+        // Колесико мыши для зума (Ctrl/Cmd + колесико)
+        wrapper.addEventListener("wheel", (e: WheelEvent) => {
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? -zoomStep : zoomStep;
+                zoomLevel = Math.max(minZoom, Math.min(maxZoom, zoomLevel + delta));
+                applyZoom();
+                const zoomLevelEl = zoomControls.querySelector(".skill-zoom-level") as HTMLElement;
+                if (zoomLevelEl) {
+                    zoomLevelEl.textContent = `${Math.round(zoomLevel * 100)}%`;
+                }
+            }
+        }, { passive: false });
+
+        // Обработчики зума (устанавливаем только один раз)
+        const zoomInBtn = document.getElementById("zoom-in");
+        const zoomOutBtn = document.getElementById("zoom-out");
+        const zoomResetBtn = document.getElementById("zoom-reset");
+        const zoomLevelDisplay = zoomControls.querySelector(".skill-zoom-level") as HTMLElement;
+
+        if (zoomInBtn && !(zoomInBtn as any)._zoomBound) {
+            (zoomInBtn as any)._zoomBound = true;
+            zoomInBtn.addEventListener("click", () => {
+                zoomLevel = Math.min(maxZoom, zoomLevel + zoomStep);
+                applyZoom();
+                if (zoomLevelDisplay) zoomLevelDisplay.textContent = `${Math.round(zoomLevel * 100)}%`;
+            });
+        }
+
+        if (zoomOutBtn && !(zoomOutBtn as any)._zoomBound) {
+            (zoomOutBtn as any)._zoomBound = true;
+            zoomOutBtn.addEventListener("click", () => {
+                zoomLevel = Math.max(minZoom, zoomLevel - zoomStep);
+                applyZoom();
+                if (zoomLevelDisplay) zoomLevelDisplay.textContent = `${Math.round(zoomLevel * 100)}%`;
+            });
+        }
+
+        if (zoomResetBtn && !(zoomResetBtn as any)._zoomBound) {
+            (zoomResetBtn as any)._zoomBound = true;
+            zoomResetBtn.addEventListener("click", () => {
+                zoomLevel = 1.0;
+                applyZoom();
+                if (zoomLevelDisplay) zoomLevelDisplay.textContent = `${Math.round(zoomLevel * 100)}%`;
+            });
+        }
 
         let isDown = false;
         let startX = 0;
