@@ -237,6 +237,15 @@ const LANG = {
         voiceToggle: "Вкл/Выкл голосовой связи",
         voiceMenu: "Меню/индикатор голоса",
         tracerHotkey: "Трассер",
+        admin: "Админ",
+        adminTools: "Админ-инструменты",
+        adminCheatPanel: "Окно контроля читов",
+        adminF2: "Телепорт / дебаг (F2)",
+        adminF3: "Dev Dashboard (F3)",
+        adminF4: "Dev Console (F4)",
+        adminF6: "Настройки физики (F6)",
+        adminF7: "Меню читов (F7)",
+        openCheatMenu: "Открыть меню читов",
         garageKey: "Гараж",
         map: "Карта",
         statsKey: "Статистика",
@@ -329,6 +338,15 @@ const LANG = {
         voiceToggle: "Voice toggle on/off",
         voiceMenu: "Voice menu/indicator",
         tracerHotkey: "Tracer",
+        admin: "Admin",
+        adminTools: "Admin tools",
+        adminCheatPanel: "Cheat control window",
+        adminF2: "Teleport / debug (F2)",
+        adminF3: "Dev Dashboard (F3)",
+        adminF4: "Dev Console (F4)",
+        adminF6: "Physics settings (F6)",
+        adminF7: "Cheat menu (F7)",
+        openCheatMenu: "Open cheat menu",
         garageKey: "Garage",
         map: "Map",
         statsKey: "Stats",
@@ -410,13 +428,14 @@ export class MainMenu {
     private selectedCannon: string = "";
     private ownedChassisIds: Set<string> = new Set();
     private ownedCannonIds: Set<string> = new Set();
+    private currentPlayStep: number = 0;
     private onPlayIntroSound: () => void = () => {};
     private settings!: GameSettings;
     private tankConfig!: TankConfig;
     private playerProgression: any = null;
     private experienceSubscription: any = null;
     private introSoundPlayed = false;
-    private garage: any = null; // Reference to Garage instance
+    private garage: any = null; // Reference to Garage instance (set by game.ts)
     private returnToPlayMenuAfterGarage = false;
     
     private canvasObserver: MutationObserver | null = null;
@@ -791,6 +810,10 @@ export class MainMenu {
                                     <span class="control-desc">${L.moveTank}</span>
                                 </div>
                                 <div class="control-item">
+                                    <span class="key">&uarr; &darr; &larr; &rarr;</span>
+                                    <span class="control-desc">${L.moveTank}</span>
+                                </div>
+                                <div class="control-item">
                                     <span class="key">МЫШЬ</span>
                                     <span class="control-desc">${L.rotateTurret}</span>
                                 </div>
@@ -847,6 +870,18 @@ export class MainMenu {
                                     <span class="key">C</span>
                                     <span class="control-desc">${L.center}</span>
                                 </div>
+                                <div class="control-item">
+                                    <span class="key">Q / E</span>
+                                    <span class="control-desc">${L.rotateTurret}</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">МЫШЬ</span>
+                                    <span class="control-desc">${L.freeLook}</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">КОЛЕСО</span>
+                                    <span class="control-desc">${L.zoom}</span>
+                                </div>
                             </div>
                             <div class="control-category">
                                 <div class="category-header">📡 ${L.comms}</div>
@@ -870,9 +905,28 @@ export class MainMenu {
                                     <span class="key">M</span>
                                     <span class="control-desc">${L.voiceMenu}</span>
                                 </div>
+                            </div>
+                            <div class="control-category">
+                                <div class="category-header">🛠 ${L.admin}</div>
                                 <div class="control-item">
-                                    <span class="key">Y</span>
-                                    <span class="control-desc">${L.tracerHotkey}</span>
+                                    <span class="key">F2</span>
+                                    <span class="control-desc">${L.adminF2}</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">F3</span>
+                                    <span class="control-desc">${L.adminF3}</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">F4</span>
+                                    <span class="control-desc">${L.adminF4}</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">F6</span>
+                                    <span class="control-desc">${L.adminF6}</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">F7</span>
+                                    <span class="control-desc">${L.adminF7}</span>
                                 </div>
                             </div>
                         </div>
@@ -983,6 +1037,46 @@ export class MainMenu {
                 gap: 15px;
                 overflow-y: auto;
                 pointer-events: auto !important;
+            }
+            
+            .menu-content,
+            .panel-content,
+            .skill-tree-wrapper {
+                scrollbar-width: thin;
+                scrollbar-color: #0f0 rgba(0,255,80,0.08);
+            }
+            
+            .menu-content::-webkit-scrollbar,
+            .panel-content::-webkit-scrollbar,
+            .skill-tree-wrapper::-webkit-scrollbar {
+                width: 8px;
+                height: 8px;
+            }
+            
+            .menu-content::-webkit-scrollbar-track,
+            .panel-content::-webkit-scrollbar-track,
+            .skill-tree-wrapper::-webkit-scrollbar-track {
+                background: rgba(0,255,80,0.05);
+            }
+            
+            .menu-content::-webkit-scrollbar-thumb,
+            .panel-content::-webkit-scrollbar-thumb,
+            .skill-tree-wrapper::-webkit-scrollbar-thumb {
+                background: linear-gradient(180deg, #0f0, #6f6);
+                box-shadow: 0 0 8px rgba(0,255,80,0.6);
+            }
+            
+            /* Скрываем полосы прокрутки у древа навыков визуально, оставляя скролл жестами */
+            .skill-tree-wrapper {
+                scrollbar-width: none;
+            }
+            
+            .skill-tree-wrapper::-webkit-scrollbar {
+                display: none;
+            }
+
+            .skill-tree-wrapper.dragging {
+                cursor: grabbing;
             }
             
             .menu-header {
@@ -1178,12 +1272,12 @@ export class MainMenu {
             
             .controls-grid {
                 display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                grid-template-columns: repeat(3, minmax(170px, 1fr));
                 gap: 10px;
             }
             
             @media (max-width: 900px) {
-                .controls-grid { grid-template-columns: repeat(2, 1fr); }
+                .controls-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
                 .logo-text { font-size: 24px; }
             }
             
@@ -1255,6 +1349,11 @@ export class MainMenu {
                 visibility: visible !important;
                 opacity: 1 !important;
             }
+            /* Fix top anchor for settings panel so content doesn't shift vertically when tabs change */
+            #settings-panel.panel-overlay {
+                align-items: flex-start !important;
+                padding-top: 40px !important;
+            }
             
             .panel-content {
                 background: #000;
@@ -1304,7 +1403,7 @@ export class MainMenu {
                 top: 40px;
                 left: 40px;
                 right: 40px;
-                padding: 20px;
+                padding: 0 20px 20px 20px;
                 background: rgba(0, 0, 0, 0.92);
                 border: 2px solid #0f0;
                 box-shadow: 10px 10px 0 rgba(0, 255, 0, 0.25);
@@ -1314,10 +1413,56 @@ export class MainMenu {
                 gap: 12px;
                 z-index: 100002;
                 pointer-events: auto;
+                overflow: hidden;
             }
 
             .play-window.visible {
                 display: flex !important;
+            }
+
+            .play-window-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 8px;
+                padding: 10px 0 6px 0;
+                border-bottom: 1px solid rgba(0,255,0,0.25);
+                font-family: "Consolas","SFMono-Regular",monospace;
+                color: #0f0;
+            }
+
+            .play-window-title {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-weight: 700;
+                letter-spacing: 0.5px;
+            }
+
+            .window-actions {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+
+            .window-btn {
+                width: 26px;
+                height: 26px;
+                border: 1px solid #0f0;
+                background: rgba(0,0,0,0.4);
+                color: #0f0;
+                cursor: pointer;
+                border-radius: 4px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 12px;
+                transition: all 0.15s ease;
+            }
+
+            .window-btn:hover {
+                background: rgba(0,255,0,0.1);
+                box-shadow: 0 0 6px rgba(0,255,0,0.4);
             }
             
             .play-menu-section {
@@ -1374,6 +1519,8 @@ export class MainMenu {
             .setting-label {
                 color: #aaa;
                 font-size: 14px;
+                font-family: 'Press Start 2P', 'Courier New', monospace;
+                letter-spacing: 0.5px;
             }
             
             .setting-value {
@@ -1609,73 +1756,237 @@ export class MainMenu {
                 margin-top: 5px;
             }
             
-            /* Skills Panel */
-            .skill-row {
+            /* Skills Panel - Tree */
+            .skill-tree-wrapper {
+                margin-top: 10px;
+                background: linear-gradient(180deg, #062106, #020);
+                border: 1px solid #0f0;
+                padding: 16px;
+                max-height: 72vh;
+                overflow: auto;
+                box-shadow: 0 0 20px rgba(0,255,100,0.15);
+                cursor: grab;
+            }
+
+            .skill-tree-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 12px;
+                margin-bottom: 12px;
+            }
+
+            .skill-points-pill {
+                padding: 8px 12px;
+                background: rgba(0,255,140,0.12);
+                border: 1px solid #0f0;
+                color: #9f9;
+                font-size: 10px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                box-shadow: 0 0 12px rgba(0,255,80,0.2);
+            }
+
+            .skill-tree-legend {
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+                font-size: 9px;
+                color: #7f7;
+            }
+
+            .skill-tree-legend span {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 6px 8px;
+                border: 1px solid #0f0;
+                background: #041004;
+            }
+
+            .skill-tree {
+                position: relative;
+                min-height: 640px;
+                min-width: 1100px;
+                background-image: linear-gradient(90deg, rgba(0,255,120,0.05) 1px, transparent 1px);
+                background-repeat: repeat;
+                background-size: 160px 1px;
+                padding: 12px;
+                border: 1px solid rgba(0,255,80,0.35);
+            }
+
+            .skill-node {
+                position: absolute;
+                width: 220px;
+                min-height: 120px;
+                padding: 12px;
+                background: #031003;
+                border: 1px solid #0f0;
+                box-shadow:
+                    0 0 12px rgba(0,255,100,0.25),
+                    inset 0 0 12px rgba(0,255,60,0.08);
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+                z-index: 2;
+            }
+
+            .skill-node.is-hub {
+                background: linear-gradient(180deg, rgba(0,255,120,0.2), #021);
+            }
+
+            .skill-node.is-meta {
+                border-color: #5cf;
+                box-shadow:
+                    0 0 14px rgba(90,220,255,0.3),
+                    inset 0 0 14px rgba(90,220,255,0.15);
+            }
+
+            .skill-node.is-locked {
+                opacity: 0.5;
+                filter: grayscale(0.7);
+                border-color: #333 !important;
+            }
+
+            .skill-module-info {
+                font-size: 9px;
+                color: #0ff;
+                padding: 4px 6px;
+                background: rgba(0,255,255,0.1);
+                border: 1px solid rgba(0,255,255,0.3);
+                margin-top: 4px;
+            }
+
+            .skill-module-info.locked {
+                color: #666;
+                background: rgba(100,100,100,0.1);
+                border-color: rgba(100,100,100,0.3);
+            }
+
+            .skill-cost {
+                font-size: 8px;
+                color: #fa0;
+                margin-left: 8px;
+            }
+
+            .skill-effects {
+                font-size: 8px;
+                color: #7f7;
+                margin-top: 4px;
+                line-height: 1.4;
+            }
+
+            .skill-node-header {
                 display: flex;
                 align-items: center;
-                gap: 10px;
-                padding: 12px;
-                margin-bottom: 8px;
-                background: #000;
-                border: 1px solid #0f0;
+                gap: 8px;
+                justify-content: space-between;
             }
-            
-            .skill-icon {
+
+            .skill-node-icon {
                 font-size: 20px;
-                width: 30px;
+                width: 28px;
             }
-            
-            .skill-info {
+
+            .skill-node-title {
                 flex: 1;
+                font-size: 11px;
+                color: #0f0;
+                letter-spacing: 0.5px;
             }
-            
-            .skill-name {
+
+            .skill-node-badge {
+                font-size: 9px;
+                padding: 4px 6px;
+                border: 1px solid currentColor;
+                color: #9f9;
+                background: rgba(0,255,120,0.1);
+                text-transform: uppercase;
+            }
+
+            .skill-node-desc {
+                font-size: 9px;
+                line-height: 1.4;
+                color: #8f8;
+                opacity: 0.9;
+            }
+
+            .skill-node-meta {
+                font-size: 9px;
+                color: #5cf;
+                opacity: 0.9;
+            }
+
+            .skill-node-level {
                 font-size: 10px;
                 color: #0f0;
-                margin-bottom: 4px;
-            }
-            
-            .skill-desc {
-                font-size: 8px;
-                color: #0a0;
-            }
-            
-            .skill-level {
                 display: flex;
-                gap: 4px;
-                margin-top: 8px;
+                justify-content: space-between;
+                align-items: center;
             }
-            
+
+            .skill-meter {
+                display: grid;
+                grid-template-columns: repeat(10, 1fr);
+                gap: 3px;
+            }
+
             .skill-pip {
-                width: 10px;
-                height: 10px;
-                background: #020;
+                height: 8px;
+                background: #021;
                 border: 1px solid #0f0;
             }
-            
+
             .skill-pip.filled {
-                background: #0f0;
+                background: linear-gradient(90deg, #0f0, #7f7);
+                box-shadow: 0 0 6px rgba(0,255,80,0.6);
             }
-            
+
             .skill-upgrade-btn {
-                padding: 8px 12px;
+                padding: 10px;
                 background: #000;
                 border: 2px solid #0f0;
                 color: #0f0;
                 font-family: 'Press Start 2P', monospace;
-                font-size: 8px;
+                font-size: 9px;
                 cursor: pointer;
                 transition: all 0.15s;
+                text-transform: uppercase;
             }
-            
+
             .skill-upgrade-btn:hover:not(:disabled) {
                 background: #0f0;
                 color: #000;
+                box-shadow: 0 0 12px rgba(0,255,80,0.6);
             }
-            
+
             .skill-upgrade-btn:disabled {
-                opacity: 0.3;
+                opacity: 0.25;
                 cursor: not-allowed;
+            }
+
+            .skill-connector {
+                position: absolute;
+                background: #0f0;
+                z-index: 1;
+                box-shadow: 0 0 8px rgba(0,255,80,0.4);
+            }
+
+            .skill-connector.h {
+                height: 2px;
+            }
+
+            .skill-connector.v {
+                width: 2px;
+            }
+
+            .skill-empty {
+                color: #8f8;
+                font-size: 11px;
+                padding: 24px;
+                text-align: center;
+                border: 1px dashed rgba(0,255,80,0.4);
+                background: rgba(0,40,0,0.5);
             }
             
             /* Controls popup */
@@ -2546,6 +2857,12 @@ export class MainMenu {
                             <span class="setting-label">Включить читы (для разработки)</span>
                             <input type="checkbox" class="setting-checkbox" id="set-enable-cheats" ${this.settings.enableCheats ? 'checked' : ''}>
                         </div>
+                        <div class="setting-row">
+                            <span class="setting-label">${L.openCheatMenu}</span>
+                            <div class="setting-value">
+                                <button class="panel-btn secondary" id="open-cheat-menu">F7</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 
@@ -2576,6 +2893,9 @@ export class MainMenu {
                 cursor: pointer;
                 border-bottom: 2px solid transparent;
                 transition: all 0.2s;
+                font-family: 'Press Start 2P', 'Courier New', monospace;
+                font-size: 11px;
+                letter-spacing: 0.5px;
             }
             .settings-tab:hover {
                 background: #333;
@@ -2704,6 +3024,14 @@ export class MainMenu {
             const target = e.target as HTMLInputElement;
             this.handleFullscreenCheckbox(!!target?.checked);
         });
+
+        // Open cheat menu button (simulates F7 press)
+        const cheatBtn = document.getElementById("open-cheat-menu");
+        if (cheatBtn) {
+            cheatBtn.addEventListener("click", () => {
+                window.dispatchEvent(new KeyboardEvent("keydown", { key: "F7", code: "F7" }));
+            });
+        }
         
         document.getElementById("settings-save")?.addEventListener("click", () => {
             this.saveSettingsFromUI();
@@ -2750,8 +3078,13 @@ export class MainMenu {
             <div class="panel-content">
                 <button class="panel-close" id="skills-close">✕</button>
                 <div class="panel-title">Навыки</div>
-                <div id="skill-points-display" style="text-align:center;margin-bottom:20px;color:#5a8;font-size:16px">Очков: 0</div>
-                <div id="skills-list"></div>
+                <div class="skill-tree-wrapper">
+                    <div class="skill-tree-header">
+                        <div id="skill-points-display" class="skill-points-pill">Очков навыков: 0</div>
+                        <div class="skill-tree-legend" id="skill-tree-legend"></div>
+                    </div>
+                    <div class="skill-tree" id="skill-tree"></div>
+                </div>
                 <div class="panel-buttons">
                     <button class="panel-btn" id="skills-back">Закрыть</button>
                 </div>
@@ -2775,7 +3108,7 @@ export class MainMenu {
                 <button class="panel-close" id="map-selection-close">✕</button>
                 <div class="panel-title">${L.mapSelection}</div>
                 
-                <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 20px; max-height: 70vh; overflow-y: auto; padding-right: 10px;">
+                <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 20px; max-height: 70vh; overflow-y: auto; padding-right: 10px; scrollbar-width: thin;">
                     <button class="menu-btn play-btn" id="btn-map-normal" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <span class="btn-icon">🗺</span>
@@ -2935,11 +3268,18 @@ export class MainMenu {
         
         this.playMenuPanel.innerHTML = `
                 <div class="panel-content" style="position: relative; min-height: 70vh;">
-                <button class="panel-close" id="play-menu-close">✕</button>
                 <div class="panel-title">${L.play || "ИГРАТЬ"}</div>
                 
                 <!-- 1. Выбор режима игры -->
-                <div class="play-window" id="play-window-mode" data-order="0" style="display: none;">
+                <div class="play-window" id="play-window-mode" data-order="0" data-step="0" style="display: none;">
+                    <div class="play-window-header">
+                        <div class="play-window-title">/root (player)/mode</div>
+                        <div class="window-actions">
+                            <button class="window-btn" data-nav="back" data-step="0">⟵</button>
+                            <button class="window-btn" data-nav="forward" data-step="0">⟶</button>
+                            <button class="window-btn" data-nav="close" data-step="0">✕</button>
+                        </div>
+                    </div>
                     <div class="section-title">1. Выбор режима игры</div>
                     <div class="mode-buttons" style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px;">
                         <button class="menu-btn play-btn" id="btn-mode-single" data-mode="single">
@@ -2970,9 +3310,17 @@ export class MainMenu {
                 </div>
                 
                 <!-- 2. Выбор карты -->
-                <div class="play-window" id="play-window-map" data-order="1">
+                <div class="play-window" id="play-window-map" data-order="1" data-step="1">
+                    <div class="play-window-header">
+                        <div class="play-window-title">/root (player)/mode/map</div>
+                        <div class="window-actions">
+                            <button class="window-btn" data-nav="back" data-step="1">⟵</button>
+                            <button class="window-btn" data-nav="forward" data-step="1">⟶</button>
+                            <button class="window-btn" data-nav="close" data-step="1">✕</button>
+                        </div>
+                    </div>
                     <div class="section-title">2. Выбор карты</div>
-                    <div class="map-buttons" style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px; max-height: 50vh; overflow-y: auto;">
+                    <div class="map-buttons" style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px; max-height: 50vh; overflow-y: auto; scrollbar-width: thin;">
                         <button class="menu-btn play-btn" id="play-btn-map-normal" data-map="normal">
                             <span class="btn-icon">🗺</span>
                             <span class="btn-label">${L.normalMap}</span>
@@ -3017,7 +3365,15 @@ export class MainMenu {
                 </div>
                 
                 <!-- 3. Выбор танка -->
-                <div class="play-window" id="play-window-tank" data-order="2">
+                <div class="play-window" id="play-window-tank" data-order="2" data-step="2">
+                    <div class="play-window-header">
+                        <div class="play-window-title">/root (player)/mode/map/preset</div>
+                        <div class="window-actions">
+                            <button class="window-btn" data-nav="back" data-step="2">⟵</button>
+                            <button class="window-btn" data-nav="forward" data-step="2">⟶</button>
+                            <button class="window-btn" data-nav="close" data-step="2">✕</button>
+                        </div>
+                    </div>
                     <div class="section-title">3. Выбор танка</div>
                     
                     <!-- Пресеты танков -->
@@ -3089,6 +3445,18 @@ export class MainMenu {
             document.getElementById(`play-btn-map-${map}`)?.addEventListener("click", () => this.selectMap(map as MapType));
         });
         
+        // Обработчики навигации окон-терминалов
+        document.querySelectorAll(".window-btn").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                const target = e.currentTarget as HTMLElement;
+                const action = target.dataset.nav;
+                const step = parseInt(target.dataset.step || "0", 10);
+                if (action === "back") this.navigatePlayStep(step - 1);
+                if (action === "forward") this.navigatePlayStep(step + 1);
+                if (action === "close") this.hidePlayMenu();
+            });
+        });
+
         // Обработчики пресетов танков
         document.getElementById("preset-balanced")?.addEventListener("click", () => this.selectPreset("balanced"));
         document.getElementById("preset-speed")?.addEventListener("click", () => this.selectPreset("speed"));
@@ -3105,7 +3473,6 @@ export class MainMenu {
         // Обработчик запуска игры
         document.getElementById("btn-start-game")?.addEventListener("click", () => this.startSelectedGame());
         
-        this.setupCloseButton("play-menu-close", () => this.hidePlayMenu());
         this.setupCloseButton("play-menu-back", () => this.hidePlayMenu());
         this.setupPanelCloseOnBackground(this.playMenuPanel, () => this.hidePlayMenu());
     }
@@ -3166,8 +3533,11 @@ export class MainMenu {
             }
         });
         
+        // Update terminal titles
+        this.updateTerminalTitles();
+        
         // Показываем следующий шаг - выбор карты
-        this.showPlayWindow("play-window-map", 1);
+        this.showPlayWindow("play-window-map", 1, 1);
     }
     
     private selectMap(map: MapType): void {
@@ -3184,8 +3554,11 @@ export class MainMenu {
             }
         });
         
+        // Update terminal titles
+        this.updateTerminalTitles();
+        
         // Показываем следующий шаг - выбор танка поверх
-        this.showPlayWindow("play-window-tank", 2);
+        this.showPlayWindow("play-window-tank", 2, 2);
         
         this.checkCanStartGame();
     }
@@ -3209,6 +3582,9 @@ export class MainMenu {
             }
         });
         
+        // Update terminal titles (path doesn't change, but ensure it's up to date)
+        this.updateTerminalTitles();
+        
         this.checkCanStartGame();
     }
     
@@ -3230,6 +3606,9 @@ export class MainMenu {
                 button.className = "menu-btn";
             }
         });
+        
+        // Update terminal titles (path doesn't change, but ensure it's up to date)
+        this.updateTerminalTitles();
         
         this.checkCanStartGame();
     }
@@ -3318,12 +3697,120 @@ export class MainMenu {
         });
     }
 
-    private showPlayWindow(id: string, order: number): void {
+    private getUserName(): string {
+        // Try to get from localStorage
+        let storedName = localStorage.getItem("playerName");
+        if (storedName) return storedName;
+        
+        // Try to get from Firebase if available (synchronous check)
+        try {
+            // Check if firebaseService is available in global scope or window
+            const firebaseService = (window as any).firebaseService || 
+                                   (globalThis as any).firebaseService;
+            if (firebaseService && firebaseService.isInitialized && firebaseService.isInitialized()) {
+                const userId = firebaseService.getUserId();
+                if (userId) {
+                    storedName = userId.substring(0, 8);
+                    localStorage.setItem("playerName", storedName);
+                    return storedName;
+                }
+            }
+        } catch (e) {
+            // Firebase not available, ignore
+        }
+        
+        // Default fallback
+        const defaultName = "player";
+        localStorage.setItem("playerName", defaultName);
+        return defaultName;
+    }
+    
+    private getModeDisplayName(mode: string): string {
+        const modeNames: Record<string, string> = {
+            "single": "single",
+            "ffa": "ffa",
+            "tdm": "tdm",
+            "coop": "coop",
+            "battle_royale": "battle_royale",
+            "ctf": "ctf"
+        };
+        return modeNames[mode] || mode;
+    }
+    
+    private getMapDisplayName(map: MapType | null): string {
+        if (!map) return "";
+        const mapNames: Record<string, string> = {
+            "normal": "normal",
+            "sandbox": "sandbox",
+            "polygon": "polygon",
+            "frontline": "frontline",
+            "ruins": "ruins",
+            "canyon": "canyon",
+            "industrial": "industrial",
+            "urban_warfare": "urban_warfare",
+            "underground": "underground",
+            "coastal": "coastal"
+        };
+        return mapNames[map] || map;
+    }
+    
+    private updateTerminalTitles(): void {
+        const userName = this.getUserName();
+        const basePath = `/root (${userName})`;
+        
+        // Update mode terminal title
+        const modeTitle = document.querySelector("#play-window-mode .play-window-title");
+        if (modeTitle) {
+            modeTitle.textContent = `${basePath}/mode`;
+        }
+        
+        // Update map terminal title
+        const mapTitle = document.querySelector("#play-window-map .play-window-title");
+        if (mapTitle) {
+            if (this.selectedGameMode) {
+                const modeName = this.getModeDisplayName(this.selectedGameMode);
+                mapTitle.textContent = `${basePath}/mode/${modeName}/map`;
+            } else {
+                mapTitle.textContent = `${basePath}/mode/map`;
+            }
+        }
+        
+        // Update tank terminal title
+        const tankTitle = document.querySelector("#play-window-tank .play-window-title");
+        if (tankTitle) {
+            let path = basePath;
+            if (this.selectedGameMode) {
+                const modeName = this.getModeDisplayName(this.selectedGameMode);
+                path += `/mode/${modeName}`;
+            }
+            if (this.selectedMapType) {
+                const mapName = this.getMapDisplayName(this.selectedMapType);
+                path += `/map/${mapName}`;
+            }
+            path += "/preset";
+            tankTitle.textContent = path;
+        }
+    }
+    
+    private showPlayWindow(id: string, order: number, step?: number): void {
         const el = document.getElementById(id) as HTMLDivElement | null;
         if (!el) return;
         el.classList.add("visible");
         el.style.zIndex = (100002 + order).toString();
         el.style.transform = `translate(${order * 12}px, ${order * 12}px)`;
+        if (typeof step === "number") {
+            this.currentPlayStep = step;
+        }
+        // Update terminal titles when showing window
+        this.updateTerminalTitles();
+    }
+
+    private navigatePlayStep(targetStep: number): void {
+        const steps = ["play-window-mode", "play-window-map", "play-window-tank"];
+        const clamped = Math.max(0, Math.min(targetStep, steps.length - 1));
+        this.hideAllPlayWindows();
+        const id = steps[clamped];
+        this.showPlayWindow(id, clamped, clamped);
     }
     
     private startSelectedGame(): void {
@@ -3365,12 +3852,13 @@ export class MainMenu {
             // Сбрасываем состояние
             this.selectedGameMode = "";
             this.selectedMapType = null;
+            this.currentPlayStep = 0;
             
             // Скрываем все окна шагов
             this.hideAllPlayWindows();
             
             // Показываем только окно выбора режима
-            this.showPlayWindow("play-window-mode", 0);
+            this.showPlayWindow("play-window-mode", 0, 0);
             
             // Сбрасываем выборы кнопок
             document.querySelectorAll("[data-mode]").forEach(btn => {
@@ -3397,21 +3885,29 @@ export class MainMenu {
                 localStorage.removeItem("selectedCannon");
             }
 
+            // Проставляем сохранённые выборы, но не переключаем шаги — режим всегда первый
             if (savedMode) {
-                this.selectGameMode(savedMode);
+                this.selectedGameMode = savedMode;
+                document.querySelectorAll("[data-mode]").forEach(btn => {
+                    const button = btn as HTMLButtonElement;
+                    button.className = button.dataset.mode === savedMode ? "menu-btn play-btn" : "menu-btn secondary";
+                });
             }
             if (savedMap) {
-                this.selectMap(savedMap);
+                this.selectedMapType = savedMap;
+                document.querySelectorAll("[data-map]").forEach(btn => {
+                    const button = btn as HTMLButtonElement;
+                    button.className = button.dataset.map === savedMap ? "menu-btn play-btn" : "menu-btn secondary";
+                });
             }
-            if (savedChassis) {
-                this.selectChassis(savedChassis);
-            }
-            if (savedCannon) {
-                this.selectCannon(savedCannon);
-            }
+            if (savedChassis) this.selectChassis(savedChassis);
+            if (savedCannon) this.selectCannon(savedCannon);
             
             // Если нет сохраненных данных — открываем первый шаг
             if (!savedMode) this.showPlayWindow("play-window-mode", 0);
+            
+            // Update terminal titles
+            this.updateTerminalTitles();
             
             this.playMenuPanel.classList.add("visible");
             this.playMenuPanel.style.setProperty("display", "flex", "important");
@@ -3565,58 +4061,309 @@ export class MainMenu {
     }
     
     private updateSkillsPanel(): void {
-        if (!this.playerProgression) return;
-        
-        const stats = this.playerProgression.getStats();
-        const skillsList = document.getElementById("skills-list");
+        const skillTree = document.getElementById("skill-tree");
         const skillPointsDisplay = document.getElementById("skill-points-display");
+        if (!skillTree) {
+            console.error("[Skills] skill-tree element not found!");
+            return;
+        }
         
+        // Проверяем что конфиг загружен
+        if (!SKILL_TREE_NODES || SKILL_TREE_NODES.length === 0) {
+            console.error("[Skills] SKILL_TREE_NODES is not loaded or empty!");
+            skillTree.innerHTML = `<div class="skill-empty">Ошибка: конфиг навыков не загружен. Проверьте импорт.</div>`;
+            return;
+        }
+        
+        const wrapper = skillTree.closest(".skill-tree-wrapper") as HTMLElement | null;
+        if (!this.playerProgression) {
+            skillTree.innerHTML = `<div class="skill-empty">Нет данных о навыках. Зайдите в игру, чтобы загрузить прогресс.</div>`;
+            if (skillPointsDisplay) {
+                skillPointsDisplay.textContent = "Очков навыков: 0";
+            }
+            return;
+        }
+
+        const stats = this.playerProgression.getStats();
+
         if (skillPointsDisplay) {
             skillPointsDisplay.textContent = `Очков навыков: ${stats.skillPoints}`;
         }
+
+        // Обновляем легенду веток
+        const legend = document.getElementById("skill-tree-legend");
+        if (legend) {
+            legend.innerHTML = SKILL_BRANCHES.map(branch => 
+                `<span style="border-color: ${branch.color}; color: ${branch.color}">
+                    ${branch.icon} ${branch.name}
+                </span>`
+            ).join("");
+        }
+
+        const totalInvested = Object.values(stats.skills).reduce((sum: number, val) => {
+            const numeric = typeof val === "number" ? val : 0;
+            return sum + numeric;
+        }, 0);
+        const synergyBadge = totalInvested >= 50 ? "АКТИВНО" : totalInvested >= 30 ? "ГОТОВО" : "ЗАКРЫТО";
+
+        // Обновляем мета-узел синергии
+        const synergyNode = SKILL_TREE_NODES.find(n => n.id === "commandSynergy");
+        if (synergyNode) {
+            synergyNode.badge = synergyBadge;
+            (synergyNode as any).meta = `Вложено: ${totalInvested}/50. Бонусы на 30 и 50 очков.`;
+        }
+
+        // Создаём копию узлов для работы (чтобы не мутировать оригинал)
+        const nodes = SKILL_TREE_NODES.map(n => ({ ...n }));
+        const edges = SKILL_TREE_EDGES;
+
+        // Отладка: проверяем что узлы загружены
+        if (nodes.length === 0) {
+            console.error("[Skills] SKILL_TREE_NODES is empty!");
+            skillTree.innerHTML = `<div class="skill-empty">Ошибка: узлы навыков не загружены. Проверьте конфиг.</div>`;
+            return;
+        }
+
+        console.log(`[Skills] Rendering ${nodes.length} nodes, ${edges.length} edges`);
+
+        const layout = {
+            width: 220,
+            height: 130,
+            colGap: 80,
+            rowGap: 90
+        };
+
+        const toPosition = (node: { col: number; row: number }) => {
+            const left = node.col * (layout.width + layout.colGap);
+            const top = node.row * (layout.height + layout.rowGap);
+            return {
+                left,
+                top,
+                centerX: left + layout.width / 2,
+                centerY: top + layout.height / 2
+            };
+        };
+
+        const maxCol = nodes.length > 0 ? Math.max(...nodes.map((n) => n.col)) : 0;
+        const maxRow = nodes.length > 0 ? Math.max(...nodes.map((n) => n.row)) : 0;
+
+        const treeWidth = (maxCol + 1) * (layout.width + layout.colGap);
+        const treeHeight = (maxRow + 1) * (layout.height + layout.rowGap) + layout.height;
         
-        if (!skillsList) return;
+        skillTree.style.minWidth = `${treeWidth}px`;
+        skillTree.style.minHeight = `${treeHeight}px`;
         
-        const skillsInfo = [
-            { id: "tankMastery", name: "Tank Mastery", icon: "🛡️", desc: "+0.3 speed per level" },
-            { id: "combatExpert", name: "Combat Expert", icon: "⚔️", desc: "+3 damage per level" },
-            { id: "survivalInstinct", name: "Survival Instinct", icon: "❤️", desc: "+10 HP per level" },
-            { id: "resourcefulness", name: "Resourcefulness", icon: "💰", desc: "+5% XP and credits" },
-            { id: "tacticalGenius", name: "Tactical Genius", icon: "🎯", desc: "-50ms reload" }
-        ];
-        
-        skillsList.innerHTML = skillsInfo.map(skill => {
-            const level = stats.skills[skill.id as keyof typeof stats.skills];
-            const maxLevel = 10;
-            const pips = Array(maxLevel).fill(0).map((_, i) => 
-                `<div class="skill-pip ${i < level ? 'filled' : ''}"></div>`
-            ).join('');
+        console.log(`[Skills] Tree size: ${treeWidth}x${treeHeight}, maxCol: ${maxCol}, maxRow: ${maxRow}`);
+        skillTree.innerHTML = "";
+
+        const nodePositions = new Map<string, ReturnType<typeof toPosition>>();
+        nodes.forEach((node) => nodePositions.set(node.id, toPosition(node)));
+
+        if (wrapper) {
+            const core = nodePositions.get("commandCore");
+            if (core) {
+                wrapper.scrollLeft = Math.max(core.centerX - wrapper.clientWidth / 2, 0);
+                wrapper.scrollTop = Math.max(core.centerY - wrapper.clientHeight / 2, 0);
+            }
+        }
+
+        const connectors = document.createDocumentFragment();
+        edges.forEach((edge) => {
+            const from = nodePositions.get(edge.from);
+            const to = nodePositions.get(edge.to);
+            if (!from || !to) return;
+
+            const h = document.createElement("div");
+            h.className = "skill-connector h";
+            h.style.left = `${Math.min(from.centerX, to.centerX)}px`;
+            h.style.top = `${from.centerY}px`;
+            h.style.width = `${Math.max(Math.abs(from.centerX - to.centerX), 2)}px`;
+            connectors.appendChild(h);
+
+            const v = document.createElement("div");
+            v.className = "skill-connector v";
+            v.style.left = `${to.centerX}px`;
+            v.style.top = `${Math.min(from.centerY, to.centerY)}px`;
+            v.style.height = `${Math.max(Math.abs(from.centerY - to.centerY), 2)}px`;
+            connectors.appendChild(v);
+        });
+
+        const nodesFragment = document.createDocumentFragment();
+        let nodesCreated = 0;
+        nodes.forEach((node) => {
+            const pos = nodePositions.get(node.id);
+            if (!pos) {
+                console.warn(`[Skills] No position for node: ${node.id}`);
+                return;
+            }
+            nodesCreated++;
+
+            const maxLevel = node.maxLevel || 5;
+            const level = node.skillId ? (stats.skills[node.skillId] || 0) : 0;
+            const isUnlocked = isNodeUnlocked(node.id, stats);
+            const nextLevel = level + 1;
+            const cost = node.skillId ? getSkillCost(nextLevel, node.cost || 1) : 0;
+            const canAfford = stats.skillPoints >= cost;
+            const canUpgrade = node.skillId && isUnlocked && canAfford && level < maxLevel;
             
-            return `
-                <div class="skill-row">
-                    <div class="skill-icon">${skill.icon}</div>
-                    <div class="skill-info">
-                        <div class="skill-name">${skill.name}</div>
-                        <div class="skill-desc">${skill.desc}</div>
-                        <div class="skill-level">${pips}</div>
+            const pips = node.skillId
+                ? Array(maxLevel)
+                      .fill(0)
+                      .map((_, i) => `<div class="skill-pip ${i < level ? "filled" : ""}"></div>`)
+                      .join("")
+                : "";
+
+            const borderColor = node.branchColor || (node.type === "hub" ? "#0f0" : node.type === "meta" ? "#5cf" : "#0f0");
+            const isLocked = !isUnlocked && node.type !== "hub" && node.id !== "commandCore";
+            
+            const nodeEl = document.createElement("div");
+            nodeEl.className = `skill-node${node.type === "hub" ? " is-hub" : ""}${node.type === "meta" ? " is-meta" : ""}${isLocked ? " is-locked" : ""}`;
+            nodeEl.style.left = `${pos.left}px`;
+            nodeEl.style.top = `${pos.top}px`;
+            if (node.branchColor) {
+                nodeEl.style.borderColor = borderColor;
+            }
+            
+            let moduleInfo = "";
+            if (node.moduleId && isUnlocked) {
+                moduleInfo = `<div class="skill-module-info">🔓 Модуль: ${node.moduleId}</div>`;
+            } else if (node.moduleId && !isUnlocked) {
+                moduleInfo = `<div class="skill-module-info locked">🔒 Модуль заблокирован</div>`;
+            }
+
+            nodeEl.innerHTML = `
+                <div class="skill-node-header">
+                    <div style="display:flex;align-items:center;gap:6px;flex:1;">
+                        <span class="skill-node-icon">${node.icon}</span>
+                        <div class="skill-node-title">${node.title}</div>
                     </div>
-                    <button class="skill-upgrade-btn" data-skill="${skill.id}" ${stats.skillPoints <= 0 || level >= maxLevel ? 'disabled' : ''}>
-                        ${level >= maxLevel ? 'MAX' : '+'}
-                    </button>
+                    ${node.badge ? `<span class="skill-node-badge">${node.badge}</span>` : ""}
                 </div>
+                <div class="skill-node-desc">${node.desc}</div>
+                ${moduleInfo}
+                ${
+                    node.skillId
+                        ? `
+                            <div class="skill-node-level">
+                                Уровень ${level}/${maxLevel}
+                                ${cost > 0 && level < maxLevel ? `<span class="skill-cost">Стоимость: ${cost} SP</span>` : ""}
+                            </div>
+                            <div class="skill-meter">${pips}</div>
+                            <button class="skill-upgrade-btn" data-skill="${node.skillId}" ${canUpgrade ? "" : "disabled"}>
+                                ${level >= maxLevel ? "MAX" : isLocked ? "Заблокировано" : canAfford ? `Улучшить (${cost})` : `Нужно ${cost} SP`}
+                            </button>
+                          `
+                        : ""
+                }
+                ${node.type === "meta" && (node as any).meta ? `<div class="skill-node-meta">${(node as any).meta}</div>` : ""}
+                ${node.effects && node.effects.length > 0 ? `<div class="skill-effects">${node.effects.map(e => `• ${e}`).join("<br>")}</div>` : ""}
             `;
-        }).join('');
+
+            nodesFragment.appendChild(nodeEl);
+        });
+
+        skillTree.appendChild(connectors);
+        skillTree.appendChild(nodesFragment);
         
-        skillsList.querySelectorAll('.skill-upgrade-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const skillId = (btn as HTMLElement).dataset.skill;
+        console.log(`[Skills] Created ${nodesCreated} nodes, ${connectors.children.length} connectors`);
+        console.log(`[Skills] skillTree children count: ${skillTree.children.length}`);
+        
+        // Проверяем что узлы действительно в DOM
+        const renderedNodes = skillTree.querySelectorAll('.skill-node');
+        console.log(`[Skills] Rendered nodes in DOM: ${renderedNodes.length}`);
+
+        skillTree.querySelectorAll(".skill-upgrade-btn").forEach((btn) => {
+            btn.addEventListener("click", () => {
+                const skillId = (btn as HTMLElement).dataset.skill as keyof typeof stats.skills | undefined;
                 if (skillId && this.playerProgression) {
-                    this.playerProgression.upgradeSkill(skillId);
-                    this.updateSkillsPanel();
-                    this.updatePlayerInfo();
+                    const node = nodes.find(n => n.skillId === skillId);
+                    if (node) {
+                        const currentLevel = stats.skills[skillId] || 0;
+                        const nextLevel = currentLevel + 1;
+                        const cost = getSkillCost(nextLevel, node.cost || 1);
+                        if (stats.skillPoints >= cost && nextLevel <= (node.maxLevel || 5)) {
+                            // Потратить очки за один уровень
+                            for (let i = 0; i < cost && stats.skillPoints > 0; i++) {
+                                this.playerProgression.upgradeSkill(skillId);
+                            }
+                            this.updateSkillsPanel();
+                            this.updatePlayerInfo();
+                        }
+                    } else {
+                        // Fallback для старых навыков
+                        this.playerProgression.upgradeSkill(skillId);
+                        this.updateSkillsPanel();
+                        this.updatePlayerInfo();
+                    }
                 }
             });
         });
+
+        this.setupSkillTreeNavigation(wrapper);
+    }
+
+    private setupSkillTreeNavigation(wrapper: HTMLElement | null): void {
+        if (!wrapper) return;
+        const flag = "_skillNavBound";
+        if ((wrapper as any)[flag]) return;
+        (wrapper as any)[flag] = true;
+
+        let isDown = false;
+        let startX = 0;
+        let startY = 0;
+        let scrollLeft = 0;
+        let scrollTop = 0;
+
+        const onMouseDown = (e: MouseEvent) => {
+            isDown = true;
+            wrapper.classList.add("dragging");
+            startX = e.clientX;
+            startY = e.clientY;
+            scrollLeft = wrapper.scrollLeft;
+            scrollTop = wrapper.scrollTop;
+        };
+
+        const onMouseMove = (e: MouseEvent) => {
+            if (!isDown) return;
+            e.preventDefault();
+            wrapper.scrollLeft = scrollLeft - (e.clientX - startX);
+            wrapper.scrollTop = scrollTop - (e.clientY - startY);
+        };
+
+        const stopDrag = () => {
+            isDown = false;
+            wrapper.classList.remove("dragging");
+        };
+
+        wrapper.addEventListener("mousedown", onMouseDown);
+        wrapper.addEventListener("mousemove", onMouseMove);
+        wrapper.addEventListener("mouseleave", stopDrag);
+        window.addEventListener("mouseup", stopDrag);
+
+        const onKey = (e: KeyboardEvent) => {
+            if (!this.skillsPanel || !this.skillsPanel.classList.contains("visible")) return;
+            const step = 80;
+            switch (e.key) {
+                case "ArrowLeft":
+                    wrapper.scrollLeft -= step;
+                    e.preventDefault();
+                    break;
+                case "ArrowRight":
+                    wrapper.scrollLeft += step;
+                    e.preventDefault();
+                    break;
+                case "ArrowUp":
+                    wrapper.scrollTop -= step;
+                    e.preventDefault();
+                    break;
+                case "ArrowDown":
+                    wrapper.scrollTop += step;
+                    e.preventDefault();
+                    break;
+            }
+        };
+
+        window.addEventListener("keydown", onKey);
     }
     
     private createGarageUI(): void {
@@ -3690,6 +4437,9 @@ export class MainMenu {
         const wantsPlayMenuBack = this.returnToPlayMenuAfterGarage;
         const wasPlayVisible = this.playMenuPanel?.classList.contains("visible");
         
+        // Garage is initialized by game.ts via setGarage() when game starts
+        // If not available, fallback to simple panel
+        
         // If Garage class is available, use it instead of old panel
         if (this.garage) {
             debugLog("[Menu] Opening Garage class");
@@ -3732,6 +4482,12 @@ export class MainMenu {
         } else {
             debugError("[Menu] garagePanel is null!");
         }
+    }
+    
+    private initializeGarage(): void {
+        // Garage will be initialized by game.ts via setGarage() when game starts
+        // This method is kept for future use but currently does nothing
+        debugLog("[Menu] Garage initialization deferred to game.ts");
     }
     
     private hideGarage(): void {
@@ -4032,8 +4788,18 @@ export class MainMenu {
     hide(): void {
         this.container.classList.add("hidden");
         document.body.classList.remove("menu-visible");
-        // Разрешаем pointer-events на canvas
+        // Разрешаем pointer-events на canvas и восстанавливаем видимость
         this.enforceCanvasPointerEvents();
+        
+        // Дополнительно убеждаемся, что canvas виден
+        const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
+        if (canvas) {
+            canvas.style.setProperty("display", "block", "important");
+            canvas.style.setProperty("visibility", "visible", "important");
+            canvas.style.setProperty("opacity", "1", "important");
+            canvas.style.setProperty("z-index", "0", "important");
+        }
+        
         // Также отправляем событие для Game класса
         window.dispatchEvent(new CustomEvent("menuVisibilityChanged", { detail: { visible: false } }));
     }
