@@ -132,7 +132,7 @@ export class ChunkSystem {
         this.config = {
             chunkSize: 50,
             renderDistance: 1.5,  // Уменьшено для оптимизации производительности
-            unloadDistance: 3,  // Уменьшено для оптимизации производительности
+            unloadDistance: 2.5,  // УЛУЧШЕНО: Уменьшено с 3 до 2.5 для более агрессивной очистки памяти
             worldSeed: Date.now(),
             mapType: "normal", // По умолчанию
             ...config
@@ -156,14 +156,22 @@ export class ChunkSystem {
                 terrainGenerator: this.terrainGenerator
             });
             
-            this.coverGenerator = new CoverGenerator(this.scene, {
-                worldSeed: this.config.worldSeed
-            });
+            this.coverGenerator = new CoverGenerator(
+                this.scene, 
+                {
+                    worldSeed: this.config.worldSeed
+                },
+                (x: number, z: number, margin: number) => this.isPositionInGarageArea(x, z, margin)
+            );
             
-            this.poiSystem = new POISystem(this.scene, {
-                worldSeed: this.config.worldSeed,
-                poiSpacing: 150
-            });
+            this.poiSystem = new POISystem(
+                this.scene, 
+                {
+                    worldSeed: this.config.worldSeed,
+                    poiSpacing: 150
+                },
+                (x: number, z: number, margin: number) => this.isPositionInGarageArea(x, z, margin)
+            );
             
             console.log(`[ChunkSystem] All generators initialized with seed: ${this.config.worldSeed}`);
         }
@@ -554,6 +562,7 @@ export class ChunkSystem {
             garageZ + garageDepth / 2 - wallThickness / 2
         );
         frontDoor.material = doorMat; // Используем материал с прозрачностью 50%
+        frontDoor.isPickable = true; // Включаем возможность raycast для определения, на какую ворота смотрит игрок
         // Физика для непробиваемых ворот (как стены) - анимированный тип для движения
         const frontDoorPhysics = new PhysicsAggregate(frontDoor, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         frontDoorPhysics.body.setMotionType(PhysicsMotionType.ANIMATED);
@@ -572,6 +581,7 @@ export class ChunkSystem {
             garageZ - garageDepth / 2 + wallThickness / 2
         );
         backDoor.material = doorMat; // Используем материал с прозрачностью 50%
+        backDoor.isPickable = true; // Включаем возможность raycast для определения, на какую ворота смотрит игрок
         // Физика для непробиваемых ворот (как стены) - анимированный тип для движения
         const backDoorPhysics = new PhysicsAggregate(backDoor, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         backDoorPhysics.body.setMotionType(PhysicsMotionType.ANIMATED);
@@ -630,11 +640,13 @@ export class ChunkSystem {
         this.garagePositions.push(spawnPos);
         
         // Сохраняем область гаража (с запасом чтобы ничего не спавнилось внутри)
+        // УВЕЛИЧЕННЫЙ ЗАПАС для 100% гарантированного исключения зоны гаража
+        const garageMargin = 10; // Увеличен запас до 10 единиц для полной гарантии
         this.garageAreas.push({
-            x: garageX - garageWidth / 2 - 3,
-            z: garageZ - garageDepth / 2 - 3,
-            width: garageWidth + 6,
-            depth: garageDepth + 6
+            x: garageX - garageWidth / 2 - garageMargin,
+            z: garageZ - garageDepth / 2 - garageMargin,
+            width: garageWidth + garageMargin * 2, // Запас с обеих сторон
+            depth: garageDepth + garageMargin * 2
         });
         
         // ТОЧКА ЗАХВАТА - ВЕРСТАК у левой стены гаража (без ворот)
@@ -5764,10 +5776,11 @@ export class ChunkSystem {
         const centerZ = worldZ + size / 2;
         const distanceFromCenter = Math.sqrt(centerX * centerX + centerZ * centerZ);
         
-        // Гаражи появляются на расстоянии 15-400 от центра, с вероятностью 35%
+        // УЛУЧШЕНО: Гаражи появляются на расстоянии 10-500 от центра, с увеличенной вероятностью 45%
         // Минимальное расстояние уменьшено для гарантированного гаража рядом со стартом
-        if (distanceFromCenter < 15 || distanceFromCenter > 400) return;
-        if (!random.chance(0.35)) return;
+        // Увеличена максимальная дистанция для большего разнообразия
+        if (distanceFromCenter < 10 || distanceFromCenter > 500) return;
+        if (!random.chance(0.45)) return; // УВЕЛИЧЕНА вероятность с 35% до 45%
         
         // Создаём гараж - ПУСТОЕ здание с проёмом (без ворот)
         // Размеры достаточные для танка (танк ~4x6 единиц)
@@ -5906,11 +5919,12 @@ export class ChunkSystem {
         chunk.meshes.push(floor);
         
         // Сохраняем область гаража для исключения из генерации других объектов
+        // УВЕЛИЧЕННЫЙ ЗАПАС чтобы ничего не спавнилось внутри или рядом с гаражом
         const garageArea = {
-            x: worldGarageX - garageWidth / 2 - 2, // Добавляем запас 2 единицы
-            z: worldGarageZ - garageDepth / 2 - 2,
-            width: garageWidth + 4,
-            depth: garageDepth + 4
+            x: worldGarageX - garageWidth / 2 - 5, // Увеличен запас до 5 единиц
+            z: worldGarageZ - garageDepth / 2 - 5,
+            width: garageWidth + 10, // Увеличен запас до 10 единиц
+            depth: garageDepth + 10
         };
         this.garageAreas.push(garageArea);
         
@@ -6489,19 +6503,20 @@ export class ChunkSystem {
     
     // Генерация припасов на карте
     private generateConsumables(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
-        // Генерируем 1-3 припаса на чанк
-        const count = random.int(1, 3);
+        // УЛУЧШЕНО: Генерируем 2-4 припаса на чанк (было 1-3) для большего разнообразия
+        const count = random.int(2, 4);
         
         for (let i = 0; i < count; i++) {
             let attempts = 0;
             let x: number, z: number;
             
             // Ищем свободное место (не в гараже, не в зданиях)
+            // УВЕЛИЧЕННЫЙ MARGIN для гарантированного исключения зоны гаража
             do {
                 x = worldX + random.range(5, size - 5);
                 z = worldZ + random.range(5, size - 5);
                 attempts++;
-            } while (this.isPositionInGarageArea(x, z, 3) && attempts < 10);
+            } while (this.isPositionInGarageArea(x, z, 5) && attempts < 20); // Увеличен margin и attempts
             
             if (attempts >= 10) continue; // Пропускаем если не нашли место
             

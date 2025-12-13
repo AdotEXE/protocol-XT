@@ -73,8 +73,8 @@ export class EnemyTank {
     private _lastPOICheck = 0;
     private poiCaptureTime = 0; // Time spent at POI
     
-    // AI properties
-    private attackRange = 100; // Attack range in units
+    // AI properties - УЛУЧШЕНО: Увеличен радиус атаки для более агрессивного ИИ
+    private attackRange = 120; // УВЕЛИЧЕНО с 100 до 120 для более активного боя
     
     // AI Decisions
     private lastDecisionTime = 0;
@@ -96,7 +96,7 @@ export class EnemyTank {
     
     // === Combat ===
     private lastShotTime = 0;
-    private cooldown = 2500; // 2.5 seconds reload
+    private cooldown = 2200; // УЛУЧШЕНО: Уменьшено с 2.5 до 2.2 секунд для более динамичного боя
     private isReloading = false;
     private range = 60;           // Дальность атаки
     private detectRange = 200;    // Радиус обнаружения (200м)

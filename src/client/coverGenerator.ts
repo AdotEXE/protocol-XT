@@ -45,13 +45,15 @@ export class CoverGenerator {
     private config: CoverGeneratorConfig;
     private materials: Map<string, StandardMaterial> = new Map();
     private covers: Map<string, CoverObject[]> = new Map();
+    private isPositionInGarageArea?: (x: number, z: number, margin: number) => boolean;
     
-    constructor(scene: Scene, config?: Partial<CoverGeneratorConfig>) {
+    constructor(scene: Scene, config?: Partial<CoverGeneratorConfig>, isPositionInGarageArea?: (x: number, z: number, margin: number) => boolean) {
         this.scene = scene;
         this.config = {
             worldSeed: Date.now(),
             ...config
         };
+        this.isPositionInGarageArea = isPositionInGarageArea;
         this.createMaterials();
     }
     
@@ -457,10 +459,17 @@ export class CoverGenerator {
             const z = random.range(8, chunkSize - 8);
             const localPos = new Vector3(x, 0, z);
             const rotation = random.range(0, Math.PI * 2);
+            const worldX_pos = worldX + x;
+            const worldZ_pos = worldZ + z;
             
             // Check if position is on a road (skip if so)
-            if (roadNetwork && roadNetwork.isOnRoad(worldX + x, worldZ + z)) {
+            if (roadNetwork && roadNetwork.isOnRoad(worldX_pos, worldZ_pos)) {
                 continue;
+            }
+            
+            // КРИТИЧЕСКИ ВАЖНО: Проверяем, не находится ли объект в области гаража
+            if (this.isPositionInGarageArea && this.isPositionInGarageArea(worldX_pos, worldZ_pos, 3)) {
+                continue; // Пропускаем этот объект
             }
             
             // Choose cover type based on biome

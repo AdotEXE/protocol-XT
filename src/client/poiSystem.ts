@@ -121,6 +121,7 @@ export class POISystem {
     private chunkPOIs: Map<string, string[]> = new Map();
     private callbacks: POICallbacks = {};
     private particleSystems: Map<string, ParticleSystem> = new Map();
+    private isPositionInGarageArea?: (x: number, z: number, margin: number) => boolean;
     
     // Constants
     private readonly CAPTURE_POINT_TIME = 30; // seconds
@@ -139,13 +140,14 @@ export class POISystem {
     private readonly CREDITS_PER_SECOND = 0.5;
     private readonly BONUS_INTERVAL = 1000; // ms
     
-    constructor(scene: Scene, config?: Partial<POISystemConfig>) {
+    constructor(scene: Scene, config?: Partial<POISystemConfig>, isPositionInGarageArea?: (x: number, z: number, margin: number) => boolean) {
         this.scene = scene;
         this.config = {
             worldSeed: Date.now(),
             poiSpacing: 150,
             ...config
         };
+        this.isPositionInGarageArea = isPositionInGarageArea;
         this.createMaterials();
     }
     
@@ -1294,6 +1296,11 @@ export class POISystem {
             const margin = 20;
             const x = worldX + random.range(margin, chunkSize - margin);
             const z = worldZ + random.range(margin, chunkSize - margin);
+            
+            // КРИТИЧЕСКИ ВАЖНО: Проверяем, не находится ли POI в области гаража
+            if (this.isPositionInGarageArea && this.isPositionInGarageArea(x, z, 10)) {
+                continue; // Пропускаем этот POI
+            }
             
             // Проверяем расстояние до других POI в этом чанке
             let tooClose = false;

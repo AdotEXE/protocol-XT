@@ -69,6 +69,9 @@ export interface ITankController {
     projectileSpeed: number;
     projectileSize: number;
     
+    // Гильзы (для доступа из модулей)
+    shellCasings: ShellCasing[];
+    
     // Визуальные элементы
     visualWheels: Mesh[];
     leftTrack: Mesh | null;
@@ -122,6 +125,13 @@ export interface ITankVisuals {
     updateCannonAnimations(): void;
     updateChassisAnimations(): void;
     updateBarrelVisibility(baseZ: number): void;
+}
+
+// Тип для гильзы
+export interface ShellCasing {
+    mesh: Mesh;
+    physics: PhysicsBody;
+    lifetime: number;
 }
 
 export interface ITankProjectiles {

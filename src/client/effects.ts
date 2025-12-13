@@ -77,10 +77,10 @@ export class EffectsManager {
         };
         animate();
         
-        // Улучшенные частицы (больше и ярче)
-        const particleCount = 16;
+        // УЛУЧШЕНО: Улучшенные частицы (больше и ярче)
+        const particleCount = 20; // УВЕЛИЧЕНО с 16 до 20 для более эффектного вида
         for (let i = 0; i < particleCount; i++) {
-            const particle = MeshBuilder.CreateBox("particle", { size: 0.25 }, this.scene);
+            const particle = MeshBuilder.CreateBox("particle", { size: 0.3 }, this.scene); // УВЕЛИЧЕН размер с 0.25 до 0.3
             particle.position = position.clone();
             particle.position.y = 1;
             
@@ -220,11 +220,11 @@ export class EffectsManager {
         }
     }
     
-    // Simple muzzle flash - just a yellow box
+    // УЛУЧШЕНО: Simple muzzle flash - более яркий и заметный
     createMuzzleFlash(position: Vector3, direction: Vector3, cannonType?: string): void {
         // Get unique color based on cannon type
         let flashColor = new Color3(1, 1, 0); // Default yellow
-        let flashSize = 0.8;
+        let flashSize = 1.0; // УВЕЛИЧЕНО с 0.8 до 1.0 для лучшей видимости
         
         if (cannonType) {
             switch (cannonType) {
@@ -283,10 +283,10 @@ export class EffectsManager {
         animate();
     }
     
-    // Enhanced explosion - multiple expanding rings and debris
+    // УЛУЧШЕНО: Enhanced explosion - более эффектные взрывы
     createExplosion(position: Vector3, scale: number = 1.0): void {
-        // Main explosion sphere (expanding)
-        const explosion = MeshBuilder.CreateSphere("explosion", { diameter: 0.5 * scale, segments: 8 }, this.scene);
+        // Main explosion sphere (expanding) - УВЕЛИЧЕН начальный размер
+        const explosion = MeshBuilder.CreateSphere("explosion", { diameter: 0.7 * scale, segments: 8 }, this.scene); // УВЕЛИЧЕНО с 0.5 до 0.7
         explosion.position = position.clone();
         explosion.material = this.explosionMat;
         

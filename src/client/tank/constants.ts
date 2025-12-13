@@ -28,6 +28,23 @@ export const TANK_CONSTANTS = {
     SHELL_CASING_LIFETIME: 5000, // Время жизни гильзы (5 секунд)
     PROJECTILE_LIFETIME: 6000,   // Время жизни снаряда (6 секунд)
     
+    // Гильзы
+    SHELL_CASING_DIAMETER_MULTIPLIER: 1.0,    // Диаметр гильзы = размер снаряда
+    SHELL_CASING_LENGTH_MULTIPLIER: 3.0,      // Длина гильзы = размер снаряда * 3
+    SHELL_CASING_POSITION_OFFSET: 0.3,        // Смещение гильзы назад от дула
+    SHELL_CASING_SIDE_OFFSET: 0.2,            // Смещение гильзы вбок
+    SHELL_CASING_MASS: 0.1,                   // Масса гильзы
+    SHELL_CASING_LINEAR_DAMPING: 0.5,         // Линейное затухание
+    SHELL_CASING_ANGULAR_DAMPING: 0.8,        // Угловое затухание
+    SHELL_CASING_EJECT_SPEED_MIN: 8,          // Минимальная скорость выброса
+    SHELL_CASING_EJECT_SPEED_MAX: 12,         // Максимальная скорость выброса (8 + 4)
+    SHELL_CASING_ROTATION_MULTIPLIER: 10,     // Множитель случайного вращения
+    SHELL_CASING_PHYSICS_EXTENT_MULTIPLIER: 0.75, // Размер физического тела гильзы
+    SHELL_CASING_PHYSICS_HEIGHT_MULTIPLIER: 0.5,  // Высота физического тела гильзы
+    SHELL_CASING_FILTER_MEMBERSHIP_MASK: 64,  // Группа фильтра гильз
+    SHELL_CASING_FILTER_COLLIDE_MASK: 2,      // Маска коллизий гильз
+    SHELL_CASING_DISPOSE_Y_THRESHOLD: -1,     // Порог Y для удаления гильзы
+    
     // Отдача
     BARREL_RECOIL_SPEED: 0.3,    // Скорость возврата пушки
     BARREL_RECOIL_AMOUNT: -1.6,  // Величина отката пушки

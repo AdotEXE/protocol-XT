@@ -38,17 +38,17 @@ export class SoundManager {
     private reverbGains: GainNode[] = [];
     private reverbFilters: BiquadFilterNode[] = [];
     
-    // Volume settings
+    // Volume settings - УЛУЧШЕНО: Оптимизированы уровни громкости для лучшего баланса
     public masterVolume = 1.0; // МАКСИМАЛЬНАЯ общая громкость
-    public engineVolume = 1.0; // МАКСИМАЛЬНАЯ громкость мотора для брутального звука
-    public shootVolume = 0.75;
-    public explosionVolume = 0.85;
-    public hitVolume = 0.55;
-    public reloadVolume = 0.45;
-    public movementVolume = 0.35;
-    public pickupVolume = 0.6;
-    public uiVolume = 0.5;
-    public ambientVolume = 0.2;
+    public engineVolume = 0.9; // УМЕНЬШЕНО с 1.0 до 0.9 для лучшего баланса
+    public shootVolume = 0.8; // УВЕЛИЧЕНО с 0.75 до 0.8 для лучшей слышимости
+    public explosionVolume = 0.9; // УВЕЛИЧЕНО с 0.85 до 0.9 для более эффектных взрывов
+    public hitVolume = 0.6; // УВЕЛИЧЕНО с 0.55 до 0.6
+    public reloadVolume = 0.5; // УВЕЛИЧЕНО с 0.45 до 0.5
+    public movementVolume = 0.4; // УВЕЛИЧЕНО с 0.35 до 0.4
+    public pickupVolume = 0.65; // УВЕЛИЧЕНО с 0.6 до 0.65
+    public uiVolume = 0.55; // УВЕЛИЧЕНО с 0.5 до 0.55
+    public ambientVolume = 0.25; // УВЕЛИЧЕНО с 0.2 до 0.25 для более атмосферного звука
     
     // 3D Audio settings
     private use3DAudio = true;

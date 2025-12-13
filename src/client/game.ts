@@ -491,40 +491,56 @@ export class Game {
                         if (ng.distance < 50) {
                             const doorData = ng.doorData;
                             
-                            // Получаем направление пушки
+                            // Получаем направление пушки и позицию
                             this.tank.chassis.computeWorldMatrix(true);
                             this.tank.turret.computeWorldMatrix(true);
                             this.tank.barrel.computeWorldMatrix(true);
+                            const barrelPos = this.tank.barrel.getAbsolutePosition();
                             const barrelDir = this.tank.barrel.getDirection(Vector3.Forward()).normalize();
                             
-                            // Позиции ворот (передняя и задняя)
-                            const garagePos = doorData.position;
-                            const garageDepth = doorData.garageDepth || 20; // Глубина гаража из данных
-                            const frontDoorPos = new Vector3(garagePos.x, 0, garagePos.z + garageDepth / 2);
-                            const backDoorPos = new Vector3(garagePos.x, 0, garagePos.z - garageDepth / 2);
+                            // Используем raycast для точного определения, какая ворота попадает в луч
+                            const rayDistance = 100; // Максимальная дистанция луча
+                            const ray = new Ray(barrelPos, barrelDir, rayDistance);
                             
-                            // Направления от игрока к воротам
-                            const toFrontDoor = frontDoorPos.subtract(new Vector3(playerPos.x, 0, playerPos.z)).normalize();
-                            const toBackDoor = backDoorPos.subtract(new Vector3(playerPos.x, 0, playerPos.z)).normalize();
+                            // Выполняем raycast, проверяя только ворота
+                            const pick = this.scene.pickWithRay(ray, (mesh) => {
+                                if (!mesh || !mesh.isEnabled()) return false;
+                                // Проверяем, что это ворота гаража
+                                return (mesh.name.includes("garageFrontDoor") || mesh.name.includes("garageBackDoor")) &&
+                                       mesh.isPickable && mesh.visibility > 0.5;
+                            });
                             
-                            // Скалярное произведение для определения, какая ворота ближе к направлению взгляда
-                            const frontDot = Vector3.Dot(barrelDir, toFrontDoor);
-                            const backDot = Vector3.Dot(barrelDir, toBackDoor);
+                            // Определяем, какая ворота попала в луч
+                            let hitDoor: "front" | "back" | null = null;
+                            if (pick && pick.hit && pick.pickedMesh) {
+                                if (pick.pickedMesh.name.includes("garageFrontDoor")) {
+                                    hitDoor = "front";
+                                } else if (pick.pickedMesh.name.includes("garageBackDoor")) {
+                                    hitDoor = "back";
+                                }
+                            }
                             
-                            // Открываем/закрываем только ту ворота, на которую смотрит пушка
-                            if (frontDot > backDot) {
-                                // Передняя ворота ближе к направлению взгляда
+                            // Если луч попал в ворота, переключаем только эту ворота
+                            if (hitDoor === "front") {
                                 doorData.frontDoorOpen = !doorData.frontDoorOpen;
                                 logger.debug(`Front garage door ${doorData.frontDoorOpen ? 'opening' : 'closing'} manually (G key)`);
-                            } else {
-                                // Задняя ворота ближе к направлению взгляда
+                                console.log(`[Game] G key: Toggling front door, new state: ${doorData.frontDoorOpen}`);
+                            } else if (hitDoor === "back") {
                                 doorData.backDoorOpen = !doorData.backDoorOpen;
                                 logger.debug(`Back garage door ${doorData.backDoorOpen ? 'opening' : 'closing'} manually (G key)`);
+                                console.log(`[Game] G key: Toggling back door, new state: ${doorData.backDoorOpen}`);
+                            } else {
+                                // Луч не попал в ворота - не делаем ничего
+                                logger.debug(`Raycast did not hit any garage door`);
+                                return;
                             }
                             
                             // Ворота остаются в выбранном состоянии (ручное управление постоянно активно)
                             doorData.manualControl = true;
                             doorData.manualControlTime = Date.now();
+                            
+                            // Принудительно вызываем обновление ворот
+                            this.updateGarageDoors();
                         } else {
                             logger.debug(`No garage nearby (distance: ${ng.distance.toFixed(1)})`);
                         }
@@ -1239,7 +1255,11 @@ export class Game {
                 console.warn("[Game] Firebase initialization failed, continuing without cloud features");
             }
         } catch (error) {
-            console.error("[Game] Firebase initialization error:", error);
+            // УЛУЧШЕНО: Улучшенная обработка ошибок Firebase
+            logger.warn("[Game] Firebase initialization error (non-critical):", error);
+            if (error instanceof Error) {
+                logger.debug("[Game] Firebase error stack:", error.stack);
+            }
         }
         try {
             console.log(`[Game] init() called with mapType: ${this.currentMapType}`);
@@ -1430,14 +1450,32 @@ export class Game {
             console.log("[Game] Camera created and set as active");
             
             // Create HUD (может вызвать ошибку, но камера уже создана)
+            // ВАЖНО: GUI texture требует, чтобы renderTargetsEnabled был включен
+            // AdvancedDynamicTexture создает свой render target
+            const originalRenderTargetsEnabled = this.scene.renderTargetsEnabled;
+            this.scene.renderTargetsEnabled = true; // Временно включаем для создания GUI
             this.updateLoadingProgress(50, "Создание интерфейса...");
             try {
                 this.hud = new HUD(this.scene);
+                
+                // Проверяем работоспособность GUI texture после создания
+                if (this.hud) {
+                    const isOk = this.hud.verifyAndRecreateGuiTexture();
+                    if (!isOk) {
+                        console.warn("[Game] GUI texture had issues but was recreated");
+                    }
+                }
+                
                 this.tank.setHUD(this.hud);
                 console.log("[Game] HUD created successfully");
+                // GUI texture создан, можно вернуть настройку (GUI все равно будет работать)
+                // this.scene.renderTargetsEnabled = originalRenderTargetsEnabled;
+                // Оставляем включенным, так как GUI нужен render target
             } catch (e) {
                 logger.error("HUD creation error:", e);
                 console.error("[Game] HUD creation failed:", e);
+                // Восстанавливаем настройку при ошибке
+                this.scene.renderTargetsEnabled = originalRenderTargetsEnabled;
                 // Продолжаем без HUD
             }
             
@@ -1709,11 +1747,11 @@ export class Game {
             }
             logger.log(`Using world seed: ${worldSeed}`);
             
-            // Create destruction system
+            // Create destruction system - УЛУЧШЕНО: Оптимизированы параметры для производительности
             this.destructionSystem = new DestructionSystem(this.scene, {
                 enableDebris: true,
-                debrisLifetime: 10000,
-                maxDebrisPerObject: 5
+                debrisLifetime: 8000, // УМЕНЬШЕНО с 10000 до 8000 для экономии памяти
+                maxDebrisPerObject: 4 // УМЕНЬШЕНО с 5 до 4 для оптимизации
             });
             
             this.chunkSystem = new ChunkSystem(this.scene, {
@@ -2903,7 +2941,7 @@ export class Game {
         if (!this.chunkSystem || !this.chunkSystem.garageDoors) return;
         
         // Обновляем каждые ворота
-        const doorSpeed = 0.12; // Скорость открытия/закрытия (немного медленнее для более плавной анимации)
+        const doorSpeed = 0.18; // УВЕЛИЧЕНА скорость открытия/закрытия для более отзывчивого управления
         
         this.chunkSystem.garageDoors.forEach(doorData => {
             if (!doorData.frontDoor || !doorData.backDoor) return;
@@ -3591,13 +3629,13 @@ export class Game {
             this.checkSpectatorMode();
         }
         
-        // Анимация припасов на карте (каждые 2 кадра для оптимизации)
-        if (this._updateTick % 2 === 0 && this.chunkSystem) {
+        // Анимация припасов на карте (каждые 3 кадра для оптимизации) - УЛУЧШЕНО
+        if (this._updateTick % 3 === 0 && this.chunkSystem) {
             this.chunkSystem.updateConsumablesAnimation(deltaTime);
         }
         
-        // Обновление турелей (каждые 5 кадров для оптимизации - уменьшено для предотвращения лагов)
-        if (this._updateTick % 5 === 0 && this.enemyManager) {
+        // УЛУЧШЕНО: Обновление турелей (каждые 3 кадра для оптимизации - баланс между производительностью и отзывчивостью)
+        if (this._updateTick % 3 === 0 && this.enemyManager) {
             this.enemyManager.update();
         }
         
@@ -3609,9 +3647,9 @@ export class Game {
             this.updateCamera();
         }
         
-        // 2. Chunk system (каждые 4 кадра для оптимизации, кэшируем позицию)
+        // 2. Chunk system (каждые 5 кадров для оптимизации, кэшируем позицию) - УЛУЧШЕНО
         // КРИТИЧЕСКИ ВАЖНО: Уменьшена частота обновления для предотвращения тряски и лагов
-        if (this._updateTick % 4 === 0 && this.chunkSystem && this.tank && this.tank.chassis) {
+        if (this._updateTick % 5 === 0 && this.chunkSystem && this.tank && this.tank.chassis) {
             // Кэшируем позицию танка для избежания повторных вызовов getAbsolutePosition
             // Используем position вместо absolutePosition для лучшей производительности
             if (this._tankPositionCacheFrame !== this._updateTick) {

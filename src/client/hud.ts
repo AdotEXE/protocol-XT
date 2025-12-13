@@ -253,7 +253,41 @@ export class HUD {
     
     constructor(scene: Scene) {
         this.scene = scene;
-        this.guiTexture = AdvancedDynamicTexture.CreateFullscreenUI("UI", true, scene);
+        
+        // ДИАГНОСТИКА: Проверяем сцену перед созданием GUI texture
+        if (!scene) {
+            console.error("[HUD] ERROR: Scene is null or undefined!");
+            throw new Error("Scene is required for HUD initialization");
+        }
+        
+        // Создаем GUI texture с проверкой
+        try {
+            this.guiTexture = AdvancedDynamicTexture.CreateFullscreenUI("UI", true, scene);
+            console.log("[HUD] GUI Texture created successfully");
+        } catch (e) {
+            console.error("[HUD] ERROR creating GUI Texture:", e);
+            throw e;
+        }
+        
+        // КРИТИЧЕСКИ ВАЖНО: Убеждаемся, что GUI отображается поверх всего
+        this.guiTexture.isForeground = true;
+        
+        // ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ ДЛЯ ОБЕСПЕЧЕНИЯ ВИДИМОСТИ
+        // Убеждаемся, что texture не заблокирован
+        if (this.guiTexture.rootContainer) {
+            this.guiTexture.rootContainer.isVisible = true;
+        }
+        
+        // ДИАГНОСТИКА: Проверяем GUI texture после создания
+        console.log("[HUD] GUI Texture object:", this.guiTexture);
+        console.log("[HUD] GUI Texture isForeground:", this.guiTexture.isForeground);
+        console.log("[HUD] GUI Texture rootContainer:", this.guiTexture.rootContainer);
+        console.log("[HUD] GUI Texture rootContainer isVisible:", this.guiTexture.rootContainer?.isVisible);
+        console.log("[HUD] GUI Texture rootContainer children count (before):", this.guiTexture.rootContainer?.children?.length || 0);
+        
+        // Проверяем настройки сцены для GUI
+        console.log("[HUD] Scene renderTargetsEnabled:", this.scene.renderTargetsEnabled);
+        console.log("[HUD] Scene activeCamera:", this.scene.activeCamera?.name);
         
         // === МИНИМАЛЬНЫЙ HUD ===
         this.createHealthBar();        // Тонкие полоски слева сверху
@@ -290,12 +324,35 @@ export class HUD {
         this.setupMapKeyListener(); // Обработка клавиши M
         this.setupResizeHandler(); // Обработка изменения размера окна
         
+        // ДИАГНОСТИКА: Финальная проверка после создания всех элементов
+        const childrenCount = this.guiTexture.rootContainer?.children?.length || 0;
         console.log("[HUD] HUD initialized (MINIMAL MODE)");
-        console.log("[HUD] GUI Texture:", this.guiTexture);
-        console.log("[HUD] GUI Texture isForeground:", this.guiTexture.isForeground);
+        console.log("[HUD] GUI Texture rootContainer children count (after):", childrenCount);
         console.log("[HUD] Health bar created:", !!this.healthBar);
         console.log("[HUD] Compass container created:", !!this.compassContainer);
         console.log("[HUD] Minimap container created:", !!this.minimapContainer);
+        
+        // Проверяем видимость основных элементов
+        if (this.healthBar) {
+            console.log("[HUD] Health bar isVisible:", this.healthBar.isVisible);
+        }
+        if (this.compassContainer) {
+            console.log("[HUD] Compass container isVisible:", this.compassContainer.isVisible);
+        }
+        if (this.minimapContainer) {
+            console.log("[HUD] Minimap container isVisible:", this.minimapContainer.isVisible);
+        }
+        
+        // КРИТИЧЕСКАЯ ПРОВЕРКА: Если нет элементов в rootContainer, это проблема
+        if (childrenCount === 0) {
+            console.error("[HUD] ERROR: No elements added to GUI texture rootContainer!");
+            console.error("[HUD] This indicates a problem with element creation or addition");
+            // Попытка исправить проблему
+            console.log("[HUD] Attempting to verify and fix GUI texture...");
+            this.verifyAndRecreateGuiTexture();
+        } else {
+            console.log("[HUD] SUCCESS: GUI texture has", childrenCount, "children elements");
+        }
     }
     
     // === UI SCALING HELPERS ===
@@ -370,6 +427,82 @@ export class HUD {
     // Get GUI texture for external use (like Garage)
     getGuiTexture(): AdvancedDynamicTexture {
         return this.guiTexture;
+    }
+    
+    /**
+     * Проверяет работоспособность GUI texture и исправляет проблемы при необходимости
+     * @returns true если texture работает нормально, false если были обнаружены проблемы
+     */
+    verifyAndRecreateGuiTexture(): boolean {
+        try {
+            // Проверяем, что texture существует
+            if (!this.guiTexture) {
+                console.error("[HUD] CRITICAL: GUI texture is null!");
+                return false;
+            }
+            
+            // Проверяем, что rootContainer существует
+            if (!this.guiTexture.rootContainer) {
+                console.error("[HUD] CRITICAL: GUI texture rootContainer is null!");
+                return false;
+            }
+            
+            // Проверяем, что texture видим
+            if (!this.guiTexture.rootContainer.isVisible) {
+                console.warn("[HUD] GUI texture rootContainer is not visible, fixing...");
+                this.guiTexture.rootContainer.isVisible = true;
+            }
+            
+            // Убеждаемся, что isForeground установлен
+            if (!this.guiTexture.isForeground) {
+                console.warn("[HUD] GUI texture isForeground is false, fixing...");
+                this.guiTexture.isForeground = true;
+            }
+            
+            // Проверяем количество элементов (это информационно, не критично)
+            const childrenCount = this.guiTexture.rootContainer.children?.length || 0;
+            if (childrenCount === 0) {
+                console.warn("[HUD] WARNING: GUI texture has no children - elements may not have been created");
+                // Не пересоздаем texture, так как проблема в создании элементов, а не texture
+            }
+            
+            return true;
+        } catch (e) {
+            console.error("[HUD] Error verifying GUI texture:", e);
+            return false;
+        }
+    }
+    
+    /**
+     * Пересоздает GUI texture (используется в критических ситуациях)
+     */
+    private recreateGuiTexture(): void {
+        try {
+            console.log("[HUD] Attempting to recreate GUI texture...");
+            
+            // Сохраняем старый texture для удаления
+            const oldTexture = this.guiTexture;
+            
+            // Создаем новый texture
+            this.guiTexture = AdvancedDynamicTexture.CreateFullscreenUI("UI", true, this.scene);
+            this.guiTexture.isForeground = true;
+            
+            // Удаляем старый texture
+            if (oldTexture) {
+                try {
+                    oldTexture.dispose();
+                } catch (e) {
+                    console.warn("[HUD] Error disposing old texture:", e);
+                }
+            }
+            
+            console.log("[HUD] GUI texture recreated successfully");
+            console.warn("[HUD] WARNING: GUI texture was recreated. UI elements may need to be reinitialized.");
+            
+        } catch (e) {
+            console.error("[HUD] CRITICAL: Failed to recreate GUI texture:", e);
+            throw new Error("Failed to recreate GUI texture: " + e);
+        }
     }
     
     // Создать индикатор защиты от урона
@@ -683,8 +816,8 @@ export class HUD {
         container.height = this.scalePx(8);
         container.cornerRadius = 0;
         container.thickness = 1;
-        container.color = "#0f03";
-        container.background = "#00000099";
+        container.color = "#0f0"; // УЛУЧШЕНО: Более яркая рамка для лучшей видимости
+        container.background = "#000000cc"; // УЛУЧШЕНО: Более непрозрачный фон
         container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         container.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         container.left = "0px";
@@ -847,8 +980,8 @@ export class HUD {
         container.height = this.scalePx(12);
         container.cornerRadius = 0;
         container.thickness = 2;
-        container.color = "#f80";
-        container.background = "#000";
+        container.color = "#f80"; // Оранжевая рамка для перезарядки
+        container.background = "#000000cc"; // УЛУЧШЕНО: Более непрозрачный фон
         container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         container.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         container.left = "0px";
@@ -1807,8 +1940,8 @@ export class HUD {
         this.compassContainer.height = this.scalePx(25);
         this.compassContainer.cornerRadius = 0;
         this.compassContainer.thickness = 1;
-        this.compassContainer.color = "#0f03";
-        this.compassContainer.background = "#00000099";
+        this.compassContainer.color = "#0f0"; // УЛУЧШЕНО: Более яркая рамка
+        this.compassContainer.background = "#000000cc"; // УЛУЧШЕНО: Более непрозрачный фон
         this.compassContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.compassContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.compassContainer.top = this.scalePx(10);

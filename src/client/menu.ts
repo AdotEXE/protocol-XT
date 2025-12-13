@@ -3410,6 +3410,10 @@ export class MainMenu {
                             <span class="btn-icon">🎮</span>
                             <span class="btn-label">Одиночная игра</span>
                         </button>
+                        <button class="menu-btn play-btn" id="btn-mode-multiplayer" data-mode="multiplayer" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                            <span class="btn-icon">🌐</span>
+                            <span class="btn-label">МУЛЬТИПЛЕЕР</span>
+                        </button>
                         <button class="menu-btn secondary" id="btn-mode-ffa" data-mode="ffa">
                             <span class="btn-icon">⚔️</span>
                             <span class="btn-label">Free-for-All</span>
@@ -4460,21 +4464,29 @@ export class MainMenu {
         const skillTree = document.getElementById("skill-tree");
         if (!skillTree) return;
 
-        // === ЗУМ ЧЕРЕЗ TRANSFORM-ORIGIN (РАБОЧИЙ ПОДХОД) ===
+        // === УЛУЧШЕННЫЙ ЗУМ С НАКОПЛЕНИЕМ И ОПТИМИЗАЦИЕЙ ===
         let currentZoom = 1.0;
         const MIN_ZOOM = 0.3;
         const MAX_ZOOM = 2.5;
         const ZOOM_STEP = 0.1;
+        const ZOOM_ANIMATION_DURATION = 200; // Увеличено для более плавной анимации
+
+        // Накопление изменений зума для wheel событий
+        let accumulatedZoomDelta = 0;
+        let wheelThrottleTimeout: number | null = null;
+        const WHEEL_THROTTLE_MS = 16; // ~60fps
 
         // Функция зума к точке с плавной анимацией
         let zoomAnimationFrame: number | null = null;
         let pendingZoom: { clientX: number; clientY: number; targetZoom: number } | null = null;
+        let zoomLevelDisplayUpdateFrame: number | null = null;
         
         const zoomAtPoint = (clientX: number, clientY: number, targetZoom: number, immediate: boolean = false) => {
             if (!wrapper || !skillTree) return;
             
-            // Если идёт анимация и это не немедленное выполнение - сохраняем запрос
+            // Если идёт анимация и это не немедленное выполнение - обновляем targetZoom
             if (zoomAnimationFrame !== null && !immediate) {
+                // Обновляем pending zoom с новым целевым значением
                 pendingZoom = { clientX, clientY, targetZoom };
                 return;
             }
@@ -4498,7 +4510,7 @@ export class MainMenu {
                 zoomAnimationFrame = null;
             }
             
-            // Позиция курсора относительно wrapper
+            // Кешируем getBoundingClientRect для производительности
             const wrapperRect = wrapper.getBoundingClientRect();
             const mouseX = clientX - wrapperRect.left;
             const mouseY = clientY - wrapperRect.top;
@@ -4511,34 +4523,45 @@ export class MainMenu {
             const contentX = (scrollX + mouseX) / oldZoom;
             const contentY = (scrollY + mouseY) / oldZoom;
             
-            // Плавная анимация зума - начинаем от текущего значения
+            // Плавная анимация зума с улучшенным easing
             const startZoom = oldZoom;
             const endZoom = newZoom;
             const startTime = performance.now();
-            const duration = 150; // 150ms для плавности
+            const duration = immediate ? 100 : ZOOM_ANIMATION_DURATION; // Быстрее для кнопок
             
             const animate = (currentTime: number) => {
                 const elapsed = currentTime - startTime;
                 const progress = Math.min(elapsed / duration, 1);
                 
-                // Easing функция для плавности
-                const easeOut = 1 - Math.pow(1 - progress, 3);
+                // Улучшенная easing функция (ease-out-cubic с более плавным началом)
+                const easeOutCubic = 1 - Math.pow(1 - progress, 3);
                 
                 // Промежуточный зум
-                const interpolatedZoom = startZoom + (endZoom - startZoom) * easeOut;
+                const interpolatedZoom = startZoom + (endZoom - startZoom) * easeOutCubic;
                 
                 // Применяем зум
                 currentZoom = interpolatedZoom;
                 skillTree.style.transform = `scale(${currentZoom})`;
                 skillTree.style.transformOrigin = "top left";
                 
-                // Вычисляем новую позицию скролла
+                // Вычисляем новую позицию скролла с учётом границ
                 const newScrollX = contentX * currentZoom - mouseX;
                 const newScrollY = contentY * currentZoom - mouseY;
                 
-                // Применяем скролл
-                wrapper.scrollLeft = Math.max(0, newScrollX);
-                wrapper.scrollTop = Math.max(0, newScrollY);
+                // Применяем скролл с ограничениями
+                const maxScrollX = Math.max(0, skillTree.scrollWidth * currentZoom - wrapper.clientWidth);
+                const maxScrollY = Math.max(0, skillTree.scrollHeight * currentZoom - wrapper.clientHeight);
+                
+                wrapper.scrollLeft = Math.max(0, Math.min(maxScrollX, newScrollX));
+                wrapper.scrollTop = Math.max(0, Math.min(maxScrollY, newScrollY));
+                
+                // Обновляем индикатор зума в реальном времени
+                if (zoomLevelDisplayUpdateFrame === null) {
+                    zoomLevelDisplayUpdateFrame = requestAnimationFrame(() => {
+                        updateZoomDisplay();
+                        zoomLevelDisplayUpdateFrame = null;
+                    });
+                }
                 
                 if (progress < 1) {
                     zoomAnimationFrame = requestAnimationFrame(animate);
@@ -4547,11 +4570,19 @@ export class MainMenu {
                     currentZoom = endZoom; // Убеждаемся что финальное значение точное
                     skillTree.style.transform = `scale(${currentZoom})`;
                     skillTree.style.transformOrigin = "top left";
-                    // Финальная позиция скролла
+                    
+                    // Пересчитываем границы для финального зума
+                    const finalMaxScrollX = Math.max(0, skillTree.scrollWidth * currentZoom - wrapper.clientWidth);
+                    const finalMaxScrollY = Math.max(0, skillTree.scrollHeight * currentZoom - wrapper.clientHeight);
+                    
+                    // Финальная позиция скролла с ограничениями
                     const finalScrollX = contentX * currentZoom - mouseX;
                     const finalScrollY = contentY * currentZoom - mouseY;
-                    wrapper.scrollLeft = Math.max(0, finalScrollX);
-                    wrapper.scrollTop = Math.max(0, finalScrollY);
+                    wrapper.scrollLeft = Math.max(0, Math.min(finalMaxScrollX, finalScrollX));
+                    wrapper.scrollTop = Math.max(0, Math.min(finalMaxScrollY, finalScrollY));
+                    
+                    // Обновляем индикатор
+                    updateZoomDisplay();
                     
                     // Если есть pending zoom - обрабатываем его
                     if (pendingZoom) {
@@ -4578,24 +4609,45 @@ export class MainMenu {
             `;
             wrapper.parentElement?.insertBefore(zoomControls, wrapper);
         }
+        
+        // Функция обновления индикатора зума
+        const updateZoomDisplay = () => {
+            const zoomLevelEl = zoomControls?.querySelector(".skill-zoom-level") as HTMLElement;
+            if (zoomLevelEl) {
+                zoomLevelEl.textContent = `${Math.round(currentZoom * 100)}%`;
+            }
+        };
 
-        // Колесико мыши - зум к центру (как кнопки)
+        // Колесико мыши - зум к центру с накоплением и throttling
         wrapper.addEventListener("wheel", (e: WheelEvent) => {
             e.preventDefault();
             
-            const direction = e.deltaY > 0 ? -1 : 1;
-            const newZoom = currentZoom + (direction * ZOOM_STEP);
+            // Определяем направление и величину изменения
+            const delta = e.deltaY;
+            const direction = delta > 0 ? -1 : 1;
             
-            // Зум к центру экрана (как кнопки)
-            const rect = wrapper.getBoundingClientRect();
-            const centerX = rect.left + wrapper.clientWidth / 2;
-            const centerY = rect.top + wrapper.clientHeight / 2;
+            // Накопление изменений для плавного зума при быстром скролле
+            // Используем логарифмическую шкалу для более естественного ощущения
+            const deltaMagnitude = Math.min(Math.abs(delta) / 100, 3); // Ограничиваем максимальное изменение
+            accumulatedZoomDelta += direction * ZOOM_STEP * deltaMagnitude;
             
-            zoomAtPoint(centerX, centerY, newZoom);
-            
-            const zoomLevelEl = zoomControls.querySelector(".skill-zoom-level") as HTMLElement;
-            if (zoomLevelEl) {
-                zoomLevelEl.textContent = `${Math.round(currentZoom * 100)}%`;
+            // Throttling - обрабатываем накопленные изменения периодически
+            if (wheelThrottleTimeout === null) {
+                wheelThrottleTimeout = window.setTimeout(() => {
+                    if (Math.abs(accumulatedZoomDelta) > 0.001) {
+                        const newZoom = currentZoom + accumulatedZoomDelta;
+                        
+                        // Зум к центру экрана
+                        const rect = wrapper.getBoundingClientRect();
+                        const centerX = rect.left + wrapper.clientWidth / 2;
+                        const centerY = rect.top + wrapper.clientHeight / 2;
+                        
+                        zoomAtPoint(centerX, centerY, newZoom);
+                        
+                        accumulatedZoomDelta = 0;
+                    }
+                    wheelThrottleTimeout = null;
+                }, WHEEL_THROTTLE_MS);
             }
         }, { passive: false });
 
@@ -4614,7 +4666,6 @@ export class MainMenu {
                 const centerX = rect.left + wrapper.clientWidth / 2;
                 const centerY = rect.top + wrapper.clientHeight / 2;
                 zoomAtPoint(centerX, centerY, newZoom, true);
-                if (zoomLevelDisplay) zoomLevelDisplay.textContent = `${Math.round(currentZoom * 100)}%`;
             });
         }
 
@@ -4627,7 +4678,6 @@ export class MainMenu {
                 const centerX = rect.left + wrapper.clientWidth / 2;
                 const centerY = rect.top + wrapper.clientHeight / 2;
                 zoomAtPoint(centerX, centerY, newZoom, true);
-                if (zoomLevelDisplay) zoomLevelDisplay.textContent = `${Math.round(currentZoom * 100)}%`;
             });
         }
 
@@ -4635,12 +4685,26 @@ export class MainMenu {
             (zoomResetBtn as any)._zoomBound = true;
             zoomResetBtn.addEventListener("click", () => {
                 if (!wrapper || !skillTree) return;
+                
+                // Отменяем все активные анимации
+                if (zoomAnimationFrame !== null) {
+                    cancelAnimationFrame(zoomAnimationFrame);
+                    zoomAnimationFrame = null;
+                }
+                if (wheelThrottleTimeout !== null) {
+                    clearTimeout(wheelThrottleTimeout);
+                    wheelThrottleTimeout = null;
+                }
+                accumulatedZoomDelta = 0;
+                pendingZoom = null;
+                
+                // Сбрасываем зум
                 currentZoom = 1.0;
                 skillTree.style.transform = `scale(${currentZoom})`;
                 skillTree.style.transformOrigin = "top left";
                 wrapper.scrollLeft = 0;
                 wrapper.scrollTop = 0;
-                if (zoomLevelDisplay) zoomLevelDisplay.textContent = `${Math.round(currentZoom * 100)}%`;
+                updateZoomDisplay();
             });
         }
 
