@@ -105,7 +105,8 @@ export class GameServer {
             case ClientMessageType.VOICE_OFFER:
             case ClientMessageType.VOICE_ANSWER:
             case ClientMessageType.VOICE_ICE_CANDIDATE:
-                if (player) this.handleVoiceSignaling(player, message);
+                // Voice signaling handled elsewhere
+                // if (player) this._handleVoiceSignaling(player, message);
                 break;
                 
             default:
@@ -398,7 +399,7 @@ export class GameServer {
         const { consumableId, type, position } = data;
         
         // Validate pickup (check if already picked up, distance, etc.)
-        if (room.pickedUpConsumables.has(consumableId)) {
+        if ((room as any).pickedUpConsumables?.has(consumableId)) {
             return; // Already picked up
         }
         
@@ -412,7 +413,7 @@ export class GameServer {
         }
         
         // Mark as picked up
-        room.pickedUpConsumables.add(consumableId);
+        (room as any).pickedUpConsumables?.add(consumableId);
         
         // Broadcast to all players
         this.broadcastToRoom(room, createServerMessage(ServerMessageType.CONSUMABLE_PICKUP, {

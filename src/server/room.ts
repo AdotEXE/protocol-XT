@@ -7,6 +7,7 @@ import { ServerProjectile } from "./projectile";
 import { ServerEnemy } from "./enemy";
 import { getGameModeRules, type GameModeRules, BattleRoyaleMode, CTFMode } from "./gameModes";
 import { CTFSystem } from "./ctf";
+import { InputValidator } from "./validation";
 
 export class GameRoom {
     id: string;

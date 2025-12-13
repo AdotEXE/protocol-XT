@@ -55,23 +55,26 @@ export class EnemyTank {
     // Turret control (smooth like player)
     private turretTargetAngle = 0;
     private turretCurrentAngle = 0;
-    private turretSpeed = 0.06;
+    private _turretSpeed = 0.06;
     private turretAcceleration = 0;
     private turretAccelStartTime = 0;
     
     // === AI State ===
-    private target: { chassis: Mesh, isAlive: boolean, currentHealth?: number } | null = null;
+    private target: { chassis: Mesh, isAlive: boolean, currentHealth?: number, turret?: Mesh, barrel?: Mesh } | null = null;
     private state: AIState = "idle";
     private patrolPoints: Vector3[] = [];
     private currentPatrolIndex = 0;
-    private lastStateChange = 0;
+    private _lastStateChange = 0;
     private stateTimer = 0;
     
     // POI System integration
     private targetPOI: { position: Vector3, type: string, id: string } | null = null;
-    private poiCheckInterval = 5000; // Check for nearby POIs every 5 seconds
-    private lastPOICheck = 0;
+    private _poiCheckInterval = 5000; // Check for nearby POIs every 5 seconds
+    private _lastPOICheck = 0;
     private poiCaptureTime = 0; // Time spent at POI
+    
+    // AI properties
+    private attackRange = 100; // Attack range in units
     
     // AI Decisions
     private lastDecisionTime = 0;
@@ -207,7 +210,7 @@ export class EnemyTank {
                 this.range = 50;
                 this.optimalRange = 28;
                 this.decisionInterval = 800; // Решения каждые 800мс (было 1000)
-                this.turretSpeed = 0.045; // Медленнее поворачивает башню
+                this._turretSpeed = 0.045; // Медленнее поворачивает башню
                 this.moveSpeed = 10; // Медленнее (было 8)
                 break;
             case "medium":
@@ -219,7 +222,7 @@ export class EnemyTank {
                 this.optimalRange = 32;
                 this.decisionInterval = 500; // Решения каждые 500мс (было 700)
                 this.moveSpeed = 14; // Быстрее (было 10)
-                this.turretSpeed = 0.055;
+                this._turretSpeed = 0.055;
                 break;
             case "hard":
                 // Сложная сложность: быстрая реакция, высокая точность
@@ -229,7 +232,7 @@ export class EnemyTank {
                 this.range = 70;
                 this.optimalRange = 38;
                 this.decisionInterval = 300; // Решения каждые 300мс (было 500)
-                this.turretSpeed = 0.07;
+                this._turretSpeed = 0.07;
                 this.moveSpeed = 18; // Значительно быстрее (было 12)
                 break;
         }
@@ -377,7 +380,7 @@ export class EnemyTank {
     }
     
     // === HP Billboard ===
-    private hpTexture: AdvancedDynamicTexture | null = null;
+    private _hpTexture: AdvancedDynamicTexture | null = null;
     private hpBarFill: Rectangle | null = null;
     
     private createHpBillboard() {
@@ -421,7 +424,7 @@ export class EnemyTank {
         (this as any).hpText = healthText; // Сохраняем ссылку для обновления
         
         this.hpBillboard = plane;
-        this.hpTexture = tex;
+        this._hpTexture = tex;
     }
 
     setHpVisible(visible: boolean) {
@@ -1191,7 +1194,7 @@ export class EnemyTank {
     // Захват POI
     private doCapturePOI(): void {
         if (!this.targetPOI) {
-            this.setState("patrol");
+            this.state = "patrol";
             return;
         }
         
@@ -1216,7 +1219,7 @@ export class EnemyTank {
             if (this.target && this.target.isAlive) {
                 const targetDist = Vector3.Distance(myPos, this.target.chassis.absolutePosition);
                 if (targetDist < this.attackRange) {
-                    this.setState("attack");
+                    this.state = "attack";
                     return;
                 }
             }
@@ -1225,7 +1228,7 @@ export class EnemyTank {
             if (this.poiCaptureTime > 30000) {
                 this.targetPOI = null;
                 this.poiCaptureTime = 0;
-                this.setState("patrol");
+                this.state = "patrol";
             }
         }
     }
@@ -1235,7 +1238,7 @@ export class EnemyTank {
         this.targetPOI = poi;
         if (poi) {
             this.poiCaptureTime = 0;
-            this.setState("capturePOI");
+            this.state = "capturePOI";
         }
     }
     

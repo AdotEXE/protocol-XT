@@ -38,10 +38,10 @@ export class MultiplayerManager {
     private serverUrl: string = "ws://localhost:8080";
     private reconnectAttempts: number = 0;
     private maxReconnectAttempts: number = 10;
-    private reconnectDelay: number = 1000; // Start with 1 second
+    private _reconnectDelay: number = 1000; // Start with 1 second
     private reconnectTimer: NodeJS.Timeout | null = null;
     private isManualDisconnect: boolean = false;
-    private gameTime: number = 0;
+    private _gameTime: number = 0;
     
     // Network players (excluding local player)
     private networkPlayers: Map<string, NetworkPlayer> = new Map();
@@ -86,7 +86,7 @@ export class MultiplayerManager {
                 console.log("[Multiplayer] Connected to server");
                 this.connected = true;
                 this.reconnectAttempts = 0;
-                this.reconnectDelay = 1000; // Reset delay on successful connection
+                this._reconnectDelay = 1000; // Reset delay on successful connection
                 if (this.reconnectTimer) {
                     clearTimeout(this.reconnectTimer);
                     this.reconnectTimer = null;
@@ -110,7 +110,7 @@ export class MultiplayerManager {
                 
                 // Auto-reconnect if not manual disconnect and not exceeded max attempts
                 if (!this.isManualDisconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
-                    this.scheduleReconnect();
+                    this._scheduleReconnect();
                 } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
                     console.error("[Multiplayer] Max reconnect attempts reached. Please reconnect manually.");
                 }
@@ -181,7 +181,7 @@ export class MultiplayerManager {
                 case ServerMessageType.PLAYER_STATES:
                     // Update game time from server
                     if (message.data.gameTime !== undefined) {
-                        this.gameTime = message.data.gameTime;
+                        this._gameTime = message.data.gameTime;
                     }
                     this.handlePlayerStates(message.data);
                     break;
@@ -451,7 +451,7 @@ export class MultiplayerManager {
         this.networkPlayers.set(playerData.id, networkPlayer);
     }
     
-    private updateNetworkPlayer(playerData: PlayerData, gameTime: number): void {
+    private updateNetworkPlayer(playerData: PlayerData, _gameTime: number): void {
         const networkPlayer = this.networkPlayers.get(playerData.id);
         if (!networkPlayer) {
             this.addNetworkPlayer(playerData);
@@ -556,7 +556,7 @@ export class MultiplayerManager {
     }
     
     getGameTime(): number {
-        return this.gameTime;
+        return this._gameTime;
     }
     
     getRoomId(): string | null {
@@ -664,6 +664,20 @@ export class MultiplayerManager {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(serializeMessage(message));
         }
+    }
+    
+    private _scheduleReconnect(): void {
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+        }
+        
+        this.reconnectAttempts++;
+        const delay = Math.min(this._reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000);
+        
+        this.reconnectTimer = setTimeout(() => {
+            console.log(`[Multiplayer] Reconnecting (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+            this.connect(this.serverUrl);
+        }, delay);
     }
 }
 

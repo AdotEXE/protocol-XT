@@ -35,7 +35,7 @@ export class ReplayRecorder {
     private mode: GameMode = "ffa";
     private worldSeed: number = 0;
     private players: PlayerData[] = [];
-    private metadata: ReplayData["metadata"] = {};
+    private metadata: ReplayData["metadata"] = { maxPlayers: 10 };
 
     /**
      * Start recording a match

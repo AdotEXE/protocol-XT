@@ -98,6 +98,10 @@ export enum ServerMessageType {
     // Battle Royale
     SAFE_ZONE_UPDATE = "safe_zone_update",
     
+    // Voice Chat
+    VOICE_PLAYER_JOINED = "voice_player_joined",
+    VOICE_PLAYER_LEFT = "voice_player_left",
+    
     // Capture the Flag
     CTF_FLAG_UPDATE = "ctf_flag_update",
     CTF_FLAG_PICKUP = "ctf_flag_pickup",

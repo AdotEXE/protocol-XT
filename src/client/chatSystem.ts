@@ -14,7 +14,6 @@ export interface ChatMessage {
 }
 
 export class ChatSystem {
-    private scene: Scene;
     private guiTexture: AdvancedDynamicTexture;
     private chatContainer: Rectangle | null = null;
     private messages: ChatMessage[] = [];
@@ -22,7 +21,6 @@ export class ChatSystem {
     private messageElements: Map<number, TextBlock> = new Map();
     private scrollViewer: ScrollViewer | null = null;
     private messagesArea: Rectangle | null = null;
-    private lastMessageId = 0;
     
     // Настройки
     private autoScroll = true;
@@ -49,7 +47,6 @@ export class ChatSystem {
     private searchActive = false;
     
     constructor(scene: Scene) {
-        this.scene = scene;
         this.guiTexture = AdvancedDynamicTexture.CreateFullscreenUI("ChatUI", false, scene);
         this.guiTexture.isForeground = true;
         this.createChatUI();
@@ -588,7 +585,8 @@ export class ChatSystem {
     }
     
     // Создать кнопки фильтров
-    private createFilterButtons(): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private _createFilterButtons(): void {
         if (!this.chatContainer) return;
         
         const filterContainer = new Rectangle("filterContainer");
@@ -786,7 +784,7 @@ export class ChatSystem {
     }
     
     // Устаревший метод для совместимости
-    addMessageOld(text: string, sender: string = "System", color: string = "#0f0"): void {
+    addMessageOld(text: string, _sender: string = "System", color: string = "#0f0"): void {
         let type: MessageType = "system";
         if (color === "#f00") type = "error";
         else if (color === "#ff0") type = "warning";
@@ -878,7 +876,7 @@ export class ChatSystem {
         }
     }
     
-    private createMessageElement(message: ChatMessage, index: number): TextBlock {
+    private _createMessageElement(message: ChatMessage, index: number): TextBlock {
         const element = new TextBlock(`chatMsg_${message.timestamp}`);
         
         // Форматируем время
@@ -907,10 +905,10 @@ export class ChatSystem {
         const startTime = Date.now();
         const animate = () => {
             const elapsed = Date.now() - startTime;
-            if (elapsed < 200 && element && !element.isDisposed) {
+            if (elapsed < 200 && element) {
                 element.alpha = Math.min(1, elapsed / 200);
                 requestAnimationFrame(animate);
-            } else if (element && !element.isDisposed) {
+            } else if (element) {
                 element.alpha = 1;
             }
         };
@@ -924,7 +922,7 @@ export class ChatSystem {
             element.fontSize = 12;
             // Пульсация для критических сообщений
             const pulse = () => {
-                if (element && !element.isDisposed) {
+                if (element) {
                     const pulseValue = (Math.sin(this.animationTime * 3) + 1) / 2;
                     const brightness = 0.7 + pulseValue * 0.3;
                     element.color = this.adjustColorBrightness(message.color, brightness);

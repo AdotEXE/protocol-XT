@@ -8,7 +8,7 @@ import {
     TextBlock,
     Control
 } from "@babylonjs/gui";
-import { scalePixels, pxToVw, pxToVh, getScaleFactor, getResponsiveFontSize } from "./utils/uiScale";
+import { scalePixels } from "./utils/uiScale";
 
 // ULTRA SIMPLE HUD - NO gradients, NO shadows, NO alpha, NO transparency
 // Pure solid colors only!
@@ -65,6 +65,7 @@ export class HUD {
     private targetNameText: TextBlock | null = null;
     private targetHealthBar: Rectangle | null = null;
     private targetHealthFill: Rectangle | null = null;
+    private targetHealthText: TextBlock | null = null;
     private targetDistanceText: TextBlock | null = null;
     
     // Damage indicator
@@ -99,15 +100,13 @@ export class HUD {
     private fuelText: TextBlock | null = null;
     
     // POI indicators
-    private poiMarkers: Map<string, Rectangle> = new Map();
+    private _poiMarkers: Map<string, Rectangle> = new Map();
     private poiCaptureProgress: Rectangle | null = null;
     private poiCaptureProgressFill: Rectangle | null = null;
     private poiCaptureText: TextBlock | null = null;
     
     // POI minimap markers
     private poiMinimapMarkers: Map<string, Rectangle> = new Map();
-    private poiMinimapPool: Rectangle[] = [];
-    private readonly POI_MARKER_POOL_SIZE = 20;
     
     // POI 3D world markers
     private poi3DMarkersContainer: Rectangle | null = null;
@@ -166,7 +165,7 @@ export class HUD {
     private tutorialText: TextBlock | null = null;
     private tutorialStep = 0;
     private tutorialCompleted = false;
-    private tutorialStartTime = 0;
+    private _tutorialStartTime = 0;
     private hasMoved = false;
     private hasShot = false;
     private onTutorialCompleteCallback: (() => void) | null = null;
@@ -195,7 +194,7 @@ export class HUD {
     private comboAnimationTime = 0;
     private comboScale = 1.0;
     private maxComboReached = 0; // Максимальное достигнутое комбо
-    private comboParticles: Rectangle[] = []; // Частицы для эффектов комбо
+    private _comboParticles: Rectangle[] = []; // Частицы для эффектов комбо
     private experienceSystem: any = null; // ExperienceSystem для комбо
     private glowElements: Map<string, { element: Rectangle | TextBlock, baseColor: string, glowColor: string }> = new Map();
     
@@ -227,7 +226,7 @@ export class HUD {
     private garageCaptureTimeText: TextBlock | null = null;
     
     // Player progression subscription
-    private playerProgression: any = null;
+    private _playerProgression: any = null;
     private experienceSubscription: any = null;
     
     // Death screen
@@ -344,7 +343,7 @@ export class HUD {
             this.experienceSubscription = null;
         }
         
-        this.playerProgression = playerProgression;
+        this._playerProgression = playerProgression;
         
         // Подписываемся на изменения опыта
         if (playerProgression && playerProgression.onExperienceChanged) {
@@ -1598,7 +1597,8 @@ export class HUD {
             // Эффект пульсации для активного модуля
             const pulse = () => {
                 if (!hotbarSlot.container || !hotbarSlot.container.isVisible) return;
-                const currentAlpha = parseFloat((hotbarSlot.container.background as string).match(/[\d.]+$/) || "0.2");
+                const alphaMatch = (hotbarSlot.container.background as string).match(/[\d.]+$/);
+                const currentAlpha = parseFloat(alphaMatch ? alphaMatch[0] : "0.2");
                 const newAlpha = 0.2 + Math.sin(Date.now() / 500) * 0.15;
                 hotbarSlot.container.background = `#00ffff${Math.floor(newAlpha * 255).toString(16).padStart(2, '0')}`;
                 setTimeout(pulse, 50);
@@ -3433,9 +3433,9 @@ export class HUD {
             const marker = this.minimapEnemies[i];
             marker.isVisible = false;
             if (i < this.poolSize) {
-                if (marker.name.startsWith('enemy')) {
+                if (marker.name && marker.name.startsWith('enemy')) {
                     this.enemyMarkerPool.push(marker);
-                } else if (marker.name.startsWith('enemyBarrel')) {
+                } else if (marker.name && marker.name.startsWith('enemyBarrel')) {
                     this.enemyBarrelPool.push(marker);
                 }
             } else {
@@ -4519,7 +4519,7 @@ export class HUD {
         this.comboContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         this.comboContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.comboContainer.top = "10px";
-        this.comboContainer.right = "10px";
+        this.comboContainer.left = "-10px";
         this.comboContainer.isVisible = false; // Скрыт по умолчанию
         this.guiTexture.addControl(this.comboContainer);
         
@@ -4727,23 +4727,25 @@ export class HUD {
                 // Визуальный эффект при увеличении комбо
                 if (this.comboIndicator) {
                     // Временно увеличиваем размер текста
-                    const originalSize = this.comboIndicator.fontSize;
-                    this.comboIndicator.fontSize = originalSize * 1.3;
+                    const originalSize = typeof this.comboIndicator.fontSize === "string" 
+                        ? parseFloat(this.comboIndicator.fontSize) 
+                        : (this.comboIndicator.fontSize as number);
+                    this.comboIndicator.fontSize = (originalSize * 1.3).toString() + "px";
                     
                     // Возвращаем размер через анимацию
                     setTimeout(() => {
                         if (this.comboIndicator) {
-                            this.comboIndicator.fontSize = originalSize;
+                            this.comboIndicator.fontSize = originalSize.toString() + "px";
                         }
                     }, 200);
                 }
                 
                 // Плавающий текст при увеличении комбо
-                this.showComboIncrease(comboCount, this.lastComboCount);
+                this._showComboIncrease(comboCount, this.lastComboCount);
                 
                 // Эффект частиц при достижении вех комбо
                 if (comboCount === 5 || comboCount === 8 || comboCount === 10) {
-                    this.createComboParticles(comboCount);
+                    this._createComboParticles(comboCount);
                 }
             }
         } else {
@@ -4780,7 +4782,7 @@ export class HUD {
         // Применяем масштаб с плавной интерполяцией
         if (this.comboContainer) {
             const currentScaleX = this.comboContainer.scaleX || 1.0;
-            const currentScaleY = this.comboContainer.scaleY || 1.0;
+            const _currentScaleY = this.comboContainer.scaleY || 1.0;
             
             // Плавная интерполяция для избежания резких скачков
             const smoothScale = currentScaleX + (this.comboScale - currentScaleX) * 0.2;
@@ -5107,7 +5109,7 @@ export class HUD {
         if (this.tutorialCompleted) return;
         
         this.tutorialStep = 0;
-        this.tutorialStartTime = Date.now();
+        this._tutorialStartTime = Date.now();
         this.hasMoved = false;
         this.hasShot = false;
         this.showTutorialStep(0);
@@ -5477,7 +5479,7 @@ export class HUD {
         this.team1ScoreText.fontFamily = "monospace";
         this.team1ScoreText.fontWeight = "bold";
         this.team1ScoreText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        this.team1ScoreText.right = "20px";
+        this.team1ScoreText.left = "-20px";
         this.team1ScoreText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.multiplayerScoreContainer.addControl(this.team1ScoreText);
         
@@ -5491,7 +5493,7 @@ export class HUD {
         this.playerListContainer.background = "rgba(0, 0, 0, 0.7)";
         this.playerListContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         this.playerListContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.playerListContainer.right = "10px";
+        this.playerListContainer.left = "-10px";
         this.playerListContainer.top = "80px";
         this.playerListContainer.isVisible = false;
         this.guiTexture.addControl(this.playerListContainer);
@@ -5635,7 +5637,7 @@ export class HUD {
             kdText.fontSize = "9px";
             kdText.fontFamily = "monospace";
             kdText.color = "#aaa";
-            kdText.right = "5px";
+            kdText.left = "-5px";
             kdText.top = "5px";
             kdText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
             item.addControl(kdText);
@@ -5646,7 +5648,7 @@ export class HUD {
             scoreText.fontSize = "10px";
             scoreText.fontFamily = "monospace";
             scoreText.color = "#ffaa00";
-            scoreText.right = "5px";
+            scoreText.left = "-5px";
             scoreText.top = "18px";
             scoreText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
             item.addControl(scoreText);
@@ -5909,7 +5911,9 @@ export class HUD {
                 marker.background = player.team === 0 ? "#4a9eff" : player.team === 1 ? "#ff4a4a" : "#0f0";
                 marker.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
                 marker.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-                this.radarArea.addControl(marker);
+                if (this.radarArea) {
+                    this.radarArea.addControl(marker);
+                }
                 this.minimapPlayerPool.push(marker);
             }
             
@@ -5955,7 +5959,7 @@ export class HUD {
         this.missionPanel.background = "rgba(0, 0, 0, 0.7)";
         this.missionPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         this.missionPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.missionPanel.right = "10px";
+        this.missionPanel.left = "-10px";
         this.missionPanel.top = "100px";
         this.missionPanel.isVisible = false;
         this.guiTexture.addControl(this.missionPanel);
@@ -6072,5 +6076,15 @@ export class HUD {
                 item.addControl(checkmark);
             }
         });
+    }
+    
+    private _showComboIncrease(currentCombo: number, previousCombo: number): void {
+        // Placeholder для метода показа увеличения комбо
+        // Можно реализовать позже если нужно
+    }
+    
+    private _createComboParticles(comboCount: number): void {
+        // Placeholder для метода создания частиц комбо
+        // Можно реализовать позже если нужно
     }
 }

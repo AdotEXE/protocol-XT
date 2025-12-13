@@ -2,7 +2,7 @@ import { Scene, Engine } from "@babylonjs/core";
 import { ChunkSystem } from "./chunkSystem";
 
 export class DebugDashboard {
-    private container: HTMLDivElement;
+    private container!: HTMLDivElement;
     // FPS indicator removed - using HUD FPS only
     private engine: Engine;
     private scene: Scene;
@@ -162,7 +162,7 @@ export class DebugDashboard {
     private updateDisplay(playerPos: { x: number, y: number, z: number }): void {
         const fps = this.engine.getFps();
         const deltaTime = this.engine.getDeltaTime();
-        const perf = this.scene.getEngine().getInfo();
+        const perf = (this.scene.getEngine() as any).getInfo?.() || { triangles: 0, drawCalls: 0 };
         const chunkStats = this.chunkSystem?.getStats();
         
         const set = (id: string, value: string) => {

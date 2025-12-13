@@ -155,15 +155,15 @@ export class Game {
     // Stats overlay (Tab key - пункт 13)
     private statsOverlay: HTMLDivElement | null = null;
     private statsOverlayVisible = false;
-    private experienceSubscription: any = null; // Подписка на изменения опыта для Stats Overlay (используется в строке 908)
+    private _experienceSubscription: any = null; // Подписка на изменения опыта для Stats Overlay (используется в строке 908)
     
     // Real-time statistics tracker
     private realtimeStatsTracker: RealtimeStatsTracker | undefined;
     
     // Replay system
     private replayRecorder: ReplayRecorder | undefined;
-    private replayPlayer: ReplayPlayer | undefined;
-    private isReplayMode: boolean = false;
+    private _replayPlayer: ReplayPlayer | undefined;
+    private _isReplayMode: boolean = false;
     
     // Settings
     settings: GameSettings;
@@ -172,7 +172,7 @@ export class Game {
     // Loading screen
     private loadingScreen: HTMLDivElement | null = null;
     private loadingProgress = 0;
-    private loadingStage = "";
+    private _loadingStage = "";
     
     // Camera settings
     cameraBeta = Math.PI / 2 - (20 * Math.PI / 180); // 20 градусов от горизонта для лучшего обзора
@@ -522,6 +522,7 @@ export class Game {
                             
                             // Ворота остаются в выбранном состоянии (ручное управление постоянно активно)
                             doorData.manualControl = true;
+                            doorData.manualControlTime = Date.now();
                         } else {
                             logger.debug(`No garage nearby (distance: ${ng.distance.toFixed(1)})`);
                         }
@@ -714,19 +715,19 @@ export class Game {
         this.soundManager.setMasterVolume(masterVol);
         
         // Sound volume (effects)
-        const soundVol = (this.settings.soundVolume / 100) * masterVol;
+        const _soundVol = (this.settings.soundVolume / 100) * masterVol;
         // Note: SoundManager has individual volume controls, would need to update them
         
         // Music volume
-        const musicVol = (this.settings.musicVolume / 100) * masterVol;
+        const _musicVol = (this.settings.musicVolume / 100) * masterVol;
         // Note: Would need to add music volume control to SoundManager
         
         // Ambient volume
-        const ambientVol = (this.settings.ambientVolume / 100) * masterVol;
+        const _ambientVol = (this.settings.ambientVolume / 100) * masterVol;
         // Note: Would need to add ambient volume control to SoundManager
         
         // Voice volume
-        const voiceVol = (this.settings.voiceVolume / 100) * masterVol;
+        const _voiceVol = (this.settings.voiceVolume / 100) * masterVol;
         // Note: Would need to add voice volume control to SoundManager
         
         // Mute on focus loss
@@ -949,7 +950,7 @@ export class Game {
     
     private updateLoadingProgress(progress: number, stage: string): void {
         this.loadingProgress = Math.min(100, Math.max(0, progress));
-        this.loadingStage = stage;
+            this._loadingStage = stage;
         
         const barFill = document.getElementById("loading-bar-fill");
         const percentText = document.getElementById("loading-percent");
@@ -1119,7 +1120,8 @@ export class Game {
             // Принудительно обновляем камеру сразу
             this.updateCamera();
         } else {
-            logger.error("ERROR: Camera or scene not initialized!", {
+            // Камера еще не создана - это нормально, она создастся в init()
+            logger.debug("Camera not yet initialized, will be created in init()", {
                 camera: !!this.camera,
                 scene: !!this.scene
             });
@@ -1350,7 +1352,12 @@ export class Game {
             // Physics
             this.updateLoadingProgress(15, "Загрузка физического движка...");
             console.log("Loading Havok WASM...");
-            const havokInstance = await HavokPhysics({ locateFile: () => "/HavokPhysics.wasm" });
+            const havokInstance = await HavokPhysics({ 
+                locateFile: (file: string) => {
+                    // В dev режиме файл из public/, в production из dist/
+                    return file === "HavokPhysics.wasm" ? "/HavokPhysics.wasm" : file;
+                }
+            });
             console.log("Havok WASM loaded");
             this.updateLoadingProgress(30, "Инициализация физики...");
             const havokPlugin = new HavokPlugin(true, havokInstance);
@@ -1531,7 +1538,7 @@ export class Game {
             // Subscribe to experience changes for Stats Overlay updates
             if (this.playerProgression && this.playerProgression.onExperienceChanged) {
                 console.log("[Game] Subscribing to experience changes for Stats Overlay");
-                this.experienceSubscription = this.playerProgression.onExperienceChanged.add((data: {
+                this._experienceSubscription = this.playerProgression.onExperienceChanged.add((data: {
                     current: number;
                     required: number;
                     percent: number;
@@ -3237,7 +3244,7 @@ export class Game {
                     }
                 }
             },
-            onRepair: (poi, amount) => {
+            onRepair: (_poi, amount) => {
                 if (this.tank && this.tank.currentHealth < this.tank.maxHealth) {
                     const healAmount = (amount / 100) * this.tank.maxHealth;
                     this.tank.currentHealth = Math.min(this.tank.maxHealth, this.tank.currentHealth + healAmount);
@@ -3259,7 +3266,7 @@ export class Game {
                     }
                 }
             },
-            onFuelRefill: (poi, amount) => {
+            onFuelRefill: (_poi, amount) => {
                 if (this.tank) {
                     this.tank.addFuel?.(amount);
                     if (this.hud) {
@@ -3275,7 +3282,7 @@ export class Game {
                     }
                 }
             },
-            onExplosion: (poi, position, radius, damage) => {
+            onExplosion: (_poi, position, radius, damage) => {
                 console.log(`[POI] Explosion at ${position}, radius ${radius}, damage ${damage}`);
                 // Achievement tracking
                 if (this.achievementsSystem) {
@@ -6283,7 +6290,7 @@ export class Game {
             }
         });
         
-        this.multiplayerManager.onPlayerStates((players) => {
+        this.multiplayerManager.onPlayerStates((_players) => {
             // Update network players (called at 60 Hz)
             // This is handled in updateMultiplayer
         });

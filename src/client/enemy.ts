@@ -19,9 +19,9 @@ import { SoundManager } from "./soundManager";
 
 export class EnemyTurret {
     scene: Scene;
-    base: Mesh;
-    head: Mesh;
-    barrel: Mesh;
+    base!: Mesh;
+    head!: Mesh;
+    barrel!: Mesh;
     
     position: Vector3;
     health = 50;

@@ -455,6 +455,10 @@ export class FirebaseService {
             return [];
         }
     }
+    
+    getCurrentUserId(): string | null {
+        return this.auth?.currentUser?.uid || null;
+    }
 }
 
 // Singleton instance

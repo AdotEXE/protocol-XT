@@ -3,7 +3,7 @@
  */
 
 import { firebaseService } from "./firebaseService";
-import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, query, where, getDocs, arrayUnion, arrayRemove, Timestamp, serverTimestamp, increment, orderBy, limit } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, query, where, getDocs, arrayUnion, serverTimestamp, orderBy, limit } from "firebase/firestore";
 
 export interface Friend {
     playerId: string;
@@ -57,7 +57,7 @@ export class SocialSystem {
     private db: any = null;
     private currentUserId: string | null = null;
     private friendsCache: Map<string, Friend> = new Map();
-    private friendRequestsCache: FriendRequest[] = [];
+    private _friendRequestsCache: FriendRequest[] = [];
     private clanCache: Clan | null = null;
 
     async initialize(): Promise<boolean> {
@@ -257,7 +257,7 @@ export class SocialSystem {
                 requests.push(doc.data() as FriendRequest);
             });
             
-            this.friendRequestsCache = requests;
+            this._friendRequestsCache = requests;
             return requests;
         } catch (error) {
             console.error("[Social] Error getting friend requests:", error);

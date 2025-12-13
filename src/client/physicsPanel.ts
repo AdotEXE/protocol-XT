@@ -7,7 +7,7 @@ interface Preset {
 }
 
 export class PhysicsPanel {
-    private container: HTMLDivElement;
+    private container!: HTMLDivElement;
     private tank: TankController | null = null;
     private visible = false;
     

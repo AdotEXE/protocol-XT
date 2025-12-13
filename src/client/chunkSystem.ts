@@ -258,7 +258,7 @@ export class ChunkSystem {
         };
     }
     
-    private guaranteedGarageCreated = false;
+    private _guaranteedGarageCreated = false;
     
     update(playerPos: Vector3): void {
         const startTime = performance.now();
@@ -274,7 +274,7 @@ export class ChunkSystem {
     
     // Создаёт все гаражи на карте
     private createAllGarages(): void {
-        this.guaranteedGarageCreated = true;
+        this._guaranteedGarageCreated = true;
         
         // В режиме песочницы создаём только один гараж в центре
         if (this.config.mapType === "sandbox") {
@@ -1986,7 +1986,7 @@ export class ChunkSystem {
         }
         
         // Use noise to select from options with weighted probability
-        let selectedBiome = baseBiome;
+        let selectedBiome: BiomeType = baseBiome;
         if (biomeOptions.length > 0) {
             const cumulative = weights.reduce((acc, w, i) => {
                 acc.push(acc[i] + w);
@@ -1997,7 +1997,7 @@ export class ChunkSystem {
             
             for (let i = 0; i < cumulative.length - 1; i++) {
                 if (normalizedNoise >= cumulative[i] && normalizedNoise < cumulative[i + 1]) {
-                    selectedBiome = biomeOptions[i];
+                    selectedBiome = biomeOptions[i] as BiomeType;
                     break;
                 }
             }
@@ -2195,7 +2195,7 @@ export class ChunkSystem {
         this.generateConsumables(chunk, worldX, worldZ, size, random);
     }
     
-    private createGround(chunk: ChunkData, worldX: number, worldZ: number, size: number, biome: BiomeType | string, random: SeededRandom): void {
+    private createGround(chunk: ChunkData, worldX: number, worldZ: number, size: number, biome: BiomeType | string, _random: SeededRandom): void {
         // Ground with biome-specific color
         let groundMat: string;
         switch (biome) {
@@ -2392,7 +2392,7 @@ export class ChunkSystem {
         return positions;
     }
     
-    private isPositionNearRoad(worldX: number, worldZ: number, threshold: number = 5): boolean {
+    private isPositionNearRoad(worldX: number, worldZ: number, _threshold: number = 5): boolean {
         if (!this.roadNetwork) return false;
         return this.roadNetwork.isOnRoad(worldX, worldZ) || 
                this.roadNetwork.getRoadWidth(worldX, worldZ) > 0;
@@ -2749,9 +2749,11 @@ export class ChunkSystem {
         const bx = mainBuilding.pos.x;
         const bz = mainBuilding.pos.z;
         
-        const building = MeshBuilder.CreateBox("b", { width: type.w, height: type.h, depth: type.d }, this.scene);
-        building.position = new Vector3(bx, type.h / 2, bz);
-        building.material = this.getMat(type.mat);
+        // Get a random building type for the main building
+        const buildingType = random.pick(buildingTypes);
+        const building = MeshBuilder.CreateBox("b", { width: buildingType.w, height: buildingType.h, depth: buildingType.d }, this.scene);
+        building.position = new Vector3(bx, buildingType.h / 2, bz);
+        building.material = this.getMat(buildingType.mat);
         building.parent = chunk.node;
         building.freezeWorldMatrix();
         chunk.meshes.push(building);
@@ -3505,7 +3507,7 @@ export class ChunkSystem {
     }
     
     // Create trenches (linear depressions)
-    private createTrenches(chunk: ChunkData, size: number, random: SeededRandom, worldX: number, worldZ: number): void {
+    private _createTrenches(chunk: ChunkData, size: number, random: SeededRandom, worldX: number, worldZ: number): void {
         if (random.chance(0.4)) {
             const length = random.range(15, 30);
             const width = 2;
@@ -3717,7 +3719,7 @@ export class ChunkSystem {
     // Размер арены полигона
     private readonly POLYGON_ARENA_SIZE = 200;
     private readonly POLYGON_WALL_HEIGHT = 6;
-    private polygonInitialized = false;
+    private _polygonInitialized = false;
     
     private generatePolygonContent(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
         // Земля военного типа (песок/грязь)
@@ -3773,7 +3775,7 @@ export class ChunkSystem {
         return "empty"; // Центральная область - пустое пространство
     }
     
-    private generatePolygonPerimeter(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+    private generatePolygonPerimeter(chunk: ChunkData, worldX: number, worldZ: number, size: number, _random: SeededRandom): void {
         const arenaHalf = this.POLYGON_ARENA_SIZE / 2;
         const fenceHeight = 3; // Fence instead of wall
         const fenceThickness = 0.2;
@@ -3816,6 +3818,8 @@ export class ChunkSystem {
         }
         
         // Южная стена (z = -arenaHalf)
+        const wallHeight = this.POLYGON_WALL_HEIGHT;
+        const wallThickness = 1;
         if (chunkBottom <= -arenaHalf && chunkTop >= -arenaHalf) {
             const wallLength = Math.min(chunkRight, arenaHalf) - Math.max(chunkLeft, -arenaHalf);
             if (wallLength > 0) {
@@ -4959,7 +4963,7 @@ export class ChunkSystem {
     // removed unused helpers (tree/bench/streetlight/house/apartment)
     
     // Generic scattered props with varied forms/sizes (avoid z-fighting via Y offsets)
-    private addScatteredProps(chunk: ChunkData, size: number, random: SeededRandom): void {
+    private _addScatteredProps(chunk: ChunkData, size: number, random: SeededRandom): void {
         const count = random.int(2, 5); // больше пропсов
         for (let i = 0; i < count; i++) {
             const kind = random.int(0, 4);
@@ -5019,7 +5023,7 @@ export class ChunkSystem {
 
     // Legacy BLOCKY terrain generator (kept for reference; not used after heightmap switch)
     // eslint-disable-next-line @typescript-eslint/no-unused-private-class-members
-    private createTerrainFromNoise(chunk: ChunkData, worldX: number, worldZ: number, size: number, biome: BiomeType, random: SeededRandom): void {
+    private _createTerrainFromNoise(chunk: ChunkData, worldX: number, worldZ: number, size: number, biome: BiomeType, random: SeededRandom): void {
         if (!this.terrainGenerator) return;
         
         // Use grid for blocky terrain (voxel-style)

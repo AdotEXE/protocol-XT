@@ -1234,7 +1234,9 @@ export class SoundManager {
             if (panner) {
                 gain.connect(panner);
             } else {
-                gain.connect(this.masterGain);
+                if (this.masterGain && gain) {
+                    gain.connect(this.masterGain);
+                }
             }
         });
         

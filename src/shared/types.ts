@@ -2,6 +2,13 @@ import { Vector3 } from "@babylonjs/core";
 
 export type GameMode = "ffa" | "tdm" | "coop" | "battle_royale" | "ctf";
 
+// Vector3Data - сериализуемая версия Vector3 для передачи по сети
+export interface Vector3Data {
+    x: number;
+    y: number;
+    z: number;
+}
+
 export type PlayerStatus = "alive" | "dead" | "spectating";
 
 export interface PlayerData {
