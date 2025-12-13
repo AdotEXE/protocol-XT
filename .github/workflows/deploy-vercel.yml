@@ -28,7 +28,7 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.VERCEL_TOKEN != ''
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -52,3 +52,14 @@ jobs:
           vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
           vercel-args: '--prod'
+
+  deploy-skip:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.VERCEL_TOKEN == ''
+    steps:
+      - name: Skip Deployment
+        run: |
+          echo "⚠️ Vercel deployment skipped - secrets not configured"
+          echo "📖 See docs/VERCEL_SETUP_SECRETS.md for setup instructions"
+          echo "💡 Alternatively, use Vercel's official GitHub integration"
