@@ -55,7 +55,6 @@ export class EnemyTank {
     // Turret control (smooth like player)
     private turretTargetAngle = 0;
     private turretCurrentAngle = 0;
-    private _turretSpeed = 0.06;
     private turretAcceleration = 0;
     private turretAccelStartTime = 0;
     
@@ -64,13 +63,10 @@ export class EnemyTank {
     private state: AIState = "idle";
     private patrolPoints: Vector3[] = [];
     private currentPatrolIndex = 0;
-    private _lastStateChange = 0;
     private stateTimer = 0;
     
     // POI System integration
     private targetPOI: { position: Vector3, type: string, id: string } | null = null;
-    private _poiCheckInterval = 5000; // Check for nearby POIs every 5 seconds
-    private _lastPOICheck = 0;
     private poiCaptureTime = 0; // Time spent at POI
     
     // AI properties - УЛУЧШЕНО: Увеличен радиус атаки для более агрессивного ИИ
@@ -210,7 +206,6 @@ export class EnemyTank {
                 this.range = 50;
                 this.optimalRange = 28;
                 this.decisionInterval = 800; // Решения каждые 800мс (было 1000)
-                this._turretSpeed = 0.045; // Медленнее поворачивает башню
                 this.moveSpeed = 10; // Медленнее (было 8)
                 break;
             case "medium":
@@ -222,7 +217,6 @@ export class EnemyTank {
                 this.optimalRange = 32;
                 this.decisionInterval = 500; // Решения каждые 500мс (было 700)
                 this.moveSpeed = 14; // Быстрее (было 10)
-                this._turretSpeed = 0.055;
                 break;
             case "hard":
                 // Сложная сложность: быстрая реакция, высокая точность
@@ -232,7 +226,6 @@ export class EnemyTank {
                 this.range = 70;
                 this.optimalRange = 38;
                 this.decisionInterval = 300; // Решения каждые 300мс (было 500)
-                this._turretSpeed = 0.07;
                 this.moveSpeed = 18; // Значительно быстрее (было 12)
                 break;
         }
@@ -380,7 +373,6 @@ export class EnemyTank {
     }
     
     // === HP Billboard ===
-    private _hpTexture: AdvancedDynamicTexture | null = null;
     private hpBarFill: Rectangle | null = null;
     
     private createHpBillboard() {
@@ -424,7 +416,6 @@ export class EnemyTank {
         (this as any).hpText = healthText; // Сохраняем ссылку для обновления
         
         this.hpBillboard = plane;
-        this._hpTexture = tex;
     }
 
     setHpVisible(visible: boolean) {
