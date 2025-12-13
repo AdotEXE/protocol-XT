@@ -38,3 +38,4 @@ export const TANK_CONSTANTS = {
 // Типы для констант
 export type TankConstants = typeof TANK_CONSTANTS;
 
+
