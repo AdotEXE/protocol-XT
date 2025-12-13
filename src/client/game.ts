@@ -374,7 +374,8 @@ export class Game {
         // Setup ESC for pause and Garage
         window.addEventListener("keydown", (e) => {
             // Open/Close garage MENU with B key - В ЛЮБОЙ МОМЕНТ (даже до старта игры)
-            if (e.code === "KeyB" || e.key === "b" || e.key === "B" || e.code === "KeyG" || e.key === "g" || e.key === "G") {
+            // G key используется для управления воротами гаража во время игры
+            if (e.code === "KeyB" || e.key === "b" || e.key === "B") {
                 e.preventDefault(); // Предотвращаем другие обработчики
                 e.stopPropagation(); // Останавливаем распространение события
                 e.stopImmediatePropagation(); // Останавливаем все обработчики
@@ -460,7 +461,8 @@ export class Game {
             }
             
             // Ручное управление воротами гаража клавишей G (только во время игры, если меню гаража закрыто)
-            if (e.code === "KeyG" && this.gameStarted && this.chunkSystem && this.chunkSystem.garageDoors && 
+            // G key открывает/закрывает ТОЛЬКО ту ворота, на которую смотрит пушка танка
+            if ((e.code === "KeyG" || e.key === "g" || e.key === "G") && this.gameStarted && this.chunkSystem && this.chunkSystem.garageDoors && 
                 (!this.garage || !this.garage.isGarageOpen())) {
                 e.preventDefault();
                 // Переключаем состояние ворот ближайшего гаража (только той, на которую смотрит пушка)
@@ -1432,8 +1434,10 @@ export class Game {
             try {
                 this.hud = new HUD(this.scene);
                 this.tank.setHUD(this.hud);
+                console.log("[Game] HUD created successfully");
             } catch (e) {
                 logger.error("HUD creation error:", e);
+                console.error("[Game] HUD creation failed:", e);
                 // Продолжаем без HUD
             }
             

@@ -290,7 +290,12 @@ export class HUD {
         this.setupMapKeyListener(); // Обработка клавиши M
         this.setupResizeHandler(); // Обработка изменения размера окна
         
-        console.log("HUD initialized (MINIMAL MODE)");
+        console.log("[HUD] HUD initialized (MINIMAL MODE)");
+        console.log("[HUD] GUI Texture:", this.guiTexture);
+        console.log("[HUD] GUI Texture isForeground:", this.guiTexture.isForeground);
+        console.log("[HUD] Health bar created:", !!this.healthBar);
+        console.log("[HUD] Compass container created:", !!this.compassContainer);
+        console.log("[HUD] Minimap container created:", !!this.minimapContainer);
     }
     
     // === UI SCALING HELPERS ===
