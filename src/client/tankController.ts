@@ -18,7 +18,12 @@ import { SoundManager } from "./soundManager";
 import { EffectsManager } from "./effects";
 import type { EnemyManager } from "./enemy";
 import { getChassisById, getCannonById, type ChassisType, type CannonType } from "./tankTypes";
-import { TankHealthModule, TankMovementModule } from "./tank";
+import { 
+    TankHealthModule, 
+    TankMovementModule, 
+    TankProjectilesModule, 
+    TankVisualsModule 
+} from "./tank";
 
 export class TankController {
     scene: Scene;
