@@ -13,6 +13,7 @@ import {
     Vector3 
 } from "@babylonjs/core";
 import { CHASSIS_TYPES, CANNON_TYPES, getChassisById, getCannonById } from "./tankTypes";
+import { TRACK_TYPES, getTrackById, type TrackType } from "./trackTypes";
 import { MaterialFactory } from "./garage/materials";
 import { ChassisDetailsGenerator } from "./garage/chassisDetails";
 import { CannonDetailsGenerator } from "./garage/cannonDetails";
@@ -46,7 +47,7 @@ export interface TankPart {
     };
 }
 
-type CategoryType = "chassis" | "cannons" | "modules" | "supplies" | "shop";
+type CategoryType = "chassis" | "cannons" | "tracks" | "modules" | "supplies" | "shop";
 
 // ============ GARAGE CLASS ============
 export class Garage {
@@ -69,7 +70,7 @@ export class Garage {
     private previewEngine: Engine | null = null;
     private previewScene: Scene | null = null;
     private previewCanvas: HTMLCanvasElement | null = null;
-    private previewTank: { chassis: Mesh, turret: Mesh, barrel: Mesh } | null = null;
+    private previewTank: { chassis: Mesh, turret: Mesh, barrel: Mesh, leftTrack?: Mesh, rightTrack?: Mesh } | null = null;
     private previewCamera: ArcRotateCamera | null = null;
     private previewRenderLoop: number | null = null;
     
@@ -77,6 +78,7 @@ export class Garage {
     private currentCategory: CategoryType = "chassis";
     private currentChassisId: string = "medium";
     private currentCannonId: string = "standard";
+    private currentTrackId: string = "standard";
     private selectedItemIndex: number = 0;
     private filteredItems: (TankPart | TankUpgrade)[] = [];
     
@@ -127,6 +129,23 @@ export class Garage {
             cost: costs[cannon.id] || 500, unlocked: cannon.id === "standard",
             type: "barrel" as const,
             stats: { damage: cannon.damage, reload: cannon.cooldown }
+        };
+    });
+    
+    private trackParts: TankPart[] = TRACK_TYPES.map(track => {
+        const stats: any = {};
+        if (track.stats.speedBonus) stats.speed = track.stats.speedBonus * 100;
+        if (track.stats.durabilityBonus) stats.armor = track.stats.durabilityBonus * 100;
+        if (track.stats.armorBonus) stats.armor = (stats.armor || 0) + track.stats.armorBonus * 100;
+        
+        return {
+            id: track.id,
+            name: track.name,
+            description: track.description,
+            cost: track.cost,
+            unlocked: track.id === "standard",
+            type: "module" as const,
+            stats
         };
     });
     
@@ -494,7 +513,7 @@ export class Garage {
             const saved = localStorage.getItem("tx_garage_progress");
             if (saved) {
                 const progress = JSON.parse(saved);
-                [...this.chassisParts, ...this.cannonParts, ...this.moduleParts, ...this.supplyParts].forEach(part => {
+                [...this.chassisParts, ...this.cannonParts, ...this.trackParts, ...this.moduleParts, ...this.supplyParts].forEach(part => {
                     if (progress.unlocked?.includes(part.id)) part.unlocked = true;
                 });
                 if (progress.upgrades) {
@@ -504,20 +523,22 @@ export class Garage {
                 }
                 if (progress.currentChassis) this.currentChassisId = progress.currentChassis;
                 if (progress.currentCannon) this.currentCannonId = progress.currentCannon;
+                if (progress.currentTrack) this.currentTrackId = progress.currentTrack;
             }
         } catch (e) { console.warn("[Garage] Load failed:", e); }
     }
     
     private saveProgress(): void {
         try {
-            const unlocked = [...this.chassisParts, ...this.cannonParts, ...this.moduleParts, ...this.supplyParts]
+            const unlocked = [...this.chassisParts, ...this.cannonParts, ...this.trackParts, ...this.moduleParts, ...this.supplyParts]
                 .filter(p => p.unlocked).map(p => p.id);
             const upgrades: Record<string, number> = {};
             this.upgrades.forEach(u => { upgrades[u.id] = u.level; });
             localStorage.setItem("tx_garage_progress", JSON.stringify({
                 unlocked, upgrades,
                 currentChassis: this.currentChassisId,
-                currentCannon: this.currentCannonId
+                currentCannon: this.currentCannonId,
+                currentTrack: this.currentTrackId
             }));
         } catch (e) { console.warn("[Garage] Save failed:", e); }
     }
@@ -535,6 +556,7 @@ export class Garage {
         this.isOpen = true;
         this.currentChassisId = localStorage.getItem("selectedChassis") || "medium";
         this.currentCannonId = localStorage.getItem("selectedCannon") || "standard";
+        this.currentTrackId = localStorage.getItem("selectedTrack") || "standard";
         
         this.createUI();
         
@@ -665,11 +687,14 @@ export class Garage {
             this.previewTank.chassis.dispose();
             this.previewTank.turret.dispose();
             this.previewTank.barrel.dispose();
+            if (this.previewTank.leftTrack) this.previewTank.leftTrack.dispose();
+            if (this.previewTank.rightTrack) this.previewTank.rightTrack.dispose();
             this.previewTank = null;
         }
         
         const chassisType = getChassisById(chassisId);
         const cannonType = getCannonById(cannonId);
+        const trackType = getTrackById(this.currentTrackId);
         
         // Use unique models with all details
         const chassis = this.createUniqueChassisPreview(chassisType, this.previewScene);
@@ -679,9 +704,12 @@ export class Garage {
         barrel.parent = turret;
         turret.parent = chassis;
         
-        this.previewTank = { chassis, turret, barrel };
+        // Create tracks
+        const tracks = this.createPreviewTracks(chassis, chassisType, trackType, this.previewScene);
         
-        console.log("[Garage] Tank preview rendered with unique models:", chassisId, cannonId);
+        this.previewTank = { chassis, turret, barrel, leftTrack: tracks.left, rightTrack: tracks.right };
+        
+        console.log("[Garage] Tank preview rendered with unique models:", chassisId, cannonId, this.currentTrackId);
     }
     
     // Create unique chassis using same logic as TankController
@@ -761,6 +789,47 @@ export class Garage {
         this.addChassisDetailsPreview(chassis, chassisType, scene, color);
         
         return chassis;
+    }
+    
+    // Create preview tracks
+    private createPreviewTracks(chassis: Mesh, chassisType: any, trackType: TrackType, scene: Scene): { left: Mesh, right: Mesh } {
+        const w = chassisType.width;
+        const h = chassisType.height;
+        const d = chassisType.depth;
+        
+        // Адаптируем размеры гусениц под размер корпуса
+        const trackWidth = trackType.width;
+        const trackHeight = trackType.height;
+        const trackDepth = trackType.depth * (d / 3.8); // Нормализуем под стандартную глубину
+        
+        // Создаем материал для гусениц
+        const trackMat = new StandardMaterial("previewTrackMat", scene);
+        const trackColor = Color3.FromHexString(trackType.color);
+        trackMat.diffuseColor = trackColor;
+        trackMat.specularColor = Color3.Black();
+        trackMat.freeze();
+        
+        // Left track
+        const leftTrack = MeshBuilder.CreateBox("previewLeftTrack", {
+            width: trackWidth,
+            height: trackHeight,
+            depth: trackDepth
+        }, scene);
+        leftTrack.position = new Vector3(-w * 0.65, -h * 0.2, 0);
+        leftTrack.parent = chassis;
+        leftTrack.material = trackMat;
+        
+        // Right track
+        const rightTrack = MeshBuilder.CreateBox("previewRightTrack", {
+            width: trackWidth,
+            height: trackHeight,
+            depth: trackDepth
+        }, scene);
+        rightTrack.position = new Vector3(w * 0.65, -h * 0.2, 0);
+        rightTrack.parent = chassis;
+        rightTrack.material = trackMat;
+        
+        return { left: leftTrack, right: rightTrack };
     }
     
     // Add chassis details - ПОЛНАЯ КОПИЯ из TankController
@@ -1122,290 +1191,327 @@ export class Garage {
                 break;
             case "heavy":
                 // Heavy - массивные бронеплиты со всех сторон - ОЧЕНЬ ЗАМЕТНЫЕ
-                const heavyPlates = [
-                    { pos: new Vector3(-w * 0.62, 0, 0), size: new Vector3(0.3, h * 0.95, d * 0.75) },
-                    { pos: new Vector3(w * 0.62, 0, 0), size: new Vector3(0.3, h * 0.95, d * 0.75) },
-                    { pos: new Vector3(0, h * 0.35, d * 0.58), size: new Vector3(w * 0.85, h * 0.35, 0.22) },
-                    { pos: new Vector3(0, -h * 0.35, 0), size: new Vector3(w * 1.05, 0.28, d * 1.05) }
-                ];
-                heavyPlates.forEach((plate, i) => {
-                    const plateMesh = MeshBuilder.CreateBox(`previewPlate${i}`, { width: plate.size.x, height: plate.size.y, depth: plate.size.z }, scene);
-                    plateMesh.position = plate.pos;
-                    plateMesh.parent = chassis;
-                    plateMesh.material = armorMat;
-                });
+                // Боковые бронеплиты
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(-w * 0.62, 0, 0),
+                    0.3, h * 0.95, d * 0.75,
+                    armorMat, "previewHeavy0"
+                );
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(w * 0.62, 0, 0),
+                    0.3, h * 0.95, d * 0.75,
+                    armorMat, "previewHeavy1"
+                );
+                // Лобовая бронеплита
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(0, h * 0.35, d * 0.58),
+                    w * 0.85, h * 0.35, 0.22,
+                    armorMat, "previewHeavy2"
+                );
+                // Нижняя бронеплита
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(0, -h * 0.35, 0),
+                    w * 1.05, 0.28, d * 1.05,
+                    armorMat, "previewHeavy3"
+                );
                 // Верхняя бронеплита - ОЧЕНЬ БОЛЬШАЯ
-                const topPlate = MeshBuilder.CreateBox("previewTop", { width: w * 0.95, height: 0.25, depth: d * 0.8 }, scene);
-                topPlate.position = new Vector3(0, h * 0.65, 0);
-                topPlate.parent = chassis;
-                topPlate.material = armorMat;
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(0, h * 0.65, 0),
+                    w * 0.95, 0.25, d * 0.8,
+                    armorMat, "previewHeavy"
+                );
                 // Угловые усиления - БОЛЬШЕ
                 for (let i = 0; i < 4; i++) {
-                    const corner = MeshBuilder.CreateBox(`previewCorner${i}`, { width: 0.3, height: 0.3, depth: 0.3 }, scene);
                     const posX = (i % 2 === 0 ? -1 : 1) * w * 0.58;
                     const posZ = (i < 2 ? -1 : 1) * d * 0.58;
-                    corner.position = new Vector3(posX, h * 0.55, posZ);
-                    corner.parent = chassis;
-                    corner.material = armorMat;
+                    ChassisDetailsGenerator.createArmorPlate(
+                        scene, chassis,
+                        new Vector3(posX, h * 0.55, posZ),
+                        0.3, 0.3, 0.3,
+                        armorMat, `previewHeavy${i}`
+                    );
                 }
                 
                 // Фары
                 for (let i = 0; i < 2; i++) {
-                    const headlight = MeshBuilder.CreateBox(`previewHeavyHeadlight${i}`, { width: 0.12, height: 0.12, depth: 0.1 }, scene);
-                    headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.15, d * 0.5);
-                    headlight.parent = chassis;
-                    const headlightMat = new StandardMaterial(`previewHeavyHeadlightMat${i}`, scene);
-                    headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
-                    headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
-                    headlight.material = headlightMat;
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.15, d * 0.5),
+                        0.12, 0.12, 0.1,
+                        i, "previewHeavy"
+                    );
                 }
                 
                 // Выхлопные трубы
                 for (let i = 0; i < 2; i++) {
-                    const exhaust = MeshBuilder.CreateBox(`previewHeavyExhaust${i}`, { width: 0.14, height: 0.14, depth: 0.2 }, scene);
-                    exhaust.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.2, -d * 0.48);
-                    exhaust.parent = chassis;
-                    exhaust.material = armorMat;
+                    ChassisDetailsGenerator.createExhaust(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.2, -d * 0.48),
+                        0.14, 0.14, 0.2,
+                        armorMat, `previewHeavy${i}`
+                    );
                 }
                 
                 // Инструменты: лопата, топор, канистра
-                const heavyShovel = MeshBuilder.CreateBox("previewHeavyShovel", { width: 0.15, height: 0.4, depth: 0.02 }, scene);
-                heavyShovel.position = new Vector3(-w * 0.45, h * 0.2, -d * 0.45);
-                heavyShovel.parent = chassis;
-                heavyShovel.material = armorMat;
+                ChassisDetailsGenerator.createShovel(
+                    scene, chassis,
+                    new Vector3(-w * 0.45, h * 0.2, -d * 0.45),
+                    0.15, 0.4, 0.02,
+                    armorMat, "previewHeavy"
+                );
                 
-                const heavyAxe = MeshBuilder.CreateBox("previewHeavyAxe", { width: 0.3, height: 0.1, depth: 0.02 }, scene);
-                heavyAxe.position = new Vector3(-w * 0.35, h * 0.25, -d * 0.45);
-                heavyAxe.parent = chassis;
-                heavyAxe.material = armorMat;
+                ChassisDetailsGenerator.createAxe(
+                    scene, chassis,
+                    new Vector3(-w * 0.35, h * 0.25, -d * 0.45),
+                    0.3, 0.1, 0.02,
+                    armorMat, "previewHeavy"
+                );
                 
-                const heavyCanister = MeshBuilder.CreateBox("previewHeavyCanister", { width: 0.14, height: 0.25, depth: 0.14 }, scene);
-                heavyCanister.position = new Vector3(w * 0.45, h * 0.22, -d * 0.4);
-                heavyCanister.parent = chassis;
-                heavyCanister.material = armorMat;
+                ChassisDetailsGenerator.createCanister(
+                    scene, chassis,
+                    new Vector3(w * 0.45, h * 0.22, -d * 0.4),
+                    0.14, 0.25, 0.14,
+                    armorMat, "previewHeavy"
+                );
                 
                 // Вентиляционные решетки (большие, с деталями)
                 for (let i = 0; i < 4; i++) {
-                    const vent = MeshBuilder.CreateBox(`previewHeavyVent${i}`, { width: 0.1, height: 0.06, depth: 0.12 }, scene);
                     const posX = (i % 2 === 0 ? -1 : 1) * w * 0.4;
                     const posZ = (i < 2 ? -1 : 1) * d * 0.3;
-                    vent.position = new Vector3(posX, h * 0.5, posZ);
-                    vent.parent = chassis;
-                    const ventMat = new StandardMaterial(`previewHeavyVentMat${i}`, scene);
-                    ventMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
-                    vent.material = ventMat;
-                    
+                    const ventPos = new Vector3(posX, h * 0.5, posZ);
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis, ventPos,
+                        0.1, 0.06, 0.12,
+                        i, "previewHeavy"
+                    );
                     // Детали решетки
-                    for (let j = 0; j < 5; j++) {
-                        const ventDetail = MeshBuilder.CreateBox(`previewHeavyVentDetail${i}_${j}`, { width: 0.08, height: 0.04, depth: 0.02 }, scene);
-                        ventDetail.position = new Vector3(posX, h * 0.5, posZ + (j - 2) * 0.025);
-                        ventDetail.parent = chassis;
-                        ventDetail.material = ventMat;
-                    }
+                    ChassisDetailsGenerator.createVentBars(
+                        scene, chassis, ventPos,
+                        5, 0.08, 0.04, 0.02, 0.025,
+                        i, MaterialFactory.createVentMaterial(scene, i, "previewHeavy"), "previewHeavy"
+                    );
                 }
                 
                 // Перископы на люках (три штуки)
                 for (let i = 0; i < 3; i++) {
-                    const periscope = MeshBuilder.CreateCylinder(`previewHeavyPeriscope${i}`, { height: 0.2, diameter: 0.08, tessellation: 8 }, scene);
-                    periscope.position = new Vector3((i - 1) * w * 0.3, h * 0.75, -d * 0.1);
-                    periscope.parent = chassis;
-                    const periscopeMat = new StandardMaterial(`previewHeavyPeriscopeMat${i}`, scene);
-                    periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
-                    periscope.material = periscopeMat;
+                    ChassisDetailsGenerator.createPeriscope(
+                        scene, chassis,
+                        new Vector3((i - 1) * w * 0.3, h * 0.75, -d * 0.1),
+                        0.2, 0.08,
+                        i, "previewHeavy"
+                    );
                 }
                 
                 // Люки на крыше (два больших)
                 for (let i = 0; i < 2; i++) {
-                    const hatch = MeshBuilder.CreateBox(`previewHeavyHatch${i}`, { width: 0.25, height: 0.1, depth: 0.25 }, scene);
-                    hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.68, -d * 0.1);
-                    hatch.parent = chassis;
-                    hatch.material = armorMat;
+                    ChassisDetailsGenerator.createHatch(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.68, -d * 0.1),
+                        0.25, 0.1, 0.25,
+                        armorMat, `previewHeavy${i}`
+                    );
                 }
                 
                 // Энергетические усилители брони (футуристические элементы)
                 for (let i = 0; i < 2; i++) {
-                    const energyBooster = MeshBuilder.CreateBox(`previewHeavyEnergyBooster${i}`, { width: 0.12, height: 0.12, depth: 0.12 }, scene);
-                    energyBooster.position = new Vector3((i === 0 ? -1 : 1) * w * 0.5, h * 0.3, d * 0.4);
-                    energyBooster.parent = chassis;
-                    const boosterMat = new StandardMaterial(`previewHeavyBoosterMat${i}`, scene);
-                    boosterMat.diffuseColor = new Color3(0.2, 0.4, 0.8);
-                    boosterMat.emissiveColor = new Color3(0.1, 0.2, 0.4);
-                    energyBooster.material = boosterMat;
+                    ChassisDetailsGenerator.createEnergyBooster(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.5, h * 0.3, d * 0.4),
+                        0.12,
+                        i, "previewHeavy"
+                    );
                 }
                 break;
             case "assault":
                 // Assault - агрессивные угловые бронеплиты, шипы
-                const assaultPlates = [
-                    { pos: new Vector3(0, h * 0.25, d * 0.52), size: new Vector3(w * 0.8, h * 0.35, 0.15) },
-                    { pos: new Vector3(-w * 0.5, 0, d * 0.3), size: new Vector3(0.12, h * 0.6, d * 0.4) },
-                    { pos: new Vector3(w * 0.5, 0, d * 0.3), size: new Vector3(0.12, h * 0.6, d * 0.4) }
-                ];
-                assaultPlates.forEach((plate, i) => {
-                    const plateMesh = MeshBuilder.CreateBox(`previewAssaultPlate${i}`, { width: plate.size.x, height: plate.size.y, depth: plate.size.z }, scene);
-                    plateMesh.position = plate.pos;
-                    plateMesh.parent = chassis;
-                    plateMesh.material = armorMat;
-                });
+                // Лобовая бронеплита
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(0, h * 0.25, d * 0.52),
+                    w * 0.8, h * 0.35, 0.15,
+                    armorMat, "previewAssault0"
+                );
+                // Боковые бронеплиты
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(-w * 0.5, 0, d * 0.3),
+                    0.12, h * 0.6, d * 0.4,
+                    armorMat, "previewAssault1"
+                );
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(w * 0.5, 0, d * 0.3),
+                    0.12, h * 0.6, d * 0.4,
+                    armorMat, "previewAssault2"
+                );
                 
                 // Шипы спереди
                 for (let i = 0; i < 3; i++) {
-                    const spike = MeshBuilder.CreateBox(`previewSpike${i}`, { width: 0.08, height: 0.15, depth: 0.12 }, scene);
-                    spike.position = new Vector3((i - 1) * w * 0.25, h * 0.3, d * 0.52);
-                    spike.parent = chassis;
-                    spike.material = accentMat;
+                    ChassisDetailsGenerator.createSpike(
+                        scene, chassis,
+                        new Vector3((i - 1) * w * 0.25, h * 0.3, d * 0.52),
+                        0.08, 0.15, 0.12,
+                        0, accentMat, `previewAssault${i}`
+                    );
                 }
                 
                 // Фары с защитой
                 for (let i = 0; i < 2; i++) {
-                    const headlight = MeshBuilder.CreateBox(`previewAssaultHeadlight${i}`, { width: 0.1, height: 0.1, depth: 0.08 }, scene);
-                    headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.13, d * 0.48);
-                    headlight.parent = chassis;
-                    const headlightMat = new StandardMaterial(`previewAssaultHeadlightMat${i}`, scene);
-                    headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
-                    headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
-                    headlight.material = headlightMat;
-                    
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.13, d * 0.48),
+                        0.1, 0.1, 0.08,
+                        i, "previewAssault"
+                    );
                     // Защита фары
-                    const headlightGuard = MeshBuilder.CreateBox(`previewAssaultHeadlightGuard${i}`, { width: 0.14, height: 0.14, depth: 0.06 }, scene);
-                    headlightGuard.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.13, d * 0.46);
-                    headlightGuard.parent = chassis;
-                    headlightGuard.material = armorMat;
+                    ChassisDetailsGenerator.createHeadlightGuard(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.13, d * 0.46),
+                        0.14, 0.14, 0.06,
+                        i, armorMat, "previewAssault"
+                    );
                 }
                 
                 // Выхлоп
-                const assaultExhaust = MeshBuilder.CreateBox("previewAssaultExhaust", { width: 0.13, height: 0.13, depth: 0.18 }, scene);
-                assaultExhaust.position = new Vector3(w * 0.38, h * 0.18, -d * 0.45);
-                assaultExhaust.parent = chassis;
-                assaultExhaust.material = armorMat;
+                ChassisDetailsGenerator.createExhaust(
+                    scene, chassis,
+                    new Vector3(w * 0.38, h * 0.18, -d * 0.45),
+                    0.13, 0.13, 0.18,
+                    armorMat, "previewAssault"
+                );
                 
                 // Инструменты
-                const assaultShovel = MeshBuilder.CreateBox("previewAssaultShovel", { width: 0.13, height: 0.32, depth: 0.02 }, scene);
-                assaultShovel.position = new Vector3(-w * 0.4, h * 0.18, -d * 0.45);
-                assaultShovel.parent = chassis;
-                assaultShovel.material = armorMat;
+                ChassisDetailsGenerator.createShovel(
+                    scene, chassis,
+                    new Vector3(-w * 0.4, h * 0.18, -d * 0.45),
+                    0.13, 0.32, 0.02,
+                    armorMat, "previewAssault"
+                );
                 
-                const assaultCanister = MeshBuilder.CreateBox("previewAssaultCanister", { width: 0.11, height: 0.18, depth: 0.11 }, scene);
-                assaultCanister.position = new Vector3(w * 0.38, h * 0.2, -d * 0.4);
-                assaultCanister.parent = chassis;
-                assaultCanister.material = armorMat;
+                ChassisDetailsGenerator.createCanister(
+                    scene, chassis,
+                    new Vector3(w * 0.38, h * 0.2, -d * 0.4),
+                    0.11, 0.18, 0.11,
+                    armorMat, "previewAssault"
+                );
                 
                 // Вентиляционные решетки (улучшенные)
                 for (let i = 0; i < 2; i++) {
-                    const vent = MeshBuilder.CreateBox(`previewAssaultVent${i}`, { width: 0.08, height: 0.05, depth: 0.1 }, scene);
-                    vent.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.35, -d * 0.25);
-                    vent.parent = chassis;
-                    const ventMat = new StandardMaterial(`previewAssaultVentMat${i}`, scene);
-                    ventMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
-                    vent.material = ventMat;
-                    
+                    const ventPos = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.35, -d * 0.25);
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis, ventPos,
+                        0.08, 0.05, 0.1,
+                        i, "previewAssault"
+                    );
                     // Детали решетки
-                    for (let j = 0; j < 4; j++) {
-                        const ventDetail = MeshBuilder.CreateBox(`previewAssaultVentDetail${i}_${j}`, { width: 0.06, height: 0.03, depth: 0.02 }, scene);
-                        ventDetail.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.35, -d * 0.25 + (j - 1.5) * 0.03);
-                        ventDetail.parent = chassis;
-                        ventDetail.material = ventMat;
-                    }
+                    ChassisDetailsGenerator.createVentBars(
+                        scene, chassis, ventPos,
+                        4, 0.06, 0.03, 0.02, 0.03,
+                        i, MaterialFactory.createVentMaterial(scene, i, "previewAssault"), "previewAssault"
+                    );
                 }
                 
                 // Перископы (улучшенные)
                 for (let i = 0; i < 2; i++) {
-                    const periscope = MeshBuilder.CreateCylinder(`previewAssaultPeriscope${i}`, { height: 0.16, diameter: 0.07, tessellation: 8 }, scene);
-                    periscope.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.52, -d * 0.1);
-                    periscope.parent = chassis;
-                    const periscopeMat = new StandardMaterial(`previewAssaultPeriscopeMat${i}`, scene);
-                    periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
-                    periscope.material = periscopeMat;
+                    ChassisDetailsGenerator.createPeriscope(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.52, -d * 0.1),
+                        0.16, 0.07,
+                        i, "previewAssault"
+                    );
                 }
                 
                 // Агрессивные боковые шипы (дополнительные)
                 for (let i = 0; i < 2; i++) {
                     for (let j = 0; j < 3; j++) {
-                        const sideSpike = MeshBuilder.CreateBox(`previewAssaultSideSpike${i}_${j}`, { width: 0.06, height: 0.12, depth: 0.1 }, scene);
-                        sideSpike.position = new Vector3((i === 0 ? -1 : 1) * w * 0.52, h * 0.05 + j * h * 0.2, d * 0.1 + (j - 1) * d * 0.15);
-                        sideSpike.rotation.z = (i === 0 ? 1 : -1) * Math.PI / 8;
-                        sideSpike.parent = chassis;
-                        sideSpike.material = accentMat;
+                        ChassisDetailsGenerator.createSpike(
+                            scene, chassis,
+                            new Vector3((i === 0 ? -1 : 1) * w * 0.52, h * 0.05 + j * h * 0.2, d * 0.1 + (j - 1) * d * 0.15),
+                            0.06, 0.12, 0.1,
+                            (i === 0 ? 1 : -1) * Math.PI / 8, accentMat, `previewAssault${i}_${j}`
+                        );
                     }
                 }
                 
                 // Броневые экраны на лобовой части (угловатые)
                 for (let i = 0; i < 4; i++) {
-                    const frontScreen = MeshBuilder.CreateBox(`previewAssaultFrontScreen${i}`, { width: w * 0.22, height: h * 0.18, depth: 0.1 }, scene);
-                    frontScreen.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.28, h * 0.08 + (i < 2 ? 0 : h * 0.15), d * 0.5);
-                    frontScreen.rotation.x = -Math.PI / 12;
-                    frontScreen.parent = chassis;
-                    frontScreen.material = armorMat;
+                    ChassisDetailsGenerator.createSlopedArmor(
+                        scene, chassis,
+                        new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.28, h * 0.08 + (i < 2 ? 0 : h * 0.15), d * 0.5),
+                        w * 0.22, h * 0.18, 0.1,
+                        -Math.PI / 12, armorMat, `previewAssault${i}`
+                    );
                 }
                 
                 // Угловые броневые накладки (агрессивный стиль)
                 for (let i = 0; i < 4; i++) {
-                    const cornerArmor = MeshBuilder.CreateBox(`previewAssaultCornerArmor${i}`, { width: 0.2, height: 0.25, depth: 0.2 }, scene);
                     const posX = (i % 2 === 0 ? -1 : 1) * w * 0.55;
                     const posZ = (i < 2 ? -1 : 1) * d * 0.5;
-                    cornerArmor.position = new Vector3(posX, h * 0.45, posZ);
-                    cornerArmor.parent = chassis;
-                    cornerArmor.material = armorMat;
+                    ChassisDetailsGenerator.createArmorPlate(
+                        scene, chassis,
+                        new Vector3(posX, h * 0.45, posZ),
+                        0.2, 0.25, 0.2,
+                        armorMat, `previewAssault${i}`
+                    );
                 }
                 
                 // Верхние вентиляционные решетки (агрессивные, угловатые)
                 for (let i = 0; i < 5; i++) {
-                    const roofVent = MeshBuilder.CreateBox(`previewAssaultRoofVent${i}`, { width: 0.15, height: 0.05, depth: 0.12 }, scene);
-                    roofVent.position = new Vector3((i - 2) * w * 0.25, h * 0.54, (i < 3 ? -1 : 1) * d * 0.25);
-                    roofVent.parent = chassis;
-                    const roofVentMat = new StandardMaterial(`previewAssaultRoofVentMat${i}`, scene);
-                    roofVentMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
-                    roofVent.material = roofVentMat;
+                    ChassisDetailsGenerator.createRoofVent(
+                        scene, chassis,
+                        new Vector3((i - 2) * w * 0.25, h * 0.54, (i < 3 ? -1 : 1) * d * 0.25),
+                        0.15, 0.05, 0.12,
+                        i, "previewAssault"
+                    );
                 }
                 
                 // Задние шипы (агрессивный стиль)
                 for (let i = 0; i < 4; i++) {
-                    const rearSpike = MeshBuilder.CreateBox(`previewAssaultRearSpike${i}`, { width: 0.08, height: 0.18, depth: 0.1 }, scene);
-                    rearSpike.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.35, h * 0.3 + (i < 2 ? 0 : h * 0.15), -d * 0.48);
-                    rearSpike.parent = chassis;
-                    rearSpike.material = accentMat;
+                    ChassisDetailsGenerator.createSpike(
+                        scene, chassis,
+                        new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.35, h * 0.3 + (i < 2 ? 0 : h * 0.15), -d * 0.48),
+                        0.08, 0.18, 0.1,
+                        0, accentMat, `previewAssault${i}`
+                    );
                 }
                 
                 // Задние огни (стоп-сигналы)
                 for (let i = 0; i < 2; i++) {
-                    const tailLight = MeshBuilder.CreateBox(`previewAssaultTailLight${i}`, { width: 0.06, height: 0.1, depth: 0.04 }, scene);
-                    tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.16, -d * 0.49);
-                    tailLight.parent = chassis;
-                    const tailLightMat = new StandardMaterial(`previewAssaultTailLightMat${i}`, scene);
-                    tailLightMat.diffuseColor = new Color3(0.6, 0.1, 0.1);
-                    tailLightMat.emissiveColor = new Color3(0.3, 0.05, 0.05);
-                    tailLight.material = tailLightMat;
+                    ChassisDetailsGenerator.createTailLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.16, -d * 0.49),
+                        0.06, 0.1, 0.04,
+                        i, "previewAssault"
+                    );
                 }
                 
                 // Оптический прицел на лобовой части
-                const assaultSight = MeshBuilder.CreateBox("previewAssaultSight", { width: 0.14, height: 0.09, depth: 0.11 }, scene);
-                assaultSight.position = new Vector3(0, h * 0.22, d * 0.49);
-                assaultSight.parent = chassis;
-                const assaultSightMat = new StandardMaterial("previewAssaultSightMat", scene);
-                assaultSightMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
-                assaultSight.material = assaultSightMat;
-                
-                // Линза прицела
-                const assaultSightLens = MeshBuilder.CreateCylinder("previewAssaultSightLens", { height: 0.02, diameter: 0.07, tessellation: 8 }, scene);
-                assaultSightLens.position = new Vector3(0, 0, 0.06);
-                assaultSightLens.parent = assaultSight;
-                const assaultLensMat = new StandardMaterial("previewAssaultSightLensMat", scene);
-                assaultLensMat.diffuseColor = new Color3(0.1, 0.2, 0.3);
-                assaultLensMat.emissiveColor = new Color3(0.05, 0.1, 0.15);
-                assaultSightLens.material = assaultLensMat;
+                ChassisDetailsGenerator.createSight(
+                    scene, chassis,
+                    new Vector3(0, h * 0.22, d * 0.49),
+                    0.14, 0.09, 0.11,
+                    "previewAssault"
+                );
                 
                 // Радиоантенна сзади
-                const assaultAntenna = MeshBuilder.CreateCylinder("previewAssaultAntenna", { height: 0.45, diameter: 0.025, tessellation: 8 }, scene);
-                assaultAntenna.position = new Vector3(0, h * 0.65, -d * 0.3);
-                assaultAntenna.parent = chassis;
-                const assaultAntennaMat = new StandardMaterial("previewAssaultAntennaMat", scene);
-                assaultAntennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
-                assaultAntenna.material = assaultAntennaMat;
+                ChassisDetailsGenerator.createAntenna(
+                    scene, chassis,
+                    new Vector3(0, h * 0.65, -d * 0.3),
+                    0.45, 0.025,
+                    "previewAssault"
+                );
                 
                 // Основание антенны
-                const assaultAntennaBase = MeshBuilder.CreateBox("previewAssaultAntennaBase", { width: 0.1, height: 0.1, depth: 0.1 }, scene);
-                assaultAntennaBase.position = new Vector3(0, h * 0.54, -d * 0.3);
-                assaultAntennaBase.parent = chassis;
-                assaultAntennaBase.material = armorMat;
+                ChassisDetailsGenerator.createAntennaBase(
+                    scene, chassis,
+                    new Vector3(0, h * 0.54, -d * 0.3),
+                    0.1, armorMat, "previewAssault"
+                );
                 
                 // Боковые фары (сигнальные)
                 for (let i = 0; i < 2; i++) {
@@ -1438,1247 +1544,1252 @@ export class Garage {
             case "medium":
                 // Medium - Прототип: Т-34 - Классический средний танк, наклонная броня
                 // Наклонная лобовая броня (45°)
-                const mediumFront = MeshBuilder.CreateBox("previewMediumFront", { width: w * 1.0, height: h * 0.7, depth: 0.18 }, scene);
-                mediumFront.position = new Vector3(0, h * 0.1, d * 0.5);
-                mediumFront.rotation.x = -Math.PI / 4;  // Наклон 45°
-                mediumFront.parent = chassis;
-                mediumFront.material = armorMat;
+                ChassisDetailsGenerator.createSlopedArmor(
+                    scene, chassis,
+                    new Vector3(0, h * 0.1, d * 0.5),
+                    w * 1.0, h * 0.7, 0.18,
+                    -Math.PI / 4, armorMat, "previewMedium"
+                );
                 
                 // Вентиляционные решетки (угловатые)
                 for (let i = 0; i < 3; i++) {
-                    const vent = MeshBuilder.CreateBox(`previewVent${i}`, { width: 0.06, height: 0.04, depth: 0.08 }, scene);
-                    vent.position = new Vector3((i - 1) * w * 0.28, h * 0.38, -d * 0.28);
-                    vent.parent = chassis;
-                    vent.material = armorMat;
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis,
+                        new Vector3((i - 1) * w * 0.28, h * 0.38, -d * 0.28),
+                        0.06, 0.04, 0.08,
+                        i, "previewMedium"
+                    );
                 }
                 
                 // Два люка на крыше
                 for (let i = 0; i < 2; i++) {
-                    const hatch = MeshBuilder.CreateBox(`previewMediumHatch${i}`, { width: 0.22, height: 0.08, depth: 0.22 }, scene);
-                    hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.48, -d * 0.1);
-                    hatch.parent = chassis;
-                    hatch.material = armorMat;
+                    ChassisDetailsGenerator.createHatch(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.48, -d * 0.1),
+                        0.22, 0.08, 0.22,
+                        armorMat, `previewMedium${i}`
+                    );
                 }
                 
                 // Выхлопные трубы сзади
                 for (let i = 0; i < 2; i++) {
-                    const exhaust = MeshBuilder.CreateBox(`previewMediumExhaust${i}`, { width: 0.12, height: 0.12, depth: 0.18 }, scene);
-                    exhaust.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.18, -d * 0.45);
-                    exhaust.parent = chassis;
-                    exhaust.material = armorMat;
+                    ChassisDetailsGenerator.createExhaust(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.18, -d * 0.45),
+                        0.12, 0.12, 0.18,
+                        armorMat, `previewMedium${i}`
+                    );
                 }
                 
                 // Фары спереди
                 for (let i = 0; i < 2; i++) {
-                    const headlight = MeshBuilder.CreateBox(`previewMediumHeadlight${i}`, { width: 0.1, height: 0.1, depth: 0.08 }, scene);
-                    headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.12, d * 0.48);
-                    headlight.parent = chassis;
-                    const headlightMat = new StandardMaterial(`previewMediumHeadlightMat${i}`, scene);
-                    headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
-                    headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
-                    headlight.material = headlightMat;
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.12, d * 0.48),
+                        0.1, 0.1, 0.08,
+                        i, "previewMedium"
+                    );
                 }
                 
                 // Инструменты: лопата, канистра
-                const mediumShovel = MeshBuilder.CreateBox("previewMediumShovel", { width: 0.14, height: 0.35, depth: 0.02 }, scene);
-                mediumShovel.position = new Vector3(-w * 0.42, h * 0.18, -d * 0.45);
-                mediumShovel.parent = chassis;
-                mediumShovel.material = armorMat;
+                ChassisDetailsGenerator.createShovel(
+                    scene, chassis,
+                    new Vector3(-w * 0.42, h * 0.18, -d * 0.45),
+                    0.14, 0.35, 0.02,
+                    armorMat, "previewMedium"
+                );
                 
-                const mediumCanister = MeshBuilder.CreateBox("previewMediumCanister", { width: 0.12, height: 0.2, depth: 0.12 }, scene);
-                mediumCanister.position = new Vector3(w * 0.42, h * 0.2, -d * 0.4);
-                mediumCanister.parent = chassis;
-                mediumCanister.material = armorMat;
+                ChassisDetailsGenerator.createCanister(
+                    scene, chassis,
+                    new Vector3(w * 0.42, h * 0.2, -d * 0.4),
+                    0.12, 0.2, 0.12,
+                    armorMat, "previewMedium"
+                );
                 
                 // Вентиляционные решетки (улучшенные)
                 for (let i = 0; i < 3; i++) {
-                    const vent = MeshBuilder.CreateBox(`previewMediumVent${i}`, { width: 0.08, height: 0.05, depth: 0.1 }, scene);
-                    vent.position = new Vector3((i - 1) * w * 0.3, h * 0.4, -d * 0.3);
-                    vent.parent = chassis;
-                    const ventMat = new StandardMaterial(`previewMediumVentMat${i}`, scene);
-                    ventMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
-                    vent.material = ventMat;
-                    
+                    const ventPos = new Vector3((i - 1) * w * 0.3, h * 0.4, -d * 0.3);
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis, ventPos,
+                        0.08, 0.05, 0.1,
+                        i, "previewMedium"
+                    );
                     // Детали решетки
-                    for (let j = 0; j < 4; j++) {
-                        const ventDetail = MeshBuilder.CreateBox(`previewMediumVentDetail${i}_${j}`, { width: 0.06, height: 0.03, depth: 0.02 }, scene);
-                        ventDetail.position = new Vector3((i - 1) * w * 0.3, h * 0.4, -d * 0.3 + (j - 1.5) * 0.03);
-                        ventDetail.parent = chassis;
-                        ventDetail.material = ventMat;
-                    }
+                    ChassisDetailsGenerator.createVentBars(
+                        scene, chassis, ventPos,
+                        4, 0.06, 0.03, 0.02, 0.03,
+                        i, MaterialFactory.createVentMaterial(scene, i, "previewMedium"), "previewMedium"
+                    );
                 }
                 
                 // Перископы на люках
                 for (let i = 0; i < 2; i++) {
-                    const periscope = MeshBuilder.CreateCylinder(`previewMediumPeriscope${i}`, { height: 0.18, diameter: 0.07, tessellation: 8 }, scene);
-                    periscope.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.55, -d * 0.1);
-                    periscope.parent = chassis;
-                    const periscopeMat = new StandardMaterial(`previewMediumPeriscopeMat${i}`, scene);
-                    periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
-                    periscope.material = periscopeMat;
+                    ChassisDetailsGenerator.createPeriscope(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.55, -d * 0.1),
+                        0.18, 0.07,
+                        i, "previewMedium"
+                    );
                 }
                 
                 // Броневые накладки на лобовой части (характерные для Т-34)
                 for (let i = 0; i < 2; i++) {
-                    const frontArmor = MeshBuilder.CreateBox(`previewMediumFrontArmor${i}`, { width: w * 0.3, height: h * 0.2, depth: 0.1 }, scene);
-                    frontArmor.position = new Vector3((i === 0 ? -1 : 1) * w * 0.25, h * 0.05, d * 0.48);
-                    frontArmor.parent = chassis;
-                    frontArmor.material = armorMat;
+                    ChassisDetailsGenerator.createArmorPlate(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.25, h * 0.05, d * 0.48),
+                        w * 0.3, h * 0.2, 0.1,
+                        armorMat, `previewMedium${i}`
+                    );
                 }
                 
                 // Центральная броневая накладка на лбу
-                const centerArmor = MeshBuilder.CreateBox("previewMediumCenterArmor", { width: w * 0.2, height: h * 0.15, depth: 0.12 }, scene);
-                centerArmor.position = new Vector3(0, h * 0.2, d * 0.49);
-                centerArmor.parent = chassis;
-                centerArmor.material = armorMat;
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(0, h * 0.2, d * 0.49),
+                    w * 0.2, h * 0.15, 0.12,
+                    armorMat, "previewMedium"
+                );
                 
                 // Боковые броневые экраны (противокумулятивные)
                 for (let i = 0; i < 2; i++) {
-                    const sideScreen = MeshBuilder.CreateBox(`previewMediumSideScreen${i}`, { width: 0.15, height: h * 0.6, depth: d * 0.35 }, scene);
-                    sideScreen.position = new Vector3((i === 0 ? -1 : 1) * w * 0.52, h * 0.15, d * 0.1);
-                    sideScreen.parent = chassis;
-                    sideScreen.material = armorMat;
+                    ChassisDetailsGenerator.createArmorScreen(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.52, h * 0.15, d * 0.1),
+                        0.15, h * 0.6, d * 0.35,
+                        0, armorMat, `previewMedium${i}`
+                    );
                 }
                 
                 // Дополнительные вентиляционные решетки на крыше
                 for (let i = 0; i < 4; i++) {
-                    const roofVent = MeshBuilder.CreateBox(`previewMediumRoofVent${i}`, { width: 0.15, height: 0.04, depth: 0.12 }, scene);
-                    roofVent.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.25, h * 0.46, (i < 2 ? -1 : 1) * d * 0.25);
-                    roofVent.parent = chassis;
-                    const roofVentMat = new StandardMaterial(`previewMediumRoofVentMat${i}`, scene);
-                    roofVentMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
-                    roofVent.material = roofVentMat;
+                    ChassisDetailsGenerator.createRoofVent(
+                        scene, chassis,
+                        new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.25, h * 0.46, (i < 2 ? -1 : 1) * d * 0.25),
+                        0.15, 0.04, 0.12,
+                        i, "previewMedium"
+                    );
                 }
                 
                 // Радиоантенна сзади (характерная для Т-34)
-                const antenna = MeshBuilder.CreateCylinder("previewMediumAntenna", { height: 0.5, diameter: 0.025, tessellation: 8 }, scene);
-                antenna.position = new Vector3(0, h * 0.65, -d * 0.35);
-                antenna.parent = chassis;
-                const antennaMat = new StandardMaterial("previewMediumAntennaMat", scene);
-                antennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
-                antenna.material = antennaMat;
+                ChassisDetailsGenerator.createAntenna(
+                    scene, chassis,
+                    new Vector3(0, h * 0.65, -d * 0.35),
+                    0.5, 0.025,
+                    "previewMedium"
+                );
                 
                 // Основание антенны
-                const antennaBase = MeshBuilder.CreateBox("previewMediumAntennaBase", { width: 0.1, height: 0.1, depth: 0.1 }, scene);
-                antennaBase.position = new Vector3(0, h * 0.54, -d * 0.35);
-                antennaBase.parent = chassis;
-                antennaBase.material = armorMat;
+                ChassisDetailsGenerator.createAntennaBase(
+                    scene, chassis,
+                    new Vector3(0, h * 0.54, -d * 0.35),
+                    0.1, armorMat, "previewMedium"
+                );
                 
                 // Оптический прицел на лобовой части
-                const sight = MeshBuilder.CreateBox("previewMediumSight", { width: 0.12, height: 0.08, depth: 0.1 }, scene);
-                sight.position = new Vector3(0, h * 0.25, d * 0.48);
-                sight.parent = chassis;
-                const sightMat = new StandardMaterial("previewMediumSightMat", scene);
-                sightMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
-                sight.material = sightMat;
-                
-                // Линза прицела
-                const sightLens = MeshBuilder.CreateCylinder("previewMediumSightLens", { height: 0.02, diameter: 0.06, tessellation: 8 }, scene);
-                sightLens.position = new Vector3(0, 0, 0.06);
-                sightLens.parent = sight;
-                const lensMat = new StandardMaterial("previewMediumSightLensMat", scene);
-                lensMat.diffuseColor = new Color3(0.1, 0.2, 0.3);
-                lensMat.emissiveColor = new Color3(0.05, 0.1, 0.15);
-                sightLens.material = lensMat;
+                ChassisDetailsGenerator.createSight(
+                    scene, chassis,
+                    new Vector3(0, h * 0.25, d * 0.48),
+                    0.12, 0.08, 0.1,
+                    "previewMedium"
+                );
                 
                 // Задние огни (стоп-сигналы)
                 for (let i = 0; i < 2; i++) {
-                    const tailLight = MeshBuilder.CreateBox(`previewMediumTailLight${i}`, { width: 0.06, height: 0.1, depth: 0.04 }, scene);
-                    tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.16, -d * 0.49);
-                    tailLight.parent = chassis;
-                    const tailLightMat = new StandardMaterial(`previewMediumTailLightMat${i}`, scene);
-                    tailLightMat.diffuseColor = new Color3(0.6, 0.1, 0.1);
-                    tailLightMat.emissiveColor = new Color3(0.3, 0.05, 0.05);
-                    tailLight.material = tailLightMat;
+                    ChassisDetailsGenerator.createTailLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.16, -d * 0.49),
+                        0.06, 0.1, 0.04,
+                        i, "previewMedium"
+                    );
                 }
                 
                 // Дополнительные инструменты на корме
-                const toolBox = MeshBuilder.CreateBox("previewMediumToolBox", { width: 0.18, height: 0.12, depth: 0.14 }, scene);
-                toolBox.position = new Vector3(0, h * 0.22, -d * 0.42);
-                toolBox.parent = chassis;
-                toolBox.material = armorMat;
+                ChassisDetailsGenerator.createToolBox(
+                    scene, chassis,
+                    new Vector3(0, h * 0.22, -d * 0.42),
+                    0.18, 0.12, 0.14,
+                    armorMat, "previewMedium"
+                );
                 
                 // Боковые фары (сигнальные)
                 for (let i = 0; i < 2; i++) {
-                    const sideLight = MeshBuilder.CreateBox(`previewMediumSideLight${i}`, { width: 0.05, height: 0.07, depth: 0.05 }, scene);
-                    sideLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.08, -d * 0.25);
-                    sideLight.parent = chassis;
-                    const sideLightMat = new StandardMaterial(`previewMediumSideLightMat${i}`, scene);
-                    sideLightMat.diffuseColor = new Color3(0.7, 0.6, 0.3);
-                    sideLightMat.emissiveColor = new Color3(0.15, 0.12, 0.08);
-                    sideLight.material = sideLightMat;
+                    ChassisDetailsGenerator.createSideLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.08, -d * 0.25),
+                        0.05, 0.07, 0.05,
+                        i, "previewMedium"
+                    );
                 }
                 break;
             case "stealth":
                 // Stealth - угловатые панели, генератор невидимости, низкий профиль
-                const stealthPanels = [
-                    { pos: new Vector3(-w * 0.45, h * 0.2, d * 0.3), size: new Vector3(0.08, h * 0.3, d * 0.4) },
-                    { pos: new Vector3(w * 0.45, h * 0.2, d * 0.3), size: new Vector3(0.08, h * 0.3, d * 0.4) },
-                    { pos: new Vector3(0, h * 0.35, -d * 0.35), size: new Vector3(w * 0.4, h * 0.25, w * 0.3) }
-                ];
-                stealthPanels.forEach((panel, i) => {
-                    const panelMesh = MeshBuilder.CreateBox(`previewStealthPanel${i}`, { width: panel.size.x, height: panel.size.y, depth: panel.size.z }, scene);
-                    panelMesh.position = panel.pos;
-                    panelMesh.parent = chassis;
-                    panelMesh.material = armorMat;
-                });
+                // Боковые панели
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(-w * 0.45, h * 0.2, d * 0.3),
+                    0.08, h * 0.3, d * 0.4,
+                    armorMat, "previewStealth0"
+                );
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(w * 0.45, h * 0.2, d * 0.3),
+                    0.08, h * 0.3, d * 0.4,
+                    armorMat, "previewStealth1"
+                );
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(0, h * 0.35, -d * 0.35),
+                    w * 0.4, h * 0.25, w * 0.3,
+                    armorMat, "previewStealth2"
+                );
                 
                 // Генератор невидимости
-                const stealthGen = MeshBuilder.CreateBox("previewStealthGen", { width: w * 0.35, height: h * 0.45, depth: w * 0.35 }, scene);
-                stealthGen.position = new Vector3(0, h * 0.35, -d * 0.35);
-                stealthGen.parent = chassis;
-                const stealthMat = new StandardMaterial("previewStealthMat", scene);
-                stealthMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
-                stealthMat.emissiveColor = new Color3(0.08, 0.08, 0.12);
-                stealthGen.material = stealthMat;
+                ChassisDetailsGenerator.createStealthGenerator(
+                    scene, chassis,
+                    new Vector3(0, h * 0.35, -d * 0.35),
+                    w * 0.35, h * 0.45, w * 0.35,
+                    "previewStealth"
+                );
                 
                 // Две фары (очень маленькие, скрытые)
                 for (let i = 0; i < 2; i++) {
-                    const headlight = MeshBuilder.CreateBox(`previewStealthHeadlight${i}`, { width: 0.06, height: 0.06, depth: 0.04 }, scene);
-                    headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.1, d * 0.48);
-                    headlight.parent = chassis;
-                    const headlightMat = new StandardMaterial(`previewStealthHeadlightMat${i}`, scene);
-                    headlightMat.diffuseColor = new Color3(0.7, 0.7, 0.5);
-                    headlightMat.emissiveColor = new Color3(0.15, 0.15, 0.1);
-                    headlight.material = headlightMat;
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.1, d * 0.48),
+                        0.06, 0.06, 0.04,
+                        i, "previewStealth"
+                    );
                 }
                 
                 // Две задние фары (скрытые)
                 for (let i = 0; i < 2; i++) {
-                    const tailLight = MeshBuilder.CreateBox(`previewStealthTailLight${i}`, { width: 0.04, height: 0.05, depth: 0.03 }, scene);
-                    tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.1, -d * 0.49);
-                    tailLight.parent = chassis;
-                    const tailLightMat = new StandardMaterial(`previewStealthTailLightMat${i}`, scene);
-                    tailLightMat.diffuseColor = new Color3(0.5, 0.08, 0.08);
-                    tailLightMat.emissiveColor = new Color3(0.2, 0.03, 0.03);
-                    tailLight.material = tailLightMat;
+                    ChassisDetailsGenerator.createTailLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.1, -d * 0.49),
+                        0.04, 0.05, 0.03,
+                        i, "previewStealth"
+                    );
                 }
                 
                 // Скрытые вентиляционные решетки по бокам
                 for (let i = 0; i < 2; i++) {
-                    const vent = MeshBuilder.CreateBox(`previewStealthVent${i}`, { width: 0.04, height: 0.06, depth: 0.1 }, scene);
-                    vent.position = new Vector3((i === 0 ? -1 : 1) * w * 0.42, h * 0.05, d * 0.15);
-                    vent.parent = chassis;
-                    const ventMat = new StandardMaterial(`previewStealthVentMat${i}`, scene);
-                    ventMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
-                    vent.material = ventMat;
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.42, h * 0.05, d * 0.15),
+                        0.04, 0.06, 0.1,
+                        i, "previewStealth"
+                    );
                 }
                 break;
             case "hover":
                 // Hover - обтекаемые панели, реактивные двигатели
                 for (let i = 0; i < 2; i++) {
-                    const panel = MeshBuilder.CreateBox(`previewHoverPanel${i}`, { width: 0.06, height: h * 0.6, depth: d * 0.5 }, scene);
-                    panel.position = new Vector3((i === 0 ? -1 : 1) * w * 0.42, 0, 0);
-                    panel.parent = chassis;
-                    panel.material = accentMat;
+                    ChassisDetailsGenerator.createArmorPlate(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.42, 0, 0),
+                        0.06, h * 0.6, d * 0.5,
+                        accentMat, `previewHover${i}`
+                    );
                 }
                 
                 // Реактивные двигатели (4 штуки)
                 for (let i = 0; i < 4; i++) {
-                    const thruster = MeshBuilder.CreateCylinder(`previewThruster${i}`, { height: 0.25, diameter: 0.18 }, scene);
                     const posX = (i % 2 === 0 ? -1 : 1) * w * 0.38;
                     const posZ = (i < 2 ? -1 : 1) * d * 0.38;
-                    thruster.position = new Vector3(posX, -h * 0.45, posZ);
-                    thruster.parent = chassis;
-                    const thrusterMat = new StandardMaterial(`previewThrusterMat${i}`, scene);
-                    thrusterMat.diffuseColor = new Color3(0, 0.6, 1);
-                    thrusterMat.emissiveColor = new Color3(0, 0.4, 0.7);
-                    thruster.material = thrusterMat;
+                    ChassisDetailsGenerator.createThruster(
+                        scene, chassis,
+                        new Vector3(posX, -h * 0.45, posZ),
+                        0.25, 0.18,
+                        i, "previewHover"
+                    );
                 }
                 
                 // Обтекаемые фары спереди
                 for (let i = 0; i < 2; i++) {
-                    const headlight = MeshBuilder.CreateCylinder(`previewHoverHeadlight${i}`, { height: 0.08, diameter: 0.12, tessellation: 8 }, scene);
-                    headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.15, d * 0.48);
-                    headlight.rotation.x = Math.PI / 2;
-                    headlight.parent = chassis;
-                    const headlightMat = new StandardMaterial(`previewHoverHeadlightMat${i}`, scene);
-                    headlightMat.diffuseColor = new Color3(1.0, 1.0, 0.9);
-                    headlightMat.emissiveColor = new Color3(0.5, 0.5, 0.3);
-                    headlight.material = headlightMat;
+                    ChassisDetailsGenerator.createHeadlightCylindrical(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.15, d * 0.48),
+                        0.12, 0.08,
+                        i, "previewHover"
+                    );
                 }
                 
-                // Обтекаемый люк на крыше
+                // Обтекаемый люк на крыше (цилиндрический)
                 const hoverHatch = MeshBuilder.CreateCylinder("previewHoverHatch", { height: 0.08, diameter: 0.28, tessellation: 8 }, scene);
                 hoverHatch.position = new Vector3(0, h * 0.52, -d * 0.1);
                 hoverHatch.parent = chassis;
                 hoverHatch.material = armorMat;
                 
                 // Перископ на люке (обтекаемый)
-                const hoverPeriscope = MeshBuilder.CreateCylinder("previewHoverPeriscope", { height: 0.18, diameter: 0.06, tessellation: 8 }, scene);
-                hoverPeriscope.position = new Vector3(0, h * 0.58, -d * 0.1);
-                hoverPeriscope.parent = chassis;
-                const hoverPeriscopeMat = new StandardMaterial("previewHoverPeriscopeMat", scene);
-                hoverPeriscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
-                hoverPeriscope.material = hoverPeriscopeMat;
+                ChassisDetailsGenerator.createPeriscope(
+                    scene, chassis,
+                    new Vector3(0, h * 0.58, -d * 0.1),
+                    0.18, 0.06,
+                    0, "previewHover"
+                );
                 
                 // Вентиляционные решетки на крыше (обтекаемые)
                 for (let i = 0; i < 4; i++) {
-                    const roofVent = MeshBuilder.CreateCylinder(`previewHoverRoofVent${i}`, { height: 0.05, diameter: 0.12, tessellation: 8 }, scene);
-                    roofVent.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.28, h * 0.5, (i < 2 ? -1 : 1) * d * 0.25);
-                    roofVent.rotation.x = Math.PI / 2;
-                    roofVent.parent = chassis;
-                    const roofVentMat = new StandardMaterial(`previewHoverRoofVentMat${i}`, scene);
-                    roofVentMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
-                    roofVent.material = roofVentMat;
+                    ChassisDetailsGenerator.createRoofVentCylindrical(
+                        scene, chassis,
+                        new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.28, h * 0.5, (i < 2 ? -1 : 1) * d * 0.25),
+                        0.12, 0.05,
+                        i, "previewHover"
+                    );
                 }
                 
                 // Оптические сенсоры (округлые)
                 for (let i = 0; i < 2; i++) {
-                    const sensor = MeshBuilder.CreateCylinder(`previewHoverSensor${i}`, { height: 0.06, diameter: 0.08, tessellation: 8 }, scene);
-                    sensor.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.2, d * 0.45);
-                    sensor.rotation.x = Math.PI / 2;
-                    sensor.parent = chassis;
-                    const sensorMat = new StandardMaterial(`previewHoverSensorMat${i}`, scene);
-                    sensorMat.diffuseColor = new Color3(0.1, 0.15, 0.2);
-                    sensorMat.emissiveColor = new Color3(0.05, 0.08, 0.1);
-                    sensor.material = sensorMat;
+                    ChassisDetailsGenerator.createOpticalSensor(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.2, d * 0.45),
+                        0.06, 0.08,
+                        i, "previewHover"
+                    );
                 }
                 
                 // Задние огни (округлые)
                 for (let i = 0; i < 2; i++) {
-                    const tailLight = MeshBuilder.CreateCylinder(`previewHoverTailLight${i}`, { height: 0.04, diameter: 0.08, tessellation: 8 }, scene);
-                    tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.18, -d * 0.49);
-                    tailLight.rotation.x = Math.PI / 2;
-                    tailLight.parent = chassis;
-                    const tailLightMat = new StandardMaterial(`previewHoverTailLightMat${i}`, scene);
-                    tailLightMat.diffuseColor = new Color3(0.6, 0.1, 0.1);
-                    tailLightMat.emissiveColor = new Color3(0.3, 0.05, 0.05);
-                    tailLight.material = tailLightMat;
+                    ChassisDetailsGenerator.createTailLightCylindrical(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.18, -d * 0.49),
+                        0.08, 0.04,
+                        i, "previewHover"
+                    );
                 }
                 
                 // Обтекаемые воздухозаборники по бокам
                 for (let i = 0; i < 2; i++) {
-                    const intake = MeshBuilder.CreateCylinder(`previewHoverIntake${i}`, { height: 0.15, diameter: 0.14, tessellation: 8 }, scene);
-                    intake.position = new Vector3((i === 0 ? -1 : 1) * w * 0.42, h * 0.1, d * 0.2);
-                    intake.rotation.z = Math.PI / 2;
-                    intake.parent = chassis;
-                    const intakeMat = new StandardMaterial(`previewHoverIntakeMat${i}`, scene);
-                    intakeMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
-                    intake.material = intakeMat;
+                    ChassisDetailsGenerator.createIntakeCylindrical(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.42, h * 0.1, d * 0.2),
+                        0.15, 0.14,
+                        `previewHover${i}`
+                    );
                 }
                 
                 // Стабилизационные панели (обтекаемые)
                 for (let i = 0; i < 2; i++) {
-                    const stabilizer = MeshBuilder.CreateBox(`previewHoverStabilizer${i}`, { width: 0.08, height: h * 0.4, depth: d * 0.3 }, scene);
-                    stabilizer.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.1, -d * 0.15);
-                    stabilizer.parent = chassis;
-                    stabilizer.material = accentMat;
+                    ChassisDetailsGenerator.createStabilizer(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.1, -d * 0.15),
+                        0.08, h * 0.4, d * 0.3,
+                        accentMat, `previewHover${i}`
+                    );
                 }
                 break;
             case "siege":
                 // Siege - массивные многослойные бронеплиты
-                const siegePlates = [
-                    { pos: new Vector3(-w * 0.62, 0, 0), size: new Vector3(0.22, h * 0.95, d * 0.75) },
-                    { pos: new Vector3(w * 0.62, 0, 0), size: new Vector3(0.22, h * 0.95, d * 0.75) },
-                    { pos: new Vector3(0, h * 0.35, d * 0.58), size: new Vector3(w * 0.85, h * 0.25, 0.18) },
-                    { pos: new Vector3(0, -h * 0.35, 0), size: new Vector3(w * 0.98, 0.2, d * 0.98) },
-                    { pos: new Vector3(0, h * 0.6, 0), size: new Vector3(w * 0.9, 0.15, d * 0.8) }
-                ];
-                siegePlates.forEach((plate, i) => {
-                    const plateMesh = MeshBuilder.CreateBox(`previewSiegePlate${i}`, { width: plate.size.x, height: plate.size.y, depth: plate.size.z }, scene);
-                    plateMesh.position = plate.pos;
-                    plateMesh.parent = chassis;
-                    plateMesh.material = armorMat;
-                });
+                // Боковые бронеплиты
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(-w * 0.62, 0, 0),
+                    0.22, h * 0.95, d * 0.75,
+                    armorMat, "previewSiege0"
+                );
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(w * 0.62, 0, 0),
+                    0.22, h * 0.95, d * 0.75,
+                    armorMat, "previewSiege1"
+                );
+                // Лобовая бронеплита
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(0, h * 0.35, d * 0.58),
+                    w * 0.85, h * 0.25, 0.18,
+                    armorMat, "previewSiege2"
+                );
+                // Нижняя бронеплита
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(0, -h * 0.35, 0),
+                    w * 0.98, 0.2, d * 0.98,
+                    armorMat, "previewSiege3"
+                );
+                // Верхняя бронеплита
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(0, h * 0.6, 0),
+                    w * 0.9, 0.15, d * 0.8,
+                    armorMat, "previewSiege4"
+                );
                 
                 // Дополнительные угловые бронеплиты
                 for (let i = 0; i < 4; i++) {
-                    const cornerPlate = MeshBuilder.CreateBox(`previewCornerPlate${i}`, { width: 0.15, height: h * 0.4, depth: 0.15 }, scene);
                     const angle = (i * Math.PI * 2) / 4;
-                    cornerPlate.position = new Vector3(Math.cos(angle) * w * 0.55, h * 0.2, Math.sin(angle) * d * 0.55);
-                    cornerPlate.parent = chassis;
-                    cornerPlate.material = armorMat;
+                    ChassisDetailsGenerator.createArmorPlate(
+                        scene, chassis,
+                        new Vector3(Math.cos(angle) * w * 0.55, h * 0.2, Math.sin(angle) * d * 0.55),
+                        0.15, h * 0.4, 0.15,
+                        armorMat, `previewSiege${i}`
+                    );
                 }
                 
                 // Три люка
                 for (let i = 0; i < 3; i++) {
-                    const hatch = MeshBuilder.CreateBox(`previewSiegeHatch${i}`, { width: 0.25, height: 0.1, depth: 0.25 }, scene);
-                    hatch.position = new Vector3((i - 1) * w * 0.3, h * 0.7, -d * 0.1);
-                    hatch.parent = chassis;
-                    hatch.material = armorMat;
+                    ChassisDetailsGenerator.createHatch(
+                        scene, chassis,
+                        new Vector3((i - 1) * w * 0.3, h * 0.7, -d * 0.1),
+                        0.25, 0.1, 0.25,
+                        armorMat, `previewSiege${i}`
+                    );
                 }
                 
                 // Фары
                 for (let i = 0; i < 2; i++) {
-                    const headlight = MeshBuilder.CreateBox(`previewSiegeHeadlight${i}`, { width: 0.14, height: 0.14, depth: 0.12 }, scene);
-                    headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.18, d * 0.5);
-                    headlight.parent = chassis;
-                    const headlightMat = new StandardMaterial(`previewSiegeHeadlightMat${i}`, scene);
-                    headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
-                    headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
-                    headlight.material = headlightMat;
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.18, d * 0.5),
+                        0.14, 0.14, 0.12,
+                        i, "previewSiege"
+                    );
                 }
                 
                 // Две выхлопные трубы
                 for (let i = 0; i < 2; i++) {
-                    const exhaust = MeshBuilder.CreateBox(`previewSiegeExhaust${i}`, { width: 0.16, height: 0.16, depth: 0.22 }, scene);
-                    exhaust.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.22, -d * 0.48);
-                    exhaust.parent = chassis;
-                    exhaust.material = armorMat;
+                    ChassisDetailsGenerator.createExhaust(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.22, -d * 0.48),
+                        0.16, 0.16, 0.22,
+                        armorMat, `previewSiege${i}`
+                    );
                 }
                 
                 // Множество инструментов
-                const siegeShovel = MeshBuilder.CreateBox("previewSiegeShovel", { width: 0.16, height: 0.45, depth: 0.02 }, scene);
-                siegeShovel.position = new Vector3(-w * 0.48, h * 0.22, -d * 0.45);
-                siegeShovel.parent = chassis;
-                siegeShovel.material = armorMat;
+                ChassisDetailsGenerator.createShovel(
+                    scene, chassis,
+                    new Vector3(-w * 0.48, h * 0.22, -d * 0.45),
+                    0.16, 0.45, 0.02,
+                    armorMat, "previewSiege"
+                );
                 
-                const siegeAxe = MeshBuilder.CreateBox("previewSiegeAxe", { width: 0.35, height: 0.12, depth: 0.02 }, scene);
-                siegeAxe.position = new Vector3(-w * 0.38, h * 0.28, -d * 0.45);
-                siegeAxe.parent = chassis;
-                siegeAxe.material = armorMat;
+                ChassisDetailsGenerator.createAxe(
+                    scene, chassis,
+                    new Vector3(-w * 0.38, h * 0.28, -d * 0.45),
+                    0.35, 0.12, 0.02,
+                    armorMat, "previewSiege"
+                );
                 
-                const siegeCanister = MeshBuilder.CreateBox("previewSiegeCanister", { width: 0.16, height: 0.3, depth: 0.16 }, scene);
-                siegeCanister.position = new Vector3(w * 0.48, h * 0.25, -d * 0.4);
-                siegeCanister.parent = chassis;
-                siegeCanister.material = armorMat;
+                ChassisDetailsGenerator.createCanister(
+                    scene, chassis,
+                    new Vector3(w * 0.48, h * 0.25, -d * 0.4),
+                    0.16, 0.3, 0.16,
+                    armorMat, "previewSiege"
+                );
                 
                 // Антенны (большие)
                 for (let i = 0; i < 2; i++) {
-                    const antenna = MeshBuilder.CreateCylinder(`previewSiegeAntenna${i}`, { height: 0.5, diameter: 0.03, tessellation: 8 }, scene);
-                    antenna.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.8, -d * 0.4);
-                    antenna.parent = chassis;
-                    const antennaMat = new StandardMaterial(`previewSiegeAntennaMat${i}`, scene);
-                    antennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
-                    antenna.material = antennaMat;
+                    ChassisDetailsGenerator.createAntenna(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.8, -d * 0.4),
+                        0.5, 0.03,
+                        `previewSiege${i}`
+                    );
                 }
                 
                 // Перископы на люках
                 for (let i = 0; i < 3; i++) {
-                    const periscope = MeshBuilder.CreateCylinder(`previewSiegePeriscope${i}`, { height: 0.22, diameter: 0.09, tessellation: 8 }, scene);
-                    periscope.position = new Vector3((i - 1) * w * 0.3, h * 0.8, -d * 0.1);
-                    periscope.parent = chassis;
-                    const periscopeMat = new StandardMaterial(`previewSiegePeriscopeMat${i}`, scene);
-                    periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
-                    periscope.material = periscopeMat;
+                    ChassisDetailsGenerator.createPeriscope(
+                        scene, chassis,
+                        new Vector3((i - 1) * w * 0.3, h * 0.8, -d * 0.1),
+                        0.22, 0.09,
+                        i, "previewSiege"
+                    );
                 }
                 
                 // Большие вентиляционные решетки на крыше
                 for (let i = 0; i < 5; i++) {
-                    const roofVent = MeshBuilder.CreateBox(`previewSiegeRoofVent${i}`, { width: 0.3, height: 0.08, depth: 0.2 }, scene);
-                    roofVent.position = new Vector3((i - 2) * w * 0.25, h * 0.68, d * 0.25);
-                    roofVent.parent = chassis;
-                    const roofVentMat = new StandardMaterial(`previewSiegeRoofVentMat${i}`, scene);
-                    roofVentMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
-                    roofVent.material = roofVentMat;
-                    
+                    const ventPos = new Vector3((i - 2) * w * 0.25, h * 0.68, d * 0.25);
+                    ChassisDetailsGenerator.createRoofVent(
+                        scene, chassis, ventPos,
+                        0.3, 0.08, 0.2,
+                        i, "previewSiege"
+                    );
                     // Детали решетки (много планок)
-                    for (let j = 0; j < 8; j++) {
-                        const ventBar = MeshBuilder.CreateBox(`previewSiegeRoofVentBar${i}_${j}`, { width: 0.04, height: 0.07, depth: 0.18 }, scene);
-                        ventBar.position = new Vector3((i - 2) * w * 0.25 + (j - 3.5) * 0.04, h * 0.68, d * 0.25);
-                        ventBar.parent = chassis;
-                        ventBar.material = roofVentMat;
-                    }
+                    ChassisDetailsGenerator.createVentBars(
+                        scene, chassis, ventPos,
+                        8, 0.04, 0.07, 0.18, 0.04,
+                        i, MaterialFactory.createRoofVentMaterial(scene, i, "previewSiege"), "previewSiege"
+                    );
                 }
                 
                 // Массивные выхлопные трубы (большие)
                 for (let i = 0; i < 3; i++) {
-                    const exhaust = MeshBuilder.CreateCylinder(`previewSiegeExhaustCyl${i}`, { height: 0.3, diameter: 0.16, tessellation: 8 }, scene);
-                    exhaust.position = new Vector3((i - 1) * w * 0.3, h * 0.25, -d * 0.48);
-                    exhaust.rotation.z = Math.PI / 2;
-                    exhaust.parent = chassis;
-                    exhaust.material = armorMat;
-                    
+                    ChassisDetailsGenerator.createExhaustCylindrical(
+                        scene, chassis,
+                        new Vector3((i - 1) * w * 0.3, h * 0.25, -d * 0.48),
+                        0.3, 0.16,
+                        `previewSiege${i}`
+                    );
                     // Выхлопное отверстие
-                    const exhaustHole = MeshBuilder.CreateCylinder(`previewSiegeExhaustHole${i}`, { height: 0.05, diameter: 0.14, tessellation: 8 }, scene);
-                    exhaustHole.position = new Vector3((i - 1) * w * 0.3, h * 0.25, -d * 0.52);
-                    exhaustHole.rotation.z = Math.PI / 2;
-                    exhaustHole.parent = chassis;
-                    const exhaustHoleMat = new StandardMaterial(`previewSiegeExhaustHoleMat${i}`, scene);
-                    exhaustHoleMat.diffuseColor = new Color3(0.05, 0.05, 0.05);
-                    exhaustHoleMat.emissiveColor = new Color3(0.1, 0.05, 0);
-                    exhaustHole.material = exhaustHoleMat;
+                    ChassisDetailsGenerator.createExhaustHole(
+                        scene, chassis,
+                        new Vector3((i - 1) * w * 0.3, h * 0.25, -d * 0.52),
+                        0.05, 0.14,
+                        i, `previewSiege${i}`
+                    );
                 }
                 
                 // Оптический прицел на лобовой части (огромный)
-                const siegeSight = MeshBuilder.CreateBox("previewSiegeSight", { width: 0.22, height: 0.15, depth: 0.18 }, scene);
-                siegeSight.position = new Vector3(0, h * 0.3, d * 0.5);
-                siegeSight.parent = chassis;
-                const siegeSightMat = new StandardMaterial("previewSiegeSightMat", scene);
-                siegeSightMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
-                siegeSight.material = siegeSightMat;
-                
-                // Линза прицела (большая)
-                const siegeSightLens = MeshBuilder.CreateCylinder("previewSiegeSightLens", { height: 0.02, diameter: 0.12, tessellation: 8 }, scene);
-                siegeSightLens.position = new Vector3(0, 0, 0.1);
-                siegeSightLens.parent = siegeSight;
-                const siegeLensMat = new StandardMaterial("previewSiegeSightLensMat", scene);
-                siegeLensMat.diffuseColor = new Color3(0.1, 0.2, 0.3);
-                siegeLensMat.emissiveColor = new Color3(0.05, 0.1, 0.15);
-                siegeSightLens.material = siegeLensMat;
+                ChassisDetailsGenerator.createSight(
+                    scene, chassis,
+                    new Vector3(0, h * 0.3, d * 0.5),
+                    0.22, 0.15, 0.18,
+                    "previewSiege"
+                );
                 
                 // Дополнительные броневые накладки на лобовой части (огромные)
                 for (let i = 0; i < 3; i++) {
-                    const frontArmor = MeshBuilder.CreateBox(`previewSiegeFrontArmor${i}`, { width: w * 0.35, height: h * 0.25, depth: 0.15 }, scene);
-                    frontArmor.position = new Vector3((i - 1) * w * 0.32, h * 0.1, d * 0.5);
-                    frontArmor.parent = chassis;
-                    frontArmor.material = armorMat;
+                    ChassisDetailsGenerator.createArmorPlate(
+                        scene, chassis,
+                        new Vector3((i - 1) * w * 0.32, h * 0.1, d * 0.5),
+                        w * 0.35, h * 0.25, 0.15,
+                        armorMat, `previewSiege${i}`
+                    );
                 }
                 
                 // Задние огни (стоп-сигналы, большие)
                 for (let i = 0; i < 2; i++) {
-                    const tailLight = MeshBuilder.CreateBox(`previewSiegeTailLight${i}`, { width: 0.1, height: 0.15, depth: 0.06 }, scene);
-                    tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.22, -d * 0.49);
-                    tailLight.parent = chassis;
-                    const tailLightMat = new StandardMaterial(`previewSiegeTailLightMat${i}`, scene);
-                    tailLightMat.diffuseColor = new Color3(0.6, 0.1, 0.1);
-                    tailLightMat.emissiveColor = new Color3(0.3, 0.05, 0.05);
-                    tailLight.material = tailLightMat;
+                    ChassisDetailsGenerator.createTailLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.22, -d * 0.49),
+                        0.1, 0.15, 0.06,
+                        i, "previewSiege"
+                    );
                 }
                 
                 // Боковые вентиляционные решетки (большие)
                 for (let i = 0; i < 2; i++) {
-                    const sideVent = MeshBuilder.CreateBox(`previewSiegeSideVent${i}`, { width: 0.08, height: 0.15, depth: 0.2 }, scene);
-                    sideVent.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.12, d * 0.15);
-                    sideVent.parent = chassis;
-                    const sideVentMat = new StandardMaterial(`previewSiegeSideVentMat${i}`, scene);
-                    sideVentMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
-                    sideVent.material = sideVentMat;
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.12, d * 0.15),
+                        0.08, 0.15, 0.2,
+                        i, "previewSiege"
+                    );
                 }
                 break;
             case "racer":
                 // Racer - очень низкий, спортивный - гонщик
                 // Передний спойлер
-                const racerFrontSpoiler = MeshBuilder.CreateBox("previewRacerFrontSpoiler", { width: w * 0.9, height: 0.12, depth: 0.15 }, scene);
-                racerFrontSpoiler.position = new Vector3(0, -h * 0.4, d * 0.48);
-                racerFrontSpoiler.parent = chassis;
-                racerFrontSpoiler.material = accentMat;
+                ChassisDetailsGenerator.createSpoiler(
+                    scene, chassis,
+                    new Vector3(0, -h * 0.4, d * 0.48),
+                    w * 0.9, 0.12, 0.15,
+                    accentMat, "previewRacer"
+                );
                 
                 // Задний спойлер (большой)
-                const racerRearSpoiler = MeshBuilder.CreateBox("previewRacerRearSpoiler", { width: w * 1.1, height: 0.25, depth: 0.2 }, scene);
-                racerRearSpoiler.position = new Vector3(0, h * 0.45, -d * 0.48);
-                racerRearSpoiler.parent = chassis;
-                racerRearSpoiler.material = accentMat;
+                ChassisDetailsGenerator.createSpoiler(
+                    scene, chassis,
+                    new Vector3(0, h * 0.45, -d * 0.48),
+                    w * 1.1, 0.25, 0.2,
+                    accentMat, "previewRacer"
+                );
                 
                 // Боковые обтекатели (низкопрофильные)
                 for (let i = 0; i < 2; i++) {
-                    const sideFairing = MeshBuilder.CreateBox(`previewRacerSideFairing${i}`, { width: 0.12, height: h * 0.6, depth: d * 0.7 }, scene);
-                    sideFairing.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, 0, d * 0.1);
-                    sideFairing.parent = chassis;
-                    sideFairing.material = accentMat;
+                    ChassisDetailsGenerator.createFairing(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.48, 0, d * 0.1),
+                        0.12, h * 0.6, d * 0.7,
+                        accentMat, `previewRacer${i}`
+                    );
                 }
                 
                 // Передние фары (большие, агрессивные)
                 for (let i = 0; i < 2; i++) {
-                    const headlight = MeshBuilder.CreateBox(`previewRacerHeadlight${i}`, { width: 0.15, height: 0.12, depth: 0.1 }, scene);
-                    headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.32, h * 0.1, d * 0.49);
-                    headlight.parent = chassis;
-                    const headlightMat = new StandardMaterial(`previewRacerHeadlightMat${i}`, scene);
-                    headlightMat.diffuseColor = new Color3(1.0, 1.0, 0.8);
-                    headlightMat.emissiveColor = new Color3(0.5, 0.5, 0.3);
-                    headlight.material = headlightMat;
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.32, h * 0.1, d * 0.49),
+                        0.15, 0.12, 0.1,
+                        i, "previewRacer"
+                    );
                 }
                 
                 // Центральная воздухозаборная решетка
-                const racerIntake = MeshBuilder.CreateBox("previewRacerIntake", { width: w * 0.4, height: h * 0.25, depth: 0.08 }, scene);
-                racerIntake.position = new Vector3(0, h * 0.15, d * 0.48);
-                racerIntake.parent = chassis;
-                const intakeMat = new StandardMaterial("previewRacerIntakeMat", scene);
-                intakeMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
-                racerIntake.material = intakeMat;
+                ChassisDetailsGenerator.createIntake(
+                    scene, chassis,
+                    new Vector3(0, h * 0.15, d * 0.48),
+                    w * 0.4, h * 0.25, 0.08,
+                    MaterialFactory.createVentMaterial(scene, 0, "previewRacer"), "previewRacer"
+                );
                 
                 // Детали решетки
-                for (let i = 0; i < 5; i++) {
-                    const intakeBar = MeshBuilder.CreateBox(`previewRacerIntakeBar${i}`, { width: 0.02, height: h * 0.2, depth: 0.06 }, scene);
-                    intakeBar.position = new Vector3((i - 2) * w * 0.09, h * 0.15, d * 0.48);
-                    intakeBar.parent = chassis;
-                    intakeBar.material = intakeMat;
-                }
+                const intakePos = new Vector3(0, h * 0.15, d * 0.48);
+                ChassisDetailsGenerator.createVentBars(
+                    scene, chassis, intakePos,
+                    5, 0.02, h * 0.2, 0.06, w * 0.09,
+                    0, MaterialFactory.createVentMaterial(scene, 0, "previewRacer"), "previewRacer"
+                );
                 
                 // Верхние воздухозаборники на крыше
                 for (let i = 0; i < 2; i++) {
-                    const roofIntake = MeshBuilder.CreateBox(`previewRacerRoofIntake${i}`, { width: 0.18, height: 0.08, depth: 0.12 }, scene);
-                    roofIntake.position = new Vector3((i === 0 ? -1 : 1) * w * 0.25, h * 0.42, d * 0.3);
-                    roofIntake.parent = chassis;
-                    roofIntake.material = intakeMat;
+                    ChassisDetailsGenerator.createIntake(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.25, h * 0.42, d * 0.3),
+                        0.18, 0.08, 0.12,
+                        MaterialFactory.createVentMaterial(scene, i, "previewRacer"), `previewRacer${i}`
+                    );
                 }
                 
                 // Выхлопные трубы (большие, по бокам)
                 for (let i = 0; i < 2; i++) {
-                    const exhaust = MeshBuilder.CreateCylinder(`previewRacerExhaust${i}`, { height: 0.3, diameter: 0.1, tessellation: 8 }, scene);
-                    exhaust.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.08, -d * 0.48);
-                    exhaust.rotation.z = Math.PI / 2;
-                    exhaust.parent = chassis;
-                    exhaust.material = armorMat;
-                    
+                    ChassisDetailsGenerator.createExhaustCylindrical(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.08, -d * 0.48),
+                        0.3, 0.1,
+                        `previewRacer${i}`
+                    );
                     // Выхлопное отверстие
-                    const exhaustHole = MeshBuilder.CreateCylinder(`previewRacerExhaustHole${i}`, { height: 0.05, diameter: 0.08, tessellation: 8 }, scene);
-                    exhaustHole.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.08, -d * 0.52);
-                    exhaustHole.rotation.z = Math.PI / 2;
-                    exhaustHole.parent = chassis;
-                    const exhaustHoleMat = new StandardMaterial(`previewRacerExhaustHoleMat${i}`, scene);
-                    exhaustHoleMat.diffuseColor = new Color3(0.05, 0.05, 0.05);
-                    exhaustHoleMat.emissiveColor = new Color3(0.1, 0.05, 0);
-                    exhaustHole.material = exhaustHoleMat;
+                    ChassisDetailsGenerator.createExhaustHole(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.08, -d * 0.52),
+                        0.05, 0.08,
+                        i, `previewRacer${i}`
+                    );
                 }
                 
                 // Боковые зеркала
                 for (let i = 0; i < 2; i++) {
-                    const mirror = MeshBuilder.CreateBox(`previewRacerMirror${i}`, { width: 0.08, height: 0.05, depth: 0.04 }, scene);
-                    mirror.position = new Vector3((i === 0 ? -1 : 1) * w * 0.52, h * 0.35, d * 0.35);
-                    mirror.parent = chassis;
-                    const mirrorMat = new StandardMaterial(`previewRacerMirrorMat${i}`, scene);
-                    mirrorMat.diffuseColor = new Color3(0.2, 0.2, 0.25);
-                    mirror.material = mirrorMat;
+                    ChassisDetailsGenerator.createMirror(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.52, h * 0.35, d * 0.35),
+                        0.08, 0.05, 0.04,
+                        i, "previewRacer"
+                    );
                 }
                 
                 // Задние огни (большие стоп-сигналы)
                 for (let i = 0; i < 2; i++) {
-                    const tailLight = MeshBuilder.CreateBox(`previewRacerTailLight${i}`, { width: 0.08, height: 0.12, depth: 0.04 }, scene);
-                    tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.12, -d * 0.49);
-                    tailLight.parent = chassis;
-                    const tailLightMat = new StandardMaterial(`previewRacerTailLightMat${i}`, scene);
-                    tailLightMat.diffuseColor = new Color3(0.7, 0.1, 0.1);
-                    tailLightMat.emissiveColor = new Color3(0.4, 0.05, 0.05);
-                    tailLight.material = tailLightMat;
+                    ChassisDetailsGenerator.createTailLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.12, -d * 0.49),
+                        0.08, 0.12, 0.04,
+                        i, "previewRacer"
+                    );
                 }
                 
                 // Вентиляционные отверстия на боковых панелях
                 for (let i = 0; i < 2; i++) {
                     for (let j = 0; j < 3; j++) {
-                        const sideVent = MeshBuilder.CreateBox(`previewRacerSideVent${i}_${j}`, { width: 0.04, height: 0.1, depth: 0.04 }, scene);
-                        sideVent.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.05, d * 0.1 + (j - 1) * d * 0.15);
-                        sideVent.parent = chassis;
-                        sideVent.material = intakeMat;
+                        ChassisDetailsGenerator.createVent(
+                            scene, chassis,
+                            new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.05, d * 0.1 + (j - 1) * d * 0.15),
+                            0.04, 0.1, 0.04,
+                            j, `previewRacer${i}`
+                        );
                     }
                 }
                 
                 // Люк на крыше (спортивный стиль)
-                const racerHatch = MeshBuilder.CreateBox("previewRacerHatch", { width: 0.3, height: 0.06, depth: 0.25 }, scene);
-                racerHatch.position = new Vector3(0, h * 0.46, -d * 0.1);
-                racerHatch.parent = chassis;
-                racerHatch.material = armorMat;
+                ChassisDetailsGenerator.createHatch(
+                    scene, chassis,
+                    new Vector3(0, h * 0.46, -d * 0.1),
+                    0.3, 0.06, 0.25,
+                    armorMat, "previewRacer"
+                );
                 
                 // Перископ на люке
-                const racerPeriscope = MeshBuilder.CreateCylinder("previewRacerPeriscope", { height: 0.2, diameter: 0.06, tessellation: 8 }, scene);
-                racerPeriscope.position = new Vector3(0, h * 0.56, -d * 0.1);
-                racerPeriscope.parent = chassis;
-                const racerPeriscopeMat = new StandardMaterial("previewRacerPeriscopeMat", scene);
-                racerPeriscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
-                racerPeriscope.material = racerPeriscopeMat;
+                ChassisDetailsGenerator.createPeriscope(
+                    scene, chassis,
+                    new Vector3(0, h * 0.56, -d * 0.1),
+                    0.2, 0.06,
+                    0, "previewRacer"
+                );
                 break;
             case "amphibious":
                 // Amphibious - большие поплавки, водонепроницаемые панели
                 for (let i = 0; i < 2; i++) {
-                    const float = MeshBuilder.CreateCylinder(`previewFloat${i}`, { height: h * 0.7, diameter: w * 0.35 }, scene);
-                    float.position = new Vector3((i === 0 ? -1 : 1) * w * 0.42, -h * 0.25, 0);
-                    float.parent = chassis;
-                    float.material = accentMat;
+                    ChassisDetailsGenerator.createFloat(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.42, -h * 0.25, 0),
+                        h * 0.7, w * 0.35,
+                        accentMat, `previewAmphibious${i}`
+                    );
                 }
                 
                 // Водонепроницаемые панели
-                const waterSeal = MeshBuilder.CreateBox("previewWaterSeal", { width: w * 1.05, height: 0.08, depth: d * 1.05 }, scene);
-                waterSeal.position = new Vector3(0, h * 0.5, 0);
-                waterSeal.parent = chassis;
-                waterSeal.material = armorMat;
+                ChassisDetailsGenerator.createWaterSeal(
+                    scene, chassis,
+                    new Vector3(0, h * 0.5, 0),
+                    w * 1.05, 0.08, d * 1.05,
+                    armorMat, "previewAmphibious"
+                );
                 
                 // Люки
                 for (let i = 0; i < 2; i++) {
-                    const hatch = MeshBuilder.CreateBox(`previewAmphibiousHatch${i}`, { width: 0.2, height: 0.08, depth: 0.2 }, scene);
-                    hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.52, -d * 0.1);
-                    hatch.parent = chassis;
-                    hatch.material = armorMat;
+                    ChassisDetailsGenerator.createHatch(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.52, -d * 0.1),
+                        0.2, 0.08, 0.2,
+                        armorMat, `previewAmphibious${i}`
+                    );
                 }
                 
                 // Фары
                 for (let i = 0; i < 2; i++) {
-                    const headlight = MeshBuilder.CreateBox(`previewAmphibiousHeadlight${i}`, { width: 0.1, height: 0.1, depth: 0.08 }, scene);
-                    headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.15, d * 0.48);
-                    headlight.parent = chassis;
-                    const headlightMat = new StandardMaterial(`previewAmphibiousHeadlightMat${i}`, scene);
-                    headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
-                    headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
-                    headlight.material = headlightMat;
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.15, d * 0.48),
+                        0.1, 0.1, 0.08,
+                        i, "previewAmphibious"
+                    );
                 }
                 
                 // Вентиляционные решетки (водонепроницаемые)
                 for (let i = 0; i < 2; i++) {
-                    const vent = MeshBuilder.CreateBox(`previewAmphibiousVent${i}`, { width: 0.08, height: 0.05, depth: 0.1 }, scene);
-                    vent.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.3, -d * 0.25);
-                    vent.parent = chassis;
-                    const ventMat = new StandardMaterial(`previewAmphibiousVentMat${i}`, scene);
-                    ventMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
-                    vent.material = ventMat;
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.3, -d * 0.25),
+                        0.08, 0.05, 0.1,
+                        i, "previewAmphibious"
+                    );
                 }
                 
                 // Перископы
                 for (let i = 0; i < 2; i++) {
-                    const periscope = MeshBuilder.CreateCylinder(`previewAmphibiousPeriscope${i}`, { height: 0.18, diameter: 0.07, tessellation: 8 }, scene);
-                    periscope.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.58, -d * 0.1);
-                    periscope.parent = chassis;
-                    const periscopeMat = new StandardMaterial(`previewAmphibiousPeriscopeMat${i}`, scene);
-                    periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
-                    periscope.material = periscopeMat;
+                    ChassisDetailsGenerator.createPeriscope(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.58, -d * 0.1),
+                        0.18, 0.07,
+                        i, "previewAmphibious"
+                    );
                 }
                 break;
             case "shield":
                 // Shield - генератор щита, энергетические панели
-                const shieldGen = MeshBuilder.CreateSphere("previewShieldGen", { diameter: w * 0.45, segments: 16 }, scene);
-                shieldGen.position = new Vector3(0, h * 0.45, -d * 0.25);
-                shieldGen.parent = chassis;
-                const shieldGenMat = new StandardMaterial("previewShieldGenMat", scene);
-                shieldGenMat.diffuseColor = new Color3(0, 1, 0.6);
-                shieldGenMat.emissiveColor = new Color3(0, 0.6, 0.3);
-                shieldGen.material = shieldGenMat;
+                ChassisDetailsGenerator.createEnergyGenerator(
+                    scene, chassis,
+                    new Vector3(0, h * 0.45, -d * 0.25),
+                    w * 0.45,
+                    "previewShield"
+                );
                 
                 // Энергетические панели по бокам
                 for (let i = 0; i < 2; i++) {
-                    const energyPanel = MeshBuilder.CreateBox(`previewEnergyPanel${i}`, { width: 0.1, height: h * 0.5, depth: d * 0.3 }, scene);
-                    energyPanel.position = new Vector3((i === 0 ? -1 : 1) * w * 0.55, h * 0.15, 0);
-                    energyPanel.parent = chassis;
-                    const panelMat = new StandardMaterial(`previewEnergyPanelMat${i}`, scene);
-                    panelMat.diffuseColor = new Color3(0, 0.8, 0.4);
-                    panelMat.emissiveColor = new Color3(0, 0.3, 0.15);
-                    energyPanel.material = panelMat;
+                    ChassisDetailsGenerator.createEnergyPanel(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.55, h * 0.15, 0),
+                        0.1, h * 0.5, d * 0.3,
+                        i, "previewShield"
+                    );
                 }
                 
                 // Люки
                 for (let i = 0; i < 2; i++) {
-                    const hatch = MeshBuilder.CreateBox(`previewShieldHatch${i}`, { width: 0.2, height: 0.08, depth: 0.2 }, scene);
-                    hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.52, -d * 0.1);
-                    hatch.parent = chassis;
-                    hatch.material = armorMat;
+                    ChassisDetailsGenerator.createHatch(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.52, -d * 0.1),
+                        0.2, 0.08, 0.2,
+                        armorMat, `previewShield${i}`
+                    );
                 }
                 
                 // Фары
                 for (let i = 0; i < 2; i++) {
-                    const headlight = MeshBuilder.CreateBox(`previewShieldHeadlight${i}`, { width: 0.1, height: 0.1, depth: 0.08 }, scene);
-                    headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.15, d * 0.48);
-                    headlight.parent = chassis;
-                    const headlightMat = new StandardMaterial(`previewShieldHeadlightMat${i}`, scene);
-                    headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
-                    headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
-                    headlight.material = headlightMat;
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.15, d * 0.48),
+                        0.1, 0.1, 0.08,
+                        i, "previewShield"
+                    );
                 }
                 
                 // Вентиляционные решетки (энергетические)
                 for (let i = 0; i < 2; i++) {
-                    const vent = MeshBuilder.CreateBox(`previewShieldVent${i}`, { width: 0.08, height: 0.05, depth: 0.1 }, scene);
-                    vent.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.3, -d * 0.25);
-                    vent.parent = chassis;
-                    const ventMat = new StandardMaterial(`previewShieldVentMat${i}`, scene);
-                    ventMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
-                    ventMat.emissiveColor = new Color3(0.05, 0.1, 0.05);
-                    vent.material = ventMat;
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.3, -d * 0.25),
+                        0.08, 0.05, 0.1,
+                        i, "previewShield"
+                    );
                 }
                 
                 // Энергетические катушки вокруг генератора
                 for (let i = 0; i < 4; i++) {
-                    const coil = MeshBuilder.CreateTorus(`previewShieldCoil${i}`, { diameter: w * 0.5, thickness: 0.06, tessellation: 16 }, scene);
                     const angle = (i * Math.PI * 2) / 4;
-                    coil.position = new Vector3(0, h * 0.45, -d * 0.25);
-                    coil.rotation.x = angle;
-                    coil.parent = chassis;
-                    const coilMat = new StandardMaterial(`previewShieldCoilMat${i}`, scene);
-                    coilMat.diffuseColor = new Color3(0, 0.7, 0.5);
-                    coilMat.emissiveColor = new Color3(0, 0.4, 0.25);
-                    coil.material = coilMat;
+                    ChassisDetailsGenerator.createEnergyCoil(
+                        scene, chassis,
+                        new Vector3(0, h * 0.45, -d * 0.25),
+                        w * 0.5, 0.06,
+                        angle,
+                        i, "previewShield"
+                    );
                 }
                 
                 // Перископы на люках
                 for (let i = 0; i < 2; i++) {
-                    const periscope = MeshBuilder.CreateCylinder(`previewShieldPeriscope${i}`, { height: 0.18, diameter: 0.07, tessellation: 8 }, scene);
-                    periscope.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.6, -d * 0.1);
-                    periscope.parent = chassis;
-                    const periscopeMat = new StandardMaterial(`previewShieldPeriscopeMat${i}`, scene);
-                    periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
-                    periscope.material = periscopeMat;
+                    ChassisDetailsGenerator.createPeriscope(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.6, -d * 0.1),
+                        0.18, 0.07,
+                        i, "previewShield"
+                    );
                 }
                 
                 // Энергетические порты (для зарядки щита)
                 for (let i = 0; i < 4; i++) {
-                    const port = MeshBuilder.CreateCylinder(`previewShieldPort${i}`, { height: 0.08, diameter: 0.1, tessellation: 8 }, scene);
                     const angle = (i * Math.PI * 2) / 4;
-                    port.position = new Vector3(Math.cos(angle) * w * 0.4, h * 0.25, -d * 0.25 + Math.sin(angle) * d * 0.2);
-                    port.rotation.x = angle + Math.PI / 2;
-                    port.parent = chassis;
-                    const portMat = new StandardMaterial(`previewShieldPortMat${i}`, scene);
-                    portMat.diffuseColor = new Color3(0, 0.6, 0.4);
-                    portMat.emissiveColor = new Color3(0, 0.3, 0.2);
-                    port.material = portMat;
+                    ChassisDetailsGenerator.createEnergyPort(
+                        scene, chassis,
+                        new Vector3(Math.cos(angle) * w * 0.4, h * 0.25, -d * 0.25 + Math.sin(angle) * d * 0.2),
+                        0.08, 0.1,
+                        angle + Math.PI / 2,
+                        i, "previewShield"
+                    );
                 }
                 
                 // Верхние вентиляционные решетки (энергетические)
                 for (let i = 0; i < 4; i++) {
-                    const roofVent = MeshBuilder.CreateBox(`previewShieldRoofVent${i}`, { width: 0.15, height: 0.04, depth: 0.12 }, scene);
-                    roofVent.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.25, h * 0.54, (i < 2 ? -1 : 1) * d * 0.25);
-                    roofVent.parent = chassis;
-                    const roofVentMat = new StandardMaterial(`previewShieldRoofVentMat${i}`, scene);
-                    roofVentMat.diffuseColor = new Color3(0.12, 0.15, 0.12);
-                    roofVentMat.emissiveColor = new Color3(0.03, 0.05, 0.03);
-                    roofVent.material = roofVentMat;
+                    ChassisDetailsGenerator.createRoofVent(
+                        scene, chassis,
+                        new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.25, h * 0.54, (i < 2 ? -1 : 1) * d * 0.25),
+                        0.15, 0.04, 0.12,
+                        i, "previewShield"
+                    );
                 }
                 
                 // Задние огни (стоп-сигналы)
                 for (let i = 0; i < 2; i++) {
-                    const tailLight = MeshBuilder.CreateBox(`previewShieldTailLight${i}`, { width: 0.06, height: 0.1, depth: 0.04 }, scene);
-                    tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.16, -d * 0.49);
-                    tailLight.parent = chassis;
-                    const tailLightMat = new StandardMaterial(`previewShieldTailLightMat${i}`, scene);
-                    tailLightMat.diffuseColor = new Color3(0.6, 0.1, 0.1);
-                    tailLightMat.emissiveColor = new Color3(0.3, 0.05, 0.05);
-                    tailLight.material = tailLightMat;
+                    ChassisDetailsGenerator.createTailLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.16, -d * 0.49),
+                        0.06, 0.1, 0.04,
+                        i, "previewShield"
+                    );
                 }
                 
                 // Радиоантенна сзади
-                const shieldAntenna = MeshBuilder.CreateCylinder("previewShieldAntenna", { height: 0.5, diameter: 0.025, tessellation: 8 }, scene);
-                shieldAntenna.position = new Vector3(0, h * 0.65, -d * 0.3);
-                shieldAntenna.parent = chassis;
-                const shieldAntennaMat = new StandardMaterial("previewShieldAntennaMat", scene);
-                shieldAntennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
-                shieldAntenna.material = shieldAntennaMat;
+                ChassisDetailsGenerator.createAntenna(
+                    scene, chassis,
+                    new Vector3(0, h * 0.65, -d * 0.3),
+                    0.5, 0.025,
+                    "previewShield"
+                );
                 
                 // Основание антенны
-                const shieldAntennaBase = MeshBuilder.CreateBox("previewShieldAntennaBase", { width: 0.1, height: 0.1, depth: 0.1 }, scene);
-                shieldAntennaBase.position = new Vector3(0, h * 0.54, -d * 0.3);
-                shieldAntennaBase.parent = chassis;
-                shieldAntennaBase.material = armorMat;
+                ChassisDetailsGenerator.createAntennaBase(
+                    scene, chassis,
+                    new Vector3(0, h * 0.54, -d * 0.3),
+                    0.1, armorMat, "previewShield"
+                );
                 
                 // Оптический прицел на лобовой части
-                const shieldSight = MeshBuilder.CreateBox("previewShieldSight", { width: 0.14, height: 0.09, depth: 0.11 }, scene);
-                shieldSight.position = new Vector3(0, h * 0.22, d * 0.49);
-                shieldSight.parent = chassis;
-                const shieldSightMat = new StandardMaterial("previewShieldSightMat", scene);
-                shieldSightMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
-                shieldSight.material = shieldSightMat;
-                
-                // Линза прицела
-                const shieldSightLens = MeshBuilder.CreateCylinder("previewShieldSightLens", { height: 0.02, diameter: 0.07, tessellation: 8 }, scene);
-                shieldSightLens.position = new Vector3(0, 0, 0.06);
-                shieldSightLens.parent = shieldSight;
-                const shieldLensMat = new StandardMaterial("previewShieldSightLensMat", scene);
-                shieldLensMat.diffuseColor = new Color3(0.1, 0.2, 0.3);
-                shieldLensMat.emissiveColor = new Color3(0.05, 0.1, 0.15);
-                shieldSightLens.material = shieldLensMat;
+                ChassisDetailsGenerator.createSight(
+                    scene, chassis,
+                    new Vector3(0, h * 0.22, d * 0.49),
+                    0.14, 0.09, 0.11,
+                    "previewShield"
+                );
                 
                 // Выхлопные трубы сзади
                 for (let i = 0; i < 2; i++) {
-                    const exhaust = MeshBuilder.CreateCylinder(`previewShieldExhaust${i}`, { height: 0.2, diameter: 0.12, tessellation: 8 }, scene);
-                    exhaust.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.2, -d * 0.48);
-                    exhaust.rotation.z = Math.PI / 2;
-                    exhaust.parent = chassis;
-                    exhaust.material = armorMat;
+                    ChassisDetailsGenerator.createExhaustCylindrical(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.2, -d * 0.48),
+                        0.2, 0.12,
+                        `previewShield${i}`
+                    );
                 }
                 break;
             case "drone":
                 // Drone - платформы для дронов, антенны связи
                 for (let i = 0; i < 2; i++) {
-                    const platform = MeshBuilder.CreateBox(`previewDronePlatform${i}`, { width: w * 0.45, height: 0.12, depth: w * 0.45 }, scene);
-                    platform.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.65, 0);
-                    platform.parent = chassis;
-                    const platformMat = new StandardMaterial(`previewPlatformMat${i}`, scene);
-                    platformMat.diffuseColor = new Color3(0.6, 0, 1);
-                    platformMat.emissiveColor = new Color3(0.35, 0, 0.7);
-                    platform.material = platformMat;
+                    ChassisDetailsGenerator.createDronePlatform(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.65, 0),
+                        w * 0.45, 0.12, w * 0.45,
+                        i, "previewDrone"
+                    );
                     
                     // Антенны на платформах
-                    const antenna = MeshBuilder.CreateCylinder(`previewDroneAntenna${i}`, { height: 0.15, diameter: 0.03 }, scene);
-                    antenna.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.72, 0);
-                    antenna.parent = chassis;
-                    antenna.material = platformMat;
+                    ChassisDetailsGenerator.createAntenna(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.72, 0),
+                        0.15, 0.03,
+                        `previewDrone${i}`
+                    );
                 }
                 
                 // Люки
                 for (let i = 0; i < 2; i++) {
-                    const hatch = MeshBuilder.CreateBox(`previewDroneHatch${i}`, { width: 0.2, height: 0.08, depth: 0.2 }, scene);
-                    hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.6, -d * 0.1);
-                    hatch.parent = chassis;
-                    hatch.material = armorMat;
+                    ChassisDetailsGenerator.createHatch(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.6, -d * 0.1),
+                        0.2, 0.08, 0.2,
+                        armorMat, `previewDrone${i}`
+                    );
                 }
                 
                 // Фары
                 for (let i = 0; i < 2; i++) {
-                    const headlight = MeshBuilder.CreateBox(`previewDroneHeadlight${i}`, { width: 0.1, height: 0.1, depth: 0.08 }, scene);
-                    headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.15, d * 0.48);
-                    headlight.parent = chassis;
-                    const headlightMat = new StandardMaterial(`previewDroneHeadlightMat${i}`, scene);
-                    headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
-                    headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
-                    headlight.material = headlightMat;
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.15, d * 0.48),
+                        0.1, 0.1, 0.08,
+                        i, "previewDrone"
+                    );
                 }
                 
                 // Вентиляционные решетки (для охлаждения систем управления дронами)
                 for (let i = 0; i < 2; i++) {
-                    const vent = MeshBuilder.CreateBox(`previewDroneVent${i}`, { width: 0.08, height: 0.05, depth: 0.1 }, scene);
-                    vent.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.3, -d * 0.25);
-                    vent.parent = chassis;
-                    const ventMat = new StandardMaterial(`previewDroneVentMat${i}`, scene);
-                    ventMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
-                    vent.material = ventMat;
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.3, -d * 0.25),
+                        0.08, 0.05, 0.1,
+                        i, "previewDrone"
+                    );
                 }
                 
                 // Перископы
                 for (let i = 0; i < 2; i++) {
-                    const periscope = MeshBuilder.CreateCylinder(`previewDronePeriscope${i}`, { height: 0.18, diameter: 0.07, tessellation: 8 }, scene);
-                    periscope.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.66, -d * 0.1);
-                    periscope.parent = chassis;
-                    const periscopeMat = new StandardMaterial(`previewDronePeriscopeMat${i}`, scene);
-                    periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
-                    periscope.material = periscopeMat;
+                    ChassisDetailsGenerator.createPeriscope(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.66, -d * 0.1),
+                        0.18, 0.07,
+                        i, "previewDrone"
+                    );
                 }
                 
                 // Сенсорные панели на платформах
                 for (let i = 0; i < 2; i++) {
                     for (let j = 0; j < 2; j++) {
-                        const sensor = MeshBuilder.CreateBox(`previewDroneSensor${i}_${j}`, { width: 0.08, height: 0.04, depth: 0.08 }, scene);
-                        sensor.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38 + (j === 0 ? -1 : 1) * 0.1, h * 0.68, (j === 0 ? -1 : 1) * 0.1);
-                        sensor.parent = chassis;
-                        const sensorMat = new StandardMaterial(`previewDroneSensorMat${i}_${j}`, scene);
-                        sensorMat.diffuseColor = new Color3(0.1, 0.15, 0.25);
-                        sensorMat.emissiveColor = new Color3(0.2, 0, 0.4);
-                        sensor.material = sensorMat;
+                        ChassisDetailsGenerator.createSensor(
+                            scene, chassis,
+                            new Vector3((i === 0 ? -1 : 1) * w * 0.38 + (j === 0 ? -1 : 1) * 0.1, h * 0.68, (j === 0 ? -1 : 1) * 0.1),
+                            0.08, 0.04, 0.08,
+                            j, `previewDrone${i}`
+                        );
                     }
                 }
                 
                 // Верхние вентиляционные решетки на крыше
                 for (let i = 0; i < 4; i++) {
-                    const roofVent = MeshBuilder.CreateBox(`previewDroneRoofVent${i}`, { width: 0.12, height: 0.04, depth: 0.1 }, scene);
-                    roofVent.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.25, h * 0.58, (i < 2 ? -1 : 1) * d * 0.25);
-                    roofVent.parent = chassis;
-                    const roofVentMat = new StandardMaterial(`previewDroneRoofVentMat${i}`, scene);
-                    roofVentMat.diffuseColor = new Color3(0.12, 0.12, 0.15);
-                    roofVent.material = roofVentMat;
+                    ChassisDetailsGenerator.createRoofVent(
+                        scene, chassis,
+                        new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.25, h * 0.58, (i < 2 ? -1 : 1) * d * 0.25),
+                        0.12, 0.04, 0.1,
+                        i, "previewDrone"
+                    );
                 }
                 
                 // Задние огни (стоп-сигналы)
                 for (let i = 0; i < 2; i++) {
-                    const tailLight = MeshBuilder.CreateBox(`previewDroneTailLight${i}`, { width: 0.06, height: 0.1, depth: 0.04 }, scene);
-                    tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.16, -d * 0.49);
-                    tailLight.parent = chassis;
-                    const tailLightMat = new StandardMaterial(`previewDroneTailLightMat${i}`, scene);
-                    tailLightMat.diffuseColor = new Color3(0.6, 0.1, 0.1);
-                    tailLightMat.emissiveColor = new Color3(0.3, 0.05, 0.05);
-                    tailLight.material = tailLightMat;
+                    ChassisDetailsGenerator.createTailLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.16, -d * 0.49),
+                        0.06, 0.1, 0.04,
+                        i, "previewDrone"
+                    );
                 }
                 
                 // Оптический прицел на лобовой части
-                const droneSight = MeshBuilder.CreateBox("previewDroneSight", { width: 0.14, height: 0.09, depth: 0.11 }, scene);
-                droneSight.position = new Vector3(0, h * 0.22, d * 0.49);
-                droneSight.parent = chassis;
-                const droneSightMat = new StandardMaterial("previewDroneSightMat", scene);
-                droneSightMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
-                droneSight.material = droneSightMat;
-                
-                // Линза прицела
-                const droneSightLens = MeshBuilder.CreateCylinder("previewDroneSightLens", { height: 0.02, diameter: 0.07, tessellation: 8 }, scene);
-                droneSightLens.position = new Vector3(0, 0, 0.06);
-                droneSightLens.parent = droneSight;
-                const droneLensMat = new StandardMaterial("previewDroneSightLensMat", scene);
-                droneLensMat.diffuseColor = new Color3(0.1, 0.2, 0.3);
-                droneLensMat.emissiveColor = new Color3(0.05, 0.1, 0.15);
-                droneSightLens.material = droneLensMat;
+                ChassisDetailsGenerator.createSight(
+                    scene, chassis,
+                    new Vector3(0, h * 0.22, d * 0.49),
+                    0.14, 0.09, 0.11,
+                    "previewDrone"
+                );
                 
                 // Радиоантенна сзади (для связи с дронами)
-                const droneAntenna = MeshBuilder.CreateCylinder("previewDroneAntenna", { height: 0.55, diameter: 0.025, tessellation: 8 }, scene);
-                droneAntenna.position = new Vector3(0, h * 0.72, -d * 0.3);
-                droneAntenna.parent = chassis;
-                const droneAntennaMat = new StandardMaterial("previewDroneAntennaMat", scene);
-                droneAntennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
-                droneAntenna.material = droneAntennaMat;
+                ChassisDetailsGenerator.createAntenna(
+                    scene, chassis,
+                    new Vector3(0, h * 0.72, -d * 0.3),
+                    0.55, 0.025,
+                    "previewDrone"
+                );
                 
                 // Основание антенны
-                const droneAntennaBase = MeshBuilder.CreateBox("previewDroneAntennaBase", { width: 0.1, height: 0.1, depth: 0.1 }, scene);
-                droneAntennaBase.position = new Vector3(0, h * 0.6, -d * 0.3);
-                droneAntennaBase.parent = chassis;
-                droneAntennaBase.material = armorMat;
+                ChassisDetailsGenerator.createAntennaBase(
+                    scene, chassis,
+                    new Vector3(0, h * 0.6, -d * 0.3),
+                    0.1, armorMat, "previewDrone"
+                );
                 
                 // Выхлопные трубы сзади
                 for (let i = 0; i < 2; i++) {
-                    const exhaust = MeshBuilder.CreateCylinder(`previewDroneExhaust${i}`, { height: 0.2, diameter: 0.12, tessellation: 8 }, scene);
-                    exhaust.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.2, -d * 0.48);
-                    exhaust.rotation.z = Math.PI / 2;
-                    exhaust.parent = chassis;
-                    exhaust.material = armorMat;
+                    ChassisDetailsGenerator.createExhaustCylindrical(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.2, -d * 0.48),
+                        0.2, 0.12,
+                        `previewDrone${i}`
+                    );
                 }
                 break;
             case "artillery":
                 // Artillery - массивные стабилизаторы, опорные лапы
                 for (let i = 0; i < 4; i++) {
-                    const stabilizer = MeshBuilder.CreateCylinder(`previewStabilizer${i}`, { height: 0.35, diameter: 0.25 }, scene);
                     const angle = (i * Math.PI * 2) / 4;
-                    stabilizer.position = new Vector3(Math.cos(angle) * w * 0.65, -h * 0.45, Math.sin(angle) * d * 0.65);
-                    stabilizer.parent = chassis;
-                    stabilizer.material = armorMat;
+                    ChassisDetailsGenerator.createStabilizerCylindrical(
+                        scene, chassis,
+                        new Vector3(Math.cos(angle) * w * 0.65, -h * 0.45, Math.sin(angle) * d * 0.65),
+                        0.35, 0.25,
+                        armorMat, `previewArtillery${i}`
+                    );
                     
                     // Опорные лапы
-                    const leg = MeshBuilder.CreateBox(`previewArtilleryLeg${i}`, { width: 0.12, height: 0.2, depth: 0.12 }, scene);
-                    leg.position = new Vector3(Math.cos(angle) * w * 0.7, -h * 0.55, Math.sin(angle) * d * 0.7);
-                    leg.parent = chassis;
-                    leg.material = armorMat;
+                    ChassisDetailsGenerator.createArmorPlate(
+                        scene, chassis,
+                        new Vector3(Math.cos(angle) * w * 0.7, -h * 0.55, Math.sin(angle) * d * 0.7),
+                        0.12, 0.2, 0.12,
+                        armorMat, `previewArtilleryLeg${i}`
+                    );
                 }
                 
                 // Люки
                 for (let i = 0; i < 2; i++) {
-                    const hatch = MeshBuilder.CreateBox(`previewArtilleryHatch${i}`, { width: 0.22, height: 0.1, depth: 0.22 }, scene);
-                    hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.7, -d * 0.1);
-                    hatch.parent = chassis;
-                    hatch.material = armorMat;
+                    ChassisDetailsGenerator.createHatch(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.7, -d * 0.1),
+                        0.22, 0.1, 0.22,
+                        armorMat, `previewArtillery${i}`
+                    );
                 }
                 
                 // Фары
                 for (let i = 0; i < 2; i++) {
-                    const headlight = MeshBuilder.CreateBox(`previewArtilleryHeadlight${i}`, { width: 0.12, height: 0.12, depth: 0.1 }, scene);
-                    headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.2, d * 0.5);
-                    headlight.parent = chassis;
-                    const headlightMat = new StandardMaterial(`previewArtilleryHeadlightMat${i}`, scene);
-                    headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
-                    headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
-                    headlight.material = headlightMat;
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.2, d * 0.5),
+                        0.12, 0.12, 0.1,
+                        i, "previewArtillery"
+                    );
                 }
                 
                 // Выхлоп
-                const artilleryExhaust = MeshBuilder.CreateBox("previewArtilleryExhaust", { width: 0.14, height: 0.14, depth: 0.2 }, scene);
-                artilleryExhaust.position = new Vector3(w * 0.4, h * 0.22, -d * 0.48);
-                artilleryExhaust.parent = chassis;
-                artilleryExhaust.material = armorMat;
+                ChassisDetailsGenerator.createExhaust(
+                    scene, chassis,
+                    new Vector3(w * 0.4, h * 0.22, -d * 0.48),
+                    0.14, 0.14, 0.2,
+                    armorMat, "previewArtillery"
+                );
                 
                 // Вентиляционные решетки (большие для артиллерии)
                 for (let i = 0; i < 3; i++) {
-                    const vent = MeshBuilder.CreateBox(`previewArtilleryVent${i}`, { width: 0.12, height: 0.08, depth: 0.14 }, scene);
-                    vent.position = new Vector3((i - 1) * w * 0.35, h * 0.6, -d * 0.3);
-                    vent.parent = chassis;
-                    const ventMat = new StandardMaterial(`previewArtilleryVentMat${i}`, scene);
-                    ventMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
-                    vent.material = ventMat;
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis,
+                        new Vector3((i - 1) * w * 0.35, h * 0.6, -d * 0.3),
+                        0.12, 0.08, 0.14,
+                        i, "previewArtillery"
+                    );
                 }
                 
                 // Перископы
                 for (let i = 0; i < 2; i++) {
-                    const periscope = MeshBuilder.CreateCylinder(`previewArtilleryPeriscope${i}`, { height: 0.22, diameter: 0.09, tessellation: 8 }, scene);
-                    periscope.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.85, -d * 0.1);
-                    periscope.parent = chassis;
-                    const periscopeMat = new StandardMaterial(`previewArtilleryPeriscopeMat${i}`, scene);
-                    periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
-                    periscope.material = periscopeMat;
+                    ChassisDetailsGenerator.createPeriscope(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.85, -d * 0.1),
+                        0.22, 0.09,
+                        i, "previewArtillery"
+                    );
                 }
                 
                 // Системы наведения (оптические прицелы)
                 for (let i = 0; i < 2; i++) {
-                    const sight = MeshBuilder.CreateBox(`previewArtillerySight${i}`, { width: 0.16, height: 0.12, depth: 0.14 }, scene);
-                    sight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.75, d * 0.45);
-                    sight.parent = chassis;
-                    const sightMat = new StandardMaterial(`previewArtillerySightMat${i}`, scene);
-                    sightMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
-                    sight.material = sightMat;
-                    
-                    // Линза прицела
-                    const sightLens = MeshBuilder.CreateCylinder(`previewArtillerySightLens${i}`, { height: 0.02, diameter: 0.08, tessellation: 8 }, scene);
-                    sightLens.position = new Vector3(0, 0, 0.08);
-                    sightLens.parent = sight;
-                    const lensMat = new StandardMaterial(`previewArtillerySightLensMat${i}`, scene);
-                    lensMat.diffuseColor = new Color3(0.1, 0.2, 0.3);
-                    lensMat.emissiveColor = new Color3(0.05, 0.1, 0.15);
-                    sightLens.material = lensMat;
+                    ChassisDetailsGenerator.createSight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.75, d * 0.45),
+                        0.16, 0.12, 0.14,
+                        `previewArtillery${i}`
+                    );
                 }
                 
                 // Верхние вентиляционные решетки на крыше (большие)
                 for (let i = 0; i < 5; i++) {
-                    const roofVent = MeshBuilder.CreateBox(`previewArtilleryRoofVent${i}`, { width: 0.2, height: 0.06, depth: 0.16 }, scene);
-                    roofVent.position = new Vector3((i - 2) * w * 0.28, h * 0.72, d * 0.25);
-                    roofVent.parent = chassis;
-                    const roofVentMat = new StandardMaterial(`previewArtilleryRoofVentMat${i}`, scene);
-                    roofVentMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
-                    roofVent.material = roofVentMat;
-                    
+                    const ventPos = new Vector3((i - 2) * w * 0.28, h * 0.72, d * 0.25);
+                    ChassisDetailsGenerator.createRoofVent(
+                        scene, chassis, ventPos,
+                        0.2, 0.06, 0.16,
+                        i, "previewArtillery"
+                    );
                     // Детали решетки
-                    for (let j = 0; j < 5; j++) {
-                        const ventBar = MeshBuilder.CreateBox(`previewArtilleryRoofVentBar${i}_${j}`, { width: 0.03, height: 0.05, depth: 0.14 }, scene);
-                        ventBar.position = new Vector3((i - 2) * w * 0.28 + (j - 2) * 0.04, h * 0.72, d * 0.25);
-                        ventBar.parent = chassis;
-                        ventBar.material = roofVentMat;
-                    }
+                    ChassisDetailsGenerator.createVentBars(
+                        scene, chassis, ventPos,
+                        5, 0.03, 0.05, 0.14, 0.04,
+                        i, MaterialFactory.createRoofVentMaterial(scene, i, "previewArtillery"), "previewArtillery"
+                    );
                 }
                 
                 // Радиоантенна сзади
-                const artilleryAntenna = MeshBuilder.CreateCylinder("previewArtilleryAntenna", { height: 0.6, diameter: 0.03, tessellation: 8 }, scene);
-                artilleryAntenna.position = new Vector3(0, h * 0.9, -d * 0.3);
-                artilleryAntenna.parent = chassis;
-                const artilleryAntennaMat = new StandardMaterial("previewArtilleryAntennaMat", scene);
-                artilleryAntennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
-                artilleryAntenna.material = artilleryAntennaMat;
+                ChassisDetailsGenerator.createAntenna(
+                    scene, chassis,
+                    new Vector3(0, h * 0.9, -d * 0.3),
+                    0.6, 0.03,
+                    "previewArtillery"
+                );
                 
                 // Основание антенны
-                const artilleryAntennaBase = MeshBuilder.CreateBox("previewArtilleryAntennaBase", { width: 0.12, height: 0.12, depth: 0.12 }, scene);
-                artilleryAntennaBase.position = new Vector3(0, h * 0.76, -d * 0.3);
-                artilleryAntennaBase.parent = chassis;
-                artilleryAntennaBase.material = armorMat;
+                ChassisDetailsGenerator.createAntennaBase(
+                    scene, chassis,
+                    new Vector3(0, h * 0.76, -d * 0.3),
+                    0.12, armorMat, "previewArtillery"
+                );
                 
                 // Задние огни (стоп-сигналы, большие)
                 for (let i = 0; i < 2; i++) {
-                    const tailLight = MeshBuilder.CreateBox(`previewArtilleryTailLight${i}`, { width: 0.08, height: 0.14, depth: 0.06 }, scene);
-                    tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.22, -d * 0.49);
-                    tailLight.parent = chassis;
-                    const tailLightMat = new StandardMaterial(`previewArtilleryTailLightMat${i}`, scene);
-                    tailLightMat.diffuseColor = new Color3(0.6, 0.1, 0.1);
-                    tailLightMat.emissiveColor = new Color3(0.3, 0.05, 0.05);
-                    tailLight.material = tailLightMat;
+                    ChassisDetailsGenerator.createTailLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.22, -d * 0.49),
+                        0.08, 0.14, 0.06,
+                        i, "previewArtillery"
+                    );
                 }
                 
                 // Боковые фары (сигнальные)
                 for (let i = 0; i < 2; i++) {
-                    const sideLight = MeshBuilder.CreateBox(`previewArtillerySideLight${i}`, { width: 0.06, height: 0.09, depth: 0.06 }, scene);
-                    sideLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.15, -d * 0.25);
-                    sideLight.parent = chassis;
-                    const sideLightMat = new StandardMaterial(`previewArtillerySideLightMat${i}`, scene);
-                    sideLightMat.diffuseColor = new Color3(0.7, 0.6, 0.3);
-                    sideLightMat.emissiveColor = new Color3(0.15, 0.12, 0.08);
-                    sideLight.material = sideLightMat;
+                    ChassisDetailsGenerator.createSideLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.15, -d * 0.25),
+                        0.06, 0.09, 0.06,
+                        i, "previewArtillery"
+                    );
                 }
                 
                 // Выхлопная труба (большая)
-                const artilleryExhaustUpgraded = MeshBuilder.CreateCylinder("previewArtilleryExhaustUpgraded", { height: 0.28, diameter: 0.18, tessellation: 8 }, scene);
-                artilleryExhaustUpgraded.position = new Vector3(0, h * 0.25, -d * 0.48);
-                artilleryExhaustUpgraded.rotation.z = Math.PI / 2;
-                artilleryExhaustUpgraded.parent = chassis;
-                artilleryExhaustUpgraded.material = armorMat;
+                ChassisDetailsGenerator.createExhaustCylindrical(
+                    scene, chassis,
+                    new Vector3(0, h * 0.25, -d * 0.48),
+                    0.28, 0.18,
+                    "previewArtillery"
+                );
                 
                 // Выхлопное отверстие
-                const artilleryExhaustHole = MeshBuilder.CreateCylinder("previewArtilleryExhaustHole", { height: 0.05, diameter: 0.16, tessellation: 8 }, scene);
-                artilleryExhaustHole.position = new Vector3(0, h * 0.25, -d * 0.52);
-                artilleryExhaustHole.rotation.z = Math.PI / 2;
-                artilleryExhaustHole.parent = chassis;
-                const artilleryExhaustHoleMat = new StandardMaterial("previewArtilleryExhaustHoleMat", scene);
-                artilleryExhaustHoleMat.diffuseColor = new Color3(0.05, 0.05, 0.05);
-                artilleryExhaustHoleMat.emissiveColor = new Color3(0.1, 0.05, 0);
-                artilleryExhaustHole.material = artilleryExhaustHoleMat;
+                ChassisDetailsGenerator.createExhaustHole(
+                    scene, chassis,
+                    new Vector3(0, h * 0.25, -d * 0.52),
+                    0.05, 0.16,
+                    0, "previewArtillery"
+                );
                 break;
             case "destroyer":
                 // Destroyer - длинный клиновидный нос, низкий профиль
-                const destroyerNose = MeshBuilder.CreateBox("previewDestroyerNose", { width: w * 0.85, height: h * 0.55, depth: 0.35 }, scene);
-                destroyerNose.position = new Vector3(0, 0, d * 0.52);
-                destroyerNose.parent = chassis;
-                destroyerNose.material = accentMat;
+                ChassisDetailsGenerator.createSlopedArmor(
+                    scene, chassis,
+                    new Vector3(0, 0, d * 0.52),
+                    w * 0.85, h * 0.55, 0.35,
+                    -Math.PI / 6, accentMat, "previewDestroyer"
+                );
                 
                 // Боковые бронеплиты
                 for (let i = 0; i < 2; i++) {
-                    const sidePlate = MeshBuilder.CreateBox(`previewDestroyerSide${i}`, { width: 0.12, height: h * 0.7, depth: d * 0.5 }, scene);
-                    sidePlate.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, 0, d * 0.15);
-                    sidePlate.parent = chassis;
-                    sidePlate.material = armorMat;
+                    ChassisDetailsGenerator.createArmorPlate(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.48, 0, d * 0.15),
+                        0.12, h * 0.7, d * 0.5,
+                        armorMat, `previewDestroyer${i}`
+                    );
                 }
                 
                 // Люки
                 for (let i = 0; i < 2; i++) {
-                    const hatch = MeshBuilder.CreateBox(`previewDestroyerHatch${i}`, { width: 0.18, height: 0.06, depth: 0.18 }, scene);
-                    hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.48, -d * 0.1);
-                    hatch.parent = chassis;
-                    hatch.material = armorMat;
+                    ChassisDetailsGenerator.createHatch(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.48, -d * 0.1),
+                        0.18, 0.06, 0.18,
+                        armorMat, `previewDestroyer${i}`
+                    );
                 }
                 
                 // Фары
                 for (let i = 0; i < 2; i++) {
-                    const headlight = MeshBuilder.CreateBox(`previewDestroyerHeadlight${i}`, { width: 0.1, height: 0.1, depth: 0.08 }, scene);
-                    headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.1, d * 0.48);
-                    headlight.parent = chassis;
-                    const headlightMat = new StandardMaterial(`previewDestroyerHeadlightMat${i}`, scene);
-                    headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
-                    headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
-                    headlight.material = headlightMat;
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.1, d * 0.48),
+                        0.1, 0.1, 0.08,
+                        i, "previewDestroyer"
+                    );
                 }
                 
                 // Вентиляционные решетки
                 for (let i = 0; i < 2; i++) {
-                    const vent = MeshBuilder.CreateBox(`previewDestroyerVent${i}`, { width: 0.08, height: 0.05, depth: 0.1 }, scene);
-                    vent.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.25, -d * 0.25);
-                    vent.parent = chassis;
-                    const ventMat = new StandardMaterial(`previewDestroyerVentMat${i}`, scene);
-                    ventMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
-                    vent.material = ventMat;
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.25, -d * 0.25),
+                        0.08, 0.05, 0.1,
+                        i, "previewDestroyer"
+                    );
                 }
                 
                 // Перископы
                 for (let i = 0; i < 2; i++) {
-                    const periscope = MeshBuilder.CreateCylinder(`previewDestroyerPeriscope${i}`, { height: 0.14, diameter: 0.07, tessellation: 8 }, scene);
-                    periscope.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.54, -d * 0.1);
-                    periscope.parent = chassis;
-                    const periscopeMat = new StandardMaterial(`previewDestroyerPeriscopeMat${i}`, scene);
-                    periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
-                    periscope.material = periscopeMat;
+                    ChassisDetailsGenerator.createPeriscope(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.54, -d * 0.1),
+                        0.14, 0.07,
+                        i, "previewDestroyer"
+                    );
                 }
                 
                 // Оптический прицел на лобовой части (большой)
-                const destroyerSight = MeshBuilder.CreateBox("previewDestroyerSight", { width: 0.15, height: 0.1, depth: 0.12 }, scene);
-                destroyerSight.position = new Vector3(0, h * 0.2, d * 0.48);
-                destroyerSight.parent = chassis;
-                const destroyerSightMat = new StandardMaterial("previewDestroyerSightMat", scene);
-                destroyerSightMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
-                destroyerSight.material = destroyerSightMat;
-                
-                // Линза прицела
-                const destroyerSightLens = MeshBuilder.CreateCylinder("previewDestroyerSightLens", { height: 0.02, diameter: 0.08, tessellation: 8 }, scene);
-                destroyerSightLens.position = new Vector3(0, 0, 0.07);
-                destroyerSightLens.parent = destroyerSight;
-                const destroyerLensMat = new StandardMaterial("previewDestroyerSightLensMat", scene);
-                destroyerLensMat.diffuseColor = new Color3(0.1, 0.2, 0.3);
-                destroyerLensMat.emissiveColor = new Color3(0.05, 0.1, 0.15);
-                destroyerSightLens.material = destroyerLensMat;
+                ChassisDetailsGenerator.createSight(
+                    scene, chassis,
+                    new Vector3(0, h * 0.2, d * 0.48),
+                    0.15, 0.1, 0.12,
+                    "previewDestroyer"
+                );
                 
                 // Дополнительные броневые накладки на лобовой части
                 for (let i = 0; i < 3; i++) {
-                    const frontArmor = MeshBuilder.CreateBox(`previewDestroyerFrontArmor${i}`, { width: w * 0.28, height: h * 0.18, depth: 0.1 }, scene);
-                    frontArmor.position = new Vector3((i - 1) * w * 0.28, h * 0.05, d * 0.48);
-                    frontArmor.parent = chassis;
-                    frontArmor.material = armorMat;
+                    ChassisDetailsGenerator.createArmorPlate(
+                        scene, chassis,
+                        new Vector3((i - 1) * w * 0.28, h * 0.05, d * 0.48),
+                        w * 0.28, h * 0.18, 0.1,
+                        armorMat, `previewDestroyer${i}`
+                    );
                 }
                 
                 // Верхние вентиляционные решетки на крыше
                 for (let i = 0; i < 4; i++) {
-                    const roofVent = MeshBuilder.CreateBox(`previewDestroyerRoofVent${i}`, { width: 0.12, height: 0.04, depth: 0.1 }, scene);
-                    roofVent.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.28, h * 0.46, (i < 2 ? -1 : 1) * d * 0.2);
-                    roofVent.parent = chassis;
-                    const roofVentMat = new StandardMaterial(`previewDestroyerRoofVentMat${i}`, scene);
-                    roofVentMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
-                    roofVent.material = roofVentMat;
-                    
+                    const ventPos = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.28, h * 0.46, (i < 2 ? -1 : 1) * d * 0.2);
+                    ChassisDetailsGenerator.createRoofVent(
+                        scene, chassis, ventPos,
+                        0.12, 0.04, 0.1,
+                        i, "previewDestroyer"
+                    );
                     // Детали решетки
-                    for (let j = 0; j < 3; j++) {
-                        const ventBar = MeshBuilder.CreateBox(`previewDestroyerRoofVentBar${i}_${j}`, { width: 0.02, height: 0.03, depth: 0.08 }, scene);
-                        ventBar.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.28, h * 0.46, (i < 2 ? -1 : 1) * d * 0.2 + (j - 1) * 0.03);
-                        ventBar.parent = chassis;
-                        ventBar.material = roofVentMat;
-                    }
+                    ChassisDetailsGenerator.createVentBars(
+                        scene, chassis, ventPos,
+                        3, 0.02, 0.03, 0.08, 0.03,
+                        i, MaterialFactory.createRoofVentMaterial(scene, i, "previewDestroyer"), "previewDestroyer"
+                    );
                 }
                 
                 // Выхлопные трубы сзади (большие)
                 for (let i = 0; i < 2; i++) {
-                    const exhaust = MeshBuilder.CreateCylinder(`previewDestroyerExhaust${i}`, { height: 0.25, diameter: 0.12, tessellation: 8 }, scene);
-                    exhaust.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.18, -d * 0.48);
-                    exhaust.rotation.z = Math.PI / 2;
-                    exhaust.parent = chassis;
-                    exhaust.material = armorMat;
-                    
+                    ChassisDetailsGenerator.createExhaustCylindrical(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.18, -d * 0.48),
+                        0.25, 0.12,
+                        `previewDestroyer${i}`
+                    );
                     // Выхлопное отверстие
-                    const exhaustHole = MeshBuilder.CreateCylinder(`previewDestroyerExhaustHole${i}`, { height: 0.05, diameter: 0.1, tessellation: 8 }, scene);
-                    exhaustHole.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.18, -d * 0.52);
-                    exhaustHole.rotation.z = Math.PI / 2;
-                    exhaustHole.parent = chassis;
-                    const exhaustHoleMat = new StandardMaterial(`previewDestroyerExhaustHoleMat${i}`, scene);
-                    exhaustHoleMat.diffuseColor = new Color3(0.05, 0.05, 0.05);
-                    exhaustHoleMat.emissiveColor = new Color3(0.1, 0.05, 0);
-                    exhaustHole.material = exhaustHoleMat;
+                    ChassisDetailsGenerator.createExhaustHole(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.18, -d * 0.52),
+                        0.05, 0.1,
+                        i, `previewDestroyer${i}`
+                    );
                 }
                 
                 // Задние огни (стоп-сигналы)
                 for (let i = 0; i < 2; i++) {
-                    const tailLight = MeshBuilder.CreateBox(`previewDestroyerTailLight${i}`, { width: 0.06, height: 0.1, depth: 0.04 }, scene);
-                    tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.15, -d * 0.49);
-                    tailLight.parent = chassis;
-                    const tailLightMat = new StandardMaterial(`previewDestroyerTailLightMat${i}`, scene);
-                    tailLightMat.diffuseColor = new Color3(0.6, 0.1, 0.1);
-                    tailLightMat.emissiveColor = new Color3(0.3, 0.05, 0.05);
-                    tailLight.material = tailLightMat;
+                    ChassisDetailsGenerator.createTailLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.15, -d * 0.49),
+                        0.06, 0.1, 0.04,
+                        i, "previewDestroyer"
+                    );
                 }
                 
                 // Боковые фары (сигнальные)
                 for (let i = 0; i < 2; i++) {
-                    const sideLight = MeshBuilder.CreateBox(`previewDestroyerSideLight${i}`, { width: 0.05, height: 0.07, depth: 0.05 }, scene);
-                    sideLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.08, -d * 0.2);
-                    sideLight.parent = chassis;
-                    const sideLightMat = new StandardMaterial(`previewDestroyerSideLightMat${i}`, scene);
-                    sideLightMat.diffuseColor = new Color3(0.7, 0.6, 0.3);
-                    sideLightMat.emissiveColor = new Color3(0.15, 0.12, 0.08);
-                    sideLight.material = sideLightMat;
+                    ChassisDetailsGenerator.createSideLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.08, -d * 0.2),
+                        0.05, 0.07, 0.05,
+                        i, "previewDestroyer"
+                    );
                 }
                 break;
             case "command":
@@ -2868,26 +2979,30 @@ export class Garage {
                 }, scene);
                 barrel.rotation.x = Math.PI / 2;
                 // ОГРОМНЫЙ прицел
-                const scope = MeshBuilder.CreateCylinder("previewScope", { height: barrelWidth * 1.2, diameter: barrelWidth * 0.9 }, scene);
-                scope.position = new Vector3(barrelWidth * 0.65, barrelWidth * 0.5, barrelLength * 0.6);
-                scope.parent = barrel;
-                const scopeMat = new StandardMaterial("previewScopeMat", scene);
-                scopeMat.diffuseColor = new Color3(0.05, 0.05, 0.05);
-                scopeMat.emissiveColor = new Color3(0.15, 0.15, 0.15);
-                scope.material = scopeMat;
+                CannonDetailsGenerator.createScope(
+                    scene, barrel,
+                    new Vector3(barrelWidth * 0.65, barrelWidth * 0.5, barrelLength * 0.6),
+                    barrelWidth * 1.2, barrelWidth * 0.9,
+                    "preview"
+                );
+                const sniperScopeMat = MaterialFactory.createScopeMaterial(scene, "preview");
                 // Сошки - БОЛЬШЕ
                 for (let i = 0; i < 2; i++) {
-                    const bipod = MeshBuilder.CreateBox(`previewBipod${i}`, { width: 0.12, height: barrelWidth * 0.8, depth: 0.12 }, scene);
-                    bipod.position = new Vector3((i === 0 ? -1 : 1) * barrelWidth * 0.45, -barrelWidth * 0.4, barrelLength * 0.75);
-                    bipod.parent = barrel;
-                    bipod.material = scopeMat;
+                    CannonDetailsGenerator.createBipod(
+                        scene, barrel,
+                        new Vector3((i === 0 ? -1 : 1) * barrelWidth * 0.45, -barrelWidth * 0.4, barrelLength * 0.75),
+                        0.12, barrelWidth * 0.8, 0.12,
+                        sniperScopeMat, "preview"
+                    );
                 }
                 // Стабилизаторы - БОЛЬШЕ
                 for (let i = 0; i < 2; i++) {
-                    const stabilizer = MeshBuilder.CreateBox(`previewStabilizer${i}`, { width: 0.1, height: barrelWidth * 0.7, depth: 0.1 }, scene);
-                    stabilizer.position = new Vector3((i === 0 ? -1 : 1) * barrelWidth * 0.4, -barrelWidth * 0.3, barrelLength * 0.4);
-                    stabilizer.parent = barrel;
-                    stabilizer.material = scopeMat;
+                    CannonDetailsGenerator.createStabilizer(
+                        scene, barrel,
+                        new Vector3((i === 0 ? -1 : 1) * barrelWidth * 0.4, -barrelWidth * 0.3, barrelLength * 0.4),
+                        0.1, barrelWidth * 0.7, 0.1,
+                        sniperScopeMat, "preview"
+                    );
                 }
                 break;
             case "gatling":
@@ -2900,31 +3015,22 @@ export class Garage {
                 barrel.rotation.x = Math.PI / 2;
                 // Стволы (угловатые, low-poly)
                 for (let i = 0; i < 6; i++) {
-                    const miniBarrel = MeshBuilder.CreateCylinder(`previewMiniBarrel${i}`, { 
-                        height: barrelLength * 1.1, 
-                        diameter: barrelWidth * 0.35,
-                        tessellation: 8  // Low-poly
-                    }, scene);
                     const angle = (i * Math.PI * 2 / 6);
-                    miniBarrel.position = new Vector3(Math.cos(angle) * barrelWidth * 0.6, Math.sin(angle) * barrelWidth * 0.6, 0);
-                    miniBarrel.parent = barrel;
-                    const miniMat = new StandardMaterial(`previewMiniBarrelMat${i}`, scene);
-                    miniMat.diffuseColor = cannonColor.scale(0.8);
-                    miniBarrel.material = miniMat;
+                    CannonDetailsGenerator.createMiniBarrel(
+                        scene, barrel,
+                        new Vector3(Math.cos(angle) * barrelWidth * 0.6, Math.sin(angle) * barrelWidth * 0.6, 0),
+                        barrelLength * 1.1, barrelWidth * 0.35,
+                        cannonColor, "preview"
+                    );
                 }
                 // Система охлаждения (угловатые кольца, low-poly)
                 for (let i = 0; i < 4; i++) {
-                    const coolingRing = MeshBuilder.CreateTorus(`previewCoolingRing${i}`, { 
-                        diameter: barrelWidth * 1.9, 
-                        thickness: barrelWidth * 0.25,
-                        tessellation: 8  // Low-poly
-                    }, scene);
-                    coolingRing.position = new Vector3(0, 0, -barrelLength * 0.35 + i * barrelLength * 0.12);
-                    coolingRing.parent = barrel;
-                    const ringMat = new StandardMaterial(`previewCoolingRingMat${i}`, scene);
-                    ringMat.diffuseColor = cannonColor.scale(0.6);
-                    ringMat.emissiveColor = new Color3(0.05, 0.05, 0.05);
-                    coolingRing.material = ringMat;
+                    CannonDetailsGenerator.createCoolingRing(
+                        scene, barrel,
+                        new Vector3(0, 0, -barrelLength * 0.35 + i * barrelLength * 0.12),
+                        barrelWidth * 1.9, barrelWidth * 0.25,
+                        cannonColor, "preview"
+                    );
                 }
                 break;
             case "heavy":
@@ -2935,17 +3041,18 @@ export class Garage {
                     tessellation: 12
                 }, scene);
                 barrel.rotation.x = Math.PI / 2;
-                const breech = MeshBuilder.CreateBox("previewBreech", { width: barrelWidth * 1.7, height: barrelWidth * 1.7, depth: barrelWidth * 1.3 }, scene);
-                breech.position = new Vector3(0, 0, -barrelLength * 0.48);
-                breech.parent = barrel;
-                const breechMat = new StandardMaterial("previewBreechMat", scene);
-                breechMat.diffuseColor = cannonColor.scale(0.55);
-                breech.material = breechMat;
-                // Дульный тормоз
-                const muzzleBrake = MeshBuilder.CreateCylinder("previewMuzzleBrake", { height: barrelWidth * 0.4, diameter: barrelWidth * 1.4 }, scene);
-                muzzleBrake.position = new Vector3(0, 0, barrelLength * 0.55);
-                muzzleBrake.parent = barrel;
-                muzzleBrake.material = breechMat;
+                CannonDetailsGenerator.createBreech(
+                    scene, barrel,
+                    new Vector3(0, 0, -barrelLength * 0.48),
+                    barrelWidth * 1.7, barrelWidth * 1.7, barrelWidth * 1.3,
+                    cannonColor, "preview"
+                );
+                CannonDetailsGenerator.createMuzzleBrake(
+                    scene, barrel,
+                    new Vector3(0, 0, barrelLength * 0.55),
+                    barrelWidth * 0.4, barrelWidth * 1.4,
+                    cannonColor, "preview"
+                );
                 break;
             case "rapid":
                 // Rapid - КОРОТКАЯ, КОМПАКТНАЯ - УНИКАЛЬНАЯ ФОРМА
@@ -2955,10 +3062,12 @@ export class Garage {
                     tessellation: 10
                 }, scene);
                 barrel.rotation.x = Math.PI / 2;
-                const rapidBreech = MeshBuilder.CreateBox("previewRapidBreech", { width: barrelWidth * 1.1, height: barrelWidth * 1.1, depth: barrelWidth * 0.6 }, scene);
-                rapidBreech.position = new Vector3(0, 0, -barrelLength * 0.35);
-                rapidBreech.parent = barrel;
-                rapidBreech.material = barrel.material;
+                CannonDetailsGenerator.createBreech(
+                    scene, barrel,
+                    new Vector3(0, 0, -barrelLength * 0.35),
+                    barrelWidth * 1.1, barrelWidth * 1.1, barrelWidth * 0.6,
+                    cannonColor, "preview"
+                );
                 break;
             case "plasma":
                 // Plasma - ЭНЕРГЕТИЧЕСКАЯ, КОНИЧЕСКАЯ ФОРМА - УНИКАЛЬНЫЙ ДИЗАЙН
@@ -2970,48 +3079,37 @@ export class Garage {
                 }, scene);
                 barrel.rotation.x = Math.PI / 2;
                 
-                const plasmaCore = MeshBuilder.CreateSphere("previewPlasmaCore", { diameter: barrelWidth * 1.2, segments: 20 }, scene);
-                plasmaCore.position = new Vector3(0, 0, -barrelLength * 0.4);
-                plasmaCore.parent = barrel;
-                const coreMat = new StandardMaterial("previewPlasmaCoreMat", scene);
-                coreMat.diffuseColor = new Color3(1, 0, 1);
-                coreMat.emissiveColor = new Color3(0.8, 0, 0.8);
-                coreMat.disableLighting = true;
-                plasmaCore.material = coreMat;
+                CannonDetailsGenerator.createPlasmaCore(
+                    scene, barrel,
+                    new Vector3(0, 0, -barrelLength * 0.4),
+                    barrelWidth * 1.2,
+                    "preview"
+                );
                 
                 for (let i = 0; i < 4; i++) {
-                    const coil = MeshBuilder.CreateTorus(`previewPlasmaCoil${i}`, {
-                        diameter: barrelWidth * 1.4,
-                        thickness: barrelWidth * 0.12,
-                        tessellation: 16
-                    }, scene);
-                    coil.position = new Vector3(0, 0, -barrelLength * 0.35 + i * barrelLength * 0.12);
-                    coil.parent = barrel;
-                    const coilMat = new StandardMaterial(`previewPlasmaCoilMat${i}`, scene);
-                    coilMat.diffuseColor = new Color3(0.8, 0, 0.8);
-                    coilMat.emissiveColor = new Color3(0.5, 0, 0.5);
-                    coil.material = coilMat;
+                    CannonDetailsGenerator.createPlasmaCoil(
+                        scene, barrel,
+                        new Vector3(0, 0, -barrelLength * 0.35 + i * barrelLength * 0.12),
+                        barrelWidth * 1.4, barrelWidth * 0.12,
+                        "preview"
+                    );
                 }
                 
                 for (let i = 0; i < 2; i++) {
-                    const stabilizer = MeshBuilder.CreateBox(`previewPlasmaStabilizer${i}`, {
-                        width: barrelWidth * 0.15,
-                        height: barrelLength * 0.7,
-                        depth: barrelWidth * 0.15
-                    }, scene);
-                    stabilizer.position = new Vector3((i === 0 ? -1 : 1) * barrelWidth * 0.7, 0, barrelLength * 0.1);
-                    stabilizer.parent = barrel;
-                    stabilizer.material = coreMat;
+                    CannonDetailsGenerator.createPlasmaStabilizer(
+                        scene, barrel,
+                        new Vector3((i === 0 ? -1 : 1) * barrelWidth * 0.7, 0, barrelLength * 0.1),
+                        barrelWidth * 0.15, barrelLength * 0.7, barrelWidth * 0.15,
+                        "preview"
+                    );
                 }
                 
-                const emitter = MeshBuilder.CreateCylinder("previewPlasmaEmitter", {
-                    height: barrelWidth * 0.4,
-                    diameter: barrelWidth * 1.8,
-                    tessellation: 12
-                }, scene);
-                emitter.position = new Vector3(0, 0, barrelLength * 0.5);
-                emitter.parent = barrel;
-                emitter.material = coreMat;
+                CannonDetailsGenerator.createPlasmaEmitter(
+                    scene, barrel,
+                    new Vector3(0, 0, barrelLength * 0.5),
+                    barrelWidth * 0.4, barrelWidth * 1.8,
+                    "preview"
+                );
                 break;
             case "laser":
                 // Laser - ОЧЕНЬ ДЛИННАЯ, ТОНКАЯ ТРУБКА - УНИКАЛЬНЫЙ ДИЗАЙН
@@ -3022,54 +3120,38 @@ export class Garage {
                 }, scene);
                 barrel.rotation.x = Math.PI / 2;
                 
-                const lens = MeshBuilder.CreateCylinder("previewLens", {
-                    height: barrelWidth * 0.5,
-                    diameter: barrelWidth * 0.9,
-                    tessellation: 16
-                }, scene);
-                lens.position = new Vector3(0, 0, barrelLength * 0.6);
-                lens.parent = barrel;
-                const lensMat = new StandardMaterial("previewLensMat", scene);
-                lensMat.diffuseColor = new Color3(1, 0.2, 0);
-                lensMat.emissiveColor = new Color3(0.6, 0, 0);
-                lensMat.disableLighting = true;
-                lens.material = lensMat;
+                CannonDetailsGenerator.createLens(
+                    scene, barrel,
+                    new Vector3(0, 0, barrelLength * 0.6),
+                    barrelWidth * 0.5, barrelWidth * 0.9,
+                    "preview"
+                );
                 
                 for (let i = 0; i < 4; i++) {
-                    const focusRing = MeshBuilder.CreateTorus(`previewFocusRing${i}`, {
-                        diameter: barrelWidth * 1.0,
-                        thickness: barrelWidth * 0.08,
-                        tessellation: 16
-                    }, scene);
-                    focusRing.position = new Vector3(0, 0, -barrelLength * 0.2 + i * barrelLength * 0.2);
-                    focusRing.parent = barrel;
-                    const ringMat = new StandardMaterial(`previewFocusRingMat${i}`, scene);
-                    ringMat.diffuseColor = new Color3(0.8, 0, 0);
-                    ringMat.emissiveColor = new Color3(0.3, 0, 0);
-                    focusRing.material = ringMat;
+                    CannonDetailsGenerator.createFocusRing(
+                        scene, barrel,
+                        new Vector3(0, 0, -barrelLength * 0.2 + i * barrelLength * 0.2),
+                        barrelWidth * 1.0, barrelWidth * 0.08,
+                        "preview"
+                    );
                 }
                 
                 for (let i = 0; i < 2; i++) {
-                    const channel = MeshBuilder.CreateBox(`previewLaserChannel${i}`, {
-                        width: barrelWidth * 0.1,
-                        height: barrelLength * 1.2,
-                        depth: barrelWidth * 0.1
-                    }, scene);
-                    channel.position = new Vector3((i === 0 ? -1 : 1) * barrelWidth * 0.45, 0, barrelLength * 0.1);
-                    channel.parent = barrel;
-                    channel.material = lensMat;
+                    CannonDetailsGenerator.createLaserChannel(
+                        scene, barrel,
+                        new Vector3((i === 0 ? -1 : 1) * barrelWidth * 0.45, 0, barrelLength * 0.1),
+                        barrelWidth * 0.1, barrelLength * 1.2, barrelWidth * 0.1,
+                        "preview"
+                    );
                 }
                 
-                const housing = MeshBuilder.CreateBox("previewLaserHousing", {
-                    width: barrelWidth * 0.9,
-                    height: barrelWidth * 0.3,
-                    depth: barrelLength * 1.3
-                }, scene);
-                housing.position = new Vector3(0, barrelWidth * 0.4, barrelLength * 0.05);
-                housing.parent = barrel;
-                const housingMat = new StandardMaterial("previewLaserHousingMat", scene);
-                housingMat.diffuseColor = cannonColor.scale(0.6);
-                housing.material = housingMat;
+                CannonDetailsGenerator.createLaserHousing(
+                    scene, barrel,
+                    new Vector3(0, barrelWidth * 0.4, barrelLength * 0.05),
+                    barrelWidth * 0.9, barrelWidth * 0.3, barrelLength * 1.3,
+                    cannonColor,
+                    "preview"
+                );
                 break;
             case "railgun":
                 // Railgun - ЭКСТРЕМАЛЬНО ДЛИННАЯ, С РЕЛЬСАМИ - УНИКАЛЬНЫЙ ДИЗАЙН
@@ -3080,57 +3162,44 @@ export class Garage {
                 }, scene);
                 barrel.rotation.x = Math.PI / 2;
                 
-                const rail1 = MeshBuilder.CreateBox("previewRail1", {
-                    width: barrelWidth * 0.18,
-                    height: barrelWidth * 0.9,
-                    depth: barrelLength * 1.7
-                }, scene);
-                rail1.position = new Vector3(-barrelWidth * 0.5, 0, 0);
-                rail1.parent = barrel;
-                const railMat = new StandardMaterial("previewRailMat", scene);
-                railMat.diffuseColor = new Color3(0.05, 0.4, 1);
-                railMat.emissiveColor = new Color3(0.1, 0.2, 0.6);
-                rail1.material = railMat;
+                CannonDetailsGenerator.createRail(
+                    scene, barrel,
+                    new Vector3(-barrelWidth * 0.5, 0, 0),
+                    barrelWidth * 0.18, barrelWidth * 0.9, barrelLength * 1.7,
+                    "preview"
+                );
                 
-                const rail2 = MeshBuilder.CreateBox("previewRail2", {
-                    width: barrelWidth * 0.18,
-                    height: barrelWidth * 0.9,
-                    depth: barrelLength * 1.7
-                }, scene);
-                rail2.position = new Vector3(barrelWidth * 0.5, 0, 0);
-                rail2.parent = barrel;
-                rail2.material = railMat;
+                CannonDetailsGenerator.createRail(
+                    scene, barrel,
+                    new Vector3(barrelWidth * 0.5, 0, 0),
+                    barrelWidth * 0.18, barrelWidth * 0.9, barrelLength * 1.7,
+                    "preview"
+                );
                 
                 for (let i = 0; i < 4; i++) {
-                    const capacitor = MeshBuilder.CreateCylinder(`previewCapacitor${i}`, {
-                        height: barrelWidth * 0.5,
-                        diameter: barrelWidth * 0.5,
-                        tessellation: 12
-                    }, scene);
-                    capacitor.position = new Vector3(0, barrelWidth * 0.6, -barrelLength * 0.5 + i * barrelLength * 0.25);
-                    capacitor.parent = barrel;
-                    capacitor.material = railMat;
+                    CannonDetailsGenerator.createCapacitor(
+                        scene, barrel,
+                        new Vector3(0, barrelWidth * 0.6, -barrelLength * 0.5 + i * barrelLength * 0.25),
+                        barrelWidth * 0.5, barrelWidth * 0.5,
+                        "preview"
+                    );
                 }
                 
                 for (let i = 0; i < 3; i++) {
-                    const channel = MeshBuilder.CreateBox(`previewRailChannel${i}`, {
-                        width: barrelWidth * 0.3,
-                        height: barrelWidth * 0.15,
-                        depth: barrelLength * 0.3
-                    }, scene);
-                    channel.position = new Vector3(0, 0, -barrelLength * 0.4 + i * barrelLength * 0.3);
-                    channel.parent = barrel;
-                    channel.material = railMat;
+                    CannonDetailsGenerator.createRailChannel(
+                        scene, barrel,
+                        new Vector3(0, 0, -barrelLength * 0.4 + i * barrelLength * 0.3),
+                        barrelWidth * 0.3, barrelWidth * 0.15, barrelLength * 0.3,
+                        "preview"
+                    );
                 }
                 
-                const muzzleAmp = MeshBuilder.CreateCylinder("previewRailgunMuzzleAmp", {
-                    height: barrelWidth * 0.3,
-                    diameter: barrelWidth * 1.2,
-                    tessellation: 12
-                }, scene);
-                muzzleAmp.position = new Vector3(0, 0, barrelLength * 0.7);
-                muzzleAmp.parent = barrel;
-                muzzleAmp.material = railMat;
+                CannonDetailsGenerator.createMuzzleAmplifier(
+                    scene, barrel,
+                    new Vector3(0, 0, barrelLength * 0.7),
+                    barrelWidth * 0.3, barrelWidth * 1.2,
+                    "preview"
+                );
                 break;
             case "tesla":
                 // Tesla - КОРОТКАЯ, ШИРОКАЯ, С КАТУШКАМИ - УНИКАЛЬНЫЙ ДИЗАЙН
@@ -3142,46 +3211,35 @@ export class Garage {
                 barrel.rotation.x = Math.PI / 2;
                 
                 for (let i = 0; i < 5; i++) {
-                    const coil = MeshBuilder.CreateTorus(`previewTeslaCoil${i}`, {
-                        diameter: barrelWidth * 0.8,
-                        thickness: barrelWidth * 0.15,
-                        tessellation: 16
-                    }, scene);
-                    coil.position = new Vector3(0, 0, -barrelLength * 0.3 + i * barrelLength * 0.15);
-                    coil.parent = barrel;
-                    const coilMat = new StandardMaterial(`previewTeslaCoilMat${i}`, scene);
-                    coilMat.diffuseColor = new Color3(0, 0.8, 1);
-                    coilMat.emissiveColor = new Color3(0, 0.5, 0.7);
-                    coil.material = coilMat;
+                    CannonDetailsGenerator.createTeslaCoil(
+                        scene, barrel,
+                        new Vector3(0, 0, -barrelLength * 0.3 + i * barrelLength * 0.15),
+                        barrelWidth * 0.8, barrelWidth * 0.15,
+                        "preview"
+                    );
                 }
                 
                 for (let i = 0; i < 4; i++) {
-                    const discharger = MeshBuilder.CreateCylinder(`previewTeslaDischarger${i}`, {
-                        height: barrelWidth * 0.4,
-                        diameter: barrelWidth * 0.2,
-                        tessellation: 8
-                    }, scene);
                     const angle = (i * Math.PI * 2) / 4;
-                    discharger.position = new Vector3(
+                    CannonDetailsGenerator.createTeslaDischarger(
+                        scene, barrel,
+                        new Vector3(
                         Math.cos(angle) * barrelWidth * 0.7,
                         Math.sin(angle) * barrelWidth * 0.5,
                         barrelLength * 0.2
+                        ),
+                        barrelWidth * 0.4, barrelWidth * 0.2,
+                        barrel.material as StandardMaterial,
+                        "preview"
                     );
-                    discharger.parent = barrel;
-                    discharger.material = barrel.material;
                 }
                 
-                const teslaGen = MeshBuilder.CreateSphere("previewTeslaGen", {
-                    diameter: barrelWidth * 0.6,
-                    segments: 16
-                }, scene);
-                teslaGen.position = new Vector3(0, 0, -barrelLength * 0.35);
-                teslaGen.parent = barrel;
-                const genMat = new StandardMaterial("previewTeslaGenMat", scene);
-                genMat.diffuseColor = new Color3(0, 1, 1);
-                genMat.emissiveColor = new Color3(0, 0.7, 0.9);
-                genMat.disableLighting = true;
-                teslaGen.material = genMat;
+                CannonDetailsGenerator.createTeslaGenerator(
+                    scene, barrel,
+                    new Vector3(0, 0, -barrelLength * 0.35),
+                    barrelWidth * 0.6,
+                    "preview"
+                );
                 break;
             case "rocket":
                 // Rocket - ЭКСПЕРИМЕНТАЛЬНЫЙ ДИЗАЙН (синхронизировано с TankController)
@@ -3191,60 +3249,51 @@ export class Garage {
                     depth: barrelLength * 1.1 
                 }, scene);
                 
-                const tube = MeshBuilder.CreateCylinder("previewTube", {
-                    height: barrelLength * 1.0,
-                    diameter: barrelWidth * 1.5,
-                    tessellation: 12
-                }, scene);
-                tube.position = new Vector3(0, 0, 0);
-                tube.parent = barrel;
-                const tubeMat = new StandardMaterial("previewRocketTubeMat", scene);
-                tubeMat.diffuseColor = cannonColor.scale(0.8);
-                tube.material = tubeMat;
+                CannonDetailsGenerator.createRocketTube(
+                    scene, barrel,
+                    new Vector3(0, 0, 0),
+                    barrelLength * 1.0, barrelWidth * 1.5,
+                    cannonColor,
+                    "preview"
+                );
                 
+                const rocketTubeMat = MaterialFactory.createBasicMaterial(scene, cannonColor.scale(0.8), "previewRocketTube");
                 for (let i = 0; i < 6; i++) {
-                    const guide = MeshBuilder.CreateBox(`previewGuide${i}`, {
-                        width: barrelWidth * 0.12,
-                        height: barrelLength * 0.9,
-                        depth: barrelWidth * 0.12
-                    }, scene);
                     const angle = (i * Math.PI * 2) / 6;
-                    guide.position = new Vector3(
+                    CannonDetailsGenerator.createGuide(
+                        scene, barrel,
+                        new Vector3(
                         Math.cos(angle) * barrelWidth * 0.7,
                         Math.sin(angle) * barrelWidth * 0.7,
                         0
+                        ),
+                        barrelWidth * 0.12, barrelLength * 0.9, barrelWidth * 0.12,
+                        rocketTubeMat,
+                        "preview"
                     );
-                    guide.parent = barrel;
-                    guide.material = tubeMat;
                 }
                 
                 for (let i = 0; i < 4; i++) {
-                    const fin = MeshBuilder.CreateBox(`previewRocketFin${i}`, {
-                        width: barrelWidth * 0.15,
-                        height: barrelWidth * 0.3,
-                        depth: barrelWidth * 0.1
-                    }, scene);
                     const angle = (i * Math.PI * 2) / 4;
-                    fin.position = new Vector3(
+                    CannonDetailsGenerator.createRocketFin(
+                        scene, barrel,
+                        new Vector3(
                         Math.cos(angle) * barrelWidth * 0.8,
                         Math.sin(angle) * barrelWidth * 0.8,
                         barrelLength * 0.45
+                        ),
+                        barrelWidth * 0.15, barrelWidth * 0.3, barrelWidth * 0.1,
+                        rocketTubeMat,
+                        "preview"
                     );
-                    fin.parent = barrel;
-                    fin.material = tubeMat;
                 }
                 
-                const guidance = MeshBuilder.CreateBox("previewRocketGuidance", {
-                    width: barrelWidth * 0.5,
-                    height: barrelWidth * 0.3,
-                    depth: barrelWidth * 0.5
-                }, scene);
-                guidance.position = new Vector3(0, barrelWidth * 0.7, -barrelLength * 0.2);
-                guidance.parent = barrel;
-                const guidanceMat = new StandardMaterial("previewRocketGuidanceMat", scene);
-                guidanceMat.diffuseColor = new Color3(0.2, 0.8, 0.2);
-                guidanceMat.emissiveColor = new Color3(0.1, 0.4, 0.1);
-                guidance.material = guidanceMat;
+                CannonDetailsGenerator.createRocketGuidance(
+                    scene, barrel,
+                    new Vector3(0, barrelWidth * 0.7, -barrelLength * 0.2),
+                    barrelWidth * 0.5, barrelWidth * 0.3, barrelWidth * 0.5,
+                    "preview"
+                );
                 break;
             case "shotgun":
                 // Shotgun - ОГРОМНАЯ, МНОЖЕСТВЕННЫЕ СТВОЛЫ - УНИКАЛЬНЫЙ ДИЗАЙН
@@ -3256,46 +3305,41 @@ export class Garage {
                 barrel.rotation.x = Math.PI / 2;
                 
                 for (let i = 0; i < 10; i++) {
-                    const pelletBarrel = MeshBuilder.CreateCylinder(`previewPelletBarrel${i}`, {
-                        height: barrelLength * 0.7,
-                        diameter: barrelWidth * 0.18,
-                        tessellation: 8
-                    }, scene);
                     const angle = (i * Math.PI * 2) / 10;
-                    pelletBarrel.position = new Vector3(
+                    CannonDetailsGenerator.createPelletBarrel(
+                        scene, barrel,
+                        new Vector3(
                         Math.cos(angle) * barrelWidth * 0.6,
                         Math.sin(angle) * barrelWidth * 0.6,
                         0
+                        ),
+                        barrelLength * 0.7, barrelWidth * 0.18,
+                        cannonColor,
+                        "preview"
                     );
-                    pelletBarrel.parent = barrel;
-                    const barrelMat = new StandardMaterial(`previewShotgunBarrelMat${i}`, scene);
-                    barrelMat.diffuseColor = cannonColor.scale(0.9);
-                    pelletBarrel.material = barrelMat;
                 }
                 
-                const centerBarrel = MeshBuilder.CreateCylinder("previewShotgunCenter", {
-                    height: barrelLength * 0.75,
-                    diameter: barrelWidth * 0.25,
-                    tessellation: 10
-                }, scene);
-                centerBarrel.position = new Vector3(0, 0, 0);
-                centerBarrel.parent = barrel;
-                centerBarrel.material = barrel.material;
+                CannonDetailsGenerator.createCenterBarrel(
+                    scene, barrel,
+                    new Vector3(0, 0, 0),
+                    barrelLength * 0.75, barrelWidth * 0.25,
+                    barrel.material as StandardMaterial,
+                    "preview"
+                );
                 
                 for (let i = 0; i < 5; i++) {
-                    const reinforcement = MeshBuilder.CreateBox(`previewShotgunReinforcement${i}`, {
-                        width: barrelWidth * 0.1,
-                        height: barrelLength * 0.5,
-                        depth: barrelWidth * 0.1
-                    }, scene);
                     const angle = (i * Math.PI * 2) / 5 + Math.PI / 10;
-                    reinforcement.position = new Vector3(
+                    CannonDetailsGenerator.createShotgunReinforcement(
+                        scene, barrel,
+                        new Vector3(
                         Math.cos(angle) * barrelWidth * 0.8,
                         Math.sin(angle) * barrelWidth * 0.8,
                         barrelLength * 0.1
+                        ),
+                        barrelWidth * 0.1, barrelLength * 0.5, barrelWidth * 0.1,
+                        barrel.material as StandardMaterial,
+                        "preview"
                     );
-                    reinforcement.parent = barrel;
-                    reinforcement.material = barrel.material;
                 }
                 break;
             case "standard":
@@ -3306,12 +3350,13 @@ export class Garage {
                     tessellation: 12
                 }, scene);
                 barrel.rotation.x = Math.PI / 2;
-                const standardBreech = MeshBuilder.CreateBox("previewStandardBreech", { width: barrelWidth * 1.3, height: barrelWidth * 1.3, depth: barrelWidth * 0.8 }, scene);
-                standardBreech.position = new Vector3(0, 0, -barrelLength * 0.4);
-                standardBreech.parent = barrel;
-                const standardBreechMat = new StandardMaterial("previewStandardBreechMat", scene);
-                standardBreechMat.diffuseColor = cannonColor.scale(0.7);
-                standardBreech.material = standardBreechMat;
+                CannonDetailsGenerator.createBreech(
+                    scene, barrel,
+                    new Vector3(0, 0, -barrelLength * 0.4),
+                    barrelWidth * 1.3, barrelWidth * 1.3, barrelWidth * 0.8,
+                    cannonColor.scale(0.7),
+                    "preview"
+                );
                 break;
             default:
                 barrel = MeshBuilder.CreateBox("previewBarrel", { width: barrelWidth, height: barrelWidth, depth: barrelLength }, scene);
@@ -3402,9 +3447,10 @@ export class Garage {
                 <div class="garage-tabs">
                     <div class="garage-tab ${this.currentCategory === 'chassis' ? 'active' : ''}" data-cat="chassis">[1] CHASSIS</div>
                     <div class="garage-tab ${this.currentCategory === 'cannons' ? 'active' : ''}" data-cat="cannons">[2] CANNONS</div>
-                    <div class="garage-tab ${this.currentCategory === 'modules' ? 'active' : ''}" data-cat="modules">[3] MODULES</div>
-                    <div class="garage-tab ${this.currentCategory === 'supplies' ? 'active' : ''}" data-cat="supplies">[4] SUPPLIES</div>
-                    <div class="garage-tab ${this.currentCategory === 'shop' ? 'active' : ''}" data-cat="shop">[5] SHOP</div>
+                    <div class="garage-tab ${this.currentCategory === 'tracks' ? 'active' : ''}" data-cat="tracks">[3] TRACKS</div>
+                    <div class="garage-tab ${this.currentCategory === 'modules' ? 'active' : ''}" data-cat="modules">[4] MODULES</div>
+                    <div class="garage-tab ${this.currentCategory === 'supplies' ? 'active' : ''}" data-cat="supplies">[5] SUPPLIES</div>
+                    <div class="garage-tab ${this.currentCategory === 'shop' ? 'active' : ''}" data-cat="shop">[6] SHOP</div>
                 </div>
                 <div class="garage-content">
                     <div class="garage-left">
@@ -3426,7 +3472,8 @@ export class Garage {
                             <div class="garage-preview-title">[ CURRENT LOADOUT ]</div>
                             <div class="garage-preview-info">
                                 CHASSIS: ${getChassisById(this.currentChassisId).name}<br>
-                                CANNON: ${getCannonById(this.currentCannonId).name}
+                                CANNON: ${getCannonById(this.currentCannonId).name}<br>
+                                TRACKS: ${getTrackById(this.currentTrackId).name}
                             </div>
                         </div>
                         <div class="garage-details" id="garage-details">
@@ -3435,7 +3482,7 @@ export class Garage {
                     </div>
                 </div>
                 <div class="garage-footer">
-                    [↑↓] Navigate | [Enter] Select | [1-5] Categories | [ESC] Close
+                    [↑↓] Navigate | [Enter] Select | [1-6] Categories | [ESC] Close
                 </div>
             </div>
         `;
@@ -3512,6 +3559,7 @@ export class Garage {
         switch (this.currentCategory) {
             case "chassis": return [...this.chassisParts];
             case "cannons": return [...this.cannonParts];
+            case "tracks": return [...this.trackParts];
             case "modules": return [...this.moduleParts, ...this.upgrades.filter(u => u.level < u.maxLevel)];
             case "supplies": return [...this.supplyParts];
             case "shop": return [...this.shopItems];
@@ -3574,7 +3622,8 @@ export class Garage {
             const owned = isUpgrade ? true : (item as TankPart).unlocked;
             const equipped = !isUpgrade && (
                 ((item as TankPart).type === 'chassis' && item.id === this.currentChassisId) ||
-                ((item as TankPart).type === 'barrel' && item.id === this.currentCannonId)
+                ((item as TankPart).type === 'barrel' && item.id === this.currentCannonId) ||
+                ((item as TankPart).type === 'module' && item.id === this.currentTrackId)
             );
             const selected = i === this.selectedItemIndex;
             
@@ -3636,8 +3685,10 @@ export class Garage {
             const part = item as TankPart;
             let chassisName = getChassisById(this.currentChassisId).name;
             let cannonName = getCannonById(this.currentCannonId).name;
+            let trackName = getTrackById(this.currentTrackId).name;
             let previewChassisId = this.currentChassisId;
             let previewCannonId = this.currentCannonId;
+            let previewTrackId = this.currentTrackId;
             
             if (part.type === 'chassis') {
                 chassisName = part.name;
@@ -3645,17 +3696,23 @@ export class Garage {
             } else if (part.type === 'barrel') {
                 cannonName = part.name;
                 previewCannonId = part.id;
+            } else if (part.type === 'module' && this.trackParts.find(t => t.id === part.id)) {
+                trackName = getTrackById(part.id).name;
+                previewTrackId = part.id;
             }
-            
             previewInfo.innerHTML = `
                 <div style="color: #0f0;">CHASSIS: ${chassisName}</div>
                 <div style="color: #0aa; margin-top: 5px;">CANNON: ${cannonName}</div>
-                ${part.type === 'chassis' || part.type === 'barrel' ? 
+                <div style="color: #ff0; margin-top: 5px;">TRACKS: ${trackName}</div>
+                ${part.type === 'chassis' || part.type === 'barrel' || (part.type === 'module' && this.trackParts.find(t => t.id === part.id)) ? 
                     '<div style="color: #ff0; font-size: 10px; margin-top: 8px;">[ PREVIEW ]</div>' : ''}
             `;
             
-            // Update 3D preview if chassis or barrel changed (only if scene is initialized)
-            if ((part.type === 'chassis' || part.type === 'barrel') && this.previewScene) {
+            // Update 3D preview if chassis, barrel or tracks changed (only if scene is initialized)
+            if ((part.type === 'chassis' || part.type === 'barrel' || (part.type === 'module' && this.trackParts.find(t => t.id === part.id))) && this.previewScene) {
+                if (part.type === 'module' && this.trackParts.find(t => t.id === part.id)) {
+                    this.currentTrackId = previewTrackId;
+                }
                 this.renderTankPreview(previewChassisId, previewCannonId);
             }
         }
@@ -3694,7 +3751,8 @@ export class Garage {
         const canAfford = this.currencyManager.getCurrency() >= item.cost;
         const equipped = !isUpgrade && (
             ((item as TankPart).type === 'chassis' && item.id === this.currentChassisId) ||
-            ((item as TankPart).type === 'barrel' && item.id === this.currentCannonId)
+            ((item as TankPart).type === 'barrel' && item.id === this.currentCannonId) ||
+            ((item as TankPart).type === 'module' && this.trackParts.find(t => t.id === item.id) && item.id === this.currentTrackId)
         );
         
         let btnText = '';
@@ -3846,6 +3904,10 @@ export class Garage {
             this.currentCannonId = part.id;
             localStorage.setItem("selectedCannon", part.id);
             if (this.tankController?.setCannonType) this.tankController.setCannonType(part.id);
+        } else if (part.type === 'module' && this.trackParts.find(t => t.id === part.id)) {
+            this.currentTrackId = part.id;
+            localStorage.setItem("selectedTrack", part.id);
+            if (this.tankController?.setTrackType) this.tankController.setTrackType(part.id);
         }
         
         this.saveProgress();
@@ -3882,8 +3944,8 @@ export class Garage {
             
             if (e.code === 'Escape') { e.preventDefault(); this.close(); return; }
             
-            const cats: CategoryType[] = ['chassis', 'cannons', 'modules', 'supplies', 'shop'];
-            for (let i = 1; i <= 5; i++) {
+            const cats: CategoryType[] = ['chassis', 'cannons', 'tracks', 'modules', 'supplies', 'shop'];
+            for (let i = 1; i <= 6; i++) {
                 if (e.code === `Digit${i}` || e.code === `Numpad${i}`) {
                     e.preventDefault();
                     this.switchCategory(cats[i - 1]);

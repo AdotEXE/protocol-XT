@@ -9,6 +9,15 @@ export class MaterialFactory {
     private static materialCache: Map<string, StandardMaterial> = new Map();
 
     /**
+     * Базовый материал с заданным цветом
+     */
+    static createBasicMaterial(scene: Scene, color: Color3, name: string = "basicMat"): StandardMaterial {
+        const mat = new StandardMaterial(name, scene);
+        mat.diffuseColor = color;
+        return mat;
+    }
+
+    /**
      * Базовый материал для брони (темнее основного цвета)
      */
     static createArmorMaterial(scene: Scene, baseColor: Color3, prefix: string = "preview"): StandardMaterial {

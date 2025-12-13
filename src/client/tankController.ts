@@ -18,6 +18,7 @@ import { SoundManager } from "./soundManager";
 import { EffectsManager } from "./effects";
 import type { EnemyManager } from "./enemy";
 import { getChassisById, getCannonById, type ChassisType, type CannonType } from "./tankTypes";
+import { getTrackById, type TrackType } from "./trackTypes";
 import { 
     TankHealthModule, 
     TankMovementModule, 
@@ -150,6 +151,7 @@ export class TankController {
     // Tank type configuration
     chassisType: ChassisType;
     cannonType: CannonType;
+    trackType: TrackType;
     
     // Config (будут переопределены типом корпуса)
     mass = 2100;
@@ -326,12 +328,14 @@ export class TankController {
         this.tracerMat.disableLighting = true;
         this.tracerMat.freeze();
         
-        // Загружаем типы корпуса и пушки из localStorage или используем по умолчанию
+        // Загружаем типы корпуса, пушки и гусениц из localStorage или используем по умолчанию
         const savedChassisId = localStorage.getItem("selectedChassis") || "medium";
         const savedCannonId = localStorage.getItem("selectedCannon") || "standard";
+        const savedTrackId = localStorage.getItem("selectedTrack") || "standard";
         
         this.chassisType = getChassisById(savedChassisId);
         this.cannonType = getCannonById(savedCannonId);
+        this.trackType = getTrackById(savedTrackId);
         
         // Применяем параметры корпуса
         this.mass = this.chassisType.mass;
@@ -5967,31 +5971,54 @@ export class TankController {
     }
 
     createVisualWheels() {
-        // === SIMPLIFIED TRACKS (optimization!) ===
+        // === TRACKS WITH SELECTED TYPE ===
+        const trackColor = Color3.FromHexString(this.trackType.color);
         const trackMat = new StandardMaterial("trackMat", this.scene);
-        trackMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
+        trackMat.diffuseColor = trackColor;
         trackMat.specularColor = Color3.Black();
         trackMat.freeze();
         
-        // Left track - just 1 box
+        // Используем размеры из выбранного типа гусениц
+        const trackWidth = this.trackType.width;
+        const trackHeight = this.trackType.height;
+        const trackDepth = this.trackType.depth;
+        
+        // Позиционирование относительно корпуса
+        const w = this.chassisType.width;
+        const h = this.chassisType.height;
+        
+        // Left track
         this.leftTrack = MeshBuilder.CreateBox("leftTrack", {
-            width: 0.5,
-            height: 0.6,
-            depth: 3.8
+            width: trackWidth,
+            height: trackHeight,
+            depth: trackDepth
         }, this.scene);
-        this.leftTrack.position = new Vector3(-1.3, -0.15, 0);
+        this.leftTrack.position = new Vector3(-w * 0.65, -h * 0.2, 0);
         this.leftTrack.parent = this.chassis;
         this.leftTrack.material = trackMat;
         
-        // Right track - just 1 box
+        // Right track
         this.rightTrack = MeshBuilder.CreateBox("rightTrack", {
-            width: 0.5,
-            height: 0.6,
-            depth: 3.8
+            width: trackWidth,
+            height: trackHeight,
+            depth: trackDepth
         }, this.scene);
-        this.rightTrack.position = new Vector3(1.3, -0.15, 0);
+        this.rightTrack.position = new Vector3(w * 0.65, -h * 0.2, 0);
         this.rightTrack.parent = this.chassis;
         this.rightTrack.material = trackMat;
+        
+        // Применяем бонусы от типа гусениц
+        if (this.trackType.stats.speedBonus) {
+            this.moveSpeed *= (1 + this.trackType.stats.speedBonus);
+        }
+        if (this.trackType.stats.durabilityBonus) {
+            this.maxHealth *= (1 + this.trackType.stats.durabilityBonus);
+            this.currentHealth = this.maxHealth;
+        }
+        if (this.trackType.stats.armorBonus) {
+            this.maxHealth *= (1 + this.trackType.stats.armorBonus);
+            this.currentHealth = this.maxHealth;
+        }
     }
     
 
@@ -9772,6 +9799,38 @@ export class TankController {
                     void this.module0ChargePower;
                 }
             }
+        }
+    }
+    
+    // Methods for changing tank parts from garage
+    setChassisType(chassisId: string): void {
+        this.chassisType = getChassisById(chassisId);
+        this.mass = this.chassisType.mass;
+        this.moveSpeed = this.chassisType.moveSpeed;
+        this.turnSpeed = this.chassisType.turnSpeed;
+        this.acceleration = this.chassisType.acceleration;
+        this.maxHealth = this.chassisType.maxHealth;
+        this.currentHealth = Math.min(this.currentHealth, this.maxHealth);
+        // Recreate chassis visuals would require full respawn, so we just update stats
+    }
+    
+    setCannonType(cannonId: string): void {
+        this.cannonType = getCannonById(cannonId);
+        this.cooldown = this.cannonType.cooldown;
+        this.baseCooldown = this.cannonType.cooldown;
+        this.damage = this.cannonType.damage;
+        this.projectileSpeed = this.cannonType.projectileSpeed;
+        this.projectileSize = this.cannonType.projectileSize;
+        // Recreate cannon visuals would require full respawn, so we just update stats
+    }
+    
+    setTrackType(trackId: string): void {
+        this.trackType = getTrackById(trackId);
+        // Recreate tracks if they exist
+        if (this.leftTrack && this.rightTrack) {
+            this.leftTrack.dispose();
+            this.rightTrack.dispose();
+            this.createVisualWheels();
         }
     }
 }
