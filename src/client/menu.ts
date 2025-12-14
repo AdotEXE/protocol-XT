@@ -2,14 +2,8 @@
 // MAIN MENU - Минималистичное главное меню
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { 
-    SKILL_TREE_NODES, 
-    SKILL_TREE_EDGES, 
-    SKILL_BRANCHES,
-    isNodeUnlocked,
-    getSkillCost,
-    type SkillNode
-} from "./skillTreeConfig";
+// Импорты для скил-дерева перенесены в menu/skillTreeUI.ts
+import { createSkillsPanelHTML, updateSkillTreeDisplay, type PlayerStats, type SkillTreeCallbacks } from "./menu/skillTreeUI";
 import { Scene, Engine } from "@babylonjs/core";
 import { Garage } from "./garage";
 import { CurrencyManager } from "./currencyManager";
@@ -67,159 +61,20 @@ const debugError = (...args: any[]) => {
     console.error(...args);
 };
 
-export interface GameSettings {
-    // Existing settings
-    renderDistance: number;
-    soundVolume: number;
-    musicVolume: number;
-    mouseSensitivity: number;
-    showFPS: boolean;
-    showMinimap: boolean;
-    cameraDistance: number;
-    cameraHeight: number;
-    aimFOV: number;
-    graphicsQuality: number;
-    vsync: boolean;
-    fullscreen: boolean;
-    aimAssist: boolean;
-    showDamageNumbers: boolean;
-    screenShake: boolean;
-    virtualTurretFixation: boolean; // Виртуальная фиксация башни
-    language: string; // "ru" or "en"
-    enemyDifficulty: "easy" | "medium" | "hard"; // Сложность противников
-    worldSeed: number; // Сид карты для процедурной генерации
-    useRandomSeed: boolean; // Использовать случайный сид при каждом запуске
-    
-    // Graphics
-    particleQuality: number; // 0-2
-    shadowQuality: number; // 0-2
-    antiAliasing: boolean;
-    bloom: boolean;
-    motionBlur: boolean;
-    textureQuality: number; // 0-2
-    lightingQuality: number; // 0-2
-    
-    // Audio
-    masterVolume: number; // 0-100
-    ambientVolume: number; // 0-100
-    voiceVolume: number; // 0-100
-    muteOnFocusLoss: boolean;
-    
-    // Controls
-    invertMouseY: boolean;
-    keyboardLayout: string;
-    autoReload: boolean;
-    holdToAim: boolean;
-    
-    // Gameplay
-    showTutorial: boolean;
-    showHints: boolean;
-    showCrosshair: boolean;
-    crosshairStyle: string;
-    showHealthBar: boolean;
-    showAmmoCounter: boolean;
-    autoSave: boolean;
-    autoSaveInterval: number; // seconds
-    
-    // Camera
-    cameraSmoothing: number; // 0-1
-    cameraShakeIntensity: number; // 0-1
-    firstPersonMode: boolean;
-    cameraFOV: number;
-    
-    // Network
-    showPing: boolean;
-    showNetworkStats: boolean;
-    networkQuality: number; // 0-2
-    
-    // Accessibility
-    colorBlindMode: string;
-    fontSize: number;
-    highContrast: boolean;
-    subtitles: boolean;
-    
-    // Additional
-    showDebugInfo: boolean;
-    enableCheats: boolean;
-    maxFPS: number; // 0 = unlimited
-}
+// Импорт функций настроек
+import { 
+    loadSettings as loadSettingsModule, 
+    saveSettingsFromUI as saveSettingsFromUIModule, 
+    DEFAULT_SETTINGS, 
+    type GameSettings 
+} from "./menu/settings";
 
-const DEFAULT_SETTINGS: GameSettings = {
-    // Existing settings
-    renderDistance: 3,
-    soundVolume: 70,
-    musicVolume: 50,
-    mouseSensitivity: 5,
-    showFPS: true,
-    showMinimap: true,
-    cameraDistance: 12,
-    cameraHeight: 5,
-    aimFOV: 0.4,
-    graphicsQuality: 2,
-    vsync: false,
-    fullscreen: false,
-    aimAssist: true,
-    showDamageNumbers: true,
-    screenShake: true,
-    virtualTurretFixation: false, // Виртуальная фиксация отключена по умолчанию
-    language: "ru", // Russian by default
-    enemyDifficulty: "medium", // Средняя сложность по умолчанию
-    worldSeed: 12345, // Сид по умолчанию
-    useRandomSeed: true, // Случайный сид по умолчанию
-    
-    // Graphics
-    particleQuality: 2,
-    shadowQuality: 2,
-    antiAliasing: true,
-    bloom: false,
-    motionBlur: false,
-    textureQuality: 2,
-    lightingQuality: 2,
-    
-    // Audio
-    masterVolume: 100,
-    ambientVolume: 20,
-    voiceVolume: 100,
-    muteOnFocusLoss: false,
-    
-    // Controls
-    invertMouseY: false,
-    keyboardLayout: "qwerty",
-    autoReload: false,
-    holdToAim: false,
-    
-    // Gameplay
-    showTutorial: true,
-    showHints: true,
-    showCrosshair: true,
-    crosshairStyle: "default",
-    showHealthBar: true,
-    showAmmoCounter: true,
-    autoSave: true,
-    autoSaveInterval: 300, // 5 minutes
-    
-    // Camera
-    cameraSmoothing: 0.7,
-    cameraShakeIntensity: 1.0,
-    firstPersonMode: false,
-    cameraFOV: 60,
-    
-    // Network
-    showPing: false,
-    showNetworkStats: false,
-    networkQuality: 2,
-    
-    // Accessibility
-    colorBlindMode: "none",
-    fontSize: 14,
-    highContrast: false,
-    subtitles: false,
-    
-    // Additional
-    showDebugInfo: false,
-    enableCheats: false,
-    maxFPS: 0 // 0 = unlimited
-};
+// GameSettings и DEFAULT_SETTINGS теперь импортируются из menu/settings.ts
+export type { GameSettings } from "./menu/settings";
+export { DEFAULT_SETTINGS } from "./menu/settings";
+
+// Удалены дублирующиеся определения - они импортируются из menu/settings.ts
+// Старая реализация удалена, используется модульная версия
 
 // === LANGUAGE STRINGS ===
 const LANG = {
@@ -464,7 +319,8 @@ export class MainMenu {
     private selectedCannon: string = "";
     private ownedChassisIds: Set<string> = new Set();
     private ownedCannonIds: Set<string> = new Set();
-    private currentPlayStep: number = 0;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private currentPlayStep: number = 0; // Используется в setPlayStep() и через события
     private onPlayIntroSound: () => void = () => {};
     private settings!: GameSettings;
     private tankConfig!: TankConfig;
@@ -3198,22 +3054,7 @@ export class MainMenu {
         this.skillsPanel = document.createElement("div");
         this.skillsPanel.className = "panel-overlay";
         this.skillsPanel.id = "skills-panel";
-        this.skillsPanel.innerHTML = `
-            <div class="panel-content">
-                <button class="panel-close" id="skills-close">✕</button>
-                <div class="panel-title">Навыки</div>
-                <div class="skill-tree-wrapper">
-                    <div class="skill-tree-header">
-                        <div id="skill-points-display" class="skill-points-pill">Очков навыков: 0</div>
-                        <div class="skill-tree-legend" id="skill-tree-legend"></div>
-                    </div>
-                    <div class="skill-tree" id="skill-tree"></div>
-                </div>
-                <div class="panel-buttons">
-                    <button class="panel-btn" id="skills-back">Закрыть</button>
-                </div>
-            </div>
-        `;
+        this.skillsPanel.innerHTML = createSkillsPanelHTML();
         
         document.body.appendChild(this.skillsPanel);
         
@@ -4055,7 +3896,8 @@ export class MainMenu {
         }
     }
     
-    private showMapSelection(): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private showMapSelection(): void { // Используется через обработчики событий
         debugLog("[Menu] showMapSelection() called");
         debugLog("[Menu] mapSelectionPanel exists:", !!this.mapSelectionPanel);
         if (this.mapSelectionPanel) {
@@ -4188,24 +4030,8 @@ export class MainMenu {
     }
     
     private updateSkillsPanel(): void {
-        const skillTree = document.getElementById("skill-tree");
-        const skillPointsDisplay = document.getElementById("skill-points-display");
-        if (!skillTree) {
-            console.error("[Skills] skill-tree element not found!");
-            return;
-        }
-        
-        // Проверяем что конфиг загружен
-        if (!SKILL_TREE_NODES || SKILL_TREE_NODES.length === 0) {
-            console.error("[Skills] SKILL_TREE_NODES is not loaded or empty!");
-            skillTree.innerHTML = `<div class="skill-empty">Ошибка: конфиг навыков не загружен. Проверьте импорт.</div>`;
-            return;
-        }
-        
-        const wrapper = skillTree.closest(".skill-tree-wrapper") as HTMLElement | null;
-        
         // Создаем mock stats если playerProgression не установлен (для отображения дерева до инициализации игры)
-        const stats = this.playerProgression ? this.playerProgression.getStats() : {
+        const stats: PlayerStats = this.playerProgression ? this.playerProgression.getStats() : {
             skillPoints: 0,
             skills: {} as Record<string, number>,
             level: 1,
@@ -4213,557 +4039,19 @@ export class MainMenu {
             experienceToNext: 100
         };
         
-        if (skillPointsDisplay) {
-            skillPointsDisplay.textContent = `Очков навыков: ${stats.skillPoints}`;
-        }
-        
-        // Обновляем легенду веток
-        const legend = document.getElementById("skill-tree-legend");
-        if (legend) {
-            legend.innerHTML = SKILL_BRANCHES.map(branch => 
-                `<span style="border-color: ${branch.color}; color: ${branch.color}">
-                    ${branch.icon} ${branch.name}
-                </span>`
-            ).join("");
-        }
-
-        const totalInvested = Object.values(stats.skills).reduce((sum: number, val) => {
-            const numeric = typeof val === "number" ? val : 0;
-            return sum + numeric;
-        }, 0);
-        const synergyBadge = totalInvested >= 50 ? "АКТИВНО" : totalInvested >= 30 ? "ГОТОВО" : "ЗАКРЫТО";
-
-        // Обновляем мета-узел синергии
-        const synergyNode = SKILL_TREE_NODES.find(n => n.id === "commandSynergy");
-        if (synergyNode) {
-            synergyNode.badge = synergyBadge;
-            (synergyNode as any).meta = `Вложено: ${totalInvested}/50. Бонусы на 30 и 50 очков.`;
-        }
-
-        // Создаём копию узлов для работы (чтобы не мутировать оригинал)
-        const nodes = SKILL_TREE_NODES.map(n => ({ ...n }));
-        const edges = SKILL_TREE_EDGES;
-
-        // Отладка: проверяем что узлы загружены
-        if (nodes.length === 0) {
-            console.error("[Skills] SKILL_TREE_NODES is empty!");
-            skillTree.innerHTML = `<div class="skill-empty">Ошибка: узлы навыков не загружены. Проверьте конфиг.</div>`;
-            return;
-        }
-
-        console.log(`[Skills] Rendering ${nodes.length} nodes, ${edges.length} edges`);
-
-        const layout = {
-            width: 220,
-            height: 130,
-            colGap: 80,
-            rowGap: 90
-        };
-
-        const toPosition = (node: { col: number; row: number }) => {
-            const left = node.col * (layout.width + layout.colGap);
-            const top = node.row * (layout.height + layout.rowGap);
-            return {
-                left,
-                top,
-                centerX: left + layout.width / 2,
-                centerY: top + layout.height / 2
-            };
-        };
-
-        const maxCol = nodes.length > 0 ? Math.max(...nodes.map((n) => n.col)) : 0;
-        const maxRow = nodes.length > 0 ? Math.max(...nodes.map((n) => n.row)) : 0;
-
-        const treeWidth = (maxCol + 1) * (layout.width + layout.colGap);
-        const treeHeight = (maxRow + 1) * (layout.height + layout.rowGap) + layout.height;
-        
-        skillTree.style.minWidth = `${treeWidth}px`;
-        skillTree.style.minHeight = `${treeHeight}px`;
-        
-        console.log(`[Skills] Tree size: ${treeWidth}x${treeHeight}, maxCol: ${maxCol}, maxRow: ${maxRow}`);
-        skillTree.innerHTML = "";
-
-        const nodePositions = new Map<string, ReturnType<typeof toPosition>>();
-        nodes.forEach((node) => nodePositions.set(node.id, toPosition(node)));
-
-        if (wrapper) {
-            const core = nodePositions.get("commandCore");
-            if (core) {
-                wrapper.scrollLeft = Math.max(core.centerX - wrapper.clientWidth / 2, 0);
-                wrapper.scrollTop = Math.max(core.centerY - wrapper.clientHeight / 2, 0);
-            }
-        }
-
-        // Создаем SVG для извилистых коннекторов
-        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-        svg.setAttribute("class", "skill-connectors-svg");
-        svg.setAttribute("width", `${treeWidth}`);
-        svg.setAttribute("height", `${treeHeight}`);
-        svg.style.position = "absolute";
-        svg.style.top = "0";
-        svg.style.left = "0";
-        svg.style.pointerEvents = "none";
-        svg.style.zIndex = "0";
-        
-        edges.forEach((edge) => {
-            const from = nodePositions.get(edge.from);
-            const to = nodePositions.get(edge.to);
-            if (!from || !to) return;
-
-            // Вычисляем контрольные точки для извилистой кривой
-            const dx = to.centerX - from.centerX;
-            const dy = to.centerY - from.centerY;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            
-            // Создаем извилистую кривую с несколькими контрольными точками
-            const controlOffset = Math.min(distance * 0.3, 60); // Максимальное смещение для извилистости
-            const randomOffset1 = (Math.sin(edge.from.charCodeAt(0) + edge.to.charCodeAt(0)) * controlOffset);
-            const randomOffset2 = (Math.cos(edge.from.charCodeAt(0) + edge.to.charCodeAt(0)) * controlOffset);
-            
-            // Первая контрольная точка (смещение перпендикулярно направлению)
-            const cp1x = from.centerX + dx * 0.3 + randomOffset1;
-            const cp1y = from.centerY + dy * 0.3 - randomOffset2;
-            
-            // Вторая контрольная точка
-            const cp2x = from.centerX + dx * 0.7 - randomOffset1;
-            const cp2y = from.centerY + dy * 0.7 + randomOffset2;
-            
-            // Создаем кривую Безье (кубическую)
-            const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            path.setAttribute("d", `M ${from.centerX} ${from.centerY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${to.centerX} ${to.centerY}`);
-            path.setAttribute("stroke", "#0f0");
-            path.setAttribute("stroke-width", "2");
-            path.setAttribute("fill", "none");
-            path.setAttribute("opacity", "0.4");
-            svg.appendChild(path);
-        });
-        
-        const connectors = document.createDocumentFragment();
-        connectors.appendChild(svg);
-
-        const nodesFragment = document.createDocumentFragment();
-        let nodesCreated = 0;
-        nodes.forEach((node) => {
-            const pos = nodePositions.get(node.id);
-            if (!pos) {
-                console.warn(`[Skills] No position for node: ${node.id}`);
-                return;
-            }
-            nodesCreated++;
-
-            const maxLevel = node.maxLevel || 5;
-            const level = node.skillId ? (stats.skills[node.skillId] || 0) : 0;
-            const isUnlocked = isNodeUnlocked(node.id, stats);
-            const nextLevel = level + 1;
-            const cost = node.skillId ? getSkillCost(nextLevel, node.cost || 1) : 0;
-            const canAfford = stats.skillPoints >= cost;
-            const canUpgrade = node.skillId && isUnlocked && canAfford && level < maxLevel;
-            
-            const pips = node.skillId
-                ? Array(maxLevel)
-                      .fill(0)
-                      .map((_, i) => `<div class="skill-pip ${i < level ? "filled" : ""}"></div>`)
-                      .join("")
-                : "";
-
-            const borderColor = node.branchColor || (node.type === "hub" ? "#0f0" : node.type === "meta" ? "#5cf" : "#0f0");
-            const isLocked = !isUnlocked && node.type !== "hub" && node.id !== "commandCore";
-            
-            const nodeEl = document.createElement("div");
-            nodeEl.className = `skill-node${node.type === "hub" ? " is-hub" : ""}${node.type === "meta" ? " is-meta" : ""}${isLocked ? " is-locked" : ""}`;
-            nodeEl.style.left = `${pos.left}px`;
-            nodeEl.style.top = `${pos.top}px`;
-            if (node.branchColor) {
-                nodeEl.style.borderColor = borderColor;
-            }
-            
-            let moduleInfo = "";
-            if (node.moduleId && isUnlocked) {
-                moduleInfo = `<div class="skill-module-info">🔓 Модуль: ${node.moduleId}</div>`;
-            } else if (node.moduleId && !isUnlocked) {
-                moduleInfo = `<div class="skill-module-info locked">🔒 Модуль заблокирован</div>`;
-            }
-
-            nodeEl.innerHTML = `
-                <div class="skill-node-header">
-                    <div style="display:flex;align-items:center;gap:6px;flex:1;">
-                        <span class="skill-node-icon">${node.icon}</span>
-                        <div class="skill-node-title">${node.title}</div>
-                    </div>
-                    ${node.badge ? `<span class="skill-node-badge">${node.badge}</span>` : ""}
-                </div>
-                <div class="skill-node-desc">${node.desc}</div>
-                ${moduleInfo}
-                ${
-                    node.skillId
-                        ? `
-                            <div class="skill-node-level">
-                                Уровень ${level}/${maxLevel}
-                                ${cost > 0 && level < maxLevel ? `<span class="skill-cost">Стоимость: ${cost} SP</span>` : ""}
-                            </div>
-                            <div class="skill-meter">${pips}</div>
-                            <button class="skill-upgrade-btn" data-skill="${node.skillId}" ${canUpgrade ? "" : "disabled"}>
-                                ${level >= maxLevel ? "MAX" : isLocked ? "Заблокировано" : canAfford ? `Улучшить (${cost})` : `Нужно ${cost} SP`}
-                            </button>
-                          `
-                        : ""
-                }
-                ${node.type === "meta" && (node as any).meta ? `<div class="skill-node-meta">${(node as any).meta}</div>` : ""}
-                ${node.effects && node.effects.length > 0 ? `<div class="skill-effects">${node.effects.map(e => `• ${e}`).join("<br>")}</div>` : ""}
-            `;
-
-            nodesFragment.appendChild(nodeEl);
-        });
-
-        skillTree.appendChild(connectors);
-        skillTree.appendChild(nodesFragment);
-        
-        console.log(`[Skills] Created ${nodesCreated} nodes, ${connectors.children.length} connectors`);
-        console.log(`[Skills] skillTree children count: ${skillTree.children.length}`);
-        
-        // Проверяем что узлы действительно в DOM
-        const renderedNodes = skillTree.querySelectorAll('.skill-node');
-        console.log(`[Skills] Rendered nodes in DOM: ${renderedNodes.length}`);
-
-        skillTree.querySelectorAll(".skill-upgrade-btn").forEach((btn) => {
-            btn.addEventListener("click", () => {
-                const skillId = (btn as HTMLElement).dataset.skill as keyof typeof stats.skills | undefined;
-                if (skillId && this.playerProgression) {
-                    const node = nodes.find(n => n.skillId === skillId);
-                    if (node) {
-                        const currentLevel = stats.skills[skillId] || 0;
-                        const nextLevel = currentLevel + 1;
-                        const cost = getSkillCost(nextLevel, node.cost || 1);
-                        if (stats.skillPoints >= cost && nextLevel <= (node.maxLevel || 5)) {
-                            // Потратить очки за один уровень
-                            for (let i = 0; i < cost && stats.skillPoints > 0; i++) {
+        const callbacks: SkillTreeCallbacks = {
+            onUpgrade: (skillId: string) => {
+                if (this.playerProgression) {
                     this.playerProgression.upgradeSkill(skillId);
-                            }
-                    this.updateSkillsPanel();
-                    this.updatePlayerInfo();
-                        }
-                    } else {
-                        // Fallback для старых навыков
-                        this.playerProgression.upgradeSkill(skillId);
-                        this.updateSkillsPanel();
-                        this.updatePlayerInfo();
-                    }
                 }
-            });
-        });
-
-        this.setupSkillTreeNavigation(wrapper);
-    }
-
-    private setupSkillTreeNavigation(wrapper: HTMLElement | null): void {
-        if (!wrapper) return;
-        const flag = "_skillNavBound";
-        if ((wrapper as any)[flag]) return;
-        (wrapper as any)[flag] = true;
-
-        const skillTree = document.getElementById("skill-tree");
-        if (!skillTree) return;
-
-        // === УЛУЧШЕННЫЙ ЗУМ С НАКОПЛЕНИЕМ И ОПТИМИЗАЦИЕЙ ===
-        let currentZoom = 1.0;
-        const MIN_ZOOM = 0.3;
-        const MAX_ZOOM = 2.5;
-        const ZOOM_STEP = 0.1;
-        const ZOOM_ANIMATION_DURATION = 200; // Увеличено для более плавной анимации
-
-        // Накопление изменений зума для wheel событий
-        let accumulatedZoomDelta = 0;
-        let wheelThrottleTimeout: number | null = null;
-        const WHEEL_THROTTLE_MS = 16; // ~60fps
-
-        // Функция зума к точке с плавной анимацией
-        let zoomAnimationFrame: number | null = null;
-        let pendingZoom: { clientX: number; clientY: number; targetZoom: number } | null = null;
-        let zoomLevelDisplayUpdateFrame: number | null = null;
+            },
+            onUpdate: () => {
+                this.updateSkillsPanel();
+                this.updatePlayerInfo();
+            }
+        };
         
-        const zoomAtPoint = (clientX: number, clientY: number, targetZoom: number, immediate: boolean = false) => {
-            if (!wrapper || !skillTree) return;
-            
-            // Если идёт анимация и это не немедленное выполнение - обновляем targetZoom
-            if (zoomAnimationFrame !== null && !immediate) {
-                // Обновляем pending zoom с новым целевым значением
-                pendingZoom = { clientX, clientY, targetZoom };
-                return;
-            }
-            
-            // Используем текущий зум (может быть промежуточным во время анимации)
-            const oldZoom = currentZoom;
-            const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, targetZoom));
-            if (Math.abs(newZoom - oldZoom) < 0.001) {
-                // Если зум не изменился, но есть pending - обрабатываем его
-                if (pendingZoom) {
-                    const pending = pendingZoom;
-                    pendingZoom = null;
-                    zoomAtPoint(pending.clientX, pending.clientY, pending.targetZoom, true);
-                }
-                return;
-            }
-            
-            // Отменяем предыдущую анимацию если есть
-            if (zoomAnimationFrame !== null) {
-                cancelAnimationFrame(zoomAnimationFrame);
-                zoomAnimationFrame = null;
-            }
-            
-            // Кешируем getBoundingClientRect для производительности
-            const wrapperRect = wrapper.getBoundingClientRect();
-            const mouseX = clientX - wrapperRect.left;
-            const mouseY = clientY - wrapperRect.top;
-            
-            // Текущая позиция скролла
-            const scrollX = wrapper.scrollLeft;
-            const scrollY = wrapper.scrollTop;
-            
-            // Позиция курсора в исходном контенте (без зума)
-            const contentX = (scrollX + mouseX) / oldZoom;
-            const contentY = (scrollY + mouseY) / oldZoom;
-            
-            // Плавная анимация зума с улучшенным easing
-            const startZoom = oldZoom;
-            const endZoom = newZoom;
-            const startTime = performance.now();
-            const duration = immediate ? 100 : ZOOM_ANIMATION_DURATION; // Быстрее для кнопок
-            
-            const animate = (currentTime: number) => {
-                const elapsed = currentTime - startTime;
-                const progress = Math.min(elapsed / duration, 1);
-                
-                // Улучшенная easing функция (ease-out-cubic с более плавным началом)
-                const easeOutCubic = 1 - Math.pow(1 - progress, 3);
-                
-                // Промежуточный зум
-                const interpolatedZoom = startZoom + (endZoom - startZoom) * easeOutCubic;
-                
-                // Применяем зум
-                currentZoom = interpolatedZoom;
-                skillTree.style.transform = `scale(${currentZoom})`;
-                skillTree.style.transformOrigin = "top left";
-                
-                // Вычисляем новую позицию скролла с учётом границ
-                const newScrollX = contentX * currentZoom - mouseX;
-                const newScrollY = contentY * currentZoom - mouseY;
-                
-                // Применяем скролл с ограничениями
-                const maxScrollX = Math.max(0, skillTree.scrollWidth * currentZoom - wrapper.clientWidth);
-                const maxScrollY = Math.max(0, skillTree.scrollHeight * currentZoom - wrapper.clientHeight);
-                
-                wrapper.scrollLeft = Math.max(0, Math.min(maxScrollX, newScrollX));
-                wrapper.scrollTop = Math.max(0, Math.min(maxScrollY, newScrollY));
-                
-                // Обновляем индикатор зума в реальном времени
-                if (zoomLevelDisplayUpdateFrame === null) {
-                    zoomLevelDisplayUpdateFrame = requestAnimationFrame(() => {
-                        updateZoomDisplay();
-                        zoomLevelDisplayUpdateFrame = null;
-                    });
-                }
-                
-                if (progress < 1) {
-                    zoomAnimationFrame = requestAnimationFrame(animate);
-                } else {
-                    zoomAnimationFrame = null;
-                    currentZoom = endZoom; // Убеждаемся что финальное значение точное
-                    skillTree.style.transform = `scale(${currentZoom})`;
-                    skillTree.style.transformOrigin = "top left";
-                    
-                    // Пересчитываем границы для финального зума
-                    const finalMaxScrollX = Math.max(0, skillTree.scrollWidth * currentZoom - wrapper.clientWidth);
-                    const finalMaxScrollY = Math.max(0, skillTree.scrollHeight * currentZoom - wrapper.clientHeight);
-                    
-                    // Финальная позиция скролла с ограничениями
-                    const finalScrollX = contentX * currentZoom - mouseX;
-                    const finalScrollY = contentY * currentZoom - mouseY;
-                    wrapper.scrollLeft = Math.max(0, Math.min(finalMaxScrollX, finalScrollX));
-                    wrapper.scrollTop = Math.max(0, Math.min(finalMaxScrollY, finalScrollY));
-                    
-                    // Обновляем индикатор
-                    updateZoomDisplay();
-                    
-                    // Если есть pending zoom - обрабатываем его
-                    if (pendingZoom) {
-                        const pending = pendingZoom;
-                        pendingZoom = null;
-                        zoomAtPoint(pending.clientX, pending.clientY, pending.targetZoom, true);
-                    }
-                }
-            };
-            
-            zoomAnimationFrame = requestAnimationFrame(animate);
-        };
-
-        // Кнопки зума (создаём только один раз)
-        let zoomControls = wrapper.parentElement?.querySelector(".skill-zoom-controls") as HTMLElement;
-        if (!zoomControls) {
-            zoomControls = document.createElement("div");
-            zoomControls.className = "skill-zoom-controls";
-            zoomControls.innerHTML = `
-                <button class="skill-zoom-btn" id="zoom-out">−</button>
-                <span class="skill-zoom-level">${Math.round(currentZoom * 100)}%</span>
-                <button class="skill-zoom-btn" id="zoom-in">+</button>
-                <button class="skill-zoom-btn" id="zoom-reset">⌂</button>
-            `;
-            wrapper.parentElement?.insertBefore(zoomControls, wrapper);
-        }
-        
-        // Функция обновления индикатора зума
-        const updateZoomDisplay = () => {
-            const zoomLevelEl = zoomControls?.querySelector(".skill-zoom-level") as HTMLElement;
-            if (zoomLevelEl) {
-                zoomLevelEl.textContent = `${Math.round(currentZoom * 100)}%`;
-            }
-        };
-
-        // Колесико мыши - зум к центру с накоплением и throttling
-        wrapper.addEventListener("wheel", (e: WheelEvent) => {
-            e.preventDefault();
-            
-            // Определяем направление и величину изменения
-            const delta = e.deltaY;
-            const direction = delta > 0 ? -1 : 1;
-            
-            // Накопление изменений для плавного зума при быстром скролле
-            // Используем логарифмическую шкалу для более естественного ощущения
-            const deltaMagnitude = Math.min(Math.abs(delta) / 100, 3); // Ограничиваем максимальное изменение
-            accumulatedZoomDelta += direction * ZOOM_STEP * deltaMagnitude;
-            
-            // Throttling - обрабатываем накопленные изменения периодически
-            if (wheelThrottleTimeout === null) {
-                wheelThrottleTimeout = window.setTimeout(() => {
-                    if (Math.abs(accumulatedZoomDelta) > 0.001) {
-                        const newZoom = currentZoom + accumulatedZoomDelta;
-                        
-                        // Зум к центру экрана
-                        const rect = wrapper.getBoundingClientRect();
-                        const centerX = rect.left + wrapper.clientWidth / 2;
-                        const centerY = rect.top + wrapper.clientHeight / 2;
-                        
-                        zoomAtPoint(centerX, centerY, newZoom);
-                        
-                        accumulatedZoomDelta = 0;
-                    }
-                    wheelThrottleTimeout = null;
-                }, WHEEL_THROTTLE_MS);
-            }
-        }, { passive: false });
-
-        // Обработчики зума (устанавливаем только один раз)
-        const zoomInBtn = document.getElementById("zoom-in");
-        const zoomOutBtn = document.getElementById("zoom-out");
-        const zoomResetBtn = document.getElementById("zoom-reset");
-        const zoomLevelDisplay = zoomControls.querySelector(".skill-zoom-level") as HTMLElement;
-
-        if (zoomInBtn && !(zoomInBtn as any)._zoomBound) {
-            (zoomInBtn as any)._zoomBound = true;
-            zoomInBtn.addEventListener("click", () => {
-                if (!wrapper) return;
-                const newZoom = currentZoom + ZOOM_STEP;
-                const rect = wrapper.getBoundingClientRect();
-                const centerX = rect.left + wrapper.clientWidth / 2;
-                const centerY = rect.top + wrapper.clientHeight / 2;
-                zoomAtPoint(centerX, centerY, newZoom, true);
-            });
-        }
-
-        if (zoomOutBtn && !(zoomOutBtn as any)._zoomBound) {
-            (zoomOutBtn as any)._zoomBound = true;
-            zoomOutBtn.addEventListener("click", () => {
-                if (!wrapper) return;
-                const newZoom = currentZoom - ZOOM_STEP;
-                const rect = wrapper.getBoundingClientRect();
-                const centerX = rect.left + wrapper.clientWidth / 2;
-                const centerY = rect.top + wrapper.clientHeight / 2;
-                zoomAtPoint(centerX, centerY, newZoom, true);
-            });
-        }
-
-        if (zoomResetBtn && !(zoomResetBtn as any)._zoomBound) {
-            (zoomResetBtn as any)._zoomBound = true;
-            zoomResetBtn.addEventListener("click", () => {
-                if (!wrapper || !skillTree) return;
-                
-                // Отменяем все активные анимации
-                if (zoomAnimationFrame !== null) {
-                    cancelAnimationFrame(zoomAnimationFrame);
-                    zoomAnimationFrame = null;
-                }
-                if (wheelThrottleTimeout !== null) {
-                    clearTimeout(wheelThrottleTimeout);
-                    wheelThrottleTimeout = null;
-                }
-                accumulatedZoomDelta = 0;
-                pendingZoom = null;
-                
-                // Сбрасываем зум
-                currentZoom = 1.0;
-                skillTree.style.transform = `scale(${currentZoom})`;
-                skillTree.style.transformOrigin = "top left";
-                wrapper.scrollLeft = 0;
-                wrapper.scrollTop = 0;
-                updateZoomDisplay();
-            });
-        }
-
-        let isDown = false;
-        let startX = 0;
-        let startY = 0;
-        let scrollLeft = 0;
-        let scrollTop = 0;
-
-        const onMouseDown = (e: MouseEvent) => {
-            isDown = true;
-            wrapper.classList.add("dragging");
-            startX = e.clientX;
-            startY = e.clientY;
-            scrollLeft = wrapper.scrollLeft;
-            scrollTop = wrapper.scrollTop;
-        };
-
-        const onMouseMove = (e: MouseEvent) => {
-            if (!isDown) return;
-            e.preventDefault();
-            wrapper.scrollLeft = scrollLeft - (e.clientX - startX);
-            wrapper.scrollTop = scrollTop - (e.clientY - startY);
-        };
-
-        const stopDrag = () => {
-            isDown = false;
-            wrapper.classList.remove("dragging");
-        };
-
-        wrapper.addEventListener("mousedown", onMouseDown);
-        wrapper.addEventListener("mousemove", onMouseMove);
-        wrapper.addEventListener("mouseleave", stopDrag);
-        window.addEventListener("mouseup", stopDrag);
-
-        const onKey = (e: KeyboardEvent) => {
-            if (!this.skillsPanel || !this.skillsPanel.classList.contains("visible")) return;
-            const step = 80;
-            switch (e.key) {
-                case "ArrowLeft":
-                    wrapper.scrollLeft -= step;
-                    e.preventDefault();
-                    break;
-                case "ArrowRight":
-                    wrapper.scrollLeft += step;
-                    e.preventDefault();
-                    break;
-                case "ArrowUp":
-                    wrapper.scrollTop -= step;
-                    e.preventDefault();
-                    break;
-                case "ArrowDown":
-                    wrapper.scrollTop += step;
-                    e.preventDefault();
-                    break;
-            }
-        };
-
-        window.addEventListener("keydown", onKey);
+        updateSkillTreeDisplay(stats, callbacks);
     }
     
     public showGarage(): void {
@@ -4826,13 +4114,15 @@ export class MainMenu {
         }
     }
     
-    private initializeGarage(): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private initializeGarage(): void { // Используется через обработчики событий
         // Garage is already initialized in constructor
         // This method is kept for compatibility
         debugLog("[Menu] Garage already initialized");
     }
     
-    private hideGarage(): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private hideGarage(): void { // Используется через обработчики событий
         // Старый метод для совместимости, но теперь гараж закрывается через свой callback
         debugLog("[Menu] hideGarage() called (deprecated, garage closes via its own callback)");
         if (this.garage && this.garage.isGarageOpen()) {
@@ -4845,7 +4135,8 @@ export class MainMenu {
         }
     }
     
-    private saveTankConfig(): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private saveTankConfig(): void { // Используется через обработчики событий
         localStorage.setItem("tankConfig", JSON.stringify(this.tankConfig));
         window.dispatchEvent(new CustomEvent("tankConfigChanged", { detail: this.tankConfig }));
     }
@@ -4963,107 +4254,12 @@ export class MainMenu {
     }
     
     private saveSettingsFromUI(): void {
-        // Determine world seed
-        const useRandomSeed = (document.getElementById("set-random-seed") as HTMLInputElement)?.checked ?? true;
-        let worldSeed = parseInt((document.getElementById("set-seed") as HTMLInputElement)?.value || "12345");
-        if (useRandomSeed) {
-            worldSeed = Math.floor(Math.random() * 999999999);
-        }
-        
-        const getInt = (id: string, def: number) => parseInt((document.getElementById(id) as HTMLInputElement)?.value || def.toString());
-        const getFloat = (id: string, def: number) => parseFloat((document.getElementById(id) as HTMLInputElement)?.value || def.toString());
-        const getBool = (id: string, def: boolean) => (document.getElementById(id) as HTMLInputElement)?.checked ?? def;
-        const getSelect = (id: string, def: string) => (document.getElementById(id) as HTMLSelectElement)?.value || def;
-        
-        this.settings = {
-            // Existing settings
-            renderDistance: getInt("set-render", 3),
-            soundVolume: getInt("set-sound", 70),
-            musicVolume: getInt("set-music", 50),
-            mouseSensitivity: getInt("set-mouse", 5),
-            showFPS: getBool("set-fps", true),
-            showMinimap: getBool("set-minimap", true),
-            cameraDistance: getInt("set-camera-dist", 12),
-            cameraHeight: getFloat("set-camera-height", 5),
-            aimFOV: getFloat("set-aim-fov", 0.4),
-            graphicsQuality: parseInt(getSelect("set-graphics", "2")),
-            vsync: getBool("set-vsync", false),
-            fullscreen: getBool("set-fullscreen", false),
-            aimAssist: getBool("set-aim-assist", true),
-            showDamageNumbers: getBool("set-damage-numbers", true),
-            screenShake: getBool("set-screen-shake", true),
-            virtualTurretFixation: getBool("set-virtual-fixation", false),
-            language: this.settings.language,
-            enemyDifficulty: this.settings.enemyDifficulty,
-            worldSeed: worldSeed,
-            useRandomSeed: useRandomSeed,
-            
-            // Graphics
-            particleQuality: parseInt(getSelect("set-particle-quality", "2")),
-            shadowQuality: parseInt(getSelect("set-shadow-quality", "2")),
-            antiAliasing: getBool("set-anti-aliasing", true),
-            bloom: getBool("set-bloom", false),
-            motionBlur: getBool("set-motion-blur", false),
-            textureQuality: parseInt(getSelect("set-texture-quality", "2")),
-            lightingQuality: parseInt(getSelect("set-lighting-quality", "2")),
-            
-            // Audio
-            masterVolume: getInt("set-master-volume", 100),
-            ambientVolume: getInt("set-ambient-volume", 20),
-            voiceVolume: getInt("set-voice-volume", 100),
-            muteOnFocusLoss: getBool("set-mute-on-focus-loss", false),
-            
-            // Controls
-            invertMouseY: getBool("set-invert-mouse-y", false),
-            keyboardLayout: getSelect("set-keyboard-layout", "qwerty"),
-            autoReload: getBool("set-auto-reload", false),
-            holdToAim: getBool("set-hold-to-aim", false),
-            
-            // Gameplay
-            showTutorial: getBool("set-show-tutorial", true),
-            showHints: getBool("set-show-hints", true),
-            showCrosshair: getBool("set-show-crosshair", true),
-            crosshairStyle: getSelect("set-crosshair-style", "default"),
-            showHealthBar: getBool("set-show-health-bar", true),
-            showAmmoCounter: getBool("set-show-ammo-counter", true),
-            autoSave: getBool("set-auto-save", true),
-            autoSaveInterval: getInt("set-auto-save-interval", 300),
-            
-            // Camera
-            cameraSmoothing: getFloat("set-camera-smoothing", 0.7),
-            cameraShakeIntensity: getFloat("set-camera-shake-intensity", 1.0),
-            firstPersonMode: getBool("set-first-person-mode", false),
-            cameraFOV: getInt("set-camera-fov", 60),
-            
-            // Network
-            showPing: getBool("set-show-ping", false),
-            showNetworkStats: getBool("set-show-network-stats", false),
-            networkQuality: parseInt(getSelect("set-network-quality", "2")),
-            
-            // Accessibility
-            colorBlindMode: getSelect("set-color-blind-mode", "none"),
-            fontSize: getInt("set-font-size", 14),
-            highContrast: getBool("set-high-contrast", false),
-            subtitles: getBool("set-subtitles", false),
-            
-            // Additional
-            showDebugInfo: getBool("set-show-debug-info", false),
-            enableCheats: getBool("set-enable-cheats", false),
-            maxFPS: getInt("set-max-fps", 0)
-        };
-        
-        localStorage.setItem("gameSettings", JSON.stringify(this.settings));
+        this.settings = saveSettingsFromUIModule();
         window.dispatchEvent(new CustomEvent("settingsChanged", { detail: this.settings }));
     }
     
     private loadSettings(): GameSettings {
-        const saved = localStorage.getItem("gameSettings");
-        if (saved) {
-            try {
-                return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
-            } catch (e) {}
-        }
-        return { ...DEFAULT_SETTINGS };
+        return loadSettingsModule();
     }
     
     setOnStartGame(callback: (mapType?: MapType) => void): void {

@@ -1,6 +1,7 @@
 // Модуль управления визуальными эффектами и анимациями танка
 import { Scene, Vector3, Mesh } from "@babylonjs/core";
 import type { ITankController } from "./types";
+import { createUniqueCannon, type CannonAnimationElements } from "./tankCannon";
 
 export class TankVisualsModule {
     private tank: ITankController;
@@ -20,7 +21,9 @@ export class TankVisualsModule {
      * Создание уникальной пушки
      */
     createUniqueCannon(scene: Scene, barrelWidth: number, barrelLength: number): Mesh {
-        return (this.tank as any).createUniqueCannon?.(scene, barrelWidth, barrelLength);
+        const cannonType = (this.tank as any).cannonType;
+        const animationElements = (this.tank as any).cannonAnimationElements || {};
+        return createUniqueCannon(cannonType, scene, barrelWidth, barrelLength, animationElements);
     }
     
     /**
@@ -51,6 +54,7 @@ export class TankVisualsModule {
         (this.tank as any).updateBarrelVisibility?.(baseZ);
     }
 }
+
 
 
 
