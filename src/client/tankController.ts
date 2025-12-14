@@ -168,14 +168,14 @@ export class TankController {
     angularDrag = 5000;     // Угловое сопротивление при остановке
     
     // Stability
-    hoverStiffness = 4000;  // Снижено для предотвращения взлета
-    hoverDamping = 20000;   // Увеличено для сильного демпфирования и предотвращения осцилляций
-    uprightForce = 10000;   // Снижено для уменьшения тряски
-    uprightDamp = 7000;     // Увеличено для лучшего демпфирования
-    stabilityForce = 2500;  // Увеличено для стабильности
-    emergencyForce = 15000; // Снижено для уменьшения тряски
-    liftForce = 18000;      // Значительно снижено для предотвращения взлета (было 30000)
-    downForce = 2000;       // Увеличено для лучшего сцепления с землей
+    hoverStiffness = 3500;   // Снижено с 4000 для плавности
+    hoverDamping = 30000;    // Увеличено с 20000 для сильного демпфирования
+    uprightForce = 10000;    // Без изменений
+    uprightDamp = 7000;     // Без изменений
+    stabilityForce = 2500;  // Без изменений
+    emergencyForce = 15000; // Без изменений
+    liftForce = 0;          // УСТАНОВЛЕНО В 0 - полностью отключено для предотвращения взлета
+    downForce = 4000;       // Увеличено с 2000 для лучшего сцепления с землей
 
     // Health System (будет переопределено типом корпуса)
     maxHealth = 100;
@@ -207,14 +207,13 @@ export class TankController {
     private _tmpVector5 = new Vector3(); // For torque scaling to avoid mutations
     private _tmpVector6 = new Vector3(); // For hoverForceVec (to avoid corrupting up)
     private _tmpVector7 = new Vector3(); // For correctiveTorque (to avoid corrupting forward)
-    private _tmpVector8 = new Vector3(); // For obstacle raycast
+    private _tmpVector8 = new Vector3(); // For ground clamping raycast
     
     private _resetTimer: number = 0; // Таймер для автоматического сброса при опрокидывания
     private _logFrameCounter = 0; // Счетчик кадров для логирования
     
-    // Obstacle climbing cache
-    private _obstacleRaycastCache: { hasObstacle: boolean, obstacleHeight: number, frame: number } | null = null;
-    private readonly OBSTACLE_RAYCAST_CACHE_FRAMES = 3; // Кэшируем на 3 кадра
+    // Ground clamping cache
+    private _groundRaycastCache: { groundHeight: number, frame: number } | null = null;
     private _enableDetailedLogging = false; // Детальное логирование отключено по умолчанию для производительности
     private _tick = 0;
     
@@ -425,8 +424,8 @@ export class TankController {
         this.physicsBody = new PhysicsBody(this.chassis, PhysicsMotionType.DYNAMIC, false, scene);
         this.physicsBody.shape = shape;
         this.physicsBody.setMassProperties({ mass: this.mass, centerOfMass: new Vector3(0, -0.55, 0) }); // Lower COM for stability
-        this.physicsBody.setLinearDamping(0.6);   // More damping
-        this.physicsBody.setAngularDamping(3.5);  // Prevent wild rotations 
+        this.physicsBody.setLinearDamping(0.8);   // Увеличено с 0.6 для лучшего демпфирования
+        this.physicsBody.setAngularDamping(4.0);  // Увеличено с 3.5 для предотвращения диких вращений 
         // this.physicsBody.setActivationState(PhysicsMotionType.ALWAYS_ACTIVE); // Removed: Not supported in V2
 
         // 3. Loop
@@ -2250,16 +2249,27 @@ export class TankController {
                 return;
             }
 
+            // Объявляем переменную для экстренного демпфирования (используется позже в hover системе)
+            let emergencyDampingForce = 0;
+
             // Ограничиваем вертикальную скорость и угловую скорость, чтобы исключить "взлёты"
-            let velocityClamped = false;
-            const maxUpwardSpeed = 12;
-            const maxDownwardSpeed = 35;
-            if (vel.y > maxUpwardSpeed) {
-                vel.y = maxUpwardSpeed;
-                velocityClamped = true;
-            } else if (vel.y < -maxDownwardSpeed) {
-                vel.y = -maxDownwardSpeed;
-                velocityClamped = true;
+            const maxUpwardSpeed = 4.0; // Снижено с 12 до 4.0 м/с для предотвращения подпрыгиваний
+            const maxDownwardSpeed = 35; // Оставлено без изменений (нормально для падения)
+            
+            // Плавное принудительное ограничение вертикальной скорости каждый кадр
+            const targetVelY = Math.max(-maxDownwardSpeed, Math.min(maxUpwardSpeed, vel.y));
+            if (Math.abs(vel.y - targetVelY) > 0.1) {
+                vel.y = vel.y * 0.7 + targetVelY * 0.3; // Плавная коррекция
+                try {
+                    body.setLinearVelocity(vel);
+                } catch (_e) {
+                    // ignore
+                }
+            }
+            
+            // Экстренное демпфирование при слишком быстром подъеме
+            if (vel.y > 3.0) {
+                emergencyDampingForce = -(vel.y - 3.0) * this.mass * 200; // Сильное демпфирование
             }
             
             const maxAngularSpeed = 2.5;
@@ -2268,14 +2278,6 @@ export class TankController {
                 angVel.scaleInPlace(maxAngularSpeed / Math.max(angMag, 0.0001));
                 try {
                     body.setAngularVelocity(angVel);
-                } catch (_e) {
-                    // ignore
-                }
-            }
-            
-            if (velocityClamped) {
-                try {
-                    body.setLinearVelocity(vel);
                 } catch (_e) {
                     // ignore
                 }
@@ -2325,40 +2327,114 @@ export class TankController {
                 console.log("═══════════════════════════════════════════════════════");
             }
 
+            // --- GROUND CLAMPING (определение высоты земли) ---
+            // СНАЧАЛА определяем высоту земли, чтобы hover система работала относительно неё
+            // Raycast вниз для определения высоты земли (кэшируем каждые 3 кадра)
+            let groundHeight = pos.y - this.hoverHeight; // Значение по умолчанию
+            if (!this._groundRaycastCache || (this._logFrameCounter - this._groundRaycastCache.frame) >= 3) {
+                const groundRayStart = pos.clone();
+                groundRayStart.y += 0.5; // Немного выше танка
+                const groundRayDir = Vector3.Down();
+                const groundRayLength = 10.0; // Достаточно для любой высоты
+                const groundRay = new Ray(groundRayStart, groundRayDir, groundRayLength);
+
+                const groundFilter = (mesh: any) => {
+                    if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+                    const meta = mesh.metadata;
+                    if (meta && (meta.type === "bullet" || meta.type === "consumable" || meta.type === "playerTank")) return false;
+                    if (mesh === this.chassis || mesh === this.turret || mesh === this.barrel) return false;
+                    return true;
+                };
+
+                const groundPick = this.scene.pickWithRay(groundRay, groundFilter);
+                if (groundPick && groundPick.hit && groundPick.pickedPoint) {
+                    groundHeight = groundPick.pickedPoint.y;
+                    this._groundRaycastCache = {
+                        groundHeight: groundHeight,
+                        frame: this._logFrameCounter
+                    };
+                } else {
+                    // Если не нашли землю, используем текущую высоту минус hoverHeight
+                    this._groundRaycastCache = {
+                        groundHeight: pos.y - this.hoverHeight,
+                        frame: this._logFrameCounter
+                    };
+                }
+            } else {
+                groundHeight = this._groundRaycastCache.groundHeight;
+            }
+
             // --- 1. OPTIMIZED HOVER (Simplified height control) ---
-            // КРИТИЧЕСКИ ВАЖНО: Hover работает ТОЛЬКО когда танк ниже минимальной высоты!
-            // Танк НЕ должен летать - hover только предотвращает падение ниже hoverHeight
-            const minHeight = this.hoverHeight; // Минимальная высота (обычно 1.0)
-            const deltaY = minHeight - pos.y; // Положительно когда танк ниже минимума
+            // КРИТИЧЕСКИ ВАЖНО: Hover работает ОТНОСИТЕЛЬНО ЗЕМЛИ, а не абсолютной высоты!
+            // Целевая высота = высота земли + hoverHeight
+            const targetHeight = groundHeight + this.hoverHeight;
+            const deltaY = targetHeight - pos.y; // Положительно когда танк ниже цели
             const velY = vel.y;
             const absVelY = Math.abs(velY);
             
-            // Оптимизированная система hover - упрощенные вычисления
-            // УВЕЛИЧЕНО демпфирование при движении для устранения дрожания
+            // Улучшенная система hover - усиленное демпфирование для предотвращения подпрыгиваний
             let hoverForce = 0;
             if (deltaY > 0) {
-                // Танк ниже минимума - применяем hover для поднятия
-                // Упрощенная логика: используем кэшированное значение isMoving
-                const hoverSensitivity = isMoving ? 0.2 : 1.0; // Еще больше уменьшено при движении (было 0.25)
-                const stiffnessMultiplier = 1.0 + Math.min(Math.abs(deltaY) * 0.03, 0.15) * hoverSensitivity;
-                // Увеличено демпфирование при движении для предотвращения осцилляций
-                hoverForce = (deltaY * this.hoverStiffness * stiffnessMultiplier) - (velY * this.hoverDamping * (isMoving ? 2.0 : 1.0));
+                // Танк ниже цели - применяем hover для поднятия
+                // УМЕНЬШЕНА чувствительность при движении для предотвращения взлета
+                const hoverSensitivity = isMoving ? 0.15 : 1.0; // Еще больше уменьшено с 0.2
+                const stiffnessMultiplier = 1.0 + Math.min(Math.abs(deltaY) * 0.015, 0.08) * hoverSensitivity; // Уменьшено
+                const dampingMultiplier = isMoving ? 4.0 : 2.0; // Увеличено демпфирование при движении
+                hoverForce = (deltaY * this.hoverStiffness * stiffnessMultiplier) - (velY * this.hoverDamping * dampingMultiplier);
                 
-                // Упрощенное динамическое ограничение
-                const movementReduction = isMoving ? 0.3 : 1.0; // Еще больше уменьшено при движении (было 0.4)
-                const dynamicMaxForce = (absVelY > 50 ? 1000 : (absVelY > 20 ? 2000 : 3500)) * movementReduction;
+                // Более строгое динамическое ограничение при движении
+                const movementReduction = isMoving ? 0.2 : 1.0; // Еще больше уменьшено с 0.3
+                const dynamicMaxForce = Math.min(
+                    (absVelY > 30 ? 600 : (absVelY > 15 ? 1200 : 2000)) * movementReduction,
+                    this.hoverStiffness * 0.4 // Уменьшено с 0.5
+                );
                 hoverForce = Math.max(-dynamicMaxForce, Math.min(dynamicMaxForce, hoverForce));
             } else {
-                // Танк выше минимума - только демпфирование (увеличено при движении)
-                hoverForce = -velY * this.hoverDamping * (isMoving ? 0.7 : 0.5);
+                // Танк выше цели - ТОЛЬКО демпфирование вниз (усилено)
+                hoverForce = -velY * this.hoverDamping * 3.0; // Увеличено с 2.5
+                
+                // Дополнительная прижимная сила если танк слишком высоко
+                if (deltaY < -0.15) {
+                    hoverForce -= Math.abs(deltaY) * this.mass * 100; // Усилено прижимание
+                }
             }
             const clampedHoverForce = hoverForce;
             
             // Накопление всех вертикальных сил в одну для предотвращения конфликтов
             let totalVerticalForce = clampedHoverForce;
             
+            // Добавляем экстренное демпфирование при слишком быстром подъеме (из ограничения скорости)
+            if (emergencyDampingForce !== 0) {
+                totalVerticalForce += emergencyDampingForce;
+            }
+            
+            // Дополнительное прижимание если танк выше цели более чем на 0.1м (уменьшен порог)
+            const heightDiff = pos.y - targetHeight;
+            if (heightDiff > 0.1) {
+                const clampForce = -heightDiff * this.mass * 120; // Усилена прижимная сила
+                const maxClampForce = -this.mass * 400; // Увеличен максимум
+                const clampedForce = Math.max(maxClampForce, clampForce);
+                totalVerticalForce += clampedForce;
+                
+                // Дополнительное демпфирование при полете (даже при малой скорости вверх)
+                if (vel.y > 0.5) {
+                    totalVerticalForce -= vel.y * this.mass * 25; // Усилено демпфирование вверх
+                }
+            }
+            
+            // КРИТИЧЕСКАЯ ЗАЩИТА: Если танк выше цели более чем на 0.5м - экстренное прижимание
+            if (heightDiff > 0.5) {
+                const emergencyClampForce = -this.mass * 500; // Очень сильная прижимная сила
+                totalVerticalForce += emergencyClampForce;
+                // Принудительно ограничиваем вертикальную скорость
+                if (vel.y > 0) {
+                    const emergencyVelDamping = -vel.y * this.mass * 50;
+                    totalVerticalForce += emergencyVelDamping;
+                }
+            }
+            
             if (shouldLog) {
-                console.log(`  [HOVER] TargetY: ${minHeight.toFixed(2)} | DeltaY: ${deltaY.toFixed(3)} | VelY: ${velY.toFixed(2)} | Force: ${clampedHoverForce.toFixed(0)}`);
+                console.log(`  [HOVER] GroundY: ${groundHeight.toFixed(2)} | TargetY: ${targetHeight.toFixed(2)} | CurrentY: ${pos.y.toFixed(2)} | DeltaY: ${deltaY.toFixed(3)} | VelY: ${velY.toFixed(2)} | Force: ${clampedHoverForce.toFixed(0)}`);
             }
 
             // Дополнительная стабилизация при движении (отключена для предотвращения тряски)
@@ -2467,17 +2543,10 @@ export class TankController {
                 totalCorrectiveX += emergencyX;
                 totalCorrectiveZ += emergencyZ;
                 
-                // Вертикальная сила для поднятия при опрокидывании (добавляется к общей вертикальной силе)
-                if (up.y < 0.7) {
-                    const liftMultiplier = isCriticallyTilted ? 1.2 : (isSeverelyTilted ? 1.1 : 1.0); // Еще больше уменьшено
-                    const liftForceVal = Math.min(20000, (0.9 - up.y) * this.liftForce * liftMultiplier * 0.5); // Значительно уменьшено
-                    totalVerticalForce += liftForceVal; // Добавляем к общей вертикальной силе
-                    
-                    if (shouldLog) {
-                        console.log(`  [EMERGENCY] Torque: [${emergencyX.toFixed(0)}, ${emergencyZ.toFixed(0)}] | Mult: ${emergencyMultiplier.toFixed(2)} | Clamped: ${emergencyWasClamped}`);
-                        console.log(`  [LIFT] Force: ${liftForceVal.toFixed(0)} | Mult: ${liftMultiplier.toFixed(2)}`);
-                    }
-                } else if (shouldLog) {
+                // Lift force полностью отключен для предотвращения подпрыгиваний
+                // (liftForce = 0 в параметрах физики)
+                
+                if (shouldLog) {
                     console.log(`  [EMERGENCY] Torque: [${emergencyX.toFixed(0)}, ${emergencyZ.toFixed(0)}] | Mult: ${emergencyMultiplier.toFixed(2)} | Clamped: ${emergencyWasClamped}`);
                 }
             }
@@ -2485,7 +2554,7 @@ export class TankController {
             // Дополнительная стабилизация: прижимная сила при движении (объединена с hover)
             // Используем кэшированное значение absFwdSpeed для оптимизации
             if (absFwdSpeed > 1) {
-                const downForceVal = this.downForce * (1.0 - up.y) * 0.3; // Уменьшено для плавности
+                const downForceVal = this.downForce * (1.0 - up.y) * 0.5; // Увеличено с 0.3 для лучшего сцепления
                 totalVerticalForce -= downForceVal; // Добавляем к общей вертикальной силе
                 
                 if (shouldLog) {
@@ -2515,7 +2584,7 @@ export class TankController {
 
             // Добавляем небольшую силу вниз при движении для лучшего сцепления (объединена с hover)
             if (Math.abs(this.smoothThrottle) > 0.1) {
-                const throttleDownForceVal = Math.abs(this.smoothThrottle) * this.downForce * 0.2; // Уменьшено
+                const throttleDownForceVal = Math.abs(this.smoothThrottle) * this.downForce * 0.4; // Увеличено с 0.2 для лучшего сцепления
                 totalVerticalForce -= throttleDownForceVal; // Добавляем к общей вертикальной силе
             }
             
@@ -2578,139 +2647,6 @@ export class TankController {
                 
                 if (shouldLog) {
                     console.log(`  [MOVEMENT] TargetSpeed: ${targetSpeed.toFixed(2)} | Current: ${fwdSpeed.toFixed(2)} | Diff: ${speedDiff.toFixed(2)} | Force: ${clampedAccelForce.toFixed(0)}`);
-                }
-                
-                // --- OBSTACLE CLIMBING (преодоление небольших препятствий, включая тротуары) ---
-                if (this.smoothThrottle > 0.05) { // Только при движении вперед
-                    const chassisHeight = this.chassisType.height;
-                    const currentFrame = this._logFrameCounter;
-                    
-                    // Проверяем препятствие с кэшированием
-                    let obstacleData = this._obstacleRaycastCache;
-                    if (!obstacleData || (currentFrame - obstacleData.frame) >= this.OBSTACLE_RAYCAST_CACHE_FRAMES) {
-                        // Множественные проверки для лучшего обнаружения препятствий
-                        // 1. Горизонтальный луч вперед (на уровне земли)
-                        // 2. Луч вперед-вверх (под углом для обнаружения препятствий)
-                        // 3. Луч немного выше земли
-                        
-                        let maxObstacleHeight = 0;
-                        let hasObstacle = false;
-                        
-                        const filter = (mesh: any) => {
-                            if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
-                            const meta = mesh.metadata;
-                            // Игнорируем снаряды, припасы, сам танк
-                            if (meta && (meta.type === "bullet" || meta.type === "consumable" || meta.type === "playerTank")) return false;
-                            if (mesh.name.includes("billboard") || mesh.name.includes("hp")) return false;
-                            // Игнорируем сам танк и его части
-                            if (mesh === this.chassis || mesh === this.turret || mesh === this.barrel) return false;
-                            if (mesh.parent === this.chassis || mesh.parent === this.turret) return false;
-                            return true;
-                        };
-                        
-                        // Проверка 1: Горизонтально вперед на уровне земли (для тротуаров)
-                        const rayStart1 = pos.clone();
-                        rayStart1.y += 0.2; // Очень низко, для обнаружения тротуаров
-                        const rayDir1 = forward.clone();
-                        const rayLength1 = 2.5; // Ближе, чтобы быстрее реагировать
-                        const ray1 = new Ray(rayStart1, rayDir1, rayLength1);
-                        const pick1 = this.scene.pickWithRay(ray1, filter);
-                        
-                        // Проверка 2: Вперед под небольшим углом вверх (для препятствий)
-                        const rayStart2 = pos.clone();
-                        rayStart2.y += 0.3;
-                        const rayDir2 = forward.clone();
-                        rayDir2.y += 0.3; // Угол вверх
-                        rayDir2.normalize();
-                        const rayLength2 = 2.0;
-                        const ray2 = new Ray(rayStart2, rayDir2, rayLength2);
-                        const pick2 = this.scene.pickWithRay(ray2, filter);
-                        
-                        // Проверка 3: Немного выше, горизонтально (для высоких препятствий)
-                        const rayStart3 = pos.clone();
-                        rayStart3.y += chassisHeight * 0.3;
-                        const rayDir3 = forward.clone();
-                        const rayLength3 = 1.5;
-                        const ray3 = new Ray(rayStart3, rayDir3, rayLength3);
-                        const pick3 = this.scene.pickWithRay(ray3, filter);
-                        
-                        // Находим максимальную высоту препятствия
-                        if (pick1 && pick1.hit && pick1.pickedPoint) {
-                            const height1 = pick1.pickedPoint.y - pos.y;
-                            if (height1 > maxObstacleHeight) maxObstacleHeight = height1;
-                            hasObstacle = true;
-                        }
-                        if (pick2 && pick2.hit && pick2.pickedPoint) {
-                            const height2 = pick2.pickedPoint.y - pos.y;
-                            if (height2 > maxObstacleHeight) maxObstacleHeight = height2;
-                            hasObstacle = true;
-                        }
-                        if (pick3 && pick3.hit && pick3.pickedPoint) {
-                            const height3 = pick3.pickedPoint.y - pos.y;
-                            if (height3 > maxObstacleHeight) maxObstacleHeight = height3;
-                            hasObstacle = true;
-                        }
-                        
-                        obstacleData = {
-                            hasObstacle: hasObstacle,
-                            obstacleHeight: maxObstacleHeight,
-                            frame: currentFrame
-                        };
-                        this._obstacleRaycastCache = obstacleData;
-                    }
-                    
-                    // Если есть препятствие и оно не выше корпуса, помогаем преодолеть
-                    // Увеличена максимальная высота до полной высоты корпуса + небольшой запас
-                    if (obstacleData.hasObstacle && obstacleData.obstacleHeight > 0.05 && obstacleData.obstacleHeight <= chassisHeight * 1.1) {
-                        // Вычисляем силу для подъема (более агрессивная формула)
-                        // Базовое усилие + пропорциональное препятствию
-                        const baseClimbForce = this.mass * 500; // Базовая сила для любых препятствий
-                        const proportionalForce = obstacleData.obstacleHeight * this.mass * 250; // Пропорциональная часть (снижено)
-                        const climbForce = baseClimbForce + proportionalForce;
-                        const maxClimbForce = this.mass * 2200; // Ограниченная максимальная сила
-                        const clampedClimbForce = Math.min(climbForce, maxClimbForce);
-                        
-                        // Применяем силу вверх (более сильную)
-                        if (body && isFinite(clampedClimbForce)) {
-                            Vector3.Up().scaleToRef(clampedClimbForce, this._tmpVector8);
-                            try {
-                                body.applyForce(this._tmpVector8, pos);
-                            } catch (e) {
-                                // Игнорируем ошибки
-                            }
-                        }
-                        
-                        // Значительно усиливаем движение вперед для преодоления
-                        // Чем выше препятствие, тем больше дополнительной силы
-                        const extraForceMultiplier = 0.4 + (obstacleData.obstacleHeight / chassisHeight) * 0.4; // От +40% до +80%
-                        const extraForwardForce = clampedAccelForce * extraForceMultiplier;
-                        if (body && isFinite(extraForwardForce) && clampedAccelForce > 0) {
-                            forward.scaleToRef(extraForwardForce, this._tmpVector8);
-                            try {
-                                body.applyForce(this._tmpVector8, pos);
-                            } catch (e) {
-                                // Игнорируем ошибки
-                            }
-                        }
-                        
-                        // Дополнительный импульс вверх-вперед для более плавного подъема
-                        const upwardForward = forward.clone();
-                        upwardForward.y += 0.2; // Направление вверх-вперед
-                        upwardForward.normalize();
-                        const boostForce = this.mass * 150 * Math.min(obstacleData.obstacleHeight / chassisHeight, 1.0);
-                        if (body && isFinite(boostForce)) {
-                            upwardForward.scaleToRef(boostForce, this._tmpVector8);
-                            try {
-                                body.applyForce(this._tmpVector8, pos);
-                            } catch (e) {
-                                // Игнорируем ошибки
-                            }
-                        }
-                        
-                        if (shouldLog) {
-                            console.log(`  [OBSTACLE] Height: ${obstacleData.obstacleHeight.toFixed(2)} | ClimbForce: ${clampedClimbForce.toFixed(0)} | ExtraForward: ${(extraForceMultiplier * 100).toFixed(0)}%`);
-                        }
-                    }
                 }
             }
 
