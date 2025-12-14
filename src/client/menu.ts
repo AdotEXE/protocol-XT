@@ -7,6 +7,7 @@ import { createSkillsPanelHTML, updateSkillTreeDisplay, type PlayerStats, type S
 import { Scene, Engine } from "@babylonjs/core";
 import { Garage } from "./garage";
 import { CurrencyManager } from "./currencyManager";
+import { logger } from "./utils/logger";
 
 // Version tracking
 const VERSION_MAJOR = 0;
@@ -14,10 +15,16 @@ const VERSION_MINOR = 3;
 let buildNumber = parseInt(localStorage.getItem("ptx_build") || "0");
 const previousBuildNumber = buildNumber;
 
-// Добавляем 1500 к текущему buildNumber (1059 -> 2559)
-if (buildNumber < 2559) {
-    buildNumber = 2559;
+// Автоматическое обновление buildNumber при каждом запуске
+// Если версия не изменилась (тот же день), увеличиваем buildNumber
+const today = new Date().toDateString();
+const lastBuildDate = localStorage.getItem("ptx_build_date");
+if (lastBuildDate !== today) {
+    // Новый день - сбрасываем или увеличиваем buildNumber
+    buildNumber += 1;
+    localStorage.setItem("ptx_build_date", today);
 } else {
+    // Тот же день - увеличиваем buildNumber для новой сборки
     buildNumber += 1;
 }
 
@@ -4065,7 +4072,7 @@ export class MainMenu {
         
         // Garage should always be available (created in constructor)
         if (!this.garage) {
-            console.error("[Menu] Garage is null! This should not happen.");
+            logger.error("[Menu] Garage is null! This should not happen.");
             return;
         }
         
@@ -4109,7 +4116,7 @@ export class MainMenu {
             this.garage = new Garage(this.garageScene, this.garageCurrencyManager);
             debugLog("[Menu] Garage created in menu constructor");
         } catch (error) {
-            console.error("[Menu] Failed to create garage in menu:", error);
+            logger.error("[Menu] Failed to create garage in menu:", error);
             // Garage will be created later by game.ts
         }
     }
@@ -4204,7 +4211,7 @@ export class MainMenu {
                     this.syncFullscreenState(true);
                 }
             } catch (err: any) {
-                console.error(`Error entering fullscreen: ${err?.message || err}`);
+                logger.error(`Error entering fullscreen: ${err?.message || err}`);
                 this.syncFullscreenState(false);
             }
         } else {
@@ -4214,7 +4221,7 @@ export class MainMenu {
                     this.syncFullscreenState(false);
                 }
             } catch (err: any) {
-                console.error(`Error exiting fullscreen: ${err?.message || err}`);
+                logger.error(`Error exiting fullscreen: ${err?.message || err}`);
                 this.syncFullscreenState(!!document.fullscreenElement);
             }
         }

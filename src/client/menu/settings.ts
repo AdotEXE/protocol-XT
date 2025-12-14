@@ -3,6 +3,8 @@
  * Логика работы с настройками игры из menu.ts
  */
 
+import { logger } from "../utils/logger";
+
 export interface GameSettings {
     // Existing settings
     renderDistance: number;
@@ -167,7 +169,7 @@ export function loadSettings(): GameSettings {
             const parsed = JSON.parse(saved);
             return { ...DEFAULT_SETTINGS, ...parsed };
         } catch (e) {
-            console.error("Failed to parse settings:", e);
+            logger.error("Failed to parse settings:", e);
         }
     }
     return { ...DEFAULT_SETTINGS };
