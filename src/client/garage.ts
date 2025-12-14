@@ -3263,7 +3263,7 @@ export class Garage {
         
         // Update 3D preview
         // Render preview only if scene is initialized
-        if (this.previewScene) {
+        if (this.previewSceneData && this.previewSceneData.scene) {
         this.renderTankPreview(this.currentChassisId, this.currentCannonId);
         }
         

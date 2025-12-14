@@ -3,6 +3,7 @@
  * Логика работы с настройками игры из menu.ts
  */
 
+import { Vector3 } from "@babylonjs/core";
 import { logger } from "../utils/logger";
 
 export interface GameSettings {

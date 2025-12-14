@@ -25,6 +25,7 @@ import { TankMovementModule } from "./tank/tankMovement";
 import { TankProjectilesModule } from "./tank/tankProjectiles";
 import { TankVisualsModule } from "./tank/tankVisuals";
 import { createUniqueChassis, addChassisDetails, type ChassisAnimationElements } from "./tank/tankChassis";
+import type { ShellCasing } from "./tank/types";
 
 export class TankController {
     scene: Scene;
@@ -98,7 +99,9 @@ export class TankController {
     
     // Cannon animation elements (for animated cannons)
     private cannonAnimationElements: {
+        sniperLens?: Mesh;
         gatlingBarrels?: Mesh[];
+        gatlingPowerBlock?: Mesh;
         teslaCoils?: Mesh[];
         teslaGen?: Mesh;
         plasmaCore?: Mesh;
@@ -1162,7 +1165,7 @@ export class TankController {
             (projectileMaterial as any).emissiveIntensity = 3.0; // УВЕЛИЧЕНО до 3.0
             // Добавляем глосси для лучшей видимости
             projectileMaterial.specularColor = projectileColor.scale(0.5);
-            projectileMaterial.metallicFactor = 0.3;
+            // metallicFactor не существует в StandardMaterial, используем emissiveColor для эффекта
             projectileMesh.material = projectileMaterial;
             
             // Enhanced metadata with special properties
