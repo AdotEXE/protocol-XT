@@ -3,7 +3,9 @@
  * Функции для создания различных деталей корпусов танков (50+ типов деталей)
  */
 
-import { Mesh, Scene, Vector3, MeshBuilder, StandardMaterial, Color3 } from "@babylonjs/core";
+import { Mesh, Scene, Vector3, MeshBuilder, StandardMaterial } from "@babylonjs/core";
+// Color3 не используется напрямую, но может использоваться через MaterialFactory
+import { addZFightingOffset } from "../tank/zFightingFix";
 import { MaterialFactory } from "./materials";
 
 export class ChassisDetailsGenerator {
@@ -59,14 +61,13 @@ export class ChassisDetailsGenerator {
         index: number,
         prefix: string = "preview"
     ): Mesh {
-        const headlight = MeshBuilder.CreateCylinder(`${prefix}Headlight${index}`, {
-            height,
-            diameter,
-            tessellation: 8
+        const headlight = MeshBuilder.CreateBox(`${prefix}Headlight${index}`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         headlight.position = position;
-        headlight.rotation.x = Math.PI / 2;
-        headlight.parent = chassis;
+                headlight.parent = chassis;
         headlight.material = MaterialFactory.createHoverHeadlightMaterial(scene, index, prefix);
         return headlight;
     }
@@ -124,14 +125,13 @@ export class ChassisDetailsGenerator {
         index: number,
         prefix: string = "preview"
     ): Mesh {
-        const tailLight = MeshBuilder.CreateCylinder(`${prefix}TailLight${index}`, {
-            height,
-            diameter,
-            tessellation: 8
+        const tailLight = MeshBuilder.CreateBox(`${prefix}TailLight${index}`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         tailLight.position = position;
-        tailLight.rotation.x = Math.PI / 2;
-        tailLight.parent = chassis;
+                tailLight.parent = chassis;
         tailLight.material = MaterialFactory.createTailLightMaterial(scene, index, prefix);
         return tailLight;
     }
@@ -208,14 +208,13 @@ export class ChassisDetailsGenerator {
         index: number,
         prefix: string = "preview"
     ): Mesh {
-        const vent = MeshBuilder.CreateCylinder(`${prefix}RoofVent${index}`, {
-            height,
-            diameter,
-            tessellation: 8
+        const vent = MeshBuilder.CreateBox(`${prefix}RoofVent${index}`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         vent.position = position;
-        vent.rotation.x = Math.PI / 2;
-        vent.parent = chassis;
+                vent.parent = chassis;
         vent.material = MaterialFactory.createRoofVentMaterial(scene, index, prefix);
         return vent;
     }
@@ -243,7 +242,11 @@ export class ChassisDetailsGenerator {
                 height: barHeight,
                 depth: barDepth
             }, scene);
-            bar.position = new Vector3(position.x, position.y, position.z + (i - (count - 1) / 2) * spacing);
+            bar.position = addZFightingOffset(new Vector3(
+                    position.x,
+                    position.y,
+                    position.z + (i - (count - 1) / 2) * spacing
+                ), "forward");
             bar.parent = chassis;
             bar.material = material;
             bars.push(bar);
@@ -263,10 +266,10 @@ export class ChassisDetailsGenerator {
         index: number,
         prefix: string = "preview"
     ): Mesh {
-        const periscope = MeshBuilder.CreateCylinder(`${prefix}Periscope${index}`, {
-            height,
-            diameter,
-            tessellation: 8
+        const periscope = MeshBuilder.CreateBox(`${prefix}Periscope${index}`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         periscope.position = position;
         periscope.parent = chassis;
@@ -285,10 +288,10 @@ export class ChassisDetailsGenerator {
         diameter: number,
         prefix: string = "preview"
     ): Mesh {
-        const antenna = MeshBuilder.CreateCylinder(`${prefix}Antenna`, {
-            height,
-            diameter,
-            tessellation: 8
+        const antenna = MeshBuilder.CreateBox(`${prefix}Antenna`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         antenna.position = position;
         antenna.parent = chassis;
@@ -349,14 +352,13 @@ export class ChassisDetailsGenerator {
         diameter: number,
         prefix: string = "preview"
     ): Mesh {
-        const exhaust = MeshBuilder.CreateCylinder(`${prefix}Exhaust`, {
-            height,
-            diameter,
-            tessellation: 8
+        const exhaust = MeshBuilder.CreateBox(`${prefix}Exhaust`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         exhaust.position = position;
-        exhaust.rotation.z = Math.PI / 2;
-        exhaust.parent = chassis;
+                exhaust.parent = chassis;
         exhaust.material = MaterialFactory.createExhaustMaterial(scene, prefix);
         return exhaust;
     }
@@ -373,14 +375,13 @@ export class ChassisDetailsGenerator {
         index: number,
         prefix: string = "preview"
     ): Mesh {
-        const hole = MeshBuilder.CreateCylinder(`${prefix}ExhaustHole${index}`, {
-            height,
-            diameter,
-            tessellation: 8
+        const hole = MeshBuilder.CreateBox(`${prefix}ExhaustHole${index}`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         hole.position = position;
-        hole.rotation.z = Math.PI / 2;
-        hole.parent = chassis;
+                hole.parent = chassis;
         hole.material = MaterialFactory.createExhaustHoleMaterial(scene, index, prefix);
         return hole;
     }
@@ -482,12 +483,8 @@ export class ChassisDetailsGenerator {
         sight.parent = chassis;
         sight.material = MaterialFactory.createSightMaterial(scene, prefix);
 
-        const lens = MeshBuilder.CreateCylinder(`${prefix}SightLens`, {
-            height: 0.02,
-            diameter: 0.07,
-            tessellation: 8
-        }, scene);
-        lens.position = new Vector3(0, 0, depth / 2 + 0.01);
+        const lens = MeshBuilder.CreateBox(`${prefix}SightLens`, { width: 0.07, height: 0.02, depth: 0.07 }, scene);
+        lens.position = addZFightingOffset(new Vector3(0, 0, depth / 2 + 0.01), "forward");
         lens.parent = sight;
         lens.material = MaterialFactory.createLensMaterial(scene, prefix);
 
@@ -513,12 +510,12 @@ export class ChassisDetailsGenerator {
 
         const lenses: Mesh[] = [];
         for (let i = 0; i < 2; i++) {
-            const lens = MeshBuilder.CreateCylinder(`${prefix}Lens${i}`, {
-                height: 0.02,
-                diameter: 0.06,
-                tessellation: 8
-            }, scene);
-            lens.position = new Vector3((i === 0 ? -1 : 1) * 0.06, 0, depth / 2 + 0.01);
+            const lens = MeshBuilder.CreateBox(`${prefix}Lens${i}`, { width: 0.06, height: 0.02, depth: 0.06 }, scene);
+            lens.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * 0.06,
+                    0,
+                    depth / 2 + 0.01
+                ), "forward");
             lens.parent = binocular;
             lens.material = MaterialFactory.createLensMaterial(scene, prefix);
             lenses.push(lens);
@@ -602,14 +599,13 @@ export class ChassisDetailsGenerator {
         diameter: number,
         prefix: string = "preview"
     ): Mesh {
-        const intake = MeshBuilder.CreateCylinder(`${prefix}Intake`, {
-            height,
-            diameter,
-            tessellation: 8
+        const intake = MeshBuilder.CreateBox(`${prefix}Intake`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         intake.position = position;
-        intake.rotation.z = Math.PI / 2;
-        intake.parent = chassis;
+                intake.parent = chassis;
         intake.material = MaterialFactory.createIntakeMaterial(scene, prefix);
         return intake;
     }
@@ -770,9 +766,10 @@ export class ChassisDetailsGenerator {
         diameter: number,
         prefix: string = "preview"
     ): Mesh {
-        const generator = MeshBuilder.CreateSphere(`${prefix}ShieldGen`, {
-            diameter,
-            segments: 16
+        const generator = MeshBuilder.CreateBox(`${prefix}ShieldGen`, {
+            width: diameter,
+            height: diameter,
+            depth: diameter
         }, scene);
         generator.position = position;
         generator.parent = chassis;
@@ -809,17 +806,17 @@ export class ChassisDetailsGenerator {
         position: Vector3,
         diameter: number,
         thickness: number,
-        rotationX: number,
+        _rotationX: number, // Не используется для Box, но оставлен для совместимости API
         index: number,
         prefix: string = "preview"
     ): Mesh {
-        const coil = MeshBuilder.CreateTorus(`${prefix}Coil${index}`, {
-            diameter,
-            thickness,
-            tessellation: 16
+        const coil = MeshBuilder.CreateBox(`${prefix}Coil${index}`, {
+            width: diameter,
+            height: thickness,
+            depth: diameter
         }, scene);
         coil.position = position;
-        coil.rotation.x = rotationX;
+        // Box doesn't need rotation for rectangular design (rotationX не используется)
         coil.parent = chassis;
         coil.material = MaterialFactory.createEnergyCoilMaterial(scene, index, prefix);
         return coil;
@@ -834,17 +831,17 @@ export class ChassisDetailsGenerator {
         position: Vector3,
         height: number,
         diameter: number,
-        rotationX: number,
+        _rotationX: number, // Не используется для Box, но оставлен для совместимости API
         index: number,
         prefix: string = "preview"
     ): Mesh {
-        const port = MeshBuilder.CreateCylinder(`${prefix}Port${index}`, {
-            height,
-            diameter,
-            tessellation: 8
+        const port = MeshBuilder.CreateBox(`${prefix}Port${index}`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         port.position = position;
-        port.rotation.x = rotationX;
+        // Box doesn't need rotation for rectangular design
         port.parent = chassis;
         port.material = MaterialFactory.createEnergyPortMaterial(scene, index, prefix);
         return port;
@@ -928,14 +925,13 @@ export class ChassisDetailsGenerator {
         index: number,
         prefix: string = "preview"
     ): Mesh {
-        const sensor = MeshBuilder.CreateCylinder(`${prefix}Sensor${index}`, {
-            height,
-            diameter,
-            tessellation: 8
+        const sensor = MeshBuilder.CreateBox(`${prefix}Sensor${index}`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         sensor.position = position;
-        sensor.rotation.x = Math.PI / 2;
-        sensor.parent = chassis;
+                sensor.parent = chassis;
         sensor.material = MaterialFactory.createHoverSensorMaterial(scene, index, prefix);
         return sensor;
     }
@@ -971,9 +967,10 @@ export class ChassisDetailsGenerator {
         index: number,
         prefix: string = "preview"
     ): Mesh {
-        const thruster = MeshBuilder.CreateCylinder(`${prefix}Thruster${index}`, {
-            height,
-            diameter
+        const thruster = MeshBuilder.CreateBox(`${prefix}Thruster${index}`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         thruster.position = position;
         thruster.parent = chassis;
@@ -1013,7 +1010,7 @@ export class ChassisDetailsGenerator {
         material: StandardMaterial,
         prefix: string = "preview"
     ): Mesh {
-        const float = MeshBuilder.CreateCylinder(`${prefix}Float`, { height, diameter }, scene);
+        const float = MeshBuilder.CreateBox(`${prefix}Float`, { width: diameter, height: height, depth: diameter }, scene);
         float.position = position;
         float.parent = chassis;
         float.material = material;
@@ -1052,10 +1049,10 @@ export class ChassisDetailsGenerator {
         rotationX: number,
         prefix: string = "preview"
     ): Mesh {
-        const aura = MeshBuilder.CreateTorus(`${prefix}CommandAura`, {
-            diameter,
-            thickness,
-            tessellation: 20
+        const aura = MeshBuilder.CreateBox(`${prefix}CommandAura`, {
+            width: diameter,
+            height: thickness,
+            depth: diameter
         }, scene);
         aura.position = position;
         aura.rotation.x = rotationX;
@@ -1095,9 +1092,10 @@ export class ChassisDetailsGenerator {
         index: number,
         prefix: string = "preview"
     ): Mesh {
-        const antenna = MeshBuilder.CreateCylinder(`${prefix}CmdAntenna${index}`, {
-            height,
-            diameter
+        const antenna = MeshBuilder.CreateBox(`${prefix}CmdAntenna${index}`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         antenna.position = position;
         antenna.parent = chassis;
@@ -1201,9 +1199,10 @@ export class ChassisDetailsGenerator {
         material: StandardMaterial,
         prefix: string = "preview"
     ): Mesh {
-        const stabilizer = MeshBuilder.CreateCylinder(`${prefix}Stabilizer`, {
-            height,
-            diameter
+        const stabilizer = MeshBuilder.CreateBox(`${prefix}Stabilizer`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         stabilizer.position = position;
         stabilizer.parent = chassis;

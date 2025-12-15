@@ -46,9 +46,21 @@ export class HUD {
     private killsText!: TextBlock;
     private killsCount = 0;
     
-    // Tracer counter
+    // Tracer counter (legacy - будет перемещен в арсенал)
     private tracerContainer!: Rectangle;
     private tracerCountText!: TextBlock;
+    
+    // Arsenal block (5 slots for different ammo types)
+    private arsenalSlots: Array<{
+        container: Rectangle,
+        icon: TextBlock,
+        countText: TextBlock,
+        type: string, // "tracer", "ap", "apcr", "he", "apds"
+        cooldownOverlay: Rectangle,
+        cooldownFill: Rectangle,
+        cooldownFillGlow: Rectangle,
+        cooldownText: TextBlock
+    }> = [];
 
     // Currency display
     private currencyText!: TextBlock;
@@ -99,6 +111,15 @@ export class HUD {
     private fuelFill: Rectangle | null = null;
     private fuelText: TextBlock | null = null;
     
+    // Tank status block (слева от радара)
+    private tankStatusContainer: Rectangle | null = null;
+    private tankStatusHealthText: TextBlock | null = null;
+    private tankStatusFuelText: TextBlock | null = null;
+    private tankStatusArmorText: TextBlock | null = null;
+    private currentFuel: number = 100;
+    private maxFuel: number = 100;
+    private currentArmor: number = 0;
+    
     // POI indicators
     private _poiMarkers: Map<string, Rectangle> = new Map();
     private poiCaptureProgress: Rectangle | null = null;
@@ -127,6 +148,8 @@ export class HUD {
     
     // Active effects indicators
     private activeEffectsContainer: Rectangle | null = null;
+    private activeEffectsSlots: Array<{ container: Rectangle, icon: TextBlock, nameText: TextBlock, timerText: TextBlock, progressBar: Rectangle }> = [];
+    private readonly maxActiveEffectsSlots = 8; // 5+ слотов (минимум 5 видимых)
     private activeEffects: Map<string, { container: Rectangle, text: TextBlock, timeout: number }> = new Map();
     
     // Tank stats display
@@ -281,7 +304,8 @@ export class HUD {
         this.createPOI3DMarkersContainer(); // 3D маркеры POI
         this.createMissionPanel();     // Панель миссий
         this.createTutorial();         // Система туториала
-        this.createTracerCounter();    // Счётчик трассеров
+        this.createArsenalBlock();     // Блок АРСЕНАЛ (5 слотов для снарядов)
+        this.createTankStatusBlock();  // Блок состояния танка (слева от радара)
         this._createFPSCounter();      // FPS счётчик
         
         // Убеждаемся, что прицел скрыт по умолчанию
@@ -672,18 +696,18 @@ export class HUD {
     }
     
     private createHealthBar() {
-        // === HEALTH BAR - НАД РАСХОДНИКАМИ ===
+        // === HEALTH BAR - НАД РАСХОДНИКАМИ (увеличенный) ===
         const container = new Rectangle("healthContainer");
-        container.width = this.scalePx(200);
-        container.height = this.scalePx(8);
-        container.cornerRadius = 0;
-        container.thickness = 1;
-        container.color = "#0f03";
-        container.background = "#00000099";
+        container.width = this.scalePx(280); // Увеличено с 200
+        container.height = this.scalePx(14); // Увеличено с 8
+        container.cornerRadius = 2;
+        container.thickness = 2;
+        container.color = "#0f04";
+        container.background = "#000000cc";
         container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         container.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         container.left = "0px";
-        container.top = this.scalePx(-78); // HP bar above reload bar
+        container.top = this.scalePx(-90); // HP bar above reload bar (сдвинуто выше)
         this.guiTexture.addControl(container);
         
         // Основной бар здоровья
@@ -836,18 +860,18 @@ export class HUD {
     }
     
     private createReloadIndicator() {
-        // === RELOAD BAR - VISIBLE AND CLEAR ===
+        // === RELOAD BAR - VISIBLE AND CLEAR (увеличенный) ===
         const container = new Rectangle("reloadContainer");
-        container.width = this.scalePx(200);
-        container.height = this.scalePx(12);
-        container.cornerRadius = 0;
+        container.width = this.scalePx(280); // Увеличено с 200
+        container.height = this.scalePx(16); // Увеличено с 12
+        container.cornerRadius = 2;
         container.thickness = 2;
         container.color = "#f80";
         container.background = "#000";
         container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         container.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         container.left = "0px";
-        container.top = this.scalePx(-62); // Reload bar above consumables
+        container.top = this.scalePx(-70); // Reload bar above consumables (сдвинуто выше)
         this.guiTexture.addControl(container);
         
         // Reload bar background
@@ -1380,11 +1404,23 @@ export class HUD {
     // Кулдауны модулей (6-0)
     private moduleCooldowns: Map<number, { startTime: number, duration: number }> = new Map();
     
+    // Кулдауны припасов (1-5)
+    private consumableCooldowns: Map<number, { startTime: number, duration: number }> = new Map();
+    
+    // Кулдауны арсенала (0-4)
+    private arsenalCooldowns: Map<number, { startTime: number, duration: number }> = new Map();
+    
+    // Кулдауны припасов (1-5)
+    private consumableCooldowns: Map<number, { startTime: number, duration: number }> = new Map();
+    
+    // Кулдауны арсенала (0-4)
+    private arsenalCooldowns: Map<number, { startTime: number, duration: number }> = new Map();
+    
     private createConsumablesDisplay() {
         // === HOTBAR - ЦЕНТР, ПОД RELOAD BAR, НАД XP BAR (10 слотов: 1-0) ===
-        const slotWidth = scalePixels(36);
-        const slotGap = scalePixels(4);
-        const totalWidth = 10 * slotWidth + 9 * slotGap; // 396px для 10 слотов
+        const slotWidth = scalePixels(44); // Увеличено с 36
+        const slotGap = scalePixels(5); // Увеличено с 4
+        const totalWidth = 10 * slotWidth + 9 * slotGap;
         const startX = -totalWidth / 2 + slotWidth / 2;
         
         for (let i = 1; i <= 10; i++) {
@@ -1392,14 +1428,14 @@ export class HUD {
             const container = new Rectangle(`consumableSlot${slotIndex}`);
             container.width = `${slotWidth}px`;
             container.height = `${slotWidth}px`;
-            container.cornerRadius = 2; // Скругленные углы для современного вида
-            container.thickness = 1;
-            container.color = slotIndex >= 6 || slotIndex === 0 ? "#0ff4" : "#0f04"; // Голубая рамка для модулей
-            container.background = "#000000aa";
+            container.cornerRadius = 3;
+            container.thickness = 2;
+            container.color = slotIndex >= 6 || slotIndex === 0 ? "#0ff5" : "#0f05";
+            container.background = "#000000bb";
             container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             container.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
             container.left = `${startX + (i - 1) * (slotWidth + slotGap)}px`;
-            container.top = this.scalePx(-20); // Just above XP bar
+            container.top = this.scalePx(-25); // Just above XP bar (сдвинуто выше)
             this.guiTexture.addControl(container);
             
             
@@ -1798,7 +1834,7 @@ export class HUD {
     private createCompass() {
         // === ЖИВОЙ КОМПАС БЕЗ БУКВЕННЫХ ОБОЗНАЧЕНИЙ ===
         this.compassContainer = new Rectangle("compassContainer");
-        this.compassContainer.width = this.scalePx(250);
+        this.compassContainer.width = this.scalePx(500); // Увеличено в 2 раза (было 250)
         this.compassContainer.height = this.scalePx(25);
         this.compassContainer.cornerRadius = 0;
         this.compassContainer.thickness = 1;
@@ -1960,24 +1996,30 @@ export class HUD {
     
     private createMinimap() {
         // === RADAR CONTAINER WITH FRAME ===
+        // Размеры радара (увеличенные для лучшей читаемости)
+        const RADAR_SIZE = 175; // Основной размер радара
+        const RADAR_INNER = 165; // Внутренняя область
+        const HEADER_HEIGHT = 22; // Высота заголовка
+        const INFO_HEIGHT = 22; // Высота блока информации
+        
         // Создаём общий контейнер для радара + блока информации + буквенных обозначений
         this.minimapContainer = new Rectangle("minimapContainer");
-        this.minimapContainer.width = this.scalePx(140);
-        this.minimapContainer.height = this.scalePx(176); // 18px буквенные обозначения + 140px радар + 18px блок информации
+        this.minimapContainer.width = this.scalePx(RADAR_SIZE);
+        this.minimapContainer.height = this.scalePx(RADAR_SIZE + HEADER_HEIGHT + INFO_HEIGHT);
         this.minimapContainer.cornerRadius = 0;
-        this.minimapContainer.thickness = 1; // Тонкая рамка вокруг всего блока
-        this.minimapContainer.color = "#0f0"; // Зелёная рамка
-        this.minimapContainer.background = "#0a1520"; // Dark navy background
+        this.minimapContainer.thickness = 2;
+        this.minimapContainer.color = "#0f0";
+        this.minimapContainer.background = "#0a1520";
         this.minimapContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         this.minimapContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.minimapContainer.left = this.scalePx(-10);
-        this.minimapContainer.top = this.scalePx(-40);
+        this.minimapContainer.left = this.scalePx(-15);
+        this.minimapContainer.top = this.scalePx(-45);
         this.guiTexture.addControl(this.minimapContainer);
         
         // === БЛОК БУКВЕННОГО ОБОЗНАЧЕНИЯ НАПРАВЛЕНИЯ ДВИЖЕНИЯ НАД РАДАРОМ ===
         this.directionLabelsContainer = new Rectangle("directionLabelsContainer");
-        this.directionLabelsContainer.width = this.scalePx(140);
-        this.directionLabelsContainer.height = this.scalePx(18);
+        this.directionLabelsContainer.width = this.scalePx(RADAR_SIZE);
+        this.directionLabelsContainer.height = this.scalePx(HEADER_HEIGHT);
         this.directionLabelsContainer.thickness = 1;
         this.directionLabelsContainer.color = "#0f0";
         this.directionLabelsContainer.background = "#000";
@@ -1989,29 +2031,29 @@ export class HUD {
         this.movementDirectionLabel = new TextBlock("movementDirectionLabel");
         this.movementDirectionLabel.text = "N";
         this.movementDirectionLabel.color = "#0f0";
-        this.movementDirectionLabel.fontSize = this.scaleFontSize(10, 8, 14);
+        this.movementDirectionLabel.fontSize = this.scaleFontSize(12, 9, 16);
         this.movementDirectionLabel.fontWeight = "bold";
         this.movementDirectionLabel.fontFamily = "'Press Start 2P', monospace";
         this.movementDirectionLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.movementDirectionLabel.top = this.scalePx(4);
+        this.movementDirectionLabel.top = this.scalePx(5);
         this.directionLabelsContainer.addControl(this.movementDirectionLabel);
         
         // Внутренний контейнер для радара (средняя часть)
         const radarInnerContainer = new Rectangle("radarInnerContainer");
-        radarInnerContainer.width = this.scalePx(140);
-        radarInnerContainer.height = this.scalePx(140);
+        radarInnerContainer.width = this.scalePx(RADAR_SIZE);
+        radarInnerContainer.height = this.scalePx(RADAR_SIZE);
         radarInnerContainer.cornerRadius = 0;
         radarInnerContainer.thickness = 0;
         radarInnerContainer.background = "#0a1520";
         radarInnerContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         radarInnerContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        radarInnerContainer.top = this.scalePx(18);
+        radarInnerContainer.top = this.scalePx(HEADER_HEIGHT);
         this.minimapContainer.addControl(radarInnerContainer);
         
         // Область радара
         this.radarArea = new Rectangle("radarArea");
-        this.radarArea.width = "130px";
-        this.radarArea.height = "130px";
+        this.radarArea.width = this.scalePx(RADAR_INNER);
+        this.radarArea.height = this.scalePx(RADAR_INNER);
         this.radarArea.thickness = 0;
         this.radarArea.background = "transparent";
         this.radarArea.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -2019,7 +2061,7 @@ export class HUD {
         radarInnerContainer.addControl(this.radarArea);
         
         // === CONCENTRIC CIRCLES - ЦЕЛЬНЫЕ И ТОНКИЕ ===
-        const ringRadii = [12, 24, 36, 48, 60]; // 50m, 100m, 150m, 200m, 250m
+        const ringRadii = [15, 30, 45, 60, 75]; // Увеличенные радиусы для большего радара
         
         for (let ringIdx = 0; ringIdx < ringRadii.length; ringIdx++) {
             const radius = ringRadii[ringIdx];
@@ -2027,12 +2069,12 @@ export class HUD {
             
             // Создаём цельный круг с тонкой рамкой
             const circle = new Rectangle(`ring${ringIdx}`);
-            circle.width = `${diameter}px`;
-            circle.height = `${diameter}px`;
+            circle.width = this.scalePx(diameter);
+            circle.height = this.scalePx(diameter);
             circle.cornerRadius = radius; // Делаем круг
-            circle.thickness = 1; // Тонкая рамка
-            circle.color = "#0f0"; // Зелёный цвет
-            circle.background = "transparent"; // Прозрачная заливка
+            circle.thickness = 1;
+            circle.color = "#0f0";
+            circle.background = "transparent";
             circle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             circle.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
             if (this.radarArea) {
@@ -2042,78 +2084,78 @@ export class HUD {
         
         // === CROSSHAIR ===
         const hLine = new Rectangle("radarHLine");
-        hLine.width = "130px";
-        hLine.height = "2px";
+        hLine.width = this.scalePx(RADAR_INNER);
+        hLine.height = this.scalePx(2);
         hLine.thickness = 0;
         hLine.background = "#0ff";
         this.radarArea.addControl(hLine);
         
         const vLine = new Rectangle("radarVLine");
-        vLine.width = "2px";
-        vLine.height = "130px";
+        vLine.width = this.scalePx(2);
+        vLine.height = this.scalePx(RADAR_INNER);
         vLine.thickness = 0;
         vLine.background = "#0f04";
         this.radarArea.addControl(vLine);
         
         // === FOV CONE (скрытый, для направления) ===
         this.fovConeContainer = new Rectangle("fovConeContainer");
-        this.fovConeContainer.width = "130px";
-        this.fovConeContainer.height = "130px";
+        this.fovConeContainer.width = this.scalePx(RADAR_INNER);
+        this.fovConeContainer.height = this.scalePx(RADAR_INNER);
         this.fovConeContainer.thickness = 0;
         this.fovConeContainer.background = "transparent";
         this.radarArea.addControl(this.fovConeContainer);
         
         const fovAngle = 60;
-        const fovLength = 55;
+        const fovLength = 70; // Увеличено для большего радара
         const halfAngleRad = (fovAngle / 2) * Math.PI / 180;
         
         this.fovLeftLine = new Rectangle("fovLeftLine");
-        this.fovLeftLine.width = "2px";
-        this.fovLeftLine.height = `${fovLength}px`;
+        this.fovLeftLine.width = this.scalePx(2);
+        this.fovLeftLine.height = this.scalePx(fovLength);
         this.fovLeftLine.thickness = 0;
         this.fovLeftLine.background = "#0f04";
         this.fovLeftLine.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.fovLeftLine.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.fovLeftLine.top = `${-fovLength/2}px`;
+        this.fovLeftLine.top = this.scalePx(-fovLength/2);
         this.fovLeftLine.rotation = -halfAngleRad;
         this.fovLeftLine.transformCenterX = 0.5;
         this.fovLeftLine.transformCenterY = 1;
         this.fovConeContainer.addControl(this.fovLeftLine);
         
         this.fovRightLine = new Rectangle("fovRightLine");
-        this.fovRightLine.width = "2px";
-        this.fovRightLine.height = `${fovLength}px`;
+        this.fovRightLine.width = this.scalePx(2);
+        this.fovRightLine.height = this.scalePx(fovLength);
         this.fovRightLine.thickness = 0;
         this.fovRightLine.background = "#0f04";
         this.fovRightLine.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.fovRightLine.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.fovRightLine.top = `${-fovLength/2}px`;
+        this.fovRightLine.top = this.scalePx(-fovLength/2);
         this.fovRightLine.rotation = halfAngleRad;
         this.fovRightLine.transformCenterX = 0.5;
         this.fovRightLine.transformCenterY = 1;
         this.fovConeContainer.addControl(this.fovRightLine);
         
         this.fovCenterLine = new Rectangle("fovCenterLine");
-        this.fovCenterLine.width = "2px";
-        this.fovCenterLine.height = `${fovLength}px`;
+        this.fovCenterLine.width = this.scalePx(2);
+        this.fovCenterLine.height = this.scalePx(fovLength);
         this.fovCenterLine.thickness = 0;
         this.fovCenterLine.background = "#0f02";
         this.fovCenterLine.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        this.fovCenterLine.top = `${-fovLength/2}px`;
+        this.fovCenterLine.top = this.scalePx(-fovLength/2);
         this.fovConeContainer.addControl(this.fovCenterLine);
         
         // Контейнер для танка игрока
         this.minimapPlayerContainer = new Rectangle("playerContainer");
-        this.minimapPlayerContainer.width = "20px";
-        this.minimapPlayerContainer.height = "20px";
+        this.minimapPlayerContainer.width = this.scalePx(24);
+        this.minimapPlayerContainer.height = this.scalePx(24);
         this.minimapPlayerContainer.thickness = 0;
         this.minimapPlayerContainer.background = "transparent";
         this.radarArea.addControl(this.minimapPlayerContainer);
         
         // Маркер игрока (центральный крест из пикселей)
         this.minimapPlayer = new Rectangle("minimapPlayer");
-        this.minimapPlayer.width = "6px";
-        this.minimapPlayer.height = "6px";
+        this.minimapPlayer.width = this.scalePx(8);
+        this.minimapPlayer.height = this.scalePx(8);
         this.minimapPlayer.thickness = 0;
         this.minimapPlayer.background = "#0ff"; // Cyan player
         this.minimapPlayerContainer.addControl(this.minimapPlayer);
@@ -2122,17 +2164,18 @@ export class HUD {
         // Only player marker shown, no barrel direction indicator
         
         // === RADAR SCAN LINE (rotating once per second) ===
+        const scanLineLength = 82; // Увеличено для большего радара
         this.radarScanLine = new Rectangle("radarScanLine");
-        this.radarScanLine.width = "2px";
-        this.radarScanLine.height = "65px";
+        this.radarScanLine.width = this.scalePx(2);
+        this.radarScanLine.height = this.scalePx(scanLineLength);
         this.radarScanLine.thickness = 0;
         this.radarScanLine.background = "#0f0";
         this.radarScanLine.alpha = 0.8;
         this.radarScanLine.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.radarScanLine.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.radarScanLine.top = "-32px"; // Centered at radar center, extends upward
+        this.radarScanLine.top = this.scalePx(-scanLineLength/2);
         this.radarScanLine.transformCenterX = 0.5;
-        this.radarScanLine.transformCenterY = 1; // Rotate from bottom (center of radar)
+        this.radarScanLine.transformCenterY = 1;
         this.radarArea.addControl(this.radarScanLine);
         
         // Start scan animation
@@ -2140,25 +2183,25 @@ export class HUD {
         
         // Линия прицеливания
         this.minimapAimLine = new Rectangle("aimLine");
-        this.minimapAimLine.width = "2px";
-        this.minimapAimLine.height = "60px";
+        this.minimapAimLine.width = this.scalePx(2);
+        this.minimapAimLine.height = this.scalePx(75);
         this.minimapAimLine.background = "#f00";
-        this.minimapAimLine.top = "-33px";
+        this.minimapAimLine.top = this.scalePx(-40);
         this.minimapAimLine.isVisible = false;
         this.radarArea.addControl(this.minimapAimLine);
         
         this.minimapAimDot = new Rectangle("aimDot");
-        this.minimapAimDot.width = "6px";
-        this.minimapAimDot.height = "6px";
+        this.minimapAimDot.width = this.scalePx(8);
+        this.minimapAimDot.height = this.scalePx(8);
         this.minimapAimDot.background = "#f00";
-        this.minimapAimDot.top = "-63px";
+        this.minimapAimDot.top = this.scalePx(-78);
         this.minimapAimDot.isVisible = false;
         this.radarArea.addControl(this.minimapAimDot);
         
         // === INFO UNDER RADAR (two blocks) - внутри общего контейнера ===
         const infoPanel = new Rectangle("radarInfoPanel");
-        infoPanel.width = "140px";
-        infoPanel.height = "18px";
+        infoPanel.width = this.scalePx(RADAR_SIZE);
+        infoPanel.height = this.scalePx(INFO_HEIGHT);
         infoPanel.thickness = 0;
         infoPanel.background = "transparent";
         infoPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -2167,8 +2210,8 @@ export class HUD {
         
         // Speed block (left)
         const speedBlock = new Rectangle("speedBlock");
-        speedBlock.width = "65px";
-        speedBlock.height = "16px";
+        speedBlock.width = this.scalePx(80);
+        speedBlock.height = this.scalePx(20);
         speedBlock.thickness = 1;
         speedBlock.color = "#0f0";
         speedBlock.background = "#000";
@@ -2176,17 +2219,17 @@ export class HUD {
         infoPanel.addControl(speedBlock);
         
         const speedValue = new TextBlock("radarSpeedValue");
-        speedValue.text = "SPD 0";
+        speedValue.text = "0 km/h";
         speedValue.color = "#0f0";
-        speedValue.fontSize = 9;
+        speedValue.fontSize = this.scaleFontSize(10, 8, 14);
         speedValue.fontFamily = "'Press Start 2P', monospace";
         speedBlock.addControl(speedValue);
         (this.minimapContainer as any)._speedValue = speedValue;
         
         // Coords block (right)
         const coordBlock = new Rectangle("coordBlock");
-        coordBlock.width = "70px";
-        coordBlock.height = "16px";
+        coordBlock.width = this.scalePx(90);
+        coordBlock.height = this.scalePx(20);
         coordBlock.thickness = 1;
         coordBlock.color = "#0f0";
         coordBlock.background = "#000";
@@ -2194,9 +2237,9 @@ export class HUD {
         infoPanel.addControl(coordBlock);
         
         const coordValue = new TextBlock("radarCoordValue");
-        coordValue.text = "0, 0";
+        coordValue.text = "[0, 0]";
         coordValue.color = "#0f0";
-        coordValue.fontSize = 9;
+        coordValue.fontSize = this.scaleFontSize(10, 8, 14);
         coordValue.fontFamily = "'Press Start 2P', monospace";
         coordBlock.addControl(coordValue);
         (this.minimapContainer as any)._coordValue = coordValue;
@@ -2345,134 +2388,286 @@ export class HUD {
     
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private _createActiveEffectsDisplay() {
-        // Active Effects - СПРАВА ВВЕРХУ ПОД ENEMY HEALTH (компактный)
+        // Active Effects - СПРАВА ОТ МОДУЛЕЙ (горизонтальный ряд из 5+ слотов)
+        const slotWidth = scalePixels(44); // Такой же размер как у припасов/модулей
+        const slotGap = scalePixels(5);
+        const totalWidth = this.maxActiveEffectsSlots * slotWidth + (this.maxActiveEffectsSlots - 1) * slotGap;
+        const startX = totalWidth / 2 - slotWidth / 2;
+        
+        // Вычисляем позицию: модули (слоты 6-0) занимают 5 слотов справа от припасов
+        // Припасы: 10 слотов, модули: 5 слотов (6-0), эффекты: 8 слотов справа от модулей
+        const consumablesTotalWidth = 10 * slotWidth + 9 * slotGap;
+        const modulesTotalWidth = 5 * slotWidth + 4 * slotGap;
+        const consumablesRightEdge = consumablesTotalWidth / 2;
+        const modulesRightEdge = consumablesRightEdge + modulesTotalWidth + slotGap;
+        const effectsLeftEdge = modulesRightEdge + slotGap * 2; // Справа от модулей с отступом
+        const effectsCenterOffset = effectsLeftEdge + totalWidth / 2;
+        
+        // Создаем контейнер для всех слотов эффектов
         this.activeEffectsContainer = new Rectangle("activeEffectsContainer");
-        this.activeEffectsContainer.width = "90px";
-        this.activeEffectsContainer.height = "120px";
+        this.activeEffectsContainer.width = `${totalWidth}px`;
+        this.activeEffectsContainer.height = `${slotWidth}px`;
         this.activeEffectsContainer.cornerRadius = 0;
         this.activeEffectsContainer.thickness = 0;
-        this.activeEffectsContainer.background = "#00000000"; // Прозрачный
-        this.activeEffectsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        this.activeEffectsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.activeEffectsContainer.left = "-15px";
-        this.activeEffectsContainer.top = "165px";
+        this.activeEffectsContainer.color = "transparent";
+        this.activeEffectsContainer.background = "transparent";
+        this.activeEffectsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.activeEffectsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        this.activeEffectsContainer.left = `${effectsCenterOffset}px`;
+        this.activeEffectsContainer.top = this.scalePx(-25); // На той же высоте что и припасы/модули
         this.guiTexture.addControl(this.activeEffectsContainer);
         
-        // Title
-        const title = new TextBlock("effectsTitle");
-        title.text = "⚡ ACTIVE EFFECTS";
-        title.color = "#0f0";
-        title.fontSize = 11;
-        title.fontWeight = "bold";
-        title.fontFamily = "'Press Start 2P', monospace";
-        title.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        title.left = "0px";
-        title.top = "-15px";
-        this.activeEffectsContainer.addControl(title);
+        // Создаем 8 слотов для эффектов
+        for (let i = 0; i < this.maxActiveEffectsSlots; i++) {
+            const container = new Rectangle(`effectSlot${i}`);
+            container.width = `${slotWidth}px`;
+            container.height = `${slotWidth}px`;
+            container.cornerRadius = 3;
+            container.thickness = 2;
+            container.color = "#0f05"; // Полупрозрачная рамка
+            container.background = "#000000bb";
+            container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            container.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            container.left = `${-startX + i * (slotWidth + slotGap)}px`;
+            container.top = "0px";
+            container.isVisible = true;
+            this.activeEffectsContainer.addControl(container);
+            
+            // Иконка эффекта
+            const icon = new TextBlock(`effectIcon${i}`);
+            icon.text = "";
+            icon.color = "#fff";
+            icon.fontSize = this.scaleFontSize(18, 14, 24);
+            icon.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            icon.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+            icon.outlineWidth = 1;
+            icon.outlineColor = "#000";
+            container.addControl(icon);
+            
+            // Название эффекта (маленькое, сверху)
+            const nameText = new TextBlock(`effectName${i}`);
+            nameText.text = "";
+            nameText.color = "#0f0";
+            nameText.fontSize = this.scaleFontSize(7, 6, 10);
+            nameText.fontWeight = "bold";
+            nameText.fontFamily = "Consolas, monospace";
+            nameText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            nameText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            nameText.top = this.scalePx(2);
+            nameText.outlineWidth = 1;
+            nameText.outlineColor = "#000";
+            container.addControl(nameText);
+            
+            // Таймер (внизу)
+            const timerText = new TextBlock(`effectTimer${i}`);
+            timerText.text = "";
+            timerText.color = "#0f0";
+            timerText.fontSize = this.scaleFontSize(8, 6, 12);
+            timerText.fontWeight = "bold";
+            timerText.fontFamily = "Consolas, monospace";
+            timerText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            timerText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            timerText.top = this.scalePx(-2);
+            timerText.outlineWidth = 1;
+            timerText.outlineColor = "#000";
+            container.addControl(timerText);
+            
+            // Прогресс-бар (внизу, как полоска)
+            const progressBar = new Rectangle(`effectProgress${i}`);
+            progressBar.width = "100%";
+            progressBar.height = "3px";
+            progressBar.cornerRadius = 0;
+            progressBar.thickness = 0;
+            progressBar.background = "#0f0";
+            progressBar.alpha = 0.7;
+            progressBar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            progressBar.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            progressBar.top = "-1px";
+            progressBar.width = "0%";
+            container.addControl(progressBar);
+            
+            this.activeEffectsSlots.push({ container, icon, nameText, timerText, progressBar });
+        }
+    }
+    
+    // Обновить прозрачность всех слотов эффектов на основе количества активных эффектов
+    private updateActiveEffectsOpacity(): void {
+        const activeCount = this.activeEffects.size;
+        const maxSlots = this.maxActiveEffectsSlots;
+        
+        // Вычисляем минимальную прозрачность (динамическое снижение нижнего порога)
+        const minAlpha = Math.max(0, 1.0 - (activeCount / maxSlots));
+        
+        // Обновляем прозрачность каждого слота
+        for (let i = 0; i < this.activeEffectsSlots.length; i++) {
+            const slot = this.activeEffectsSlots[i];
+            const isActive = i < activeCount;
+            
+            if (isActive && activeCount > 0) {
+                // Формула: alpha = 1.0 - (index / activeCount) * (1.0 - minAlpha)
+                // Первый слот всегда 100%, последний видимый - minAlpha
+                const alpha = 1.0 - (i / activeCount) * (1.0 - minAlpha);
+                slot.container.alpha = alpha;
+                slot.icon.alpha = alpha;
+                slot.nameText.alpha = alpha;
+                slot.timerText.alpha = alpha;
+                slot.progressBar.alpha = alpha * 0.7; // Прогресс-бар немного прозрачнее
+            } else {
+                // Неактивные слоты полностью прозрачны
+                slot.container.alpha = 0;
+                slot.icon.alpha = 0;
+                slot.nameText.alpha = 0;
+                slot.timerText.alpha = 0;
+                slot.progressBar.alpha = 0;
+            }
+        }
     }
     
     // Добавить индикатор активного эффекта
     addActiveEffect(name: string, icon: string, color: string, duration: number): void {
-        if (!this.activeEffectsContainer) return;
+        if (!this.activeEffectsContainer || this.activeEffectsSlots.length === 0) return;
         
         // Удаляем старый эффект с таким же именем
         this.removeActiveEffect(name);
         
-        const container = new Rectangle(`effect_${name}`);
-        container.width = "85px";
-        container.height = "28px";
-        container.cornerRadius = 4;
-        container.thickness = 1;
-        container.color = color;
-        container.background = "#00000088";
-        container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        container.top = `${this.activeEffects.size * 30}px`;
-        this.activeEffectsContainer.addControl(container);
+        // Находим первый свободный слот
+        const activeEffectsArray = Array.from(this.activeEffects.keys());
+        const slotIndex = activeEffectsArray.length;
         
-        // Progress bar for duration
-        const progressBar = new Rectangle(`effectProgress_${name}`);
-        progressBar.width = "100%";
-        progressBar.height = "4px";
-        progressBar.cornerRadius = 0;
-        progressBar.thickness = 0;
-        progressBar.background = color;
-        progressBar.alpha = 0.5;
-        progressBar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        progressBar.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        progressBar.top = "-2px";
-        container.addControl(progressBar);
-        (container as any)._progressBar = progressBar;
+        if (slotIndex >= this.maxActiveEffectsSlots) {
+            // Все слоты заняты, не добавляем новый эффект
+            return;
+        }
         
-        const text = new TextBlock(`effectText_${name}`);
-        const seconds = Math.ceil(duration / 1000);
-        text.text = `${icon} ${name}`;
-        text.color = color;
-        text.fontSize = 12;
-        text.fontWeight = "bold";
-        text.fontFamily = "'Press Start 2P', monospace";
-        text.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        text.left = "10px";
-        text.top = "2px";
-        container.addControl(text);
+        const slot = this.activeEffectsSlots[slotIndex];
         
-        // Timer text
-        const timerText = new TextBlock(`effectTimer_${name}`);
-        timerText.text = `${seconds}s`;
-        timerText.color = color;
-        timerText.fontSize = 10;
-        timerText.fontFamily = "'Press Start 2P', monospace";
-        timerText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        timerText.left = "-10px";
-        timerText.top = "2px";
-        container.addControl(timerText);
-        (container as any)._timerText = timerText;
+        // Заполняем слот данными эффекта
+        slot.icon.text = icon;
+        slot.icon.color = color;
+        slot.nameText.text = name.length > 4 ? name.substring(0, 4) : name; // Ограничиваем длину названия
+        slot.nameText.color = color;
+        slot.timerText.text = `${Math.ceil(duration / 1000)}s`;
+        slot.timerText.color = color;
+        slot.container.color = color + "5";
+        slot.progressBar.background = color;
+        slot.progressBar.width = "100%";
         
-        // Обновляем таймер каждую секунду
-        const updateTimer = () => {
-            const remaining = this.activeEffects.get(name);
-            if (!remaining) return;
-            
-            const remainingSeconds = Math.ceil(remaining.timeout / 1000);
-            const progressPercent = Math.max(0, Math.min(100, (remaining.timeout / duration) * 100));
-            
-            if (remainingSeconds > 0) {
-                // Update timer text
-                const timerText = (container as any)._timerText as TextBlock;
-                if (timerText) {
-                    timerText.text = `${remainingSeconds}s`;
-                }
+        // Сохраняем данные эффекта
+        const effectData = {
+            name,
+            icon,
+            color,
+            duration,
+            startTime: Date.now(),
+            slotIndex,
+            updateInterval: setInterval(() => {
+                const elapsed = Date.now() - effectData.startTime;
+                const remaining = Math.max(0, duration - elapsed);
+                const remainingSeconds = Math.ceil(remaining / 1000);
+                const progressPercent = Math.max(0, Math.min(100, (remaining / duration) * 100));
                 
-                // Update progress bar
-                const progressBar = (container as any)._progressBar as Rectangle;
-                if (progressBar) {
-                    progressBar.width = progressPercent + "%";
+                if (remainingSeconds > 0) {
+                    slot.timerText.text = `${remainingSeconds}s`;
+                    slot.progressBar.width = `${progressPercent}%`;
+                } else {
+                    // Эффект закончился
+                    clearInterval(effectData.updateInterval);
+                    this.removeActiveEffect(name);
                 }
-                
-                remaining.timeout -= 1000;
-                setTimeout(updateTimer, 1000);
-            } else {
-                this.removeActiveEffect(name);
-            }
+            }, 100) // Обновляем каждые 100мс для плавности
         };
         
-        this.activeEffects.set(name, { container, text, timeout: duration });
-        setTimeout(updateTimer, 1000);
+        this.activeEffects.set(name, effectData as any);
+        
+        // Обновляем прозрачность всех слотов
+        this.updateActiveEffectsOpacity();
     }
     
-    // Удалить индикатор эффекта
+    // Удалить индикатор активного эффекта
     removeActiveEffect(name: string): void {
-        const effect = this.activeEffects.get(name);
-        if (effect) {
-            effect.container.dispose();
-            this.activeEffects.delete(name);
-            
-            // Обновляем позиции остальных эффектов
-            let index = 0;
-            this.activeEffects.forEach((e) => {
-                e.container.top = `${index * 30}px`;
-                index++;
-            });
+        const effectData = this.activeEffects.get(name);
+        if (!effectData) return;
+        
+        // Останавливаем обновление таймера
+        if ((effectData as any).updateInterval) {
+            clearInterval((effectData as any).updateInterval);
         }
+        
+        // Очищаем слот
+        const slotIndex = (effectData as any).slotIndex;
+        if (slotIndex >= 0 && slotIndex < this.activeEffectsSlots.length) {
+            const slot = this.activeEffectsSlots[slotIndex];
+            slot.icon.text = "";
+            slot.nameText.text = "";
+            slot.timerText.text = "";
+            slot.progressBar.width = "0%";
+        }
+        
+        // Удаляем эффект из Map
+        this.activeEffects.delete(name);
+        
+        // Перераспределяем эффекты по слотам (сдвигаем влево)
+        const remainingEffects = Array.from(this.activeEffects.entries());
+        this.activeEffects.clear();
+        
+        // Очищаем все слоты
+        for (const slot of this.activeEffectsSlots) {
+            slot.icon.text = "";
+            slot.nameText.text = "";
+            slot.timerText.text = "";
+            slot.progressBar.width = "0%";
+        }
+        
+        // Пересоздаем эффекты в новых слотах
+        for (let i = 0; i < remainingEffects.length; i++) {
+            const [effectName, effectData] = remainingEffects[i];
+            const slot = this.activeEffectsSlots[i];
+            const data = effectData as any;
+            
+            slot.icon.text = data.icon;
+            slot.icon.color = data.color;
+            slot.nameText.text = data.name.length > 4 ? data.name.substring(0, 4) : data.name;
+            slot.nameText.color = data.color;
+            slot.container.color = data.color + "5";
+            slot.progressBar.background = data.color;
+            
+            // Пересчитываем оставшееся время
+            const elapsed = Date.now() - data.startTime;
+            const remaining = Math.max(0, data.duration - elapsed);
+            const remainingSeconds = Math.ceil(remaining / 1000);
+            const progressPercent = Math.max(0, Math.min(100, (remaining / data.duration) * 100));
+            
+            slot.timerText.text = `${remainingSeconds}s`;
+            slot.timerText.color = data.color;
+            slot.progressBar.width = `${progressPercent}%`;
+            
+            // Обновляем slotIndex
+            data.slotIndex = i;
+            
+            // Перезапускаем интервал обновления
+            if (data.updateInterval) {
+                clearInterval(data.updateInterval);
+            }
+            data.updateInterval = setInterval(() => {
+                const elapsed = Date.now() - data.startTime;
+                const remaining = Math.max(0, data.duration - elapsed);
+                const remainingSeconds = Math.ceil(remaining / 1000);
+                const progressPercent = Math.max(0, Math.min(100, (remaining / data.duration) * 100));
+                
+                if (remainingSeconds > 0) {
+                    slot.timerText.text = `${remainingSeconds}s`;
+                    slot.progressBar.width = `${progressPercent}%`;
+                } else {
+                    clearInterval(data.updateInterval);
+                    this.removeActiveEffect(effectName);
+                }
+            }, 100);
+            
+            this.activeEffects.set(effectName, data);
+        }
+        
+        // Обновляем прозрачность всех слотов
+        this.updateActiveEffectsOpacity();
     }
     
     private createControlsHint() {
@@ -3858,64 +4053,101 @@ export class HUD {
     private _createFPSCounter() {
         // === FPS COUNTER - ЛЕВЫЙ ВЕРХНИЙ УГОЛ ===
         this.fpsContainer = new Rectangle("fpsContainer");
-        this.fpsContainer.width = "60px"; // Увеличено для лучшей читаемости
-        this.fpsContainer.height = "20px"; // Увеличено немного
-        this.fpsContainer.cornerRadius = 2;
-        this.fpsContainer.thickness = 1;
+        this.fpsContainer.width = this.scalePx(85); // Увеличено для 3-значных чисел (144, 240)
+        this.fpsContainer.height = this.scalePx(28);
+        this.fpsContainer.cornerRadius = 3;
+        this.fpsContainer.thickness = 2;
         this.fpsContainer.color = "#0f03";
-        this.fpsContainer.background = "#00000099";
+        this.fpsContainer.background = "#000000cc";
         this.fpsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.fpsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.fpsContainer.left = "15px";
-        this.fpsContainer.top = "10px";
-        this.fpsContainer.zIndex = 1000; // Поверх других элементов
+        this.fpsContainer.left = this.scalePx(15);
+        this.fpsContainer.top = this.scalePx(10);
+        this.fpsContainer.zIndex = 1000;
         this.guiTexture.addControl(this.fpsContainer);
         
         this.fpsText = new TextBlock("fpsText");
-        this.fpsText.text = "60 FPS"; // Явно добавляем " FPS" для отладки
+        this.fpsText.text = "-- FPS";
         this.fpsText.color = "#0f0";
-        this.fpsText.fontSize = 11;
-        this.fpsText.fontFamily = "Consolas, monospace"; // Меняем на более читаемый шрифт
+        this.fpsText.fontSize = this.scaleFontSize(14, 10, 20);
+        this.fpsText.fontFamily = "Consolas, monospace";
         this.fpsText.fontWeight = "bold";
         this.fpsText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.fpsText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.fpsText.zIndex = 1001;
         this.fpsContainer.addControl(this.fpsText);
         
-        // FPS виден по умолчанию (можно будет изменить через настройки)
         this.fpsContainer.isVisible = true;
         this.fpsText.isVisible = true;
-        
-        console.log("[HUD] FPS counter created:", this.fpsText.text);
     }
     
-    updateFPS(fps: number) {
+    updateFPS(fps: number, deltaTime?: number) {
+        // Проверка инициализации элементов FPS счётчика
         if (!this.fpsText || !this.fpsContainer) {
             return;
         }
         
-        // Добавляем текущий FPS в историю для усреднения (плавность отображения)
-        this.fpsHistory.push(fps);
-        if (this.fpsHistory.length > 5) { // Маленький буфер для быстрой реакции
+        // Если fps невалидный, пытаемся вычислить из deltaTime
+        let currentFps = fps;
+        if (!isFinite(currentFps) || currentFps <= 0) {
+            if (deltaTime && deltaTime > 0 && isFinite(deltaTime)) {
+                currentFps = 1000 / deltaTime; // deltaTime в миллисекундах
+            } else {
+                // Если deltaTime тоже невалидный, показываем "--"
+                this.fpsText.text = "-- FPS";
+                this.fpsText.color = "#888";
+                this.fpsContainer.color = "#8883";
+                return;
+            }
+        }
+        
+        // Минимальное усреднение (2 кадра) для плавности, но быстрая реакция
+        // Это уменьшено с предыдущих 3+ кадров для более быстрого отклика
+        this.fpsHistory.push(currentFps);
+        if (this.fpsHistory.length > 2) {
             this.fpsHistory.shift();
         }
         
-        // Вычисляем средний FPS для плавности
-        const avgFps = Math.round(this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length);
+        // Вычисляем средний FPS (с проверкой на пустую историю)
+        let displayFps: number;
+        if (this.fpsHistory.length === 0) {
+            displayFps = Math.round(currentFps);
+        } else {
+            displayFps = Math.round(this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length);
+        }
         
-        // Обновляем текст (всегда обновляем для "живого" отображения)
-        this.fpsText.text = `${avgFps} FPS`;
+        // Проверка на валидность результата
+        if (!isFinite(displayFps) || displayFps < 0) {
+            this.fpsText.text = "-- FPS";
+            this.fpsText.color = "#888";
+            this.fpsContainer.color = "#8883";
+            return;
+        }
         
-        // Цвет в зависимости от FPS
-        if (avgFps >= 55) {
-            this.fpsText.color = "#00ff88";
-            this.fpsContainer.color = "#00ff8833";
-        } else if (avgFps >= 30) {
+        // Обновляем текст - ВСЕГДА обновляем, даже если значение не изменилось
+        this.fpsText.text = `${displayFps} FPS`;
+        
+        // Цвет в зависимости от FPS (учитываем высокие частоты обновления)
+        if (displayFps >= 120) {
+            // Отличный FPS (120+) - яркий зелёный
+            this.fpsText.color = "#00ffaa";
+            this.fpsContainer.color = "#00ffaa44";
+        } else if (displayFps >= 60) {
+            // Хороший FPS (60-119) - зелёный
+            this.fpsText.color = "#00ff44";
+            this.fpsContainer.color = "#00ff4433";
+        } else if (displayFps >= 30) {
+            // Средний FPS (30-59) - жёлтый
             this.fpsText.color = "#ffaa00";
             this.fpsContainer.color = "#ffaa0033";
-        } else {
+        } else if (displayFps > 0) {
+            // Низкий FPS (1-29) - красный
             this.fpsText.color = "#ff3366";
             this.fpsContainer.color = "#ff336633";
+        } else {
+            // FPS = 0 - серый (игра не запущена или на паузе)
+            this.fpsText.color = "#888";
+            this.fpsContainer.color = "#8883";
         }
     }
     
@@ -3948,6 +4180,13 @@ export class HUD {
         speed?: number,
         maxHealth?: number
     ) {
+        // Сохраняем броню для блока состояния
+        this.currentArmor = armor;
+        
+        // Обновляем блок состояния танка
+        if (this.tankStatusContainer) {
+            this.updateTankStatus(this.currentHealth, this.maxHealth, this.currentFuel, this.maxFuel, armor);
+        }
         // Chassis info with level
         if (this.chassisTypeText) {
             const lvlText = chassisLevel ? ` Lv.${chassisLevel}` : "";
@@ -4016,16 +4255,19 @@ export class HUD {
     
     // XP BAR - Full width at very bottom
     private createCentralXpBar(): void {
+        // Вычисляем ширину XP бара - максимум 800px, но не больше 60% экрана
+        const maxWidth = Math.min(800, window.innerWidth * 0.6);
+        
         this.centralXpContainer = new Rectangle("centralXpContainer");
-        this.centralXpContainer.width = "100%";
-        this.centralXpContainer.height = "20px"; // Чуть толще, чтобы текст не заходил на рамку
-        this.centralXpContainer.cornerRadius = 0;
+        this.centralXpContainer.width = `${maxWidth}px`; // Ограниченная ширина вместо 100%
+        this.centralXpContainer.height = this.scalePx(24); // Немного толще
+        this.centralXpContainer.cornerRadius = 3;
         this.centralXpContainer.thickness = 2;
         this.centralXpContainer.color = "#0f0";
-        this.centralXpContainer.background = "#000"; // Темный фон для контраста
+        this.centralXpContainer.background = "#000";
         this.centralXpContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.centralXpContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.centralXpContainer.top = "0px"; // At the very bottom
+        this.centralXpContainer.top = this.scalePx(-5); // Немного выше от края
         this.guiTexture.addControl(this.centralXpContainer);
         
         // Progress bar
@@ -4043,26 +4285,25 @@ export class HUD {
         const xpTextOutline = new TextBlock("centralXpTextOutline");
         xpTextOutline.text = "LVL 1 XP: 0/100";
         xpTextOutline.color = "#000";
-        xpTextOutline.fontSize = 10;
+        xpTextOutline.fontSize = this.scaleFontSize(12, 9, 16);
         xpTextOutline.fontFamily = "'Press Start 2P', monospace";
         xpTextOutline.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         xpTextOutline.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        xpTextOutline.top = "1px";
-        xpTextOutline.left = "1px";
+        xpTextOutline.top = this.scalePx(1);
+        xpTextOutline.left = this.scalePx(1);
         xpTextOutline.isVisible = true;
         this.centralXpContainer.addControl(xpTextOutline);
         
         // Основной текст (темно-синий для контраста с зеленым фоном)
-        // Опускаем немного ниже для центрирования (высота контейнера 20px, текст ~10px, значит нужно ~5px от верха)
         this.centralXpText = new TextBlock("centralXpText");
         this.centralXpText.text = "LVL 1 XP: 0/100";
-        this.centralXpText.color = "#0066ff"; // Темно-синий для хорошего контраста с зеленым
-        this.centralXpText.fontSize = 10;
+        this.centralXpText.color = "#0066ff";
+        this.centralXpText.fontSize = this.scaleFontSize(12, 9, 16);
         this.centralXpText.fontFamily = "'Press Start 2P', monospace";
         this.centralXpText.fontWeight = "bold";
         this.centralXpText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.centralXpText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        this.centralXpText.top = "4px"; // Опускаем на 4px ниже для лучшего центрирования
+        this.centralXpText.top = this.scalePx(3);
         this.centralXpText.isVisible = true;
         this.centralXpContainer.addControl(this.centralXpText);
         
@@ -4844,6 +5085,10 @@ export class HUD {
     updateFuel(current: number, max: number): void {
         if (!this.fuelFill || !this.fuelText) return;
         
+        // Сохраняем значения для блока состояния
+        this.currentFuel = current;
+        this.maxFuel = max;
+        
         const percent = Math.max(0, Math.min(100, (current / max) * 100));
         this.fuelFill.width = `${percent}%`;
         this.fuelText.text = `⛽ ${Math.round(percent)}%`;
@@ -4859,50 +5104,383 @@ export class HUD {
             this.fuelFill.background = "#f30";
             this.fuelText.color = "#f30";
         }
+        
+        // Обновляем блок состояния танка
+        if (this.tankStatusContainer) {
+            this.updateTankStatus(this.currentHealth, this.maxHealth, current, max, this.currentArmor);
+        }
     }
     
     // === TRACER COUNTER ===
     
     private createTracerCounter(): void {
-        // Tracer counter container (below fuel, left side)
+        // DEPRECATED: Счетчик трассеров теперь в блоке АРСЕНАЛ
+        // Оставляем для обратной совместимости, но скрываем
         this.tracerContainer = new Rectangle("tracerContainer");
-        this.tracerContainer.width = "80px";
-        this.tracerContainer.height = "22px";
-        this.tracerContainer.cornerRadius = 2;
+        this.tracerContainer.width = this.scalePx(90);
+        this.tracerContainer.height = this.scalePx(28);
+        this.tracerContainer.cornerRadius = 3;
         this.tracerContainer.color = "#f60";
-        this.tracerContainer.thickness = 1;
-        this.tracerContainer.background = "rgba(50, 20, 0, 0.7)";
+        this.tracerContainer.thickness = 2;
+        this.tracerContainer.background = "rgba(50, 20, 0, 0.8)";
         this.tracerContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.tracerContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.tracerContainer.left = "10px";
-        this.tracerContainer.top = "80px";
+        this.tracerContainer.left = this.scalePx(15);
+        this.tracerContainer.top = this.scalePx(50);
+        this.tracerContainer.isVisible = false; // Скрыт, так как теперь в арсенале
         this.guiTexture.addControl(this.tracerContainer);
         
         // Tracer icon and count text
         this.tracerCountText = new TextBlock("tracerCountText");
         this.tracerCountText.text = "T: 5/5";
         this.tracerCountText.color = "#f80";
-        this.tracerCountText.fontSize = "11px";
+        this.tracerCountText.fontSize = this.scaleFontSize(13, 10, 18);
         this.tracerCountText.fontWeight = "bold";
         this.tracerCountText.fontFamily = "Consolas, monospace";
         this.tracerContainer.addControl(this.tracerCountText);
     }
     
     updateTracerCount(current: number, max: number): void {
-        if (!this.tracerCountText) return;
+        // Обновляем через арсенал (первый слот - трассеры)
+        if (this.arsenalSlots.length > 0) {
+            this.updateArsenalSlot(0, current, max);
+        }
+        // Также обновляем старый счетчик для обратной совместимости (если он еще существует и видим)
+        if (this.tracerCountText && this.tracerContainer && this.tracerContainer.isVisible) {
+            this.tracerCountText.text = `T: ${current}/${max}`;
+            // Color based on tracer count
+            if (current === 0) {
+                this.tracerCountText.color = "#f00";
+                this.tracerContainer.color = "#f00";
+            } else if (current <= 2) {
+                this.tracerCountText.color = "#fa0";
+                this.tracerContainer.color = "#fa0";
+            } else {
+                this.tracerCountText.color = "#f80";
+                this.tracerContainer.color = "#f60";
+            }
+        }
+    }
+    
+    // === TANK STATUS BLOCK ===
+    
+    private createTankStatusBlock(): void {
+        // === БЛОК СОСТОЯНИЯ ТАНКА - СЛЕВА ОТ РАДАРА ===
+        // Радар находится: horizontalAlignment: RIGHT, left: -15px, top: -45px
+        // Блок состояния должен быть слева от радара
+        const blockWidth = this.scalePx(140);
+        const blockHeight = this.scalePx(80);
         
-        this.tracerCountText.text = `T: ${current}/${max}`;
+        this.tankStatusContainer = new Rectangle("tankStatusContainer");
+        this.tankStatusContainer.width = blockWidth;
+        this.tankStatusContainer.height = blockHeight;
+        this.tankStatusContainer.cornerRadius = 3;
+        this.tankStatusContainer.thickness = 2;
+        this.tankStatusContainer.color = "#0f0";
+        this.tankStatusContainer.background = "#0a1520";
+        this.tankStatusContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.tankStatusContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        // Позиционируем слева от радара: радар на -15px, блок на -15px - blockWidth - gap
+        // Радар: left = -15px, ширина радара = 175px (RADAR_SIZE)
+        const radarLeft = -15;
+        const radarWidth = 175;
+        const gap = 10;
+        const blockWidthNum = scalePixels(140);
+        this.tankStatusContainer.left = `${radarLeft - radarWidth - gap - blockWidthNum}px`;
+        this.tankStatusContainer.top = this.scalePx(-45); // На той же высоте что и радар
+        this.guiTexture.addControl(this.tankStatusContainer);
         
-        // Color based on tracer count
+        // Заголовок
+        const title = new TextBlock("tankStatusTitle");
+        title.text = "ТАНК";
+        title.color = "#0f0";
+        title.fontSize = this.scaleFontSize(10, 8, 14);
+        title.fontWeight = "bold";
+        title.fontFamily = "Consolas, monospace";
+        title.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        title.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        title.left = this.scalePx(5);
+        title.top = this.scalePx(5);
+        this.tankStatusContainer.addControl(title);
+        
+        // Здоровье
+        this.tankStatusHealthText = new TextBlock("tankStatusHealth");
+        this.tankStatusHealthText.text = "❤ 100%";
+        this.tankStatusHealthText.color = "#0f0";
+        this.tankStatusHealthText.fontSize = this.scaleFontSize(11, 9, 16);
+        this.tankStatusHealthText.fontWeight = "bold";
+        this.tankStatusHealthText.fontFamily = "Consolas, monospace";
+        this.tankStatusHealthText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.tankStatusHealthText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.tankStatusHealthText.left = this.scalePx(5);
+        this.tankStatusHealthText.top = this.scalePx(25);
+        this.tankStatusContainer.addControl(this.tankStatusHealthText);
+        
+        // Топливо
+        this.tankStatusFuelText = new TextBlock("tankStatusFuel");
+        this.tankStatusFuelText.text = "⛽ 100%";
+        this.tankStatusFuelText.color = "#f90";
+        this.tankStatusFuelText.fontSize = this.scaleFontSize(11, 9, 16);
+        this.tankStatusFuelText.fontWeight = "bold";
+        this.tankStatusFuelText.fontFamily = "Consolas, monospace";
+        this.tankStatusFuelText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.tankStatusFuelText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.tankStatusFuelText.left = this.scalePx(5);
+        this.tankStatusFuelText.top = this.scalePx(45);
+        this.tankStatusContainer.addControl(this.tankStatusFuelText);
+        
+        // Броня
+        this.tankStatusArmorText = new TextBlock("tankStatusArmor");
+        this.tankStatusArmorText.text = "🛡 0%";
+        this.tankStatusArmorText.color = "#0ff";
+        this.tankStatusArmorText.fontSize = this.scaleFontSize(11, 9, 16);
+        this.tankStatusArmorText.fontWeight = "bold";
+        this.tankStatusArmorText.fontFamily = "Consolas, monospace";
+        this.tankStatusArmorText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.tankStatusArmorText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.tankStatusArmorText.left = this.scalePx(5);
+        this.tankStatusArmorText.top = this.scalePx(65);
+        this.tankStatusContainer.addControl(this.tankStatusArmorText);
+    }
+    
+    private updateTankStatus(health: number, maxHealth: number, fuel: number, maxFuel: number, armor: number): void {
+        if (!this.tankStatusContainer) return;
+        
+        // Обновляем здоровье
+        if (this.tankStatusHealthText) {
+            const healthPercent = Math.max(0, Math.min(100, (health / maxHealth) * 100));
+            this.tankStatusHealthText.text = `❤ ${Math.round(healthPercent)}%`;
+            
+            // Цвет в зависимости от здоровья
+            if (healthPercent > 60) {
+                this.tankStatusHealthText.color = "#0f0";
+            } else if (healthPercent > 30) {
+                this.tankStatusHealthText.color = "#fa0";
+            } else {
+                this.tankStatusHealthText.color = "#f00";
+            }
+        }
+        
+        // Обновляем топливо
+        if (this.tankStatusFuelText) {
+            const fuelPercent = Math.max(0, Math.min(100, (fuel / maxFuel) * 100));
+            this.tankStatusFuelText.text = `⛽ ${Math.round(fuelPercent)}%`;
+            
+            // Цвет в зависимости от топлива
+            if (fuelPercent > 50) {
+                this.tankStatusFuelText.color = "#f90";
+            } else if (fuelPercent > 20) {
+                this.tankStatusFuelText.color = "#fa0";
+            } else {
+                this.tankStatusFuelText.color = "#f30";
+            }
+        }
+        
+        // Обновляем броню
+        if (this.tankStatusArmorText) {
+            const armorPercent = Math.max(0, Math.min(100, armor * 100));
+            this.tankStatusArmorText.text = `🛡 ${Math.round(armorPercent)}%`;
+            
+            // Цвет в зависимости от брони
+            if (armorPercent > 50) {
+                this.tankStatusArmorText.color = "#0ff";
+            } else if (armorPercent > 20) {
+                this.tankStatusArmorText.color = "#0af";
+            } else {
+                this.tankStatusArmorText.color = "#08f";
+            }
+        }
+    }
+    
+    // === ARSENAL BLOCK ===
+    
+    private createArsenalBlock(): void {
+        // === АРСЕНАЛ - СЛЕВА ОТ БЛОКА ПРИПАСОВ (5 слотов для разных типов снарядов) ===
+        const slotWidth = scalePixels(44); // Такой же размер как у припасов
+        const slotGap = scalePixels(5);
+        const arsenalTotalWidth = 5 * slotWidth + 4 * slotGap;
+        const arsenalStartX = -arsenalTotalWidth / 2 + slotWidth / 2;
+        
+        // Вычисляем позицию: припасы занимают 10 слотов, их левая граница = -totalWidth/2
+        const consumablesTotalWidth = 10 * slotWidth + 9 * slotGap;
+        const consumablesLeftEdge = -consumablesTotalWidth / 2;
+        // Арсенал размещаем слева от припасов с отступом
+        const gapBetween = slotGap * 2; // Отступ между арсеналом и припасами
+        const arsenalRightEdge = consumablesLeftEdge - gapBetween;
+        const arsenalCenterOffset = arsenalRightEdge - arsenalTotalWidth / 2;
+        
+        // Типы снарядов и их иконки
+        const ammoTypes = [
+            { type: "tracer", icon: "🔥", label: "T", color: "#f80" },      // Трассеры
+            { type: "ap", icon: "⚫", label: "AP", color: "#0ff" },        // Обычные (Armor Piercing)
+            { type: "apcr", icon: "⚡", label: "APCR", color: "#0af" },    // Бронебойные (APCR)
+            { type: "he", icon: "💥", label: "HE", color: "#f60" },       // Фугасные (High Explosive)
+            { type: "apds", icon: "🎯", label: "APDS", color: "#0fa" }   // Подкалиберные (APDS)
+        ];
+        
+        for (let i = 0; i < 5; i++) {
+            const ammoType = ammoTypes[i];
+            
+            // Контейнер слота (как у припасов)
+            const container = new Rectangle(`arsenalSlot${i}`);
+            container.width = `${slotWidth}px`;
+            container.height = `${slotWidth}px`;
+            container.cornerRadius = 3;
+            container.thickness = 2;
+            container.color = ammoType.color + "5"; // Полупрозрачная рамка
+            container.background = "#000000bb";
+            container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            container.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            // Позиционируем относительно центра с учетом смещения
+            container.left = `${arsenalCenterOffset + arsenalStartX + i * (slotWidth + slotGap)}px`;
+            container.top = this.scalePx(-25); // На той же высоте что и припасы
+            container.isVisible = true;
+            this.guiTexture.addControl(container);
+            
+            // Иконка типа снаряда
+            const icon = new TextBlock(`arsenalIcon${i}`);
+            icon.text = ammoType.icon;
+            icon.color = "#fff";
+            icon.fontSize = this.scaleFontSize(18, 14, 24);
+            icon.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            icon.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+            icon.top = this.scalePx(-8); // Немного выше центра
+            icon.outlineWidth = 1;
+            icon.outlineColor = "#000";
+            container.addControl(icon);
+            
+            // Текст количества (current/max)
+            const countText = new TextBlock(`arsenalCount${i}`);
+            countText.text = "0/0";
+            countText.color = ammoType.color;
+            countText.fontSize = this.scaleFontSize(10, 8, 14);
+            countText.fontWeight = "bold";
+            countText.fontFamily = "Consolas, monospace";
+            countText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            countText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            countText.top = this.scalePx(-2); // Внизу слота
+            countText.outlineWidth = 1;
+            countText.outlineColor = "#000";
+            container.addControl(countText);
+            
+            // Метка типа (маленькая, сверху)
+            const label = new TextBlock(`arsenalLabel${i}`);
+            label.text = ammoType.label;
+            label.color = ammoType.color;
+            label.fontSize = this.scaleFontSize(7, 6, 10);
+            label.fontWeight = "bold";
+            label.fontFamily = "Consolas, monospace";
+            label.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            label.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            label.top = this.scalePx(2);
+            label.outlineWidth = 1;
+            label.outlineColor = "#000";
+            container.addControl(label);
+            
+            // === COOLDOWN OVERLAY для арсенала ===
+            const cooldownOverlay = new Rectangle(`arsenalCooldownOverlay${i}`);
+            cooldownOverlay.width = "100%";
+            cooldownOverlay.height = "100%";
+            cooldownOverlay.thickness = 0;
+            cooldownOverlay.background = "#000000aa";
+            cooldownOverlay.cornerRadius = 2;
+            cooldownOverlay.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            cooldownOverlay.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            cooldownOverlay.isVisible = false;
+            container.addControl(cooldownOverlay);
+            
+            const cooldownFill = new Rectangle(`arsenalCooldownFill${i}`);
+            cooldownFill.width = "100%";
+            cooldownFill.height = "0%";
+            cooldownFill.thickness = 0;
+            cooldownFill.background = "#ff0000dd";
+            cooldownFill.cornerRadius = 2;
+            cooldownFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            cooldownFill.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            cooldownOverlay.addControl(cooldownFill);
+            
+            const cooldownFillGlow = new Rectangle(`arsenalCooldownFillGlow${i}`);
+            cooldownFillGlow.width = "100%";
+            cooldownFillGlow.height = "0%";
+            cooldownFillGlow.thickness = 0;
+            cooldownFillGlow.background = "#00ff00bb";
+            cooldownFillGlow.cornerRadius = 2;
+            cooldownFillGlow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            cooldownFillGlow.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            cooldownFillGlow.alpha = 0;
+            cooldownOverlay.addControl(cooldownFillGlow);
+            
+            const cooldownText = new TextBlock(`arsenalCooldownText${i}`);
+            cooldownText.text = "";
+            cooldownText.color = "#fff";
+            cooldownText.fontSize = 12;
+            cooldownText.fontWeight = "bold";
+            cooldownText.fontFamily = "'Press Start 2P', monospace";
+            cooldownText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            cooldownText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+            cooldownText.outlineWidth = 2;
+            cooldownText.outlineColor = "#000";
+            cooldownOverlay.addControl(cooldownText);
+            
+            this.arsenalSlots.push({
+                container,
+                icon,
+                countText,
+                type: ammoType.type,
+                cooldownOverlay,
+                cooldownFill,
+                cooldownFillGlow,
+                cooldownText
+            });
+        }
+        
+        // Инициализируем значения по умолчанию (для трассеров используем реальные данные позже)
+        // Остальные типы пока 0/0
+    }
+    
+    // Обновить конкретный слот арсенала
+    private updateArsenalSlot(slotIndex: number, current: number, max: number): void {
+        if (slotIndex < 0 || slotIndex >= this.arsenalSlots.length) return;
+        
+        const slot = this.arsenalSlots[slotIndex];
+        slot.countText.text = `${current}/${max}`;
+        
+        // Цвет в зависимости от количества
+        const ammoTypes = [
+            { type: "tracer", color: "#f80" },
+            { type: "ap", color: "#0ff" },
+            { type: "apcr", color: "#0af" },
+            { type: "he", color: "#f60" },
+            { type: "apds", color: "#0fa" }
+        ];
+        
+        const ammoType = ammoTypes[slotIndex];
         if (current === 0) {
-            this.tracerCountText.color = "#f00";
-            this.tracerContainer.color = "#f00";
-        } else if (current <= 2) {
-            this.tracerCountText.color = "#fa0";
-            this.tracerContainer.color = "#fa0";
+            slot.countText.color = "#f00";
+            slot.container.color = "#f005";
+        } else if (current <= max * 0.3) {
+            slot.countText.color = "#fa0";
+            slot.container.color = "#fa05";
         } else {
-            this.tracerCountText.color = "#f80";
-            this.tracerContainer.color = "#f60";
+            slot.countText.color = ammoType.color;
+            slot.container.color = ammoType.color + "5";
+        }
+    }
+    
+    // Обновить весь арсенал
+    updateArsenal(ammoData: Map<string, { current: number, max: number }>): void {
+        const slotTypes = ["tracer", "ap", "apcr", "he", "apds"];
+        
+        for (let i = 0; i < slotTypes.length && i < this.arsenalSlots.length; i++) {
+            const type = slotTypes[i];
+            const data = ammoData.get(type);
+            if (data) {
+                this.updateArsenalSlot(i, data.current, data.max);
+            } else {
+                // Значения по умолчанию
+                const defaultMax = type === "tracer" ? 5 : 0;
+                this.updateArsenalSlot(i, 0, defaultMax);
+            }
         }
     }
     

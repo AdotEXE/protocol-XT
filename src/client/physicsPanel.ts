@@ -36,6 +36,7 @@ export class PhysicsPanel {
     private createUI(): void {
         this.container = document.createElement("div");
         this.container.id = "physics-panel";
+        this.container.className = "panel-overlay";
         
         const sections = [
             {
@@ -106,12 +107,17 @@ export class PhysicsPanel {
         ];
         
         let html = `
-            <div class="physics-title">ФИЗИКА ТАНКА [F4]</div>
-            <div class="physics-controls">
-                <button id="physics-reset" class="physics-btn">Сброс</button>
-                <button id="physics-save-preset" class="physics-btn">Сохранить</button>
-            </div>
-            <div class="physics-presets" id="physics-presets-list"></div>
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">НАСТРОЙКИ ФИЗИКИ [F4]</div>
+                    <button class="panel-close" id="physics-close">✕</button>
+                </div>
+                <div class="panel-content">
+                    <div class="physics-controls">
+                        <button id="physics-reset" class="panel-btn secondary">Сброс</button>
+                        <button id="physics-save-preset" class="panel-btn primary">Сохранить</button>
+                    </div>
+                    <div class="physics-presets" id="physics-presets-list"></div>
         `;
         
         sections.forEach(section => {
@@ -136,61 +142,102 @@ export class PhysicsPanel {
             html += `</div>`;
         });
         
+        html += `
+                </div>
+            </div>
+        `;
+        
         this.container.innerHTML = html;
         
         const style = document.createElement("style");
         style.textContent = `
-            #physics-panel {
+            #physics-panel.panel-overlay {
                 position: fixed;
-                top: clamp(5px, 1vh, 10px);
-                left: clamp(5px, 1vw, 10px);
-                background: rgba(0, 0, 0, 0.85);
-                color: #0f0;
-                font-family: Consolas, Monaco, monospace;
-                font-size: clamp(9px, 1.1vw, 11px);
-                padding: clamp(6px, 0.8vh, 8px) clamp(8px, 1.2vw, 12px);
-                border-radius: clamp(3px, 0.4vw, 4px);
-                border: clamp(1px, 0.1vw, 1px) solid #0f0;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.8);
+                display: flex;
+                justify-content: center;
+                align-items: center;
                 z-index: 10001;
-                min-width: clamp(180px, 22vw, 220px);
-                max-width: min(280px, 30vw);
-                max-height: 90vh;
-                overflow-y: auto;
-                user-select: none;
             }
-            #physics-panel.hidden { display: none; }
-            .physics-title {
-                font-size: clamp(10px, 1.2vw, 12px);
+            #physics-panel.panel-overlay.hidden {
+                display: none;
+            }
+            #physics-panel .panel {
+                background: linear-gradient(135deg, #0a0a0a 0%, #000 100%);
+                border: 2px solid #0f0;
+                box-shadow: 0 0 30px rgba(0, 255, 0, 0.3), inset 0 0 20px rgba(0, 255, 0, 0.05);
+                max-width: 600px;
+                max-height: 85vh;
+                width: 90%;
+                display: flex;
+                flex-direction: column;
+            }
+            #physics-panel .panel-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 15px 20px;
+                border-bottom: 1px solid #0f0;
+                background: rgba(0, 255, 0, 0.05);
+            }
+            #physics-panel .panel-title {
+                font-size: 16px;
+                color: #0f0;
+                text-shadow: 0 0 10px #0f0;
                 font-weight: bold;
-                color: #0ff;
-                border-bottom: clamp(1px, 0.1vw, 1px) solid #0f04;
-                padding-bottom: clamp(3px, 0.4vh, 4px);
-                margin-bottom: clamp(4px, 0.6vh, 6px);
+            }
+            #physics-panel .panel-close {
+                background: transparent;
+                border: 1px solid #0f0;
+                color: #0f0;
+                width: 28px;
+                height: 28px;
+                cursor: pointer;
+                font-size: 16px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.2s;
+            }
+            #physics-panel .panel-close:hover {
+                background: #0f0;
+                color: #000;
+            }
+            #physics-panel .panel-content {
+                padding: 20px;
+                overflow-y: auto;
+                flex: 1;
             }
             .physics-controls {
                 display: flex;
-                gap: 4px;
-                margin-bottom: 8px;
+                gap: 10px;
+                margin-bottom: 15px;
                 flex-wrap: wrap;
             }
-            .physics-btn {
-                background: rgba(0, 255, 0, 0.15);
-                border: clamp(1px, 0.1vw, 1px) solid #0f0;
+            #physics-panel .panel-btn {
+                padding: 10px 20px;
+                border: 2px solid #0f0;
+                background: rgba(0, 255, 0, 0.1);
                 color: #0f0;
-                padding: clamp(3px, 0.4vh, 4px) clamp(6px, 0.8vw, 8px);
                 cursor: pointer;
-                font-family: Consolas, Monaco, monospace;
-                font-size: clamp(8px, 1vw, 10px);
-                border-radius: clamp(2px, 0.2vw, 2px);
+                font-size: 12px;
                 transition: all 0.2s;
                 flex: 1;
-                min-width: clamp(60px, 7vw, 70px);
+                min-width: 100px;
             }
-            .physics-btn:hover {
+            #physics-panel .panel-btn:hover {
+                background: rgba(0, 255, 0, 0.2);
+                box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+            }
+            #physics-panel .panel-btn.primary {
+                background: rgba(0, 255, 0, 0.2);
+            }
+            #physics-panel .panel-btn.primary:hover {
                 background: rgba(0, 255, 0, 0.3);
-            }
-            .physics-btn:active {
-                background: rgba(0, 255, 0, 0.5);
             }
             .physics-presets {
                 margin-bottom: 8px;
@@ -205,50 +252,56 @@ export class PhysicsPanel {
             }
             .physics-preset-name {
                 flex: 1;
-                color: #aaa;
-                font-size: 10px;
-                padding: 2px 4px;
+                color: #7f7;
+                font-size: 12px;
+                padding: 8px 12px;
                 background: rgba(0, 255, 0, 0.05);
-                border: 1px solid rgba(0, 255, 0, 0.2);
-                border-radius: 2px;
+                border: 1px solid rgba(0, 255, 0, 0.3);
+                border-radius: 4px;
                 cursor: pointer;
+                transition: all 0.2s;
             }
             .physics-preset-name:hover {
                 background: rgba(0, 255, 0, 0.15);
                 color: #0f0;
+                border-color: #0f0;
             }
             .physics-preset-btn {
-                background: rgba(255, 0, 0, 0.15);
+                background: rgba(255, 0, 0, 0.1);
                 border: 1px solid #f00;
                 color: #f00;
-                padding: 2px 6px;
+                padding: 8px 12px;
                 cursor: pointer;
-                font-size: 9px;
-                border-radius: 2px;
+                font-size: 11px;
+                border-radius: 4px;
+                transition: all 0.2s;
             }
             .physics-preset-btn:hover {
-                background: rgba(255, 0, 0, 0.3);
+                background: rgba(255, 0, 0, 0.2);
+                box-shadow: 0 0 10px rgba(255, 0, 0, 0.3);
             }
             .physics-section {
                 margin-bottom: 8px;
             }
             .physics-label {
-                color: #ff0;
+                color: #0ff;
                 font-weight: bold;
-                font-size: clamp(8px, 1vw, 10px);
-                margin-bottom: clamp(1px, 0.2vh, 2px);
+                font-size: 13px;
+                margin-bottom: 10px;
+                text-transform: uppercase;
+                letter-spacing: 1px;
             }
             .physics-row {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                padding: clamp(1px, 0.2vh, 2px) 0;
-                gap: clamp(6px, 0.8vw, 8px);
+                padding: 8px 0;
+                gap: 10px;
             }
             .physics-row span:first-child {
-                color: #aaa;
-                font-size: clamp(8px, 1vw, 10px);
-                min-width: clamp(80px, 10vw, 100px);
+                color: #7f7;
+                font-size: 12px;
+                min-width: 120px;
             }
             .physics-slider-container {
                 display: flex;
@@ -287,9 +340,10 @@ export class PhysicsPanel {
             .physics-value {
                 color: #0f0;
                 font-weight: bold;
-                font-size: clamp(8px, 1vw, 10px);
-                min-width: clamp(40px, 5vw, 50px);
+                font-size: 12px;
+                min-width: 60px;
                 text-align: right;
+                text-shadow: 0 0 5px #0f0;
             }
             .physics-preset-input {
                 background: rgba(0, 255, 0, 0.1);
@@ -313,6 +367,7 @@ export class PhysicsPanel {
         // Setup event listeners
         this.setupInputs();
         this.setupButtons();
+        this.setupCloseButton();
         this.updatePresetsList();
     }
     
@@ -367,6 +422,12 @@ export class PhysicsPanel {
             this.container.classList.add("hidden");
             this.container.style.display = "none";
         }
+    }
+    
+    hide(): void {
+        this.visible = false;
+        this.container.classList.add("hidden");
+        this.container.style.display = "none";
     }
     
     private updateFromTank(): void {
@@ -437,7 +498,8 @@ export class PhysicsPanel {
             case "mass":
                 this.tank.mass = value;
                 if (this.tank.physicsBody) {
-                    this.tank.physicsBody.setMassProperties({ mass: value, centerOfMass: new Vector3(0, -0.4, 0) });
+                    // Центр тяжести: немного ниже (Y) и сзади (Z), чтобы при ускорении вперед нос поднимался
+                    this.tank.physicsBody.setMassProperties({ mass: value, centerOfMass: new Vector3(0, -0.55, -0.3) });
                 }
                 break;
             case "hoverHeight":
@@ -644,7 +706,7 @@ export class PhysicsPanel {
             }
         });
         
-        console.log(`[PhysicsPanel] Preset "${name}" loaded`);
+        // Preset loaded
     }
     
     private deletePreset(name: string): void {
@@ -700,7 +762,7 @@ export class PhysicsPanel {
             try {
                 this.presets = JSON.parse(saved);
             } catch (e) {
-                console.error("[PhysicsPanel] Failed to load presets:", e);
+                // Failed to load presets - используем пустой массив
                 this.presets = [];
             }
         }
@@ -708,6 +770,22 @@ export class PhysicsPanel {
     
     private savePresets(): void {
         localStorage.setItem("tankPhysicsPresets", JSON.stringify(this.presets));
+    }
+    
+    private setupCloseButton(): void {
+        const closeBtn = document.getElementById("physics-close");
+        if (closeBtn) {
+            closeBtn.addEventListener("click", () => {
+                this.hide();
+            });
+        }
+        
+        // Закрытие по клику на фон
+        this.container.addEventListener("click", (e) => {
+            if (e.target === this.container) {
+                this.hide();
+            }
+        });
     }
     
     dispose(): void {

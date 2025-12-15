@@ -116,7 +116,7 @@ export const CHASSIS_TYPES: ChassisType[] = [
         turnSpeed: 3.2,
         acceleration: 13000,
         color: "#333333",
-        description: "Can become invisible temporarily",
+        description: "Стелс-корпус с активной маскировкой. Способность: временная невидимость на 5 секунд (перезарядка 30 сек). Низкий профиль, средняя броня, высокая скорость. Идеален для разведки и внезапных атак. HP: 70 | Скорость: 28 | Броня: средняя",
         specialAbility: "stealth"
     },
     {
@@ -131,7 +131,7 @@ export const CHASSIS_TYPES: ChassisType[] = [
         turnSpeed: 3.8,
         acceleration: 14000,
         color: "#00aaff",
-        description: "Hover technology, smooth movement",
+        description: "Корпус на воздушной подушке. Способность: увеличенная высота полета, плавное движение по любой местности. Игнорирует мелкие препятствия. Отличная маневренность. HP: 85 | Скорость: 32 | Броня: средняя",
         specialAbility: "hover"
     },
     {
@@ -146,7 +146,7 @@ export const CHASSIS_TYPES: ChassisType[] = [
         turnSpeed: 1.5,
         acceleration: 5000,
         color: "#654321",
-        description: "Extremely durable, siege weapon",
+        description: "Осадный корпус с максимальной защитой. Способность: временное усиление брони на 50% (перезарядка 45 сек). Очень медленный, но практически неуязвимый. Идеален для защиты позиций. HP: 200 | Скорость: 12 | Броня: максимальная",
         specialAbility: "siege"
     },
     {
@@ -161,7 +161,7 @@ export const CHASSIS_TYPES: ChassisType[] = [
         turnSpeed: 4.0,
         acceleration: 18000,
         color: "#ff0000",
-        description: "Maximum speed, racing design",
+        description: "Гоночный корпус для максимальной скорости. Способность: кратковременное ускорение на 50% (перезарядка 20 сек). Минимальная броня, но самая высокая скорость в игре. Идеален для быстрых рейдов. HP: 50 | Скорость: 42 | Броня: минимальная",
         specialAbility: "racer"
     },
     {
@@ -176,7 +176,7 @@ export const CHASSIS_TYPES: ChassisType[] = [
         turnSpeed: 2.8,
         acceleration: 11000,
         color: "#0088ff",
-        description: "Can operate on land and water",
+        description: "Амфибийный корпус для работы на суше и воде. Способность: движение по воде без штрафа к скорости. Универсальный выбор для карт с водоемами. HP: 95 | Скорость: 26 | Броня: средняя",
         specialAbility: "amphibious"
     },
     {
@@ -191,7 +191,7 @@ export const CHASSIS_TYPES: ChassisType[] = [
         turnSpeed: 2.2,
         acceleration: 9000,
         color: "#88ff88",
-        description: "Energy shield protection",
+        description: "Корпус с энергетическим щитом. Способность: активация щита, поглощающего 100 урона (перезарядка 40 сек). Баланс между защитой и мобильностью. HP: 110 | Скорость: 20 | Броня: высокая",
         specialAbility: "shield"
     },
     {
@@ -206,7 +206,7 @@ export const CHASSIS_TYPES: ChassisType[] = [
         turnSpeed: 2.6,
         acceleration: 10500,
         color: "#aa00ff",
-        description: "Deploys combat drones",
+        description: "Носитель боевых дронов. Способность: выпуск 2 дронов, атакующих врагов (перезарядка 60 сек). Дроны наносят 15 урона каждые 2 секунды. Поддержка в бою. HP: 90 | Скорость: 25 | Броня: средняя",
         specialAbility: "drone"
     },
     {
@@ -221,7 +221,7 @@ export const CHASSIS_TYPES: ChassisType[] = [
         turnSpeed: 1.8,
         acceleration: 6500,
         color: "#8b4513",
-        description: "Long-range artillery support",
+        description: "Артиллерийский корпус для дальнего боя. Способность: увеличенная дальность стрельбы на 50%. Медленный, но мощный. Идеален для поддержки с тыла. HP: 130 | Скорость: 16 | Броня: высокая",
         specialAbility: "artillery"
     },
     {
@@ -236,7 +236,7 @@ export const CHASSIS_TYPES: ChassisType[] = [
         turnSpeed: 2.4,
         acceleration: 8500,
         color: "#ff8800",
-        description: "High damage, tank hunter",
+        description: "Истребитель танков с усиленным уроном. Способность: +30% урона к вражеским танкам. Специализируется на уничтожении тяжелых целей. HP: 105 | Скорость: 21 | Броня: средняя",
         specialAbility: "destroyer"
     },
     {
@@ -251,7 +251,7 @@ export const CHASSIS_TYPES: ChassisType[] = [
         turnSpeed: 2.5,
         acceleration: 9500,
         color: "#ffd700",
-        description: "Command vehicle, buffs allies",
+        description: "Командный корпус с поддержкой союзников. Способность: бафф +15% к урону и скорости для всех союзников в радиусе 20м (перезарядка 60 сек). Сила команды. HP: 115 | Скорость: 23 | Броня: высокая",
         specialAbility: "command"
     }
 ];
@@ -333,7 +333,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 220,
         projectileSize: 0.22,
         color: "#ff00ff",
-        description: "Energy-based weapon, medium damage"
+        description: "Плазменная пушка с энергетическими снарядами. Урон: 35 | Перезарядка: 2.5с | Скорость снаряда: 220 м/с. Средний урон, средняя скорость перезарядки. Эффективна против легкой брони."
     },
     {
         id: "laser",
@@ -345,7 +345,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 400,
         projectileSize: 0.14,
         color: "#ff0000",
-        description: "Instant hit, high speed"
+        description: "Лазерный луч мгновенного попадания. Урон: 30 | Перезарядка: 1.5с | Скорость: 400 м/с (мгновенно). Высокая точность, нет задержки попадания. Идеален для быстрых целей."
     },
     {
         id: "tesla",
@@ -357,7 +357,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 190,
         projectileSize: 0.20,
         color: "#00ffff",
-        description: "Electric damage, chain effect"
+        description: "Катушка Тесла с цепной молнией. Урон: 20 | Перезарядка: 1.8с | Эффект: урон переходит на 2 ближайших врагов (50% урона). Отлично против групп."
     },
     {
         id: "railgun",
@@ -369,7 +369,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 500,
         projectileSize: 0.16,
         color: "#0088ff",
-        description: "Extreme damage, very slow reload"
+        description: "Рельсотрон с экстремальным уроном. Урон: 60 | Перезарядка: 5.0с | Скорость: 500 м/с. Самый высокий урон, но очень медленная перезарядка. Один выстрел - одно убийство."
     },
     
     // === EXPLOSIVE WEAPONS ===
@@ -383,7 +383,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 150,
         projectileSize: 0.28,
         color: "#ff8800",
-        description: "Explosive rounds, area damage"
+        description: "Ракетная установка с взрывным уроном. Урон: 45 | Перезарядка: 3.0с | Радиус взрыва: 3м. Эффективна против групп врагов."
     },
     {
         id: "mortar",
@@ -395,7 +395,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 100,
         projectileSize: 0.32,
         color: "#8b4513",
-        description: "High arc, massive damage"
+        description: "Миномет с высокой дугой траектории. Урон: 55 | Перезарядка: 4.5с | Радиус взрыва: 5м. Стреляет через препятствия, массивный урон по области."
     },
     {
         id: "cluster",
@@ -407,7 +407,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 170,
         projectileSize: 0.24,
         color: "#ff4444",
-        description: "Splits into multiple projectiles"
+        description: "Кластерная установка, разделяющиеся снаряды. Урон: 25 | Перезарядка: 2.8с | Разделяется на 5 снарядов. Покрывает большую площадь."
     },
     {
         id: "explosive",
@@ -419,7 +419,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 180,
         projectileSize: 0.26,
         color: "#ff6600",
-        description: "Explosive shells, splash damage"
+        description: "Взрывная пушка со сплэш-уроном. Урон: 42 | Перезарядка: 3.2с | Радиус взрыва: 4м. Баланс между уроном и перезарядкой."
     },
     
     // === SPECIAL EFFECT WEAPONS ===
@@ -433,7 +433,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 120,
         projectileSize: 0.18,
         color: "#ff3300",
-        description: "Continuous fire, burn effect"
+        description: "Огнемет с непрерывным огнем. Урон: 12 | Перезарядка: 0.2с | Эффект: горение 5 сек (5 урона/сек). Ближний бой, высокая DPS."
     },
     {
         id: "acid",
@@ -445,7 +445,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 140,
         projectileSize: 0.20,
         color: "#00ff00",
-        description: "Corrosive damage over time"
+        description: "Кислотный распылитель с коррозией. Урон: 18 | Перезарядка: 2.2с | Эффект: коррозия 8 сек (3 урона/сек), снижает броню на 20%."
     },
     {
         id: "freeze",
@@ -457,7 +457,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 160,
         projectileSize: 0.19,
         color: "#00ccff",
-        description: "Freezes enemies, slows movement"
+        description: "Криогенная пушка с замораживанием. Урон: 22 | Перезарядка: 2.4с | Эффект: замедление на 50% на 4 сек. Контроль врагов."
     },
     {
         id: "poison",
@@ -469,7 +469,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 150,
         projectileSize: 0.17,
         color: "#9900ff",
-        description: "Poison damage, DoT effect"
+        description: "Токсичный инжектор с отравлением. Урон: 16 | Перезарядка: 2.1с | Эффект: яд 10 сек (2 урона/сек). Долгий DoT."
     },
     {
         id: "emp",
@@ -481,7 +481,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 200,
         projectileSize: 0.23,
         color: "#ffff00",
-        description: "Disables systems, low damage"
+        description: "ЭМИ бластер, отключает системы. Урон: 15 | Перезарядка: 3.5с | Эффект: отключение способностей на 6 сек. Тактическое оружие."
     },
     
     // === MULTI-SHOT WEAPONS ===
@@ -495,7 +495,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 130,
         projectileSize: 0.10,
         color: "#cc6600",
-        description: "Multiple pellets, close range"
+        description: "Дробовик с множественными снарядами. Урон: 8 (×10 снарядов) | Перезарядка: 1.2с | Эффективен вблизи, разброс урона."
     },
     {
         id: "multishot",
@@ -507,7 +507,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 175,
         projectileSize: 0.13,
         color: "#8888aa",
-        description: "Fires 3 shots at once"
+        description: "Многоствольная пушка, 3 выстрела одновременно. Урон: 14×3 | Перезарядка: 1.6с | Три снаряда параллельно, хороший DPS."
     },
     
     // === ADVANCED WEAPONS ===
@@ -521,7 +521,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 180,
         projectileSize: 0.25,
         color: "#ff0088",
-        description: "Tracks targets automatically"
+        description: "Самонаводящаяся ракета, преследует цели. Урон: 38 | Перезарядка: 3.8с | Автоматическое наведение, игнорирует уклонение."
     },
     {
         id: "piercing",
@@ -533,7 +533,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 350,
         projectileSize: 0.12,
         color: "#cccccc",
-        description: "Penetrates through enemies"
+        description: "Бронебойная пушка, пронзает врагов. Урон: 32 | Перезарядка: 2.8с | Проходит через 3 врагов, снижение урона на 20% за цель."
     },
     {
         id: "shockwave",
@@ -545,7 +545,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 110,
         projectileSize: 0.30,
         color: "#ffaa00",
-        description: "Area effect, knockback"
+        description: "Ударная волна с отбрасыванием. Урон: 28 | Перезарядка: 3.0с | Радиус: 4м, отбрасывает врагов, контроль территории."
     },
     {
         id: "beam",
@@ -557,7 +557,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 380,
         projectileSize: 0.15,
         color: "#ff00aa",
-        description: "Continuous beam damage"
+        description: "Лучовая пушка с непрерывным лучом. Урон: 26 | Перезарядка: 1.9с | Непрерывный луч 2 сек, накапливающийся урон."
     },
     {
         id: "vortex",
@@ -569,7 +569,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 160,
         projectileSize: 0.27,
         color: "#aa00ff",
-        description: "Pulls enemies, area damage"
+        description: "Вихревой генератор, притягивает врагов. Урон: 33 | Перезарядка: 3.6с | Притягивает врагов к центру взрыва, радиус 5м."
     },
     {
         id: "support",
@@ -581,7 +581,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 250,
         projectileSize: 0.20,
         color: "#00ff88",
-        description: "Repairs allies, damages enemies"
+        description: "Ремонтный луч, лечит союзников. Урон: 20 | Перезарядка: 1.5с | Лечит союзников на 30 HP, наносит урон врагам. Поддержка команды."
     }
 ];
 

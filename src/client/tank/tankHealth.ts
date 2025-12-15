@@ -177,9 +177,7 @@ export class TankHealthModule {
         }, this.tank.scene);
         glow.position = this.tank.chassis.position.clone();
         glow.position.y = 1;
-        glow.rotation.x = Math.PI / 2;
-        
-        const mat = new StandardMaterial("invulnerabilityMat", this.tank.scene);
+                const mat = new StandardMaterial("invulnerabilityMat", this.tank.scene);
         mat.diffuseColor = new Color3(0, 1, 1); // Голубой
         mat.emissiveColor = new Color3(0, 0.8, 0.8);
         mat.disableLighting = true;

@@ -177,10 +177,7 @@ export function activateSpecialAbility(
             
             // Создаём визуальный щит
             if (chassis && !chassis.isDisposed()) {
-                const shield = MeshBuilder.CreateSphere("energyShield", {
-                    diameter: chassisType.width * 1.5,
-                    segments: 16
-                }, scene);
+                const shield = MeshBuilder.CreateBox("energyShield", { width: chassisType.width * 1.5, height: chassisType.width * 1.5, depth: chassisType.width * 1.5 }, scene);
                 const chassisPos = chassis.getAbsolutePosition();
                 shield.position = chassisPos.clone();
                 shield.parent = chassis;
@@ -267,10 +264,7 @@ export function activateSpecialAbility(
         case "command":
             // Создаём ауру командования
             if (chassis && !chassis.isDisposed()) {
-                const aura = MeshBuilder.CreateSphere("commandAura", {
-                    diameter: chassisType.width * 2,
-                    segments: 16
-                }, scene);
+                const aura = MeshBuilder.CreateBox("commandAura", { width: chassisType.width * 2, height: chassisType.width * 2, depth: chassisType.width * 2 }, scene);
                 const chassisPos = chassis.getAbsolutePosition();
                 aura.position = chassisPos.clone();
                 aura.parent = chassis;

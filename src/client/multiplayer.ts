@@ -4,6 +4,7 @@ import type { ClientMessage, ServerMessage } from "../shared/messages";
 import { ClientMessageType, ServerMessageType } from "../shared/messages";
 import type { PlayerData, PlayerInput, GameMode } from "../shared/types";
 import { nanoid } from "nanoid";
+import { logger } from "./utils/logger";
 
 export interface NetworkPlayer {
     id: string;
@@ -243,14 +244,14 @@ export class MultiplayerManager {
                     break;
                     
                 case ServerMessageType.ERROR:
-                    console.error("[Multiplayer] Server error:", message.data);
+                    logger.error("[Multiplayer] Server error:", message.data);
                     break;
                     
                 default:
-                    console.warn(`[Multiplayer] Unknown message type: ${message.type}`);
+                    logger.warn(`[Multiplayer] Unknown message type: ${message.type}`);
             }
         } catch (error) {
-            console.error("[Multiplayer] Error handling message:", error);
+            logger.error("[Multiplayer] Error handling message:", error);
         }
     }
     
@@ -675,7 +676,8 @@ export class MultiplayerManager {
         const delay = Math.min(this._reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000);
         
         this.reconnectTimer = setTimeout(() => {
-            console.log(`[Multiplayer] Reconnecting (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+            // Убрано сообщение о переподключении для одиночного режима
+            // console.log(`[Multiplayer] Reconnecting (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
             this.connect(this.serverUrl);
         }, delay);
     }

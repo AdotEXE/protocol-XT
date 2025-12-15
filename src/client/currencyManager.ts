@@ -29,6 +29,11 @@ export class CurrencyManager {
         }
     }
     
+    // Публичный метод для принудительного сохранения
+    public forceSave(): void {
+        this.saveCurrency();
+    }
+    
     // Получить текущее количество валюты
     getCurrency(): number {
         return this.currency;

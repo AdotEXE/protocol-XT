@@ -253,6 +253,11 @@ export class PlayerProgressionSystem {
         }
     }
     
+    // Публичный метод для принудительного сохранения
+    public forceSave(): void {
+        this.saveStats();
+    }
+    
     // Автосохранение каждые 30 секунд
     autoSave(): void {
         if (Date.now() - this.lastSaveTime > 30000) {

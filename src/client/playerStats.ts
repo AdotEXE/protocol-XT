@@ -217,6 +217,11 @@ export class PlayerStatsSystem {
         }
     }
     
+    // Публичный метод для принудительного сохранения
+    public forceSave(): void {
+        this.saveStats();
+    }
+    
     private loadStats(): void {
         try {
             const saved = localStorage.getItem("tx_player_stats");

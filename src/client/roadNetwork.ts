@@ -396,7 +396,8 @@ export class RoadNetwork {
         }, this.scene);
         
         mesh.position = center;
-        mesh.position.y = 0.05;
+        // Дороги должны быть немного выше ground, чтобы избежать z-fighting
+        mesh.position.y = 0.08; // Увеличено с 0.05 до 0.08 для предотвращения наложения
         mesh.rotation.y = angle;
         
         const mat = this.materials.get(road.type);

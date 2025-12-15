@@ -4,6 +4,7 @@
  */
 
 import { Mesh, Scene, Vector3, MeshBuilder, StandardMaterial, Color3 } from "@babylonjs/core";
+// import { addZFightingOffset } from "../tank/zFightingFix"; // Не используется в этом файле
 import { MaterialFactory } from "./materials";
 
 export class CannonDetailsGenerator {
@@ -18,7 +19,7 @@ export class CannonDetailsGenerator {
         diameter: number,
         prefix: string = "preview"
     ): Mesh {
-        const scope = MeshBuilder.CreateCylinder(`${prefix}Scope`, { height, diameter }, scene);
+        const scope = MeshBuilder.CreateBox(`${prefix}Scope`, { width: diameter, height: height, depth: diameter }, scene);
         scope.position = position;
         scope.parent = barrel;
         scope.material = MaterialFactory.createScopeMaterial(scene, prefix);
@@ -77,10 +78,10 @@ export class CannonDetailsGenerator {
         cannonColor: Color3,
         prefix: string = "preview"
     ): Mesh {
-        const miniBarrel = MeshBuilder.CreateCylinder(`${prefix}MiniBarrel`, {
-            height,
-            diameter,
-            tessellation: 8
+        const miniBarrel = MeshBuilder.CreateBox(`${prefix}MiniBarrel`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         miniBarrel.position = position;
         miniBarrel.parent = barrel;
@@ -102,10 +103,10 @@ export class CannonDetailsGenerator {
         cannonColor: Color3,
         prefix: string = "preview"
     ): Mesh {
-        const ring = MeshBuilder.CreateTorus(`${prefix}CoolingRing`, {
-            diameter,
-            thickness,
-            tessellation: 8
+        const ring = MeshBuilder.CreateBox(`${prefix}CoolingRing`, {
+            width: diameter,
+            height: thickness,
+            depth: diameter
         }, scene);
         ring.position = position;
         ring.parent = barrel;
@@ -150,9 +151,10 @@ export class CannonDetailsGenerator {
         cannonColor: Color3,
         prefix: string = "preview"
     ): Mesh {
-        const muzzleBrake = MeshBuilder.CreateCylinder(`${prefix}MuzzleBrake`, {
-            height,
-            diameter
+        const muzzleBrake = MeshBuilder.CreateBox(`${prefix}MuzzleBrake`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         muzzleBrake.position = position;
         muzzleBrake.parent = barrel;
@@ -172,9 +174,10 @@ export class CannonDetailsGenerator {
         diameter: number,
         prefix: string = "preview"
     ): Mesh {
-        const core = MeshBuilder.CreateSphere(`${prefix}PlasmaCore`, {
-            diameter,
-            segments: 20
+        const core = MeshBuilder.CreateBox(`${prefix}PlasmaCore`, {
+            width: diameter,
+            height: diameter,
+            depth: diameter
         }, scene);
         core.position = position;
         core.parent = barrel;
@@ -197,10 +200,10 @@ export class CannonDetailsGenerator {
         thickness: number,
         prefix: string = "preview"
     ): Mesh {
-        const coil = MeshBuilder.CreateTorus(`${prefix}PlasmaCoil`, {
-            diameter,
-            thickness,
-            tessellation: 16
+        const coil = MeshBuilder.CreateBox(`${prefix}PlasmaCoil`, {
+            width: diameter,
+            height: thickness,
+            depth: diameter
         }, scene);
         coil.position = position;
         coil.parent = barrel;
@@ -249,10 +252,10 @@ export class CannonDetailsGenerator {
         diameter: number,
         prefix: string = "preview"
     ): Mesh {
-        const emitter = MeshBuilder.CreateCylinder(`${prefix}PlasmaEmitter`, {
-            height,
-            diameter,
-            tessellation: 12
+        const emitter = MeshBuilder.CreateBox(`${prefix}PlasmaEmitter`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         emitter.position = position;
         emitter.parent = barrel;
@@ -275,10 +278,10 @@ export class CannonDetailsGenerator {
         diameter: number,
         prefix: string = "preview"
     ): Mesh {
-        const lens = MeshBuilder.CreateCylinder(`${prefix}Lens`, {
-            height,
-            diameter,
-            tessellation: 16
+        const lens = MeshBuilder.CreateBox(`${prefix}Lens`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         lens.position = position;
         lens.parent = barrel;
@@ -301,10 +304,10 @@ export class CannonDetailsGenerator {
         thickness: number,
         prefix: string = "preview"
     ): Mesh {
-        const ring = MeshBuilder.CreateTorus(`${prefix}FocusRing`, {
-            diameter,
-            thickness,
-            tessellation: 16
+        const ring = MeshBuilder.CreateBox(`${prefix}FocusRing`, {
+            width: diameter,
+            height: thickness,
+            depth: diameter
         }, scene);
         ring.position = position;
         ring.parent = barrel;
@@ -401,10 +404,10 @@ export class CannonDetailsGenerator {
         diameter: number,
         prefix: string = "preview"
     ): Mesh {
-        const capacitor = MeshBuilder.CreateCylinder(`${prefix}Capacitor`, {
-            height,
-            diameter,
-            tessellation: 12
+        const capacitor = MeshBuilder.CreateBox(`${prefix}Capacitor`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         capacitor.position = position;
         capacitor.parent = barrel;
@@ -452,10 +455,10 @@ export class CannonDetailsGenerator {
         diameter: number,
         prefix: string = "preview"
     ): Mesh {
-        const amp = MeshBuilder.CreateCylinder(`${prefix}RailgunMuzzleAmp`, {
-            height,
-            diameter,
-            tessellation: 12
+        const amp = MeshBuilder.CreateBox(`${prefix}RailgunMuzzleAmp`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         amp.position = position;
         amp.parent = barrel;
@@ -477,10 +480,10 @@ export class CannonDetailsGenerator {
         thickness: number,
         prefix: string = "preview"
     ): Mesh {
-        const coil = MeshBuilder.CreateTorus(`${prefix}TeslaCoil`, {
-            diameter,
-            thickness,
-            tessellation: 16
+        const coil = MeshBuilder.CreateBox(`${prefix}TeslaCoil`, {
+            width: diameter,
+            height: thickness,
+            depth: diameter
         }, scene);
         coil.position = position;
         coil.parent = barrel;
@@ -503,10 +506,10 @@ export class CannonDetailsGenerator {
         material: StandardMaterial,
         prefix: string = "preview"
     ): Mesh {
-        const discharger = MeshBuilder.CreateCylinder(`${prefix}TeslaDischarger`, {
-            height,
-            diameter,
-            tessellation: 8
+        const discharger = MeshBuilder.CreateBox(`${prefix}TeslaDischarger`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         discharger.position = position;
         discharger.parent = barrel;
@@ -524,9 +527,10 @@ export class CannonDetailsGenerator {
         diameter: number,
         prefix: string = "preview"
     ): Mesh {
-        const generator = MeshBuilder.CreateSphere(`${prefix}TeslaGen`, {
-            diameter,
-            segments: 16
+        const generator = MeshBuilder.CreateBox(`${prefix}TeslaGen`, {
+            width: diameter,
+            height: diameter,
+            depth: diameter
         }, scene);
         generator.position = position;
         generator.parent = barrel;
@@ -616,10 +620,10 @@ export class CannonDetailsGenerator {
         cannonColor: Color3,
         prefix: string = "preview"
     ): Mesh {
-        const tube = MeshBuilder.CreateCylinder(`${prefix}Tube`, {
-            height,
-            diameter,
-            tessellation: 12
+        const tube = MeshBuilder.CreateBox(`${prefix}Tube`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         tube.position = position;
         tube.parent = barrel;
@@ -641,10 +645,10 @@ export class CannonDetailsGenerator {
         cannonColor: Color3,
         prefix: string = "preview"
     ): Mesh {
-        const pelletBarrel = MeshBuilder.CreateCylinder(`${prefix}PelletBarrel`, {
-            height,
-            diameter,
-            tessellation: 8
+        const pelletBarrel = MeshBuilder.CreateBox(`${prefix}PelletBarrel`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         pelletBarrel.position = position;
         pelletBarrel.parent = barrel;
@@ -666,10 +670,10 @@ export class CannonDetailsGenerator {
         material: StandardMaterial,
         prefix: string = "preview"
     ): Mesh {
-        const centerBarrel = MeshBuilder.CreateCylinder(`${prefix}ShotgunCenter`, {
-            height,
-            diameter,
-            tessellation: 10
+        const centerBarrel = MeshBuilder.CreateBox(`${prefix}ShotgunCenter`, {
+            width: diameter,
+            height: height,
+            depth: diameter
         }, scene);
         centerBarrel.position = position;
         centerBarrel.parent = barrel;

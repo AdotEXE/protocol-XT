@@ -1,11 +1,15 @@
 /**
  * Tank Chassis Creation Module
  * Вынесенная логика создания корпусов танков из tankController.ts
+ * 
+ * ВАЖНО: Все позиции деталей должны использовать addZFightingOffset() для предотвращения z-fighting!
+ * Никогда не используйте прямой new Vector3() для позиций деталей, которые могут соприкасаться с основным мешем.
  */
 
 import { Scene, Mesh, MeshBuilder, StandardMaterial, Color3, Vector3 } from "@babylonjs/core";
-// Note: CreateSphere and CreateTorus are accessed via MeshBuilder.CreateSphere and MeshBuilder.CreateTorus
+// All shapes use CreateBox for rectangular design
 import { ChassisType } from "../tankTypes";
+import { addZFightingOffset } from "./zFightingFix";
 
 export interface ChassisAnimationElements {
     stealthActive?: boolean;
@@ -84,12 +88,12 @@ export function createUniqueChassis(
             
         case "hover":
             // Hover - Прототип: Концепт на воздушной подушке - Округлый, обтекаемый
-            chassis = MeshBuilder.CreateCylinder("tankHull", { 
-                diameter: Math.max(w, d) * 1.1,
-                height: h * 0.95, 
-                tessellation: 8
+            const hoverSize = Math.max(w, d) * 1.1;
+            chassis = MeshBuilder.CreateBox("tankHull", { 
+                width: hoverSize,
+                height: h * 0.95,
+                depth: hoverSize
             }, scene);
-            chassis.rotation.z = Math.PI / 2;
             break;
             
         case "siege":
@@ -121,12 +125,12 @@ export function createUniqueChassis(
             
         case "shield":
             // Shield - Прототип: Т-72 + генератор щита - Широкий, с генератором
-            chassis = MeshBuilder.CreateCylinder("tankHull", { 
-                diameter: Math.max(w, d) * 1.2,
+            const shieldSize = Math.max(w, d) * 1.2;
+            chassis = MeshBuilder.CreateBox("tankHull", { 
+                width: shieldSize,
                 height: h * 1.1,
-                tessellation: 8
+                depth: shieldSize
             }, scene);
-            chassis.rotation.z = Math.PI / 2;
             break;
             
         case "drone":
@@ -225,7 +229,7 @@ export function addChassisDetails(
                 height: h * 0.6,
                 depth: 0.2
             }, scene);
-            lightFront.position = new Vector3(0, h * 0.15, d * 0.52);
+            lightFront.position = addZFightingOffset(new Vector3(0, h * 0.15, d * 0.52), "forward");
             lightFront.rotation.x = -Math.PI / 6;  // Наклон 30°
             lightFront.parent = chassis;
             lightFront.material = armorMat;
@@ -237,7 +241,7 @@ export function addChassisDetails(
                     height: h * 0.65,
                     depth: 0.35
                 }, scene);
-                intake.position = new Vector3((i === 0 ? -1 : 1) * w * 0.42, h * 0.2, d * 0.45);
+                intake.position = addZFightingOffset(new Vector3((i === 0 ? -1 : 1) * w * 0.42, h * 0.2, d * 0.45), "forward");
                 intake.parent = chassis;
                 intake.material = accentMat;
             }
@@ -248,7 +252,7 @@ export function addChassisDetails(
                 height: 0.2,
                 depth: 0.25
             }, scene);
-            lightSpoiler.position = new Vector3(0, h * 0.5, -d * 0.48);
+            lightSpoiler.position = addZFightingOffset(new Vector3(0, h * 0.5, -d * 0.48), "backward");
             lightSpoiler.parent = chassis;
             lightSpoiler.material = accentMat;
             
@@ -259,7 +263,7 @@ export function addChassisDetails(
                     height: h * 0.75,
                     depth: d * 0.55
                 }, scene);
-                fairing.position = new Vector3((i === 0 ? -1 : 1) * w * 0.5, 0, d * 0.2);
+                fairing.position = addZFightingOffset(new Vector3((i === 0 ? -1 : 1) * w * 0.5, 0, d * 0.2), "x");
                 fairing.parent = chassis;
                 fairing.material = accentMat;
             }
@@ -271,7 +275,7 @@ export function addChassisDetails(
                     height: 0.08,
                     depth: 0.2
                 }, scene);
-                hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.25, h * 0.48, -d * 0.1);
+                hatch.position = addZFightingOffset(new Vector3((i === 0 ? -1 : 1) * w * 0.25, h * 0.48, -d * 0.1), "up");
                 hatch.parent = chassis;
                 hatch.material = armorMat;
             }
@@ -282,7 +286,7 @@ export function addChassisDetails(
                 height: 0.15,
                 depth: 0.2
             }, scene);
-            exhaust.position = new Vector3(w * 0.35, h * 0.2, -d * 0.48);
+            exhaust.position = addZFightingOffset(new Vector3(w * 0.35, h * 0.2, -d * 0.48), "forward");
             exhaust.parent = chassis;
             exhaust.material = armorMat;
             
@@ -293,7 +297,7 @@ export function addChassisDetails(
                     height: 0.08,
                     depth: 0.06
                 }, scene);
-                headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.15, d * 0.5);
+                headlight.position = addZFightingOffset(new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.15, d * 0.5), "forward");
                 headlight.parent = chassis;
                 const headlightMat = new StandardMaterial(`lightHeadlightMat${i}`, scene);
                 headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
@@ -307,7 +311,7 @@ export function addChassisDetails(
                 height: 0.3,
                 depth: 0.02
             }, scene);
-            shovel.position = new Vector3(-w * 0.4, h * 0.2, -d * 0.48);
+            shovel.position = addZFightingOffset(new Vector3(-w * 0.4, h * 0.2, -d * 0.48), "forward");
             shovel.parent = chassis;
             shovel.material = armorMat;
             
@@ -316,7 +320,7 @@ export function addChassisDetails(
                 height: 0.08,
                 depth: 0.02
             }, scene);
-            axe.position = new Vector3(-w * 0.3, h * 0.25, -d * 0.48);
+            axe.position = addZFightingOffset(new Vector3(-w * 0.3, h * 0.25, -d * 0.48), "forward");
             axe.parent = chassis;
             axe.material = armorMat;
             
@@ -327,7 +331,7 @@ export function addChassisDetails(
                     height: 0.12,
                     depth: 0.15
                 }, scene);
-                vent.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.1, d * 0.1);
+                vent.position = addZFightingOffset(new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.1, d * 0.1), "x");
                 vent.parent = chassis;
                 const ventMat = new StandardMaterial(`lightVentMat${i}`, scene);
                 ventMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
@@ -340,19 +344,19 @@ export function addChassisDetails(
                         height: 0.1,
                         depth: 0.02
                     }, scene);
-                    ventDetail.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.1, d * 0.1 + (j - 1) * 0.05);
+                    ventDetail.position = addZFightingOffset(new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.1, d * 0.1 + (j - 1) * 0.05), "x");
                     ventDetail.parent = chassis;
                     ventDetail.material = ventMat;
                 }
             }
             
             // Перископ на люке
-            const periscope = MeshBuilder.CreateCylinder("lightPeriscope", {
+            const periscope = MeshBuilder.CreateBox("lightPeriscope", {
+                width: 0.06,
                 height: 0.15,
-                diameter: 0.06,
-                tessellation: 8
+                depth: 0.06
             }, scene);
-            periscope.position = new Vector3(0, h * 0.55, -d * 0.1);
+            periscope.position = addZFightingOffset(new Vector3(0, h * 0.55, -d * 0.1), "up");
             periscope.parent = chassis;
             const periscopeMat = new StandardMaterial("lightPeriscopeMat", scene);
             periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
@@ -364,7 +368,7 @@ export function addChassisDetails(
                 height: 0.08,
                 depth: 0.12
             }, scene);
-            binocular.position = new Vector3(0, h * 0.48, d * 0.4);
+            binocular.position = addZFightingOffset(new Vector3(0, h * 0.48, d * 0.4), "up");
             binocular.parent = chassis;
             const binocularMat = new StandardMaterial("lightBinocularMat", scene);
             binocularMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
@@ -372,12 +376,12 @@ export function addChassisDetails(
             
             // Линзы бинокля
             for (let i = 0; i < 2; i++) {
-                const lens = MeshBuilder.CreateCylinder(`lightLens${i}`, {
+                const lens = MeshBuilder.CreateBox(`lightLens${i}`, {
+                    width: 0.06,
                     height: 0.02,
-                    diameter: 0.06,
-                    tessellation: 8
+                    depth: 0.06
                 }, scene);
-                lens.position = new Vector3((i === 0 ? -1 : 1) * 0.06, 0, 0.06);
+                lens.position = addZFightingOffset(new Vector3((i === 0 ? -1 : 1) * 0.06, 0, 0.06), "forward");
                 lens.parent = binocular;
                 const lensMat = new StandardMaterial(`lightLensMat${i}`, scene);
                 lensMat.diffuseColor = new Color3(0.1, 0.2, 0.3);
@@ -392,7 +396,7 @@ export function addChassisDetails(
                     height: h * 0.15,
                     depth: 0.08
                 }, scene);
-                armorPlate.position = new Vector3((i - 1) * w * 0.25, h * 0.05, d * 0.48);
+                armorPlate.position = addZFightingOffset(new Vector3((i - 1) * w * 0.25, h * 0.05, d * 0.48), "forward");
                 armorPlate.parent = chassis;
                 armorPlate.material = armorMat;
             }
@@ -404,7 +408,7 @@ export function addChassisDetails(
                     height: 0.05,
                     depth: 0.15
                 }, scene);
-                roofVent.position = new Vector3((i - 1) * w * 0.3, h * 0.47, d * 0.2);
+                roofVent.position = addZFightingOffset(new Vector3((i - 1) * w * 0.3, h * 0.47, d * 0.2), "up");
                 roofVent.parent = chassis;
                 const roofVentMat = new StandardMaterial(`lightRoofVentMat${i}`, scene);
                 roofVentMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
@@ -417,19 +421,19 @@ export function addChassisDetails(
                         height: 0.04,
                         depth: 0.13
                     }, scene);
-                    ventBar.position = new Vector3((i - 1) * w * 0.3 + (j - 2) * 0.04, h * 0.47, d * 0.2);
+                    ventBar.position = addZFightingOffset(new Vector3((i - 1) * w * 0.3 + (j - 2) * 0.04, h * 0.47, d * 0.2), "up");
                     ventBar.parent = chassis;
                     ventBar.material = roofVentMat;
                 }
             }
             
             // Радиоантенна сзади
-            const antenna = MeshBuilder.CreateCylinder("lightAntenna", {
+            const antenna = MeshBuilder.CreateBox("lightAntenna", {
+                width: 0.02,
                 height: 0.4,
-                diameter: 0.02,
-                tessellation: 8
+                depth: 0.02
             }, scene);
-            antenna.position = new Vector3(0, h * 0.6, -d * 0.4);
+            antenna.position = addZFightingOffset(new Vector3(0, h * 0.6, -d * 0.4), "up");
             antenna.parent = chassis;
             const antennaMat = new StandardMaterial("lightAntennaMat", scene);
             antennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
@@ -441,18 +445,18 @@ export function addChassisDetails(
                 height: 0.08,
                 depth: 0.08
             }, scene);
-            antennaBase.position = new Vector3(0, h * 0.52, -d * 0.4);
+            antennaBase.position = addZFightingOffset(new Vector3(0, h * 0.52, -d * 0.4), "up");
             antennaBase.parent = chassis;
             antennaBase.material = armorMat;
             
-            // Боковые броневые экраны
+            // Боковые броневые экраны - уменьшены для избежания глитчей
             for (let i = 0; i < 2; i++) {
                 const sideArmor = MeshBuilder.CreateBox(`lightSideArmor${i}`, {
-                    width: 0.12,
-                    height: h * 0.5,
-                    depth: d * 0.3
+                    width: 0.08,         // Уменьшено с 0.12
+                    height: h * 0.35,    // Уменьшено с h * 0.5
+                    depth: d * 0.2       // Уменьшено с d * 0.3
                 }, scene);
-                sideArmor.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.1, d * 0.05);
+                sideArmor.position = addZFightingOffset(new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.08, d * 0.05), "x");
                 sideArmor.parent = chassis;
                 sideArmor.material = armorMat;
             }
@@ -464,7 +468,11 @@ export function addChassisDetails(
                     height: 0.06,
                     depth: 0.04
                 }, scene);
-                sideLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.42, h * 0.05, -d * 0.2);
+                sideLight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.42,
+                    h * 0.05,
+                    -d * 0.2
+                ), "backward");
                 sideLight.parent = chassis;
                 const sideLightMat = new StandardMaterial(`lightSideLightMat${i}`, scene);
                 sideLightMat.diffuseColor = new Color3(0.8, 0.7, 0.4);
@@ -479,12 +487,71 @@ export function addChassisDetails(
                     height: 0.08,
                     depth: 0.03
                 }, scene);
-                tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.15, -d * 0.49);
+                tailLight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.35,
+                    h * 0.15,
+                    -d * 0.49
+                ), "forward");
                 tailLight.parent = chassis;
                 const tailLightMat = new StandardMaterial(`lightTailLightMat${i}`, scene);
                 tailLightMat.diffuseColor = new Color3(0.6, 0.1, 0.1);
                 tailLightMat.emissiveColor = new Color3(0.3, 0.05, 0.05);
                 tailLight.material = tailLightMat;
+            }
+            
+            // Детали гусениц - катки и поддерживающие ролики
+            for (let i = 0; i < 6; i++) {
+                const wheel = MeshBuilder.CreateBox(`lightWheel${i}`, {
+                    width: 0.2,
+                    height: 0.2,
+                    depth: 0.15
+                }, scene);
+                wheel.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.52,
+                    -h * 0.3,
+                    -d * 0.4 + i * d * 0.15
+                ), "backward");
+                wheel.parent = chassis;
+                wheel.material = armorMat;
+            }
+            
+            // Заклепки на бронеплитах (детали брони)
+            for (let i = 0; i < 12; i++) {
+                const rivet = MeshBuilder.CreateBox(`lightRivet${i}`, {
+                    width: 0.04,
+                    height: 0.04,
+                    depth: 0.02
+                }, scene);
+                const angle = (i * Math.PI * 2) / 12;
+                rivet.position = addZFightingOffset(new Vector3(
+                    Math.cos(angle) * w * 0.4,
+                    h * 0.2 + Math.sin(angle) * h * 0.2,
+                    d * 0.3
+                ), "x");
+                rivet.parent = chassis;
+                rivet.material = accentMat;
+            }
+            
+            // Швы брони (линии соединения плит)
+            for (let i = 0; i < 4; i++) {
+                const seam = MeshBuilder.CreateBox(`lightSeam${i}`, {
+                    width: i < 2 ? w * 0.9 : 0.05,
+                    height: i < 2 ? 0.03 : h * 0.8,
+                    depth: i < 2 ? 0.03 : 0.05
+                }, scene);
+                if (i < 2) {
+                    seam.position = addZFightingOffset(new Vector3(0, h * 0.1 + i * h * 0.3, d * 0.4), "forward");
+                } else {
+                    seam.position = addZFightingOffset(new Vector3(
+                    (i === 2 ? -1 : 1) * w * 0.45,
+                    0,
+                    d * 0.2
+                ), "x");
+                }
+                seam.parent = chassis;
+                const seamMat = new StandardMaterial(`lightSeamMat${i}`, scene);
+                seamMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
+                seam.material = seamMat;
             }
             break;
             
@@ -496,7 +563,7 @@ export function addChassisDetails(
                 height: h * 0.7,
                 depth: 0.4
             }, scene);
-            scoutNose.position = new Vector3(0, 0, d * 0.5);
+            scoutNose.position = addZFightingOffset(new Vector3(0, 0, d * 0.5), "forward");
             scoutNose.rotation.x = -Math.PI / 4;  // Наклон 45°
             scoutNose.parent = chassis;
             scoutNose.material = accentMat;
@@ -508,7 +575,11 @@ export function addChassisDetails(
                     height: h * 0.85,
                     depth: d * 0.6
                 }, scene);
-                wing.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, -h * 0.05, d * 0.3);
+                wing.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.48,
+                    -h * 0.05,
+                    d * 0.3
+                ), "down");
                 wing.parent = chassis;
                 wing.material = accentMat;
             }
@@ -519,7 +590,7 @@ export function addChassisDetails(
                 height: 0.15,
                 depth: 0.2
             }, scene);
-            diffuser.position = new Vector3(0, -h * 0.42, -d * 0.45);
+            diffuser.position = addZFightingOffset(new Vector3(0, -h * 0.42, -d * 0.45), "forward");
             diffuser.parent = chassis;
             diffuser.material = accentMat;
             
@@ -529,7 +600,7 @@ export function addChassisDetails(
                 height: 0.06,
                 depth: 0.18
             }, scene);
-            scoutHatch.position = new Vector3(0, h * 0.42, 0);
+            scoutHatch.position = addZFightingOffset(new Vector3(0, h * 0.42, 0), "up");
             scoutHatch.parent = chassis;
             scoutHatch.material = armorMat;
             
@@ -539,7 +610,7 @@ export function addChassisDetails(
                 height: 0.3,
                 depth: 0.02
             }, scene);
-            scoutAntenna.position = new Vector3(0, h * 0.45, -d * 0.45);
+            scoutAntenna.position = addZFightingOffset(new Vector3(0, h * 0.45, -d * 0.45), "forward");
             scoutAntenna.parent = chassis;
             scoutAntenna.material = armorMat;
             
@@ -550,7 +621,11 @@ export function addChassisDetails(
                     height: 0.06,
                     depth: 0.04
                 }, scene);
-                headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.1, d * 0.48);
+                headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.3,
+                    h * 0.1,
+                    d * 0.48
+                ), "forward");
                 headlight.parent = chassis;
                 const headlightMat = new StandardMaterial(`scoutHeadlightMat${i}`, scene);
                 headlightMat.diffuseColor = new Color3(0.8, 0.8, 0.6);
@@ -565,7 +640,11 @@ export function addChassisDetails(
                     height: 0.08,
                     depth: 0.12
                 }, scene);
-                vent.position = new Vector3((i === 0 ? -1 : 1) * w * 0.42, h * 0.05, d * 0.15);
+                vent.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.42,
+                    h * 0.05,
+                    d * 0.15
+                ), "x");
                 vent.parent = chassis;
                 const ventMat = new StandardMaterial(`scoutVentMat${i}`, scene);
                 ventMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
@@ -578,19 +657,23 @@ export function addChassisDetails(
                         height: 0.06,
                         depth: 0.1
                     }, scene);
-                    ventBar.position = new Vector3((i === 0 ? -1 : 1) * w * 0.42, h * 0.05, d * 0.15 + (j - 1) * 0.04);
+                    ventBar.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.42,
+                    h * 0.05,
+                    d * 0.15 + (j - 1) * 0.04
+                ), "x");
                     ventBar.parent = chassis;
                     ventBar.material = ventMat;
                 }
             }
             
             // Перископ на люке
-            const scoutPeriscope = MeshBuilder.CreateCylinder("scoutPeriscope", {
+            const scoutPeriscope = MeshBuilder.CreateBox("scoutPeriscope", {
+                width: 0.05,
                 height: 0.12,
-                diameter: 0.05,
-                tessellation: 8
+                depth: 0.05
             }, scene);
-            scoutPeriscope.position = new Vector3(0, h * 0.5, 0);
+            scoutPeriscope.position = addZFightingOffset(new Vector3(0, h * 0.5, 0), "up");
             scoutPeriscope.parent = chassis;
             const scoutPeriscopeMat = new StandardMaterial("scoutPeriscopeMat", scene);
             scoutPeriscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
@@ -602,19 +685,19 @@ export function addChassisDetails(
                 height: 0.06,
                 depth: 0.08
             }, scene);
-            scoutSight.position = new Vector3(0, h * 0.2, d * 0.48);
+            scoutSight.position = addZFightingOffset(new Vector3(0, h * 0.2, d * 0.48), "forward");
             scoutSight.parent = chassis;
             const scoutSightMat = new StandardMaterial("scoutSightMat", scene);
             scoutSightMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
             scoutSight.material = scoutSightMat;
             
             // Линза прицела
-            const scoutSightLens = MeshBuilder.CreateCylinder("scoutSightLens", {
+            const scoutSightLens = MeshBuilder.CreateBox("scoutSightLens", {
+                width: 0.05,
                 height: 0.02,
-                diameter: 0.05,
-                tessellation: 8
+                depth: 0.05
             }, scene);
-            scoutSightLens.position = new Vector3(0, 0, 0.05);
+            scoutSightLens.position = addZFightingOffset(new Vector3(0, 0, 0.05), "forward");
             scoutSightLens.parent = scoutSight;
             const scoutLensMat = new StandardMaterial("scoutSightLensMat", scene);
             scoutLensMat.diffuseColor = new Color3(0.1, 0.2, 0.3);
@@ -628,7 +711,11 @@ export function addChassisDetails(
                     height: h * 0.12,
                     depth: 0.06
                 }, scene);
-                frontArmor.position = new Vector3((i === 0 ? -1 : 1) * w * 0.2, h * 0.02, d * 0.48);
+                frontArmor.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.2,
+                    h * 0.02,
+                    d * 0.48
+                ), "forward");
                 frontArmor.parent = chassis;
                 frontArmor.material = armorMat;
             }
@@ -639,7 +726,7 @@ export function addChassisDetails(
                 height: 0.1,
                 depth: 0.15
             }, scene);
-            scoutExhaust.position = new Vector3(w * 0.3, h * 0.15, -d * 0.48);
+            scoutExhaust.position = addZFightingOffset(new Vector3(w * 0.3, h * 0.15, -d * 0.48), "forward");
             scoutExhaust.parent = chassis;
             scoutExhaust.material = armorMat;
             
@@ -650,7 +737,11 @@ export function addChassisDetails(
                     height: 0.06,
                     depth: 0.03
                 }, scene);
-                tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.12, -d * 0.49);
+                tailLight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.3,
+                    h * 0.12,
+                    -d * 0.49
+                ), "forward");
                 tailLight.parent = chassis;
                 const tailLightMat = new StandardMaterial(`scoutTailLightMat${i}`, scene);
                 tailLightMat.diffuseColor = new Color3(0.6, 0.1, 0.1);
@@ -665,7 +756,11 @@ export function addChassisDetails(
                     height: 0.05,
                     depth: 0.04
                 }, scene);
-                sideLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.05, -d * 0.2);
+                sideLight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.4,
+                    h * 0.05,
+                    -d * 0.2
+                ), "backward");
                 sideLight.parent = chassis;
                 const sideLightMat = new StandardMaterial(`scoutSideLightMat${i}`, scene);
                 sideLightMat.diffuseColor = new Color3(0.7, 0.6, 0.3);
@@ -679,7 +774,7 @@ export function addChassisDetails(
                 height: 0.04,
                 depth: 0.1
             }, scene);
-            scoutRoofVent.position = new Vector3(0, h * 0.44, d * 0.2);
+            scoutRoofVent.position = addZFightingOffset(new Vector3(0, h * 0.44, d * 0.2), "up");
             scoutRoofVent.parent = chassis;
             const scoutRoofVentMat = new StandardMaterial("scoutRoofVentMat", scene);
             scoutRoofVentMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
@@ -692,21 +787,84 @@ export function addChassisDetails(
                     height: 0.03,
                     depth: 0.08
                 }, scene);
-                ventBar.position = new Vector3((i - 1.5) * 0.04, h * 0.44, d * 0.2);
+                ventBar.position = addZFightingOffset(new Vector3(
+                    (i - 1.5) * 0.04,
+                    h * 0.44,
+                    d * 0.2
+                ), "up");
                 ventBar.parent = chassis;
                 ventBar.material = scoutRoofVentMat;
             }
             
-            // Легкие броневые экраны по бокам
+            // Легкие броневые экраны по бокам - уменьшены для избежания глитчей
             for (let i = 0; i < 2; i++) {
                 const sideArmor = MeshBuilder.CreateBox(`scoutSideArmor${i}`, {
-                    width: 0.1,
-                    height: h * 0.4,
-                    depth: d * 0.25
+                    width: 0.07,         // Уменьшено с 0.1
+                    height: h * 0.3,     // Уменьшено с h * 0.4
+                    depth: d * 0.18      // Уменьшено с d * 0.25
                 }, scene);
-                sideArmor.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.08, d * 0.08);
+                sideArmor.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.45,
+                    h * 0.06,
+                    d * 0.08
+                ), "x");
                 sideArmor.parent = chassis;
                 sideArmor.material = armorMat;
+            }
+            
+            // Детали гусениц - катки (маленькие для scout)
+            for (let i = 0; i < 6; i++) {
+                const wheel = MeshBuilder.CreateBox(`scoutWheel${i}`, {
+                    width: 0.18,
+                    height: 0.18,
+                    depth: 0.14
+                }, scene);
+                wheel.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.48,
+                    -h * 0.28,
+                    -d * 0.38 + i * d * 0.13
+                ), "backward");
+                wheel.parent = chassis;
+                wheel.material = armorMat;
+            }
+            
+            // Заклепки на бронеплитах (мало для scout)
+            for (let i = 0; i < 10; i++) {
+                const rivet = MeshBuilder.CreateBox(`scoutRivet${i}`, {
+                    width: 0.04,
+                    height: 0.04,
+                    depth: 0.02
+                }, scene);
+                const angle = (i * Math.PI * 2) / 10;
+                rivet.position = addZFightingOffset(new Vector3(
+                    Math.cos(angle) * w * 0.38,
+                    h * 0.15 + Math.sin(angle) * h * 0.15,
+                    d * 0.3
+                ), "x");
+                rivet.parent = chassis;
+                rivet.material = accentMat;
+            }
+            
+            // Швы брони
+            for (let i = 0; i < 4; i++) {
+                const seam = MeshBuilder.CreateBox(`scoutSeam${i}`, {
+                    width: i < 2 ? w * 0.85 : 0.04,
+                    height: i < 2 ? 0.02 : h * 0.8,
+                    depth: i < 2 ? 0.02 : 0.04
+                }, scene);
+                if (i < 2) {
+                    seam.position = addZFightingOffset(new Vector3(0, h * 0.08 + i * h * 0.2, d * 0.42), "forward");
+                } else {
+                    seam.position = addZFightingOffset(new Vector3(
+                    (i === 2 ? -1 : 1) * w * 0.46,
+                    0,
+                    d * 0.15
+                ), "x");
+                }
+                seam.parent = chassis;
+                const seamMat = new StandardMaterial(`scoutSeamMat${i}`, scene);
+                seamMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
+                seam.material = seamMat;
             }
             break;
             
@@ -735,7 +893,7 @@ export function addChassisDetails(
                 height: 0.25,
                 depth: d * 0.85
             }, scene);
-            topPlate.position = new Vector3(0, h * 0.65, 0);
+            topPlate.position = addZFightingOffset(new Vector3(0, h * 0.65, 0), "up");
             topPlate.parent = chassis;
             topPlate.material = armorMat;
             // Угловые усиления - БОЛЬШЕ
@@ -747,7 +905,7 @@ export function addChassisDetails(
                 }, scene);
                 const posX = (i % 2 === 0 ? -1 : 1) * w * 0.58;
                 const posZ = (i < 2 ? -1 : 1) * d * 0.58;
-                corner.position = new Vector3(posX, h * 0.55, posZ);
+                corner.position = addZFightingOffset(new Vector3(posX, h * 0.55, posZ), "up");
                 corner.parent = chassis;
                 corner.material = armorMat;
             }
@@ -759,7 +917,11 @@ export function addChassisDetails(
                     height: 0.12,
                     depth: 0.1
                 }, scene);
-                headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.15, d * 0.5);
+                headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.4,
+                    h * 0.15,
+                    d * 0.5
+                ), "forward");
                 headlight.parent = chassis;
                 const headlightMat = new StandardMaterial(`heavyHeadlightMat${i}`, scene);
                 headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
@@ -774,7 +936,11 @@ export function addChassisDetails(
                     height: 0.14,
                     depth: 0.2
                 }, scene);
-                exhaust.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.2, -d * 0.48);
+                exhaust.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.4,
+                    h * 0.2,
+                    -d * 0.48
+                ), "forward");
                 exhaust.parent = chassis;
                 exhaust.material = armorMat;
             }
@@ -785,7 +951,7 @@ export function addChassisDetails(
                 height: 0.4,
                 depth: 0.02
             }, scene);
-            heavyShovel.position = new Vector3(-w * 0.45, h * 0.2, -d * 0.45);
+            heavyShovel.position = addZFightingOffset(new Vector3(-w * 0.45, h * 0.2, -d * 0.45), "forward");
             heavyShovel.parent = chassis;
             heavyShovel.material = armorMat;
             
@@ -794,7 +960,7 @@ export function addChassisDetails(
                 height: 0.1,
                 depth: 0.02
             }, scene);
-            heavyAxe.position = new Vector3(-w * 0.35, h * 0.25, -d * 0.45);
+            heavyAxe.position = addZFightingOffset(new Vector3(-w * 0.35, h * 0.25, -d * 0.45), "forward");
             heavyAxe.parent = chassis;
             heavyAxe.material = armorMat;
             
@@ -803,7 +969,7 @@ export function addChassisDetails(
                 height: 0.25,
                 depth: 0.14
             }, scene);
-            heavyCanister.position = new Vector3(w * 0.45, h * 0.22, -d * 0.4);
+            heavyCanister.position = addZFightingOffset(new Vector3(w * 0.45, h * 0.22, -d * 0.4), "forward");
             heavyCanister.parent = chassis;
             heavyCanister.material = armorMat;
             
@@ -816,7 +982,7 @@ export function addChassisDetails(
                 }, scene);
                 const posX = (i % 2 === 0 ? -1 : 1) * w * 0.4;
                 const posZ = (i < 2 ? -1 : 1) * d * 0.3;
-                vent.position = new Vector3(posX, h * 0.5, posZ);
+                vent.position = addZFightingOffset(new Vector3(posX, h * 0.5, posZ), "up");
                 vent.parent = chassis;
                 const ventMat = new StandardMaterial(`heavyVentMat${i}`, scene);
                 ventMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
@@ -829,7 +995,11 @@ export function addChassisDetails(
                         height: 0.04,
                         depth: 0.02
                     }, scene);
-                    ventDetail.position = new Vector3(posX, h * 0.5, posZ + (j - 2) * 0.025);
+                    ventDetail.position = addZFightingOffset(new Vector3(
+                    posX,
+                    h * 0.5,
+                    posZ + (j - 2) * 0.025
+                ), "up");
                     ventDetail.parent = chassis;
                     ventDetail.material = ventMat;
                 }
@@ -837,12 +1007,16 @@ export function addChassisDetails(
             
             // Перископы на люках (три штуки)
             for (let i = 0; i < 3; i++) {
-                const periscope = MeshBuilder.CreateCylinder(`heavyPeriscope${i}`, {
+                const periscope = MeshBuilder.CreateBox(`heavyPeriscope${i}`, {
+                    width: 0.08,
                     height: 0.2,
-                    diameter: 0.08,
-                    tessellation: 8
+                    depth: 0.08
                 }, scene);
-                periscope.position = new Vector3((i - 1) * w * 0.3, h * 0.75, -d * 0.1);
+                periscope.position = addZFightingOffset(new Vector3(
+                    (i - 1) * w * 0.3,
+                    h * 0.75,
+                    -d * 0.1
+                ), "backward");
                 periscope.parent = chassis;
                 const periscopeMat = new StandardMaterial(`heavyPeriscopeMat${i}`, scene);
                 periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
@@ -856,7 +1030,11 @@ export function addChassisDetails(
                     height: 0.12,
                     depth: 0.12
                 }, scene);
-                energyBooster.position = new Vector3((i === 0 ? -1 : 1) * w * 0.5, h * 0.3, d * 0.4);
+                energyBooster.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.5,
+                    h * 0.3,
+                    d * 0.4
+                ), "forward");
                 energyBooster.parent = chassis;
                 const boosterMat = new StandardMaterial(`heavyBoosterMat${i}`, scene);
                 boosterMat.diffuseColor = new Color3(0.2, 0.4, 0.8);
@@ -864,6 +1042,61 @@ export function addChassisDetails(
                 energyBooster.material = boosterMat;
                 animationElements.energyBoosters = animationElements.energyBoosters || [];
                 animationElements.energyBoosters.push(energyBooster);
+            }
+            
+            // Детали гусениц - катки (большие для тяжелого танка)
+            for (let i = 0; i < 10; i++) {
+                const wheel = MeshBuilder.CreateBox(`heavyWheel${i}`, {
+                    width: 0.3,
+                    height: 0.3,
+                    depth: 0.22
+                }, scene);
+                wheel.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.6,
+                    -h * 0.4,
+                    -d * 0.5 + i * d * 0.1
+                ), "forward");
+                wheel.parent = chassis;
+                wheel.material = armorMat;
+            }
+            
+            // Заклепки на бронеплитах (много для тяжелого танка)
+            for (let i = 0; i < 24; i++) {
+                const rivet = MeshBuilder.CreateBox(`heavyRivet${i}`, {
+                    width: 0.06,
+                    height: 0.06,
+                    depth: 0.03
+                }, scene);
+                const angle = (i * Math.PI * 2) / 24;
+                rivet.position = addZFightingOffset(new Vector3(
+                    Math.cos(angle) * w * 0.5,
+                    h * 0.3 + Math.sin(angle) * h * 0.3,
+                    d * 0.4
+                ), "forward");
+                rivet.parent = chassis;
+                rivet.material = accentMat;
+            }
+            
+            // Швы брони (толстые для тяжелого танка)
+            for (let i = 0; i < 8; i++) {
+                const seam = MeshBuilder.CreateBox(`heavySeam${i}`, {
+                    width: i < 4 ? w * 1.0 : 0.06,
+                    height: i < 4 ? 0.04 : h * 1.0,
+                    depth: i < 4 ? 0.04 : 0.06
+                }, scene);
+                if (i < 4) {
+                    seam.position = addZFightingOffset(new Vector3(0, h * 0.1 + i * h * 0.2, d * 0.45), "forward");
+                } else {
+                    seam.position = addZFightingOffset(new Vector3(
+                    (i === 4 ? -1 : i === 5 ? 1 : 0) * w * 0.55,
+                    0,
+                    d * 0.2
+                ), "x");
+                }
+                seam.parent = chassis;
+                const seamMat = new StandardMaterial(`heavySeamMat${i}`, scene);
+                seamMat.diffuseColor = new Color3(0.08, 0.08, 0.08);
+                seam.material = seamMat;
             }
             break;
             
@@ -891,7 +1124,11 @@ export function addChassisDetails(
                     height: 0.15,
                     depth: 0.12
                 }, scene);
-                spike.position = new Vector3((i - 1) * w * 0.25, h * 0.3, d * 0.52);
+                spike.position = addZFightingOffset(new Vector3(
+                    (i - 1) * w * 0.25,
+                    h * 0.3,
+                    d * 0.52
+                ), "forward");
                 spike.parent = chassis;
                 spike.material = accentMat;
             }
@@ -903,7 +1140,11 @@ export function addChassisDetails(
                     height: 0.1,
                     depth: 0.08
                 }, scene);
-                headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.13, d * 0.48);
+                headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.4,
+                    h * 0.13,
+                    d * 0.48
+                ), "forward");
                 headlight.parent = chassis;
                 const headlightMat = new StandardMaterial(`assaultHeadlightMat${i}`, scene);
                 headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
@@ -916,7 +1157,11 @@ export function addChassisDetails(
                     height: 0.14,
                     depth: 0.06
                 }, scene);
-                headlightGuard.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.13, d * 0.46);
+                headlightGuard.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.4,
+                    h * 0.13,
+                    d * 0.46
+                ), "forward");
                 headlightGuard.parent = chassis;
                 headlightGuard.material = armorMat;
             }
@@ -927,7 +1172,7 @@ export function addChassisDetails(
                 height: 0.13,
                 depth: 0.18
             }, scene);
-            assaultExhaust.position = new Vector3(w * 0.38, h * 0.18, -d * 0.45);
+            assaultExhaust.position = addZFightingOffset(new Vector3(w * 0.38, h * 0.18, -d * 0.45), "forward");
             assaultExhaust.parent = chassis;
             assaultExhaust.material = armorMat;
             
@@ -937,7 +1182,7 @@ export function addChassisDetails(
                 height: 0.32,
                 depth: 0.02
             }, scene);
-            assaultShovel.position = new Vector3(-w * 0.4, h * 0.18, -d * 0.45);
+            assaultShovel.position = addZFightingOffset(new Vector3(-w * 0.4, h * 0.18, -d * 0.45), "forward");
             assaultShovel.parent = chassis;
             assaultShovel.material = armorMat;
             
@@ -947,7 +1192,7 @@ export function addChassisDetails(
                 height: 0.18,
                 depth: 0.11
             }, scene);
-            assaultCanister.position = new Vector3(w * 0.38, h * 0.2, -d * 0.4);
+            assaultCanister.position = addZFightingOffset(new Vector3(w * 0.38, h * 0.2, -d * 0.4), "forward");
             assaultCanister.parent = chassis;
             assaultCanister.material = armorMat;
             
@@ -958,7 +1203,11 @@ export function addChassisDetails(
                     height: 0.05,
                     depth: 0.1
                 }, scene);
-                vent.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.35, -d * 0.25);
+                vent.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.35,
+                    h * 0.35,
+                    -d * 0.25
+                ), "backward");
                 vent.parent = chassis;
                 const ventMat = new StandardMaterial(`assaultVentMat${i}`, scene);
                 ventMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
@@ -971,7 +1220,11 @@ export function addChassisDetails(
                         height: 0.03,
                         depth: 0.02
                     }, scene);
-                    ventDetail.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.35, -d * 0.25 + (j - 1.5) * 0.03);
+                    ventDetail.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.35,
+                    h * 0.35,
+                    -d * 0.25 + (j - 1.5) * 0.03
+                ), "backward");
                     ventDetail.parent = chassis;
                     ventDetail.material = ventMat;
                 }
@@ -979,12 +1232,16 @@ export function addChassisDetails(
             
             // Перископы (улучшенные)
             for (let i = 0; i < 2; i++) {
-                const periscope = MeshBuilder.CreateCylinder(`assaultPeriscope${i}`, {
+                const periscope = MeshBuilder.CreateBox(`assaultPeriscope${i}`, {
+                    width: 0.07,
                     height: 0.16,
-                    diameter: 0.07,
-                    tessellation: 8
+                    depth: 0.07
                 }, scene);
-                periscope.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.52, -d * 0.1);
+                periscope.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.3,
+                    h * 0.52,
+                    -d * 0.1
+                ), "backward");
                 periscope.parent = chassis;
                 const periscopeMat = new StandardMaterial(`assaultPeriscopeMat${i}`, scene);
                 periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
@@ -999,7 +1256,11 @@ export function addChassisDetails(
                         height: 0.12,
                         depth: 0.1
                     }, scene);
-                    sideSpike.position = new Vector3((i === 0 ? -1 : 1) * w * 0.52, h * 0.05 + j * h * 0.2, d * 0.1 + (j - 1) * d * 0.15);
+                    sideSpike.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.52,
+                    h * 0.05 + j * h * 0.2,
+                    d * 0.1 + (j - 1) * d * 0.15
+                ), "x");
                     sideSpike.rotation.z = (i === 0 ? 1 : -1) * Math.PI / 8;
                     sideSpike.parent = chassis;
                     sideSpike.material = accentMat;
@@ -1013,7 +1274,11 @@ export function addChassisDetails(
                     height: h * 0.18,
                     depth: 0.1
                 }, scene);
-                frontScreen.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.28, h * 0.08 + (i < 2 ? 0 : h * 0.15), d * 0.5);
+                frontScreen.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.28,
+                    h * 0.08 + (i < 2 ? 0 : h * 0.15),
+                    d * 0.5
+                ), "forward");
                 frontScreen.rotation.x = -Math.PI / 12;
                 frontScreen.parent = chassis;
                 frontScreen.material = armorMat;
@@ -1028,7 +1293,7 @@ export function addChassisDetails(
                 }, scene);
                 const posX = (i % 2 === 0 ? -1 : 1) * w * 0.55;
                 const posZ = (i < 2 ? -1 : 1) * d * 0.5;
-                cornerArmor.position = new Vector3(posX, h * 0.45, posZ);
+                cornerArmor.position = addZFightingOffset(new Vector3(posX, h * 0.45, posZ), "up");
                 cornerArmor.parent = chassis;
                 cornerArmor.material = armorMat;
             }
@@ -1040,7 +1305,11 @@ export function addChassisDetails(
                     height: 0.05,
                     depth: 0.12
                 }, scene);
-                roofVent.position = new Vector3((i - 2) * w * 0.25, h * 0.54, (i < 3 ? -1 : 1) * d * 0.25);
+                roofVent.position = addZFightingOffset(new Vector3(
+                    (i - 2) * w * 0.25,
+                    h * 0.54,
+                    (i < 3 ? -1 : 1) * d * 0.25
+                ), "up");
                 roofVent.parent = chassis;
                 const roofVentMat = new StandardMaterial(`assaultRoofVentMat${i}`, scene);
                 roofVentMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
@@ -1054,7 +1323,11 @@ export function addChassisDetails(
                     height: 0.18,
                     depth: 0.1
                 }, scene);
-                rearSpike.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.35, h * 0.3 + (i < 2 ? 0 : h * 0.15), -d * 0.48);
+                rearSpike.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.35,
+                    h * 0.3 + (i < 2 ? 0 : h * 0.15),
+                    -d * 0.48
+                ), "forward");
                 rearSpike.parent = chassis;
                 rearSpike.material = accentMat;
             }
@@ -1066,7 +1339,11 @@ export function addChassisDetails(
                     height: 0.1,
                     depth: 0.04
                 }, scene);
-                tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.16, -d * 0.49);
+                tailLight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.4,
+                    h * 0.16,
+                    -d * 0.49
+                ), "forward");
                 tailLight.parent = chassis;
                 const tailLightMat = new StandardMaterial(`assaultTailLightMat${i}`, scene);
                 tailLightMat.diffuseColor = new Color3(0.6, 0.1, 0.1);
@@ -1080,19 +1357,15 @@ export function addChassisDetails(
                 height: 0.09,
                 depth: 0.11
             }, scene);
-            assaultSight.position = new Vector3(0, h * 0.22, d * 0.49);
+            assaultSight.position = addZFightingOffset(new Vector3(0, h * 0.22, d * 0.49), "forward");
             assaultSight.parent = chassis;
             const assaultSightMat = new StandardMaterial("assaultSightMat", scene);
             assaultSightMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
             assaultSight.material = assaultSightMat;
             
             // Линза прицела
-            const assaultSightLens = MeshBuilder.CreateCylinder("assaultSightLens", {
-                height: 0.02,
-                diameter: 0.07,
-                tessellation: 8
-            }, scene);
-            assaultSightLens.position = new Vector3(0, 0, 0.06);
+            const assaultSightLens = MeshBuilder.CreateBox("assaultSightLens", { width: 0.07, height: 0.02, depth: 0.07 }, scene);
+            assaultSightLens.position = addZFightingOffset(new Vector3(0, 0, 0.06), "forward");
             assaultSightLens.parent = assaultSight;
             const assaultLensMat = new StandardMaterial("assaultSightLensMat", scene);
             assaultLensMat.diffuseColor = new Color3(0.1, 0.2, 0.3);
@@ -1100,12 +1373,12 @@ export function addChassisDetails(
             assaultSightLens.material = assaultLensMat;
             
             // Радиоантенна сзади
-            const assaultAntenna = MeshBuilder.CreateCylinder("assaultAntenna", {
+            const assaultAntenna = MeshBuilder.CreateBox("assaultAntenna", {
+                width: 0.025,
                 height: 0.45,
-                diameter: 0.025,
-                tessellation: 8
+                depth: 0.025
             }, scene);
-            assaultAntenna.position = new Vector3(0, h * 0.65, -d * 0.3);
+            assaultAntenna.position = addZFightingOffset(new Vector3(0, h * 0.65, -d * 0.3), "up");
             assaultAntenna.parent = chassis;
             const assaultAntennaMat = new StandardMaterial("assaultAntennaMat", scene);
             assaultAntennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
@@ -1117,7 +1390,7 @@ export function addChassisDetails(
                 height: 0.1,
                 depth: 0.1
             }, scene);
-            assaultAntennaBase.position = new Vector3(0, h * 0.54, -d * 0.3);
+            assaultAntennaBase.position = addZFightingOffset(new Vector3(0, h * 0.54, -d * 0.3), "up");
             assaultAntennaBase.parent = chassis;
             assaultAntennaBase.material = armorMat;
             
@@ -1128,7 +1401,11 @@ export function addChassisDetails(
                     height: 0.07,
                     depth: 0.05
                 }, scene);
-                sideLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.1, -d * 0.2);
+                sideLight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.48,
+                    h * 0.1,
+                    -d * 0.2
+                ), "backward");
                 sideLight.parent = chassis;
                 const sideLightMat = new StandardMaterial(`assaultSideLightMat${i}`, scene);
                 sideLightMat.diffuseColor = new Color3(0.7, 0.6, 0.3);
@@ -1137,40 +1414,93 @@ export function addChassisDetails(
             }
             
             // Выхлопная труба (улучшенная, больше)
-            const assaultExhaustUpgraded = MeshBuilder.CreateCylinder("assaultExhaustUpgraded", {
+            const assaultExhaustUpgraded = MeshBuilder.CreateBox("assaultExhaustUpgraded", {
+                width: 0.13,
                 height: 0.22,
-                diameter: 0.13,
-                tessellation: 8
+                depth: 0.13
             }, scene);
-            assaultExhaustUpgraded.position = new Vector3(w * 0.38, h * 0.2, -d * 0.48);
-            assaultExhaustUpgraded.rotation.z = Math.PI / 2;
+            assaultExhaustUpgraded.position = addZFightingOffset(new Vector3(w * 0.38, h * 0.2, -d * 0.48), "forward");
             assaultExhaustUpgraded.parent = chassis;
             assaultExhaustUpgraded.material = armorMat;
             
             // Выхлопное отверстие
-            const assaultExhaustHole = MeshBuilder.CreateCylinder("assaultExhaustHole", {
+            const assaultExhaustHole = MeshBuilder.CreateBox("assaultExhaustHole", {
+                width: 0.11,
                 height: 0.04,
-                diameter: 0.11,
-                tessellation: 8
+                depth: 0.11
             }, scene);
-            assaultExhaustHole.position = new Vector3(w * 0.38, h * 0.2, -d * 0.52);
-            assaultExhaustHole.rotation.z = Math.PI / 2;
-            assaultExhaustHole.parent = chassis;
+            assaultExhaustHole.position = addZFightingOffset(new Vector3(w * 0.38, h * 0.2, -d * 0.52), "forward");
+                        assaultExhaustHole.parent = chassis;
             const assaultExhaustHoleMat = new StandardMaterial("assaultExhaustHoleMat", scene);
             assaultExhaustHoleMat.diffuseColor = new Color3(0.05, 0.05, 0.05);
             assaultExhaustHoleMat.emissiveColor = new Color3(0.1, 0.05, 0);
             assaultExhaustHole.material = assaultExhaustHoleMat;
+            
+            // Детали гусениц - катки
+            for (let i = 0; i < 8; i++) {
+                const wheel = MeshBuilder.CreateBox(`assaultWheel${i}`, {
+                    width: 0.26,
+                    height: 0.26,
+                    depth: 0.19
+                }, scene);
+                wheel.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.58,
+                    -h * 0.38,
+                    -d * 0.48 + i * d * 0.12
+                ), "forward");
+                wheel.parent = chassis;
+                wheel.material = armorMat;
+            }
+            
+            // Заклепки на бронеплитах
+            for (let i = 0; i < 18; i++) {
+                const rivet = MeshBuilder.CreateBox(`assaultRivet${i}`, {
+                    width: 0.05,
+                    height: 0.05,
+                    depth: 0.02
+                }, scene);
+                const angle = (i * Math.PI * 2) / 18;
+                rivet.position = addZFightingOffset(new Vector3(
+                    Math.cos(angle) * w * 0.5,
+                    h * 0.28 + Math.sin(angle) * h * 0.28,
+                    d * 0.38
+                ), "forward");
+                rivet.parent = chassis;
+                rivet.material = accentMat;
+            }
+            
+            // Швы брони
+            for (let i = 0; i < 6; i++) {
+                const seam = MeshBuilder.CreateBox(`assaultSeam${i}`, {
+                    width: i < 3 ? w * 0.98 : 0.05,
+                    height: i < 3 ? 0.03 : h * 0.95,
+                    depth: i < 3 ? 0.03 : 0.05
+                }, scene);
+                if (i < 3) {
+                    seam.position = addZFightingOffset(new Vector3(0, h * 0.12 + i * h * 0.24, d * 0.42), "forward");
+                } else {
+                    seam.position = addZFightingOffset(new Vector3(
+                    (i === 3 ? -1 : i === 4 ? 1 : 0) * w * 0.56,
+                    0,
+                    d * 0.22
+                ), "x");
+                }
+                seam.parent = chassis;
+                const seamMat = new StandardMaterial(`assaultSeamMat${i}`, scene);
+                seamMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
+                seam.material = seamMat;
+            }
             break;
             
         case "medium": {
             // Medium - Прототип: Т-34 - Классический средний танк, наклонная броня
             // Наклонная лобовая броня (45°)
             const mediumFront = MeshBuilder.CreateBox("mediumFront", {
-                width: w * 1.0,
+                width: w * 0.9,  // Уже корпуса чтобы не было z-fighting по бокам
                 height: h * 0.7,
                 depth: 0.18
             }, scene);
-            mediumFront.position = new Vector3(0, h * 0.1, d * 0.5);
+            mediumFront.position = addZFightingOffset(new Vector3(0, h * 0.1, d * 0.5), "forward");
             mediumFront.rotation.x = -Math.PI / 4;  // Наклон 45°
             mediumFront.parent = chassis;
             mediumFront.material = armorMat;
@@ -1182,7 +1512,11 @@ export function addChassisDetails(
                     height: 0.04,
                     depth: 0.08
                 }, scene);
-                vent.position = new Vector3((i - 1) * w * 0.28, h * 0.38, -d * 0.28);
+                vent.position = addZFightingOffset(new Vector3(
+                    (i - 1) * w * 0.28,
+                    h * 0.38,
+                    -d * 0.28
+                ), "backward");
                 vent.parent = chassis;
                 vent.material = armorMat;
             }
@@ -1194,7 +1528,11 @@ export function addChassisDetails(
                     height: 0.08,
                     depth: 0.22
                 }, scene);
-                hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.48, -d * 0.1);
+                hatch.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.3,
+                    h * 0.48,
+                    -d * 0.1
+                ), "backward");
                 hatch.parent = chassis;
                 hatch.material = armorMat;
             }
@@ -1206,7 +1544,11 @@ export function addChassisDetails(
                     height: 0.12,
                     depth: 0.18
                 }, scene);
-                exhaust.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.18, -d * 0.45);
+                exhaust.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.35,
+                    h * 0.18,
+                    -d * 0.45
+                ), "backward");
                 exhaust.parent = chassis;
                 exhaust.material = armorMat;
             }
@@ -1218,7 +1560,11 @@ export function addChassisDetails(
                     height: 0.1,
                     depth: 0.08
                 }, scene);
-                headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.12, d * 0.48);
+                headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.38,
+                    h * 0.12,
+                    d * 0.48
+                ), "forward");
                 headlight.parent = chassis;
                 const headlightMat = new StandardMaterial(`mediumHeadlightMat${i}`, scene);
                 headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
@@ -1232,7 +1578,7 @@ export function addChassisDetails(
                 height: 0.35,
                 depth: 0.02
             }, scene);
-            mediumShovel.position = new Vector3(-w * 0.42, h * 0.18, -d * 0.45);
+            mediumShovel.position = addZFightingOffset(new Vector3(-w * 0.42, h * 0.18, -d * 0.45), "forward");
             mediumShovel.parent = chassis;
             mediumShovel.material = armorMat;
             
@@ -1241,7 +1587,7 @@ export function addChassisDetails(
                 height: 0.2,
                 depth: 0.12
             }, scene);
-            mediumCanister.position = new Vector3(w * 0.42, h * 0.2, -d * 0.4);
+            mediumCanister.position = addZFightingOffset(new Vector3(w * 0.42, h * 0.2, -d * 0.4), "forward");
             mediumCanister.parent = chassis;
             mediumCanister.material = armorMat;
             
@@ -1252,7 +1598,11 @@ export function addChassisDetails(
                     height: 0.05,
                     depth: 0.1
                 }, scene);
-                vent.position = new Vector3((i - 1) * w * 0.3, h * 0.4, -d * 0.3);
+                vent.position = addZFightingOffset(new Vector3(
+                    (i - 1) * w * 0.3,
+                    h * 0.4,
+                    -d * 0.3
+                ), "backward");
                 vent.parent = chassis;
                 const ventMat = new StandardMaterial(`mediumVentMat${i}`, scene);
                 ventMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
@@ -1265,7 +1615,11 @@ export function addChassisDetails(
                         height: 0.03,
                         depth: 0.02
                     }, scene);
-                    ventDetail.position = new Vector3((i - 1) * w * 0.3, h * 0.4, -d * 0.3 + (j - 1.5) * 0.03);
+                    ventDetail.position = addZFightingOffset(new Vector3(
+                    (i - 1) * w * 0.3,
+                    h * 0.4,
+                    -d * 0.3 + (j - 1.5) * 0.03
+                ), "backward");
                     ventDetail.parent = chassis;
                     ventDetail.material = ventMat;
                 }
@@ -1273,12 +1627,12 @@ export function addChassisDetails(
             
             // Перископы на люках
             for (let i = 0; i < 2; i++) {
-                const periscope = MeshBuilder.CreateCylinder(`mediumPeriscope${i}`, {
-                    height: 0.18,
-                    diameter: 0.07,
-                    tessellation: 8
-                }, scene);
-                periscope.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.55, -d * 0.1);
+                const periscope = MeshBuilder.CreateBox(`mediumPeriscope${i}`, { width: 0.07, height: 0.18, depth: 0.07 }, scene);
+                periscope.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.3,
+                    h * 0.55,
+                    -d * 0.1
+                ), "backward");
                 periscope.parent = chassis;
                 const periscopeMat = new StandardMaterial(`mediumPeriscopeMat${i}`, scene);
                 periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
@@ -1292,7 +1646,11 @@ export function addChassisDetails(
                     height: h * 0.2,
                     depth: 0.1
                 }, scene);
-                frontArmor.position = new Vector3((i === 0 ? -1 : 1) * w * 0.25, h * 0.05, d * 0.48);
+                frontArmor.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.25,
+                    h * 0.05,
+                    d * 0.48
+                ), "forward");
                 frontArmor.parent = chassis;
                 frontArmor.material = armorMat;
             }
@@ -1303,18 +1661,22 @@ export function addChassisDetails(
                 height: h * 0.15,
                 depth: 0.12
             }, scene);
-            centerArmor.position = new Vector3(0, h * 0.2, d * 0.49);
+            centerArmor.position = addZFightingOffset(new Vector3(0, h * 0.2, d * 0.49), "forward");
             centerArmor.parent = chassis;
             centerArmor.material = armorMat;
             
-            // Боковые броневые экраны (противокумулятивные)
+            // Боковые броневые экраны (противокумулятивные) - уменьшены для избежания глитчей
             for (let i = 0; i < 2; i++) {
                 const sideScreen = MeshBuilder.CreateBox(`mediumSideScreen${i}`, {
-                    width: 0.15,
-                    height: h * 0.6,
-                    depth: d * 0.35
+                    width: 0.1,          // Уменьшено с 0.15
+                    height: h * 0.45,    // Уменьшено с h * 0.6
+                    depth: d * 0.25      // Уменьшено с d * 0.35
                 }, scene);
-                sideScreen.position = new Vector3((i === 0 ? -1 : 1) * w * 0.52, h * 0.15, d * 0.1);
+                sideScreen.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.48,  // Ближе к корпусу (было 0.52)
+                    h * 0.12,
+                    d * 0.15
+                ), "x");
                 sideScreen.parent = chassis;
                 sideScreen.material = armorMat;
             }
@@ -1326,7 +1688,11 @@ export function addChassisDetails(
                     height: 0.04,
                     depth: 0.12
                 }, scene);
-                roofVent.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.25, h * 0.46, (i < 2 ? -1 : 1) * d * 0.25);
+                roofVent.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.25,
+                    h * 0.46,
+                    (i < 2 ? -1 : 1) * d * 0.25
+                ), "up");
                 roofVent.parent = chassis;
                 const roofVentMat = new StandardMaterial(`mediumRoofVentMat${i}`, scene);
                 roofVentMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
@@ -1334,12 +1700,8 @@ export function addChassisDetails(
             }
             
             // Радиоантенна сзади (характерная для Т-34)
-            const antenna = MeshBuilder.CreateCylinder("mediumAntenna", {
-                height: 0.5,
-                diameter: 0.025,
-                tessellation: 8
-            }, scene);
-            antenna.position = new Vector3(0, h * 0.65, -d * 0.35);
+            const antenna = MeshBuilder.CreateBox("mediumAntenna", { width: 0.025, height: 0.5, depth: 0.025 }, scene);
+            antenna.position = addZFightingOffset(new Vector3(0, h * 0.65, -d * 0.35), "up");
             antenna.parent = chassis;
             const antennaMat = new StandardMaterial("mediumAntennaMat", scene);
             antennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
@@ -1351,7 +1713,7 @@ export function addChassisDetails(
                 height: 0.1,
                 depth: 0.1
             }, scene);
-            antennaBase.position = new Vector3(0, h * 0.54, -d * 0.35);
+            antennaBase.position = addZFightingOffset(new Vector3(0, h * 0.54, -d * 0.35), "up");
             antennaBase.parent = chassis;
             antennaBase.material = armorMat;
             
@@ -1361,19 +1723,15 @@ export function addChassisDetails(
                 height: 0.08,
                 depth: 0.1
             }, scene);
-            sight.position = new Vector3(0, h * 0.25, d * 0.48);
+            sight.position = addZFightingOffset(new Vector3(0, h * 0.25, d * 0.48), "forward");
             sight.parent = chassis;
             const sightMat = new StandardMaterial("mediumSightMat", scene);
             sightMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
             sight.material = sightMat;
             
             // Линза прицела
-            const sightLens = MeshBuilder.CreateCylinder("mediumSightLens", {
-                height: 0.02,
-                diameter: 0.06,
-                tessellation: 8
-            }, scene);
-            sightLens.position = new Vector3(0, 0, 0.06);
+            const sightLens = MeshBuilder.CreateBox("mediumSightLens", { width: 0.06, height: 0.02, depth: 0.06 }, scene);
+            sightLens.position = addZFightingOffset(new Vector3(0, 0, 0.06), "forward");
             sightLens.parent = sight;
             const lensMat = new StandardMaterial("mediumSightLensMat", scene);
             lensMat.diffuseColor = new Color3(0.1, 0.2, 0.3);
@@ -1387,7 +1745,11 @@ export function addChassisDetails(
                     height: 0.1,
                     depth: 0.04
                 }, scene);
-                tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.16, -d * 0.49);
+                tailLight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.38,
+                    h * 0.16,
+                    -d * 0.49
+                ), "forward");
                 tailLight.parent = chassis;
                 const tailLightMat = new StandardMaterial(`mediumTailLightMat${i}`, scene);
                 tailLightMat.diffuseColor = new Color3(0.6, 0.1, 0.1);
@@ -1401,7 +1763,7 @@ export function addChassisDetails(
                 height: 0.12,
                 depth: 0.14
             }, scene);
-            toolBox.position = new Vector3(0, h * 0.22, -d * 0.42);
+            toolBox.position = addZFightingOffset(new Vector3(0, h * 0.22, -d * 0.42), "forward");
             toolBox.parent = chassis;
             toolBox.material = armorMat;
             
@@ -1412,12 +1774,71 @@ export function addChassisDetails(
                     height: 0.07,
                     depth: 0.05
                 }, scene);
-                sideLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.08, -d * 0.25);
+                sideLight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.45,
+                    h * 0.08,
+                    -d * 0.25
+                ), "backward");
                 sideLight.parent = chassis;
                 const sideLightMat = new StandardMaterial(`mediumSideLightMat${i}`, scene);
                 sideLightMat.diffuseColor = new Color3(0.7, 0.6, 0.3);
                 sideLightMat.emissiveColor = new Color3(0.15, 0.12, 0.08);
                 sideLight.material = sideLightMat;
+            }
+            
+            // Детали гусениц - катки
+            for (let i = 0; i < 8; i++) {
+                const wheel = MeshBuilder.CreateBox(`mediumWheel${i}`, {
+                    width: 0.25,
+                    height: 0.25,
+                    depth: 0.18
+                }, scene);
+                wheel.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.55,
+                    -h * 0.35,
+                    -d * 0.45 + i * d * 0.12
+                ), "backward");
+                wheel.parent = chassis;
+                wheel.material = armorMat;
+            }
+            
+            // Заклепки на бронеплитах
+            for (let i = 0; i < 16; i++) {
+                const rivet = MeshBuilder.CreateBox(`mediumRivet${i}`, {
+                    width: 0.05,
+                    height: 0.05,
+                    depth: 0.02
+                }, scene);
+                const angle = (i * Math.PI * 2) / 16;
+                rivet.position = addZFightingOffset(new Vector3(
+                    Math.cos(angle) * w * 0.45,
+                    h * 0.25 + Math.sin(angle) * h * 0.25,
+                    d * 0.35
+                ), "forward");
+                rivet.parent = chassis;
+                rivet.material = accentMat;
+            }
+            
+            // Швы брони
+            for (let i = 0; i < 6; i++) {
+                const seam = MeshBuilder.CreateBox(`mediumSeam${i}`, {
+                    width: i < 3 ? w * 0.95 : 0.05,
+                    height: i < 3 ? 0.03 : h * 0.9,
+                    depth: i < 3 ? 0.03 : 0.05
+                }, scene);
+                if (i < 3) {
+                    seam.position = addZFightingOffset(new Vector3(0, h * 0.1 + i * h * 0.25, d * 0.4), "forward");
+                } else {
+                    seam.position = addZFightingOffset(new Vector3(
+                    (i === 3 ? -1 : i === 4 ? 1 : 0) * w * 0.5,
+                    0,
+                    d * 0.2
+                ), "x");
+                }
+                seam.parent = chassis;
+                const seamMat = new StandardMaterial(`mediumSeamMat${i}`, scene);
+                seamMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
+                seam.material = seamMat;
             }
             break;
         }
@@ -1425,15 +1846,463 @@ export function addChassisDetails(
         // === NEW CHASSIS TYPES ===
         case "stealth":
             // Stealth - угловатые панели, низкий профиль
-            break; // Visual details added below
+            // Наклонная лобовая броня (угловатая)
+            const stealthFront = MeshBuilder.CreateBox("stealthFront", {
+                width: w * 0.95,
+                height: h * 0.5,
+                depth: 0.15
+            }, scene);
+            stealthFront.position = addZFightingOffset(new Vector3(0, h * 0.1, d * 0.52), "forward");
+            stealthFront.rotation.x = -Math.PI / 8;
+            stealthFront.parent = chassis;
+            stealthFront.material = armorMat;
+            
+            // Угловатые боковые панели
+            for (let i = 0; i < 2; i++) {
+                const sidePanel = MeshBuilder.CreateBox(`stealthSidePanel${i}`, {
+                    width: 0.1,
+                    height: h * 0.7,
+                    depth: d * 0.6
+                }, scene);
+                sidePanel.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.52,
+                    0,
+                    d * 0.15
+                ), "x");
+                sidePanel.rotation.z = (i === 0 ? 1 : -1) * Math.PI / 12;
+                sidePanel.parent = chassis;
+                sidePanel.material = armorMat;
+            }
+            
+            // Фары (маленькие, скрытые)
+            for (let i = 0; i < 2; i++) {
+                const headlight = MeshBuilder.CreateBox(`stealthHeadlight${i}`, {
+                    width: 0.06,
+                    height: 0.06,
+                    depth: 0.05
+                }, scene);
+                headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.35,
+                    h * 0.08,
+                    d * 0.5
+                ), "forward");
+                headlight.parent = chassis;
+                const headlightMat = new StandardMaterial(`stealthHeadlightMat${i}`, scene);
+                headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                headlightMat.emissiveColor = new Color3(0.2, 0.2, 0.15);
+                headlight.material = headlightMat;
+            }
+            
+            // Вентиляционные решетки (скрытые)
+            for (let i = 0; i < 3; i++) {
+                const vent = MeshBuilder.CreateBox(`stealthVent${i}`, {
+                    width: 0.08,
+                    height: 0.04,
+                    depth: 0.06
+                }, scene);
+                vent.position = addZFightingOffset(new Vector3(
+                    (i - 1) * w * 0.3,
+                    h * 0.3,
+                    -d * 0.3
+                ), "backward");
+                vent.parent = chassis;
+                const ventMat = new StandardMaterial(`stealthVentMat${i}`, scene);
+                ventMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
+                vent.material = ventMat;
+            }
+            
+            // Детали гусениц
+            for (let i = 0; i < 7; i++) {
+                const wheel = MeshBuilder.CreateBox(`stealthWheel${i}`, {
+                    width: 0.2,
+                    height: 0.2,
+                    depth: 0.16
+                }, scene);
+                wheel.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.53,
+                    -h * 0.3,
+                    -d * 0.5 + i * d * 0.14
+                ), "forward");
+                wheel.parent = chassis;
+                wheel.material = armorMat;
+            }
+            
+            // Заклепки
+            for (let i = 0; i < 12; i++) {
+                const rivet = MeshBuilder.CreateBox(`stealthRivet${i}`, {
+                    width: 0.04,
+                    height: 0.04,
+                    depth: 0.02
+                }, scene);
+                const angle = (i * Math.PI * 2) / 12;
+                rivet.position = addZFightingOffset(new Vector3(
+                    Math.cos(angle) * w * 0.48,
+                    h * 0.2 + Math.sin(angle) * h * 0.2,
+                    d * 0.35
+                ), "forward");
+                rivet.parent = chassis;
+                rivet.material = accentMat;
+            }
+            
+            // Швы брони
+            for (let i = 0; i < 5; i++) {
+                const seam = MeshBuilder.CreateBox(`stealthSeam${i}`, {
+                    width: i < 3 ? w * 0.9 : 0.04,
+                    height: i < 3 ? 0.02 : h * 0.85,
+                    depth: i < 3 ? 0.02 : 0.04
+                }, scene);
+                if (i < 3) {
+                    seam.position = addZFightingOffset(new Vector3(0, h * 0.08 + i * h * 0.22, d * 0.45), "forward");
+                } else {
+                    seam.position = addZFightingOffset(new Vector3(
+                    (i === 3 ? -1 : 1) * w * 0.51,
+                    0,
+                    d * 0.2
+                ), "x");
+                }
+                seam.parent = chassis;
+                const seamMat = new StandardMaterial(`stealthSeamMat${i}`, scene);
+                seamMat.diffuseColor = new Color3(0.08, 0.08, 0.08);
+                seam.material = seamMat;
+            }
+            break;
             
         case "hover":
             // Hover - обтекаемый футуристический дизайн с реактивными двигателями
-            break; // Visual details added below
+            // Плавные скошенные углы - лобовая броня (плавная)
+            const hoverFront = MeshBuilder.CreateBox("hoverFront", {
+                width: w * 0.92,  // Уже корпуса чтобы не было z-fighting по бокам
+                height: h * 0.6,
+                depth: 0.18
+            }, scene);
+            hoverFront.position = addZFightingOffset(new Vector3(0, h * 0.12, d * 0.5), "forward");
+            hoverFront.rotation.x = -Math.PI / 10;
+            hoverFront.parent = chassis;
+            hoverFront.material = armorMat;
+            
+            // Плавные боковые панели (скошенные углы)
+            for (let i = 0; i < 2; i++) {
+                const sidePanel = MeshBuilder.CreateBox(`hoverSidePanel${i}`, {
+                    width: 0.12,
+                    height: h * 0.8,
+                    depth: d * 0.65
+                }, scene);
+                sidePanel.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.54,
+                    0,
+                    d * 0.12
+                ), "x");
+                sidePanel.rotation.z = (i === 0 ? 1 : -1) * Math.PI / 15;
+                sidePanel.parent = chassis;
+                sidePanel.material = armorMat;
+            }
+            
+            // Реактивные двигатели (hover thrusters)
+            animationElements.hoverThrusters = [];
+            for (let i = 0; i < 4; i++) {
+                const thruster = MeshBuilder.CreateBox(`hoverThruster${i}`, {
+                    width: 0.2,
+                    height: 0.2,
+                    depth: 0.15
+                }, scene);
+                const posX = (i % 2 === 0 ? -1 : 1) * w * 0.4;
+                const posZ = (i < 2 ? -1 : 1) * d * 0.4;
+                thruster.position = addZFightingOffset(new Vector3(posX, -h * 0.4, posZ), "forward");
+                thruster.parent = chassis;
+                const thrusterMat = new StandardMaterial(`hoverThrusterMat${i}`, scene);
+                thrusterMat.diffuseColor = new Color3(0.2, 0.4, 0.8);
+                thrusterMat.emissiveColor = new Color3(0.1, 0.2, 0.5);
+                thruster.material = thrusterMat;
+                animationElements.hoverThrusters.push(thruster);
+            }
+            
+            // Фары
+            for (let i = 0; i < 2; i++) {
+                const headlight = MeshBuilder.CreateBox(`hoverHeadlight${i}`, {
+                    width: 0.1,
+                    height: 0.1,
+                    depth: 0.08
+                }, scene);
+                headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.38,
+                    h * 0.15,
+                    d * 0.48
+                ), "forward");
+                headlight.parent = chassis;
+                const headlightMat = new StandardMaterial(`hoverHeadlightMat${i}`, scene);
+                headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
+                headlight.material = headlightMat;
+            }
+            
+            // Вентиляционные решетки
+            for (let i = 0; i < 4; i++) {
+                const vent = MeshBuilder.CreateBox(`hoverVent${i}`, {
+                    width: 0.1,
+                    height: 0.05,
+                    depth: 0.08
+                }, scene);
+                const posX = (i % 2 === 0 ? -1 : 1) * w * 0.35;
+                const posZ = (i < 2 ? -1 : 1) * d * 0.3;
+                vent.position = addZFightingOffset(new Vector3(posX, h * 0.4, posZ), "forward");
+                vent.parent = chassis;
+                const ventMat = new StandardMaterial(`hoverVentMat${i}`, scene);
+                ventMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
+                vent.material = ventMat;
+            }
+            
+            // Детали гусениц (минимум для hover)
+            for (let i = 0; i < 6; i++) {
+                const wheel = MeshBuilder.CreateBox(`hoverWheel${i}`, {
+                    width: 0.22,
+                    height: 0.22,
+                    depth: 0.17
+                }, scene);
+                wheel.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.52,
+                    -h * 0.35,
+                    -d * 0.45 + i * d * 0.15
+                ), "backward");
+                wheel.parent = chassis;
+                wheel.material = armorMat;
+            }
+            
+            // Заклепки
+            for (let i = 0; i < 14; i++) {
+                const rivet = MeshBuilder.CreateBox(`hoverRivet${i}`, {
+                    width: 0.05,
+                    height: 0.05,
+                    depth: 0.02
+                }, scene);
+                const angle = (i * Math.PI * 2) / 14;
+                rivet.position = addZFightingOffset(new Vector3(
+                    Math.cos(angle) * w * 0.5,
+                    h * 0.25 + Math.sin(angle) * h * 0.25,
+                    d * 0.38
+                ), "forward");
+                rivet.parent = chassis;
+                rivet.material = accentMat;
+            }
+            
+            // Швы брони
+            for (let i = 0; i < 6; i++) {
+                const seam = MeshBuilder.CreateBox(`hoverSeam${i}`, {
+                    width: i < 3 ? w * 1.0 : 0.05,
+                    height: i < 3 ? 0.03 : h * 0.9,
+                    depth: i < 3 ? 0.03 : 0.05
+                }, scene);
+                if (i < 3) {
+                    seam.position = addZFightingOffset(new Vector3(0, h * 0.1 + i * h * 0.24, d * 0.42), "forward");
+                } else {
+                    seam.position = addZFightingOffset(new Vector3(
+                    (i === 3 ? -1 : i === 4 ? 1 : 0) * w * 0.53,
+                    0,
+                    d * 0.2
+                ), "x");
+                }
+                seam.parent = chassis;
+                const seamMat = new StandardMaterial(`hoverSeamMat${i}`, scene);
+                seamMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
+                seam.material = seamMat;
+            }
+            
+            // Антенны (сенсоры)
+            for (let i = 0; i < 2; i++) {
+                const antenna = MeshBuilder.CreateBox(`hoverAntenna${i}`, {
+                    width: 0.02,
+                    height: 0.3,
+                    depth: 0.02
+                }, scene);
+                antenna.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.4,
+                    h * 0.6,
+                    -d * 0.3
+                ), "backward");
+                antenna.parent = chassis;
+                const antennaMat = new StandardMaterial(`hoverAntennaMat${i}`, scene);
+                antennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
+                antenna.material = antennaMat;
+            }
+            break;
             
         case "siege":
-            // Siege - массивный, очень большой
-            break; // Visual details added below
+            // Siege - массивный, очень большой, угловатые бронеплиты
+            // Массивные угловатые лобовые бронеплиты
+            const siegeFrontPlates = [
+                { pos: new Vector3(-w * 0.35, h * 0.15, d * 0.55), size: new Vector3(w * 0.3, h * 0.4, 0.2), rot: -Math.PI / 8 },
+                { pos: new Vector3(0, h * 0.2, d * 0.55), size: new Vector3(w * 0.35, h * 0.45, 0.22), rot: -Math.PI / 10 },
+                { pos: new Vector3(w * 0.35, h * 0.15, d * 0.55), size: new Vector3(w * 0.3, h * 0.4, 0.2), rot: -Math.PI / 8 }
+            ];
+            siegeFrontPlates.forEach((plate, i) => {
+                const plateMesh = MeshBuilder.CreateBox(`siegeFrontPlate${i}`, {
+                    width: plate.size.x,
+                    height: plate.size.y,
+                    depth: plate.size.z
+                }, scene);
+                plateMesh.position = plate.pos;
+                plateMesh.rotation.x = plate.rot;
+                plateMesh.parent = chassis;
+                plateMesh.material = armorMat;
+            });
+            
+            // Угловатые боковые бронеплиты
+            for (let i = 0; i < 2; i++) {
+                const sidePlate = MeshBuilder.CreateBox(`siegeSidePlate${i}`, {
+                    width: 0.25,
+                    height: h * 1.1,
+                    depth: d * 0.7
+                }, scene);
+                sidePlate.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.62,
+                    0,
+                    d * 0.15
+                ), "x");
+                sidePlate.rotation.z = (i === 0 ? 1 : -1) * Math.PI / 20;
+                sidePlate.parent = chassis;
+                sidePlate.material = armorMat;
+            }
+            
+            // Верхние угловатые бронеплиты
+            const siegeTopPlates = [
+                { pos: new Vector3(-w * 0.4, h * 0.7, d * 0.4), size: new Vector3(w * 0.35, 0.3, d * 0.5) },
+                { pos: new Vector3(0, h * 0.75, d * 0.4), size: new Vector3(w * 0.4, 0.35, d * 0.5) },
+                { pos: new Vector3(w * 0.4, h * 0.7, d * 0.4), size: new Vector3(w * 0.35, 0.3, d * 0.5) }
+            ];
+            siegeTopPlates.forEach((plate, i) => {
+                const plateMesh = MeshBuilder.CreateBox(`siegeTopPlate${i}`, {
+                    width: plate.size.x,
+                    height: plate.size.y,
+                    depth: plate.size.z
+                }, scene);
+                plateMesh.position = plate.pos;
+                plateMesh.parent = chassis;
+                plateMesh.material = armorMat;
+            });
+            
+            // Фары (большие)
+            for (let i = 0; i < 2; i++) {
+                const headlight = MeshBuilder.CreateBox(`siegeHeadlight${i}`, {
+                    width: 0.14,
+                    height: 0.14,
+                    depth: 0.12
+                }, scene);
+                headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.45,
+                    h * 0.18,
+                    d * 0.52
+                ), "forward");
+                headlight.parent = chassis;
+                const headlightMat = new StandardMaterial(`siegeHeadlightMat${i}`, scene);
+                headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
+                headlight.material = headlightMat;
+            }
+            
+            // Выхлопные трубы (большие)
+            for (let i = 0; i < 2; i++) {
+                const exhaust = MeshBuilder.CreateBox(`siegeExhaust${i}`, {
+                    width: 0.16,
+                    height: 0.24,
+                    depth: 0.22
+                }, scene);
+                exhaust.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.45,
+                    h * 0.25,
+                    -d * 0.52
+                ), "forward");
+                exhaust.parent = chassis;
+                exhaust.material = armorMat;
+            }
+            
+            // Вентиляционные решетки (большие)
+            for (let i = 0; i < 6; i++) {
+                const vent = MeshBuilder.CreateBox(`siegeVent${i}`, {
+                    width: 0.12,
+                    height: 0.08,
+                    depth: 0.14
+                }, scene);
+                const posX = (i % 3 === 0 ? -1 : i % 3 === 1 ? 0 : 1) * w * 0.4;
+                const posZ = (i < 3 ? -1 : 1) * d * 0.35;
+                vent.position = addZFightingOffset(new Vector3(posX, h * 0.6, posZ), "up");
+                vent.parent = chassis;
+                const ventMat = new StandardMaterial(`siegeVentMat${i}`, scene);
+                ventMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
+                vent.material = ventMat;
+            }
+            
+            // Детали гусениц (большие катки)
+            for (let i = 0; i < 12; i++) {
+                const wheel = MeshBuilder.CreateBox(`siegeWheel${i}`, {
+                    width: 0.35,
+                    height: 0.35,
+                    depth: 0.25
+                }, scene);
+                wheel.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.65,
+                    -h * 0.45,
+                    -d * 0.55 + i * d * 0.09
+                ), "forward");
+                wheel.parent = chassis;
+                wheel.material = armorMat;
+            }
+            
+            // Заклепки (много для siege)
+            for (let i = 0; i < 30; i++) {
+                const rivet = MeshBuilder.CreateBox(`siegeRivet${i}`, {
+                    width: 0.07,
+                    height: 0.07,
+                    depth: 0.03
+                }, scene);
+                const angle = (i * Math.PI * 2) / 30;
+                rivet.position = addZFightingOffset(new Vector3(
+                    Math.cos(angle) * w * 0.55,
+                    h * 0.35 + Math.sin(angle) * h * 0.35,
+                    d * 0.45
+                ), "forward");
+                rivet.parent = chassis;
+                rivet.material = accentMat;
+            }
+            
+            // Швы брони (толстые)
+            for (let i = 0; i < 10; i++) {
+                const seam = MeshBuilder.CreateBox(`siegeSeam${i}`, {
+                    width: i < 5 ? w * 1.1 : 0.07,
+                    height: i < 5 ? 0.05 : h * 1.1,
+                    depth: i < 5 ? 0.05 : 0.07
+                }, scene);
+                if (i < 5) {
+                    seam.position = addZFightingOffset(new Vector3(0, h * 0.1 + i * h * 0.18, d * 0.48), "forward");
+                } else {
+                    seam.position = addZFightingOffset(new Vector3(
+                    (i === 5 ? -1 : i === 6 ? 1 : 0) * w * 0.6,
+                    0,
+                    d * 0.25
+                ), "x");
+                }
+                seam.parent = chassis;
+                const seamMat = new StandardMaterial(`siegeSeamMat${i}`, scene);
+                seamMat.diffuseColor = new Color3(0.08, 0.08, 0.08);
+                seam.material = seamMat;
+            }
+            
+            // Антенны (большие)
+            for (let i = 0; i < 2; i++) {
+                const antenna = MeshBuilder.CreateBox(`siegeAntenna${i}`, {
+                    width: 0.03,
+                    height: 0.6,
+                    depth: 0.03
+                }, scene);
+                antenna.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.45,
+                    h * 0.85,
+                    -d * 0.35
+                ), "backward");
+                antenna.parent = chassis;
+                const antennaMat = new StandardMaterial(`siegeAntennaMat${i}`, scene);
+                antennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
+                antenna.material = antennaMat;
+            }
+            break;
             
         case "racer":
             // Racer - очень низкий, спортивный - гонщик
@@ -1443,7 +2312,7 @@ export function addChassisDetails(
                 height: 0.12,
                 depth: 0.15
             }, scene);
-            racerFrontSpoiler.position = new Vector3(0, -h * 0.4, d * 0.48);
+            racerFrontSpoiler.position = addZFightingOffset(new Vector3(0, -h * 0.4, d * 0.48), "forward");
             racerFrontSpoiler.parent = chassis;
             racerFrontSpoiler.material = accentMat;
             
@@ -1453,7 +2322,7 @@ export function addChassisDetails(
                 height: 0.25,
                 depth: 0.2
             }, scene);
-            racerRearSpoiler.position = new Vector3(0, h * 0.45, -d * 0.48);
+            racerRearSpoiler.position = addZFightingOffset(new Vector3(0, h * 0.45, -d * 0.48), "forward");
             racerRearSpoiler.parent = chassis;
             racerRearSpoiler.material = accentMat;
             
@@ -1464,7 +2333,11 @@ export function addChassisDetails(
                     height: h * 0.6,
                     depth: d * 0.7
                 }, scene);
-                sideFairing.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, 0, d * 0.1);
+                sideFairing.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.48,
+                    0,
+                    d * 0.1
+                ), "x");
                 sideFairing.parent = chassis;
                 sideFairing.material = accentMat;
             }
@@ -1476,7 +2349,11 @@ export function addChassisDetails(
                     height: 0.12,
                     depth: 0.1
                 }, scene);
-                headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.32, h * 0.1, d * 0.49);
+                headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.32,
+                    h * 0.1,
+                    d * 0.49
+                ), "forward");
                 headlight.parent = chassis;
                 const headlightMat = new StandardMaterial(`racerHeadlightMat${i}`, scene);
                 headlightMat.diffuseColor = new Color3(1.0, 1.0, 0.8);
@@ -1490,7 +2367,7 @@ export function addChassisDetails(
                 height: h * 0.25,
                 depth: 0.08
             }, scene);
-            racerIntake.position = new Vector3(0, h * 0.15, d * 0.48);
+            racerIntake.position = addZFightingOffset(new Vector3(0, h * 0.15, d * 0.48), "forward");
             racerIntake.parent = chassis;
             const intakeMat = new StandardMaterial("racerIntakeMat", scene);
             intakeMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
@@ -1503,7 +2380,11 @@ export function addChassisDetails(
                     height: h * 0.2,
                     depth: 0.06
                 }, scene);
-                intakeBar.position = new Vector3((i - 2) * w * 0.09, h * 0.15, d * 0.48);
+                intakeBar.position = addZFightingOffset(new Vector3(
+                    (i - 2) * w * 0.09,
+                    h * 0.15,
+                    d * 0.48
+                ), "forward");
                 intakeBar.parent = chassis;
                 intakeBar.material = intakeMat;
             }
@@ -1515,32 +2396,34 @@ export function addChassisDetails(
                     height: 0.08,
                     depth: 0.12
                 }, scene);
-                roofIntake.position = new Vector3((i === 0 ? -1 : 1) * w * 0.25, h * 0.42, d * 0.3);
+                roofIntake.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.25,
+                    h * 0.42,
+                    d * 0.3
+                ), "up");
                 roofIntake.parent = chassis;
                 roofIntake.material = intakeMat;
             }
             
             // Выхлопные трубы (большие, по бокам)
             for (let i = 0; i < 2; i++) {
-                const exhaust = MeshBuilder.CreateCylinder(`racerExhaust${i}`, {
-                    height: 0.3,
-                    diameter: 0.1,
-                    tessellation: 8
-                }, scene);
-                exhaust.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.08, -d * 0.48);
-                exhaust.rotation.z = Math.PI / 2;
-                exhaust.parent = chassis;
+                const exhaust = MeshBuilder.CreateBox(`racerExhaust${i}`, { width: 0.1, height: 0.3, depth: 0.1 }, scene);
+                exhaust.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.4,
+                    h * 0.08,
+                    -d * 0.48
+                ), "forward");
+                                exhaust.parent = chassis;
                 exhaust.material = armorMat;
                 
                 // Выхлопное отверстие
-                const exhaustHole = MeshBuilder.CreateCylinder(`racerExhaustHole${i}`, {
-                    height: 0.05,
-                    diameter: 0.08,
-                    tessellation: 8
-                }, scene);
-                exhaustHole.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.08, -d * 0.52);
-                exhaustHole.rotation.z = Math.PI / 2;
-                exhaustHole.parent = chassis;
+                const exhaustHole = MeshBuilder.CreateBox(`racerExhaustHole${i}`, { width: 0.08, height: 0.05, depth: 0.08 }, scene);
+                exhaustHole.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.4,
+                    h * 0.08,
+                    -d * 0.52
+                ), "forward");
+                                exhaustHole.parent = chassis;
                 const exhaustHoleMat = new StandardMaterial(`racerExhaustHoleMat${i}`, scene);
                 exhaustHoleMat.diffuseColor = new Color3(0.05, 0.05, 0.05);
                 exhaustHoleMat.emissiveColor = new Color3(0.1, 0.05, 0);
@@ -1554,7 +2437,11 @@ export function addChassisDetails(
                     height: 0.05,
                     depth: 0.04
                 }, scene);
-                mirror.position = new Vector3((i === 0 ? -1 : 1) * w * 0.52, h * 0.35, d * 0.35);
+                mirror.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.52,
+                    h * 0.35,
+                    d * 0.35
+                ), "forward");
                 mirror.parent = chassis;
                 const mirrorMat = new StandardMaterial(`racerMirrorMat${i}`, scene);
                 mirrorMat.diffuseColor = new Color3(0.2, 0.2, 0.25);
@@ -1568,7 +2455,11 @@ export function addChassisDetails(
                     height: 0.12,
                     depth: 0.04
                 }, scene);
-                tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.12, -d * 0.49);
+                tailLight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.35,
+                    h * 0.12,
+                    -d * 0.49
+                ), "forward");
                 tailLight.parent = chassis;
                 const tailLightMat = new StandardMaterial(`racerTailLightMat${i}`, scene);
                 tailLightMat.diffuseColor = new Color3(0.7, 0.1, 0.1);
@@ -1584,7 +2475,11 @@ export function addChassisDetails(
                         height: 0.1,
                         depth: 0.04
                     }, scene);
-                    sideVent.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.05, d * 0.1 + (j - 1) * d * 0.15);
+                    sideVent.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.45,
+                    h * 0.05,
+                    d * 0.1 + (j - 1) * d * 0.15
+                ), "x");
                     sideVent.parent = chassis;
                     sideVent.material = intakeMat;
                 }
@@ -1596,46 +2491,895 @@ export function addChassisDetails(
                 height: 0.06,
                 depth: 0.25
             }, scene);
-            racerHatch.position = new Vector3(0, h * 0.46, -d * 0.1);
+            racerHatch.position = addZFightingOffset(new Vector3(0, h * 0.46, -d * 0.1), "up");
             racerHatch.parent = chassis;
             racerHatch.material = armorMat;
             
             // Перископ на люке
-            const racerPeriscope = MeshBuilder.CreateCylinder("racerPeriscope", {
-                height: 0.2,
-                diameter: 0.06,
-                tessellation: 8
-            }, scene);
-            racerPeriscope.position = new Vector3(0, h * 0.56, -d * 0.1);
+            const racerPeriscope = MeshBuilder.CreateBox("racerPeriscope", { width: 0.06, height: 0.2, depth: 0.06 }, scene);
+            racerPeriscope.position = addZFightingOffset(new Vector3(0, h * 0.56, -d * 0.1), "up");
             racerPeriscope.parent = chassis;
             const racerPeriscopeMat = new StandardMaterial("racerPeriscopeMat", scene);
             racerPeriscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
             racerPeriscope.material = racerPeriscopeMat;
-            break; // Visual details added below
+            
+            // Детали гусениц (маленькие для racer)
+            for (let i = 0; i < 8; i++) {
+                const wheel = MeshBuilder.CreateBox(`racerWheel${i}`, {
+                    width: 0.2,
+                    height: 0.2,
+                    depth: 0.15
+                }, scene);
+                wheel.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.5,
+                    -h * 0.25,
+                    -d * 0.6 + i * d * 0.15
+                ), "backward");
+                wheel.parent = chassis;
+                wheel.material = armorMat;
+            }
+            
+            // Заклепки
+            for (let i = 0; i < 10; i++) {
+                const rivet = MeshBuilder.CreateBox(`racerRivet${i}`, {
+                    width: 0.04,
+                    height: 0.04,
+                    depth: 0.02
+                }, scene);
+                const angle = (i * Math.PI * 2) / 10;
+                rivet.position = addZFightingOffset(new Vector3(
+                    Math.cos(angle) * w * 0.4,
+                    h * 0.12 + Math.sin(angle) * h * 0.12,
+                    d * 0.5
+                ), "forward");
+                rivet.parent = chassis;
+                rivet.material = accentMat;
+            }
+            
+            // Швы брони
+            for (let i = 0; i < 4; i++) {
+                const seam = MeshBuilder.CreateBox(`racerSeam${i}`, {
+                    width: i < 2 ? w * 0.85 : 0.04,
+                    height: i < 2 ? 0.02 : h * 0.75,
+                    depth: i < 2 ? 0.02 : 0.04
+                }, scene);
+                if (i < 2) {
+                    seam.position = addZFightingOffset(new Vector3(0, h * 0.05 + i * h * 0.18, d * 0.48), "forward");
+                } else {
+                    seam.position = addZFightingOffset(new Vector3(
+                    (i === 2 ? -1 : 1) * w * 0.49,
+                    0,
+                    d * 0.3
+                ), "x");
+                }
+                seam.parent = chassis;
+                const seamMat = new StandardMaterial(`racerSeamMat${i}`, scene);
+                seamMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
+                seam.material = seamMat;
+            }
+            break;
             
         case "amphibious":
-            // Amphibious - с поплавками
-            break; // Visual details added below
+            // Amphibious - с поплавками, плавные скошенные углы
+            // Плавная лобовая броня (скошенные углы)
+            const amphibiousFront = MeshBuilder.CreateBox("amphibiousFront", {
+                width: w * 1.1,
+                height: h * 0.65,
+                depth: 0.2
+            }, scene);
+            amphibiousFront.position = addZFightingOffset(new Vector3(0, h * 0.15, d * 0.52), "forward");
+            amphibiousFront.rotation.x = -Math.PI / 12;
+            amphibiousFront.parent = chassis;
+            amphibiousFront.material = armorMat;
+            
+            // Плавные боковые панели (скошенные углы)
+            for (let i = 0; i < 2; i++) {
+                const sidePanel = MeshBuilder.CreateBox(`amphibiousSidePanel${i}`, {
+                    width: 0.15,
+                    height: h * 0.85,
+                    depth: d * 0.7
+                }, scene);
+                sidePanel.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.58,
+                    0,
+                    d * 0.1
+                ), "x");
+                sidePanel.rotation.z = (i === 0 ? 1 : -1) * Math.PI / 18;
+                sidePanel.parent = chassis;
+                sidePanel.material = armorMat;
+            }
+            
+            // Поплавки (водонепроницаемые)
+            for (let i = 0; i < 2; i++) {
+                const pontoon = MeshBuilder.CreateBox(`amphibiousPontoon${i}`, {
+                    width: 0.25,
+                    height: h * 0.6,
+                    depth: d * 0.4
+                }, scene);
+                pontoon.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.65,
+                    -h * 0.2,
+                    d * 0.2
+                ), "down");
+                pontoon.rotation.z = (i === 0 ? 1 : -1) * Math.PI / 20;
+                pontoon.parent = chassis;
+                pontoon.material = armorMat;
+            }
+            
+            // Фары (водонепроницаемые)
+            for (let i = 0; i < 2; i++) {
+                const headlight = MeshBuilder.CreateBox(`amphibiousHeadlight${i}`, {
+                    width: 0.12,
+                    height: 0.12,
+                    depth: 0.1
+                }, scene);
+                headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.4,
+                    h * 0.18,
+                    d * 0.5
+                ), "forward");
+                headlight.parent = chassis;
+                const headlightMat = new StandardMaterial(`amphibiousHeadlightMat${i}`, scene);
+                headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
+                headlight.material = headlightMat;
+            }
+            
+            // Выхлопные трубы (водонепроницаемые)
+            for (let i = 0; i < 2; i++) {
+                const exhaust = MeshBuilder.CreateBox(`amphibiousExhaust${i}`, {
+                    width: 0.14,
+                    height: 0.18,
+                    depth: 0.2
+                }, scene);
+                exhaust.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.4,
+                    h * 0.22,
+                    -d * 0.5
+                ), "forward");
+                exhaust.parent = chassis;
+                exhaust.material = armorMat;
+            }
+            
+            // Вентиляционные решетки (водонепроницаемые)
+            for (let i = 0; i < 4; i++) {
+                const vent = MeshBuilder.CreateBox(`amphibiousVent${i}`, {
+                    width: 0.1,
+                    height: 0.06,
+                    depth: 0.1
+                }, scene);
+                const posX = (i % 2 === 0 ? -1 : 1) * w * 0.4;
+                const posZ = (i < 2 ? -1 : 1) * d * 0.3;
+                vent.position = addZFightingOffset(new Vector3(posX, h * 0.45, posZ), "up");
+                vent.parent = chassis;
+                const ventMat = new StandardMaterial(`amphibiousVentMat${i}`, scene);
+                ventMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
+                vent.material = ventMat;
+            }
+            
+            // Детали гусениц
+            for (let i = 0; i < 9; i++) {
+                const wheel = MeshBuilder.CreateBox(`amphibiousWheel${i}`, {
+                    width: 0.26,
+                    height: 0.26,
+                    depth: 0.19
+                }, scene);
+                wheel.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.58,
+                    -h * 0.38,
+                    -d * 0.5 + i * d * 0.11
+                ), "forward");
+                wheel.parent = chassis;
+                wheel.material = armorMat;
+            }
+            
+            // Заклепки
+            for (let i = 0; i < 18; i++) {
+                const rivet = MeshBuilder.CreateBox(`amphibiousRivet${i}`, {
+                    width: 0.05,
+                    height: 0.05,
+                    depth: 0.02
+                }, scene);
+                const angle = (i * Math.PI * 2) / 18;
+                rivet.position = addZFightingOffset(new Vector3(
+                    Math.cos(angle) * w * 0.52,
+                    h * 0.28 + Math.sin(angle) * h * 0.28,
+                    d * 0.4
+                ), "forward");
+                rivet.parent = chassis;
+                rivet.material = accentMat;
+            }
+            
+            // Швы брони
+            for (let i = 0; i < 6; i++) {
+                const seam = MeshBuilder.CreateBox(`amphibiousSeam${i}`, {
+                    width: i < 3 ? w * 1.05 : 0.05,
+                    height: i < 3 ? 0.03 : h * 0.95,
+                    depth: i < 3 ? 0.03 : 0.05
+                }, scene);
+                if (i < 3) {
+                    seam.position = addZFightingOffset(new Vector3(0, h * 0.12 + i * h * 0.24, d * 0.45), "forward");
+                } else {
+                    seam.position = addZFightingOffset(new Vector3(
+                    (i === 3 ? -1 : i === 4 ? 1 : 0) * w * 0.59,
+                    0,
+                    d * 0.22
+                ), "x");
+                }
+                seam.parent = chassis;
+                const seamMat = new StandardMaterial(`amphibiousSeamMat${i}`, scene);
+                seamMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
+                seam.material = seamMat;
+            }
+            
+            // Антенны
+            for (let i = 0; i < 2; i++) {
+                const antenna = MeshBuilder.CreateBox(`amphibiousAntenna${i}`, {
+                    width: 0.025,
+                    height: 0.5,
+                    depth: 0.025
+                }, scene);
+                antenna.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.45,
+                    h * 0.7,
+                    -d * 0.35
+                ), "backward");
+                antenna.parent = chassis;
+                const antennaMat = new StandardMaterial(`amphibiousAntennaMat${i}`, scene);
+                antennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
+                antenna.material = antennaMat;
+            }
+            break;
             
         case "shield":
-            // Shield - с генератором щита
-            break; // Visual details added below
+            // Shield - с генератором щита, угловатые щиты
+            // Угловатые щиты спереди
+            const shieldFrontPlates = [
+                { pos: new Vector3(-w * 0.4, h * 0.2, d * 0.54), size: new Vector3(w * 0.35, h * 0.4, 0.18), rot: -Math.PI / 10 },
+                { pos: new Vector3(0, h * 0.25, d * 0.54), size: new Vector3(w * 0.4, h * 0.45, 0.2), rot: -Math.PI / 12 },
+                { pos: new Vector3(w * 0.4, h * 0.2, d * 0.54), size: new Vector3(w * 0.35, h * 0.4, 0.18), rot: -Math.PI / 10 }
+            ];
+            shieldFrontPlates.forEach((plate, i) => {
+                const plateMesh = MeshBuilder.CreateBox(`shieldFrontPlate${i}`, {
+                    width: plate.size.x,
+                    height: plate.size.y,
+                    depth: plate.size.z
+                }, scene);
+                plateMesh.position = plate.pos;
+                plateMesh.rotation.x = plate.rot;
+                plateMesh.parent = chassis;
+                plateMesh.material = armorMat;
+            });
+            
+            // Угловатые боковые щиты
+            for (let i = 0; i < 2; i++) {
+                const sideShield = MeshBuilder.CreateBox(`shieldSideShield${i}`, {
+                    width: 0.2,
+                    height: h * 0.9,
+                    depth: d * 0.65
+                }, scene);
+                sideShield.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.6,
+                    0,
+                    d * 0.12
+                ), "x");
+                sideShield.rotation.z = (i === 0 ? 1 : -1) * Math.PI / 22;
+                sideShield.parent = chassis;
+                sideShield.material = armorMat;
+            }
+            
+            // Генератор щита
+            const shieldGen = MeshBuilder.CreateBox("shieldGen", {
+                width: w * 0.4,
+                height: h * 0.5,
+                depth: w * 0.4
+            }, scene);
+            shieldGen.position = addZFightingOffset(new Vector3(0, h * 0.4, -d * 0.35), "forward");
+            shieldGen.parent = chassis;
+            const shieldGenMat = new StandardMaterial("shieldGenMat", scene);
+            shieldGenMat.diffuseColor = new Color3(0.2, 0.6, 0.8);
+            shieldGenMat.emissiveColor = new Color3(0.1, 0.3, 0.5);
+            shieldGen.material = shieldGenMat;
+            animationElements.shieldMesh = shieldGen;
+            
+            // Фары
+            for (let i = 0; i < 2; i++) {
+                const headlight = MeshBuilder.CreateBox(`shieldHeadlight${i}`, {
+                    width: 0.12,
+                    height: 0.12,
+                    depth: 0.1
+                }, scene);
+                headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.45,
+                    h * 0.2,
+                    d * 0.52
+                ), "forward");
+                headlight.parent = chassis;
+                const headlightMat = new StandardMaterial(`shieldHeadlightMat${i}`, scene);
+                headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
+                headlight.material = headlightMat;
+            }
+            
+            // Детали гусениц
+            for (let i = 0; i < 9; i++) {
+                const wheel = MeshBuilder.CreateBox(`shieldWheel${i}`, {
+                    width: 0.28,
+                    height: 0.28,
+                    depth: 0.2
+                }, scene);
+                wheel.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.62,
+                    -h * 0.4,
+                    -d * 0.5 + i * d * 0.11
+                ), "forward");
+                wheel.parent = chassis;
+                wheel.material = armorMat;
+            }
+            
+            // Заклепки
+            for (let i = 0; i < 20; i++) {
+                const rivet = MeshBuilder.CreateBox(`shieldRivet${i}`, {
+                    width: 0.06,
+                    height: 0.06,
+                    depth: 0.02
+                }, scene);
+                const angle = (i * Math.PI * 2) / 20;
+                rivet.position = addZFightingOffset(new Vector3(
+                    Math.cos(angle) * w * 0.55,
+                    h * 0.3 + Math.sin(angle) * h * 0.3,
+                    d * 0.42
+                ), "forward");
+                rivet.parent = chassis;
+                rivet.material = accentMat;
+            }
+            
+            // Швы брони
+            for (let i = 0; i < 7; i++) {
+                const seam = MeshBuilder.CreateBox(`shieldSeam${i}`, {
+                    width: i < 4 ? w * 1.05 : 0.05,
+                    height: i < 4 ? 0.04 : h * 1.0,
+                    depth: i < 4 ? 0.04 : 0.05
+                }, scene);
+                if (i < 4) {
+                    seam.position = addZFightingOffset(new Vector3(0, h * 0.12 + i * h * 0.22, d * 0.46), "forward");
+                } else {
+                    seam.position = addZFightingOffset(new Vector3(
+                    (i === 4 ? -1 : i === 5 ? 1 : 0) * w * 0.61,
+                    0,
+                    d * 0.24
+                ), "x");
+                }
+                seam.parent = chassis;
+                const seamMat = new StandardMaterial(`shieldSeamMat${i}`, scene);
+                seamMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
+                seam.material = seamMat;
+            }
+            break;
             
         case "drone":
-            // Drone - с платформами для дронов
-            break; // Visual details added below
+            // Drone - с платформами для дронов, технический вид
+            // Платформы для дронов
+            for (let i = 0; i < 2; i++) {
+                const dronePlatform = MeshBuilder.CreateBox(`dronePlatform${i}`, {
+                    width: w * 0.35,
+                    height: 0.15,
+                    depth: d * 0.3
+                }, scene);
+                dronePlatform.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.3,
+                    h * 0.6,
+                    d * 0.3
+                ), "up");
+                dronePlatform.parent = chassis;
+                dronePlatform.material = armorMat;
+            }
+            
+            // Крепления для дронов
+            for (let i = 0; i < 4; i++) {
+                const droneMount = MeshBuilder.CreateBox(`droneMount${i}`, {
+                    width: 0.12,
+                    height: 0.12,
+                    depth: 0.12
+                }, scene);
+                const posX = (i % 2 === 0 ? -1 : 1) * w * 0.3;
+                const posZ = (i < 2 ? -1 : 1) * d * 0.3;
+                droneMount.position = addZFightingOffset(new Vector3(posX, h * 0.68, posZ), "up");
+                droneMount.parent = chassis;
+                droneMount.material = accentMat;
+            }
+            
+            // Фары
+            for (let i = 0; i < 2; i++) {
+                const headlight = MeshBuilder.CreateBox(`droneHeadlight${i}`, {
+                    width: 0.11,
+                    height: 0.11,
+                    depth: 0.09
+                }, scene);
+                headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.42,
+                    h * 0.2,
+                    d * 0.5
+                ), "forward");
+                headlight.parent = chassis;
+                const headlightMat = new StandardMaterial(`droneHeadlightMat${i}`, scene);
+                headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
+                headlight.material = headlightMat;
+            }
+            
+            // Вентиляционные решетки
+            for (let i = 0; i < 4; i++) {
+                const vent = MeshBuilder.CreateBox(`droneVent${i}`, {
+                    width: 0.1,
+                    height: 0.06,
+                    depth: 0.1
+                }, scene);
+                const posX = (i % 2 === 0 ? -1 : 1) * w * 0.38;
+                const posZ = (i < 2 ? -1 : 1) * d * 0.3;
+                vent.position = addZFightingOffset(new Vector3(posX, h * 0.5, posZ), "up");
+                vent.parent = chassis;
+                const ventMat = new StandardMaterial(`droneVentMat${i}`, scene);
+                ventMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
+                vent.material = ventMat;
+            }
+            
+            // Детали гусениц
+            for (let i = 0; i < 8; i++) {
+                const wheel = MeshBuilder.CreateBox(`droneWheel${i}`, {
+                    width: 0.26,
+                    height: 0.26,
+                    depth: 0.19
+                }, scene);
+                wheel.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.56,
+                    -h * 0.4,
+                    -d * 0.48 + i * d * 0.12
+                ), "forward");
+                wheel.parent = chassis;
+                wheel.material = armorMat;
+            }
+            
+            // Заклепки
+            for (let i = 0; i < 16; i++) {
+                const rivet = MeshBuilder.CreateBox(`droneRivet${i}`, {
+                    width: 0.05,
+                    height: 0.05,
+                    depth: 0.02
+                }, scene);
+                const angle = (i * Math.PI * 2) / 16;
+                rivet.position = addZFightingOffset(new Vector3(
+                    Math.cos(angle) * w * 0.5,
+                    h * 0.3 + Math.sin(angle) * h * 0.3,
+                    d * 0.38
+                ), "forward");
+                rivet.parent = chassis;
+                rivet.material = accentMat;
+            }
+            
+            // Швы брони
+            for (let i = 0; i < 6; i++) {
+                const seam = MeshBuilder.CreateBox(`droneSeam${i}`, {
+                    width: i < 3 ? w * 1.05 : 0.05,
+                    height: i < 3 ? 0.03 : h * 1.0,
+                    depth: i < 3 ? 0.03 : 0.05
+                }, scene);
+                if (i < 3) {
+                    seam.position = addZFightingOffset(new Vector3(0, h * 0.12 + i * h * 0.24, d * 0.44), "forward");
+                } else {
+                    seam.position = addZFightingOffset(new Vector3(
+                    (i === 3 ? -1 : i === 4 ? 1 : 0) * w * 0.57,
+                    0,
+                    d * 0.22
+                ), "x");
+                }
+                seam.parent = chassis;
+                const seamMat = new StandardMaterial(`droneSeamMat${i}`, scene);
+                seamMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
+                seam.material = seamMat;
+            }
+            break;
             
         case "artillery":
-            // Artillery - с стабилизаторами
-            break; // Visual details added below
+            // Artillery - с стабилизаторами, массивные угловатые бронеплиты
+            // Массивные угловатые лобовые бронеплиты
+            const artilleryFrontPlates = [
+                { pos: new Vector3(-w * 0.4, h * 0.2, d * 0.56), size: new Vector3(w * 0.35, h * 0.5, 0.22), rot: -Math.PI / 9 },
+                { pos: new Vector3(0, h * 0.25, d * 0.56), size: new Vector3(w * 0.4, h * 0.55, 0.24), rot: -Math.PI / 11 },
+                { pos: new Vector3(w * 0.4, h * 0.2, d * 0.56), size: new Vector3(w * 0.35, h * 0.5, 0.22), rot: -Math.PI / 9 }
+            ];
+            artilleryFrontPlates.forEach((plate, i) => {
+                const plateMesh = MeshBuilder.CreateBox(`artilleryFrontPlate${i}`, {
+                    width: plate.size.x,
+                    height: plate.size.y,
+                    depth: plate.size.z
+                }, scene);
+                plateMesh.position = plate.pos;
+                plateMesh.rotation.x = plate.rot;
+                plateMesh.parent = chassis;
+                plateMesh.material = armorMat;
+            });
+            
+            // Угловатые боковые бронеплиты
+            for (let i = 0; i < 2; i++) {
+                const sidePlate = MeshBuilder.CreateBox(`artillerySidePlate${i}`, {
+                    width: 0.28,
+                    height: h * 1.15,
+                    depth: d * 0.75
+                }, scene);
+                sidePlate.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.64,
+                    0,
+                    d * 0.18
+                ), "x");
+                sidePlate.rotation.z = (i === 0 ? 1 : -1) * Math.PI / 18;
+                sidePlate.parent = chassis;
+                sidePlate.material = armorMat;
+            }
+            
+            // Стабилизаторы
+            for (let i = 0; i < 4; i++) {
+                const stabilizer = MeshBuilder.CreateBox(`artilleryStabilizer${i}`, {
+                    width: 0.15,
+                    height: 0.4,
+                    depth: 0.15
+                }, scene);
+                const posX = (i % 2 === 0 ? -1 : 1) * w * 0.55;
+                const posZ = (i < 2 ? -1 : 1) * d * 0.45;
+                stabilizer.position = addZFightingOffset(new Vector3(posX, -h * 0.5, posZ), "up");
+                stabilizer.parent = chassis;
+                stabilizer.material = armorMat;
+            }
+            
+            // Фары
+            for (let i = 0; i < 2; i++) {
+                const headlight = MeshBuilder.CreateBox(`artilleryHeadlight${i}`, {
+                    width: 0.13,
+                    height: 0.13,
+                    depth: 0.11
+                }, scene);
+                headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.48,
+                    h * 0.22,
+                    d * 0.54
+                ), "forward");
+                headlight.parent = chassis;
+                const headlightMat = new StandardMaterial(`artilleryHeadlightMat${i}`, scene);
+                headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
+                headlight.material = headlightMat;
+            }
+            
+            // Детали гусениц
+            for (let i = 0; i < 10; i++) {
+                const wheel = MeshBuilder.CreateBox(`artilleryWheel${i}`, {
+                    width: 0.32,
+                    height: 0.32,
+                    depth: 0.23
+                }, scene);
+                wheel.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.64,
+                    -h * 0.42,
+                    -d * 0.52 + i * d * 0.1
+                ), "forward");
+                wheel.parent = chassis;
+                wheel.material = armorMat;
+            }
+            
+            // Заклепки
+            for (let i = 0; i < 24; i++) {
+                const rivet = MeshBuilder.CreateBox(`artilleryRivet${i}`, {
+                    width: 0.06,
+                    height: 0.06,
+                    depth: 0.03
+                }, scene);
+                const angle = (i * Math.PI * 2) / 24;
+                rivet.position = addZFightingOffset(new Vector3(
+                    Math.cos(angle) * w * 0.55,
+                    h * 0.35 + Math.sin(angle) * h * 0.35,
+                    d * 0.48
+                ), "forward");
+                rivet.parent = chassis;
+                rivet.material = accentMat;
+            }
+            
+            // Швы брони
+            for (let i = 0; i < 8; i++) {
+                const seam = MeshBuilder.CreateBox(`artillerySeam${i}`, {
+                    width: i < 4 ? w * 1.1 : 0.06,
+                    height: i < 4 ? 0.04 : h * 1.15,
+                    depth: i < 4 ? 0.04 : 0.06
+                }, scene);
+                if (i < 4) {
+                    seam.position = addZFightingOffset(new Vector3(0, h * 0.12 + i * h * 0.22, d * 0.5), "forward");
+                } else {
+                    seam.position = addZFightingOffset(new Vector3(
+                    (i === 4 ? -1 : i === 5 ? 1 : 0) * w * 0.65,
+                    0,
+                    d * 0.28
+                ), "x");
+                }
+                seam.parent = chassis;
+                const seamMat = new StandardMaterial(`artillerySeamMat${i}`, scene);
+                seamMat.diffuseColor = new Color3(0.08, 0.08, 0.08);
+                seam.material = seamMat;
+            }
+            
+            // Антенны
+            for (let i = 0; i < 2; i++) {
+                const antenna = MeshBuilder.CreateBox(`artilleryAntenna${i}`, {
+                    width: 0.03,
+                    height: 0.55,
+                    depth: 0.03
+                }, scene);
+                antenna.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.48,
+                    h * 0.9,
+                    -d * 0.38
+                ), "backward");
+                antenna.parent = chassis;
+                const antennaMat = new StandardMaterial(`artilleryAntennaMat${i}`, scene);
+                antennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
+                antenna.material = antennaMat;
+            }
+            break;
             
         case "destroyer":
-            // Destroyer - длинный, низкий - tank destroyer стиль
-            break; // Visual details added below
+            // Destroyer - длинный, низкий - tank destroyer стиль, агрессивные углы
+            // Агрессивные угловатые лобовые бронеплиты
+            const destroyerFrontPlates = [
+                { pos: new Vector3(-w * 0.3, h * 0.12, d * 0.58), size: new Vector3(w * 0.28, h * 0.35, 0.2), rot: -Math.PI / 7 },
+                { pos: new Vector3(0, h * 0.15, d * 0.58), size: new Vector3(w * 0.32, h * 0.4, 0.22), rot: -Math.PI / 8 },
+                { pos: new Vector3(w * 0.3, h * 0.12, d * 0.58), size: new Vector3(w * 0.28, h * 0.35, 0.2), rot: -Math.PI / 7 }
+            ];
+            destroyerFrontPlates.forEach((plate, i) => {
+                const plateMesh = MeshBuilder.CreateBox(`destroyerFrontPlate${i}`, {
+                    width: plate.size.x,
+                    height: plate.size.y,
+                    depth: plate.size.z
+                }, scene);
+                plateMesh.position = plate.pos;
+                plateMesh.rotation.x = plate.rot;
+                plateMesh.parent = chassis;
+                plateMesh.material = armorMat;
+            });
+            
+            // Агрессивные боковые клинья
+            for (let i = 0; i < 2; i++) {
+                const sideWedge = MeshBuilder.CreateBox(`destroyerSideWedge${i}`, {
+                    width: 0.18,
+                    height: h * 0.7,
+                    depth: d * 0.8
+                }, scene);
+                sideWedge.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.52,
+                    0,
+                    d * 0.15
+                ), "x");
+                sideWedge.rotation.z = (i === 0 ? 1 : -1) * Math.PI / 10;
+                sideWedge.parent = chassis;
+                sideWedge.material = armorMat;
+            }
+            
+            // Фары (агрессивные)
+            for (let i = 0; i < 2; i++) {
+                const headlight = MeshBuilder.CreateBox(`destroyerHeadlight${i}`, {
+                    width: 0.12,
+                    height: 0.12,
+                    depth: 0.1
+                }, scene);
+                headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.35,
+                    h * 0.15,
+                    d * 0.58
+                ), "forward");
+                headlight.parent = chassis;
+                const headlightMat = new StandardMaterial(`destroyerHeadlightMat${i}`, scene);
+                headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
+                headlight.material = headlightMat;
+            }
+            
+            // Детали гусениц (длинные)
+            for (let i = 0; i < 12; i++) {
+                const wheel = MeshBuilder.CreateBox(`destroyerWheel${i}`, {
+                    width: 0.24,
+                    height: 0.24,
+                    depth: 0.18
+                }, scene);
+                wheel.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.5,
+                    -h * 0.32,
+                    -d * 0.65 + i * d * 0.11
+                ), "backward");
+                wheel.parent = chassis;
+                wheel.material = armorMat;
+            }
+            
+            // Заклепки
+            for (let i = 0; i < 18; i++) {
+                const rivet = MeshBuilder.CreateBox(`destroyerRivet${i}`, {
+                    width: 0.05,
+                    height: 0.05,
+                    depth: 0.02
+                }, scene);
+                const angle = (i * Math.PI * 2) / 18;
+                rivet.position = addZFightingOffset(new Vector3(
+                    Math.cos(angle) * w * 0.45,
+                    h * 0.22 + Math.sin(angle) * h * 0.22,
+                    d * 0.6
+                ), "forward");
+                rivet.parent = chassis;
+                rivet.material = accentMat;
+            }
+            
+            // Швы брони
+            for (let i = 0; i < 6; i++) {
+                const seam = MeshBuilder.CreateBox(`destroyerSeam${i}`, {
+                    width: i < 3 ? w * 0.9 : 0.05,
+                    height: i < 3 ? 0.03 : h * 0.85,
+                    depth: i < 3 ? 0.03 : 0.05
+                }, scene);
+                if (i < 3) {
+                    seam.position = addZFightingOffset(new Vector3(0, h * 0.1 + i * h * 0.2, d * 0.55), "forward");
+                } else {
+                    seam.position = addZFightingOffset(new Vector3(
+                    (i === 3 ? -1 : i === 4 ? 1 : 0) * w * 0.51,
+                    0,
+                    d * 0.3
+                ), "x");
+                }
+                seam.parent = chassis;
+                const seamMat = new StandardMaterial(`destroyerSeamMat${i}`, scene);
+                seamMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
+                seam.material = seamMat;
+            }
+            break;
             
         case "command":
-            // Command - с антеннами и аурой
-            break; // Visual details added below
+            // Command - с антеннами и аурой, респектабельные углы
+            // Респектабельные угловатые лобовые бронеплиты
+            const commandFrontPlates = [
+                { pos: new Vector3(-w * 0.35, h * 0.18, d * 0.54), size: new Vector3(w * 0.32, h * 0.42, 0.19), rot: -Math.PI / 11 },
+                { pos: new Vector3(0, h * 0.22, d * 0.54), size: new Vector3(w * 0.38, h * 0.48, 0.21), rot: -Math.PI / 13 },
+                { pos: new Vector3(w * 0.35, h * 0.18, d * 0.54), size: new Vector3(w * 0.32, h * 0.42, 0.19), rot: -Math.PI / 11 }
+            ];
+            commandFrontPlates.forEach((plate, i) => {
+                const plateMesh = MeshBuilder.CreateBox(`commandFrontPlate${i}`, {
+                    width: plate.size.x,
+                    height: plate.size.y,
+                    depth: plate.size.z
+                }, scene);
+                plateMesh.position = plate.pos;
+                plateMesh.rotation.x = plate.rot;
+                plateMesh.parent = chassis;
+                plateMesh.material = armorMat;
+            });
+            
+            // Респектабельные боковые панели (четкие углы)
+            for (let i = 0; i < 2; i++) {
+                const sidePanel = MeshBuilder.CreateBox(`commandSidePanel${i}`, {
+                    width: 0.16,
+                    height: h * 1.0,
+                    depth: d * 0.7
+                }, scene);
+                sidePanel.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.58,
+                    0,
+                    d * 0.14
+                ), "x");
+                sidePanel.rotation.z = (i === 0 ? 1 : -1) * Math.PI / 25;
+                sidePanel.parent = chassis;
+                sidePanel.material = armorMat;
+            }
+            
+            // Командная аура (энергетическая)
+            const commandAura = MeshBuilder.CreateBox("commandAura", {
+                width: w * 0.5,
+                height: h * 0.6,
+                depth: w * 0.5
+            }, scene);
+            commandAura.position = addZFightingOffset(new Vector3(0, h * 0.45, -d * 0.3), "up");
+            commandAura.parent = chassis;
+            const commandAuraMat = new StandardMaterial("commandAuraMat", scene);
+            commandAuraMat.diffuseColor = new Color3(1.0, 0.84, 0.0);
+            commandAuraMat.emissiveColor = new Color3(0.5, 0.42, 0.0);
+            commandAuraMat.alpha = 0.3;
+            commandAura.material = commandAuraMat;
+            animationElements.commandAura = commandAura;
+            
+            // Антенны связи (большие)
+            for (let i = 0; i < 3; i++) {
+                const antenna = MeshBuilder.CreateBox(`commandAntenna${i}`, {
+                    width: 0.03,
+                    height: 0.7,
+                    depth: 0.03
+                }, scene);
+                antenna.position = addZFightingOffset(new Vector3(
+                    (i - 1) * w * 0.4,
+                    h * 0.85,
+                    -d * 0.35
+                ), "backward");
+                antenna.parent = chassis;
+                const antennaMat = new StandardMaterial(`commandAntennaMat${i}`, scene);
+                antennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
+                antenna.material = antennaMat;
+            }
+            
+            // Фары
+            for (let i = 0; i < 2; i++) {
+                const headlight = MeshBuilder.CreateBox(`commandHeadlight${i}`, {
+                    width: 0.12,
+                    height: 0.12,
+                    depth: 0.1
+                }, scene);
+                headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.42,
+                    h * 0.2,
+                    d * 0.52
+                ), "forward");
+                headlight.parent = chassis;
+                const headlightMat = new StandardMaterial(`commandHeadlightMat${i}`, scene);
+                headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
+                headlight.material = headlightMat;
+            }
+            
+            // Детали гусениц
+            for (let i = 0; i < 9; i++) {
+                const wheel = MeshBuilder.CreateBox(`commandWheel${i}`, {
+                    width: 0.27,
+                    height: 0.27,
+                    depth: 0.2
+                }, scene);
+                wheel.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.56,
+                    -h * 0.4,
+                    -d * 0.5 + i * d * 0.11
+                ), "forward");
+                wheel.parent = chassis;
+                wheel.material = armorMat;
+            }
+            
+            // Заклепки
+            for (let i = 0; i < 20; i++) {
+                const rivet = MeshBuilder.CreateBox(`commandRivet${i}`, {
+                    width: 0.06,
+                    height: 0.06,
+                    depth: 0.02
+                }, scene);
+                const angle = (i * Math.PI * 2) / 20;
+                rivet.position = addZFightingOffset(new Vector3(
+                    Math.cos(angle) * w * 0.52,
+                    h * 0.32 + Math.sin(angle) * h * 0.32,
+                    d * 0.4
+                ), "forward");
+                rivet.parent = chassis;
+                rivet.material = accentMat;
+            }
+            
+            // Швы брони
+            for (let i = 0; i < 7; i++) {
+                const seam = MeshBuilder.CreateBox(`commandSeam${i}`, {
+                    width: i < 4 ? w * 1.05 : 0.05,
+                    height: i < 4 ? 0.04 : h * 1.05,
+                    depth: i < 4 ? 0.04 : 0.05
+                }, scene);
+                if (i < 4) {
+                    seam.position = addZFightingOffset(new Vector3(0, h * 0.12 + i * h * 0.22, d * 0.46), "forward");
+                } else {
+                    seam.position = addZFightingOffset(new Vector3(
+                    (i === 4 ? -1 : i === 5 ? 1 : 0) * w * 0.59,
+                    0,
+                    d * 0.24
+                ), "x");
+                }
+                seam.parent = chassis;
+                const seamMat = new StandardMaterial(`commandSeamMat${i}`, scene);
+                seamMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
+                seam.material = seamMat;
+            }
+            break;
             
         default:
             // Default case - minimal details
@@ -1669,7 +3413,7 @@ export function addChassisDetails(
             height: h * 0.45,
             depth: w * 0.35
         }, scene);
-        stealthGen.position = new Vector3(0, h * 0.35, -d * 0.35);
+        stealthGen.position = addZFightingOffset(new Vector3(0, h * 0.35, -d * 0.35), "forward");
         stealthGen.parent = chassis;
         const stealthMat = new StandardMaterial("stealthMat", scene);
         stealthMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
@@ -1687,7 +3431,11 @@ export function addChassisDetails(
                 height: h * 0.6,
                 depth: d * 0.5
             }, scene);
-            panel.position = new Vector3((i === 0 ? -1 : 1) * w * 0.42, 0, 0);
+            panel.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.42,
+                    0,
+                    0
+                ), "x");
             panel.parent = chassis;
             panel.material = accentMat;
             hoverPanels.push(panel);
@@ -1696,13 +3444,10 @@ export function addChassisDetails(
         // Реактивные двигатели (4 штуки)
         animationElements.hoverThrusters = [];
         for (let i = 0; i < 4; i++) {
-            const thruster = MeshBuilder.CreateCylinder(`thruster${i}`, {
-                height: 0.25,
-                diameter: 0.18
-            }, scene);
+            const thruster = MeshBuilder.CreateBox(`thruster${i}`, { width: 0.18, height: 0.25, depth: 0.18 }, scene);
             const posX = (i % 2 === 0 ? -1 : 1) * w * 0.38;
             const posZ = (i < 2 ? -1 : 1) * d * 0.38;
-            thruster.position = new Vector3(posX, -h * 0.45, posZ);
+            thruster.position = addZFightingOffset(new Vector3(posX, -h * 0.45, posZ), "up");
             thruster.parent = chassis;
             const thrusterMat = new StandardMaterial(`thrusterMat${i}`, scene);
             thrusterMat.diffuseColor = new Color3(0, 0.6, 1);
@@ -1713,12 +3458,12 @@ export function addChassisDetails(
         
         // Обтекаемые фары спереди
         for (let i = 0; i < 2; i++) {
-            const headlight = MeshBuilder.CreateCylinder(`hoverHeadlight${i}`, {
-                height: 0.08,
-                diameter: 0.12,
-                tessellation: 8
-            }, scene);
-            headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.15, d * 0.48);
+            const headlight = MeshBuilder.CreateBox(`hoverHeadlight${i}`, { width: 0.12, height: 0.08, depth: 0.12 }, scene);
+            headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.35,
+                    h * 0.15,
+                    d * 0.48
+                ), "forward");
             headlight.rotation.x = Math.PI / 2;
             headlight.parent = chassis;
             const headlightMat = new StandardMaterial(`hoverHeadlightMat${i}`, scene);
@@ -1728,22 +3473,14 @@ export function addChassisDetails(
         }
         
         // Обтекаемый люк на крыше
-        const hoverHatch = MeshBuilder.CreateCylinder("hoverHatch", {
-            height: 0.08,
-            diameter: 0.28,
-            tessellation: 8
-        }, scene);
-        hoverHatch.position = new Vector3(0, h * 0.52, -d * 0.1);
+        const hoverHatch = MeshBuilder.CreateBox("hoverHatch", { width: 0.28, height: 0.08, depth: 0.28 }, scene);
+        hoverHatch.position = addZFightingOffset(new Vector3(0, h * 0.52, -d * 0.1), "up");
         hoverHatch.parent = chassis;
         hoverHatch.material = armorMat;
         
         // Перископ на люке (обтекаемый)
-        const hoverPeriscope = MeshBuilder.CreateCylinder("hoverPeriscope", {
-            height: 0.18,
-            diameter: 0.06,
-            tessellation: 8
-        }, scene);
-        hoverPeriscope.position = new Vector3(0, h * 0.58, -d * 0.1);
+        const hoverPeriscope = MeshBuilder.CreateBox("hoverPeriscope", { width: 0.06, height: 0.18, depth: 0.06 }, scene);
+        hoverPeriscope.position = addZFightingOffset(new Vector3(0, h * 0.58, -d * 0.1), "up");
         hoverPeriscope.parent = chassis;
         const hoverPeriscopeMat = new StandardMaterial("hoverPeriscopeMat", scene);
         hoverPeriscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
@@ -1751,12 +3488,12 @@ export function addChassisDetails(
         
         // Вентиляционные решетки на крыше (обтекаемые)
         for (let i = 0; i < 4; i++) {
-            const roofVent = MeshBuilder.CreateCylinder(`hoverRoofVent${i}`, {
-                height: 0.05,
-                diameter: 0.12,
-                tessellation: 8
-            }, scene);
-            roofVent.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.28, h * 0.5, (i < 2 ? -1 : 1) * d * 0.25);
+            const roofVent = MeshBuilder.CreateBox(`hoverRoofVent${i}`, { width: 0.12, height: 0.05, depth: 0.12 }, scene);
+            roofVent.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.28,
+                    h * 0.5,
+                    (i < 2 ? -1 : 1) * d * 0.25
+                ), "up");
             roofVent.rotation.x = Math.PI / 2;
             roofVent.parent = chassis;
             const roofVentMat = new StandardMaterial(`hoverRoofVentMat${i}`, scene);
@@ -1766,12 +3503,12 @@ export function addChassisDetails(
         
         // Оптические сенсоры (округлые)
         for (let i = 0; i < 2; i++) {
-            const sensor = MeshBuilder.CreateCylinder(`hoverSensor${i}`, {
-                height: 0.06,
-                diameter: 0.08,
-                tessellation: 8
-            }, scene);
-            sensor.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.2, d * 0.45);
+            const sensor = MeshBuilder.CreateBox(`hoverSensor${i}`, { width: 0.08, height: 0.06, depth: 0.08 }, scene);
+            sensor.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.4,
+                    h * 0.2,
+                    d * 0.45
+                ), "forward");
             sensor.rotation.x = Math.PI / 2;
             sensor.parent = chassis;
             const sensorMat = new StandardMaterial(`hoverSensorMat${i}`, scene);
@@ -1782,12 +3519,12 @@ export function addChassisDetails(
         
         // Задние огни (округлые)
         for (let i = 0; i < 2; i++) {
-            const tailLight = MeshBuilder.CreateCylinder(`hoverTailLight${i}`, {
-                height: 0.04,
-                diameter: 0.08,
-                tessellation: 8
-            }, scene);
-            tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.18, -d * 0.49);
+            const tailLight = MeshBuilder.CreateBox(`hoverTailLight${i}`, { width: 0.08, height: 0.04, depth: 0.08 }, scene);
+            tailLight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.38,
+                    h * 0.18,
+                    -d * 0.49
+                ), "forward");
             tailLight.rotation.x = Math.PI / 2;
             tailLight.parent = chassis;
             const tailLightMat = new StandardMaterial(`hoverTailLightMat${i}`, scene);
@@ -1798,14 +3535,13 @@ export function addChassisDetails(
         
         // Обтекаемые воздухозаборники по бокам
         for (let i = 0; i < 2; i++) {
-            const intake = MeshBuilder.CreateCylinder(`hoverIntake${i}`, {
-                height: 0.15,
-                diameter: 0.14,
-                tessellation: 8
-            }, scene);
-            intake.position = new Vector3((i === 0 ? -1 : 1) * w * 0.42, h * 0.1, d * 0.2);
-            intake.rotation.z = Math.PI / 2;
-            intake.parent = chassis;
+            const intake = MeshBuilder.CreateBox(`hoverIntake${i}`, { width: 0.14, height: 0.15, depth: 0.14 }, scene);
+            intake.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.42,
+                    h * 0.1,
+                    d * 0.2
+                ), "x");
+                        intake.parent = chassis;
             const intakeMat = new StandardMaterial(`hoverIntakeMat${i}`, scene);
             intakeMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
             intake.material = intakeMat;
@@ -1818,7 +3554,11 @@ export function addChassisDetails(
                 height: h * 0.4,
                 depth: d * 0.3
             }, scene);
-            stabilizer.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.1, -d * 0.15);
+            stabilizer.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.48,
+                    h * 0.1,
+                    -d * 0.15
+                ), "backward");
             stabilizer.parent = chassis;
             stabilizer.material = accentMat;
         }
@@ -1851,11 +3591,11 @@ export function addChassisDetails(
                 depth: 0.15
             }, scene);
             const angle = (i * Math.PI * 2) / 4;
-            cornerPlate.position = new Vector3(
-                Math.cos(angle) * w * 0.55,
-                h * 0.2,
-                Math.sin(angle) * d * 0.55
-            );
+            cornerPlate.position = addZFightingOffset(new Vector3(
+                    Math.cos(angle) * w * 0.55,
+                    h * 0.2,
+                    Math.sin(angle) * d * 0.55
+                ), "forward");
             cornerPlate.parent = chassis;
             cornerPlate.material = armorMat;
         }
@@ -1867,7 +3607,11 @@ export function addChassisDetails(
                 height: 0.1,
                 depth: 0.25
             }, scene);
-            hatch.position = new Vector3((i - 1) * w * 0.3, h * 0.7, -d * 0.1);
+            hatch.position = addZFightingOffset(new Vector3(
+                    (i - 1) * w * 0.3,
+                    h * 0.7,
+                    -d * 0.1
+                ), "backward");
             hatch.parent = chassis;
             hatch.material = armorMat;
         }
@@ -1879,7 +3623,11 @@ export function addChassisDetails(
                 height: 0.14,
                 depth: 0.12
             }, scene);
-            headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.18, d * 0.5);
+            headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.45,
+                    h * 0.18,
+                    d * 0.5
+                ), "forward");
             headlight.parent = chassis;
             const headlightMat = new StandardMaterial(`siegeHeadlightMat${i}`, scene);
             headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
@@ -1894,7 +3642,11 @@ export function addChassisDetails(
                 height: 0.16,
                 depth: 0.22
             }, scene);
-            exhaust.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.22, -d * 0.48);
+            exhaust.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.45,
+                    h * 0.22,
+                    -d * 0.48
+                ), "forward");
             exhaust.parent = chassis;
             exhaust.material = armorMat;
         }
@@ -1905,7 +3657,7 @@ export function addChassisDetails(
             height: 0.45,
             depth: 0.02
         }, scene);
-        siegeShovel.position = new Vector3(-w * 0.48, h * 0.22, -d * 0.45);
+        siegeShovel.position = addZFightingOffset(new Vector3(-w * 0.48, h * 0.22, -d * 0.45), "forward");
         siegeShovel.parent = chassis;
         siegeShovel.material = armorMat;
         
@@ -1914,7 +3666,7 @@ export function addChassisDetails(
             height: 0.12,
             depth: 0.02
         }, scene);
-        siegeAxe.position = new Vector3(-w * 0.38, h * 0.28, -d * 0.45);
+        siegeAxe.position = addZFightingOffset(new Vector3(-w * 0.38, h * 0.28, -d * 0.45), "forward");
         siegeAxe.parent = chassis;
         siegeAxe.material = armorMat;
         
@@ -1923,18 +3675,18 @@ export function addChassisDetails(
             height: 0.3,
             depth: 0.16
         }, scene);
-        siegeCanister.position = new Vector3(w * 0.48, h * 0.25, -d * 0.4);
+        siegeCanister.position = addZFightingOffset(new Vector3(w * 0.48, h * 0.25, -d * 0.4), "forward");
         siegeCanister.parent = chassis;
         siegeCanister.material = armorMat;
         
         // Антенны (большие)
         for (let i = 0; i < 2; i++) {
-            const antenna = MeshBuilder.CreateCylinder(`siegeAntenna${i}`, {
-                height: 0.5,
-                diameter: 0.03,
-                tessellation: 8
-            }, scene);
-            antenna.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.8, -d * 0.4);
+            const antenna = MeshBuilder.CreateBox(`siegeAntenna${i}`, { width: 0.03, height: 0.5, depth: 0.03 }, scene);
+            antenna.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.4,
+                    h * 0.8,
+                    -d * 0.4
+                ), "backward");
             antenna.parent = chassis;
             const antennaMat = new StandardMaterial(`siegeAntennaMat${i}`, scene);
             antennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
@@ -1943,12 +3695,12 @@ export function addChassisDetails(
         
         // Перископы на люках
         for (let i = 0; i < 3; i++) {
-            const periscope = MeshBuilder.CreateCylinder(`siegePeriscope${i}`, {
-                height: 0.22,
-                diameter: 0.09,
-                tessellation: 8
-            }, scene);
-            periscope.position = new Vector3((i - 1) * w * 0.3, h * 0.8, -d * 0.1);
+            const periscope = MeshBuilder.CreateBox(`siegePeriscope${i}`, { width: 0.09, height: 0.22, depth: 0.09 }, scene);
+            periscope.position = addZFightingOffset(new Vector3(
+                    (i - 1) * w * 0.3,
+                    h * 0.8,
+                    -d * 0.1
+                ), "backward");
             periscope.parent = chassis;
             const periscopeMat = new StandardMaterial(`siegePeriscopeMat${i}`, scene);
             periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
@@ -1962,7 +3714,11 @@ export function addChassisDetails(
                 height: 0.08,
                 depth: 0.2
             }, scene);
-            roofVent.position = new Vector3((i - 2) * w * 0.25, h * 0.68, d * 0.25);
+            roofVent.position = addZFightingOffset(new Vector3(
+                    (i - 2) * w * 0.25,
+                    h * 0.68,
+                    d * 0.25
+                ), "up");
             roofVent.parent = chassis;
             const roofVentMat = new StandardMaterial(`siegeRoofVentMat${i}`, scene);
             roofVentMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
@@ -1975,7 +3731,11 @@ export function addChassisDetails(
                     height: 0.07,
                     depth: 0.18
                 }, scene);
-                ventBar.position = new Vector3((i - 2) * w * 0.25 + (j - 3.5) * 0.04, h * 0.68, d * 0.25);
+                ventBar.position = addZFightingOffset(new Vector3(
+                    (i - 2) * w * 0.25 + (j - 3.5) * 0.04,
+                    h * 0.68,
+                    d * 0.25
+                ), "up");
                 ventBar.parent = chassis;
                 ventBar.material = roofVentMat;
             }
@@ -1983,25 +3743,23 @@ export function addChassisDetails(
         
         // Массивные выхлопные трубы (большие)
         for (let i = 0; i < 3; i++) {
-            const exhaust = MeshBuilder.CreateCylinder(`siegeExhaustCyl${i}`, {
-                height: 0.3,
-                diameter: 0.16,
-                tessellation: 8
-            }, scene);
-            exhaust.position = new Vector3((i - 1) * w * 0.3, h * 0.25, -d * 0.48);
-            exhaust.rotation.z = Math.PI / 2;
-            exhaust.parent = chassis;
+            const exhaust = MeshBuilder.CreateBox(`siegeExhaustCyl${i}`, { width: 0.16, height: 0.3, depth: 0.16 }, scene);
+            exhaust.position = addZFightingOffset(new Vector3(
+                    (i - 1) * w * 0.3,
+                    h * 0.25,
+                    -d * 0.48
+                ), "forward");
+                        exhaust.parent = chassis;
             exhaust.material = armorMat;
             
             // Выхлопное отверстие
-            const exhaustHole = MeshBuilder.CreateCylinder(`siegeExhaustHole${i}`, {
-                height: 0.05,
-                diameter: 0.14,
-                tessellation: 8
-            }, scene);
-            exhaustHole.position = new Vector3((i - 1) * w * 0.3, h * 0.25, -d * 0.52);
-            exhaustHole.rotation.z = Math.PI / 2;
-            exhaustHole.parent = chassis;
+            const exhaustHole = MeshBuilder.CreateBox(`siegeExhaustHole${i}`, { width: 0.14, height: 0.05, depth: 0.14 }, scene);
+            exhaustHole.position = addZFightingOffset(new Vector3(
+                    (i - 1) * w * 0.3,
+                    h * 0.25,
+                    -d * 0.52
+                ), "forward");
+                        exhaustHole.parent = chassis;
             const exhaustHoleMat = new StandardMaterial(`siegeExhaustHoleMat${i}`, scene);
             exhaustHoleMat.diffuseColor = new Color3(0.05, 0.05, 0.05);
             exhaustHoleMat.emissiveColor = new Color3(0.1, 0.05, 0);
@@ -2014,19 +3772,15 @@ export function addChassisDetails(
             height: 0.15,
             depth: 0.18
         }, scene);
-        siegeSight.position = new Vector3(0, h * 0.3, d * 0.5);
+        siegeSight.position = addZFightingOffset(new Vector3(0, h * 0.3, d * 0.5), "forward");
         siegeSight.parent = chassis;
         const siegeSightMat = new StandardMaterial("siegeSightMat", scene);
         siegeSightMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
         siegeSight.material = siegeSightMat;
         
         // Линза прицела (большая)
-        const siegeSightLens = MeshBuilder.CreateCylinder("siegeSightLens", {
-            height: 0.02,
-            diameter: 0.12,
-            tessellation: 8
-        }, scene);
-        siegeSightLens.position = new Vector3(0, 0, 0.1);
+        const siegeSightLens = MeshBuilder.CreateBox("siegeSightLens", { width: 0.12, height: 0.02, depth: 0.12 }, scene);
+        siegeSightLens.position = addZFightingOffset(new Vector3(0, 0, 0.1), "forward");
         siegeSightLens.parent = siegeSight;
         const siegeLensMat = new StandardMaterial("siegeSightLensMat", scene);
         siegeLensMat.diffuseColor = new Color3(0.1, 0.2, 0.3);
@@ -2040,7 +3794,11 @@ export function addChassisDetails(
                 height: h * 0.25,
                 depth: 0.15
             }, scene);
-            frontArmor.position = new Vector3((i - 1) * w * 0.32, h * 0.1, d * 0.5);
+            frontArmor.position = addZFightingOffset(new Vector3(
+                    (i - 1) * w * 0.32,
+                    h * 0.1,
+                    d * 0.5
+                ), "forward");
             frontArmor.parent = chassis;
             frontArmor.material = armorMat;
         }
@@ -2052,7 +3810,11 @@ export function addChassisDetails(
                 height: 0.15,
                 depth: 0.06
             }, scene);
-            tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.22, -d * 0.49);
+            tailLight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.45,
+                    h * 0.22,
+                    -d * 0.49
+                ), "forward");
             tailLight.parent = chassis;
             const tailLightMat = new StandardMaterial(`siegeTailLightMat${i}`, scene);
             tailLightMat.diffuseColor = new Color3(0.6, 0.1, 0.1);
@@ -2067,7 +3829,11 @@ export function addChassisDetails(
                 height: 0.15,
                 depth: 0.2
             }, scene);
-            sideVent.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.12, d * 0.15);
+            sideVent.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.48,
+                    h * 0.12,
+                    d * 0.15
+                ), "x");
             sideVent.parent = chassis;
             const sideVentMat = new StandardMaterial(`siegeSideVentMat${i}`, scene);
             sideVentMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
@@ -2082,7 +3848,7 @@ export function addChassisDetails(
             height: 0.12,
             depth: 0.18
         }, scene);
-        spoiler.position = new Vector3(0, h * 0.55, -d * 0.48);
+        spoiler.position = addZFightingOffset(new Vector3(0, h * 0.55, -d * 0.48), "forward");
         spoiler.parent = chassis;
         spoiler.material = accentMat;
         
@@ -2093,7 +3859,11 @@ export function addChassisDetails(
                 height: h * 0.6,
                 depth: d * 0.45
             }, scene);
-            wing.position = new Vector3((i === 0 ? -1 : 1) * w * 0.52, 0, d * 0.25);
+            wing.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.52,
+                    0,
+                    d * 0.25
+                ), "x");
             wing.parent = chassis;
             wing.material = accentMat;
         }
@@ -2105,7 +3875,11 @@ export function addChassisDetails(
                 height: h * 0.4,
                 depth: 0.15
             }, scene);
-            intake.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.1, d * 0.48);
+            intake.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.3,
+                    h * 0.1,
+                    d * 0.48
+                ), "forward");
             intake.parent = chassis;
             intake.material = armorMat;
         }
@@ -2116,7 +3890,7 @@ export function addChassisDetails(
             height: 0.06,
             depth: 0.18
         }, scene);
-        racerHatch.position = new Vector3(0, h * 0.38, 0);
+        racerHatch.position = addZFightingOffset(new Vector3(0, h * 0.38, 0), "forward");
         racerHatch.parent = chassis;
         racerHatch.material = armorMat;
         
@@ -2127,7 +3901,11 @@ export function addChassisDetails(
                 height: 0.08,
                 depth: 0.06
             }, scene);
-            headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.28, h * 0.08, d * 0.48);
+            headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.28,
+                    h * 0.08,
+                    d * 0.48
+                ), "forward");
             headlight.parent = chassis;
             const headlightMat = new StandardMaterial(`racerHeadlightMat${i}`, scene);
             headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
@@ -2141,7 +3919,7 @@ export function addChassisDetails(
             height: 0.12,
             depth: 0.18
         }, scene);
-        racerExhaust.position = new Vector3(w * 0.32, h * 0.1, -d * 0.48);
+        racerExhaust.position = addZFightingOffset(new Vector3(w * 0.32, h * 0.1, -d * 0.48), "forward");
         racerExhaust.parent = chassis;
         racerExhaust.material = armorMat;
         
@@ -2152,7 +3930,11 @@ export function addChassisDetails(
                 height: 0.04,
                 depth: 0.08
             }, scene);
-            vent.position = new Vector3((i === 0 ? -1 : 1) * w * 0.25, h * 0.25, d * 0.2);
+            vent.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.25,
+                    h * 0.25,
+                    d * 0.2
+                ), "x");
             vent.parent = chassis;
             const ventMat = new StandardMaterial(`racerVentMat${i}`, scene);
             ventMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
@@ -2160,12 +3942,8 @@ export function addChassisDetails(
         }
         
         // Перископ
-        const racerPeriscope = MeshBuilder.CreateCylinder("racerPeriscope", {
-            height: 0.12,
-            diameter: 0.06,
-            tessellation: 8
-        }, scene);
-        racerPeriscope.position = new Vector3(0, h * 0.42, 0);
+        const racerPeriscope = MeshBuilder.CreateBox("racerPeriscope", { width: 0.06, height: 0.12, depth: 0.06 }, scene);
+        racerPeriscope.position = addZFightingOffset(new Vector3(0, h * 0.42, 0), "up");
         racerPeriscope.parent = chassis;
         const racerPeriscopeMat = new StandardMaterial("racerPeriscopeMat", scene);
         racerPeriscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
@@ -2175,11 +3953,12 @@ export function addChassisDetails(
     if (chassisType.id === "amphibious") {
         // Amphibious - большие поплавки, водонепроницаемые панели
         for (let i = 0; i < 2; i++) {
-            const float = MeshBuilder.CreateCylinder(`float${i}`, {
-                height: h * 0.7,
-                diameter: w * 0.35
-            }, scene);
-            float.position = new Vector3((i === 0 ? -1 : 1) * w * 0.42, -h * 0.25, 0);
+            const float = MeshBuilder.CreateBox(`float${i}`, { width: w * 0.35, height: h * 0.7, depth: w * 0.35 }, scene);
+            float.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.42,
+                    -h * 0.25,
+                    0
+                ), "down");
             float.parent = chassis;
             float.material = accentMat;
         }
@@ -2190,7 +3969,7 @@ export function addChassisDetails(
             height: 0.08,
             depth: d * 1.05
         }, scene);
-        waterSeal.position = new Vector3(0, h * 0.5, 0);
+        waterSeal.position = addZFightingOffset(new Vector3(0, h * 0.5, 0), "up");
         waterSeal.parent = chassis;
         waterSeal.material = armorMat;
         
@@ -2201,7 +3980,11 @@ export function addChassisDetails(
                 height: 0.08,
                 depth: 0.2
             }, scene);
-            hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.52, -d * 0.1);
+            hatch.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.3,
+                    h * 0.52,
+                    -d * 0.1
+                ), "backward");
             hatch.parent = chassis;
             hatch.material = armorMat;
         }
@@ -2213,7 +3996,11 @@ export function addChassisDetails(
                 height: 0.1,
                 depth: 0.08
             }, scene);
-            headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.15, d * 0.48);
+            headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.4,
+                    h * 0.15,
+                    d * 0.48
+                ), "forward");
             headlight.parent = chassis;
             const headlightMat = new StandardMaterial(`amphibiousHeadlightMat${i}`, scene);
             headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
@@ -2228,7 +4015,11 @@ export function addChassisDetails(
                 height: 0.05,
                 depth: 0.1
             }, scene);
-            vent.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.3, -d * 0.25);
+            vent.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.35,
+                    h * 0.3,
+                    -d * 0.25
+                ), "backward");
             vent.parent = chassis;
             const ventMat = new StandardMaterial(`amphibiousVentMat${i}`, scene);
             ventMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
@@ -2237,12 +4028,12 @@ export function addChassisDetails(
         
         // Перископы
         for (let i = 0; i < 2; i++) {
-            const periscope = MeshBuilder.CreateCylinder(`amphibiousPeriscope${i}`, {
-                height: 0.18,
-                diameter: 0.07,
-                tessellation: 8
-            }, scene);
-            periscope.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.58, -d * 0.1);
+            const periscope = MeshBuilder.CreateBox(`amphibiousPeriscope${i}`, { width: 0.07, height: 0.18, depth: 0.07 }, scene);
+            periscope.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.3,
+                    h * 0.58,
+                    -d * 0.1
+                ), "backward");
             periscope.parent = chassis;
             const periscopeMat = new StandardMaterial(`amphibiousPeriscopeMat${i}`, scene);
             periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
@@ -2252,11 +4043,8 @@ export function addChassisDetails(
     
     if (chassisType.id === "shield") {
         // Shield - генератор щита, энергетические панели
-        const shieldGen = MeshBuilder.CreateSphere("shieldGen", {
-            diameter: w * 0.45,
-            segments: 16
-        }, scene);
-        shieldGen.position = new Vector3(0, h * 0.45, -d * 0.25);
+        const shieldGen = MeshBuilder.CreateBox("shieldGen", { width: w * 0.45, height: w * 0.45, depth: w * 0.45 }, scene);
+        shieldGen.position = addZFightingOffset(new Vector3(0, h * 0.45, -d * 0.25), "up");
         shieldGen.parent = chassis;
         const shieldGenMat = new StandardMaterial("shieldGenMat", scene);
         shieldGenMat.diffuseColor = new Color3(0, 1, 0.6);
@@ -2271,7 +4059,11 @@ export function addChassisDetails(
                 height: h * 0.5,
                 depth: d * 0.3
             }, scene);
-            energyPanel.position = new Vector3((i === 0 ? -1 : 1) * w * 0.55, h * 0.15, 0);
+            energyPanel.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.55,
+                    h * 0.15,
+                    0
+                ), "x");
             energyPanel.parent = chassis;
             const panelMat = new StandardMaterial(`energyPanelMat${i}`, scene);
             panelMat.diffuseColor = new Color3(0, 0.8, 0.4);
@@ -2286,7 +4078,11 @@ export function addChassisDetails(
                 height: 0.08,
                 depth: 0.2
             }, scene);
-            hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.52, -d * 0.1);
+            hatch.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.3,
+                    h * 0.52,
+                    -d * 0.1
+                ), "backward");
             hatch.parent = chassis;
             hatch.material = armorMat;
         }
@@ -2298,7 +4094,11 @@ export function addChassisDetails(
                 height: 0.1,
                 depth: 0.08
             }, scene);
-            headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.15, d * 0.48);
+            headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.4,
+                    h * 0.15,
+                    d * 0.48
+                ), "forward");
             headlight.parent = chassis;
             const headlightMat = new StandardMaterial(`shieldHeadlightMat${i}`, scene);
             headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
@@ -2313,7 +4113,11 @@ export function addChassisDetails(
                 height: 0.05,
                 depth: 0.1
             }, scene);
-            vent.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.3, -d * 0.25);
+            vent.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.35,
+                    h * 0.3,
+                    -d * 0.25
+                ), "backward");
             vent.parent = chassis;
             const ventMat = new StandardMaterial(`shieldVentMat${i}`, scene);
             ventMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
@@ -2323,13 +4127,9 @@ export function addChassisDetails(
         
         // Энергетические катушки вокруг генератора
         for (let i = 0; i < 4; i++) {
-            const coil = MeshBuilder.CreateTorus(`shieldCoil${i}`, {
-                diameter: w * 0.5,
-                thickness: 0.06,
-                tessellation: 16
-            }, scene);
+            const coil = MeshBuilder.CreateBox(`shieldCoil${i}`, { width: w * 0.5, height: 0.06, depth: w * 0.5 }, scene);
             const angle = (i * Math.PI * 2) / 4;
-            coil.position = new Vector3(0, h * 0.45, -d * 0.25);
+            coil.position = addZFightingOffset(new Vector3(0, h * 0.45, -d * 0.25), "up");
             coil.rotation.x = angle;
             coil.parent = chassis;
             const coilMat = new StandardMaterial(`shieldCoilMat${i}`, scene);
@@ -2340,12 +4140,12 @@ export function addChassisDetails(
         
         // Перископы на люках
         for (let i = 0; i < 2; i++) {
-            const periscope = MeshBuilder.CreateCylinder(`shieldPeriscope${i}`, {
-                height: 0.18,
-                diameter: 0.07,
-                tessellation: 8
-            }, scene);
-            periscope.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.6, -d * 0.1);
+            const periscope = MeshBuilder.CreateBox(`shieldPeriscope${i}`, { width: 0.07, height: 0.18, depth: 0.07 }, scene);
+            periscope.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.3,
+                    h * 0.6,
+                    -d * 0.1
+                ), "backward");
             periscope.parent = chassis;
             const periscopeMat = new StandardMaterial(`shieldPeriscopeMat${i}`, scene);
             periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
@@ -2354,13 +4154,13 @@ export function addChassisDetails(
         
         // Энергетические порты (для зарядки щита)
         for (let i = 0; i < 4; i++) {
-            const port = MeshBuilder.CreateCylinder(`shieldPort${i}`, {
-                height: 0.08,
-                diameter: 0.1,
-                tessellation: 8
-            }, scene);
+            const port = MeshBuilder.CreateBox(`shieldPort${i}`, { width: 0.1, height: 0.08, depth: 0.1 }, scene);
             const angle = (i * Math.PI * 2) / 4;
-            port.position = new Vector3(Math.cos(angle) * w * 0.4, h * 0.25, -d * 0.25 + Math.sin(angle) * d * 0.2);
+            port.position = addZFightingOffset(new Vector3(
+                    Math.cos(angle) * w * 0.4,
+                    h * 0.25,
+                    -d * 0.25 + Math.sin(angle) * d * 0.2
+                ), "backward");
             port.rotation.x = angle + Math.PI / 2;
             port.parent = chassis;
             const portMat = new StandardMaterial(`shieldPortMat${i}`, scene);
@@ -2376,7 +4176,11 @@ export function addChassisDetails(
                 height: 0.04,
                 depth: 0.12
             }, scene);
-            roofVent.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.25, h * 0.54, (i < 2 ? -1 : 1) * d * 0.25);
+            roofVent.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.25,
+                    h * 0.54,
+                    (i < 2 ? -1 : 1) * d * 0.25
+                ), "up");
             roofVent.parent = chassis;
             const roofVentMat = new StandardMaterial(`shieldRoofVentMat${i}`, scene);
             roofVentMat.diffuseColor = new Color3(0.12, 0.15, 0.12);
@@ -2391,7 +4195,11 @@ export function addChassisDetails(
                 height: 0.1,
                 depth: 0.04
             }, scene);
-            tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.16, -d * 0.49);
+            tailLight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.4,
+                    h * 0.16,
+                    -d * 0.49
+                ), "forward");
             tailLight.parent = chassis;
             const tailLightMat = new StandardMaterial(`shieldTailLightMat${i}`, scene);
             tailLightMat.diffuseColor = new Color3(0.6, 0.1, 0.1);
@@ -2400,12 +4208,8 @@ export function addChassisDetails(
         }
         
         // Радиоантенна сзади
-        const shieldAntenna = MeshBuilder.CreateCylinder("shieldAntenna", {
-            height: 0.5,
-            diameter: 0.025,
-            tessellation: 8
-        }, scene);
-        shieldAntenna.position = new Vector3(0, h * 0.65, -d * 0.3);
+        const shieldAntenna = MeshBuilder.CreateBox("shieldAntenna", { width: 0.025, height: 0.5, depth: 0.025 }, scene);
+        shieldAntenna.position = addZFightingOffset(new Vector3(0, h * 0.65, -d * 0.3), "up");
         shieldAntenna.parent = chassis;
         const shieldAntennaMat = new StandardMaterial("shieldAntennaMat", scene);
         shieldAntennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
@@ -2417,7 +4221,7 @@ export function addChassisDetails(
             height: 0.1,
             depth: 0.1
         }, scene);
-        shieldAntennaBase.position = new Vector3(0, h * 0.54, -d * 0.3);
+        shieldAntennaBase.position = addZFightingOffset(new Vector3(0, h * 0.54, -d * 0.3), "up");
         shieldAntennaBase.parent = chassis;
         shieldAntennaBase.material = armorMat;
         
@@ -2427,19 +4231,15 @@ export function addChassisDetails(
             height: 0.09,
             depth: 0.11
         }, scene);
-        shieldSight.position = new Vector3(0, h * 0.22, d * 0.49);
+        shieldSight.position = addZFightingOffset(new Vector3(0, h * 0.22, d * 0.49), "forward");
         shieldSight.parent = chassis;
         const shieldSightMat = new StandardMaterial("shieldSightMat", scene);
         shieldSightMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
         shieldSight.material = shieldSightMat;
         
         // Линза прицела
-        const shieldSightLens = MeshBuilder.CreateCylinder("shieldSightLens", {
-            height: 0.02,
-            diameter: 0.07,
-            tessellation: 8
-        }, scene);
-        shieldSightLens.position = new Vector3(0, 0, 0.06);
+        const shieldSightLens = MeshBuilder.CreateBox("shieldSightLens", { width: 0.07, height: 0.02, depth: 0.07 }, scene);
+        shieldSightLens.position = addZFightingOffset(new Vector3(0, 0, 0.06), "forward");
         shieldSightLens.parent = shieldSight;
         const shieldLensMat = new StandardMaterial("shieldSightLensMat", scene);
         shieldLensMat.diffuseColor = new Color3(0.1, 0.2, 0.3);
@@ -2448,14 +4248,13 @@ export function addChassisDetails(
         
         // Выхлопные трубы сзади
         for (let i = 0; i < 2; i++) {
-            const exhaust = MeshBuilder.CreateCylinder(`shieldExhaust${i}`, {
-                height: 0.2,
-                diameter: 0.12,
-                tessellation: 8
-            }, scene);
-            exhaust.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.2, -d * 0.48);
-            exhaust.rotation.z = Math.PI / 2;
-            exhaust.parent = chassis;
+            const exhaust = MeshBuilder.CreateBox(`shieldExhaust${i}`, { width: 0.12, height: 0.2, depth: 0.12 }, scene);
+            exhaust.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.35,
+                    h * 0.2,
+                    -d * 0.48
+                ), "forward");
+                        exhaust.parent = chassis;
             exhaust.material = armorMat;
         }
     }
@@ -2469,7 +4268,11 @@ export function addChassisDetails(
                 height: 0.12,
                 depth: w * 0.45
             }, scene);
-            platform.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.65, 0);
+            platform.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.38,
+                    h * 0.65,
+                    0
+                ), "up");
             platform.parent = chassis;
             const platformMat = new StandardMaterial(`platformMat${i}`, scene);
             platformMat.diffuseColor = new Color3(0.6, 0, 1);
@@ -2478,11 +4281,12 @@ export function addChassisDetails(
             animationElements.droneMeshes.push(platform);
             
             // Антенны на платформах
-            const antenna = MeshBuilder.CreateCylinder(`droneAntenna${i}`, {
-                height: 0.15,
-                diameter: 0.03
-            }, scene);
-            antenna.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.72, 0);
+            const antenna = MeshBuilder.CreateBox(`droneAntenna${i}`, { width: 0.03, height: 0.15, depth: 0.03 }, scene);
+            antenna.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.38,
+                    h * 0.72,
+                    0
+                ), "up");
             antenna.parent = chassis;
             antenna.material = platformMat;
         }
@@ -2494,7 +4298,11 @@ export function addChassisDetails(
                 height: 0.08,
                 depth: 0.2
             }, scene);
-            hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.6, -d * 0.1);
+            hatch.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.3,
+                    h * 0.6,
+                    -d * 0.1
+                ), "backward");
             hatch.parent = chassis;
             hatch.material = armorMat;
         }
@@ -2506,7 +4314,11 @@ export function addChassisDetails(
                 height: 0.1,
                 depth: 0.08
             }, scene);
-            headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.15, d * 0.48);
+            headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.4,
+                    h * 0.15,
+                    d * 0.48
+                ), "forward");
             headlight.parent = chassis;
             const headlightMat = new StandardMaterial(`droneHeadlightMat${i}`, scene);
             headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
@@ -2521,7 +4333,11 @@ export function addChassisDetails(
                 height: 0.05,
                 depth: 0.1
             }, scene);
-            vent.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.3, -d * 0.25);
+            vent.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.35,
+                    h * 0.3,
+                    -d * 0.25
+                ), "backward");
             vent.parent = chassis;
             const ventMat = new StandardMaterial(`droneVentMat${i}`, scene);
             ventMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
@@ -2530,12 +4346,12 @@ export function addChassisDetails(
         
         // Перископы
         for (let i = 0; i < 2; i++) {
-            const periscope = MeshBuilder.CreateCylinder(`dronePeriscope${i}`, {
-                height: 0.18,
-                diameter: 0.07,
-                tessellation: 8
-            }, scene);
-            periscope.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.66, -d * 0.1);
+            const periscope = MeshBuilder.CreateBox(`dronePeriscope${i}`, { width: 0.07, height: 0.18, depth: 0.07 }, scene);
+            periscope.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.3,
+                    h * 0.66,
+                    -d * 0.1
+                ), "backward");
             periscope.parent = chassis;
             const periscopeMat = new StandardMaterial(`dronePeriscopeMat${i}`, scene);
             periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
@@ -2550,7 +4366,11 @@ export function addChassisDetails(
                     height: 0.04,
                     depth: 0.08
                 }, scene);
-                sensor.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38 + (j === 0 ? -1 : 1) * 0.1, h * 0.68, (j === 0 ? -1 : 1) * 0.1);
+                sensor.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.38 + (j === 0 ? -1 : 1) * 0.1,
+                    h * 0.68,
+                    (j === 0 ? -1 : 1) * 0.1
+                ), "up");
                 sensor.parent = chassis;
                 const sensorMat = new StandardMaterial(`droneSensorMat${i}_${j}`, scene);
                 sensorMat.diffuseColor = new Color3(0.1, 0.15, 0.25);
@@ -2566,7 +4386,11 @@ export function addChassisDetails(
                 height: 0.04,
                 depth: 0.1
             }, scene);
-            roofVent.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.25, h * 0.58, (i < 2 ? -1 : 1) * d * 0.25);
+            roofVent.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.25,
+                    h * 0.58,
+                    (i < 2 ? -1 : 1) * d * 0.25
+                ), "up");
             roofVent.parent = chassis;
             const roofVentMat = new StandardMaterial(`droneRoofVentMat${i}`, scene);
             roofVentMat.diffuseColor = new Color3(0.12, 0.12, 0.15);
@@ -2580,7 +4404,11 @@ export function addChassisDetails(
                 height: 0.1,
                 depth: 0.04
             }, scene);
-            tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.16, -d * 0.49);
+            tailLight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.4,
+                    h * 0.16,
+                    -d * 0.49
+                ), "forward");
             tailLight.parent = chassis;
             const tailLightMat = new StandardMaterial(`droneTailLightMat${i}`, scene);
             tailLightMat.diffuseColor = new Color3(0.6, 0.1, 0.1);
@@ -2594,19 +4422,15 @@ export function addChassisDetails(
             height: 0.09,
             depth: 0.11
         }, scene);
-        droneSight.position = new Vector3(0, h * 0.22, d * 0.49);
+        droneSight.position = addZFightingOffset(new Vector3(0, h * 0.22, d * 0.49), "forward");
         droneSight.parent = chassis;
         const droneSightMat = new StandardMaterial("droneSightMat", scene);
         droneSightMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
         droneSight.material = droneSightMat;
         
         // Линза прицела
-        const droneSightLens = MeshBuilder.CreateCylinder("droneSightLens", {
-            height: 0.02,
-            diameter: 0.07,
-            tessellation: 8
-        }, scene);
-        droneSightLens.position = new Vector3(0, 0, 0.06);
+        const droneSightLens = MeshBuilder.CreateBox("droneSightLens", { width: 0.07, height: 0.02, depth: 0.07 }, scene);
+        droneSightLens.position = addZFightingOffset(new Vector3(0, 0, 0.06), "forward");
         droneSightLens.parent = droneSight;
         const droneLensMat = new StandardMaterial("droneSightLensMat", scene);
         droneLensMat.diffuseColor = new Color3(0.1, 0.2, 0.3);
@@ -2614,12 +4438,8 @@ export function addChassisDetails(
         droneSightLens.material = droneLensMat;
         
         // Радиоантенна сзади (для связи с дронами)
-        const droneAntenna = MeshBuilder.CreateCylinder("droneAntenna", {
-            height: 0.55,
-            diameter: 0.025,
-            tessellation: 8
-        }, scene);
-        droneAntenna.position = new Vector3(0, h * 0.72, -d * 0.3);
+        const droneAntenna = MeshBuilder.CreateBox("droneAntenna", { width: 0.025, height: 0.55, depth: 0.025 }, scene);
+        droneAntenna.position = addZFightingOffset(new Vector3(0, h * 0.72, -d * 0.3), "up");
         droneAntenna.parent = chassis;
         const droneAntennaMat = new StandardMaterial("droneAntennaMat", scene);
         droneAntennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
@@ -2631,20 +4451,19 @@ export function addChassisDetails(
             height: 0.1,
             depth: 0.1
         }, scene);
-        droneAntennaBase.position = new Vector3(0, h * 0.6, -d * 0.3);
+        droneAntennaBase.position = addZFightingOffset(new Vector3(0, h * 0.6, -d * 0.3), "up");
         droneAntennaBase.parent = chassis;
         droneAntennaBase.material = armorMat;
         
         // Выхлопные трубы сзади
         for (let i = 0; i < 2; i++) {
-            const exhaust = MeshBuilder.CreateCylinder(`droneExhaust${i}`, {
-                height: 0.2,
-                diameter: 0.12,
-                tessellation: 8
-            }, scene);
-            exhaust.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.2, -d * 0.48);
-            exhaust.rotation.z = Math.PI / 2;
-            exhaust.parent = chassis;
+            const exhaust = MeshBuilder.CreateBox(`droneExhaust${i}`, { width: 0.12, height: 0.2, depth: 0.12 }, scene);
+            exhaust.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.35,
+                    h * 0.2,
+                    -d * 0.48
+                ), "forward");
+                        exhaust.parent = chassis;
             exhaust.material = armorMat;
         }
     }
@@ -2652,16 +4471,13 @@ export function addChassisDetails(
     if (chassisType.id === "artillery") {
         // Artillery - массивные стабилизаторы, опорные лапы
         for (let i = 0; i < 4; i++) {
-            const stabilizer = MeshBuilder.CreateCylinder(`stabilizer${i}`, {
-                height: 0.35,
-                diameter: 0.25
-            }, scene);
+            const stabilizer = MeshBuilder.CreateBox(`stabilizer${i}`, { width: 0.25, height: 0.35, depth: 0.25 }, scene);
             const angle = (i * Math.PI * 2) / 4;
-            stabilizer.position = new Vector3(
-                Math.cos(angle) * w * 0.65,
-                -h * 0.45,
-                Math.sin(angle) * d * 0.65
-            );
+            stabilizer.position = addZFightingOffset(new Vector3(
+                    Math.cos(angle) * w * 0.65,
+                    -h * 0.45,
+                    Math.sin(angle) * d * 0.65
+                ), "forward");
             stabilizer.parent = chassis;
             stabilizer.material = armorMat;
         }
@@ -2674,11 +4490,11 @@ export function addChassisDetails(
                 depth: 0.12
             }, scene);
             const angle = (i * Math.PI * 2) / 4;
-            leg.position = new Vector3(
-                Math.cos(angle) * w * 0.7,
-                -h * 0.55,
-                Math.sin(angle) * d * 0.7
-            );
+            leg.position = addZFightingOffset(new Vector3(
+                    Math.cos(angle) * w * 0.7,
+                    -h * 0.55,
+                    Math.sin(angle) * d * 0.7
+                ), "forward");
             leg.parent = chassis;
             leg.material = armorMat;
         }
@@ -2690,7 +4506,11 @@ export function addChassisDetails(
                 height: 0.1,
                 depth: 0.22
             }, scene);
-            hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.7, -d * 0.1);
+            hatch.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.35,
+                    h * 0.7,
+                    -d * 0.1
+                ), "backward");
             hatch.parent = chassis;
             hatch.material = armorMat;
         }
@@ -2702,7 +4522,11 @@ export function addChassisDetails(
                 height: 0.12,
                 depth: 0.1
             }, scene);
-            headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.2, d * 0.5);
+            headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.45,
+                    h * 0.2,
+                    d * 0.5
+                ), "forward");
             headlight.parent = chassis;
             const headlightMat = new StandardMaterial(`artilleryHeadlightMat${i}`, scene);
             headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
@@ -2716,7 +4540,7 @@ export function addChassisDetails(
             height: 0.14,
             depth: 0.2
         }, scene);
-        artilleryExhaust.position = new Vector3(w * 0.4, h * 0.22, -d * 0.48);
+        artilleryExhaust.position = addZFightingOffset(new Vector3(w * 0.4, h * 0.22, -d * 0.48), "forward");
         artilleryExhaust.parent = chassis;
         artilleryExhaust.material = armorMat;
         
@@ -2727,7 +4551,11 @@ export function addChassisDetails(
                 height: 0.08,
                 depth: 0.14
             }, scene);
-            vent.position = new Vector3((i - 1) * w * 0.35, h * 0.6, -d * 0.3);
+            vent.position = addZFightingOffset(new Vector3(
+                    (i - 1) * w * 0.35,
+                    h * 0.6,
+                    -d * 0.3
+                ), "backward");
             vent.parent = chassis;
             const ventMat = new StandardMaterial(`artilleryVentMat${i}`, scene);
             ventMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
@@ -2736,12 +4564,12 @@ export function addChassisDetails(
         
         // Перископы
         for (let i = 0; i < 2; i++) {
-            const periscope = MeshBuilder.CreateCylinder(`artilleryPeriscope${i}`, {
-                height: 0.22,
-                diameter: 0.09,
-                tessellation: 8
-            }, scene);
-            periscope.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.85, -d * 0.1);
+            const periscope = MeshBuilder.CreateBox(`artilleryPeriscope${i}`, { width: 0.09, height: 0.22, depth: 0.09 }, scene);
+            periscope.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.35,
+                    h * 0.85,
+                    -d * 0.1
+                ), "backward");
             periscope.parent = chassis;
             const periscopeMat = new StandardMaterial(`artilleryPeriscopeMat${i}`, scene);
             periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
@@ -2755,19 +4583,19 @@ export function addChassisDetails(
                 height: 0.12,
                 depth: 0.14
             }, scene);
-            sight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.75, d * 0.45);
+            sight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.35,
+                    h * 0.75,
+                    d * 0.45
+                ), "forward");
             sight.parent = chassis;
             const sightMat = new StandardMaterial(`artillerySightMat${i}`, scene);
             sightMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
             sight.material = sightMat;
             
             // Линза прицела
-            const sightLens = MeshBuilder.CreateCylinder(`artillerySightLens${i}`, {
-                height: 0.02,
-                diameter: 0.08,
-                tessellation: 8
-            }, scene);
-            sightLens.position = new Vector3(0, 0, 0.08);
+            const sightLens = MeshBuilder.CreateBox(`artillerySightLens${i}`, { width: 0.08, height: 0.02, depth: 0.08 }, scene);
+            sightLens.position = addZFightingOffset(new Vector3(0, 0, 0.08), "forward");
             sightLens.parent = sight;
             const lensMat = new StandardMaterial(`artillerySightLensMat${i}`, scene);
             lensMat.diffuseColor = new Color3(0.1, 0.2, 0.3);
@@ -2782,7 +4610,11 @@ export function addChassisDetails(
                 height: 0.06,
                 depth: 0.16
             }, scene);
-            roofVent.position = new Vector3((i - 2) * w * 0.28, h * 0.72, d * 0.25);
+            roofVent.position = addZFightingOffset(new Vector3(
+                    (i - 2) * w * 0.28,
+                    h * 0.72,
+                    d * 0.25
+                ), "up");
             roofVent.parent = chassis;
             const roofVentMat = new StandardMaterial(`artilleryRoofVentMat${i}`, scene);
             roofVentMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
@@ -2795,19 +4627,19 @@ export function addChassisDetails(
                     height: 0.05,
                     depth: 0.14
                 }, scene);
-                ventBar.position = new Vector3((i - 2) * w * 0.28 + (j - 2) * 0.04, h * 0.72, d * 0.25);
+                ventBar.position = addZFightingOffset(new Vector3(
+                    (i - 2) * w * 0.28 + (j - 2) * 0.04,
+                    h * 0.72,
+                    d * 0.25
+                ), "up");
                 ventBar.parent = chassis;
                 ventBar.material = roofVentMat;
             }
         }
         
         // Радиоантенна сзади
-        const artilleryAntenna = MeshBuilder.CreateCylinder("artilleryAntenna", {
-            height: 0.6,
-            diameter: 0.03,
-            tessellation: 8
-        }, scene);
-        artilleryAntenna.position = new Vector3(0, h * 0.9, -d * 0.3);
+        const artilleryAntenna = MeshBuilder.CreateBox("artilleryAntenna", { width: 0.03, height: 0.6, depth: 0.03 }, scene);
+        artilleryAntenna.position = addZFightingOffset(new Vector3(0, h * 0.9, -d * 0.3), "up");
         artilleryAntenna.parent = chassis;
         const artilleryAntennaMat = new StandardMaterial("artilleryAntennaMat", scene);
         artilleryAntennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
@@ -2819,7 +4651,7 @@ export function addChassisDetails(
             height: 0.12,
             depth: 0.12
         }, scene);
-        artilleryAntennaBase.position = new Vector3(0, h * 0.76, -d * 0.3);
+        artilleryAntennaBase.position = addZFightingOffset(new Vector3(0, h * 0.76, -d * 0.3), "up");
         artilleryAntennaBase.parent = chassis;
         artilleryAntennaBase.material = armorMat;
         
@@ -2830,7 +4662,11 @@ export function addChassisDetails(
                 height: 0.14,
                 depth: 0.06
             }, scene);
-            tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.22, -d * 0.49);
+            tailLight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.45,
+                    h * 0.22,
+                    -d * 0.49
+                ), "forward");
             tailLight.parent = chassis;
             const tailLightMat = new StandardMaterial(`artilleryTailLightMat${i}`, scene);
             tailLightMat.diffuseColor = new Color3(0.6, 0.1, 0.1);
@@ -2845,7 +4681,11 @@ export function addChassisDetails(
                 height: 0.09,
                 depth: 0.06
             }, scene);
-            sideLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.15, -d * 0.25);
+            sideLight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.48,
+                    h * 0.15,
+                    -d * 0.25
+                ), "backward");
             sideLight.parent = chassis;
             const sideLightMat = new StandardMaterial(`artillerySideLightMat${i}`, scene);
             sideLightMat.diffuseColor = new Color3(0.7, 0.6, 0.3);
@@ -2854,25 +4694,15 @@ export function addChassisDetails(
         }
         
         // Выхлопная труба (большая)
-        const artilleryExhaustUpgraded = MeshBuilder.CreateCylinder("artilleryExhaustUpgraded", {
-            height: 0.28,
-            diameter: 0.18,
-            tessellation: 8
-        }, scene);
-        artilleryExhaustUpgraded.position = new Vector3(0, h * 0.25, -d * 0.48);
-        artilleryExhaustUpgraded.rotation.z = Math.PI / 2;
-        artilleryExhaustUpgraded.parent = chassis;
+        const artilleryExhaustUpgraded = MeshBuilder.CreateBox("artilleryExhaustUpgraded", { width: 0.18, height: 0.28, depth: 0.18 }, scene);
+        artilleryExhaustUpgraded.position = addZFightingOffset(new Vector3(0, h * 0.25, -d * 0.48), "forward");
+                artilleryExhaustUpgraded.parent = chassis;
         artilleryExhaustUpgraded.material = armorMat;
         
         // Выхлопное отверстие
-        const artilleryExhaustHole = MeshBuilder.CreateCylinder("artilleryExhaustHole", {
-            height: 0.05,
-            diameter: 0.16,
-            tessellation: 8
-        }, scene);
-        artilleryExhaustHole.position = new Vector3(0, h * 0.25, -d * 0.52);
-        artilleryExhaustHole.rotation.z = Math.PI / 2;
-        artilleryExhaustHole.parent = chassis;
+        const artilleryExhaustHole = MeshBuilder.CreateBox("artilleryExhaustHole", { width: 0.16, height: 0.05, depth: 0.16 }, scene);
+        artilleryExhaustHole.position = addZFightingOffset(new Vector3(0, h * 0.25, -d * 0.52), "forward");
+                artilleryExhaustHole.parent = chassis;
         const artilleryExhaustHoleMat = new StandardMaterial("artilleryExhaustHoleMat", scene);
         artilleryExhaustHoleMat.diffuseColor = new Color3(0.05, 0.05, 0.05);
         artilleryExhaustHoleMat.emissiveColor = new Color3(0.1, 0.05, 0);
@@ -2886,7 +4716,7 @@ export function addChassisDetails(
             height: h * 0.55,
             depth: 0.35
         }, scene);
-        destroyerNose.position = new Vector3(0, 0, d * 0.52);
+        destroyerNose.position = addZFightingOffset(new Vector3(0, 0, d * 0.52), "forward");
         destroyerNose.parent = chassis;
         destroyerNose.material = accentMat;
         
@@ -2897,7 +4727,11 @@ export function addChassisDetails(
                 height: h * 0.7,
                 depth: d * 0.5
             }, scene);
-            sidePlate.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, 0, d * 0.15);
+            sidePlate.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.48,
+                    0,
+                    d * 0.15
+                ), "x");
             sidePlate.parent = chassis;
             sidePlate.material = armorMat;
         }
@@ -2909,7 +4743,11 @@ export function addChassisDetails(
                 height: 0.06,
                 depth: 0.18
             }, scene);
-            hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.48, -d * 0.1);
+            hatch.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.3,
+                    h * 0.48,
+                    -d * 0.1
+                ), "backward");
             hatch.parent = chassis;
             hatch.material = armorMat;
         }
@@ -2921,7 +4759,11 @@ export function addChassisDetails(
                 height: 0.1,
                 depth: 0.08
             }, scene);
-            headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.1, d * 0.48);
+            headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.38,
+                    h * 0.1,
+                    d * 0.48
+                ), "forward");
             headlight.parent = chassis;
             const headlightMat = new StandardMaterial(`destroyerHeadlightMat${i}`, scene);
             headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
@@ -2936,7 +4778,11 @@ export function addChassisDetails(
                 height: 0.05,
                 depth: 0.1
             }, scene);
-            vent.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.25, -d * 0.25);
+            vent.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.35,
+                    h * 0.25,
+                    -d * 0.25
+                ), "backward");
             vent.parent = chassis;
             const ventMat = new StandardMaterial(`destroyerVentMat${i}`, scene);
             ventMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
@@ -2945,12 +4791,12 @@ export function addChassisDetails(
         
         // Перископы
         for (let i = 0; i < 2; i++) {
-            const periscope = MeshBuilder.CreateCylinder(`destroyerPeriscope${i}`, {
-                height: 0.14,
-                diameter: 0.07,
-                tessellation: 8
-            }, scene);
-            periscope.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.54, -d * 0.1);
+            const periscope = MeshBuilder.CreateBox(`destroyerPeriscope${i}`, { width: 0.07, height: 0.14, depth: 0.07 }, scene);
+            periscope.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.3,
+                    h * 0.54,
+                    -d * 0.1
+                ), "backward");
             periscope.parent = chassis;
             const periscopeMat = new StandardMaterial(`destroyerPeriscopeMat${i}`, scene);
             periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
@@ -2963,19 +4809,15 @@ export function addChassisDetails(
             height: 0.1,
             depth: 0.12
         }, scene);
-        destroyerSight.position = new Vector3(0, h * 0.2, d * 0.48);
+        destroyerSight.position = addZFightingOffset(new Vector3(0, h * 0.2, d * 0.48), "forward");
         destroyerSight.parent = chassis;
         const destroyerSightMat = new StandardMaterial("destroyerSightMat", scene);
         destroyerSightMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
         destroyerSight.material = destroyerSightMat;
         
         // Линза прицела
-        const destroyerSightLens = MeshBuilder.CreateCylinder("destroyerSightLens", {
-            height: 0.02,
-            diameter: 0.08,
-            tessellation: 8
-        }, scene);
-        destroyerSightLens.position = new Vector3(0, 0, 0.07);
+        const destroyerSightLens = MeshBuilder.CreateBox("destroyerSightLens", { width: 0.08, height: 0.02, depth: 0.08 }, scene);
+        destroyerSightLens.position = addZFightingOffset(new Vector3(0, 0, 0.07), "forward");
         destroyerSightLens.parent = destroyerSight;
         const destroyerLensMat = new StandardMaterial("destroyerSightLensMat", scene);
         destroyerLensMat.diffuseColor = new Color3(0.1, 0.2, 0.3);
@@ -2989,7 +4831,11 @@ export function addChassisDetails(
                 height: h * 0.18,
                 depth: 0.1
             }, scene);
-            frontArmor.position = new Vector3((i - 1) * w * 0.28, h * 0.05, d * 0.48);
+            frontArmor.position = addZFightingOffset(new Vector3(
+                    (i - 1) * w * 0.28,
+                    h * 0.05,
+                    d * 0.48
+                ), "forward");
             frontArmor.parent = chassis;
             frontArmor.material = armorMat;
         }
@@ -3001,7 +4847,11 @@ export function addChassisDetails(
                 height: 0.04,
                 depth: 0.1
             }, scene);
-            roofVent.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.28, h * 0.46, (i < 2 ? -1 : 1) * d * 0.2);
+            roofVent.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.28,
+                    h * 0.46,
+                    (i < 2 ? -1 : 1) * d * 0.2
+                ), "up");
             roofVent.parent = chassis;
             const roofVentMat = new StandardMaterial(`destroyerRoofVentMat${i}`, scene);
             roofVentMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
@@ -3014,7 +4864,11 @@ export function addChassisDetails(
                     height: 0.03,
                     depth: 0.08
                 }, scene);
-                ventBar.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.28, h * 0.46, (i < 2 ? -1 : 1) * d * 0.2 + (j - 1) * 0.03);
+                ventBar.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.28,
+                    h * 0.46,
+                    (i < 2 ? -1 : 1) * d * 0.2 + (j - 1) * 0.03
+                ), "up");
                 ventBar.parent = chassis;
                 ventBar.material = roofVentMat;
             }
@@ -3022,25 +4876,23 @@ export function addChassisDetails(
         
         // Выхлопные трубы сзади (большие)
         for (let i = 0; i < 2; i++) {
-            const exhaust = MeshBuilder.CreateCylinder(`destroyerExhaust${i}`, {
-                height: 0.25,
-                diameter: 0.12,
-                tessellation: 8
-            }, scene);
-            exhaust.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.18, -d * 0.48);
-            exhaust.rotation.z = Math.PI / 2;
-            exhaust.parent = chassis;
+            const exhaust = MeshBuilder.CreateBox(`destroyerExhaust${i}`, { width: 0.12, height: 0.25, depth: 0.12 }, scene);
+            exhaust.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.38,
+                    h * 0.18,
+                    -d * 0.48
+                ), "forward");
+                        exhaust.parent = chassis;
             exhaust.material = armorMat;
             
             // Выхлопное отверстие
-            const exhaustHole = MeshBuilder.CreateCylinder(`destroyerExhaustHole${i}`, {
-                height: 0.04,
-                diameter: 0.1,
-                tessellation: 8
-            }, scene);
-            exhaustHole.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.18, -d * 0.52);
-            exhaustHole.rotation.z = Math.PI / 2;
-            exhaustHole.parent = chassis;
+            const exhaustHole = MeshBuilder.CreateBox(`destroyerExhaustHole${i}`, { width: 0.1, height: 0.04, depth: 0.1 }, scene);
+            exhaustHole.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.38,
+                    h * 0.18,
+                    -d * 0.52
+                ), "forward");
+                        exhaustHole.parent = chassis;
             const exhaustHoleMat = new StandardMaterial(`destroyerExhaustHoleMat${i}`, scene);
             exhaustHoleMat.diffuseColor = new Color3(0.05, 0.05, 0.05);
             exhaustHoleMat.emissiveColor = new Color3(0.1, 0.05, 0);
@@ -3054,7 +4906,11 @@ export function addChassisDetails(
                 height: 0.1,
                 depth: 0.04
             }, scene);
-            tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.14, -d * 0.49);
+            tailLight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.4,
+                    h * 0.14,
+                    -d * 0.49
+                ), "forward");
             tailLight.parent = chassis;
             const tailLightMat = new StandardMaterial(`destroyerTailLightMat${i}`, scene);
             tailLightMat.diffuseColor = new Color3(0.6, 0.1, 0.1);
@@ -3069,7 +4925,11 @@ export function addChassisDetails(
                 height: 0.07,
                 depth: 0.05
             }, scene);
-            sideLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.08, -d * 0.2);
+            sideLight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.48,
+                    h * 0.08,
+                    -d * 0.2
+                ), "backward");
             sideLight.parent = chassis;
             const sideLightMat = new StandardMaterial(`destroyerSideLightMat${i}`, scene);
             sideLightMat.diffuseColor = new Color3(0.7, 0.6, 0.3);
@@ -3078,12 +4938,8 @@ export function addChassisDetails(
         }
         
         // Радиоантенна сзади
-        const destroyerAntenna = MeshBuilder.CreateCylinder("destroyerAntenna", {
-            height: 0.45,
-            diameter: 0.025,
-            tessellation: 8
-        }, scene);
-        destroyerAntenna.position = new Vector3(0, h * 0.65, -d * 0.3);
+        const destroyerAntenna = MeshBuilder.CreateBox("destroyerAntenna", { width: 0.025, height: 0.45, depth: 0.025 }, scene);
+        destroyerAntenna.position = addZFightingOffset(new Vector3(0, h * 0.65, -d * 0.3), "up");
         destroyerAntenna.parent = chassis;
         const destroyerAntennaMat = new StandardMaterial("destroyerAntennaMat", scene);
         destroyerAntennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
@@ -3095,7 +4951,7 @@ export function addChassisDetails(
             height: 0.1,
             depth: 0.1
         }, scene);
-        destroyerAntennaBase.position = new Vector3(0, h * 0.54, -d * 0.3);
+        destroyerAntennaBase.position = addZFightingOffset(new Vector3(0, h * 0.54, -d * 0.3), "up");
         destroyerAntennaBase.parent = chassis;
         destroyerAntennaBase.material = armorMat;
         
@@ -3105,19 +4961,15 @@ export function addChassisDetails(
             height: 0.14,
             depth: 0.16
         }, scene);
-        destroyerToolBox.position = new Vector3(0, h * 0.24, -d * 0.42);
+        destroyerToolBox.position = addZFightingOffset(new Vector3(0, h * 0.24, -d * 0.42), "forward");
         destroyerToolBox.parent = chassis;
         destroyerToolBox.material = armorMat;
     }
     
     if (chassisType.id === "command") {
         // Command - аура, множественные антенны, командный модуль
-        const commandAura = MeshBuilder.CreateTorus("commandAura", {
-            diameter: w * 1.6,
-            thickness: 0.06,
-            tessellation: 20
-        }, scene);
-        commandAura.position = new Vector3(0, h * 0.55, 0);
+        const commandAura = MeshBuilder.CreateBox("commandAura", { width: w * 1.6, height: 0.06, depth: w * 1.6 }, scene);
+        commandAura.position = addZFightingOffset(new Vector3(0, h * 0.55, 0), "up");
         commandAura.rotation.x = Math.PI / 2;
         commandAura.parent = chassis;
         const auraMat = new StandardMaterial("auraMat", scene);
@@ -3133,7 +4985,7 @@ export function addChassisDetails(
             height: h * 0.3,
             depth: d * 0.4
         }, scene);
-        commandModule.position = new Vector3(0, h * 0.6, -d * 0.3);
+        commandModule.position = addZFightingOffset(new Vector3(0, h * 0.6, -d * 0.3), "up");
         commandModule.parent = chassis;
         const moduleMat = new StandardMaterial("moduleMat", scene);
         moduleMat.diffuseColor = new Color3(1, 0.9, 0.3);
@@ -3142,15 +4994,12 @@ export function addChassisDetails(
         
         // Множественные антенны
         for (let i = 0; i < 4; i++) {
-            const antenna = MeshBuilder.CreateCylinder(`cmdAntenna${i}`, {
-                height: 0.5,
-                diameter: 0.025
-            }, scene);
-            antenna.position = new Vector3(
-                (i % 2 === 0 ? -1 : 1) * w * 0.35,
-                h * 0.7,
-                (i < 2 ? -1 : 1) * d * 0.35
-            );
+            const antenna = MeshBuilder.CreateBox(`cmdAntenna${i}`, { width: 0.025, height: 0.5, depth: 0.025 }, scene);
+            antenna.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.35,
+                    h * 0.7,
+                    (i < 2 ? -1 : 1) * d * 0.35
+                ), "forward");
             antenna.parent = chassis;
             const antennaMat = new StandardMaterial(`cmdAntennaMat${i}`, scene);
             antennaMat.diffuseColor = new Color3(1, 0.9, 0.2);
@@ -3164,7 +5013,11 @@ export function addChassisDetails(
                 height: 0.08,
                 depth: 0.22
             }, scene);
-            hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.6, -d * 0.1);
+            hatch.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.3,
+                    h * 0.6,
+                    -d * 0.1
+                ), "backward");
             hatch.parent = chassis;
             hatch.material = armorMat;
         }
@@ -3176,7 +5029,11 @@ export function addChassisDetails(
                 height: 0.1,
                 depth: 0.08
             }, scene);
-            headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.15, d * 0.48);
+            headlight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.38,
+                    h * 0.15,
+                    d * 0.48
+                ), "forward");
             headlight.parent = chassis;
             const headlightMat = new StandardMaterial(`commandHeadlightMat${i}`, scene);
             headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
@@ -3186,12 +5043,12 @@ export function addChassisDetails(
         
         // Перископы на люках
         for (let i = 0; i < 2; i++) {
-            const periscope = MeshBuilder.CreateCylinder(`commandPeriscope${i}`, {
-                height: 0.2,
-                diameter: 0.08,
-                tessellation: 8
-            }, scene);
-            periscope.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.68, -d * 0.1);
+            const periscope = MeshBuilder.CreateBox(`commandPeriscope${i}`, { width: 0.08, height: 0.2, depth: 0.08 }, scene);
+            periscope.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.3,
+                    h * 0.68,
+                    -d * 0.1
+                ), "backward");
             periscope.parent = chassis;
             const periscopeMat = new StandardMaterial(`commandPeriscopeMat${i}`, scene);
             periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
@@ -3205,7 +5062,11 @@ export function addChassisDetails(
                 height: 0.12,
                 depth: 0.1
             }, scene);
-            radio.position = new Vector3((i === 0 ? -1 : 1) * w * 0.22, h * 0.72, -d * 0.3);
+            radio.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.22,
+                    h * 0.72,
+                    -d * 0.3
+                ), "backward");
             radio.parent = chassis;
             const radioMat = new StandardMaterial(`commandRadioMat${i}`, scene);
             radioMat.diffuseColor = new Color3(0.8, 0.7, 0.2);
@@ -3220,7 +5081,11 @@ export function addChassisDetails(
                 height: 0.06,
                 depth: 0.08
             }, scene);
-            sensor.position = new Vector3((i - 1) * w * 0.18, h * 0.72, -d * 0.2);
+            sensor.position = addZFightingOffset(new Vector3(
+                    (i - 1) * w * 0.18,
+                    h * 0.72,
+                    -d * 0.2
+                ), "backward");
             sensor.parent = chassis;
             const sensorMat = new StandardMaterial(`commandSensorMat${i}`, scene);
             sensorMat.diffuseColor = new Color3(0.1, 0.15, 0.2);
@@ -3235,7 +5100,11 @@ export function addChassisDetails(
                 height: 0.04,
                 depth: 0.12
             }, scene);
-            roofVent.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.25, h * 0.58, (i < 2 ? -1 : 1) * d * 0.25);
+            roofVent.position = addZFightingOffset(new Vector3(
+                    (i % 2 === 0 ? -1 : 1) * w * 0.25,
+                    h * 0.58,
+                    (i < 2 ? -1 : 1) * d * 0.25
+                ), "up");
             roofVent.parent = chassis;
             const roofVentMat = new StandardMaterial(`commandRoofVentMat${i}`, scene);
             roofVentMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
@@ -3249,7 +5118,11 @@ export function addChassisDetails(
                 height: 0.1,
                 depth: 0.04
             }, scene);
-            tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.16, -d * 0.49);
+            tailLight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.4,
+                    h * 0.16,
+                    -d * 0.49
+                ), "forward");
             tailLight.parent = chassis;
             const tailLightMat = new StandardMaterial(`commandTailLightMat${i}`, scene);
             tailLightMat.diffuseColor = new Color3(0.6, 0.1, 0.1);
@@ -3263,19 +5136,15 @@ export function addChassisDetails(
             height: 0.09,
             depth: 0.11
         }, scene);
-        commandSight.position = new Vector3(0, h * 0.22, d * 0.49);
+        commandSight.position = addZFightingOffset(new Vector3(0, h * 0.22, d * 0.49), "forward");
         commandSight.parent = chassis;
         const commandSightMat = new StandardMaterial("commandSightMat", scene);
         commandSightMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
         commandSight.material = commandSightMat;
         
         // Линза прицела
-        const commandSightLens = MeshBuilder.CreateCylinder("commandSightLens", {
-            height: 0.02,
-            diameter: 0.07,
-            tessellation: 8
-        }, scene);
-        commandSightLens.position = new Vector3(0, 0, 0.06);
+        const commandSightLens = MeshBuilder.CreateBox("commandSightLens", { width: 0.07, height: 0.02, depth: 0.07 }, scene);
+        commandSightLens.position = addZFightingOffset(new Vector3(0, 0, 0.06), "forward");
         commandSightLens.parent = commandSight;
         const commandLensMat = new StandardMaterial("commandSightLensMat", scene);
         commandLensMat.diffuseColor = new Color3(0.1, 0.2, 0.3);
@@ -3284,14 +5153,13 @@ export function addChassisDetails(
         
         // Выхлопные трубы сзади
         for (let i = 0; i < 2; i++) {
-            const exhaust = MeshBuilder.CreateCylinder(`commandExhaust${i}`, {
-                height: 0.22,
-                diameter: 0.12,
-                tessellation: 8
-            }, scene);
-            exhaust.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.2, -d * 0.48);
-            exhaust.rotation.z = Math.PI / 2;
-            exhaust.parent = chassis;
+            const exhaust = MeshBuilder.CreateBox(`commandExhaust${i}`, { width: 0.12, height: 0.22, depth: 0.12 }, scene);
+            exhaust.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.35,
+                    h * 0.2,
+                    -d * 0.48
+                ), "forward");
+                        exhaust.parent = chassis;
             exhaust.material = armorMat;
         }
         
@@ -3302,7 +5170,11 @@ export function addChassisDetails(
                 height: 0.07,
                 depth: 0.05
             }, scene);
-            sideLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.1, -d * 0.2);
+            sideLight.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * w * 0.48,
+                    h * 0.1,
+                    -d * 0.2
+                ), "backward");
             sideLight.parent = chassis;
             const sideLightMat = new StandardMaterial(`commandSideLightMat${i}`, scene);
             sideLightMat.diffuseColor = new Color3(0.7, 0.6, 0.3);
@@ -3313,11 +5185,8 @@ export function addChassisDetails(
     
     // Антенны для medium/heavy/assault
     if (chassisType.id === "medium" || chassisType.id === "heavy" || chassisType.id === "assault") {
-        const antenna = MeshBuilder.CreateCylinder("antenna", {
-            height: 0.35,
-            diameter: 0.025
-        }, scene);
-        antenna.position = new Vector3(w * 0.42, h * 0.65, -d * 0.42);
+        const antenna = MeshBuilder.CreateBox("antenna", { width: 0.025, height: 0.35, depth: 0.025 }, scene);
+        antenna.position = addZFightingOffset(new Vector3(w * 0.42, h * 0.65, -d * 0.42), "forward");
         antenna.parent = chassis;
         const antennaMat = new StandardMaterial("antennaMat", scene);
         antennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);

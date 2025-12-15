@@ -8,6 +8,69 @@
 const BASE_WIDTH = 1920;
 const BASE_HEIGHT = 1080;
 
+// User-configurable UI scale (50% - 150%)
+let userScaleFactor = 1.0;
+
+// Event listeners for scale changes
+const scaleChangeListeners: Array<(scale: number) => void> = [];
+
+/**
+ * Load user scale from localStorage
+ */
+function loadUserScale(): number {
+    try {
+        const saved = localStorage.getItem('ui-scale');
+        if (saved) {
+            const scale = parseFloat(saved);
+            if (!isNaN(scale) && scale >= 0.5 && scale <= 1.5) {
+                return scale;
+            }
+        }
+    } catch (e) {
+        // Ignore localStorage errors
+    }
+    return 1.0;
+}
+
+// Initialize user scale
+userScaleFactor = loadUserScale();
+
+/**
+ * Set user UI scale factor
+ * @param scale - Scale factor (0.5 to 1.5)
+ */
+export function setUserScale(scale: number): void {
+    const clampedScale = Math.max(0.5, Math.min(1.5, scale));
+    userScaleFactor = clampedScale;
+    
+    try {
+        localStorage.setItem('ui-scale', clampedScale.toString());
+    } catch (e) {
+        // Ignore localStorage errors
+    }
+    
+    // Notify listeners
+    scaleChangeListeners.forEach(listener => listener(clampedScale));
+}
+
+/**
+ * Get current user scale factor
+ */
+export function getUserScale(): number {
+    return userScaleFactor;
+}
+
+/**
+ * Subscribe to scale changes
+ */
+export function onScaleChange(callback: (scale: number) => void): () => void {
+    scaleChangeListeners.push(callback);
+    return () => {
+        const index = scaleChangeListeners.indexOf(callback);
+        if (index > -1) scaleChangeListeners.splice(index, 1);
+    };
+}
+
 /**
  * Get scale factor based on current screen size
  * @returns Scale factor (1.0 = base resolution)
@@ -20,8 +83,11 @@ export function getScaleFactor(): number {
     const scaleX = width / BASE_WIDTH;
     const scaleY = height / BASE_HEIGHT;
     
-    // Use minimum to ensure UI fits on screen
-    return Math.min(scaleX, scaleY, 1.5); // Cap at 1.5x for very large screens
+    // Base scale from screen size
+    const baseScale = Math.min(scaleX, scaleY, 1.5); // Cap at 1.5x for very large screens
+    
+    // Apply user scale factor
+    return baseScale * userScaleFactor;
 }
 
 /**
@@ -121,6 +187,9 @@ export function pxToPercent(px: number, isHorizontal: boolean = true): number {
     const base = isHorizontal ? BASE_WIDTH : BASE_HEIGHT;
     return (px / base) * 100;
 }
+
+
+
 
 
 

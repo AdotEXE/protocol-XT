@@ -30,6 +30,7 @@ import { EnemyManager } from "./enemy";
 import { ChunkSystem } from "./chunkSystem";
 import { DebugDashboard } from "./debugDashboard";
 import { PhysicsPanel } from "./physicsPanel";
+import { CheatMenu } from "./cheatMenu";
 import { EnemyTank } from "./enemyTank";
 import { MainMenu, GameSettings, MapType } from "./menu";
 import { CurrencyManager } from "./currencyManager";
@@ -77,6 +78,9 @@ export class Game {
     
     // Physics panel
     physicsPanel: PhysicsPanel | undefined;
+    
+    // Cheat menu
+    cheatMenu: CheatMenu | undefined;
     
     // Enemy tanks
     enemyTanks: EnemyTank[] = [];
@@ -152,6 +156,9 @@ export class Game {
     private frontlineMaxEnemies = 12;
     private frontlineWaveInterval = 75000; // 75 секунд между волнами
     
+    // Таймер для проверки видимости меню
+    private canvasPointerEventsCheckInterval: number | null = null;
+    
     // Stats overlay (Tab key - пункт 13)
     private statsOverlay: HTMLDivElement | null = null;
     private statsOverlayVisible = false;
@@ -172,7 +179,9 @@ export class Game {
     // Loading screen
     private loadingScreen: HTMLDivElement | null = null;
     private loadingProgress = 0;
+    private targetLoadingProgress = 0; // Целевой прогресс для плавной интерполяции
     private _loadingStage = "";
+    private loadingAnimationFrame: number | null = null; // Для плавной анимации прогресса
     
     // Camera settings
     cameraBeta = Math.PI / 2 - (20 * Math.PI / 180); // 20 градусов от горизонта для лучшего обзора
@@ -219,8 +228,38 @@ export class Game {
         this.mainMenu = new MainMenu();
         this.settings = this.mainMenu.getSettings();
         
-        // Показываем меню по умолчанию (игра запускается через меню)
-        this.mainMenu.show();
+        // Проверяем, есть ли автозапуск (после рестарта)
+        const autoStartMap = localStorage.getItem("autoStartMap");
+        if (autoStartMap) {
+            // Удаляем флаг автозапуска
+            localStorage.removeItem("autoStartMap");
+            // Устанавливаем карту и запускаем игру автоматически
+            this.currentMapType = autoStartMap as MapType;
+            logger.log(`[Game] Auto-starting on map: ${autoStartMap}`);
+            // Скрываем меню и запускаем игру после небольшой задержки
+            setTimeout(() => {
+                this.mainMenu.triggerStartGame(this.currentMapType);
+            }, 100);
+        } else {
+            // Показываем меню по умолчанию
+            this.mainMenu.show();
+        }
+        
+        this.mainMenu.setOnRestartGame(() => {
+            this.restartGame();
+        });
+        
+        this.mainMenu.setOnExitBattle(() => {
+            this.exitBattle();
+        });
+        
+        // Обработчик для возобновления игры
+        window.addEventListener("resumeGame", () => {
+            this.togglePause();
+        });
+        
+        // Обработчики для сохранения при закрытии страницы
+        this.setupAutoSaveOnUnload();
         
         this.mainMenu.setOnStartGame(async (mapType?: MapType) => {
             if (mapType) {
@@ -229,7 +268,7 @@ export class Game {
             
             // Инициализируем игру, если еще не инициализирована
             if (!this.gameInitialized) {
-                console.log(`[Game] Initializing game with map type: ${this.currentMapType}`);
+                logger.debug(`[Game] Initializing game with map type: ${this.currentMapType}`);
                 await this.init();
                 this.gameInitialized = true;
                 logger.log("Game initialized successfully");
@@ -284,7 +323,7 @@ export class Game {
                     // Восстанавливаем здоровье танка при смене карты
                     if (this.tank) {
                         this.tank.respawn();
-                        console.log("[Game] Player tank reset for new map");
+                        logger.debug("[Game] Player tank reset for new map");
                     }
                     
                     // Ждём генерации гаражей и спавним игрока
@@ -400,7 +439,7 @@ export class Game {
                     
                     try {
                         const isCurrentlyOpen = this.garage.isGarageOpen();
-                        console.log(`[Game] Garage isOpen: ${isCurrentlyOpen}`);
+                        logger.log(`[Game] Garage isOpen: ${isCurrentlyOpen}`);
                         
                         if (isCurrentlyOpen) {
                             this.garage.close();
@@ -502,16 +541,18 @@ export class Game {
                             const rayDistance = 100; // Максимальная дистанция луча
                             const ray = new Ray(barrelPos, barrelDir, rayDistance);
                             
-                            // Выполняем raycast, проверяя только ворота
+                            // Используем raycast для точного определения, какая ворота попадает в луч
+                            // Также проверяем расстояние до ворот напрямую, если рейкаст не сработал
+                            let hitDoor: "front" | "back" | null = null;
+                            
+                            // Сначала пробуем рейкаст
                             const pick = this.scene.pickWithRay(ray, (mesh) => {
                                 if (!mesh || !mesh.isEnabled()) return false;
-                                // Проверяем, что это ворота гаража
+                                // Проверяем, что это ворота гаража (убираем проверку visibility, так как ворота могут быть полупрозрачными)
                                 return (mesh.name.includes("garageFrontDoor") || mesh.name.includes("garageBackDoor")) &&
-                                       mesh.isPickable && mesh.visibility > 0.5;
+                                       mesh.isPickable;
                             });
                             
-                            // Определяем, какая ворота попала в луч
-                            let hitDoor: "front" | "back" | null = null;
                             if (pick && pick.hit && pick.pickedMesh) {
                                 if (pick.pickedMesh.name.includes("garageFrontDoor")) {
                                     hitDoor = "front";
@@ -520,19 +561,39 @@ export class Game {
                                 }
                             }
                             
-                            // Если луч попал в ворота, переключаем только эту ворота
+                            // Если рейкаст не сработал, проверяем расстояние до ворот и направление пушки
+                            if (!hitDoor) {
+                                const garageDepth = doorData.garageDepth || 20;
+                                const frontDoorPos = new Vector3(doorData.position.x, 0, doorData.position.z + garageDepth / 2);
+                                const backDoorPos = new Vector3(doorData.position.x, 0, doorData.position.z - garageDepth / 2);
+                                
+                                // Проверяем, в какую сторону смотрит пушка относительно позиции ворот
+                                const toFrontDoor = frontDoorPos.subtract(barrelPos).normalize();
+                                const toBackDoor = backDoorPos.subtract(barrelPos).normalize();
+                                
+                                const frontDot = Vector3.Dot(barrelDir, toFrontDoor);
+                                const backDot = Vector3.Dot(barrelDir, toBackDoor);
+                                
+                                // Если пушка смотрит в направлении ворот (скалярное произведение > 0.5)
+                                if (frontDot > backDot && frontDot > 0.3) {
+                                    hitDoor = "front";
+                                } else if (backDot > frontDot && backDot > 0.3) {
+                                    hitDoor = "back";
+                                }
+                            }
+                            
+                            // Если определили ворота, переключаем их
                             if (hitDoor === "front") {
                                 doorData.frontDoorOpen = !doorData.frontDoorOpen;
                                 logger.debug(`Front garage door ${doorData.frontDoorOpen ? 'opening' : 'closing'} manually (G key)`);
-                                console.log(`[Game] G key: Toggling front door, new state: ${doorData.frontDoorOpen}`);
                             } else if (hitDoor === "back") {
                                 doorData.backDoorOpen = !doorData.backDoorOpen;
                                 logger.debug(`Back garage door ${doorData.backDoorOpen ? 'opening' : 'closing'} manually (G key)`);
-                                console.log(`[Game] G key: Toggling back door, new state: ${doorData.backDoorOpen}`);
                             } else {
-                                // Луч не попал в ворота - не делаем ничего
-                                logger.debug(`Raycast did not hit any garage door`);
-                                return;
+                                // Не удалось определить ворота - переключаем обе (fallback)
+                                logger.debug(`Could not determine which door, toggling both`);
+                                doorData.frontDoorOpen = !doorData.frontDoorOpen;
+                                doorData.backDoorOpen = !doorData.backDoorOpen;
                             }
                             
                             // Ворота остаются в выбранном состоянии (ручное управление постоянно активно)
@@ -670,7 +731,11 @@ export class Game {
         });
         
         // Периодическая проверка видимости меню (на случай если событие не сработало)
-        setInterval(() => {
+        // Очищаем предыдущий таймер если есть
+        if (this.canvasPointerEventsCheckInterval !== null) {
+            clearInterval(this.canvasPointerEventsCheckInterval);
+        }
+        this.canvasPointerEventsCheckInterval = window.setInterval(() => {
             this.updateCanvasPointerEvents();
         }, 100);
     }
@@ -830,50 +895,143 @@ export class Game {
                     width: 100%;
                     height: 100%;
                     background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #0a0a0a 100%);
+                    background-size: 200% 200%;
+                    animation: backgroundShift 10s ease infinite;
                     display: flex;
                     flex-direction: column;
                     justify-content: center;
                     align-items: center;
                     z-index: 999999;
                     font-family: 'Press Start 2P', monospace;
+                    overflow: hidden;
+                }
+                
+                @keyframes backgroundShift {
+                    0% { background-position: 0% 50%; }
+                    50% { background-position: 100% 50%; }
+                    100% { background-position: 0% 50%; }
+                }
+                
+                #loading-screen::before {
+                    content: '';
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: 
+                        radial-gradient(circle at 20% 50%, rgba(0, 255, 0, 0.05) 0%, transparent 50%),
+                        radial-gradient(circle at 80% 50%, rgba(0, 255, 0, 0.05) 0%, transparent 50%);
+                    animation: backgroundPulse 4s ease-in-out infinite;
+                    pointer-events: none;
+                }
+                
+                @keyframes backgroundPulse {
+                    0%, 100% { opacity: 0.3; }
+                    50% { opacity: 0.6; }
                 }
                 
                 .loading-logo {
                     font-size: 48px;
                     color: #0f0;
                     text-shadow: 0 0 20px rgba(0, 255, 0, 0.5),
-                                 0 0 40px rgba(0, 255, 0, 0.3);
+                                 0 0 40px rgba(0, 255, 0, 0.3),
+                                 0 0 60px rgba(0, 255, 0, 0.2);
                     margin-bottom: 60px;
                     letter-spacing: 4px;
+                    animation: logoGlow 2s ease-in-out infinite;
+                    position: relative;
+                }
+                
+                @keyframes logoGlow {
+                    0%, 100% { 
+                        text-shadow: 0 0 20px rgba(0, 255, 0, 0.5),
+                                     0 0 40px rgba(0, 255, 0, 0.3),
+                                     0 0 60px rgba(0, 255, 0, 0.2);
+                    }
+                    50% { 
+                        text-shadow: 0 0 30px rgba(0, 255, 0, 0.7),
+                                     0 0 60px rgba(0, 255, 0, 0.5),
+                                     0 0 90px rgba(0, 255, 0, 0.3);
+                    }
                 }
                 
                 .loading-logo .accent {
                     color: #fff;
-                    text-shadow: 0 0 20px rgba(255, 255, 255, 0.8);
+                    text-shadow: 0 0 20px rgba(255, 255, 255, 0.8),
+                                 0 0 40px rgba(255, 255, 255, 0.5);
+                    animation: accentPulse 1.5s ease-in-out infinite;
+                }
+                
+                @keyframes accentPulse {
+                    0%, 100% { 
+                        text-shadow: 0 0 20px rgba(255, 255, 255, 0.8),
+                                     0 0 40px rgba(255, 255, 255, 0.5);
+                    }
+                    50% { 
+                        text-shadow: 0 0 30px rgba(255, 255, 255, 1),
+                                     0 0 60px rgba(255, 255, 255, 0.7);
+                    }
                 }
                 
                 .loading-container {
                     width: 400px;
                     text-align: center;
+                    position: relative;
+                    z-index: 1;
                 }
                 
                 .loading-bar-bg {
                     width: 100%;
-                    height: 20px;
-                    background: rgba(0, 40, 0, 0.5);
+                    height: 24px;
+                    background: rgba(0, 20, 0, 0.6);
                     border: 2px solid #0a0;
-                    border-radius: 10px;
+                    border-radius: 12px;
                     overflow: hidden;
-                    box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
+                    box-shadow: 0 0 15px rgba(0, 255, 0, 0.3),
+                                inset 0 0 10px rgba(0, 100, 0, 0.5);
+                    position: relative;
+                }
+                
+                .loading-bar-bg::before {
+                    content: '';
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: linear-gradient(90deg,
+                        transparent 0%,
+                        rgba(0, 255, 0, 0.1) 50%,
+                        transparent 100%);
+                    animation: pulse 2s ease-in-out infinite;
                 }
                 
                 .loading-bar-fill {
                     height: 100%;
-                    background: linear-gradient(90deg, #0a0 0%, #0f0 50%, #0a0 100%);
+                    background: linear-gradient(90deg, 
+                        #0a0 0%, 
+                        #1f1 25%,
+                        #0f0 50%, 
+                        #1f1 75%,
+                        #0a0 100%);
+                    background-size: 200% 100%;
                     width: 0%;
-                    transition: width 0.3s ease-out;
-                    box-shadow: 0 0 15px rgba(0, 255, 0, 0.5);
+                    box-shadow: 0 0 20px rgba(0, 255, 0, 0.6),
+                                inset 0 0 10px rgba(255, 255, 255, 0.2);
                     position: relative;
+                    animation: gradientShift 2s linear infinite;
+                    transition: width 0.1s linear;
+                }
+                
+                @keyframes gradientShift {
+                    0% { background-position: 0% 50%; }
+                    100% { background-position: 200% 50%; }
+                }
+                
+                @keyframes pulse {
+                    0%, 100% { opacity: 0.3; }
+                    50% { opacity: 0.6; }
                 }
                 
                 .loading-bar-fill::after {
@@ -885,14 +1043,33 @@ export class Game {
                     bottom: 0;
                     background: linear-gradient(90deg, 
                         transparent 0%, 
-                        rgba(255, 255, 255, 0.3) 50%, 
+                        rgba(255, 255, 255, 0.4) 30%,
+                        rgba(255, 255, 255, 0.6) 50%,
+                        rgba(255, 255, 255, 0.4) 70%,
                         transparent 100%);
-                    animation: shimmer 1.5s infinite;
+                    animation: shimmer 1.2s infinite;
                 }
                 
                 @keyframes shimmer {
-                    0% { transform: translateX(-100%); }
-                    100% { transform: translateX(100%); }
+                    0% { transform: translateX(-150%); }
+                    100% { transform: translateX(150%); }
+                }
+                
+                .loading-bar-fill::before {
+                    content: '';
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 4px;
+                    height: 100%;
+                    background: rgba(255, 255, 255, 0.8);
+                    box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+                    animation: scan 1.5s ease-in-out infinite;
+                }
+                
+                @keyframes scan {
+                    0% { left: -4px; }
+                    100% { left: 100%; }
                 }
                 
                 .loading-text {
@@ -900,13 +1077,35 @@ export class Game {
                     font-size: 12px;
                     margin-top: 20px;
                     text-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+                    min-height: 20px;
+                    animation: textFade 0.5s ease-in;
+                }
+                
+                @keyframes textFade {
+                    0% { opacity: 0; transform: translateY(5px); }
+                    100% { opacity: 1; transform: translateY(0); }
                 }
                 
                 .loading-percent {
-                    color: #fff;
-                    font-size: 24px;
+                    color: #0f0;
+                    font-size: 28px;
                     margin-top: 15px;
-                    text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+                    text-shadow: 0 0 15px rgba(0, 255, 0, 0.6),
+                                 0 0 30px rgba(0, 255, 0, 0.3);
+                    font-weight: bold;
+                    letter-spacing: 2px;
+                    animation: percentGlow 1.5s ease-in-out infinite;
+                }
+                
+                @keyframes percentGlow {
+                    0%, 100% { 
+                        text-shadow: 0 0 15px rgba(0, 255, 0, 0.6),
+                                     0 0 30px rgba(0, 255, 0, 0.3);
+                    }
+                    50% { 
+                        text-shadow: 0 0 25px rgba(0, 255, 0, 0.8),
+                                     0 0 50px rgba(0, 255, 0, 0.5);
+                    }
                 }
                 
                 .loading-tip {
@@ -918,14 +1117,22 @@ export class Game {
                 }
                 
                 .loading-tank {
-                    font-size: 40px;
+                    font-size: 50px;
                     margin-bottom: 20px;
-                    animation: tankBounce 1s ease-in-out infinite;
+                    animation: tankBounce 1.2s ease-in-out infinite,
+                                tankRotate 3s linear infinite;
+                    filter: drop-shadow(0 0 10px rgba(0, 255, 0, 0.5));
                 }
                 
                 @keyframes tankBounce {
-                    0%, 100% { transform: translateY(0); }
-                    50% { transform: translateY(-10px); }
+                    0%, 100% { transform: translateY(0) rotate(0deg); }
+                    50% { transform: translateY(-15px) rotate(5deg); }
+                }
+                
+                @keyframes tankRotate {
+                    0% { filter: drop-shadow(0 0 10px rgba(0, 255, 0, 0.5)) hue-rotate(0deg); }
+                    50% { filter: drop-shadow(0 0 15px rgba(0, 255, 0, 0.7)) hue-rotate(10deg); }
+                    100% { filter: drop-shadow(0 0 10px rgba(0, 255, 0, 0.5)) hue-rotate(0deg); }
                 }
             </style>
             <div class="loading-logo">PROTOCOL <span class="accent">TX</span></div>
@@ -967,21 +1174,51 @@ export class Game {
     }
     
     private updateLoadingProgress(progress: number, stage: string): void {
-        this.loadingProgress = Math.min(100, Math.max(0, progress));
-            this._loadingStage = stage;
+        this.targetLoadingProgress = Math.min(100, Math.max(0, progress));
+        this._loadingStage = stage;
         
-        const barFill = document.getElementById("loading-bar-fill");
-        const percentText = document.getElementById("loading-percent");
+        // Запускаем плавную анимацию прогресса, если она еще не запущена
+        if (this.loadingAnimationFrame === null) {
+            this.animateLoadingProgress();
+        }
+        
+        // Обновляем текст этапа сразу
         const stageText = document.getElementById("loading-text");
-        
-        if (barFill) {
-            barFill.style.width = `${this.loadingProgress}%`;
-        }
-        if (percentText) {
-            percentText.textContent = `${Math.round(this.loadingProgress)}%`;
-        }
         if (stageText) {
             stageText.textContent = stage;
+        }
+    }
+    
+    private animateLoadingProgress(): void {
+        const barFill = document.getElementById("loading-bar-fill");
+        const percentText = document.getElementById("loading-percent");
+        
+        if (!barFill || !percentText) {
+            this.loadingAnimationFrame = null;
+            return;
+        }
+        
+        // Плавная интерполяция к целевому прогрессу
+        const diff = this.targetLoadingProgress - this.loadingProgress;
+        if (Math.abs(diff) > 0.1) {
+            // Скорость интерполяции зависит от расстояния (быстрее для больших скачков)
+            const speed = Math.min(0.15, Math.abs(diff) * 0.02 + 0.05);
+            this.loadingProgress += diff * speed;
+            
+            // Обновляем визуальные элементы
+            const roundedProgress = Math.round(this.loadingProgress);
+            barFill.style.width = `${this.loadingProgress}%`;
+            percentText.textContent = `${roundedProgress}%`;
+            
+            // Продолжаем анимацию
+            this.loadingAnimationFrame = requestAnimationFrame(() => this.animateLoadingProgress());
+        } else {
+            // Достигли целевого значения
+            this.loadingProgress = this.targetLoadingProgress;
+            const roundedProgress = Math.round(this.loadingProgress);
+            barFill.style.width = `${this.loadingProgress}%`;
+            percentText.textContent = `${roundedProgress}%`;
+            this.loadingAnimationFrame = null;
         }
     }
     
@@ -1000,7 +1237,7 @@ export class Game {
     
     // Called when an achievement is unlocked
     private onAchievementUnlocked(achievement: Achievement): void {
-        console.log(`[Game] Achievement unlocked: ${achievement.name}`);
+        logger.log(`[Game] Achievement unlocked: ${achievement.name}`);
         
         // Show notification
         if (this.hud) {
@@ -1019,14 +1256,14 @@ export class Game {
             if (reward) {
                 if (reward.type === "experience" && reward.amount) {
                     this.playerProgression.addExperience(reward.amount, "achievement");
-                    console.log(`[Game] Awarded ${reward.amount} XP for achievement`);
+                    logger.debug(`[Game] Awarded ${reward.amount} XP for achievement`);
                 }
             }
         }
     }
     
     private onMissionComplete(mission: Mission): void {
-        console.log(`[Game] Mission completed: ${mission.name}`);
+        logger.log(`[Game] Mission completed: ${mission.name}`);
         
         // Show notification
         if (this.hud) {
@@ -1045,10 +1282,10 @@ export class Game {
             if (reward) {
                 if (reward.type === "experience" && this.playerProgression) {
                     this.playerProgression.addExperience(reward.amount, "mission");
-                    console.log(`[Game] Awarded ${reward.amount} XP for mission`);
+                    logger.debug(`[Game] Awarded ${reward.amount} XP for mission`);
                 } else if (reward.type === "credits" && this.currencyManager) {
                     this.currencyManager.addCurrency(reward.amount);
-                    console.log(`[Game] Awarded ${reward.amount} credits for mission`);
+                    logger.log(`[Game] Awarded ${reward.amount} credits for mission`);
                 }
             }
         }
@@ -1122,9 +1359,9 @@ export class Game {
             this.scene.activeCamera = this.camera;
             this.camera.setEnabled(true);
             // Контролы камеры уже настроены через setupCameraInput() в init()
-            console.log("[Game] Camera controls already set up");
-            console.log("[Game] Camera position:", this.camera.position);
-            console.log("[Game] Camera target:", this.camera.getTarget());
+            logger.log("[Game] Camera controls already set up");
+            logger.log("[Game] Camera position:", this.camera.position);
+            logger.log("[Game] Camera target:", this.camera.getTarget());
             
             // Убеждаемся, что камера видна
             if (this.tank && this.tank.chassis) {
@@ -1147,28 +1384,28 @@ export class Game {
         
         // Убеждаемся, что сцена готова к рендерингу
         if (this.scene) {
-            console.log("[Game] Scene ready, meshes count:", this.scene.meshes.length);
-            console.log("[Game] Scene active camera:", this.scene.activeCamera?.name);
+            logger.log("[Game] Scene ready, meshes count:", this.scene.meshes.length);
+            logger.log("[Game] Scene active camera:", this.scene.activeCamera?.name);
         }
         
         // Проверяем, что меню скрыто
         const menu = document.getElementById("main-menu");
         if (menu) {
-            console.log("[Game] Menu element found, hidden:", menu.classList.contains("hidden"));
+            logger.log("[Game] Menu element found, hidden:", menu.classList.contains("hidden"));
             if (!menu.classList.contains("hidden")) {
                 menu.classList.add("hidden");
                 menu.style.display = "none"; // Принудительно скрываем
-                console.log("[Game] Menu hidden manually");
+                logger.log("[Game] Menu hidden manually");
             }
         }
         
         // Проверяем, что панель выбора карт скрыта
         const mapSelectionPanel = document.getElementById("map-selection-panel");
         if (mapSelectionPanel) {
-            console.log("[Game] Map selection panel found, visible:", mapSelectionPanel.classList.contains("visible"));
+            logger.log("[Game] Map selection panel found, visible:", mapSelectionPanel.classList.contains("visible"));
             mapSelectionPanel.classList.remove("visible");
             mapSelectionPanel.style.display = "none"; // Принудительно скрываем
-            console.log("[Game] Map selection panel hidden manually");
+            logger.log("[Game] Map selection panel hidden manually");
         }
         
         // Убеждаемся, что все панели скрыты
@@ -1187,6 +1424,16 @@ export class Game {
         // Apply FPS visibility setting
         if (this.hud) {
             this.hud.setShowFPS(this.settings.showFPS);
+            
+            // ДИАГНОСТИКА: Проверяем состояние GUI при старте игры
+            logger.log("[Game] HUD state at game start - checking visibility...");
+            // Убеждаемся, что renderTargetsEnabled включен (критично для GUI)
+            if (this.scene && !this.scene.renderTargetsEnabled) {
+                logger.error("[Game] CRITICAL: renderTargetsEnabled is FALSE at game start! Fixing...");
+                this.scene.renderTargetsEnabled = true;
+            }
+        } else {
+            logger.error("[Game] CRITICAL: HUD is null at game start!");
         }
         
         if (this.debugDashboard) {
@@ -1206,7 +1453,7 @@ export class Game {
             // Запускаем звук мотора сразу, чтобы он работал даже на холостом ходу
             setTimeout(() => {
                 if (this.soundManager) {
-                    console.log("[Game] Starting engine sound immediately...");
+                    logger.log("[Game] Starting engine sound immediately...");
             this.soundManager.startEngine();
                     // Сразу обновляем звук на холостом ходу для гарантии слышимости
                     if (this.tank && this.tank.chassis) {
@@ -1217,7 +1464,19 @@ export class Game {
             }, 100); // Engine starts after 0.1 seconds (почти сразу)
         }
         
-        console.log("[Game] Started! gameStarted:", this.gameStarted, "gamePaused:", this.gamePaused);
+        // Автоматически захватываем мышь при старте игры
+        // чтобы пользователю не нужно было делать дополнительный клик
+        if (this.canvas) {
+            // Небольшая задержка чтобы UI успел обновиться
+            setTimeout(() => {
+                if (this.canvas && this.gameStarted && !this.gamePaused) {
+                    this.canvas.requestPointerLock();
+                    logger.log("[Game] Pointer lock requested automatically");
+                }
+            }, 100);
+        }
+        
+        logger.log("[Game] Started! gameStarted:", this.gameStarted, "gamePaused:", this.gamePaused);
     }
     
     togglePause(): void {
@@ -1230,7 +1489,7 @@ export class Game {
             if (this.hud && this.hud.isFullMapVisible()) {
                 this.hud.toggleFullMap();
             }
-            this.mainMenu.show();
+            this.mainMenu.show(true); // Передаем true чтобы показать кнопки паузы
         } else {
             this.mainMenu.hide();
         }
@@ -1238,7 +1497,80 @@ export class Game {
         // Обновляем pointer-events для canvas в зависимости от видимости меню
         this.updateCanvasPointerEvents();
         
-        console.log(`[Game] ${this.gamePaused ? "Paused" : "Resumed"}`);
+        logger.log(`[Game] ${this.gamePaused ? "Paused" : "Resumed"}`);
+    }
+    
+    restartGame(): void {
+        logger.log("[Game] Restarting game on same map...");
+        // Сохраняем текущую карту для автозапуска после перезагрузки
+        localStorage.setItem("autoStartMap", this.currentMapType);
+        // Перезагружаем страницу
+        window.location.reload();
+    }
+    
+    exitBattle(): void {
+        logger.log("[Game] Exiting battle...");
+        // Полная перезагрузка страницы для чистого состояния
+        // Не сохраняем карту - просто возвращаемся в меню
+        localStorage.removeItem("autoStartMap");
+        window.location.reload();
+    }
+    
+    stopGame(): void {
+        logger.log("[Game] Stopping game...");
+        this.gameStarted = false;
+        this.gamePaused = false;
+        
+        // Останавливаем звуки
+        if (this.soundManager) {
+            this.soundManager.stopEngine();
+        }
+        
+        // Очищаем врагов
+        if (this.enemyTanks) {
+            this.enemyTanks.forEach(enemy => {
+                if (enemy.chassis) enemy.chassis.dispose();
+            });
+            this.enemyTanks = [];
+        }
+        
+        // Очищаем танк игрока
+        if (this.tank) {
+            if (this.tank.chassis) this.tank.chassis.dispose();
+            this.tank = undefined;
+        }
+        
+        // Обновляем ссылки в меню читов
+        if (this.cheatMenu) {
+            this.cheatMenu.setTank(null);
+        }
+        
+        // Очищаем эффекты
+        if (this.effectsManager) {
+            this.effectsManager.clearAll();
+        }
+        
+        // Очищаем чат систему
+        if (this.chatSystem && (this.chatSystem as any).dispose) {
+            (this.chatSystem as any).dispose();
+        }
+        
+        // Очищаем HUD
+        if (this.hud) {
+            this.hud.hide();
+        }
+        
+        // Останавливаем таймер проверки видимости меню
+        if (this.canvasPointerEventsCheckInterval !== null) {
+            clearInterval(this.canvasPointerEventsCheckInterval);
+            this.canvasPointerEventsCheckInterval = null;
+        }
+        
+        // Останавливаем таймер волн фронтлайна
+        if (this.frontlineWaveTimer !== null) {
+            clearInterval(this.frontlineWaveTimer);
+            this.frontlineWaveTimer = null;
+        }
     }
 
     async init() {
@@ -1246,13 +1578,13 @@ export class Game {
         try {
             const firebaseInitialized = await firebaseService.initialize();
             if (firebaseInitialized) {
-                console.log("[Game] Firebase initialized successfully");
+                logger.log("[Game] Firebase initialized successfully");
                 
                 // Initialize social system (friends & clans)
                 await socialSystem.initialize();
-                console.log("[Game] Social system initialized");
+                logger.log("[Game] Social system initialized");
             } else {
-                console.warn("[Game] Firebase initialization failed, continuing without cloud features");
+                logger.warn("[Game] Firebase initialization failed, continuing without cloud features");
             }
         } catch (error) {
             // УЛУЧШЕНО: Улучшенная обработка ошибок Firebase
@@ -1262,7 +1594,7 @@ export class Game {
             }
         }
         try {
-            console.log(`[Game] init() called with mapType: ${this.currentMapType}`);
+            logger.log(`[Game] init() called with mapType: ${this.currentMapType}`);
             
             // Показываем загрузочный экран
             this.createLoadingScreen();
@@ -1308,7 +1640,8 @@ export class Game {
             this.scene.texturesEnabled = true;
             this.scene.lensFlaresEnabled = false;
             this.scene.proceduralTexturesEnabled = false;
-            this.scene.renderTargetsEnabled = false;
+            // ВАЖНО: renderTargetsEnabled должен быть TRUE для работы GUI (AdvancedDynamicTexture)
+            this.scene.renderTargetsEnabled = true;
             this.scene.collisionsEnabled = false; // We use physics instead
             
             // Apply all settings
@@ -1369,22 +1702,22 @@ export class Game {
             light.specular = Color3.Black(); // No specular reflections!
             light.diffuse = new Color3(0.9, 0.9, 0.85); // Slightly warm
             light.groundColor = new Color3(0.25, 0.25, 0.28); // Ambient from below
-            console.log("Light created (balanced, no specular)");
+            logger.log("Light created (balanced, no specular)");
 
             // Physics
             this.updateLoadingProgress(15, "Загрузка физического движка...");
-            console.log("Loading Havok WASM...");
+            logger.log("Loading Havok WASM...");
             const havokInstance = await HavokPhysics({ 
                 locateFile: (file: string) => {
                     // В dev режиме файл из public/, в production из dist/
                     return file === "HavokPhysics.wasm" ? "/HavokPhysics.wasm" : file;
                 }
             });
-            console.log("Havok WASM loaded");
+            logger.log("Havok WASM loaded");
             this.updateLoadingProgress(30, "Инициализация физики...");
             const havokPlugin = new HavokPlugin(true, havokInstance);
             this.scene.enablePhysics(new Vector3(0, -9.81, 0), havokPlugin);
-            console.log("Physics enabled");
+            logger.log("Physics enabled");
             
             // КРИТИЧЕСКИ ВАЖНО: Обновляем камеру ПОСЛЕ обновления физики для предотвращения эффекта "нескольких танков"
             // Это гарантирует, что камера всегда читает актуальную позицию меша после синхронизации с физическим телом
@@ -1400,30 +1733,24 @@ export class Game {
                     }
                 }
             });
-            console.log("[Game] Camera update subscribed to onAfterPhysicsObservable");
+            logger.log("[Game] Camera update subscribed to onAfterPhysicsObservable");
 
-            // Ground - infinite looking but actually bounded
-            const ground = MeshBuilder.CreateBox("ground", { width: 1000, height: 10, depth: 1000 }, this.scene);
-            ground.position.y = -5;
-            
-            const groundMat = new StandardMaterial("groundMat", this.scene);
-            groundMat.diffuseColor = new Color3(0.3, 0.3, 0.3); // Сделаем землю светлее, чтобы была видна
-            groundMat.specularColor = Color3.Black();
-            groundMat.freeze(); // Optimize
-            ground.material = groundMat;
-            ground.freezeWorldMatrix();
-            ground.isVisible = true; // Убеждаемся, что земля видима
-            console.log("[Game] Ground created and visible");
-            
-            const groundAgg = new PhysicsAggregate(ground, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
-            if (groundAgg.shape) {
-                groundAgg.shape.filterMembershipMask = 2;
-                groundAgg.shape.filterCollideMask = 0xFFFFFFFF;
-            }
+            // Ground создается в ChunkSystem для каждого чанка
+            // НЕ создаем основной ground здесь, чтобы избежать дублирования и z-fighting
+            // ChunkSystem создаст ground для каждого чанка с правильными позициями
+            logger.log("[Game] Ground will be created by ChunkSystem per chunk");
 
             // Create Tank (spawn close to ground - hover height is ~1.0)
             this.updateLoadingProgress(40, "Создание танка...");
             this.tank = new TankController(this.scene, new Vector3(0, 1.2, 0));
+            
+            // Обновляем ссылки в панелях
+            if (this.physicsPanel) {
+                this.physicsPanel.setTank(this.tank);
+            }
+            if (this.cheatMenu) {
+                this.cheatMenu.setTank(this.tank);
+            }
             
             // Устанавливаем callback для респавна в гараже
             this.tank.setRespawnPositionCallback(() => this.getPlayerGaragePosition());
@@ -1447,7 +1774,7 @@ export class Game {
             // Устанавливаем камеру как активную СРАЗУ
             this.scene.activeCamera = this.camera;
             // Контролы уже настроены через setupCameraInput(), не нужно вызывать attachControls
-            console.log("[Game] Camera created and set as active");
+            logger.log("[Game] Camera created and set as active");
             
             // Create HUD (может вызвать ошибку, но камера уже создана)
             // ВАЖНО: GUI texture требует, чтобы renderTargetsEnabled был включен
@@ -1456,24 +1783,33 @@ export class Game {
             this.scene.renderTargetsEnabled = true; // Временно включаем для создания GUI
             this.updateLoadingProgress(50, "Создание интерфейса...");
             try {
+                logger.log("[Game] Creating HUD... Scene renderTargetsEnabled:", this.scene.renderTargetsEnabled);
+                logger.log("[Game] Active camera before HUD:", this.scene.activeCamera?.name);
                 this.hud = new HUD(this.scene);
                 
-                // Проверяем работоспособность GUI texture после создания
+                // HUD создан успешно
                 if (this.hud) {
-                    const isOk = this.hud.verifyAndRecreateGuiTexture();
-                    if (!isOk) {
-                        console.warn("[Game] GUI texture had issues but was recreated");
+                    logger.log("[Game] HUD created successfully");
+                    
+                    // ДИАГНОСТИКА: Проверяем что renderTargetsEnabled остается включенным
+                    if (!this.scene.renderTargetsEnabled) {
+                        logger.error("[Game] CRITICAL: renderTargetsEnabled became false after HUD creation!");
+                        this.scene.renderTargetsEnabled = true;
                     }
+                    
+                    // ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ GUI
+                    this.hud.forceUpdate?.();
                 }
                 
                 this.tank.setHUD(this.hud);
-                console.log("[Game] HUD created successfully");
+                logger.log("[Game] HUD created successfully");
+                logger.log("[Game] Active camera after HUD:", this.scene.activeCamera?.name);
                 // GUI texture создан, можно вернуть настройку (GUI все равно будет работать)
                 // this.scene.renderTargetsEnabled = originalRenderTargetsEnabled;
                 // Оставляем включенным, так как GUI нужен render target
             } catch (e) {
                 logger.error("HUD creation error:", e);
-                console.error("[Game] HUD creation failed:", e);
+                logger.error("[Game] HUD creation failed:", e);
                 // Восстанавливаем настройку при ошибке
                 this.scene.renderTargetsEnabled = originalRenderTargetsEnabled;
                 // Продолжаем без HUD
@@ -1515,7 +1851,7 @@ export class Game {
             // Connect garage to main menu immediately
             if (this.mainMenu) {
                 this.mainMenu.setGarage(this.garage);
-                console.log("[Game] Garage created and connected to menu");
+                logger.log("[Game] Garage created and connected to menu");
             }
             
             // Create Consumables Manager
@@ -1553,7 +1889,7 @@ export class Game {
             this.playerStats = new PlayerStatsSystem();
             this.playerStats.setOnStatsUpdate((stats) => {
                 // Could update UI here
-                console.log("[Stats] Updated:", stats);
+                logger.log("[Stats] Updated:", stats);
             });
             
             // Track session start
@@ -1579,21 +1915,21 @@ export class Game {
             
             // Subscribe to experience changes for Stats Overlay updates
             if (this.playerProgression && this.playerProgression.onExperienceChanged) {
-                console.log("[Game] Subscribing to experience changes for Stats Overlay");
+                logger.log("[Game] Subscribing to experience changes for Stats Overlay");
                 this._experienceSubscription = this.playerProgression.onExperienceChanged.add((data: {
                     current: number;
                     required: number;
                     percent: number;
                     level: number;
                 }) => {
-                    console.log("[Game] Experience changed event received for Stats Overlay:", data);
+                    logger.log("[Game] Experience changed event received for Stats Overlay:", data);
                     // Обновляем Stats Overlay, если он открыт
                     if (this.statsOverlayVisible && this.statsOverlay) {
                         this.updateStatsOverlay();
                     }
                 });
             } else {
-                console.warn("[Game] Cannot subscribe to experience changes - playerProgression or onExperienceChanged is null");
+                logger.warn("[Game] Cannot subscribe to experience changes - playerProgression or onExperienceChanged is null");
             }
             
             // Connect to HUD
@@ -1648,9 +1984,9 @@ export class Game {
                 if (this.playerProgression) {
                     this.garage.setPlayerProgression(this.playerProgression);
                 }
-                console.log("[Game] Garage systems connected");
+                logger.log("[Game] Garage systems connected");
             } else {
-                console.warn("[Game] Garage not found! Creating it now...");
+                logger.warn("[Game] Garage not found! Creating it now...");
                 this.garage = new Garage(this.scene, this.currencyManager);
                 if (this.mainMenu) {
                     this.mainMenu.setGarage(this.garage);
@@ -1701,10 +2037,10 @@ export class Game {
             
             // Connect kill counter and currency
             this.enemyManager.setOnTurretDestroyed(() => {
-                console.log("[GAME] Turret destroyed! Adding kill...");
+                logger.log("[GAME] Turret destroyed! Adding kill...");
                 if (this.hud) {
                     this.hud.addKill();
-                    console.log("[GAME] Kill added to HUD (turret)");
+                    logger.log("[GAME] Kill added to HUD (turret)");
                 }
                 // Начисляем валюту за уничтожение турели
                 if (this.currencyManager) {
@@ -1776,13 +2112,20 @@ export class Game {
             // === DEBUG DASHBOARD ===
             this.debugDashboard = new DebugDashboard(this.engine, this.scene);
             this.debugDashboard.setChunkSystem(this.chunkSystem);
-            console.log("Debug dashboard created (F3 to toggle)");
+            logger.log("Debug dashboard created (F3 to toggle)");
             
             // === PHYSICS PANEL ===
             this.physicsPanel = new PhysicsPanel();
             if (this.tank) {
                 this.physicsPanel.setTank(this.tank);
             }
+            
+            // Initialize cheat menu
+            this.cheatMenu = new CheatMenu();
+            if (this.tank) {
+                this.cheatMenu.setTank(this.tank);
+            }
+            this.cheatMenu.setGame(this);
             // Physics panel created (F4 to toggle)
             
             // === MULTIPLAYER ===
@@ -1825,7 +2168,7 @@ export class Game {
     spawnEnemyTanks() {
         // Не спавним врагов в режиме песочницы
         if (this.currentMapType === "sandbox") {
-            console.log("[Game] Sandbox mode: Enemy tanks disabled");
+            logger.log("[Game] Sandbox mode: Enemy tanks disabled");
             return;
         }
         
@@ -1862,7 +2205,7 @@ export class Game {
                 
                 pos = new Vector3(
                     Math.cos(angle) * distance,
-                    1.2,  // Spawn close to ground
+                    0.6,  // Spawn close to ground for stability
                     Math.sin(angle) * distance
                 );
                 
@@ -1892,10 +2235,10 @@ export class Game {
             
             // On death
             enemyTank.onDeathObservable.add(() => {
-                console.log("[GAME] Enemy tank destroyed! Adding kill...");
+                logger.log("[GAME] Enemy tank destroyed! Adding kill...");
                 if (this.hud) {
                     this.hud.addKill();
-                    console.log("[GAME] Kill added to HUD");
+                    logger.log("[GAME] Kill added to HUD");
                 }
                 // Track achievements
                 if (this.achievementsSystem) {
@@ -1965,14 +2308,14 @@ export class Game {
             this.enemyTanks.push(enemyTank);
         });
         
-        console.log(`Spawned ${this.enemyTanks.length} enemy tanks`);
+        logger.log(`Spawned ${this.enemyTanks.length} enemy tanks`);
     }
     
     // Спавн тренировочных ботов для режима полигона
     spawnPolygonTrainingBots() {
         if (!this.soundManager || !this.effectsManager) return;
         
-        console.log("[Game] Polygon mode: Spawning training bots in combat zone");
+        logger.log("[Game] Polygon mode: Spawning training bots in combat zone");
         
         // Зона боя - юго-восточный квадрант (x > 20, z < -20)
         // Арена 200x200, центр в (0,0)
@@ -2022,7 +2365,7 @@ export class Game {
             
             // При уничтожении - быстрый респавн для тренировки
             enemyTank.onDeathObservable.add(() => {
-                console.log("[GAME] Training bot destroyed!");
+                logger.log("[GAME] Training bot destroyed!");
                 if (this.hud) {
                     this.hud.addKill();
                 }
@@ -2077,7 +2420,7 @@ export class Game {
                             newBot.setTarget(this.tank);
                         }
                         this.enemyTanks.push(newBot);
-                        console.log("[GAME] Training bot respawned");
+                        logger.log("[GAME] Training bot respawned");
                     }
                 }, 30000); // 30 секунд
             });
@@ -2085,14 +2428,14 @@ export class Game {
             this.enemyTanks.push(enemyTank);
         });
         
-        console.log(`[Game] Polygon: Spawned ${this.enemyTanks.length} training bots`);
+        logger.log(`[Game] Polygon: Spawned ${this.enemyTanks.length} training bots`);
     }
     
     // Система волн врагов для карты "Передовая"
     spawnFrontlineEnemies() {
         if (!this.soundManager || !this.effectsManager) return;
         
-        console.log("[Game] Frontline mode: Initializing wave system");
+        logger.log("[Game] Frontline mode: Initializing wave system");
         
         // Сбрасываем счётчик волн
         this.frontlineWaveNumber = 0;
@@ -2117,10 +2460,10 @@ export class Game {
         
         // Позиции защитников на восточной стороне (x > 100)
         const defenderPositions = [
-            new Vector3(180, 1.2, 50),
-            new Vector3(200, 1.2, -30),
-            new Vector3(220, 1.2, 80),
-            new Vector3(160, 1.2, -100),
+            new Vector3(180, 0.6, 50),
+            new Vector3(200, 0.6, -30),
+            new Vector3(220, 0.6, 80),
+            new Vector3(160, 0.6, -100),
         ];
         
         defenderPositions.forEach((pos) => {
@@ -2138,7 +2481,7 @@ export class Game {
             this.enemyTanks.push(defender);
         });
         
-        console.log(`[Game] Frontline: Spawned ${defenderPositions.length} defenders`);
+        logger.log(`[Game] Frontline: Spawned ${defenderPositions.length} defenders`);
     }
     
     // Спавн волны атакующих врагов
@@ -2155,7 +2498,7 @@ export class Game {
         
         // Проверяем максимум врагов
         if (this.enemyTanks.length >= this.frontlineMaxEnemies) {
-            console.log("[Game] Frontline: Max enemies reached, skipping wave");
+            logger.log("[Game] Frontline: Max enemies reached, skipping wave");
             return;
         }
         
@@ -2173,14 +2516,14 @@ export class Game {
             this.hud.showMessage(`⚔️ ВОЛНА ${this.frontlineWaveNumber}: ${waveCount} врагов!`, "#ff4444", 3000);
         }
         
-        console.log(`[Game] Frontline: Spawning wave ${this.frontlineWaveNumber} with ${waveCount} attackers`);
+        logger.log(`[Game] Frontline: Spawning wave ${this.frontlineWaveNumber} with ${waveCount} attackers`);
         
         // Атакующие спавнятся на восточной границе и идут к игроку
         const spawnX = 250 + Math.random() * 40; // Восточный край
         
         for (let i = 0; i < waveCount; i++) {
             const spawnZ = -200 + Math.random() * 400; // По всей ширине
-            const pos = new Vector3(spawnX, 1.2, spawnZ);
+            const pos = new Vector3(spawnX, 0.6, spawnZ);
             
             // Сложность растёт с волнами
             let difficulty: "easy" | "medium" | "hard" = "easy";
@@ -2202,7 +2545,7 @@ export class Game {
     
     // Обработка смерти врага на передовой
     private handleFrontlineEnemyDeath(enemy: EnemyTank, _originalPos: Vector3, type: "defender" | "attacker") {
-        console.log(`[GAME] Frontline ${type} destroyed!`);
+        logger.log(`[GAME] Frontline ${type} destroyed!`);
         
         if (this.hud) {
             this.hud.addKill();
@@ -2254,7 +2597,7 @@ export class Game {
                     // Респавн в той же зоне
                     const newX = 150 + Math.random() * 100;
                     const newZ = -150 + Math.random() * 300;
-                    const newPos = new Vector3(newX, 1.2, newZ);
+                    const newPos = new Vector3(newX, 0.6, newZ);
                     
                     const difficulty = this.mainMenu?.getSettings().enemyDifficulty || "medium";
                     const newDefender = new EnemyTank(this.scene, newPos, this.soundManager!, this.effectsManager!, difficulty);
@@ -2267,7 +2610,7 @@ export class Game {
                     });
                     
                     this.enemyTanks.push(newDefender);
-                    console.log("[Game] Frontline: Defender respawned");
+                    logger.log("[Game] Frontline: Defender respawned");
                 }
             }, 60000); // 60 секунд
         }
@@ -2293,7 +2636,7 @@ export class Game {
             attempts++;
             
             if (!this.chunkSystem) {
-                console.error("[Game] ChunkSystem became undefined!");
+                logger.error("[Game] ChunkSystem became undefined!");
                 this.spawnEnemyTanks();
                 if (this.tank) {
                     this.tank.setEnemyTanks(this.enemyTanks);
@@ -2303,7 +2646,7 @@ export class Game {
             
             // Если гаражи есть (хотя бы 1), спавним игрока в гараже
             if (this.chunkSystem.garagePositions.length >= 1) {
-                console.log(`[Game] Found ${this.chunkSystem.garagePositions.length} garages, spawning player...`);
+                logger.log(`[Game] Found ${this.chunkSystem.garagePositions.length} garages, spawning player...`);
                 // Спавним игрока в гараже (ВСЕГДА в гараже!)
                 this.spawnPlayerInGarage();
                 
@@ -2322,7 +2665,7 @@ export class Game {
                         ? this.tank.chassis.rotationQuaternion.toEulerAngles().y 
                         : this.tank.chassis.rotation.y;
                     
-                    console.log("[Game] Camera updated after spawn:", {
+                    logger.log("[Game] Camera updated after spawn:", {
                         target: this.camera.getTarget(),
                         position: this.camera.position,
                         radius: this.camera.radius,
@@ -2332,14 +2675,14 @@ export class Game {
                 }
                 
                 // Спавним врагов через 5 секунд
-                console.log("[Game] Delaying enemy spawn by 5 seconds...");
+                logger.log("[Game] Delaying enemy spawn by 5 seconds...");
                 setTimeout(() => {
                     if (!this.playerGaragePosition) {
-                        console.error("[Game] Player garage not set!");
+                        logger.error("[Game] Player garage not set!");
                         return;
                     }
                     if (this.chunkSystem && this.chunkSystem.garagePositions.length >= 2) {
-                        console.log("[Game] Spawning enemies...");
+                        logger.log("[Game] Spawning enemies...");
                     this.spawnEnemiesInGarages();
                         if (this.tank) {
                             this.tank.setEnemyTanks(this.enemyTanks);
@@ -2351,17 +2694,17 @@ export class Game {
                 if (this.tank) {
                     this.tank.setEnemyTanks(this.enemyTanks);
                 }
-                console.log(`[Game] Player spawned in garage at ${this.playerGaragePosition?.x.toFixed(1)}, ${this.playerGaragePosition?.z.toFixed(1)} (total garages: ${this.chunkSystem.garagePositions.length})`);
-                console.log(`[Game] Enemy tanks spawned: ${this.enemyTanks.length}`);
-                console.log(`[Game] Total scene meshes: ${this.scene.meshes.length}`);
+                logger.log(`[Game] Player spawned in garage at ${this.playerGaragePosition?.x.toFixed(1)}, ${this.playerGaragePosition?.z.toFixed(1)} (total garages: ${this.chunkSystem.garagePositions.length})`);
+                logger.log(`[Game] Enemy tanks spawned: ${this.enemyTanks.length}`);
+                logger.log(`[Game] Total scene meshes: ${this.scene.meshes.length}`);
             } else if (attempts >= maxAttempts) {
                 // Таймаут - спавним игрока
-                console.warn("[Game] Garage generation timeout");
+                logger.warn("[Game] Garage generation timeout");
                 this.spawnPlayerInGarage();
                 
                 // Враги спавнятся ТОЛЬКО в других гаражах с БОЛЬШОЙ задержкой
                 if (this.chunkSystem && this.chunkSystem.garagePositions.length >= 2 && this.playerGaragePosition) {
-                    console.log("[Game] (Timeout) Delaying enemy spawn by 5 seconds...");
+                    logger.log("[Game] (Timeout) Delaying enemy spawn by 5 seconds...");
                     setTimeout(() => {
                         if (this.playerGaragePosition) {
                             this.spawnEnemiesInGarages();
@@ -2369,11 +2712,11 @@ export class Game {
                     this.tank.setEnemyTanks(this.enemyTanks);
                             }
                         } else {
-                            console.error("[Game] (Timeout) Player garage STILL not set!");
+                            logger.error("[Game] (Timeout) Player garage STILL not set!");
                         }
                     }, 5000);
                 } else {
-                    console.log("[Game] (Timeout) Not enough garages or player garage not set");
+                    logger.log("[Game] (Timeout) Not enough garages or player garage not set");
                 }
             } else {
                 // Продолжаем ждать
@@ -2388,12 +2731,12 @@ export class Game {
     // Спавн игрока в случайном гараже
     spawnPlayerInGarage() {
         if (!this.tank) {
-            console.warn("[Game] Tank not initialized");
+            logger.warn("[Game] Tank not initialized");
             return;
         }
         
         if (!this.chunkSystem || !this.chunkSystem.garagePositions.length) {
-            console.warn("[Game] No garages available, using default spawn at (0, 2, 0)");
+            logger.warn("[Game] No garages available, using default spawn at (0, 2, 0)");
             // Fallback на обычный спавн
             if (this.tank.chassis && this.tank.physicsBody) {
                 const defaultPos = new Vector3(0, 2, 0);
@@ -2420,12 +2763,12 @@ export class Game {
             }
         }
         
-        console.log(`[Game] Selected player garage at (${playerGarage.x.toFixed(1)}, ${playerGarage.z.toFixed(1)}) - distance from center: ${minDist.toFixed(1)}`);
+        logger.log(`[Game] Selected player garage at (${playerGarage.x.toFixed(1)}, ${playerGarage.z.toFixed(1)}) - distance from center: ${minDist.toFixed(1)}`);
         
         
         // Сохраняем позицию гаража для респавна (ВСЕГДА в этом же гараже!)
         this.playerGaragePosition = playerGarage.clone(); // Клонируем чтобы избежать проблем с ссылками
-        console.log(`[Game] Garage position saved for respawn: (${this.playerGaragePosition.x.toFixed(2)}, ${this.playerGaragePosition.y.toFixed(2)}, ${this.playerGaragePosition.z.toFixed(2)})`);
+        logger.log(`[Game] Garage position saved for respawn: (${this.playerGaragePosition.x.toFixed(2)}, ${this.playerGaragePosition.y.toFixed(2)}, ${this.playerGaragePosition.z.toFixed(2)})`);
         
         // Перемещаем танк в гараж
         if (this.tank.chassis && this.tank.physicsBody) {
@@ -2460,7 +2803,7 @@ export class Game {
             this.setPlayerGarageWallsTransparent();
         }, 100);
         
-        console.log(`[Game] Player spawned in garage at ${playerGarage.x.toFixed(1)}, ${playerGarage.z.toFixed(1)}`);
+        logger.log(`[Game] Player spawned in garage at ${playerGarage.x.toFixed(1)}, ${playerGarage.z.toFixed(1)}`);
     }
     
     // Получить позицию БЛИЖАЙШЕГО гаража для респавна игрока
@@ -2493,19 +2836,19 @@ export class Game {
             }
             
             if (nearestGarage) {
-                console.log(`[Game] Found nearest garage at distance ${nearestDistance.toFixed(1)}m: (${nearestGarage.x.toFixed(2)}, ${nearestGarage.y.toFixed(2)}, ${nearestGarage.z.toFixed(2)})`);
+                logger.log(`[Game] Found nearest garage at distance ${nearestDistance.toFixed(1)}m: (${nearestGarage.x.toFixed(2)}, ${nearestGarage.y.toFixed(2)}, ${nearestGarage.z.toFixed(2)})`);
                 return nearestGarage.clone();
             }
         }
         
         // Fallback: используем сохранённую позицию
         if (this.playerGaragePosition) {
-            console.log(`[Game] Using saved garage position: (${this.playerGaragePosition.x.toFixed(2)}, ${this.playerGaragePosition.y.toFixed(2)}, ${this.playerGaragePosition.z.toFixed(2)})`);
+            logger.log(`[Game] Using saved garage position: (${this.playerGaragePosition.x.toFixed(2)}, ${this.playerGaragePosition.y.toFixed(2)}, ${this.playerGaragePosition.z.toFixed(2)})`);
             return this.playerGaragePosition.clone();
         }
         
         // Последний fallback: центр гаража по умолчанию
-        console.warn(`[Game] No garage found, using default position (0, 2, 0)`);
+        logger.warn(`[Game] No garage found, using default position (0, 2, 0)`);
         const defaultPos = new Vector3(0, 2.0, 0);
         this.playerGaragePosition = defaultPos.clone();
         return defaultPos;
@@ -2582,9 +2925,9 @@ export class Game {
             return;
         }
         
-        console.log(`[Game] === ENEMY SPAWN CHECK ===`);
-        console.log(`[Game] Player garage position: (${this.playerGaragePosition.x.toFixed(1)}, ${this.playerGaragePosition.z.toFixed(1)})`);
-        console.log(`[Game] Total garages in world: ${this.chunkSystem.garagePositions.length}`);
+        logger.log(`[Game] === ENEMY SPAWN CHECK ===`);
+        logger.log(`[Game] Player garage position: (${this.playerGaragePosition.x.toFixed(1)}, ${this.playerGaragePosition.z.toFixed(1)})`);
+        logger.log(`[Game] Total garages in world: ${this.chunkSystem.garagePositions.length}`);
         
         // Используем позиции гаражей для спавна врагов
         // КРИТИЧЕСКИ ВАЖНО: Исключаем гараж игрока из списка доступных для врагов!
@@ -2600,15 +2943,15 @@ export class Game {
             const isTooCloseToPlayer = distToPlayer < 100; // Минимум 100 единиц от гаража игрока!
             
             if (isTooCloseToPlayer) {
-                console.log(`[Game] EXCLUDING garage too close to player (${distToPlayer.toFixed(1)}m): (${garage.x.toFixed(1)}, ${garage.z.toFixed(1)})`);
+                logger.log(`[Game] EXCLUDING garage too close to player (${distToPlayer.toFixed(1)}m): (${garage.x.toFixed(1)}, ${garage.z.toFixed(1)})`);
             } else {
-                console.log(`[Game] AVAILABLE garage for enemies (${distToPlayer.toFixed(1)}m away): (${garage.x.toFixed(1)}, ${garage.z.toFixed(1)})`);
+                logger.log(`[Game] AVAILABLE garage for enemies (${distToPlayer.toFixed(1)}m away): (${garage.x.toFixed(1)}, ${garage.z.toFixed(1)})`);
             }
             
             return !isTooCloseToPlayer;
         });
         
-        console.log(`[Game] Player garage: (${playerGarageX.toFixed(1)}, ${playerGarageZ.toFixed(1)}), Available garages for enemies: ${availableGarages.length}/${this.chunkSystem.garagePositions.length}`);
+        logger.log(`[Game] Player garage: (${playerGarageX.toFixed(1)}, ${playerGarageZ.toFixed(1)}), Available garages for enemies: ${availableGarages.length}/${this.chunkSystem.garagePositions.length}`);
         
         // Спавним бота в каждом доступном гараже (максимум 8 ботов)
         const enemyCount = Math.min(8, availableGarages.length);
@@ -2634,7 +2977,7 @@ export class Game {
             
             // On death
             enemyTank.onDeathObservable.add(() => {
-                console.log("[GAME] Enemy tank destroyed! Adding kill...");
+                logger.log("[GAME] Enemy tank destroyed! Adding kill...");
                 if (this.hud) {
                     this.hud.addKill();
                 }
@@ -2677,7 +3020,7 @@ export class Game {
             this.enemyTanks.push(enemyTank);
         }
         
-        console.log(`[Game] Spawned ${this.enemyTanks.length} enemy tanks in garages`);
+        logger.log(`[Game] Spawned ${this.enemyTanks.length} enemy tanks in garages`);
     }
     
     respawnEnemyTank(garagePos: Vector3) {
@@ -2687,7 +3030,7 @@ export class Game {
         if (this.playerGaragePosition) {
             const distToPlayer = Vector3.Distance(garagePos, this.playerGaragePosition);
             if (distToPlayer < 100) {
-                console.log(`[Game] BLOCKED: Enemy respawn too close to player garage (${distToPlayer.toFixed(1)}m)`);
+                logger.log(`[Game] BLOCKED: Enemy respawn too close to player garage (${distToPlayer.toFixed(1)}m)`);
                 return;
             }
         }
@@ -2703,7 +3046,7 @@ export class Game {
         const spawnGaragePos = garagePos.clone();
         
         enemyTank.onDeathObservable.add(() => {
-            console.log("[GAME] Enemy tank destroyed (respawn)! Adding kill...");
+            logger.log("[GAME] Enemy tank destroyed (respawn)! Adding kill...");
             if (this.hud) {
                 this.hud.addKill();
             }
@@ -2744,7 +3087,7 @@ export class Game {
         });
         
         this.enemyTanks.push(enemyTank);
-        console.log(`[Game] Enemy tank respawned at garage (${garagePos.x.toFixed(1)}, ${garagePos.z.toFixed(1)})`);
+        logger.log(`[Game] Enemy tank respawned at garage (${garagePos.x.toFixed(1)}, ${garagePos.z.toFixed(1)})`);
     }
     
     // Find any garage far from player (minimum 100 units)
@@ -2766,7 +3109,7 @@ export class Game {
         if (this.playerGaragePosition) {
             const distToPlayer = Vector3.Distance(garagePos, this.playerGaragePosition);
             if (distToPlayer < 100) {
-                console.log(`[Game] Not starting respawn timer near player garage (${distToPlayer.toFixed(1)}m away)`);
+                logger.log(`[Game] Not starting respawn timer near player garage (${distToPlayer.toFixed(1)}m away)`);
                 return; // Слишком близко к гаражу игрока - не запускаем таймер респавна
             }
         }
@@ -2821,7 +3164,7 @@ export class Game {
                             const garagePos = new Vector3(x, 0, z);
                             const distToPlayer = Vector3.Distance(garagePos, new Vector3(this.playerGaragePosition.x, 0, this.playerGaragePosition.z));
                             if (distToPlayer < 30) {
-                                console.log(`[Game] Skipping enemy respawn too close to player (${distToPlayer.toFixed(1)}m away)`);
+                                logger.log(`[Game] Skipping enemy respawn too close to player (${distToPlayer.toFixed(1)}m away)`);
                                 // Удаляем таймер без респавна
                                 if (data.billboard) {
                                     data.billboard.dispose();
@@ -2831,7 +3174,7 @@ export class Game {
                             }
                         }
                         
-                        const garagePos = new Vector3(x, 1.2, z);  // Spawn close to ground
+                        const garagePos = new Vector3(x, 0.6, z);  // Spawn close to ground for stability
                         this.respawnEnemyTank(garagePos);
                     }
                 }
@@ -2883,7 +3226,7 @@ export class Game {
                         wall.visibility = 0.3; // 70% прозрачность (сразу, без интерполяции)
                     }
                 });
-                console.log(`[Game] Player garage walls set to 70% transparency immediately`);
+                logger.log(`[Game] Player garage walls set to 70% transparency immediately`);
             }
         });
     }
@@ -2948,7 +3291,7 @@ export class Game {
             
             // === АВТООТКРЫТИЕ ВОРОТ ДЛЯ БОТОВ ===
             // Проверяем приближение вражеских танков к воротам
-            const doorOpenDistance = 12; // Дистанция для открытия ворот
+            const doorOpenDistance = 18; // Дистанция для открытия ворот (увеличена с 12)
             const garagePos = doorData.position;
             const garageDepth = doorData.garageDepth || 20;
             
@@ -3120,7 +3463,7 @@ export class Game {
             // Инициализируем прогресс, если его ещё нет
             if (!this.garageCaptureProgress.has(garageKey)) {
                 this.garageCaptureProgress.set(garageKey, { progress: 0, capturingPlayers: capturingCount });
-                console.log(`[Game] Starting capture of garage at (${capturePoint.position.x.toFixed(1)}, ${capturePoint.position.z.toFixed(1)})`);
+                logger.log(`[Game] Starting capture of garage at (${capturePoint.position.x.toFixed(1)}, ${capturePoint.position.z.toFixed(1)})`);
             }
             
             const captureData = this.garageCaptureProgress.get(garageKey)!;
@@ -3136,7 +3479,7 @@ export class Game {
                 this.hud.setGarageCaptureProgress(garageKey, captureData.progress, remainingTime);
                 // Логируем каждую секунду для отладки
                 if (Math.floor(captureData.progress * this.CAPTURE_TIME_SINGLE) % 5 === 0 && deltaTime > 0.1) {
-                    console.log(`[Game] Capture progress: ${(captureData.progress * 100).toFixed(1)}%, remaining: ${remainingTime.toFixed(1)}s`);
+                    logger.log(`[Game] Capture progress: ${(captureData.progress * 100).toFixed(1)}%, remaining: ${remainingTime.toFixed(1)}s`);
                 }
             }
             
@@ -3155,7 +3498,7 @@ export class Game {
                 }
                 
                 const wasEnemy = ownership.ownerId !== null && ownership.ownerId !== playerId;
-                console.log(`[Game] Garage ${wasEnemy ? 'captured from enemy' : 'captured'} at (${capturePoint.position.x.toFixed(1)}, ${capturePoint.position.z.toFixed(1)})`);
+                logger.log(`[Game] Garage ${wasEnemy ? 'captured from enemy' : 'captured'} at (${capturePoint.position.x.toFixed(1)}, ${capturePoint.position.z.toFixed(1)})`);
             } else {
                 // Обновляем цвет на жёлтый (захват в процессе)
                 this.updateWrenchColor(capturePoint.wrench, "capturing");
@@ -3215,7 +3558,7 @@ export class Game {
         
         poiSystem.setCallbacks({
             onCapture: (poi, newOwner) => {
-                console.log(`[POI] ${poi.type} captured by ${newOwner}`);
+                logger.log(`[POI] ${poi.type} captured by ${newOwner}`);
                 if (newOwner === "player") {
                     if (this.hud) {
                         this.hud.showNotification?.(`Точка захвачена!`, "success");
@@ -3252,7 +3595,7 @@ export class Game {
                 }
             },
             onContestStart: (poi) => {
-                console.log(`[POI] ${poi.type} contested!`);
+                logger.log(`[POI] ${poi.type} contested!`);
                 if (this.hud) {
                     this.hud.showNotification?.(`⚔️ Контест!`, "warning");
                 }
@@ -3270,7 +3613,7 @@ export class Game {
                     // Ammo is managed internally by tank
                     // this.tank.addAmmo?.(Math.floor(amount));
                     if (special) {
-                        console.log(`[POI] Special ammo pickup!`);
+                        logger.log(`[POI] Special ammo pickup!`);
                     }
                     // Achievement tracking
                     if (this.achievementsSystem) {
@@ -3325,7 +3668,7 @@ export class Game {
                 }
             },
             onExplosion: (_poi, position, radius, damage) => {
-                console.log(`[POI] Explosion at ${position}, radius ${radius}, damage ${damage}`);
+                logger.log(`[POI] Explosion at ${position}, radius ${radius}, damage ${damage}`);
                 // Achievement tracking
                 if (this.achievementsSystem) {
                     this.achievementsSystem.updateProgress("explosives_expert", 1);
@@ -3370,7 +3713,7 @@ export class Game {
                 }
             },
             onRadarPing: (poi, detectedPositions) => {
-                console.log(`[POI] Radar ping: ${detectedPositions.length} enemies detected`);
+                logger.log(`[POI] Radar ping: ${detectedPositions.length} enemies detected`);
                 // Achievement tracking
                 if (this.achievementsSystem && detectedPositions.length > 0) {
                     this.achievementsSystem.updateProgress("radar_operator", detectedPositions.length);
@@ -3545,6 +3888,21 @@ export class Game {
         // Delta time для анимаций
         const deltaTime = this.engine.getDeltaTime() / 1000;
         
+        // === ОБНОВЛЕНИЕ FPS КАЖДЫЙ КАДР ===
+        // FPS обновляем каждый кадр для точности и плавности отображения
+        if (this.hud) {
+            const deltaTimeMs = this.engine.getDeltaTime();
+            let fps = this.engine.getFps();
+            if (!isFinite(fps) || fps <= 0) {
+                if (deltaTimeMs > 0) {
+                    fps = 1000 / deltaTimeMs;
+                } else {
+                    fps = 0;
+                }
+            }
+            this.hud.updateFPS(fps, deltaTimeMs);
+        }
+        
         // === ЦЕНТРАЛИЗОВАННЫЕ ОБНОВЛЕНИЯ АНИМАЦИЙ ===
         // Обновляем анимации с разной частотой для оптимизации
         
@@ -3562,9 +3920,28 @@ export class Game {
                 this.hud.updateFuel?.(this.tank.currentFuel, this.tank.maxFuel);
             }
             
-            // Update tracer count
+            // Update tracer count (через updateTracerCount для обратной совместимости)
             if (this.tank) {
                 this.hud.updateTracerCount?.(this.tank.getTracerCount(), this.tank.getMaxTracerCount());
+            }
+            
+            // Update arsenal (все типы снарядов)
+            if (this.tank && this.hud.updateArsenal) {
+                const ammoData = new Map<string, { current: number, max: number }>();
+                
+                // Трассеры (реальные данные)
+                ammoData.set("tracer", {
+                    current: this.tank.getTracerCount(),
+                    max: this.tank.getMaxTracerCount()
+                });
+                
+                // Остальные типы (заглушки - будут реализованы позже)
+                ammoData.set("ap", { current: 0, max: 0 });      // Обычные
+                ammoData.set("apcr", { current: 0, max: 0 });  // Бронебойные
+                ammoData.set("he", { current: 0, max: 0 });    // Фугасные
+                ammoData.set("apds", { current: 0, max: 0 });  // Подкалиберные
+                
+                this.hud.updateArsenal(ammoData);
             }
             
             // Update missions panel (every 60 frames ~1 second)
@@ -3749,8 +4126,8 @@ export class Game {
                 }
             } else {
                 this.tank.chassis.renderingGroupId = 0;
-                this.tank.turret.renderingGroupId = 1;
-                this.tank.barrel.renderingGroupId = 2;
+                this.tank.turret.renderingGroupId = 0;
+                this.tank.barrel.renderingGroupId = 0;
                 this.tank.chassis.visibility = 1.0;
                 this.tank.turret.visibility = 1.0;
                 this.tank.barrel.visibility = 1.0;
@@ -3929,8 +4306,8 @@ export class Game {
         // 9.5. HUD update (каждые 2 кадра для оптимизации)
         // ПРИМЕЧАНИЕ: Радар обновляется в блоке "5" выше, поэтому здесь только дополнительные обновления
         if (this._updateTick % 2 === 0) {
-            // updateHUD() больше не вызывается здесь, чтобы избежать конфликта с радаром
-            // this.updateHUD();
+            // Обновляем HUD, включая FPS мониторинг
+            this.updateHUD();
         }
         
         // Обновляем индикатор цели в HUD (под компасом) - оптимизировано с ранними выходами
@@ -4134,7 +4511,7 @@ export class Game {
                             this.experienceSystem.recordPickup(this.tank.chassisType.id);
                         }
                         
-                        console.log(`[Game] Picked up ${consumableType.name} in slot ${slot}`);
+                        logger.log(`[Game] Picked up ${consumableType.name} in slot ${slot}`);
                     } else {
                         // Все слоты заняты - заменяем первый
                         // In multiplayer, request pickup from server
@@ -4171,7 +4548,7 @@ export class Game {
                             this.experienceSystem.recordPickup(this.tank.chassisType.id);
                         }
                         
-                        console.log(`[Game] Picked up ${consumableType.name} (replaced slot 1)`);
+                        logger.log(`[Game] Picked up ${consumableType.name} (replaced slot 1)`);
                     }
                 }
             }
@@ -4461,7 +4838,7 @@ export class Game {
         // Listen for aim mode changes from tank
         window.addEventListener("aimModeChanged", ((e: CustomEvent) => {
             this.isAiming = e.detail.aiming;
-            console.log(`[Camera] Aim mode: ${this.isAiming}`);
+            logger.log(`[Camera] Aim mode: ${this.isAiming}`);
             // Показ/скрытие прицела
             if (this.hud) {
                 this.hud.setAimMode(this.isAiming);
@@ -5166,8 +5543,8 @@ export class Game {
                 }
             } else {
                 this.tank.chassis.renderingGroupId = 0;
-                this.tank.turret.renderingGroupId = 1;
-                this.tank.barrel.renderingGroupId = 2;
+                this.tank.turret.renderingGroupId = 0;
+                this.tank.barrel.renderingGroupId = 0;
                 
                 if (!this.isAiming) {
                     this.tank.chassis.visibility = 1.0;
@@ -5268,8 +5645,8 @@ export class Game {
             } else {
                 // Танк виден - обычная видимость
                 this.tank.chassis.renderingGroupId = 0;
-                this.tank.turret.renderingGroupId = 1;
-                this.tank.barrel.renderingGroupId = 2;
+                this.tank.turret.renderingGroupId = 0;
+                this.tank.barrel.renderingGroupId = 0;
                 this.tank.chassis.visibility = 1.0;
                 this.tank.turret.visibility = 1.0;
                 this.tank.barrel.visibility = 1.0;
@@ -5918,16 +6295,18 @@ export class Game {
             this.hud.setNearestEnemyDistance(0);
         }
         
-        // Update FPS каждый кадр для живого отображения
-        if (this.hud) {
-            const fps = this.engine.getFps(); // Используем встроенный метод для точности
-            this.hud.updateFPS(fps);
-        }
+        // FPS теперь обновляется каждый кадр в методе update() для точности и плавности
+        // Здесь только остальные элементы HUD
         
-        // Update debug dashboard
-        if (this.debugDashboard && this.tank) {
-            const tankPos = this.tank.chassis.absolutePosition;
-            this.debugDashboard.update({ x: tankPos.x, y: tankPos.y, z: tankPos.z });
+        // Update debug dashboard (обновляем всегда, даже если танка нет - для отображения сцены)
+        if (this.debugDashboard) {
+            if (this.tank && this.tank.chassis) {
+                const tankPos = this.tank.chassis.absolutePosition;
+                this.debugDashboard.update({ x: tankPos.x, y: tankPos.y, z: tankPos.z });
+            } else {
+                // Если танка нет, обновляем с нулевой позицией
+                this.debugDashboard.update({ x: 0, y: 0, z: 0 });
+            }
         }
         
         // Update tank stats with experience data
@@ -6069,11 +6448,11 @@ export class Game {
         if (!this.multiplayerManager) return;
         
         this.multiplayerManager.onConnected(() => {
-            console.log("[Game] Connected to multiplayer server");
+            logger.log("[Game] Connected to multiplayer server");
         });
         
         this.multiplayerManager.onDisconnected(() => {
-            console.log("[Game] Disconnected from multiplayer server");
+            logger.log("[Game] Disconnected from multiplayer server");
             this.isMultiplayer = false;
             // Hide multiplayer HUD
             if (this.hud) {
@@ -6085,12 +6464,12 @@ export class Game {
         });
         
         this.multiplayerManager.onPlayerJoined((playerData) => {
-            console.log(`[Game] Player joined: ${playerData.name}`);
+            logger.log(`[Game] Player joined: ${playerData.name}`);
             this.createNetworkPlayerTank(playerData);
         });
         
         this.multiplayerManager.onPlayerLeft((playerId) => {
-            console.log(`[Game] Player left: ${playerId}`);
+            logger.log(`[Game] Player left: ${playerId}`);
             const tank = this.networkPlayerTanks.get(playerId);
             if (tank) {
                 tank.dispose();
@@ -6099,7 +6478,7 @@ export class Game {
         });
         
         this.multiplayerManager.onGameStart((data) => {
-            console.log("[Game] Multiplayer game started");
+            logger.log("[Game] Multiplayer game started");
             this.isMultiplayer = true;
             
             // Initialize voice chat
@@ -6113,16 +6492,16 @@ export class Game {
                 
                 voiceChatManager.initialize(serverUrl, roomId, playerId).then(success => {
                     if (success) {
-                        console.log("[Game] Voice chat initialized");
+                        logger.log("[Game] Voice chat initialized");
                     } else {
-                        console.warn("[Game] Voice chat initialization failed (microphone permission?)");
+                        logger.warn("[Game] Voice chat initialization failed (microphone permission?)");
                     }
                 });
             }
             
             // Use world seed from server for deterministic generation
             if (data.worldSeed && this.chunkSystem) {
-                console.log(`[Game] Using server world seed: ${data.worldSeed}`);
+                logger.log(`[Game] Using server world seed: ${data.worldSeed}`);
                 // Note: ChunkSystem seed is set at creation, so we'd need to recreate it
                 // For now, we'll use the seed for new chunks
                 (this.chunkSystem as any).config.worldSeed = data.worldSeed;
@@ -6409,7 +6788,7 @@ export class Game {
             if (data.enemies && this.isMultiplayer) {
                 // Update or create enemy tanks based on server data
                 // This is a simplified version - full implementation would create EnemyTank instances
-                console.log(`[Game] Received ${data.enemies.length} enemy updates`);
+                logger.log(`[Game] Received ${data.enemies.length} enemy updates`);
             }
         });
         
@@ -6455,7 +6834,7 @@ export class Game {
                     // Save replay to localStorage
                     const key = this.replayRecorder.saveReplay(replayData, false);
                     if (key) {
-                        console.log(`[Game] Replay saved: ${key}`);
+                        logger.log(`[Game] Replay saved: ${key}`);
                     }
                 }
             }
@@ -6670,13 +7049,13 @@ export class Game {
             this.spectatingPlayerId = null;
         }
         
-        console.log("[Game] Entered spectator mode");
+        logger.log("[Game] Entered spectator mode");
     }
     
     exitSpectatorMode(): void {
         this.isSpectating = false;
         this.spectatingPlayerId = null;
-        console.log("[Game] Exited spectator mode");
+        logger.log("[Game] Exited spectator mode");
     }
     
     switchSpectatorTarget(next: boolean = true): void {
@@ -6766,21 +7145,21 @@ export class Game {
     
     private async saveMatchStatistics(matchData: any): Promise<void> {
         if (!firebaseService.isInitialized()) {
-            console.warn("[Game] Firebase not initialized, skipping match statistics save");
+            logger.warn("[Game] Firebase not initialized, skipping match statistics save");
             return;
         }
         
         try {
             const playerId = firebaseService.getUserId();
             if (!playerId) {
-                console.warn("[Game] No user ID, skipping match statistics save");
+                logger.warn("[Game] No user ID, skipping match statistics save");
                 return;
             }
             
             // Get current player stats
             const currentStats = await firebaseService.getPlayerStats();
             if (!currentStats) {
-                console.warn("[Game] Could not get current stats");
+                logger.warn("[Game] Could not get current stats");
                 return;
             }
             
@@ -6789,7 +7168,7 @@ export class Game {
             const localPlayer = players.find((p: any) => p.id === this.multiplayerManager?.getPlayerId());
             
             if (!localPlayer) {
-                console.warn("[Game] Local player not found in match data");
+                logger.warn("[Game] Local player not found in match data");
                 return;
             }
             
@@ -6864,9 +7243,86 @@ export class Game {
             
             await firebaseService.saveMatchHistory(matchHistory);
             
-            console.log("[Game] Match statistics saved to Firebase");
+            logger.log("[Game] Match statistics saved to Firebase");
         } catch (error) {
-            console.error("[Game] Error saving match statistics:", error);
+            logger.error("[Game] Error saving match statistics:", error);
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // АВТОСОХРАНЕНИЕ ПРИ ЗАКРЫТИИ СТРАНИЦЫ
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private setupAutoSaveOnUnload(): void {
+        // Сохранение при закрытии/перезагрузке страницы
+        const saveAllData = () => {
+            this.saveAllGameData();
+        };
+        
+        // beforeunload - срабатывает перед закрытием (можно показать предупреждение)
+        window.addEventListener("beforeunload", (e) => {
+            saveAllData();
+            // Не показываем стандартное предупреждение, просто сохраняем
+        });
+        
+        // pagehide - более надежный способ для мобильных устройств
+        window.addEventListener("pagehide", () => {
+            saveAllData();
+        });
+        
+        // visibilitychange - когда вкладка становится невидимой (опционально)
+        document.addEventListener("visibilitychange", () => {
+            if (document.hidden) {
+                // Сохраняем когда вкладка скрыта (но не при каждом изменении)
+                // Можно добавить задержку чтобы не сохранять слишком часто
+                setTimeout(() => {
+                    if (document.hidden) {
+                        this.saveAllGameData();
+                    }
+                }, 1000);
+            }
+        });
+        
+        logger.log("[Game] Auto-save on unload handlers registered");
+    }
+    
+    // Централизованный метод для сохранения всех данных игры
+    public saveAllGameData(): void {
+        try {
+            logger.log("[Game] Saving all game data...");
+            
+            // Сохраняем все системы
+            if (this.playerProgression) {
+                this.playerProgression.forceSave();
+            }
+            
+            if (this.experienceSystem) {
+                this.experienceSystem.forceSave();
+            }
+            
+            if (this.garage) {
+                this.garage.forceSave();
+            }
+            
+            if (this.currencyManager) {
+                this.currencyManager.forceSave();
+            }
+            
+            if (this.achievementsSystem) {
+                this.achievementsSystem.forceSave();
+            }
+            
+            if (this.missionSystem) {
+                this.missionSystem.forceSave();
+            }
+            
+            if (this.playerStatsSystem) {
+                this.playerStatsSystem.forceSave();
+            }
+            
+            logger.log("[Game] All game data saved successfully");
+        } catch (error) {
+            logger.error("[Game] Error saving game data:", error);
         }
     }
 }

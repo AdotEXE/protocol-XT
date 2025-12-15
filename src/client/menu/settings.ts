@@ -5,6 +5,7 @@
 
 import { Vector3 } from "@babylonjs/core";
 import { logger } from "../utils/logger";
+import { setUserScale } from "../utils/uiScale";
 
 export interface GameSettings {
     // Existing settings
@@ -76,6 +77,9 @@ export interface GameSettings {
     fontSize: number;
     highContrast: boolean;
     subtitles: boolean;
+    
+    // UI Scale
+    uiScale: number; // 0.5 to 1.5 (50% to 150%)
     
     // Additional
     showDebugInfo: boolean;
@@ -153,6 +157,9 @@ export const DEFAULT_SETTINGS: GameSettings = {
     fontSize: 14,
     highContrast: false,
     subtitles: false,
+    
+    // UI Scale
+    uiScale: 1.0, // 100% by default
     
     // Additional
     showDebugInfo: false,
@@ -287,6 +294,9 @@ export function saveSettingsFromUI(): GameSettings {
         fontSize: getInt("set-font-size", 14),
         highContrast: getBool("set-high-contrast", false),
         subtitles: getBool("set-subtitles", false),
+        
+        // UI Scale (50-150% -> 0.5-1.5)
+        uiScale: getInt("set-ui-scale", 100) / 100,
         
         // Additional
         showDebugInfo: getBool("set-show-debug-info", false),
@@ -463,6 +473,13 @@ export function applySettings(
     }
     
     // === UI НАСТРОЙКИ ===
+    
+    // UI Scale - применяется глобально
+    if (settings.uiScale !== undefined) {
+        setUserScale(settings.uiScale);
+        logger.log(`[Settings] UI Scale set to ${Math.round(settings.uiScale * 100)}%`);
+    }
+    
     if (hud) {
         // Show FPS
         if (settings.showFPS !== undefined && hud.showFPS !== undefined) {

@@ -413,6 +413,11 @@ export class MissionSystem {
         }
     }
     
+    // Публичный метод для принудительного сохранения
+    public forceSave(): void {
+        this.saveProgress();
+    }
+    
     private loadProgress(): void {
         try {
             const data = localStorage.getItem("tx_missions");

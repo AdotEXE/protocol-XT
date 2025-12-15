@@ -22,9 +22,9 @@ export const TRACK_TYPES: TrackType[] = [
         id: "standard",
         name: "Standard Tracks",
         description: "Balanced tracks for all terrain",
-        width: 0.5,
-        height: 0.6,
-        depth: 3.8,
+        width: 0.4,     // Уменьшено с 0.5 для избежания глитчей
+        height: 0.5,    // Уменьшено с 0.6 для избежания глитчей
+        depth: 3.4,     // Уменьшено с 3.8 для избежания глитчей
         color: "#1a1a1a",
         style: "standard",
         stats: {},
@@ -34,9 +34,9 @@ export const TRACK_TYPES: TrackType[] = [
         id: "wide",
         name: "Wide Tracks",
         description: "Wider tracks for better terrain handling",
-        width: 0.7,
-        height: 0.65,
-        depth: 3.9,
+        width: 0.55,    // Уменьшено с 0.7
+        height: 0.55,   // Уменьшено с 0.65
+        depth: 3.5,     // Уменьшено с 3.9
         color: "#2a2a2a",
         style: "wide",
         stats: {
@@ -48,9 +48,9 @@ export const TRACK_TYPES: TrackType[] = [
         id: "narrow",
         name: "Narrow Tracks",
         description: "Lightweight narrow tracks for speed",
-        width: 0.35,
-        height: 0.55,
-        depth: 3.7,
+        width: 0.3,     // Уменьшено с 0.35
+        height: 0.45,   // Уменьшено с 0.55
+        depth: 3.3,     // Уменьшено с 3.7
         color: "#151515",
         style: "narrow",
         stats: {
@@ -62,9 +62,9 @@ export const TRACK_TYPES: TrackType[] = [
         id: "reinforced",
         name: "Reinforced Tracks",
         description: "Heavy-duty tracks with extra durability",
-        width: 0.6,
-        height: 0.7,
-        depth: 4.0,
+        width: 0.5,     // Уменьшено с 0.6
+        height: 0.6,    // Уменьшено с 0.7
+        depth: 3.6,     // Уменьшено с 4.0
         color: "#3a3a3a",
         style: "reinforced",
         stats: {
@@ -77,9 +77,9 @@ export const TRACK_TYPES: TrackType[] = [
         id: "lightweight",
         name: "Lightweight Tracks",
         description: "Ultra-light tracks for maximum speed",
-        width: 0.4,
-        height: 0.5,
-        depth: 3.6,
+        width: 0.35,    // Уменьшено с 0.4
+        height: 0.4,    // Уменьшено с 0.5
+        depth: 3.2,     // Уменьшено с 3.6
         color: "#0f0f0f",
         style: "lightweight",
         stats: {
@@ -91,9 +91,9 @@ export const TRACK_TYPES: TrackType[] = [
         id: "heavy",
         name: "Heavy Tracks",
         description: "Massive armored tracks for maximum protection",
-        width: 0.8,
-        height: 0.75,
-        depth: 4.2,
+        width: 0.65,    // Уменьшено с 0.8
+        height: 0.65,   // Уменьшено с 0.75
+        depth: 3.8,     // Уменьшено с 4.2
         color: "#4a4a4a",
         style: "heavy",
         stats: {

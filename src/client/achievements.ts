@@ -422,6 +422,11 @@ export class AchievementsSystem {
         }
     }
     
+    // Публичный метод для принудительного сохранения
+    public forceSave(): void {
+        this.saveProgress();
+    }
+    
     // Load progress from localStorage
     private loadProgress(): void {
         try {

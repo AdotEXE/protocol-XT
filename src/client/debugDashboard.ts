@@ -145,6 +145,9 @@ export class DebugDashboard {
     }
     
     update(playerPos: { x: number, y: number, z: number }): void {
+        // Обновляем только если dashboard видим
+        if (!this.visible) return;
+        
         const now = performance.now();
         if (now - this.lastUpdate < this.updateInterval) return;
         this.lastUpdate = now;

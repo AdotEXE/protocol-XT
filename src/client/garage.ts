@@ -2,22 +2,17 @@
 import { CurrencyManager } from "./currencyManager";
 import { 
     Scene, 
-    Engine, 
     Mesh, 
-    ArcRotateCamera, 
-    HemisphericLight, 
     MeshBuilder, 
     StandardMaterial, 
     Color3,
-    Color4,
     Vector3 
 } from "@babylonjs/core";
 import { CHASSIS_TYPES, CANNON_TYPES, getChassisById, getCannonById } from "./tankTypes";
-import { TRACK_TYPES, getTrackById, type TrackType } from "./trackTypes";
+import { TRACK_TYPES, getTrackById } from "./trackTypes";
 import { MaterialFactory } from "./garage/materials";
 import { ChassisDetailsGenerator } from "./garage/chassisDetails";
-import { CannonDetailsGenerator } from "./garage/cannonDetails";
-import { initPreviewScene, cleanupPreviewScene, createPreviewTank, updatePreviewTank, type PreviewScene, type PreviewTank } from "./garage/preview";
+import { initPreviewScene, cleanupPreviewScene, updatePreviewTank, type PreviewScene, type PreviewTank } from "./garage/preview";
 import { injectGarageStyles } from "./garage/ui";
 
 // ============ INTERFACES ============
@@ -58,9 +53,12 @@ export class Garage {
     private isOpen: boolean = false;
     
     // External systems
+    // @ts-expect-error - Reserved for future use
     private _chatSystem: any = null;
     private tankController: any = null;
+    // @ts-expect-error - Reserved for future use
     private _experienceSystem: any = null;
+    // @ts-expect-error - Reserved for future use
     private _playerProgression: any = null;
     private soundManager: any = null;
     private onCloseCallback: (() => void) | null = null;
@@ -182,7 +180,11 @@ export class Garage {
     }
     
     // ============ STYLES ============
-    private injectStyles(): void {
+    // FUTURE: Styles are injected via injectGarageStyles() from garage/ui.ts
+    // This method is reserved for future use
+    // @ts-ignore - Reserved for future use
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private _injectStyles(): void {
         if (document.getElementById('garage-styles')) return;
         
         const style = document.createElement('style');
@@ -379,6 +381,25 @@ export class Garage {
             .garage-item-stats { color: #0aa; font-size: clamp(8px, 0.9vw, 9px); margin-top: clamp(3px, 0.4vh, 4px); }
             .garage-item-price { color: #ff0; font-size: clamp(9px, 1.1vw, 11px); float: right; }
             .garage-item.owned .garage-item-price { color: #0f0; }
+            .new-badge {
+                display: inline-block;
+                background: linear-gradient(135deg, #ff0, #ff8800);
+                color: #000;
+                font-weight: bold;
+                font-size: clamp(7px, 0.8vw, 9px);
+                padding: 2px 4px;
+                border-radius: 3px;
+                margin-right: 4px;
+                animation: pulse 2s infinite;
+                text-shadow: none;
+            }
+            @keyframes pulse {
+                0%, 100% { opacity: 1; transform: scale(1); }
+                50% { opacity: 0.8; transform: scale(1.05); }
+            }
+            .garage-item.new-item {
+                border-left: 3px solid #ff0;
+            }
             .garage-right {
                 width: 55%;
                 display: flex;
@@ -541,6 +562,11 @@ export class Garage {
         } catch (e) { console.warn("[Garage] Save failed:", e); }
     }
     
+    // Публичный метод для принудительного сохранения
+    public forceSave(): void {
+        this.saveProgress();
+    }
+    
     // ============ PUBLIC API ============
     isGarageOpen(): boolean { return this.isOpen; }
     
@@ -552,9 +578,9 @@ export class Garage {
         this.showCursor();
         
         this.isOpen = true;
-        this.currentChassisId = localStorage.getItem("selectedChassis") || "medium";
-        this.currentCannonId = localStorage.getItem("selectedCannon") || "standard";
-        this.currentTrackId = localStorage.getItem("selectedTrack") || "standard";
+            this.currentChassisId = localStorage.getItem("selectedChassis") || "medium";
+            this.currentCannonId = localStorage.getItem("selectedCannon") || "standard";
+            this.currentTrackId = localStorage.getItem("selectedTrack") || "standard";
         
         this.createUI();
         
@@ -573,22 +599,22 @@ export class Garage {
         
         this.isOpen = false;
         
-        // Cleanup 3D preview
-        this.cleanup3DPreview();
-        
-        if (this.overlay) {
-            this.overlay.remove();
-            this.overlay = null;
-        }
-        
+            // Cleanup 3D preview
+            this.cleanup3DPreview();
+            
+            if (this.overlay) {
+                this.overlay.remove();
+                this.overlay = null;
+            }
+            
         // Hide cursor (will be shown again when user clicks on canvas)
-        this.hideCursor();
-        
-        if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
-        
-        // Call close callback if set
-        if (this.onCloseCallback) {
-            this.onCloseCallback();
+            this.hideCursor();
+            
+            if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
+            
+            // Call close callback if set
+            if (this.onCloseCallback) {
+                this.onCloseCallback();
         }
         
         console.log("[Garage] Closed");
@@ -633,7 +659,10 @@ export class Garage {
     
     // Add chassis details - ПОЛНАЯ КОПИЯ из TankController
     // NOTE: This method should be moved to garage/preview.ts eventually
-    private addChassisDetailsPreview(chassis: Mesh, chassisType: any, scene: Scene, baseColor: Color3): void {
+    // FUTURE: This method is reserved for future use
+    // @ts-ignore - Reserved for future use
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private _addChassisDetailsPreview(chassis: Mesh, chassisType: any, scene: Scene, baseColor: Color3): void {
         const w = chassisType.width;
         const h = chassisType.height;
         const d = chassisType.depth;
@@ -905,7 +934,7 @@ export class Garage {
                 }
                 
                 // Перископ на люке
-                const scoutPeriscope = MeshBuilder.CreateCylinder("previewScoutPeriscope", { height: 0.12, diameter: 0.05, tessellation: 8 }, scene);
+                const scoutPeriscope = MeshBuilder.CreateBox("previewScoutPeriscope", { width: 0.05, height: 0.12, depth: 0.05 }, scene);
                 scoutPeriscope.position = new Vector3(0, h * 0.5, 0);
                 scoutPeriscope.parent = chassis;
                 const scoutPeriscopeMat = new StandardMaterial("previewScoutPeriscopeMat", scene);
@@ -921,7 +950,7 @@ export class Garage {
                 scoutSight.material = scoutSightMat;
                 
                 // Линза прицела
-                const scoutSightLens = MeshBuilder.CreateCylinder("previewScoutSightLens", { height: 0.02, diameter: 0.05, tessellation: 8 }, scene);
+                const scoutSightLens = MeshBuilder.CreateBox("previewScoutSightLens", { width: 0.05, height: 0.02, depth: 0.05 }, scene);
                 scoutSightLens.position = new Vector3(0, 0, 0.05);
                 scoutSightLens.parent = scoutSight;
                 const scoutLensMat = new StandardMaterial("previewScoutSightLensMat", scene);
@@ -981,10 +1010,10 @@ export class Garage {
                     ventBar.material = scoutRoofVentMat;
                 }
                 
-                // Легкие броневые экраны по бокам
+                // Легкие броневые экраны по бокам - уменьшены
                 for (let i = 0; i < 2; i++) {
-                    const sideArmor = MeshBuilder.CreateBox(`previewScoutSideArmor${i}`, { width: 0.1, height: h * 0.4, depth: d * 0.25 }, scene);
-                    sideArmor.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.08, d * 0.08);
+                    const sideArmor = MeshBuilder.CreateBox(`previewScoutSideArmor${i}`, { width: 0.07, height: h * 0.3, depth: d * 0.18 }, scene);
+                    sideArmor.position = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.06, d * 0.08);
                     sideArmor.parent = chassis;
                     sideArmor.material = armorMat;
                 }
@@ -1325,17 +1354,15 @@ export class Garage {
                 }
                 
                 // Выхлопная труба (улучшенная, больше)
-                const assaultExhaustUpgraded = MeshBuilder.CreateCylinder("previewAssaultExhaustUpgraded", { height: 0.22, diameter: 0.13, tessellation: 8 }, scene);
+                const assaultExhaustUpgraded = MeshBuilder.CreateBox("previewAssaultExhaustUpgraded", { width: 0.13, height: 0.22, depth: 0.13 }, scene);
                 assaultExhaustUpgraded.position = new Vector3(w * 0.38, h * 0.2, -d * 0.48);
-                assaultExhaustUpgraded.rotation.z = Math.PI / 2;
-                assaultExhaustUpgraded.parent = chassis;
+                                assaultExhaustUpgraded.parent = chassis;
                 assaultExhaustUpgraded.material = armorMat;
                 
                 // Выхлопное отверстие
-                const assaultExhaustHole = MeshBuilder.CreateCylinder("previewAssaultExhaustHole", { height: 0.04, diameter: 0.11, tessellation: 8 }, scene);
+                const assaultExhaustHole = MeshBuilder.CreateBox("previewAssaultExhaustHole", { width: 0.11, height: 0.04, depth: 0.11 }, scene);
                 assaultExhaustHole.position = new Vector3(w * 0.38, h * 0.2, -d * 0.52);
-                assaultExhaustHole.rotation.z = Math.PI / 2;
-                assaultExhaustHole.parent = chassis;
+                                assaultExhaustHole.parent = chassis;
                 const assaultExhaustHoleMat = new StandardMaterial("previewAssaultExhaustHoleMat", scene);
                 assaultExhaustHoleMat.diffuseColor = new Color3(0.05, 0.05, 0.05);
                 assaultExhaustHoleMat.emissiveColor = new Color3(0.1, 0.05, 0);
@@ -1615,7 +1642,7 @@ export class Garage {
                 }
                 
                 // Обтекаемый люк на крыше (цилиндрический)
-                const hoverHatch = MeshBuilder.CreateCylinder("previewHoverHatch", { height: 0.08, diameter: 0.28, tessellation: 8 }, scene);
+                const hoverHatch = MeshBuilder.CreateBox("previewHoverHatch", { width: 0.28, height: 0.08, depth: 0.28 }, scene);
                 hoverHatch.position = new Vector3(0, h * 0.52, -d * 0.1);
                 hoverHatch.parent = chassis;
                 hoverHatch.material = armorMat;
@@ -2594,10 +2621,9 @@ export class Garage {
                 break;
             case "command":
                 // Command - аура, множественные антенны, командный модуль
-                const commandAura = MeshBuilder.CreateTorus("previewCommandAura", { diameter: w * 1.6, thickness: 0.06, tessellation: 20 }, scene);
+                const commandAura = MeshBuilder.CreateBox("previewCommandAura", { width: w * 1.6, height: 0.06, depth: w * 1.6 }, scene);
                 commandAura.position = new Vector3(0, h * 0.55, 0);
-                commandAura.rotation.x = Math.PI / 2;
-                commandAura.parent = chassis;
+                                commandAura.parent = chassis;
                 const auraMat = new StandardMaterial("previewAuraMat", scene);
                 auraMat.diffuseColor = new Color3(1, 0.88, 0);
                 auraMat.emissiveColor = new Color3(0.6, 0.5, 0);
@@ -2615,7 +2641,7 @@ export class Garage {
                 
                 // Множественные антенны
                 for (let i = 0; i < 4; i++) {
-                    const antenna = MeshBuilder.CreateCylinder(`previewCmdAntenna${i}`, { height: 0.5, diameter: 0.025 }, scene);
+                    const antenna = MeshBuilder.CreateBox(`previewCmdAntenna${i}`, { width: 0.025 , height: 0.5, depth: 0.025  }, scene);
                     antenna.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.35, h * 0.7, (i < 2 ? -1 : 1) * d * 0.35);
                     antenna.parent = chassis;
                     const antennaMat = new StandardMaterial(`previewCmdAntennaMat${i}`, scene);
@@ -2644,7 +2670,7 @@ export class Garage {
                 
                 // Перископы на люках
                 for (let i = 0; i < 2; i++) {
-                    const periscope = MeshBuilder.CreateCylinder(`previewCommandPeriscope${i}`, { height: 0.2, diameter: 0.08, tessellation: 8 }, scene);
+                    const periscope = MeshBuilder.CreateBox(`previewCommandPeriscope${i}`, { width: 0.08, height: 0.2, depth: 0.08 }, scene);
                     periscope.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.68, -d * 0.1);
                     periscope.parent = chassis;
                     const periscopeMat = new StandardMaterial(`previewCommandPeriscopeMat${i}`, scene);
@@ -2696,7 +2722,7 @@ export class Garage {
                 }
                 
                 // Радиоантенна сзади (главная)
-                const commandAntenna = MeshBuilder.CreateCylinder("previewCommandAntenna", { height: 0.6, diameter: 0.03, tessellation: 8 }, scene);
+                const commandAntenna = MeshBuilder.CreateBox("previewCommandAntenna", { width: 0.03, height: 0.6, depth: 0.03 }, scene);
                 commandAntenna.position = new Vector3(0, h * 0.8, -d * 0.3);
                 commandAntenna.parent = chassis;
                 const commandAntennaMat = new StandardMaterial("previewCommandAntennaMat", scene);
@@ -2711,10 +2737,9 @@ export class Garage {
                 
                 // Выхлопные трубы сзади
                 for (let i = 0; i < 2; i++) {
-                    const exhaust = MeshBuilder.CreateCylinder(`previewCommandExhaust${i}`, { height: 0.2, diameter: 0.12, tessellation: 8 }, scene);
+                    const exhaust = MeshBuilder.CreateBox(`previewCommandExhaust${i}`, { width: 0.12, height: 0.2, depth: 0.12 }, scene);
                     exhaust.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.2, -d * 0.48);
-                    exhaust.rotation.z = Math.PI / 2;
-                    exhaust.parent = chassis;
+                                        exhaust.parent = chassis;
                     exhaust.material = armorMat;
                 }
                 
@@ -2733,7 +2758,7 @@ export class Garage {
         
         // Antenna for medium/heavy/assault
         if (chassisType.id === "medium" || chassisType.id === "heavy" || chassisType.id === "assault") {
-            const antenna = MeshBuilder.CreateCylinder("previewAntenna", { height: 0.35, diameter: 0.025 }, scene);
+            const antenna = MeshBuilder.CreateBox("previewAntenna", { width: 0.025 , height: 0.35, depth: 0.025  }, scene);
             antenna.position = new Vector3(w * 0.42, h * 0.65, -d * 0.42);
             antenna.parent = chassis;
             const antennaMat = new StandardMaterial("previewAntennaMat", scene);
@@ -2746,8 +2771,8 @@ export class Garage {
     
     private cleanup3DPreview(): void {
         // Cleanup using module function
-        cleanupPreviewScene(this.previewSceneData);
-        this.previewSceneData = null;
+            cleanupPreviewScene(this.previewSceneData);
+            this.previewSceneData = null;
             this.previewTank = null;
     }
     
@@ -2959,6 +2984,10 @@ export class Garage {
         this.filteredItems = items;
         if (this.selectedItemIndex >= items.length) this.selectedItemIndex = Math.max(0, items.length - 1);
         
+        // Define new models
+        const newChassisIds = new Set(["stealth", "hover", "siege", "racer", "amphibious", "shield", "drone", "artillery", "destroyer", "command"]);
+        const newCannonIds = new Set(["plasma", "laser", "tesla", "railgun", "rocket", "mortar", "cluster", "explosive", "flamethrower", "acid", "freeze", "poison", "emp", "multishot", "homing", "piercing", "shockwave", "beam", "vortex", "support"]);
+        
         container.innerHTML = items.map((item, i) => {
             const isUpgrade = 'level' in item;
             const owned = isUpgrade ? true : (item as TankPart).unlocked;
@@ -2968,13 +2997,21 @@ export class Garage {
                 ((item as TankPart).type === 'module' && item.id === this.currentTrackId)
             );
             const selected = i === this.selectedItemIndex;
+            const isNew = !isUpgrade && (
+                ((item as TankPart).type === 'chassis' && newChassisIds.has(item.id)) ||
+                ((item as TankPart).type === 'barrel' && newCannonIds.has(item.id))
+            );
             
             const statsStr = this.formatStats(item);
             const priceStr = owned && !isUpgrade ? 'OWNED' : `${item.cost} CR`;
             
+            const itemNumber = i + 1; // Нумерация с 1
             return `
-                <div class="garage-item ${selected ? 'selected' : ''} ${owned ? 'owned' : ''} ${equipped ? 'equipped' : ''}" data-index="${i}">
-                    <div class="garage-item-name">${item.name} ${equipped ? '[EQUIPPED]' : ''}</div>
+                <div class="garage-item ${selected ? 'selected' : ''} ${owned ? 'owned' : ''} ${equipped ? 'equipped' : ''} ${isNew ? 'new-item' : ''}" data-index="${i}">
+                    <div class="garage-item-name">
+                        <span style="color: #ffd700; font-weight: bold; margin-right: 8px;">[${itemNumber}]</span>
+                        ${isNew ? '<span class="new-badge">[NEW]</span> ' : ''}${item.name} ${equipped ? '[EQUIPPED]' : ''}
+                    </div>
                     <div class="garage-item-desc">${item.description}</div>
                     <div class="garage-item-stats">${statsStr}</div>
                     <div class="garage-item-price">${priceStr}</div>
@@ -3097,6 +3134,10 @@ export class Garage {
             ((item as TankPart).type === 'module' && this.trackParts.find(t => t.id === item.id) && item.id === this.currentTrackId)
         );
         
+        // Define new models
+        const newChassisIds = new Set(["stealth", "hover", "siege", "racer", "amphibious", "shield", "drone", "artillery", "destroyer", "command"]);
+        const newCannonIds = new Set(["plasma", "laser", "tesla", "railgun", "rocket", "mortar", "cluster", "explosive", "flamethrower", "acid", "freeze", "poison", "emp", "multishot", "homing", "piercing", "shockwave", "beam", "vortex", "support"]);
+        
         let btnText = '';
         let btnDisabled = false;
         
@@ -3112,9 +3153,17 @@ export class Garage {
             else btnText = `BUY (${item.cost} CR)`;
         }
         
+        const isNew = !isUpgrade && (
+            ((item as TankPart).type === 'chassis' && newChassisIds.has(item.id)) ||
+            ((item as TankPart).type === 'barrel' && newCannonIds.has(item.id))
+        );
+        
         container.innerHTML = `
-            <div class="garage-details-title">[ ${item.name.toUpperCase()} ]</div>
+            <div class="garage-details-title">
+                ${isNew ? '<span class="new-badge">[NEW]</span> ' : ''}[ ${item.name.toUpperCase()} ]
+            </div>
             <div class="garage-details-desc">${item.description}</div>
+            ${this.getFullStatsHTML(item)}
             ${this.getComparisonHTML(item)}
             <button class="garage-action-btn" ${btnDisabled ? 'disabled' : ''} id="garage-action">${btnText}</button>
         `;
@@ -3122,6 +3171,39 @@ export class Garage {
         container.querySelector('#garage-action')?.addEventListener('click', () => {
             if (!btnDisabled) this.handleAction(item);
         });
+    }
+    
+    private getFullStatsHTML(item: TankPart | TankUpgrade): string {
+        if ('level' in item) {
+            return '';
+        }
+        
+        const part = item as TankPart;
+        let statsHTML = '<div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #030;"><div style="color: #0aa; font-size: 10px; margin-bottom: 8px; font-weight: bold;">STATISTICS</div>';
+        
+        if (part.type === 'chassis') {
+            const chassis = getChassisById(part.id);
+            statsHTML += `
+                <div class="garage-stats-row"><span class="garage-stat-name">HP</span><span class="garage-stat-value">${chassis.maxHealth}</span></div>
+                <div class="garage-stats-row"><span class="garage-stat-name">Speed</span><span class="garage-stat-value">${chassis.moveSpeed}</span></div>
+                <div class="garage-stats-row"><span class="garage-stat-name">Turn Speed</span><span class="garage-stat-value">${chassis.turnSpeed}</span></div>
+                <div class="garage-stats-row"><span class="garage-stat-name">Armor</span><span class="garage-stat-value">${(chassis.maxHealth / 50).toFixed(1)}</span></div>
+                <div class="garage-stats-row"><span class="garage-stat-name">Mass</span><span class="garage-stat-value">${chassis.mass} kg</span></div>
+                ${chassis.specialAbility ? `<div class="garage-stats-row"><span class="garage-stat-name">Special</span><span class="garage-stat-value" style="color: #ff0;">${chassis.specialAbility.toUpperCase()}</span></div>` : ''}
+            `;
+        } else if (part.type === 'barrel') {
+            const cannon = getCannonById(part.id);
+            statsHTML += `
+                <div class="garage-stats-row"><span class="garage-stat-name">Damage</span><span class="garage-stat-value">${cannon.damage}</span></div>
+                <div class="garage-stats-row"><span class="garage-stat-name">Reload</span><span class="garage-stat-value">${(cannon.cooldown / 1000).toFixed(1)}s</span></div>
+                <div class="garage-stats-row"><span class="garage-stat-name">Projectile Speed</span><span class="garage-stat-value">${cannon.projectileSpeed} m/s</span></div>
+                <div class="garage-stats-row"><span class="garage-stat-name">Barrel Length</span><span class="garage-stat-value">${cannon.barrelLength}m</span></div>
+                <div class="garage-stats-row"><span class="garage-stat-name">DPS</span><span class="garage-stat-value" style="color: #ff0;">${(cannon.damage / (cannon.cooldown / 1000)).toFixed(1)}</span></div>
+            `;
+        }
+        
+        statsHTML += '</div>';
+        return statsHTML;
     }
     
     private getComparisonHTML(item: TankPart | TankUpgrade): string {
@@ -3240,15 +3322,15 @@ export class Garage {
         
         if (part.type === 'chassis') {
             this.currentChassisId = part.id;
-            localStorage.setItem("selectedChassis", part.id);
+                localStorage.setItem("selectedChassis", part.id);
             if (this.tankController?.setChassisType) this.tankController.setChassisType(part.id);
         } else if (part.type === 'barrel') {
             this.currentCannonId = part.id;
-            localStorage.setItem("selectedCannon", part.id);
+                localStorage.setItem("selectedCannon", part.id);
             if (this.tankController?.setCannonType) this.tankController.setCannonType(part.id);
         } else if (part.type === 'module' && this.trackParts.find(t => t.id === part.id)) {
             this.currentTrackId = part.id;
-            localStorage.setItem("selectedTrack", part.id);
+                localStorage.setItem("selectedTrack", part.id);
             if (this.tankController?.setTrackType) this.tankController.setTrackType(part.id);
         }
         
