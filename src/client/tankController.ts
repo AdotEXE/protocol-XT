@@ -287,6 +287,9 @@ export class TankController {
     leftTrack: Mesh | null = null;
     rightTrack: Mesh | null = null;
     
+    // Module visuals - визуальные меши для модулей (6-0)
+    private moduleVisuals: Map<number, Mesh[]> = new Map();
+    
     // Pre-created materials for optimization
     bulletMat: StandardMaterial;
 
@@ -376,7 +379,8 @@ export class TankController {
             height: turretHeight, 
             depth: turretDepth 
         }, scene);
-        this.turret.position.y = this.chassisType.height / 2 + turretHeight / 2;
+        // Башня строго по центру корпуса (X=0, Z=0) и на нужной высоте
+        this.turret.position = new Vector3(0, this.chassisType.height / 2 + turretHeight / 2, 0);
         this.turret.parent = this.chassis;
         
         const turretMat = new StandardMaterial("turretMat", scene);
@@ -385,8 +389,8 @@ export class TankController {
         turretMat.diffuseColor = turretColor.scale(0.8);
         turretMat.specularColor = Color3.Black();
         this.turret.material = turretMat;
-        // Render after hull to avoid artifacts
-        this.turret.renderingGroupId = 1;
+        // All tank parts use same renderingGroupId for proper z-buffer depth testing
+        this.turret.renderingGroupId = 0;
         
         // Пушка - создаём уникальные формы для каждого типа
         const barrelWidth = this.cannonType.barrelWidth;
@@ -394,10 +398,10 @@ export class TankController {
         const baseBarrelZ = turretDepth / 2 + barrelLength / 2;
         
         this.barrel = this.visualsModule.createUniqueCannon(scene, barrelWidth, barrelLength);
-        this.barrel.position.z = baseBarrelZ;
-        this.barrel.position.y = 0;
+        // Ствол строго по центру башни по X и Y, и выдвинут вперед по Z
+        this.barrel.position = new Vector3(0, 0, baseBarrelZ);
         this.barrel.parent = this.turret;
-        this.barrel.renderingGroupId = 1;
+        this.barrel.renderingGroupId = 0;
         this.barrel.scaling.set(1.0, 1.0, 1.0);
         
         // Сохраняем исходную позицию пушки для отката
@@ -408,8 +412,8 @@ export class TankController {
         this._barrelRecoilY = 0;
         this._barrelRecoilYTarget = 0;
         
-        // 2. Physics - используем размеры из типа корпуса
-        const shape = new PhysicsShape({ 
+        // 2. Physics - корпус (chassis)
+        const chassisShape = new PhysicsShape({ 
             type: PhysicsShapeType.BOX, 
             parameters: { 
                 center: new Vector3(0, 0, 0), 
@@ -417,16 +421,14 @@ export class TankController {
                 extents: new Vector3(this.chassisType.width, this.chassisType.height, this.chassisType.depth) 
             } 
         }, scene);
-        
-        shape.filterMembershipMask = 1;
-        shape.filterCollideMask = 2 | 32; // Environment and protective walls
+        chassisShape.filterMembershipMask = 1;
+        chassisShape.filterCollideMask = 2 | 32;
         
         this.physicsBody = new PhysicsBody(this.chassis, PhysicsMotionType.DYNAMIC, false, scene);
-        this.physicsBody.shape = shape;
-        this.physicsBody.setMassProperties({ mass: this.mass, centerOfMass: new Vector3(0, -0.55, 0) }); // Lower COM for stability
-        this.physicsBody.setLinearDamping(0.8);   // Увеличено с 0.6 для лучшего демпфирования
-        this.physicsBody.setAngularDamping(4.0);  // Увеличено с 3.5 для предотвращения диких вращений 
-        // this.physicsBody.setActivationState(PhysicsMotionType.ALWAYS_ACTIVE); // Removed: Not supported in V2
+        this.physicsBody.shape = chassisShape;
+        this.physicsBody.setMassProperties({ mass: this.mass, centerOfMass: new Vector3(0, -0.55, 0) });
+        this.physicsBody.setLinearDamping(0.8);
+        this.physicsBody.setAngularDamping(4.0);
 
         // 3. Loop
         scene.onBeforePhysicsObservable.add(() => this.updatePhysics());
@@ -438,7 +440,223 @@ export class TankController {
         this.healthModule = new TankHealthModule(this);
         this.movementModule = new TankMovementModule(this);
         
+        // 6. Create module visuals
+        this.createModuleVisuals();
+        
         logger.log("TankController: Init Success");
+    }
+    
+    // Создать визуальные меши для модулей
+    // ОТКЛЮЧЕНО: Визуальные элементы модулей убраны по запросу
+    private createModuleVisuals(): void {
+        // Модули 6-9 и 0 больше не создаются визуально
+        // Функционал модулей сохраняется, только убраны визуальные блоки на модели
+    }
+    
+    // Модуль 6 - Защитная стенка (щит на корпусе)
+    private createModule6Visual(w: number, h: number, d: number): void {
+        const meshes: Mesh[] = [];
+        
+        // Защитный щит на передней части корпуса
+        const shield = MeshBuilder.CreateBox("module6_shield", {
+            width: w * 0.6,
+            height: h * 0.8,
+            depth: 0.2
+        }, this.scene);
+        shield.position = new Vector3(0, h * 0.1, d * 0.45);
+        shield.parent = this.chassis;
+        
+        const shieldMat = new StandardMaterial("module6Mat", this.scene);
+        shieldMat.diffuseColor = new Color3(0.2, 0.4, 0.8); // Синий щит
+        shieldMat.emissiveColor = new Color3(0.1, 0.2, 0.4);
+        shieldMat.specularColor = Color3.Black();
+        shield.material = shieldMat;
+        meshes.push(shield);
+        
+        this.moduleVisuals.set(6, meshes);
+    }
+    
+    // Модуль 7 - Ускоренная стрельба (индикатор на пушке)
+    private createModule7Visual(): void {
+        const meshes: Mesh[] = [];
+        
+        // Индикатор на пушке
+        const indicator = MeshBuilder.CreateBox("module7_indicator", {
+            width: 0.3,
+            height: 0.3,
+            depth: 0.3
+        }, this.scene);
+        indicator.position = new Vector3(0, 0.2, this.cannonType.barrelLength * 0.3);
+        indicator.parent = this.barrel;
+        
+        const indicatorMat = new StandardMaterial("module7Mat", this.scene);
+        indicatorMat.diffuseColor = new Color3(1, 0.8, 0); // Желтый/оранжевый
+        indicatorMat.emissiveColor = new Color3(0.5, 0.4, 0);
+        indicatorMat.specularColor = Color3.Black();
+        indicator.material = indicatorMat;
+        meshes.push(indicator);
+        
+        this.moduleVisuals.set(7, meshes);
+    }
+    
+    // Модуль 8 - Автонаводка (радар на башне)
+    private createModule8Visual(w: number, h: number, d: number): void {
+        const meshes: Mesh[] = [];
+        
+        // Радар/сенсор на башне
+        const radar = MeshBuilder.CreateBox("module8_radar", {
+            width: w * 0.3,
+            height: 0.2,
+            depth: w * 0.3
+        }, this.scene);
+        radar.position = new Vector3(0, this.chassisType.height * 0.75 + 0.3, 0);
+        radar.parent = this.turret;
+        
+        const radarMat = new StandardMaterial("module8Mat", this.scene);
+        radarMat.diffuseColor = new Color3(0.8, 0.2, 0.2); // Красный радар
+        radarMat.emissiveColor = new Color3(0.4, 0.1, 0.1);
+        radarMat.specularColor = Color3.Black();
+        radar.material = radarMat;
+        meshes.push(radar);
+        
+        this.moduleVisuals.set(8, meshes);
+    }
+    
+    // Модуль 9 - Маневрирование (реактивные ускорители по бокам)
+    private createModule9Visual(w: number, h: number, d: number): void {
+        const meshes: Mesh[] = [];
+        
+        // Реактивные ускорители по бокам корпуса
+        for (let i = 0; i < 2; i++) {
+            const thruster = MeshBuilder.CreateBox(`module9_thruster_${i}`, {
+                width: 0.4,
+                height: 0.4,
+                depth: 0.6
+            }, this.scene);
+            thruster.position = new Vector3(
+                (i === 0 ? -1 : 1) * w * 0.45,
+                h * 0.2,
+                -d * 0.3
+            );
+            thruster.parent = this.chassis;
+            
+            const thrusterMat = new StandardMaterial(`module9Mat_${i}`, this.scene);
+            thrusterMat.diffuseColor = new Color3(0.2, 0.8, 0.8); // Голубой/циан
+            thrusterMat.emissiveColor = new Color3(0.1, 0.4, 0.4);
+            thrusterMat.specularColor = Color3.Black();
+            thruster.material = thrusterMat;
+            meshes.push(thruster);
+        }
+        
+        this.moduleVisuals.set(9, meshes);
+    }
+    
+    // Модуль 0 - Прыжок (реактивные двигатели снизу/сзади)
+    private createModule0Visual(w: number, h: number, d: number): void {
+        const meshes: Mesh[] = [];
+        
+        // Реактивные двигатели сзади корпуса
+        for (let i = 0; i < 2; i++) {
+            const engine = MeshBuilder.CreateBox(`module0_engine_${i}`, {
+                width: 0.5,
+                height: 0.3,
+                depth: 0.5
+            }, this.scene);
+            engine.position = new Vector3(
+                (i === 0 ? -1 : 1) * w * 0.35,
+                -h * 0.3,
+                -d * 0.45
+            );
+            engine.parent = this.chassis;
+            
+            const engineMat = new StandardMaterial(`module0Mat_${i}`, this.scene);
+            engineMat.diffuseColor = new Color3(1, 0.5, 0); // Оранжевый/красный
+            engineMat.emissiveColor = new Color3(0.5, 0.25, 0);
+            engineMat.specularColor = Color3.Black();
+            engine.material = engineMat;
+            meshes.push(engine);
+        }
+        
+        this.moduleVisuals.set(0, meshes);
+    }
+    
+    // Обновить видимость модулей в зависимости от установки
+    private updateModuleVisuals(): void {
+        // Проверяем установленные модули через localStorage
+        // Пока что делаем все модули видимыми (можно будет добавить проверку установки)
+        const installedModules = this.getInstalledModules();
+        
+        for (const [moduleId, meshes] of this.moduleVisuals.entries()) {
+            const isInstalled = installedModules.has(moduleId);
+            meshes.forEach(mesh => {
+                mesh.isVisible = isInstalled;
+            });
+        }
+    }
+    
+    // Получить список установленных модулей
+    private getInstalledModules(): Set<number> {
+        const installed = new Set<number>();
+        
+        // Проверяем localStorage для установленных модулей
+        try {
+            const savedModules = localStorage.getItem("installedModules");
+            if (savedModules) {
+                const modules = JSON.parse(savedModules) as number[];
+                modules.forEach(id => installed.add(id));
+            } else {
+                // По умолчанию все модули установлены для тестирования
+                // В будущем можно будет добавить систему покупки/установки модулей через гараж
+                installed.add(6);
+                installed.add(7);
+                installed.add(8);
+                installed.add(9);
+                installed.add(0);
+                // Сохраняем по умолчанию
+                this.saveInstalledModules(installed);
+            }
+        } catch (e) {
+            console.warn("[TankController] Failed to load installed modules:", e);
+            // По умолчанию все модули установлены
+            installed.add(6);
+            installed.add(7);
+            installed.add(8);
+            installed.add(9);
+            installed.add(0);
+        }
+        
+        return installed;
+    }
+    
+    // Сохранить список установленных модулей в localStorage
+    private saveInstalledModules(modules: Set<number>): void {
+        try {
+            const modulesArray = Array.from(modules);
+            localStorage.setItem("installedModules", JSON.stringify(modulesArray));
+        } catch (e) {
+            console.warn("[TankController] Failed to save installed modules:", e);
+        }
+    }
+    
+    // Установить модуль (вызывается из гаража)
+    public installModule(moduleId: number): void {
+        const installed = this.getInstalledModules();
+        installed.add(moduleId);
+        this.saveInstalledModules(installed);
+        this.updateModuleVisuals();
+    }
+    
+    // Удалить модуль (вызывается из гаража)
+    public uninstallModule(moduleId: number): void {
+        const installed = this.getInstalledModules();
+        installed.delete(moduleId);
+        this.saveInstalledModules(installed);
+        this.updateModuleVisuals();
+    }
+    
+    // Публичный метод для обновления визуализации модулей (вызывается из гаража)
+    public updateModuleVisualsFromGarage(): void {
+        this.updateModuleVisuals();
     }
 
     setHUD(hud: HUD) {
@@ -796,23 +1014,23 @@ export class TankController {
         const w = this.chassisType.width;
         const h = this.chassisType.height;
         
-        // Left track
+        // Left track - позиционирование ближе к корпусу для избежания глитчей
         this.leftTrack = MeshBuilder.CreateBox("leftTrack", {
             width: trackWidth,
             height: trackHeight,
             depth: trackDepth
         }, this.scene);
-        this.leftTrack.position = new Vector3(-w * 0.65, -h * 0.2, 0);
+        this.leftTrack.position = new Vector3(-w * 0.55, -h * 0.25, 0); // Ближе к центру и ниже
         this.leftTrack.parent = this.chassis;
         this.leftTrack.material = trackMat;
         
-        // Right track
+        // Right track - позиционирование ближе к корпусу для избежания глитчей
         this.rightTrack = MeshBuilder.CreateBox("rightTrack", {
             width: trackWidth,
             height: trackHeight,
             depth: trackDepth
         }, this.scene);
-        this.rightTrack.position = new Vector3(w * 0.65, -h * 0.2, 0);
+        this.rightTrack.position = new Vector3(w * 0.55, -h * 0.25, 0); // Ближе к центру и ниже
         this.rightTrack.parent = this.chassis;
         this.rightTrack.material = trackMat;
         
@@ -998,6 +1216,51 @@ export class TankController {
             const now = Date.now();
             if (this.isReloading || now - this.lastShotTime < this.cooldown) return;
             
+            // Get muzzle position and direction (exactly along barrel forward)
+            // КРИТИЧЕСКИ ВАЖНО: Временно включаем barrel если он скрыт, чтобы получить правильное направление!
+            const wasBarrelEnabled = this.barrel.isEnabled();
+            if (!wasBarrelEnabled) {
+                this.barrel.setEnabled(true);
+            }
+            
+            // Force compute world matrix for accurate direction
+            this.chassis.computeWorldMatrix(true);
+            this.turret.computeWorldMatrix(true);
+            this.barrel.computeWorldMatrix(true);
+            
+            // Получаем РЕАЛЬНОЕ направление ствола в мировых координатах
+            // Используем матрицу трансформации для получения точного направления с учетом наклона
+            const barrelWorldMatrix = this.barrel.getWorldMatrix();
+            const barrelForward = Vector3.TransformNormal(Vector3.Forward(), barrelWorldMatrix).normalize();
+            
+            // Получаем позицию конца ствола (дульный срез)
+            // Используем реальную длину ствола для точного позиционирования
+            const barrelLength = this.cannonType.barrelLength;
+            const barrelCenter = this.barrel.getAbsolutePosition();
+            const muzzlePos = barrelCenter.add(barrelForward.scale(barrelLength / 2));
+            
+            // Направление выстрела = реальное направление ствола (строго по траектории ствола)
+            const shootDirection = barrelForward.clone();
+            
+            // Возвращаем состояние barrel обратно
+            if (!wasBarrelEnabled) {
+                this.barrel.setEnabled(false);
+            }
+            
+            // === ПРОВЕРКА ПРЕПЯТСТВИЙ ПЕРЕД СТВОЛОМ ===
+            // Проверяем, не упирается ли ствол в препятствие (стена, здание и т.д.)
+            if (this.checkBarrelObstacle(muzzlePos, shootDirection, 1.5)) {
+                console.log("[FIRE] Shot blocked by obstacle in front of barrel!");
+                // Опционально: воспроизвести звук блокировки
+                if (this.soundManager) {
+                    this.soundManager.playHit("armor", muzzlePos);
+                }
+                // НЕ начисляем кулдаун - игрок может попробовать снова сразу
+                // НЕ вызываем this.isReloading = true
+                return; // Не создаём снаряд - выстрел заблокирован
+            }
+            
+            // Устанавливаем перезарядку только если выстрел не заблокирован
             this.lastShotTime = now;
             this.isReloading = true;
             
@@ -1015,36 +1278,6 @@ export class TankController {
                 }
             }, this.cooldown);
             
-            // Get muzzle position and direction (exactly along barrel forward)
-            // КРИТИЧЕСКИ ВАЖНО: Временно включаем barrel если он скрыт, чтобы получить правильное направление!
-            const wasBarrelEnabled = this.barrel.isEnabled();
-            if (!wasBarrelEnabled) {
-                this.barrel.setEnabled(true);
-            }
-            
-            // Force compute world matrix for accurate direction
-            this.chassis.computeWorldMatrix(true);
-            this.turret.computeWorldMatrix(true);
-            this.barrel.computeWorldMatrix(true);
-            
-            // Get barrel horizontal direction
-            const barrelDir = this.barrel.getDirection(Vector3.Forward()).normalize();
-            
-            // Apply aimPitch to shooting direction (vertical aiming)
-            // This ensures shots go where the camera is aiming
-            const shootDirection = new Vector3(
-                barrelDir.x * Math.cos(this.aimPitch),
-                Math.sin(this.aimPitch),
-                barrelDir.z * Math.cos(this.aimPitch)
-            ).normalize();
-            
-            const muzzlePos = this.barrel.getAbsolutePosition().add(barrelDir.scale(1.6));
-            
-            // Возвращаем состояние barrel обратно
-            if (!wasBarrelEnabled) {
-                this.barrel.setEnabled(false);
-            }
-            
             // Play shooting sound (с учётом типа пушки) with 3D positioning
             if (this.soundManager) {
                 this.soundManager.playShoot(this.cannonType.id, muzzlePos.clone());
@@ -1060,6 +1293,12 @@ export class TankController {
             }
             
             console.log("[FIRE] Cannon fired!");
+            
+            // Special handling for Support cannon
+            if (this.cannonType.id === "support") {
+                this.fireSupportBeam(muzzlePos, shootDirection);
+                return; // Support doesn't create regular projectile
+            }
             
             // Send shoot event to multiplayer server
             if (this.onShootCallback) {
@@ -1077,11 +1316,35 @@ export class TankController {
             if (this.effectsManager) {
                 this.effectsManager.createMuzzleFlash(muzzlePos, shootDirection, this.cannonType.id);
             }
-
-            // Special handling for Support cannon
-            if (this.cannonType.id === "support") {
-                this.fireSupportBeam(muzzlePos, shootDirection);
-                return; // Support doesn't create regular projectile
+            
+            // === ПРОВЕРКА СТЕНЫ ПЕРЕД СОЗДАНИЕМ СНАРЯДА ===
+            // Проверяем, не упирается ли ствол в стену
+            const wallCheck = this.checkWallCollisionRaycast(muzzlePos, shootDirection, 0.5);
+            if (wallCheck.hit && wallCheck.wallMesh && wallCheck.hitPoint) {
+                // Выстрел блокируется стеной - создаём эффект попадания и наносим урон
+                const bulletDamage = this.damage;
+                
+                if (wallCheck.wallType === "protectiveWall") {
+                    // Наносим урон защитной стенке
+                    this.damageWall(wallCheck.wallMesh, bulletDamage);
+                } else if (wallCheck.wallType === "enemyWall") {
+                    // Наносим урон стенке врага
+                    const wallMeta = wallCheck.wallMesh.metadata as any;
+                    if (wallMeta && wallMeta.owner && typeof wallMeta.owner.damageEnemyWall === 'function') {
+                        wallMeta.owner.damageEnemyWall(bulletDamage);
+                    }
+                }
+                
+                // Создаём эффект попадания
+                if (this.effectsManager) {
+                    this.effectsManager.createHitSpark(wallCheck.hitPoint);
+                }
+                if (this.soundManager) {
+                    this.soundManager.playHit("armor", wallCheck.hitPoint);
+                }
+                
+                console.log("[FIRE] Shot blocked by wall!");
+                return; // Не создаём снаряд - выстрел заблокирован
             }
             
             // Create projectile - используем параметры пушки
@@ -1236,7 +1499,7 @@ export class TankController {
             this._barrelRecoilYTarget = 0;
             
             // 4. Выброс гильзы
-            this.projectilesModule.createShellCasing(muzzlePos, barrelDir);
+            this.projectilesModule.createShellCasing(muzzlePos, shootDirection);
             
             // ВАЖНО: Отдача НЕ влияет на камеру - только физика танка и визуальный откат пушки
 
@@ -1250,11 +1513,69 @@ export class TankController {
             const HIT_RADIUS_TANK = 4.0;   // Радиус попадания в танк
             const HIT_RADIUS_TURRET = 2.5; // Радиус попадания в турель
             
+            // Сохраняем предыдущую позицию для рейкаста
+            let prevBulletPos = ball.absolutePosition.clone();
+            
             const checkHit = () => {
                 if (hasHit || ball.isDisposed()) return;
                 
                 const bulletPos = ball.absolutePosition;
                 const bulletMeta = ball.metadata as any;
+                
+                // === УЛУЧШЕННАЯ ПРОВЕРКА СТЕН С РЕЙКАСТОМ ===
+                // Используем рейкаст от предыдущей позиции к текущей для обнаружения быстрых снарядов
+                const moveDistance = Vector3.Distance(prevBulletPos, bulletPos);
+                if (moveDistance > 0.1) { // Только если снаряд переместился достаточно
+                    const moveDirection = bulletPos.subtract(prevBulletPos).normalize();
+                    const ray = new Ray(prevBulletPos, moveDirection, moveDistance + 0.5);
+                    
+                    // Проверяем защитные стены
+                    for (const wallData of this.module6Walls) {
+                        if (!wallData.mesh || wallData.mesh.isDisposed()) continue;
+                        
+                        const pick = this.scene.pickWithRay(ray, (mesh) => {
+                            return mesh === wallData.mesh;
+                        });
+                        
+                        if (pick && pick.hit && pick.pickedPoint) {
+                            // Проверяем, что точка попадания внутри стены
+                            if (this.checkPointInWall(pick.pickedPoint, wallData.mesh, "protectiveWall")) {
+                                hasHit = true;
+                                const bulletDamage = (ball.metadata && (ball.metadata as any).damage) ? (ball.metadata as any).damage : 25;
+                                this.damageWall(wallData.mesh, bulletDamage);
+                                if (this.effectsManager) this.effectsManager.createHitSpark(pick.pickedPoint);
+                                if (this.soundManager) this.soundManager.playHit("armor", pick.pickedPoint);
+                                ball.dispose();
+                                return;
+                            }
+                        }
+                    }
+                    
+                    // Проверяем стены врагов
+                    const enemyWalls = this.scene.meshes.filter(mesh => 
+                        mesh.metadata && mesh.metadata.type === "enemyWall" && !mesh.isDisposed()
+                    );
+                    for (const wall of enemyWalls) {
+                        const pick = this.scene.pickWithRay(ray, (mesh) => {
+                            return mesh === wall;
+                        });
+                        
+                        if (pick && pick.hit && pick.pickedPoint) {
+                            if (this.checkPointInWall(pick.pickedPoint, wall, "enemyWall")) {
+                                hasHit = true;
+                                const bulletDamage = (ball.metadata && (ball.metadata as any).damage) ? (ball.metadata as any).damage : 25;
+                                const wallMeta = wall.metadata as any;
+                                if (wallMeta && wallMeta.owner && typeof wallMeta.owner.damageEnemyWall === 'function') {
+                                    wallMeta.owner.damageEnemyWall(bulletDamage);
+                                }
+                                if (this.effectsManager) this.effectsManager.createHitSpark(pick.pickedPoint);
+                                if (this.soundManager) this.soundManager.playHit("armor", pick.pickedPoint);
+                                ball.dispose();
+                                return;
+                            }
+                        }
+                    }
+                }
                 
                 // Homing projectile guidance
                 if (bulletMeta?.isHoming && this.enemyTanks && this.enemyTanks.length > 0) {
@@ -1287,44 +1608,18 @@ export class TankController {
                     }
                 }
                 
-                // === ПРОВЕРКА СТОЛКНОВЕНИЯ СО СТЕНКАМИ ===
+                // === ПРОВЕРКА СТОЛКНОВЕНИЯ СО СТЕНКАМИ (дополнительная проверка текущей позиции) ===
+                // Используем вспомогательную функцию для проверки
                 for (const wallData of this.module6Walls) {
                     if (!wallData.mesh || wallData.mesh.isDisposed()) continue;
                     
-                    const wallPos = wallData.mesh.absolutePosition;
-                    const wallRotation = wallData.mesh.rotation.y;
-                    
-                    // Размеры стенки: width=6, height=4, depth=0.5
-                    const wallHalfWidth = 3;
-                    const wallHalfHeight = 2;
-                    const wallHalfDepth = 0.25;
-                    
-                    // Переводим позицию пули в локальную систему координат стенки
-                    const localPos = bulletPos.subtract(wallPos);
-                    const cosY = Math.cos(-wallRotation);
-                    const sinY = Math.sin(-wallRotation);
-                    
-                    // Поворачиваем позицию пули в локальную систему координат стенки
-                    const localX = localPos.x * cosY - localPos.z * sinY;
-                    const localY = localPos.y;
-                    const localZ = localPos.x * sinY + localPos.z * cosY;
-                    
-                    // Проверяем, находится ли пуля внутри границ стенки
-                    if (Math.abs(localX) < wallHalfWidth && 
-                        Math.abs(localY) < wallHalfHeight && 
-                        Math.abs(localZ) < wallHalfDepth) {
+                    if (this.checkPointInWall(bulletPos, wallData.mesh, "protectiveWall")) {
                         hasHit = true;
-                        
-                        // Получаем урон из metadata пули
                         const bulletDamage = (ball.metadata && (ball.metadata as any).damage) ? (ball.metadata as any).damage : 25;
-                        
-                        // Наносим урон стенке через метод
                         this.damageWall(wallData.mesh, bulletDamage);
-                        
                         if (this.effectsManager) this.effectsManager.createHitSpark(bulletPos);
                         if (this.soundManager) this.soundManager.playHit("armor", bulletPos);
                         ball.dispose();
-                        
                         return;
                     }
                 }
@@ -1334,42 +1629,17 @@ export class TankController {
                     mesh.metadata && mesh.metadata.type === "enemyWall" && !mesh.isDisposed()
                 );
                 for (const wall of enemyWalls) {
-                    const wallPos = wall.absolutePosition;
-                    const wallRotation = wall.rotation.y;
-                    
-                    // Размеры стенки врага: width=5, height=3.5, depth=0.4
-                    const wallHalfWidth = 2.5;
-                    const wallHalfHeight = 1.75;
-                    const wallHalfDepth = 0.2;
-                    
-                    // Переводим позицию пули в локальную систему координат стенки
-                    const localPos = bulletPos.subtract(wallPos);
-                    const cosY = Math.cos(-wallRotation);
-                    const sinY = Math.sin(-wallRotation);
-                    
-                    const localX = localPos.x * cosY - localPos.z * sinY;
-                    const localY = localPos.y;
-                    const localZ = localPos.x * sinY + localPos.z * cosY;
-                    
-                    // Проверяем, находится ли пуля внутри границ стенки
-                    if (Math.abs(localX) < wallHalfWidth && 
-                        Math.abs(localY) < wallHalfHeight && 
-                        Math.abs(localZ) < wallHalfDepth) {
+                    if (this.checkPointInWall(bulletPos, wall, "enemyWall")) {
                         hasHit = true;
-                        
                         const bulletDamage = (ball.metadata && (ball.metadata as any).damage) ? (ball.metadata as any).damage : 25;
-                        
-                        // Наносим урон стенке врага через owner
                         const wallMeta = wall.metadata as any;
                         if (wallMeta && wallMeta.owner && typeof wallMeta.owner.damageEnemyWall === 'function') {
                             wallMeta.owner.damageEnemyWall(bulletDamage);
                         }
-                        
                         console.log(`[TANK] Hit enemy wall! Damage: ${bulletDamage}`);
                         if (this.effectsManager) this.effectsManager.createHitSpark(bulletPos);
                         if (this.soundManager) this.soundManager.playHit("armor", bulletPos);
                         ball.dispose();
-                        
                         return;
                     }
                 }
@@ -1538,6 +1808,9 @@ export class TankController {
                     return;
                 }
                 
+                // Сохраняем текущую позицию для следующего кадра (для рейкаста)
+                prevBulletPos = bulletPos.clone();
+                
                 // Продолжаем проверку КАЖДЫЙ КАДР
                 requestAnimationFrame(checkHit);
             };
@@ -1695,6 +1968,41 @@ export class TankController {
             const bulletPos = ball.absolutePosition;
             const bulletMeta = ball.metadata as any;
             const projectileDamage = bulletMeta?.damage || this.damage;
+            
+            // === ПРОВЕРКА СТОЛКНОВЕНИЯ СО СТЕНКАМИ ===
+            // Проверяем защитные стены игрока
+            for (const wallData of this.module6Walls) {
+                if (!wallData.mesh || wallData.mesh.isDisposed()) continue;
+                
+                if (this.checkPointInWall(bulletPos, wallData.mesh, "protectiveWall")) {
+                    hasHit = true;
+                    const bulletDamage = (ball.metadata && (ball.metadata as any).damage) ? (ball.metadata as any).damage : 25;
+                    this.damageWall(wallData.mesh, bulletDamage);
+                    if (this.effectsManager) this.effectsManager.createHitSpark(bulletPos);
+                    if (this.soundManager) this.soundManager.playHit("armor", bulletPos);
+                    ball.dispose();
+                    return;
+                }
+            }
+            
+            // Проверяем стены врагов
+            const enemyWalls = this.scene.meshes.filter(mesh => 
+                mesh.metadata && mesh.metadata.type === "enemyWall" && !mesh.isDisposed()
+            );
+            for (const wall of enemyWalls) {
+                if (this.checkPointInWall(bulletPos, wall, "enemyWall")) {
+                    hasHit = true;
+                    const bulletDamage = (ball.metadata && (ball.metadata as any).damage) ? (ball.metadata as any).damage : 25;
+                    const wallMeta = wall.metadata as any;
+                    if (wallMeta && wallMeta.owner && typeof wallMeta.owner.damageEnemyWall === 'function') {
+                        wallMeta.owner.damageEnemyWall(bulletDamage);
+                    }
+                    if (this.effectsManager) this.effectsManager.createHitSpark(bulletPos);
+                    if (this.soundManager) this.soundManager.playHit("armor", bulletPos);
+                    ball.dispose();
+                    return;
+                }
+            }
             
             // Check enemy hits
             const enemies = this.enemyTanks || [];
@@ -1996,7 +2304,7 @@ export class TankController {
             
             console.log(`[TRACER] Fired! ${this.tracerCount}/${this.maxTracerCount} remaining`);
             
-            // Get muzzle position and direction
+            // Get muzzle position and direction (строго по направлению ствола)
             const wasBarrelEnabled = this.barrel.isEnabled();
             if (!wasBarrelEnabled) this.barrel.setEnabled(true);
             
@@ -2004,14 +2312,17 @@ export class TankController {
             this.turret.computeWorldMatrix(true);
             this.barrel.computeWorldMatrix(true);
             
-            const barrelDir = this.barrel.getDirection(Vector3.Forward()).normalize();
-            const shootDirection = new Vector3(
-                barrelDir.x * Math.cos(this.aimPitch),
-                Math.sin(this.aimPitch),
-                barrelDir.z * Math.cos(this.aimPitch)
-            ).normalize();
+            // Получаем РЕАЛЬНОЕ направление ствола в мировых координатах
+            const barrelWorldMatrix = this.barrel.getWorldMatrix();
+            const barrelForward = Vector3.TransformNormal(Vector3.Forward(), barrelWorldMatrix).normalize();
             
-            const muzzlePos = this.barrel.getAbsolutePosition().add(barrelDir.scale(1.6));
+            // Получаем позицию конца ствола (дульный срез)
+            const barrelLength = this.cannonType.barrelLength;
+            const barrelCenter = this.barrel.getAbsolutePosition();
+            const muzzlePos = barrelCenter.add(barrelForward.scale(barrelLength / 2));
+            
+            // Направление выстрела = реальное направление ствола (строго по траектории ствола)
+            const shootDirection = barrelForward.clone();
             
             if (!wasBarrelEnabled) this.barrel.setEnabled(false);
             
@@ -2190,6 +2501,31 @@ export class TankController {
         try {
             // Дополнительная проверка валидности перед использованием
             if (!this.physicsBody || !this.chassis || this.chassis.isDisposed()) return;
+            
+            // КРИТИЧНО: Убеждаемся, что иерархия мешей НЕ сломана!
+            // Башня ДОЛЖНА быть дочерним элементом корпуса
+            if (this.turret && this.turret.parent !== this.chassis) {
+                this.turret.parent = this.chassis;
+                // Восстанавливаем позицию башни строго по центру корпуса
+                this.turret.position = new Vector3(0, this.turret.position.y, 0);
+            }
+            // Ствол ДОЛЖЕН быть дочерним элементом башни
+            if (this.barrel && this.turret && this.barrel.parent !== this.turret) {
+                this.barrel.parent = this.turret;
+                // Восстанавливаем позицию ствола строго по центру башни по X и Y
+                this.barrel.position = new Vector3(0, this.barrel.position.y, this.barrel.position.z);
+            }
+            
+            // КРИТИЧНО: Убеждаемся, что башня всегда по центру корпуса по X и Z
+            if (this.turret && (this.turret.position.x !== 0 || this.turret.position.z !== 0)) {
+                this.turret.position.x = 0;
+                this.turret.position.z = 0;
+            }
+            
+            // КРИТИЧНО: Убеждаемся, что ствол всегда по центру башни по X
+            if (this.barrel && this.barrel.position.x !== 0) {
+                this.barrel.position.x = 0;
+            }
             
             // Обновляем время игры для системы опыта
             if (this.experienceSystem) {
@@ -2811,8 +3147,8 @@ export class TankController {
                 if (isFinite(this.barrelRecoilOffset) && isFinite(this._barrelRecoilY)) {
                     // Сначала применяем откат
                     const baseZ = this._baseBarrelZ + this.barrelRecoilOffset;
-                    this.barrel.position.z = baseZ;
-                    this.barrel.position.y = this._baseBarrelY + this._barrelRecoilY;
+                    // Ствол всегда по центру башни по X
+                    this.barrel.position = new Vector3(0, this._baseBarrelY + this._barrelRecoilY, baseZ);
                     
                     // Затем проверяем и скрываем части ствола, которые пересекаются с башней или корпусом
                     // Это изменит позицию и масштаб для скрытия пересечений
@@ -3078,6 +3414,146 @@ export class TankController {
     }
     
     // Публичный метод для нанесения урона стенке (вызывается из других классов)
+    // Вспомогательная функция для проверки, находится ли точка внутри стены
+    private checkPointInWall(pos: Vector3, wallMesh: Mesh, wallType: "protectiveWall" | "enemyWall"): boolean {
+        if (!wallMesh || wallMesh.isDisposed()) return false;
+        
+        const wallPos = wallMesh.absolutePosition;
+        const wallRotation = wallMesh.rotation.y;
+        
+        let wallHalfWidth: number, wallHalfHeight: number, wallHalfDepth: number;
+        
+        if (wallType === "protectiveWall") {
+            // Размеры защитной стенки: width=6, height=4, depth=0.5
+            wallHalfWidth = 3;
+            wallHalfHeight = 2;
+            wallHalfDepth = 0.25;
+        } else {
+            // Размеры стенки врага: width=5, height=3.5, depth=0.4
+            wallHalfWidth = 2.5;
+            wallHalfHeight = 1.75;
+            wallHalfDepth = 0.2;
+        }
+        
+        // Переводим позицию в локальную систему координат стенки
+        const localPos = pos.subtract(wallPos);
+        const cosY = Math.cos(-wallRotation);
+        const sinY = Math.sin(-wallRotation);
+        
+        // Поворачиваем позицию в локальную систему координат стенки
+        const localX = localPos.x * cosY - localPos.z * sinY;
+        const localY = localPos.y;
+        const localZ = localPos.x * sinY + localPos.z * cosY;
+        
+        // Проверяем, находится ли точка внутри границ стенки
+        return Math.abs(localX) < wallHalfWidth && 
+               Math.abs(localY) < wallHalfHeight && 
+               Math.abs(localZ) < wallHalfDepth;
+    }
+    
+    // Проверка столкновения со стеной с помощью рейкаста
+    private checkWallCollisionRaycast(startPos: Vector3, direction: Vector3, maxDistance: number = 0.5): { hit: boolean; wallMesh: Mesh | null; hitPoint: Vector3 | null; wallType: "protectiveWall" | "enemyWall" | null } {
+        const ray = new Ray(startPos, direction, maxDistance);
+        
+        // Проверяем защитные стены игрока
+        for (const wallData of this.module6Walls) {
+            if (!wallData.mesh || wallData.mesh.isDisposed()) continue;
+            
+            // Используем рейкаст для проверки столкновения
+            const pick = this.scene.pickWithRay(ray, (mesh) => {
+                return mesh === wallData.mesh;
+            });
+            
+            if (pick && pick.hit && pick.pickedPoint) {
+                // Дополнительная проверка: точка попадания должна быть внутри стены
+                if (this.checkPointInWall(pick.pickedPoint, wallData.mesh, "protectiveWall")) {
+                    return { hit: true, wallMesh: wallData.mesh, hitPoint: pick.pickedPoint, wallType: "protectiveWall" };
+                }
+            }
+            
+            // Также проверяем, находится ли стартовая позиция внутри стены
+            if (this.checkPointInWall(startPos, wallData.mesh, "protectiveWall")) {
+                return { hit: true, wallMesh: wallData.mesh, hitPoint: startPos.clone(), wallType: "protectiveWall" };
+            }
+        }
+        
+        // Проверяем стены врагов
+        const enemyWalls = this.scene.meshes.filter(mesh => 
+            mesh.metadata && mesh.metadata.type === "enemyWall" && !mesh.isDisposed()
+        );
+        
+        for (const wall of enemyWalls) {
+            const pick = this.scene.pickWithRay(ray, (mesh) => {
+                return mesh === wall;
+            });
+            
+            if (pick && pick.hit && pick.pickedPoint) {
+                if (this.checkPointInWall(pick.pickedPoint, wall, "enemyWall")) {
+                    return { hit: true, wallMesh: wall, hitPoint: pick.pickedPoint, wallType: "enemyWall" };
+                }
+            }
+            
+            // Также проверяем, находится ли стартовая позиция внутри стены
+            if (this.checkPointInWall(startPos, wall, "enemyWall")) {
+                return { hit: true, wallMesh: wall, hitPoint: startPos.clone(), wallType: "enemyWall" };
+            }
+        }
+        
+        return { hit: false, wallMesh: null, hitPoint: null, wallType: null };
+    }
+    
+    // Проверка препятствий перед стволом перед выстрелом
+    private checkBarrelObstacle(muzzlePos: Vector3, direction: Vector3, maxDistance: number = 1.5): boolean {
+        const ray = new Ray(muzzlePos, direction, maxDistance);
+        
+        const pick = this.scene.pickWithRay(ray, (mesh: any) => {
+            // Ранний выход: проверки в порядке частоты
+            if (!mesh || !mesh.isEnabled()) return false;
+            if (mesh.visibility <= 0.5) return false; // Прозрачные/невидимые объекты
+            if (!mesh.isPickable) return false; // Объекты без коллизий
+            
+            // Игнорируем части самого танка
+            if (mesh === this.chassis || mesh === this.turret || mesh === this.barrel) return false;
+            
+            // Игнорируем дочерние элементы танка
+            if (mesh.parent === this.chassis || mesh.parent === this.turret || mesh.parent === this.barrel) return false;
+            
+            // Проверка через isPartOf если метод доступен (для вражеских танков)
+            // Для игрока проверяем напрямую через parent
+            
+            // Игнорируем билборды
+            if (mesh.name.includes("billboard") || mesh.name.includes("hp") || mesh.name.includes("Hp")) return false;
+            
+            // Игнорируем пули
+            const meta = mesh.metadata;
+            if (meta && (meta.type === "bullet" || meta.type === "enemyBullet")) return false;
+            
+            // Игнорируем расходники
+            if (meta && meta.type === "consumable") return false;
+            
+            // Игнорируем танки
+            if (meta && (meta.type === "playerTank" || meta.type === "enemyTank")) return false;
+            
+            // Гаражные ворота - проверяем открыты ли они
+            if (mesh.name.includes("garageFrontDoor") || mesh.name.includes("garageBackDoor")) {
+                // Если ворота высоко (открыты), игнорируем их
+                if (mesh.position.y > 3.5) return false;
+                // Закрытые ворота - это препятствие
+                return true;
+            }
+            
+            // Все остальные объекты с isPickable === true и visibility > 0.5
+            return true;
+        });
+        
+        // Если препятствие найдено на расстоянии < maxDistance
+        if (pick && pick.hit && pick.distance < maxDistance) {
+            return true; // Препятствие найдено, выстрел заблокирован
+        }
+        
+        return false; // Путь свободен, выстрел разрешён
+    }
+    
     public damageWall(wallMesh: Mesh, damage: number): boolean {
         // Находим стенку в массиве
         for (const wallData of this.module6Walls) {
@@ -3622,7 +4098,8 @@ export class TankController {
                 // Почти весь ствол скрыт - полностью скрываем его
                 this.barrel.setEnabled(false);
                 this.barrel.scaling.z = 1.0;
-                this.barrel.position.z = baseZ;
+                // Ствол всегда по центру башни по X
+                this.barrel.position = new Vector3(0, this.barrel.position.y, baseZ);
             } else if (visibleLength > 0.01 && visibleStartZ < barrelEndZ) {
                 // Частично скрыт - используем масштабирование
                 const scaleZ = Math.max(visibleLength / originalLength, 0.01); // Минимум 1% длины
@@ -3639,7 +4116,8 @@ export class TankController {
                 // Нет видимой части - скрываем полностью
                 this.barrel.setEnabled(false);
                 this.barrel.scaling.z = 1.0;
-                this.barrel.position.z = baseZ;
+                // Ствол всегда по центру башни по X
+                this.barrel.position = new Vector3(0, this.barrel.position.y, baseZ);
             }
         } else {
             // Нет пересечения - возвращаем нормальный размер

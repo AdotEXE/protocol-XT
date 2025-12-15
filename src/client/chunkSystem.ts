@@ -374,71 +374,27 @@ export class ChunkSystem {
         }
         
         // Материал для дверей с прозрачностью 50%
+        // Используем visibility на меше вместо alpha на материале для избежания мерцания
         let doorMat = this.materials.get("garageDoor");
         if (!doorMat) {
             doorMat = new StandardMaterial("garageDoorMat", this.scene);
             doorMat.diffuseColor = new Color3(0.35, 0.35, 0.4);
             doorMat.specularColor = Color3.Black();
-            doorMat.alpha = 0.5; // 50% прозрачность
+            // НЕ используем alpha на материале - это вызывает мерцание
+            // Вместо этого установим visibility на самом меше ворот
+            doorMat.backFaceCulling = false; // Видны обе стороны
             this.materials.set("garageDoor", doorMat);
         }
         
-        // ПОЛ ГАРАЖА (бетонный) - делаем с отверстием для ямы
-        // Размеры ямы (определяем заранее для создания пола с отверстием)
-        const pitWidth = 6;
-        const pitDepth = 10;
-        
-        // Создаём пол из нескольких частей, исключая область ямы
-        const floorParts: Mesh[] = [];
-        
-        // Левая часть пола
-        const floorLeft = MeshBuilder.CreateBox(`garageFloorLeft_${index}`, {
-            width: (garageWidth - pitWidth) / 2 - 0.25,
+        // ПОЛ ГАРАЖА (бетонный) - цельный пол
+        const floor = MeshBuilder.CreateBox(`garageFloor_${index}`, {
+            width: garageWidth - 0.5,
             height: 0.15,
             depth: garageDepth - 0.5
         }, this.scene);
-        floorLeft.position = new Vector3(garageX - (garageWidth + pitWidth) / 4, 0.075, garageZ);
-        floorLeft.material = floorMat;
-        floorParts.push(floorLeft);
-        
-        // Правая часть пола
-        const floorRight = MeshBuilder.CreateBox(`garageFloorRight_${index}`, {
-            width: (garageWidth - pitWidth) / 2 - 0.25,
-            height: 0.15,
-            depth: garageDepth - 0.5
-        }, this.scene);
-        floorRight.position = new Vector3(garageX + (garageWidth + pitWidth) / 4, 0.075, garageZ);
-        floorRight.material = floorMat;
-        floorParts.push(floorRight);
-        
-        // Передняя часть пола (перед ямой)
-        const floorFront = MeshBuilder.CreateBox(`garageFloorFront_${index}`, {
-            width: pitWidth,
-            height: 0.15,
-            depth: (garageDepth - pitDepth) / 2 - 0.25
-        }, this.scene);
-        floorFront.position = new Vector3(garageX, 0.075, garageZ - (garageDepth + pitDepth) / 4);
-        floorFront.material = floorMat;
-        floorParts.push(floorFront);
-        
-        // Задняя часть пола (за ямой)
-        const floorBack = MeshBuilder.CreateBox(`garageFloorBack_${index}`, {
-            width: pitWidth,
-            height: 0.15,
-            depth: (garageDepth - pitDepth) / 2 - 0.25
-        }, this.scene);
-        floorBack.position = new Vector3(garageX, 0.075, garageZ + (garageDepth + pitDepth) / 4);
-        floorBack.material = floorMat;
-        floorParts.push(floorBack);
-        
-        // Объединяем части пола
-        const floor = Mesh.MergeMeshes(floorParts, true, false, undefined, false, true);
-        if (!floor) {
-            // Если объединение не удалось, используем первую часть
-            floorParts[0].name = `garageFloor_${index}`;
-        } else {
-            floor.name = `garageFloor_${index}`;
-        }
+        floor.position = new Vector3(garageX, 0.075, garageZ);
+        floor.material = floorMat;
+        floor.name = `garageFloor_${index}`;
         
         // ЗАДНЯЯ СТЕНА С ПРОЁМОМ (ворота)
         // Левая часть задней стены
@@ -561,7 +517,8 @@ export class ChunkSystem {
             frontDoorClosedY,
             garageZ + garageDepth / 2 - wallThickness / 2
         );
-        frontDoor.material = doorMat; // Используем материал с прозрачностью 50%
+        frontDoor.material = doorMat;
+        frontDoor.visibility = 0.5; // 50% прозрачность через visibility (не вызывает мерцания)
         frontDoor.isPickable = true; // Включаем возможность raycast для определения, на какую ворота смотрит игрок
         // Физика для непробиваемых ворот (как стены) - анимированный тип для движения
         const frontDoorPhysics = new PhysicsAggregate(frontDoor, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
@@ -580,7 +537,8 @@ export class ChunkSystem {
             backDoorClosedY,
             garageZ - garageDepth / 2 + wallThickness / 2
         );
-        backDoor.material = doorMat; // Используем материал с прозрачностью 50%
+        backDoor.material = doorMat;
+        backDoor.visibility = 0.5; // 50% прозрачность через visibility (не вызывает мерцания)
         backDoor.isPickable = true; // Включаем возможность raycast для определения, на какую ворота смотрит игрок
         // Физика для непробиваемых ворот (как стены) - анимированный тип для движения
         const backDoorPhysics = new PhysicsAggregate(backDoor, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
@@ -604,25 +562,6 @@ export class ChunkSystem {
             manualControlTime: 0  // Время последнего ручного управления
         });
         
-        // Сохраняем все стены гаража для управления прозрачностью (кроме крыши - она должна оставаться видимой)
-        const garageWalls: Mesh[] = [
-            backLeftWall,
-            backRightWall,
-            backLintel,
-            leftWall,
-            rightWall,
-            frontLeftWall,
-            frontRightWall,
-            lintel
-            // Крыша не включается - она должна оставаться видимой
-        ];
-        this.garageWalls.push({
-            walls: garageWalls,
-            position: new Vector3(garageX, 0, garageZ),
-            width: garageWidth,
-            depth: garageDepth
-        });
-        
         // КРЫША
         const roof = MeshBuilder.CreateBox(`garageRoof_${index}`, {
             width: garageWidth + 0.5,
@@ -632,6 +571,25 @@ export class ChunkSystem {
         roof.position = new Vector3(garageX, wallHeight + 0.125, garageZ);
         roof.material = garageMat;
         new PhysicsAggregate(roof, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        
+        // Сохраняем все стены гаража и крышу для управления прозрачностью
+        const garageWalls: Mesh[] = [
+            backLeftWall,
+            backRightWall,
+            backLintel,
+            leftWall,
+            rightWall,
+            frontLeftWall,
+            frontRightWall,
+            lintel,
+            roof // Крыша теперь включена - работает по тому же принципу, что и стены
+        ];
+        this.garageWalls.push({
+            walls: garageWalls,
+            position: new Vector3(garageX, 0, garageZ),
+            width: garageWidth,
+            depth: garageDepth
+        });
         
         // ПОЗИЦИЯ СПАВНА - ТОЧНО В ЦЕНТРЕ ГАРАЖА!
         // Гараж: X=0, Z=0, глубина=20 (от Z=-10 до Z=+10), ширина=16 (от X=-8 до X=+8)
@@ -799,7 +757,7 @@ export class ChunkSystem {
             }, this.scene);
             leg.position = pos;
             leg.rotation.y = Math.PI; // Поворот на 180 градусов
-            leg.material = workbenchMat;
+            leg.material = workbenchMat || null; // workbenchMat гарантированно определен выше
             leg.isPickable = false;
             leg.visibility = 1.0;
             leg.renderingGroupId = 0;
@@ -1308,355 +1266,6 @@ export class ChunkSystem {
             lathe.material = toolMat;
         }
         
-        // ГАРАЖНАЯ ЯМА в центре гаража (улучшенная для танка)
-        // pitWidth и pitDepth уже определены выше при создании пола
-        const pitHeight = 2.0; // Увеличена глубина ямы
-        
-        // Дно ямы (ниже уровня пола)
-        const pitFloor = MeshBuilder.CreateBox(`garagePitFloor_${index}`, {
-            width: pitWidth,
-            height: 0.1,
-            depth: pitDepth
-        }, this.scene);
-        pitFloor.position = new Vector3(garageX, -pitHeight + 0.05, garageZ);
-        pitFloor.material = floorMat;
-        pitFloor.isPickable = false;
-        
-        // Стены ямы
-        // Передняя стена ямы
-        const pitFrontWall = MeshBuilder.CreateBox(`garagePitFront_${index}`, {
-            width: pitWidth,
-            height: pitHeight,
-            depth: 0.2
-        }, this.scene);
-        pitFrontWall.position = new Vector3(garageX, -pitHeight / 2, garageZ - pitDepth / 2);
-        pitFrontWall.material = garageMat;
-        pitFrontWall.isPickable = false;
-        
-        // Задняя стена ямы
-        const pitBackWall = MeshBuilder.CreateBox(`garagePitBack_${index}`, {
-            width: pitWidth,
-            height: pitHeight,
-            depth: 0.2
-        }, this.scene);
-        pitBackWall.position = new Vector3(garageX, -pitHeight / 2, garageZ + pitDepth / 2);
-        pitBackWall.material = garageMat;
-        pitBackWall.isPickable = false;
-        
-        // Левая стена ямы
-        const pitLeftWall = MeshBuilder.CreateBox(`garagePitLeft_${index}`, {
-            width: 0.2,
-            height: pitHeight,
-            depth: pitDepth
-        }, this.scene);
-        pitLeftWall.position = new Vector3(garageX - pitWidth / 2, -pitHeight / 2, garageZ);
-        pitLeftWall.material = garageMat;
-        pitLeftWall.isPickable = false;
-        
-        // Правая стена ямы
-        const pitRightWall = MeshBuilder.CreateBox(`garagePitRight_${index}`, {
-            width: 0.2,
-            height: pitHeight,
-            depth: pitDepth
-        }, this.scene);
-        pitRightWall.position = new Vector3(garageX + pitWidth / 2, -pitHeight / 2, garageZ);
-        pitRightWall.material = garageMat;
-        pitRightWall.isPickable = false;
-        
-        // ЛЕСТНИЦА в яму (с передней стороны)
-        const stepCount = 4;
-        const stepWidth = 1.0;
-        const stepHeight = pitHeight / stepCount;
-        const stepDepth = 0.3;
-        
-        for (let i = 0; i < stepCount; i++) {
-            const step = MeshBuilder.CreateBox(`garagePitStep_${index}_${i}`, {
-                width: stepWidth,
-                height: stepHeight,
-                depth: stepDepth
-            }, this.scene);
-            step.position = new Vector3(
-                garageX - pitWidth / 2 + stepWidth / 2,
-                -pitHeight + (i + 0.5) * stepHeight,
-                garageZ - pitDepth / 2 - stepDepth / 2
-            );
-            step.material = garageMat;
-            step.isPickable = false;
-        }
-        
-        // Перила лестницы
-        const railingLeft = MeshBuilder.CreateBox(`garagePitRailingLeft_${index}`, {
-            width: 0.05,
-            height: 0.6,
-            depth: stepDepth * stepCount
-        }, this.scene);
-        railingLeft.position = new Vector3(
-            garageX - pitWidth / 2 + 0.025,
-            -pitHeight / 2 + 0.3,
-            garageZ - pitDepth / 2 - stepDepth * stepCount / 2
-        );
-        railingLeft.material = toolMat;
-        railingLeft.isPickable = false;
-        
-        const railingRight = MeshBuilder.CreateBox(`garagePitRailingRight_${index}`, {
-            width: 0.05,
-            height: 0.6,
-            depth: stepDepth * stepCount
-        }, this.scene);
-        railingRight.position = new Vector3(
-            garageX - pitWidth / 2 + stepWidth - 0.025,
-            -pitHeight / 2 + 0.3,
-            garageZ - pitDepth / 2 - stepDepth * stepCount / 2
-        );
-        railingRight.material = toolMat;
-        railingRight.isPickable = false;
-        
-        // Материал для ящиков (дерево) - определяем заранее
-        let ammoBoxMat = this.materials.get("wood");
-        if (!ammoBoxMat) {
-            ammoBoxMat = new StandardMaterial("ammoBoxMat", this.scene);
-            ammoBoxMat.diffuseColor = new Color3(0.35, 0.25, 0.15); // Коричневый деревянный
-            this.materials.set("wood", ammoBoxMat);
-        }
-        
-        // ЗАЩИТНЫЕ ОГРАЖДЕНИЯ по краям ямы (на уровне пола)
-        const guardrailHeight = 0.15;
-        const guardrailThickness = 0.1;
-        
-        // Переднее ограждение
-        const frontGuardrail = MeshBuilder.CreateBox(`garagePitFrontGuardrail_${index}`, {
-            width: pitWidth + 0.5,
-            height: guardrailHeight,
-            depth: guardrailThickness
-        }, this.scene);
-        frontGuardrail.position = new Vector3(garageX, guardrailHeight / 2, garageZ - pitDepth / 2 - 0.2);
-        frontGuardrail.material = toolMat;
-        frontGuardrail.isPickable = false;
-        
-        // Заднее ограждение
-        const backGuardrail = MeshBuilder.CreateBox(`garagePitBackGuardrail_${index}`, {
-            width: pitWidth + 0.5,
-            height: guardrailHeight,
-            depth: guardrailThickness
-        }, this.scene);
-        backGuardrail.position = new Vector3(garageX, guardrailHeight / 2, garageZ + pitDepth / 2 + 0.2);
-        backGuardrail.material = toolMat;
-        backGuardrail.isPickable = false;
-        
-        // Левое ограждение
-        const leftGuardrail = MeshBuilder.CreateBox(`garagePitLeftGuardrail_${index}`, {
-            width: guardrailThickness,
-            height: guardrailHeight,
-            depth: pitDepth
-        }, this.scene);
-        leftGuardrail.position = new Vector3(garageX - pitWidth / 2 - 0.2, guardrailHeight / 2, garageZ);
-        leftGuardrail.material = toolMat;
-        leftGuardrail.isPickable = false;
-        
-        // Правое ограждение
-        const rightGuardrail = MeshBuilder.CreateBox(`garagePitRightGuardrail_${index}`, {
-            width: guardrailThickness,
-            height: guardrailHeight,
-            depth: pitDepth
-        }, this.scene);
-        rightGuardrail.position = new Vector3(garageX + pitWidth / 2 + 0.2, guardrailHeight / 2, garageZ);
-        rightGuardrail.material = toolMat;
-        rightGuardrail.isPickable = false;
-        
-        // ДОМКРАТЫ/СТОЙКИ вокруг ямы
-        // Домкрат 1 (слева от ямы)
-        const jack1 = MeshBuilder.CreateBox(`garagePitJack1_${index}`, {
-            width: 0.4,
-            height: 0.6,
-            depth: 0.4
-        }, this.scene);
-        jack1.position = new Vector3(garageX - pitWidth / 2 - 1.0, 0.3, garageZ - 2);
-        jack1.material = toolMat;
-        jack1.isPickable = false;
-        
-        // Домкрат 2 (справа от ямы)
-        const jack2 = MeshBuilder.CreateBox(`garagePitJack2_${index}`, {
-            width: 0.4,
-            height: 0.6,
-            depth: 0.4
-        }, this.scene);
-        jack2.position = new Vector3(garageX + pitWidth / 2 + 1.0, 0.3, garageZ + 2);
-        jack2.material = toolMat;
-        jack2.isPickable = false;
-        
-        // ЯЩИКИ С ИНСТРУМЕНТАМИ вокруг ямы
-        // Ящик 1 (слева от ямы)
-        const toolBox1 = MeshBuilder.CreateBox(`garagePitToolBox1_${index}`, {
-            width: 0.8,
-            height: 0.5,
-            depth: 0.6
-        }, this.scene);
-        toolBox1.position = new Vector3(garageX - pitWidth / 2 - 1.5, 0.25, garageZ - 3);
-        toolBox1.material = ammoBoxMat;
-        toolBox1.isPickable = false;
-        
-        // Ящик 2 (справа от ямы)
-        const toolBox2 = MeshBuilder.CreateBox(`garagePitToolBox2_${index}`, {
-            width: 0.8,
-            height: 0.5,
-            depth: 0.6
-        }, this.scene);
-        toolBox2.position = new Vector3(garageX + pitWidth / 2 + 1.5, 0.25, garageZ + 3);
-        toolBox2.material = ammoBoxMat;
-        toolBox2.isPickable = false;
-        
-        // Ящик 3 (перед ямой)
-        const toolBox3 = MeshBuilder.CreateBox(`garagePitToolBox3_${index}`, {
-            width: 0.6,
-            height: 0.4,
-            depth: 0.8
-        }, this.scene);
-        toolBox3.position = new Vector3(garageX - 2, 0.2, garageZ - pitDepth / 2 - 1.0);
-        toolBox3.material = ammoBoxMat;
-        toolBox3.isPickable = false;
-        
-        // ПОЛКИ на стенах ямы (для инструментов)
-        // Полка на левой стене ямы
-        const shelf1 = MeshBuilder.CreateBox(`garagePitShelf1_${index}`, {
-            width: 0.05,
-            height: 0.1,
-            depth: 2.0
-        }, this.scene);
-        shelf1.position = new Vector3(garageX - pitWidth / 2 - 0.1, -1.0, garageZ);
-        shelf1.material = workbenchMat;
-        shelf1.isPickable = false;
-        
-        // Полка на правой стене ямы
-        const shelf2 = MeshBuilder.CreateBox(`garagePitShelf2_${index}`, {
-            width: 0.05,
-            height: 0.1,
-            depth: 2.0
-        }, this.scene);
-        shelf2.position = new Vector3(garageX + pitWidth / 2 + 0.1, -1.0, garageZ);
-        shelf2.material = workbenchMat;
-        shelf2.isPickable = false;
-        
-        // Инструменты на полках
-        // Гаечный ключ на полке 1
-        const shelfWrench = MeshBuilder.CreateBox(`garagePitShelfWrench_${index}`, {
-            width: 0.3,
-            height: 0.05,
-            depth: 0.05
-        }, this.scene);
-        shelfWrench.position = new Vector3(garageX - pitWidth / 2 - 0.1, -0.95, garageZ - 0.5);
-        shelfWrench.rotation.y = Math.PI / 2;
-        shelfWrench.material = toolMat;
-        shelfWrench.isPickable = false;
-        
-        // Отвёртка на полке 2
-        const shelfScrewdriver = MeshBuilder.CreateBox(`garagePitShelfScrewdriver_${index}`, {
-            width: 0.2,
-            height: 0.04,
-            depth: 0.04
-        }, this.scene);
-        shelfScrewdriver.position = new Vector3(garageX + pitWidth / 2 + 0.1, -0.95, garageZ + 0.5);
-        shelfScrewdriver.rotation.y = Math.PI / 2;
-        shelfScrewdriver.material = toolMat;
-        shelfScrewdriver.isPickable = false;
-        
-        // СМАЗОЧНЫЕ МАТЕРИАЛЫ (канистры)
-        let oilMat = this.materials.get("oil");
-        if (!oilMat) {
-            oilMat = new StandardMaterial("oilMat", this.scene);
-            oilMat.diffuseColor = new Color3(0.1, 0.1, 0.15); // Темно-синий/черный
-            this.materials.set("oil", oilMat);
-        }
-        
-        // Канистра с маслом 1
-        const oilCan1 = MeshBuilder.CreateBox(`garagePitOilCan1_${index}`, {
-            width: 0.25,
-            height: 0.35,
-            depth: 0.2
-        }, this.scene);
-        oilCan1.position = new Vector3(garageX - pitWidth / 2 - 0.8, -1.5, garageZ - 1.5);
-        oilCan1.material = oilMat;
-        oilCan1.isPickable = false;
-        
-        // Канистра с маслом 2
-        const oilCan2 = MeshBuilder.CreateBox(`garagePitOilCan2_${index}`, {
-            width: 0.25,
-            height: 0.35,
-            depth: 0.2
-        }, this.scene);
-        oilCan2.position = new Vector3(garageX + pitWidth / 2 + 0.8, -1.5, garageZ + 1.5);
-        oilCan2.material = oilMat;
-        oilCan2.isPickable = false;
-        
-        // СЛИВ для масла (в углу ямы)
-        const drain = MeshBuilder.CreateCylinder(`garagePitDrain_${index}`, {
-            height: 0.1,
-            diameter: 0.15
-        }, this.scene);
-        drain.position = new Vector3(garageX - pitWidth / 2 + 0.5, -pitHeight + 0.05, garageZ - pitDepth / 2 + 0.5);
-        drain.material = toolMat;
-        drain.isPickable = false;
-        
-        // ДОПОЛНИТЕЛЬНОЕ ОБОРУДОВАНИЕ
-        // Компрессор (воздушный)
-        const compressor = MeshBuilder.CreateBox(`garagePitCompressor_${index}`, {
-            width: 0.6,
-            height: 0.5,
-            depth: 0.5
-        }, this.scene);
-        compressor.position = new Vector3(garageX - pitWidth / 2 - 2.0, 0.25, garageZ + pitDepth / 2 + 1.0);
-        compressor.material = toolMat;
-        compressor.isPickable = false;
-        
-        // Шланг от компрессора
-        const compressorHose = MeshBuilder.CreateCylinder(`garagePitCompressorHose_${index}`, {
-            height: 2.0,
-            diameter: 0.05
-        }, this.scene);
-        compressorHose.position = new Vector3(garageX - pitWidth / 2 - 1.5, 0.5, garageZ + pitDepth / 2 + 0.5);
-        compressorHose.rotation.z = Math.PI / 4;
-        compressorHose.material = hoseMat;
-        compressorHose.isPickable = false;
-        
-        // СТОЙКИ для поддержки (в яме)
-        const supportStand1 = MeshBuilder.CreateBox(`garagePitSupport1_${index}`, {
-            width: 0.3,
-            height: 1.2,
-            depth: 0.3
-        }, this.scene);
-        supportStand1.position = new Vector3(garageX - 1.5, -pitHeight + 0.6, garageZ);
-        supportStand1.material = toolMat;
-        supportStand1.isPickable = false;
-        
-        const supportStand2 = MeshBuilder.CreateBox(`garagePitSupport2_${index}`, {
-            width: 0.3,
-            height: 1.2,
-            depth: 0.3
-        }, this.scene);
-        supportStand2.position = new Vector3(garageX + 1.5, -pitHeight + 0.6, garageZ);
-        supportStand2.material = toolMat;
-        supportStand2.isPickable = false;
-        
-        // ПОДСТАВКА для инструментов (в яме)
-        const toolStand = MeshBuilder.CreateBox(`garagePitToolStand_${index}`, {
-            width: 0.4,
-            height: 0.6,
-            depth: 0.4
-        }, this.scene);
-        toolStand.position = new Vector3(garageX, -pitHeight + 0.3, garageZ + pitDepth / 2 - 1.0);
-        toolStand.material = workbenchMat;
-        toolStand.isPickable = false;
-        
-        // Инструменты на подставке
-        const standWrench = MeshBuilder.CreateBox(`garagePitStandWrench_${index}`, {
-            width: 0.25,
-            height: 0.05,
-            depth: 0.05
-        }, this.scene);
-        standWrench.position = new Vector3(garageX, -pitHeight + 0.65, garageZ + pitDepth / 2 - 1.0);
-        standWrench.rotation.y = Math.PI / 4;
-        standWrench.material = toolMat;
-        standWrench.isPickable = false;
-        
         // ПУШКА ОТ ТАНКА на полу под углом (с левой стороны гаража, напротив верстака)
         const cannonLength = 5;
         const cannonDiameter = 0.3;
@@ -1754,7 +1363,7 @@ export class ChunkSystem {
                 0.35,
                 cornerBoxZ
             );
-            cornerBox.material = ammoBoxMat;
+            cornerBox.material = ammoBoxMat2;
             cornerBox.isPickable = false;
         }
         
@@ -2208,6 +1817,17 @@ export class ChunkSystem {
     }
     
     private createGround(chunk: ChunkData, worldX: number, worldZ: number, size: number, biome: BiomeType | string, _random: SeededRandom): void {
+        // Проверяем, не создан ли уже ground для этого чанка
+        const existingGround = chunk.meshes.find(m => m.name.includes("ground"));
+        if (existingGround) {
+            console.warn(`[ChunkSystem] Ground already exists for chunk ${chunk.x},${chunk.z}, skipping creation`);
+            return;
+        }
+        
+        // ВАЖНО: Всегда создаём ground для чанка, даже если в нём есть гараж
+        // Пол гаража будет создан поверх ground, но ground нужен для остальной части чанка
+        // Это предотвращает появление огромных дыр размером с чанк
+        
         // Ground with biome-specific color
         let groundMat: string;
         switch (biome) {
@@ -2223,7 +1843,8 @@ export class ChunkSystem {
         // If terrain generator is available, build a single heightmap ground mesh instead of many blocky boxes
         if (this.terrainGenerator) {
             const subdivisions = 32; // finer grid for smooth terrain
-            const ground = MeshBuilder.CreateGround("ground", {
+            // Уникальное имя для каждого чанка, чтобы избежать конфликтов
+            const ground = MeshBuilder.CreateGround(`ground_${chunk.x}_${chunk.z}`, {
                 width: size,
                 height: size,
                 subdivisions,
@@ -2234,21 +1855,51 @@ export class ChunkSystem {
             const positions = ground.getVerticesData(VertexBuffer.PositionKind);
             if (positions) {
                 const vertsPerSide = subdivisions + 1;
+                const garageRadius = 12; // Радиус гаража для проверки высоты
+                
                 for (let gz = 0; gz < vertsPerSide; gz++) {
                     for (let gx = 0; gx < vertsPerSide; gx++) {
                         const idx = (gz * vertsPerSide + gx) * 3;
                         const sampleX = worldX + (gx / subdivisions) * size;
                         const sampleZ = worldZ + (gz / subdivisions) * size;
-                        positions[idx + 1] = this.terrainGenerator.getHeight(sampleX, sampleZ, typeof biome === "string" ? biome : "dirt");
+                        
+                        // Проверяем, не находится ли эта точка в области гаража
+                        let inGarage = false;
+                        for (const garagePos of this.garagePositions) {
+                            const dx = Math.abs(sampleX - garagePos.x);
+                            const dz = Math.abs(sampleZ - garagePos.z);
+                            if (dx < garageRadius && dz < garageRadius) {
+                                inGarage = true;
+                                break;
+                            }
+                        }
+                        
+                        // Если точка в гараже, устанавливаем высоту на уровень пола гаража (0)
+                        // Иначе используем высоту из terrain generator
+                        if (inGarage) {
+                            positions[idx + 1] = 0; // Пол гаража на уровне 0
+                        } else {
+                            positions[idx + 1] = this.terrainGenerator.getHeight(sampleX, sampleZ, typeof biome === "string" ? biome : "dirt");
+                        }
                     }
                 }
                 ground.updateVerticesData(VertexBuffer.PositionKind, positions, true);
                 ground.refreshBoundingInfo(true);
             }
             
-            ground.position = new Vector3(size / 2, 0, size / 2);
+            // Позиция относительно chunk.node (который уже позиционирован в worldX, worldZ)
+            // Ground должен начинаться с (0, 0, 0) относительно chunk.node
+            ground.position = new Vector3(0, 0, 0);
             ground.material = this.getMat(groundMat);
             ground.parent = chunk.node;
+            
+            // Устанавливаем renderOrder для правильного рендеринга (ground должен рендериться первым)
+            ground.renderingGroupId = 0;
+            
+            // Отключаем тени для ground, чтобы избежать артефактов
+            ground.receiveShadows = false;
+            ground.castShadows = false;
+            
             this.optimizeMesh(ground);
             chunk.meshes.push(ground);
             new PhysicsAggregate(ground, PhysicsShapeType.MESH, { mass: 0 }, this.scene);
@@ -2256,8 +1907,19 @@ export class ChunkSystem {
         }
         
         // Fallback: flat ground if no terrain generator
-        const ground = MeshBuilder.CreateBox("ground", { width: size, height: 0.1, depth: size }, this.scene);
-        ground.position = new Vector3(size / 2, -0.05, size / 2);
+        const ground = MeshBuilder.CreateBox(`ground_${chunk.x}_${chunk.z}`, { width: size, height: 0.1, depth: size }, this.scene);
+        // Позиция относительно chunk.node (который уже позиционирован в worldX, worldZ)
+        // Ground должен начинаться с (0, 0, 0) относительно chunk.node, чтобы избежать дублирования
+        // Небольшое смещение по Y для предотвращения z-fighting между соседними чанками
+        ground.position = new Vector3(0, -0.05, 0);
+        
+        // Устанавливаем renderOrder для правильного рендеринга (ground должен рендериться первым)
+        ground.renderingGroupId = 0;
+        
+        // Отключаем тени для ground, чтобы избежать артефактов
+        ground.receiveShadows = false;
+        ground.castShadows = false;
+        
         ground.material = this.getMat(groundMat);
         ground.parent = chunk.node;
         this.optimizeMesh(ground);
@@ -6622,7 +6284,7 @@ export class ChunkSystem {
     }
     
     dispose(): void {
-        console.log("[ChunkSystem] Disposing all chunks and resources...");
+        // Disposing all chunks and resources
         
         // Очищаем все чанки
         this.chunks.forEach((_, key) => this.destroyChunk(key));

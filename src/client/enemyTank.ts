@@ -60,7 +60,7 @@ export class EnemyTank {
     
     // === AI State ===
     private target: { chassis: Mesh, isAlive: boolean, currentHealth?: number, turret?: Mesh, barrel?: Mesh } | null = null;
-    private state: AIState = "idle";
+    private state: AIState = "patrol";
     private patrolPoints: Vector3[] = [];
     private currentPatrolIndex = 0;
     private stateTimer = 0;
@@ -124,6 +124,9 @@ export class EnemyTank {
     private _tmpForward?: Vector3;
     private _tmpRight?: Vector3;
     private _tmpUp?: Vector3;
+    
+    // === SPAWN STABILIZATION ===
+    private _spawnStabilizing = true;
     
     // === ANTI-STUCK SYSTEM ===
     private stuckTimer = 0;
@@ -192,6 +195,17 @@ export class EnemyTank {
         
         // Register physics update
         scene.onBeforePhysicsObservable.add(() => this.updatePhysics());
+        
+        // Stabilization: delay first movement to let physics settle
+        this._spawnStabilizing = true;
+        setTimeout(() => {
+            this._spawnStabilizing = false;
+            // Ensure clean start
+            if (this.physicsBody && this.chassis && !this.chassis.isDisposed()) {
+                this.physicsBody.setLinearVelocity(Vector3.Zero());
+                this.physicsBody.setAngularVelocity(Vector3.Zero());
+            }
+        }, 500);
         
         console.log(`[EnemyTank ${this.id}] Created at ${position.x.toFixed(0)}, ${position.z.toFixed(0)} with difficulty: ${difficulty}`);
     }
@@ -304,7 +318,7 @@ export class EnemyTank {
         mat.specularColor = Color3.Black();
         mat.freeze();
         turret.material = mat;
-        turret.renderingGroupId = 1;
+        turret.renderingGroupId = 0;
         turret.metadata = { type: "enemyTank", instance: this };
         
         return turret;
@@ -341,7 +355,7 @@ export class EnemyTank {
         mat.specularColor = Color3.Black();
         mat.freeze();
         barrel.material = mat;
-        barrel.renderingGroupId = 2;
+        barrel.renderingGroupId = 0;
         barrel.metadata = { type: "enemyTank", instance: this };
         
         return barrel;
@@ -354,19 +368,20 @@ export class EnemyTank {
         trackMat.freeze();
         
         // Left track (same as player)
+        // Гусеницы уменьшены для избежания глитчей
         const leftTrack = MeshBuilder.CreateBox(`eTrackL_${this.id}`, {
-            width: 0.5, height: 0.6, depth: 3.8
+            width: 0.4, height: 0.5, depth: 3.4
         }, this.scene);
-        leftTrack.position = new Vector3(-1.3, -0.15, 0);
+        leftTrack.position = new Vector3(-1.1, -0.2, 0); // Ближе к корпусу
         leftTrack.parent = this.chassis;
         leftTrack.material = trackMat;
         this.wheels.push(leftTrack);
         
-        // Right track (same as player)
+        // Right track - уменьшен для избежания глитчей
         const rightTrack = MeshBuilder.CreateBox(`eTrackR_${this.id}`, {
-            width: 0.5, height: 0.6, depth: 3.8
+            width: 0.4, height: 0.5, depth: 3.4
         }, this.scene);
-        rightTrack.position = new Vector3(1.3, -0.15, 0);
+        rightTrack.position = new Vector3(1.1, -0.2, 0); // Ближе к корпусу
         rightTrack.parent = this.chassis;
         rightTrack.material = trackMat;
         this.wheels.push(rightTrack);
@@ -451,10 +466,63 @@ export class EnemyTank {
         return mesh === this.chassis || mesh === this.turret || mesh === this.barrel || this.wheels.includes(mesh);
     }
     
+    // Проверка препятствий перед стволом перед выстрелом
+    private checkBarrelObstacle(muzzlePos: Vector3, direction: Vector3, maxDistance: number = 1.5): boolean {
+        const ray = new Ray(muzzlePos, direction, maxDistance);
+        
+        const pick = this.scene.pickWithRay(ray, (mesh: any) => {
+            // Ранний выход: проверки в порядке частоты
+            if (!mesh || !mesh.isEnabled()) return false;
+            if (mesh.visibility <= 0.5) return false; // Прозрачные/невидимые объекты
+            if (!mesh.isPickable) return false; // Объекты без коллизий
+            
+            // Игнорируем части самого танка
+            if (mesh === this.chassis || mesh === this.turret || mesh === this.barrel) return false;
+            
+            // Игнорируем дочерние элементы танка
+            if (mesh.parent === this.chassis || mesh.parent === this.turret || mesh.parent === this.barrel) return false;
+            
+            // Проверка через isPartOf для всех частей танка (включая wheels)
+            if (this.isPartOf(mesh)) return false;
+            
+            // Игнорируем билборды
+            if (mesh.name.includes("billboard") || mesh.name.includes("hp") || mesh.name.includes("Hp")) return false;
+            
+            // Игнорируем пули
+            const meta = mesh.metadata;
+            if (meta && (meta.type === "bullet" || meta.type === "enemyBullet")) return false;
+            
+            // Игнорируем расходники
+            if (meta && meta.type === "consumable") return false;
+            
+            // Игнорируем танки
+            if (meta && (meta.type === "playerTank" || meta.type === "enemyTank")) return false;
+            
+            // Гаражные ворота - проверяем открыты ли они
+            if (mesh.name.includes("garageFrontDoor") || mesh.name.includes("garageBackDoor")) {
+                // Если ворота высоко (открыты), игнорируем их
+                if (mesh.position.y > 3.5) return false;
+                // Закрытые ворота - это препятствие
+                return true;
+            }
+            
+            // Все остальные объекты с isPickable === true и visibility > 0.5
+            return true;
+        });
+        
+        // Если препятствие найдено на расстоянии < maxDistance
+        if (pick && pick.hit && pick.distance < maxDistance) {
+            return true; // Препятствие найдено, выстрел заблокирован
+        }
+        
+        return false; // Путь свободен, выстрел разрешён
+    }
+    
     // === PHYSICS (SAME AS PLAYER!) ===
     
     private setupPhysics(): void {
-        const shape = new PhysicsShape({
+        // Физика корпуса (chassis)
+        const chassisShape = new PhysicsShape({
             type: PhysicsShapeType.BOX,
             parameters: {
                 center: new Vector3(0, 0, 0),
@@ -462,15 +530,14 @@ export class EnemyTank {
                 extents: new Vector3(2.2, 0.8, 3.5) // Same as player!
             }
         }, this.scene);
-        
-        shape.filterMembershipMask = 8; // Enemy tank group
-        shape.filterCollideMask = 2 | 4 | 32; // Environment, player bullets, and protective walls
+        chassisShape.filterMembershipMask = 8;
+        chassisShape.filterCollideMask = 2 | 4 | 32;
         
         this.physicsBody = new PhysicsBody(this.chassis, PhysicsMotionType.DYNAMIC, false, this.scene);
-        this.physicsBody.shape = shape;
+        this.physicsBody.shape = chassisShape;
         this.physicsBody.setMassProperties({
             mass: this.mass,
-            centerOfMass: new Vector3(0, -0.4, 0) // Low COM like player
+            centerOfMass: new Vector3(0, -0.55, -0.3) // Центр тяжести: немного ниже (Y) и сзади (Z)
         });
         this.physicsBody.setLinearDamping(0.5);
         this.physicsBody.setAngularDamping(3.0);
@@ -514,6 +581,19 @@ export class EnemyTank {
     
     private updatePhysics(): void {
         if (!this.isAlive || !this.chassis || this.chassis.isDisposed() || !this.physicsBody) return;
+        
+        // Skip physics during spawn stabilization
+        if (this._spawnStabilizing) return;
+        
+        // КРИТИЧНО: Убеждаемся, что иерархия мешей НЕ сломана!
+        // Башня ДОЛЖНА быть дочерним элементом корпуса
+        if (this.turret && this.turret.parent !== this.chassis) {
+            this.turret.parent = this.chassis;
+        }
+        // Ствол ДОЛЖЕН быть дочерним элементом башни
+        if (this.barrel && this.turret && this.barrel.parent !== this.turret) {
+            this.barrel.parent = this.turret;
+        }
         
         try {
             const body = this.physicsBody;
@@ -676,13 +756,13 @@ export class EnemyTank {
             
             // --- ANTI-FLY: Clamp vertical velocity ---
             // Боты не должны летать - ограничиваем вертикальную скорость
-            if (vel.y > 6) {
-                body.setLinearVelocity(new Vector3(vel.x, 6, vel.z));
+            if (vel.y > 4) {
+                body.setLinearVelocity(new Vector3(vel.x, 4, vel.z));
             }
-            // Ограничиваем максимальную высоту
-            if (pos.y > 4.0) {
-                // Сильная сила вниз
-                this._tmpUp!.set(0, -20000, 0);
+            // Ограничиваем максимальную высоту (снижено с 4.0 до 2.5)
+            if (pos.y > 2.5) {
+                // Сильная сила вниз (увеличена с -20000 до -30000)
+                this._tmpUp!.set(0, -30000, 0);
                 body.applyForce(this._tmpUp!, pos);
             }
             
@@ -712,8 +792,8 @@ export class EnemyTank {
         const vel = this.physicsBody?.getLinearVelocity();
         
         // Проверка 1: Высота выше нормы (застряли на крыше гаража ~3м высота)
-        // Снижаем порог до 3.5 - нормальный hover height = 1.0-2.0
-        if (pos.y > 3.5) {
+        // Снижаем порог до 2.5 - нормальный hover height = 1.0
+        if (pos.y > 2.5) {
             console.log(`[EnemyTank ${this.id}] Too high (y=${pos.y.toFixed(2)}), resetting to ground`);
             this.forceResetToGround();
             this.consecutiveStuckCount = 0;
@@ -775,25 +855,19 @@ export class EnemyTank {
     private forceUnstuck(): void {
         if (!this.chassis || !this.physicsBody) return;
         
-        // Пробуем двигаться в случайном направлении (назад чаще - чтобы отъехать от препятствия)
-        const randomAngle = Math.random() * Math.PI * 2;
-        const unstuckDir = new Vector3(Math.cos(randomAngle), 0, Math.sin(randomAngle));
-        
-        // Умеренный импульс в случайном направлении (снижено с 15000)
-        this.physicsBody.applyImpulse(unstuckDir.scale(8000), this.chassis.absolutePosition);
-        
-        // Минимальный импульс вверх только для подскока (снижено с 8000 до 2000)
-        this.physicsBody.applyImpulse(new Vector3(0, 2000, 0), this.chassis.absolutePosition);
-        
-        // Меняем направление обхода препятствий
-        this.obstacleAvoidanceDir = Math.random() > 0.5 ? 1 : -1;
-        
-        // Даём команду двигаться назад
-        this.throttleTarget = -0.8;
+        // Try to reverse first - go backwards
+        this.throttleTarget = -1.0;
         this.steerTarget = (Math.random() - 0.5) * 2;
         
-        // Если застряли слишком много раз подряд, телепортируемся
-        if (this.consecutiveStuckCount > 5) {
+        // Apply moderate impulse backwards (using chassis direction)
+        const backward = this.chassis.getDirection(Vector3.Backward());
+        this.physicsBody.applyImpulse(backward.scale(5000), this.chassis.absolutePosition);
+        
+        // Change obstacle avoidance direction
+        this.obstacleAvoidanceDir = Math.random() > 0.5 ? 1 : -1;
+        
+        // If stuck too many times (reduced from 5 to 3), teleport to nearest patrol point
+        if (this.consecutiveStuckCount > 3) {
             this.forceResetToGround();
         }
     }
@@ -928,8 +1002,8 @@ export class EnemyTank {
         
         // Добавляем точку выезда из гаража (вперёд от старта)
         const exitAngle = Math.random() * Math.PI * 2;
-        const exitX = center.x + Math.cos(exitAngle) * 30;
-        const exitZ = center.z + Math.sin(exitAngle) * 30;
+        const exitX = center.x + Math.cos(exitAngle) * 40; // Увеличено с 30 для лучшего выезда
+        const exitZ = center.z + Math.sin(exitAngle) * 40;
         this.patrolPoints.push(new Vector3(exitX, center.y, exitZ));
         
         // Генерируем случайные точки по карте
@@ -1121,6 +1195,11 @@ export class EnemyTank {
         
     private executeState(): void {
         switch (this.state) {
+            case "idle":
+                // Fallback - immediately switch to patrol
+                this.state = "patrol";
+                this.doPatrol();
+                break;
             case "patrol":
                 this.doPatrol();
                 break;
@@ -1514,14 +1593,24 @@ export class EnemyTank {
     private fire(): void {
         if (!this.isAlive) return;
         
-        this.isReloading = true;
-        setTimeout(() => { this.isReloading = false; }, this.cooldown);
-        
         console.log(`[EnemyTank ${this.id}] FIRE!`);
         
         // === GET MUZZLE POSITION AND DIRECTION FROM BARREL ===
         const barrelDir = this.barrel.getDirection(Vector3.Forward()).normalize();
         const muzzlePos = this.barrel.getAbsolutePosition().add(barrelDir.scale(1.5));
+        
+        // === ПРОВЕРКА ПРЕПЯТСТВИЙ ПЕРЕД СТВОЛОМ ===
+        // Проверяем, не упирается ли ствол в препятствие (стена, здание и т.д.)
+        if (this.checkBarrelObstacle(muzzlePos, barrelDir, 1.5)) {
+            console.log(`[EnemyTank ${this.id}] Shot blocked by obstacle!`);
+            // НЕ начисляем кулдаун - враг может попробовать снова сразу
+            // НЕ вызываем this.isReloading = true
+            return; // Не создаём снаряд - выстрел заблокирован
+        }
+        
+        // Устанавливаем перезарядку только если выстрел не заблокирован
+        this.isReloading = true;
+        setTimeout(() => { this.isReloading = false; }, this.cooldown);
         
         // Вражеские танки используют стандартную пушку по умолчанию with 3D positioning
         this.soundManager.playShoot("standard", muzzlePos);
