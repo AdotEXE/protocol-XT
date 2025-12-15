@@ -1,9 +1,12 @@
+import { inject } from '@vercel/analytics';
 import { Game } from './game';
 import './styles/responsive.css';
 import { injectSpeedInsights } from '@vercel/speed-insights';
 
 console.log('Protocol TX Client Starting...');
 
+// Initialize Vercel Web Analytics
+inject();
 // Initialize Vercel Speed Insights (client-side only)
 injectSpeedInsights();
 
