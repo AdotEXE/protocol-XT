@@ -10,48 +10,39 @@ import { CurrencyManager } from "./currencyManager";
 import { logger } from "./utils/logger";
 
 // Version tracking
+// Версия генерируется во время сборки и одинакова для всех пользователей
 const VERSION_MAJOR = 0;
 const VERSION_MINOR = 3;
-let buildNumber = parseInt(localStorage.getItem("ptx_build") || "0");
-const previousBuildNumber = buildNumber;
 
-// Автоматическое обновление buildNumber при каждом запуске
-// Если версия не изменилась (тот же день), увеличиваем buildNumber
-const today = new Date().toDateString();
-const lastBuildDate = localStorage.getItem("ptx_build_date");
-if (lastBuildDate !== today) {
-    // Новый день - сбрасываем или увеличиваем buildNumber
-    buildNumber += 1;
-    localStorage.setItem("ptx_build_date", today);
-} else {
-    // Тот же день - увеличиваем buildNumber для новой сборки
-    buildNumber += 1;
+// Время сборки и commit hash внедряются во время сборки через Vite define
+// В dev режиме используем текущее время
+declare const __BUILD_TIME__: string | undefined;
+declare const __COMMIT_HASH__: string | undefined;
+
+const BUILD_TIME = typeof __BUILD_TIME__ !== 'undefined' 
+    ? __BUILD_TIME__ 
+    : (() => {
+        const date = new Date();
+        const year = String(date.getFullYear()).slice(-2);
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        const seconds = String(date.getSeconds()).padStart(2, '0');
+        return `[${day}.${month}.${year} ${hours}:${minutes}:${seconds}]`;
+    })();
+
+const COMMIT_HASH = typeof __COMMIT_HASH__ !== 'undefined' ? __COMMIT_HASH__ : 'dev';
+
+// Используем первые 4 символа commit hash как build number (конвертируем hex в число)
+// Для dev режима используем 0
+let buildNumber = 0;
+if (COMMIT_HASH !== 'dev' && COMMIT_HASH.length >= 4) {
+    // Берем первые 4 символа и конвертируем из hex в число, затем берем остаток от 10000
+    buildNumber = parseInt(COMMIT_HASH.substring(0, 4), 16) % 10000;
 }
 
-// Timestamp для отображения времени выпуска версии
-// Обновляем только если buildNumber изменился
-const formatTimestamp = (date: Date): string => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    const seconds = String(date.getSeconds()).padStart(2, '0');
-    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-};
-
-let BUILD_TIME: string;
-if (buildNumber !== previousBuildNumber) {
-    // Новая версия - сохраняем текущее время
-    BUILD_TIME = formatTimestamp(new Date());
-    localStorage.setItem("ptx_build_time", BUILD_TIME);
-    localStorage.setItem("ptx_build", buildNumber.toString());
-} else {
-    // Используем сохраненное время выпуска версии
-    BUILD_TIME = localStorage.getItem("ptx_build_time") || formatTimestamp(new Date());
-}
-
-const VERSION = `v${VERSION_MAJOR}.${VERSION_MINOR}.${buildNumber} (${BUILD_TIME})`;
+const VERSION = `v${VERSION_MAJOR}.${VERSION_MINOR}.${buildNumber} ${BUILD_TIME}`;
 
 // Debug flag - можно включить через localStorage.setItem("debug", "true")
 const DEBUG = localStorage.getItem("debug") === "true" || false;
@@ -95,7 +86,7 @@ const LANG = {
         options: "НАСТРОЙКИ",
         controls: "УПРАВЛЕНИЕ",
         version: "Версия",
-        tankCombat: "ТАНКОВЫЙ БОЙ",
+        tankCombat: "ТАНКОВЫЙ СИМУЛЯТОР",
         mapSelection: "ВЫБОР КАРТЫ",
         normalMap: "Эта самая карта",
         normalMapDesc: "Полностью случайная генерация с разнообразными биомами, дорогами и природой",
@@ -196,7 +187,7 @@ const LANG = {
         options: "OPTIONS",
         controls: "CONTROLS",
         version: "Version",
-        tankCombat: "TANK COMBAT",
+        tankCombat: "TANK SIMULATOR",
         mapSelection: "MAP SELECTION",
         normalMap: "Normal Map",
         normalMapDesc: "Fully random generation with diverse biomes, roads and nature",
@@ -320,14 +311,17 @@ export class MainMenu {
     private mapSelectionPanel!: HTMLDivElement;
     private playMenuPanel!: HTMLDivElement;
     private onStartGame: (mapType?: MapType) => void = () => {};
+    private onRestartGame: () => void = () => {};
+    private onExitBattle: () => void = () => {};
     private selectedGameMode: string = "";
     private selectedMapType: MapType | null = null;
     private selectedChassis: string = "";
     private selectedCannon: string = "";
     private ownedChassisIds: Set<string> = new Set();
     private ownedCannonIds: Set<string> = new Set();
+    // @ts-expect-error - используется в setPlayStep() и через события
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    private currentPlayStep: number = 0; // Используется в setPlayStep() и через события
+    private currentPlayStep: number = 0;
     private onPlayIntroSound: () => void = () => {};
     private settings!: GameSettings;
     private tankConfig!: TankConfig;
@@ -607,7 +601,13 @@ export class MainMenu {
         }
         
         this.playerProgression = progression;
-        this.updatePlayerInfo();
+        // Немедленное обновление при первой установке (без анимации)
+        this.updatePlayerInfo(true);
+        
+        // Также обновляем через небольшую задержку для гарантии (на случай если DOM еще не готов)
+        setTimeout(() => {
+            this.updatePlayerInfo(true);
+        }, 100);
         
         // Обновляем панель навыков, если она видима
         if (this.skillsPanel && this.skillsPanel.classList.contains("visible")) {
@@ -666,8 +666,11 @@ export class MainMenu {
                 <div class="menu-header">
                     <div class="logo-text">PROTOCOL <span class="accent">TX</span></div>
                     <div class="menu-subtitle">${L.tankCombat}</div>
+                    <div class="version">${VERSION}</div>
                 </div>
                 
+                <!-- Scrollable область от блока опыта до блока управления -->
+                <div class="menu-scrollable">
                 <div class="player-card" id="player-info">
                     <div class="player-level-row">
                         <div class="level-badge" id="level-badge">1</div>
@@ -686,14 +689,36 @@ export class MainMenu {
                 </div>
                 
                 <div class="menu-buttons">
-                    <button class="menu-btn play-btn" id="btn-play">
-                        <span class="btn-icon">▶</span>
-                        <span class="btn-label">${L.play || "ИГРАТЬ"}</span>
-                    </button>
-                    <button class="menu-btn secondary" id="btn-quick-start">
-                        <span class="btn-icon">⚡</span>
-                        <span class="btn-label">${L.quickStart || "БЫСТРЫЙ СТАРТ"}</span>
-                    </button>
+                    <!-- Кнопки для паузы (видны только во время игры) -->
+                    <div class="pause-buttons" id="pause-buttons" style="display: none;">
+                        <div class="btn-row">
+                            <button class="menu-btn secondary" id="btn-resume">
+                                <span class="btn-icon">▶</span>
+                                <span class="btn-label">ПРОДОЛЖИТЬ</span>
+                            </button>
+                            <button class="menu-btn secondary" id="btn-restart">
+                                <span class="btn-icon">🔄</span>
+                                <span class="btn-label">ПЕРЕЗАГРУЗИТЬ</span>
+                            </button>
+                            <button class="menu-btn danger" id="btn-exit-battle">
+                                <span class="btn-icon">🚪</span>
+                                <span class="btn-label">ВЫЙТИ ИЗ БОЯ</span>
+                            </button>
+                        </div>
+                    </div>
+                    <!-- Кнопки для главного меню (видны только когда игра не запущена) -->
+                    <div class="main-buttons" id="main-buttons">
+                        <div class="btn-row">
+                            <button class="menu-btn play-btn" id="btn-play">
+                                <span class="btn-icon">▶</span>
+                                <span class="btn-label">${L.play || "ИГРАТЬ"}</span>
+                            </button>
+                            <button class="menu-btn secondary" id="btn-quick-start">
+                                <span class="btn-icon">⚡</span>
+                                <span class="btn-label">${L.quickStart || "БЫСТРЫЙ СТАРТ"}</span>
+                            </button>
+                        </div>
+                    </div>
                     <div class="btn-row">
                         <button class="menu-btn secondary" id="btn-garage">
                             <span class="btn-icon">⚙</span>
@@ -853,8 +878,8 @@ export class MainMenu {
                             </div>
                         </div>
                     </div>
-                    <div class="version">${VERSION}</div>
                 </div>
+                </div><!-- Конец .menu-scrollable -->
             </div>
         `;
         
@@ -957,31 +982,43 @@ export class MainMenu {
                 display: flex;
                 flex-direction: column;
                 gap: clamp(8px, 1.5vh, 15px);
-                overflow-y: auto;
+                overflow: hidden; /* Убрали scroll с основного контента */
                 pointer-events: auto !important;
             }
             
-            .menu-content,
+            /* Scrollable область: от блока опыта до блока управления */
+            .menu-scrollable {
+                display: flex;
+                flex-direction: column;
+                gap: clamp(8px, 1.5vh, 15px);
+                overflow-y: auto;
+                flex: 1;
+                min-height: 0; /* Важно для flex scroll */
+                margin-right: -15px; /* Сдвигаем скроллбар правее */
+                padding-right: 15px; /* Компенсируем отступ для контента */
+            }
+            
+            .menu-scrollable,
             .panel-content,
             .skill-tree-wrapper {
                 scrollbar-width: thin;
                 scrollbar-color: #0f0 rgba(0,255,80,0.08);
             }
             
-            .menu-content::-webkit-scrollbar,
+            .menu-scrollable::-webkit-scrollbar,
             .panel-content::-webkit-scrollbar,
             .skill-tree-wrapper::-webkit-scrollbar {
                 width: clamp(6px, 0.5vw, 8px);
                 height: clamp(6px, 0.5vw, 8px);
             }
             
-            .menu-content::-webkit-scrollbar-track,
+            .menu-scrollable::-webkit-scrollbar-track,
             .panel-content::-webkit-scrollbar-track,
             .skill-tree-wrapper::-webkit-scrollbar-track {
                 background: rgba(0,255,80,0.05);
             }
             
-            .menu-content::-webkit-scrollbar-thumb,
+            .menu-scrollable::-webkit-scrollbar-thumb,
             .panel-content::-webkit-scrollbar-thumb,
             .skill-tree-wrapper::-webkit-scrollbar-thumb {
                 background: linear-gradient(180deg, #0f0, #6f6);
@@ -1010,7 +1047,7 @@ export class MainMenu {
                 color: #0f0;
                 letter-spacing: clamp(2px, 0.3vw, 4px);
                 margin-bottom: clamp(4px, 0.8vh, 8px);
-                text-shadow: 0 0 10px #0f0, 0 0 20px #0f0;
+                text-shadow: 0 0 6px #0f0, 0 0 10px #0f0;
             }
             
             .logo-text .accent {
@@ -1102,11 +1139,23 @@ export class MainMenu {
                 flex-direction: column;
                 gap: 10px;
                 margin-bottom: 15px;
+                width: 100%;
+            }
+            
+            .main-buttons,
+            .pause-buttons {
+                width: 100%;
             }
             
             .btn-row {
                 display: flex;
                 gap: 10px;
+                width: 100%;
+            }
+            
+            .btn-row .menu-btn {
+                flex: 1 1 0; /* Равное распределение ширины */
+                min-width: 0; /* Позволяет сжиматься */
             }
             
             .menu-btn {
@@ -1139,8 +1188,7 @@ export class MainMenu {
             }
             
             .menu-btn.play-btn {
-                padding: clamp(12px, 2vh, 18px) clamp(18px, 2.5vw, 24px);
-                font-size: clamp(12px, 1.5vw, 14px);
+                /* Размеры такие же как у других кнопок для симметрии */
                 box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
             }
             
@@ -1176,6 +1224,7 @@ export class MainMenu {
             .menu-footer {
                 color: #0f0;
                 font-size: 8px;
+                margin-bottom: 0; /* Убираем отступ снизу */
             }
             
             .controls-panel {
@@ -1247,9 +1296,11 @@ export class MainMenu {
             }
             
             .version {
-                color: #080;
-                font-size: 8px;
-                margin-top: 10px;
+                color: #0a0;
+                font-size: 7px;
+                margin-top: 4px;
+                text-align: center;
+                opacity: 0.8;
             }
             
             /* Panels */
@@ -1648,6 +1699,19 @@ export class MainMenu {
             .panel-btn.primary:hover {
                 background: #0a0;
                 color: #0f0;
+            }
+            
+            .menu-btn.danger {
+                background: linear-gradient(135deg, #ff4444 0%, #cc0000 100%);
+                border: 2px solid #ff6666;
+                color: #fff;
+            }
+            
+            .menu-btn.danger:hover {
+                background: linear-gradient(135deg, #ff6666 0%, #ff0000 100%);
+                border-color: #ff8888;
+                transform: translateY(-2px);
+                box-shadow: 0 8px 20px rgba(255, 68, 68, 0.4);
             }
             
             .panel-btn.danger {
@@ -2094,7 +2158,10 @@ export class MainMenu {
                 { id: "btn-skills", handler: () => this.showSkills() },
                 { id: "btn-stats", handler: () => this.showStats() },
                 { id: "btn-settings", handler: () => this.showSettings() },
-                { id: "btn-fullscreen", handler: () => this.toggleFullscreen() }
+                { id: "btn-fullscreen", handler: () => this.toggleFullscreen() },
+                { id: "btn-resume", handler: () => this.resumeGame() },
+                { id: "btn-restart", handler: () => this.restartGame() },
+                { id: "btn-exit-battle", handler: () => this.exitBattle() }
             ];
             
             buttons.forEach(({ id, handler }) => {
@@ -2326,6 +2393,23 @@ export class MainMenu {
                     debugLog("[Menu] Showing settings");
                     this.showSettings();
                     break;
+                case "btn-fullscreen":
+                    debugLog("[Menu] Toggle fullscreen");
+                    this.toggleFullscreen();
+                    break;
+                // === КНОПКИ ПАУЗЫ ===
+                case "btn-resume":
+                    debugLog("[Menu] Resume game");
+                    this.resumeGame();
+                    break;
+                case "btn-restart":
+                    debugLog("[Menu] Restart game");
+                    this.restartGame();
+                    break;
+                case "btn-exit-battle":
+                    debugLog("[Menu] Exit battle");
+                    this.exitBattle();
+                    break;
             }
             
             // Еще раз блокируем canvas после показа панели (с небольшой задержкой для надежности)
@@ -2376,7 +2460,7 @@ export class MainMenu {
         (this.container as any)._menuMouseUpHandler = handleMouseUp;
     }
     
-    private updatePlayerInfo(): void {
+    private updatePlayerInfo(immediate: boolean = false): void {
         if (!this.playerProgression) return;
         
         const stats = this.playerProgression.getStats();
@@ -2385,20 +2469,27 @@ export class MainMenu {
         const levelBadge = document.getElementById("level-badge");
         if (levelBadge) levelBadge.textContent = stats.level.toString();
         
-        // Плавная анимация XP-бара
+        // Плавная анимация XP-бара (или немедленное обновление)
         const xpBar = document.getElementById("xp-bar") as HTMLElement;
         if (xpBar) {
             const targetPercent = xpProgress.percent;
-            const currentPercent = parseFloat(xpBar.style.width) || 0;
             
-            // Плавная интерполяция к целевому значению
-            if (Math.abs(targetPercent - currentPercent) > 0.1) {
-                const diff = targetPercent - currentPercent;
-                const newPercent = currentPercent + diff * 0.15; // Плавное приближение
-                xpBar.style.width = `${Math.max(0, Math.min(100, newPercent))}%`;
-                xpBar.style.transition = "width 0.1s linear"; // Плавная анимация
-            } else {
+            if (immediate) {
+                // Немедленное обновление без анимации (при первой загрузке)
                 xpBar.style.width = `${targetPercent}%`;
+                xpBar.style.transition = "none";
+            } else {
+                const currentPercent = parseFloat(xpBar.style.width) || 0;
+                
+                // Плавная интерполяция к целевому значению
+                if (Math.abs(targetPercent - currentPercent) > 0.1) {
+                    const diff = targetPercent - currentPercent;
+                    const newPercent = currentPercent + diff * 0.15; // Плавное приближение
+                    xpBar.style.width = `${Math.max(0, Math.min(100, newPercent))}%`;
+                    xpBar.style.transition = "width 0.1s linear"; // Плавная анимация
+                } else {
+                    xpBar.style.width = `${targetPercent}%`;
+                }
             }
         }
         
@@ -2426,6 +2517,13 @@ export class MainMenu {
     }
     
     private startAnimations(): void {
+        // Первое немедленное обновление при старте (если playerProgression уже установлен)
+        if (this.playerProgression) {
+            setTimeout(() => {
+                this.updatePlayerInfo(true);
+            }, 0);
+        }
+        
         // Периодическое обновление статистики в реальном времени (каждые 100мс для плавной анимации XP-бара)
         setInterval(() => {
             if (this.playerProgression) {
@@ -2511,6 +2609,13 @@ export class MainMenu {
                         <div class="setting-row">
                             <span class="setting-label">Помощь при прицеливании</span>
                             <input type="checkbox" class="setting-checkbox" id="set-aim-assist" ${this.settings.aimAssist ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Размер интерфейса</span>
+                            <div class="setting-value">
+                                <input type="range" class="setting-range" id="set-ui-scale" min="50" max="150" step="5" value="${Math.round((this.settings.uiScale || 1) * 100)}">
+                                <span id="set-ui-scale-val">${Math.round((this.settings.uiScale || 1) * 100)}%</span>
+                            </div>
                         </div>
                     </div>
                     
@@ -2934,6 +3039,7 @@ export class MainMenu {
         setupSlider("set-camera-fov", "set-camera-fov-val");
         setupSlider("set-camera-smoothing", "set-camera-smoothing-val");
         setupSlider("set-camera-shake-intensity", "set-camera-shake-intensity-val");
+        setupSlider("set-ui-scale", "set-ui-scale-val", "%");
         setupSlider("set-aim-fov", "set-aim-fov-val");
         setupSlider("set-master-volume", "set-master-volume-val", "%");
         setupSlider("set-ambient-volume", "set-ambient-volume-val", "%");
@@ -3903,8 +4009,9 @@ export class MainMenu {
         }
     }
     
+    // @ts-expect-error - используется через обработчики событий
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    private showMapSelection(): void { // Используется через обработчики событий
+    private showMapSelection(): void {
         debugLog("[Menu] showMapSelection() called");
         debugLog("[Menu] mapSelectionPanel exists:", !!this.mapSelectionPanel);
         if (this.mapSelectionPanel) {
@@ -4121,15 +4228,17 @@ export class MainMenu {
         }
     }
     
+    // @ts-expect-error - deprecated метод для совместимости
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    private initializeGarage(): void { // Используется через обработчики событий
+    private initializeGarage(): void {
         // Garage is already initialized in constructor
         // This method is kept for compatibility
         debugLog("[Menu] Garage already initialized");
     }
     
+    // @ts-expect-error - deprecated метод для совместимости
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    private hideGarage(): void { // Используется через обработчики событий
+    private hideGarage(): void {
         // Старый метод для совместимости, но теперь гараж закрывается через свой callback
         debugLog("[Menu] hideGarage() called (deprecated, garage closes via its own callback)");
         if (this.garage && this.garage.isGarageOpen()) {
@@ -4142,8 +4251,9 @@ export class MainMenu {
         }
     }
     
+    // @ts-expect-error - используется через обработчики событий
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    private saveTankConfig(): void { // Используется через обработчики событий
+    private saveTankConfig(): void {
         localStorage.setItem("tankConfig", JSON.stringify(this.tankConfig));
         window.dispatchEvent(new CustomEvent("tankConfigChanged", { detail: this.tankConfig }));
     }
@@ -4273,6 +4383,21 @@ export class MainMenu {
         this.onStartGame = callback;
     }
     
+    // Метод для программного запуска игры (используется для автозапуска после рестарта)
+    triggerStartGame(mapType: MapType): void {
+        debugLog(`[Menu] Triggering start game with map: ${mapType}`);
+        this.hide();
+        this.onStartGame(mapType);
+    }
+    
+    setOnRestartGame(callback: () => void): void {
+        this.onRestartGame = callback;
+    }
+    
+    setOnExitBattle(callback: () => void): void {
+        this.onExitBattle = callback;
+    }
+    
     setOnPlayIntroSound(callback: () => void): void {
         this.onPlayIntroSound = callback;
     }
@@ -4285,11 +4410,19 @@ export class MainMenu {
         return this.tankConfig;
     }
     
-    show(): void {
+    show(isPaused: boolean = false): void {
         debugLog("[Menu] show() called");
         this.container.classList.remove("hidden");
         document.body.classList.add("menu-visible");
-        this.updatePlayerInfo();
+        // Немедленное обновление при показе меню (без анимации для первой загрузки)
+        this.updatePlayerInfo(true);
+        // Также обновляем через небольшую задержку для гарантии
+        setTimeout(() => {
+            this.updatePlayerInfo(true);
+        }, 50);
+        
+        // Показываем/скрываем кнопки в зависимости от того, на паузе ли игра
+        this.updatePauseButtons(isPaused);
         
         // КРИТИЧЕСКИ ВАЖНО: Блокируем canvas СРАЗУ
         const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
@@ -4307,6 +4440,10 @@ export class MainMenu {
         // Переустанавливаем прямые обработчики на кнопки
         setTimeout(() => {
             this.attachDirectButtonHandlers();
+            // Если на паузе - дополнительно прикрепляем обработчики к кнопкам паузы
+            if (isPaused) {
+                this.attachPauseButtonHandlers();
+            }
         }, 50);
         
         // Принудительно блокируем pointer-events на canvas МНОЖЕСТВЕННО
@@ -4321,6 +4458,190 @@ export class MainMenu {
         window.dispatchEvent(new CustomEvent("menuVisibilityChanged", { detail: { visible: true } }));
         
         debugLog("[Menu] Menu shown, handlers reinstalled, canvas should be blocked");
+    }
+    
+    private updatePauseButtons(isPaused: boolean): void {
+        const pauseButtons = document.getElementById("pause-buttons");
+        const mainButtons = document.getElementById("main-buttons");
+        
+        if (pauseButtons) {
+            pauseButtons.style.display = isPaused ? "block" : "none";
+        }
+        if (mainButtons) {
+            mainButtons.style.display = isPaused ? "none" : "block";
+        }
+        
+        // Если показываем кнопки паузы, нужно перепривязать обработчики
+        if (isPaused) {
+            setTimeout(() => {
+                this.attachPauseButtonHandlers();
+                debugLog("[Menu] Pause button handlers reattached");
+            }, 100);
+        }
+    }
+    
+    private attachPauseButtonHandlers(): void {
+        // Прямое прикрепление обработчиков к кнопкам паузы
+        const resumeBtn = document.getElementById("btn-resume") as HTMLButtonElement;
+        const restartBtn = document.getElementById("btn-restart") as HTMLButtonElement;
+        const exitBtn = document.getElementById("btn-exit-battle") as HTMLButtonElement;
+        const pauseContainer = document.getElementById("pause-buttons");
+        
+        // КРИТИЧЕСКИ ВАЖНО: Убеждаемся, что контейнер и кнопки кликабельны
+        if (pauseContainer) {
+            pauseContainer.style.setProperty("pointer-events", "auto", "important");
+            pauseContainer.style.setProperty("z-index", "10000", "important");
+            pauseContainer.style.setProperty("position", "relative", "important");
+        }
+        
+        const setupButton = (btn: HTMLButtonElement | null, name: string, handler: () => void) => {
+            if (!btn) return;
+            
+            // Принудительно делаем кнопку кликабельной
+            btn.style.setProperty("pointer-events", "auto", "important");
+            btn.style.setProperty("cursor", "pointer", "important");
+            btn.style.setProperty("z-index", "10001", "important");
+            btn.disabled = false;
+            
+            // Удаляем старые обработчики
+            btn.onclick = null;
+            
+            // Добавляем обработчик только через onclick (не дублируем!)
+            btn.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                debugLog(`[Menu] ${name} button clicked`);
+                handler();
+            };
+            
+            debugLog(`[Menu] ${name} button setup complete`);
+        };
+        
+        setupButton(resumeBtn, "Resume", () => this.resumeGame());
+        setupButton(restartBtn, "Restart", () => this.restartGame());
+        setupButton(exitBtn, "Exit", () => this.exitBattle());
+        
+        debugLog("[Menu] Pause button handlers attached directly:", {
+            resume: !!resumeBtn,
+            restart: !!restartBtn,
+            exit: !!exitBtn,
+            container: !!pauseContainer
+        });
+    }
+    
+    private resumeGame(): void {
+        window.dispatchEvent(new CustomEvent("resumeGame"));
+        this.hide();
+    }
+    
+    private restartGame(): void {
+        debugLog("[Menu] Restart game requested");
+        this.showConfirmDialog(
+            "🔄 ПЕРЕЗАГРУЗИТЬ",
+            "Перезагрузить игру на этой карте?",
+            () => {
+                this.onRestartGame();
+                this.hide();
+            }
+        );
+    }
+    
+    private exitBattle(): void {
+        debugLog("[Menu] Exit battle requested");
+        this.showConfirmDialog(
+            "🚪 ВЫЙТИ ИЗ БОЯ",
+            "Вы уверены, что хотите выйти?",
+            () => {
+                this.onExitBattle();
+                this.hide();
+            }
+        );
+    }
+    
+    private showConfirmDialog(title: string, message: string, onConfirm: () => void): void {
+        // Создаём оверлей
+        const overlay = document.createElement("div");
+        overlay.className = "confirm-dialog-overlay";
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100000;
+        `;
+        
+        // Создаём диалог
+        const dialog = document.createElement("div");
+        dialog.className = "confirm-dialog";
+        dialog.style.cssText = `
+            background: linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%);
+            border: 2px solid #0f0;
+            border-radius: 10px;
+            padding: 30px 40px;
+            text-align: center;
+            font-family: 'Press Start 2P', monospace;
+            box-shadow: 0 0 30px rgba(0, 255, 0, 0.3);
+            min-width: 350px;
+        `;
+        
+        dialog.innerHTML = `
+            <h2 style="color: #0f0; margin: 0 0 20px 0; font-size: 18px;">${title}</h2>
+            <p style="color: #aaa; margin: 0 0 30px 0; font-size: 12px;">${message}</p>
+            <div style="display: flex; gap: 20px; justify-content: center;">
+                <button id="confirm-yes" style="
+                    background: #0f0;
+                    color: #000;
+                    border: none;
+                    padding: 12px 30px;
+                    font-family: inherit;
+                    font-size: 12px;
+                    cursor: pointer;
+                    border-radius: 5px;
+                ">ДА</button>
+                <button id="confirm-no" style="
+                    background: #333;
+                    color: #fff;
+                    border: 1px solid #666;
+                    padding: 12px 30px;
+                    font-family: inherit;
+                    font-size: 12px;
+                    cursor: pointer;
+                    border-radius: 5px;
+                ">НЕТ</button>
+            </div>
+        `;
+        
+        overlay.appendChild(dialog);
+        document.body.appendChild(overlay);
+        
+        // Обработчики кнопок
+        const yesBtn = dialog.querySelector("#confirm-yes") as HTMLButtonElement;
+        const noBtn = dialog.querySelector("#confirm-no") as HTMLButtonElement;
+        
+        const closeDialog = () => {
+            overlay.remove();
+        };
+        
+        yesBtn.onclick = () => {
+            closeDialog();
+            onConfirm();
+        };
+        
+        noBtn.onclick = closeDialog;
+        overlay.onclick = (e) => {
+            if (e.target === overlay) closeDialog();
+        };
+        
+        // Hover эффекты
+        yesBtn.onmouseenter = () => { yesBtn.style.background = "#0c0"; };
+        yesBtn.onmouseleave = () => { yesBtn.style.background = "#0f0"; };
+        noBtn.onmouseenter = () => { noBtn.style.background = "#444"; };
+        noBtn.onmouseleave = () => { noBtn.style.background = "#333"; };
     }
     
     isVisible(): boolean {

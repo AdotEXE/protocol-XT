@@ -1,7 +1,39 @@
 import { defineConfig } from 'vite';
 import path from 'path';
+import { execSync } from 'child_process';
+
+// Генерируем версию во время сборки
+function getBuildVersion() {
+  const now = new Date();
+  const year = String(now.getFullYear()).slice(-2);
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+  const buildTime = `[${day}.${month}.${year} ${hours}:${minutes}:${seconds}]`;
+  
+  // Получаем git commit hash (если доступен)
+  let commitHash = 'unknown';
+  try {
+    commitHash = execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim();
+  } catch (e) {
+    // Git не доступен (например, в CI/CD)
+  }
+  
+  return {
+    buildTime,
+    commitHash,
+  };
+}
+
+const buildInfo = getBuildVersion();
 
 export default defineConfig({
+  define: {
+    __BUILD_TIME__: JSON.stringify(buildInfo.buildTime),
+    __COMMIT_HASH__: JSON.stringify(buildInfo.commitHash),
+  },
   resolve: {
     alias: {
       '@client': path.resolve(__dirname, './src/client'),
