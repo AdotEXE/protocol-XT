@@ -1,0 +1,43 @@
+warning: in the working copy of 'src/client/currencyManager.ts', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'src/client/garage/cannonDetails.ts', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'src/client/missionSystem.ts', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'src/client/playerStats.ts', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'src/client/soundPatterns.ts', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'src/client/styles/responsive.css', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'src/client/tank/tankAbilities.ts', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'src/client/trackTypes.ts', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'src/client/utils/uiScale.ts', CRLF will be replaced by LF the next time Git touches it
+.cursor/plans/functional_poi_system_a3777f9e.plan.md
+PROJECT_REPORT.md
+PROJECT_STRUCTURE.md
+QUICKSTART.md
+SYSTEMS_OPTIMIZATION.md
+src/client/achievements.ts
+src/client/currencyManager.ts
+src/client/debugDashboard.ts
+src/client/effects.ts
+src/client/experienceSystem.ts
+src/client/game.ts
+src/client/garage.ts
+src/client/garage/cannonDetails.ts
+src/client/garage/chassisDetails.ts
+src/client/garage/preview.ts
+src/client/hud.ts
+src/client/menu/settings.ts
+src/client/missionSystem.ts
+src/client/multiplayer.ts
+src/client/physicsPanel.ts
+src/client/playerProgression.ts
+src/client/playerStats.ts
+src/client/roadNetwork.ts
+src/client/soundPatterns.ts
+src/client/styles/responsive.css
+src/client/tank/tankAbilities.ts
+src/client/tank/tankCannon.ts
+src/client/tank/tankChassis.ts
+src/client/tank/tankHealth.ts
+src/client/tank/tankShooting.ts
+src/client/tank/tankSpecialAbilities.ts
+src/client/tankTypes.ts
+src/client/trackTypes.ts
+src/client/utils/uiScale.ts

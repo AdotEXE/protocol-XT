@@ -1,0 +1,6 @@
+* [33m2752b89[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Fix version generation: use build-time version instead of localStorage
+[31m|[m * [33m6694337[m[33m ([m[1;31morigin/vercel/vercel-speed-insights-integrat-l66bwe[m[33m)[m Add Vercel Speed Insights integration
+[31m|[m[31m/[m  
+* [33me716329[m Fix tank physics: remove turret/barrel physics bodies and add barrel obstacle check
+* [33mfe47996[m Fix tank physics: remove obstacle climbing, improve hover system, add ground clamping
+* [33m33bfe01[m Исправление критических ошибок TypeScript: Vector3 импорт, ShellCasing, metallicFactor, cannonAnimationElements, previewScene
