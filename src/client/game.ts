@@ -620,17 +620,75 @@ export class Game {
                 return;
             }
             
-            // Скриншот (F2)
+            // === ФУНКЦИОНАЛЬНЫЕ КЛАВИШИ F1-F7 ===
+            // Обрабатываем ПЕРЕД другими обработчиками чтобы не блокировались
+            
+            // F2: Скриншот
             if (e.code === "F2" && this.gameStarted) {
                 e.preventDefault();
+                e.stopPropagation();
                 this.takeScreenshot();
                 return;
             }
             
-            // Показать/скрыть System Terminal (F5)
+            // F3: Debug Dashboard
+            if (e.code === "F3" && this.gameStarted) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (this.debugDashboard) {
+                    // DebugDashboard использует свой собственный обработчик, но можем переключить напрямую
+                    const container = (this.debugDashboard as any).container;
+                    if (container) {
+                        const isVisible = !container.classList.contains("hidden") && container.style.display !== "none";
+                        if (isVisible) {
+                            container.classList.add("hidden");
+                            container.style.display = "none";
+                            (this.debugDashboard as any).visible = false;
+                        } else {
+                            container.classList.remove("hidden");
+                            container.style.display = "";
+                            (this.debugDashboard as any).visible = true;
+                        }
+                    }
+                }
+                return;
+            }
+            
+            // F4: Physics Panel
+            if (e.code === "F4" && this.gameStarted) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (this.physicsPanel && typeof this.physicsPanel.toggle === 'function') {
+                    this.physicsPanel.toggle();
+                }
+                return;
+            }
+            
+            // F5: System Terminal
             if (e.code === "F5" && this.chatSystem) {
                 e.preventDefault();
+                e.stopPropagation();
                 this.chatSystem.toggleTerminal();
+                return;
+            }
+            
+            // F6: Session Settings
+            if (e.code === "F6" && this.gameStarted) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (this.sessionSettings && typeof (this.sessionSettings as any).toggle === 'function') {
+                    (this.sessionSettings as any).toggle();
+                }
+                return;
+            }
+            
+            // F7: Cheat Menu
+            if (e.code === "F7" && this.gameStarted) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (this.cheatMenu && typeof this.cheatMenu.toggle === 'function') {
+                    this.cheatMenu.toggle();
+                }
                 return;
             }
             
@@ -4641,6 +4699,7 @@ export class Game {
     targetAimPitch = 0; // Целевой угол вертикального прицеливания (для плавной интерполяции)
     targetAimYaw = 0; // Целевой угол горизонтального прицеливания (для плавной интерполяции)
     isPointerLocked = false; // Флаг блокировки указателя
+    private altKeyPressed = false; // Флаг зажатия Alt для pointer lock
     aimYaw = 0; // Горизонтальный поворот прицела
     aimPitch = 0; // Вертикальный поворот прицела
     
@@ -4714,6 +4773,23 @@ export class Game {
                 this.isFreeLook = true;
             }
             
+            // === ALT = ВКЛЮЧЕНИЕ POINTER LOCK (игровой курсор) ===
+            if ((evt.code === "AltLeft" || evt.code === "AltRight") && !this.altKeyPressed) {
+                // Проверяем что игра запущена, не на паузе, и не открыты меню
+                if (this.gameStarted && !this.isPaused && 
+                    (!this.garage || !this.garage.isGarageOpen()) &&
+                    (!this.mainMenu || !this.mainMenu.isVisible())) {
+                    this.altKeyPressed = true;
+                    evt.preventDefault(); // Предотвращаем контекстное меню браузера
+                    const canvas = this.scene.getEngine().getRenderingCanvas() as HTMLCanvasElement;
+                    if (canvas && document.pointerLockElement !== canvas) {
+                        canvas.requestPointerLock().catch(err => {
+                            logger.warn("[Game] Failed to request pointer lock on Alt:", err);
+                        });
+                    }
+                }
+            }
+            
             // G key handled in main keydown listener (constructor)
             // ESC to close garage handled in main keydown listener
         });
@@ -4729,6 +4805,15 @@ export class Game {
             if (evt.code === "Tab" && this.gameStarted) {
                 evt.preventDefault();
                 this.hideStatsOverlay();
+            }
+            
+            // === ОТПУСТИЛИ ALT - выход из pointer lock ===
+            if ((evt.code === "AltLeft" || evt.code === "AltRight") && this.altKeyPressed) {
+                this.altKeyPressed = false;
+                const canvas = this.scene.getEngine().getRenderingCanvas() as HTMLCanvasElement;
+                if (document.pointerLockElement === canvas) {
+                    document.exitPointerLock();
+                }
             }
         });
         

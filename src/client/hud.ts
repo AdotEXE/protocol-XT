@@ -306,7 +306,13 @@ export class HUD {
         this.createTutorial();         // Система туториала
         this.createArsenalBlock();     // Блок АРСЕНАЛ (5 слотов для снарядов)
         this.createTankStatusBlock();  // Блок состояния танка (слева от радара)
+        this._createActiveEffectsDisplay(); // Слоты активных эффектов справа от модулей
         this._createFPSCounter();      // FPS счётчик
+        
+        // Инициализируем значения блока состояния (если есть начальные значения)
+        if (this.tankStatusContainer && this.currentHealth > 0 && this.maxHealth > 0) {
+            this.updateTankStatus(this.currentHealth, this.maxHealth, this.currentFuel, this.maxFuel, this.currentArmor);
+        }
         
         // Убеждаемся, что прицел скрыт по умолчанию
         this.setAimMode(false);
@@ -3224,18 +3230,20 @@ export class HUD {
         this.deathScreen.zIndex = 500;
         this.guiTexture.addControl(this.deathScreen);
         
-        // Заголовок DESTROYED
+        // Заголовок DESTROYED - используем CENTER alignment
         const title = new TextBlock("deathTitle");
         title.text = "💀 DESTROYED 💀";
         title.color = "#ff0000";
         title.fontSize = 48;
         title.fontWeight = "bold";
         title.fontFamily = "'Press Start 2P', monospace";
-        title.top = "-120px";
+        title.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        title.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        title.top = "-150px"; // Выше центра
         title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.deathScreen.addControl(title);
         
-        // Контейнер для статистики
+        // Контейнер для статистики - используем CENTER alignment
         this.deathStatsContainer = new Rectangle("deathStats");
         this.deathStatsContainer.width = "400px";
         this.deathStatsContainer.height = "200px";
@@ -3243,7 +3251,9 @@ export class HUD {
         this.deathStatsContainer.thickness = 2;
         this.deathStatsContainer.color = "#f00";
         this.deathStatsContainer.cornerRadius = 10;
-        this.deathStatsContainer.top = "20px";
+        this.deathStatsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.deathStatsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.deathStatsContainer.top = "0px"; // По центру
         this.deathScreen.addControl(this.deathStatsContainer);
         
         // Заголовок статистики
@@ -3252,49 +3262,58 @@ export class HUD {
         statsTitle.color = "#ff6666";
         statsTitle.fontSize = 16;
         statsTitle.fontFamily = "'Press Start 2P', monospace";
-        statsTitle.top = "-70px";
+        statsTitle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        statsTitle.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        statsTitle.top = "-80px"; // Относительно контейнера
+        statsTitle.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.deathStatsContainer.addControl(statsTitle);
         
-        // Убийства
+        // Убийства - используем CENTER alignment
         this.deathKillsText = new TextBlock("deathKills");
         this.deathKillsText.text = "☠ Kills: 0";
         this.deathKillsText.color = "#0f0";
         this.deathKillsText.fontSize = 14;
         this.deathKillsText.fontFamily = "'Press Start 2P', monospace";
+        this.deathKillsText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.deathKillsText.top = "-30px";
-        this.deathKillsText.left = "-50px";
-        this.deathKillsText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.deathKillsText.left = "0px"; // Центр
+        this.deathKillsText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.deathStatsContainer.addControl(this.deathKillsText);
         
-        // Урон
+        // Урон - используем CENTER alignment
         this.deathDamageText = new TextBlock("deathDamage");
         this.deathDamageText.text = "💥 Damage: 0";
         this.deathDamageText.color = "#ff8800";
         this.deathDamageText.fontSize = 14;
         this.deathDamageText.fontFamily = "'Press Start 2P', monospace";
+        this.deathDamageText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.deathDamageText.top = "10px";
-        this.deathDamageText.left = "-50px";
-        this.deathDamageText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.deathDamageText.left = "0px"; // Центр
+        this.deathDamageText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.deathStatsContainer.addControl(this.deathDamageText);
         
-        // Время игры
+        // Время игры - используем CENTER alignment
         this.deathTimeText = new TextBlock("deathTime");
         this.deathTimeText.text = "⏱ Time: 0:00";
         this.deathTimeText.color = "#88ffff";
         this.deathTimeText.fontSize = 14;
         this.deathTimeText.fontFamily = "'Press Start 2P', monospace";
+        this.deathTimeText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.deathTimeText.top = "50px";
-        this.deathTimeText.left = "-50px";
-        this.deathTimeText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.deathTimeText.left = "0px"; // Центр
+        this.deathTimeText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.deathStatsContainer.addControl(this.deathTimeText);
         
-        // Таймер респавна
+        // Таймер респавна - используем CENTER alignment
         this.deathRespawnText = new TextBlock("deathRespawn");
         this.deathRespawnText.text = "RESPAWN IN 3...";
         this.deathRespawnText.color = "#ffff00";
         this.deathRespawnText.fontSize = 20;
         this.deathRespawnText.fontFamily = "'Press Start 2P', monospace";
-        this.deathRespawnText.top = "160px";
+        this.deathRespawnText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.deathRespawnText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.deathRespawnText.top = "150px"; // Ниже центра
+        this.deathRespawnText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.deathScreen.addControl(this.deathRespawnText);
     }
     
@@ -3322,17 +3341,23 @@ export class HUD {
         let countdown = 3;
         const updateCountdown = () => {
             if (this.deathRespawnText && this.deathScreen?.isVisible) {
-                this.deathRespawnText.text = `RESPAWN IN ${countdown}...`;
-                countdown--;
-                if (countdown >= 0) {
+                if (countdown > 0) {
+                    this.deathRespawnText.text = `RESPAWN IN ${countdown}...`;
+                    countdown--;
                     setTimeout(updateCountdown, 1000);
+                } else {
+                    // После завершения таймера скрываем окно
+                    this.deathRespawnText.text = "RESPAWNING...";
+                    setTimeout(() => {
+                        this.hideDeathScreen();
+                    }, 500);
                 }
             }
         };
         updateCountdown();
     }
     
-    private hideDeathScreen(): void {
+    public hideDeathScreen(): void {
         if (this.deathScreen) {
             this.deathScreen.isVisible = false;
         }
@@ -5175,10 +5200,11 @@ export class HUD {
         this.tankStatusContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         this.tankStatusContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         // Позиционируем слева от радара: радар на -15px, блок на -15px - blockWidth - gap
-        // Радар: left = -15px, ширина радара = 175px (RADAR_SIZE)
+        // Радар: left = -15px (от правого края), ширина радара = 175px (RADAR_SIZE)
+        // Блок: left = -15 - 175 - 10 - 140 = -340px (от правого края)
         const radarLeft = -15;
-        const radarWidth = 175;
-        const gap = 10;
+        const radarWidth = scalePixels(175); // Используем scalePixels для правильного масштабирования
+        const gap = scalePixels(10);
         const blockWidthNum = scalePixels(140);
         this.tankStatusContainer.left = `${radarLeft - radarWidth - gap - blockWidthNum}px`;
         this.tankStatusContainer.top = this.scalePx(-45); // На той же высоте что и радар

@@ -718,6 +718,10 @@ export class TankController {
                 logger.log("[TANK] Respawn timer complete!");
                 if (!this.isAlive) {
                     this.respawn();
+                    // Скрываем экран смерти после респавна
+                    if (this.hud && typeof (this.hud as any).hideDeathScreen === 'function') {
+                        (this.hud as any).hideDeathScreen();
+                    }
                 }
             } else {
                 // Без сообщения о таймере - тихий респавн
