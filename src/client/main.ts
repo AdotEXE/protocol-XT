@@ -1,7 +1,11 @@
 import { Game } from './game';
 import './styles/responsive.css';
+import { injectSpeedInsights } from '@vercel/speed-insights';
 
 console.log('Protocol TX Client Starting...');
+
+// Initialize Vercel Speed Insights (client-side only)
+injectSpeedInsights();
 
 // Global resize handler for UI scaling
 let resizeTimeout: number | null = null;
