@@ -1,4 +1,8 @@
-name: Deploy to Vercel
+name: CI Build Check
+
+# Этот workflow только проверяет сборку
+# Автоматический деплой выполняется через официальную интеграцию Vercel
+# См. Vercel Dashboard → Settings → Git
 
 on:
   push:
@@ -7,7 +11,7 @@ on:
     branches: [ main ]
 
 jobs:
-  build:
+  build-check:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -24,31 +28,6 @@ jobs:
 
       - name: Build
         run: npm run build
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Deploy to Vercel
-        uses: amondnet/vercel-action@v25
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-          vercel-args: '--prod'
+        
+      - name: Build Success
+        run: echo "✅ Build completed successfully - Vercel will handle deployment automatically"

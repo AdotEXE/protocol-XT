@@ -77,10 +77,10 @@ export class EffectsManager {
         };
         animate();
         
-        // Улучшенные частицы (больше и ярче)
-        const particleCount = 16;
+        // УЛУЧШЕНО: Улучшенные частицы (больше и ярче)
+        const particleCount = 20; // УВЕЛИЧЕНО с 16 до 20 для более эффектного вида
         for (let i = 0; i < particleCount; i++) {
-            const particle = MeshBuilder.CreateBox("particle", { size: 0.25 }, this.scene);
+            const particle = MeshBuilder.CreateBox("particle", { size: 0.3 }, this.scene); // УВЕЛИЧЕН размер с 0.25 до 0.3
             particle.position = position.clone();
             particle.position.y = 1;
             
@@ -220,11 +220,51 @@ export class EffectsManager {
         }
     }
     
-    // Simple muzzle flash - just a yellow box
-    createMuzzleFlash(position: Vector3, direction: Vector3): void {
-        const flash = MeshBuilder.CreateBox("flash", { width: 0.8, height: 0.8, depth: 0.3 }, this.scene);
+    // УЛУЧШЕНО: Simple muzzle flash - более яркий и заметный
+    createMuzzleFlash(position: Vector3, direction: Vector3, cannonType?: string): void {
+        // Get unique color based on cannon type
+        let flashColor = new Color3(1, 1, 0); // Default yellow
+        let flashSize = 1.0; // УВЕЛИЧЕНО с 0.8 до 1.0 для лучшей видимости
+        
+        if (cannonType) {
+            switch (cannonType) {
+                case "plasma":
+                    flashColor = new Color3(1, 0, 1); flashSize = 1.2; break;
+                case "laser":
+                    flashColor = new Color3(1, 0, 0); flashSize = 0.6; break;
+                case "tesla":
+                    flashColor = new Color3(0, 1, 1); flashSize = 1.0; break;
+                case "rocket":
+                case "explosive":
+                case "mortar":
+                    flashColor = new Color3(1, 0.5, 0); flashSize = 1.5; break;
+                case "flamethrower":
+                    flashColor = new Color3(1, 0.3, 0); flashSize = 1.3; break;
+                case "acid":
+                    flashColor = new Color3(0, 1, 0); flashSize = 0.9; break;
+                case "freeze":
+                    flashColor = new Color3(0.5, 0.8, 1); flashSize = 1.0; break;
+                case "poison":
+                    flashColor = new Color3(0.5, 0, 1); flashSize = 0.9; break;
+                case "emp":
+                    flashColor = new Color3(1, 1, 0); flashSize = 1.4; break;
+                case "beam":
+                    flashColor = new Color3(1, 0, 0.5); flashSize = 0.7; break;
+                case "heavy":
+                    flashColor = new Color3(1, 0.8, 0); flashSize = 1.3; break;
+                case "sniper":
+                    flashColor = new Color3(0.8, 0.8, 1); flashSize = 0.5; break;
+            }
+        }
+        
+        const flash = MeshBuilder.CreateBox("flash", { width: flashSize, height: flashSize, depth: 0.3 }, this.scene);
         flash.position = position.add(direction.scale(0.5));
-        flash.material = this.flashMat;
+        
+        const flashMat = new StandardMaterial("flashMat", this.scene);
+        flashMat.diffuseColor = flashColor;
+        flashMat.emissiveColor = flashColor.scale(1.2);
+        flashMat.disableLighting = true;
+        flash.material = flashMat;
         
         // Simple 3-frame animation
         let frame = 0;
@@ -243,44 +283,92 @@ export class EffectsManager {
         animate();
     }
     
-    // Simple explosion - expanding box
+    // УЛУЧШЕНО: Enhanced explosion - более эффектные взрывы
     createExplosion(position: Vector3, scale: number = 1.0): void {
-        const explosion = MeshBuilder.CreateBox("explosion", { size: 1 * scale }, this.scene);
+        // Main explosion sphere (expanding) - УВЕЛИЧЕН начальный размер
+        const explosion = MeshBuilder.CreateSphere("explosion", { diameter: 0.7 * scale, segments: 8 }, this.scene); // УВЕЛИЧЕНО с 0.5 до 0.7
         explosion.position = position.clone();
         explosion.material = this.explosionMat;
         
-        // Simple expand and fade
+        // Expand and fade
         let frame = 0;
         const animate = () => {
             frame++;
-            explosion.scaling.setAll(1 + frame * 0.5);
+            const scaleFactor = 1 + frame * 0.8;
+            explosion.scaling.setAll(scaleFactor);
             
-            if (frame >= 6) {
+            // Fade effect (reduce opacity by scaling material brightness)
+            const brightness = Math.max(0, 1 - frame * 0.15);
+            (explosion.material as StandardMaterial).diffuseColor = new Color3(
+                1 * brightness,
+                0.5 * brightness,
+                0 * brightness
+            );
+            
+            if (frame >= 8) {
                 explosion.dispose();
                 return;
             }
-            setTimeout(animate, 50);
+            setTimeout(animate, 40);
         };
         animate();
         
-        // Add debris boxes
-        for (let i = 0; i < 4; i++) {
-            const debris = MeshBuilder.CreateBox("debris", { size: 0.3 * scale }, this.scene);
+        // Secondary explosion rings
+        for (let ring = 0; ring < 2; ring++) {
+            setTimeout(() => {
+                const ringMesh = MeshBuilder.CreateTorus("explosionRing", {
+                    diameter: 0.3 * scale,
+                    thickness: 0.1 * scale,
+                    tessellation: 16
+                }, this.scene);
+                ringMesh.position = position.clone();
+                ringMesh.position.y += ring * 0.5;
+                ringMesh.material = this.explosionMat;
+                
+                let ringFrame = 0;
+                const ringAnimate = () => {
+                    ringFrame++;
+                    ringMesh.scaling.setAll(1 + ringFrame * 0.6);
+                    ringMesh.rotation.y += 0.1;
+                    
+                    if (ringFrame >= 6) {
+                        ringMesh.dispose();
+                        return;
+                    }
+                    setTimeout(ringAnimate, 40);
+                };
+                ringAnimate();
+            }, ring * 50);
+        }
+        
+        // Enhanced debris with more variety
+        const debrisCount = Math.floor(6 * scale);
+        for (let i = 0; i < debrisCount; i++) {
+            const debrisSize = (0.2 + Math.random() * 0.3) * scale;
+            const debris = MeshBuilder.CreateBox("debris", { size: debrisSize }, this.scene);
             debris.position = position.clone();
             debris.material = this.explosionMat;
+            debris.rotation.set(
+                Math.random() * Math.PI * 2,
+                Math.random() * Math.PI * 2,
+                Math.random() * Math.PI * 2
+            );
             
-            const vx = (Math.random() - 0.5) * 10;
-            const vy = Math.random() * 8;
-            const vz = (Math.random() - 0.5) * 10;
+            const vx = (Math.random() - 0.5) * 12 * scale;
+            const vy = Math.random() * 10 * scale;
+            const vz = (Math.random() - 0.5) * 12 * scale;
+            const rotSpeed = (Math.random() - 0.5) * 0.3;
             
             let t = 0;
             const moveDebris = () => {
-                t += 0.05;
-                debris.position.x += vx * 0.05;
-                debris.position.y += (vy - t * 20) * 0.05;
-                debris.position.z += vz * 0.05;
+                t += 0.04;
+                debris.position.x += vx * 0.04;
+                debris.position.y += (vy - t * 25) * 0.04;
+                debris.position.z += vz * 0.04;
+                debris.rotation.x += rotSpeed;
+                debris.rotation.y += rotSpeed;
                 
-                if (t > 1 || debris.position.y < 0) {
+                if (t > 1.2 || debris.position.y < 0) {
                     debris.dispose();
                     return;
                 }
@@ -288,6 +376,26 @@ export class EffectsManager {
             };
             moveDebris();
         }
+        
+        // Flash effect
+        const flash = MeshBuilder.CreateSphere("flash", { diameter: 0.3 * scale, segments: 8 }, this.scene);
+        flash.position = position.clone();
+        const flashMat = new StandardMaterial("flashMat", this.scene);
+        flashMat.diffuseColor = new Color3(1, 1, 0.8); // Bright yellow-white
+        flash.material = flashMat;
+        
+        let flashFrame = 0;
+        const flashAnimate = () => {
+            flashFrame++;
+            flash.scaling.setAll(1 + flashFrame * 2);
+            
+            if (flashFrame >= 3) {
+                flash.dispose();
+                return;
+            }
+            setTimeout(flashAnimate, 30);
+        };
+        flashAnimate();
     }
     
     // Simple dust - just a semi-transparent box
@@ -416,13 +524,382 @@ export class EffectsManager {
     // Simple tracer - elongated box
     createTracer(start: Vector3, end: Vector3): void {
         const length = Vector3.Distance(start, end);
-        const tracer = MeshBuilder.CreateBox("tracer", { width: 0.1, height: 0.1, depth: length }, this.scene);
+        const direction = end.subtract(start).normalize();
+        
+        // Main tracer line - brighter and thicker
+        const tracer = MeshBuilder.CreateCylinder("tracer", {
+            height: length,
+            diameter: 0.15,
+            tessellation: 8
+        }, this.scene);
         
         const mid = start.add(end).scale(0.5);
         tracer.position = mid;
         tracer.lookAt(end);
-        tracer.material = this.flashMat;
         
-        setTimeout(() => tracer.dispose(), 100);
+        // Bright yellow-orange material
+        const tracerMat = new StandardMaterial("tracerMat", this.scene);
+        tracerMat.diffuseColor = new Color3(1, 0.8, 0.2);
+        tracerMat.emissiveColor = new Color3(1, 0.6, 0.1);
+        tracerMat.disableLighting = true;
+        tracer.material = tracerMat;
+        
+        // Fade out animation
+        let frame = 0;
+        const fade = () => {
+            frame++;
+            const alpha = 1 - (frame / 10);
+            tracer.scaling.y = alpha;
+            tracer.scaling.x = alpha;
+            tracer.scaling.z = alpha;
+            
+            if (frame >= 10) {
+                tracer.dispose();
+                return;
+            }
+            setTimeout(fade, 15);
+        };
+        fade();
+        
+        // Glow effect at start
+        const glow = MeshBuilder.CreateSphere("tracerGlow", { diameter: 0.3, segments: 8 }, this.scene);
+        glow.position = start.clone();
+        const glowMat = new StandardMaterial("tracerGlowMat", this.scene);
+        glowMat.diffuseColor = new Color3(1, 1, 0.5);
+        glowMat.emissiveColor = new Color3(1, 0.8, 0.2);
+        glowMat.disableLighting = true;
+        glow.material = glowMat;
+        
+        let glowFrame = 0;
+        const glowFade = () => {
+            glowFrame++;
+            const scale = 1 + glowFrame * 0.3;
+            const alpha = 1 - (glowFrame / 8);
+            glow.scaling.setAll(scale);
+            (glow.material as StandardMaterial).diffuseColor = new Color3(
+                1 * alpha,
+                1 * alpha,
+                0.5 * alpha
+            );
+            
+            if (glowFrame >= 8) {
+                glow.dispose();
+                return;
+            }
+            setTimeout(glowFade, 15);
+        };
+        glowFade();
+    }
+    
+    // Bullet trail - follows projectile and fades out
+    createBulletTrail(bullet: Mesh, color?: Color3, cannonType?: string): void {
+        if (!bullet || bullet.isDisposed()) return;
+        
+        // Get trail color based on cannon type or provided color
+        let trailColor = color || new Color3(1, 0.7, 0.2); // Default yellow/orange
+        
+        if (cannonType && !color) {
+            switch (cannonType) {
+                case "plasma":
+                    trailColor = new Color3(1, 0, 1); break;
+                case "laser":
+                    trailColor = new Color3(1, 0, 0); break;
+                case "tesla":
+                    trailColor = new Color3(0, 1, 1); break;
+                case "rocket":
+                case "explosive":
+                case "mortar":
+                    trailColor = new Color3(1, 0.5, 0); break;
+                case "flamethrower":
+                    trailColor = new Color3(1, 0.3, 0); break;
+                case "acid":
+                    trailColor = new Color3(0, 1, 0); break;
+                case "freeze":
+                    trailColor = new Color3(0.5, 0.8, 1); break;
+                case "poison":
+                    trailColor = new Color3(0.5, 0, 1); break;
+                case "emp":
+                    trailColor = new Color3(1, 1, 0); break;
+                case "beam":
+                    trailColor = new Color3(1, 0, 0.5); break;
+            }
+        }
+        
+        // Trail material with unique color
+        const trailMat = new StandardMaterial("trailMat", this.scene);
+        trailMat.diffuseColor = trailColor;
+        trailMat.emissiveColor = trailColor.scale(0.8);
+        trailMat.disableLighting = true;
+        trailMat.alpha = 0.5;
+        
+        const trailSegments: Mesh[] = [];
+        let lastPos = bullet.absolutePosition.clone();
+        let frameCount = 0;
+        const maxSegments = 6;
+        
+        const updateTrail = () => {
+            if (bullet.isDisposed()) {
+                // Fade out remaining segments
+                trailSegments.forEach((seg, i) => {
+                    setTimeout(() => {
+                        if (!seg.isDisposed()) seg.dispose();
+                    }, i * 20);
+                });
+                trailMat.dispose();
+                return;
+            }
+            
+            frameCount++;
+            const currentPos = bullet.absolutePosition.clone();
+            const dist = Vector3.Distance(lastPos, currentPos);
+            
+            // Only create segment if moved enough
+            if (dist > 0.3) {
+                const segment = MeshBuilder.CreateBox("trailSeg", { 
+                    width: 0.08, 
+                    height: 0.08, 
+                    depth: Math.max(0.15, dist * 0.6)
+                }, this.scene);
+                
+                const mid = lastPos.add(currentPos).scale(0.5);
+                segment.position = mid;
+                segment.lookAt(currentPos);
+                segment.material = trailMat;
+                
+                trailSegments.push(segment);
+                lastPos = currentPos.clone();
+                
+                // Remove old segments (keep very short tail)
+                while (trailSegments.length > maxSegments) {
+                    const old = trailSegments.shift();
+                    if (old && !old.isDisposed()) old.dispose();
+                }
+            }
+            
+            // Fade out older segments
+            trailSegments.forEach((seg, i) => {
+                const age = trailSegments.length - i;
+                const fade = Math.max(0.05, 0.5 - age * 0.08);
+                seg.scaling.x = Math.max(0.05, 0.6 - age * 0.08);
+                seg.scaling.y = Math.max(0.05, 0.6 - age * 0.08);
+                seg.visibility = fade;
+            });
+            
+            // Continue for a very short lifetime
+            if (frameCount < 120) {
+                requestAnimationFrame(updateTrail);
+            } else {
+                trailSegments.forEach(seg => { if (!seg.isDisposed()) seg.dispose(); });
+                trailMat.dispose();
+            }
+        };
+        
+        requestAnimationFrame(updateTrail);
+    }
+    
+    // Movement dust - particles from tank tracks
+    createMovementDust(position: Vector3, direction: Vector3, intensity: number = 1): void {
+        // Create 2-4 dust particles based on intensity
+        const particleCount = Math.floor(2 + intensity * 2);
+        
+        for (let i = 0; i < particleCount; i++) {
+            const dust = MeshBuilder.CreateBox("moveDust", { size: 0.4 + Math.random() * 0.3 }, this.scene);
+            dust.position = position.clone();
+            dust.position.x += (Math.random() - 0.5) * 2;
+            dust.position.z += (Math.random() - 0.5) * 2;
+            dust.position.y = 0.2;
+            dust.material = this.dustMat;
+            
+            // Random drift
+            const driftX = (Math.random() - 0.5) * 0.1 - direction.x * 0.05;
+            const driftZ = (Math.random() - 0.5) * 0.1 - direction.z * 0.05;
+            const driftY = 0.03 + Math.random() * 0.02;
+            
+            let frame = 0;
+            const animateDust = () => {
+                frame++;
+                dust.position.x += driftX;
+                dust.position.y += driftY;
+                dust.position.z += driftZ;
+                dust.scaling.setAll(1 + frame * 0.08);
+                
+                if (frame >= 20) {
+                    dust.dispose();
+                    return;
+                }
+                setTimeout(animateDust, 40);
+            };
+            animateDust();
+        }
+    }
+    
+    // ============ LOW HEALTH SMOKE ============
+    // Subtle, barely visible smoke when tank has low health
+    createLowHealthSmoke(position: Vector3): void {
+        // Create a very subtle, transparent smoke particle
+        const smoke = MeshBuilder.CreateBox("lowHealthSmoke", { size: 0.3 + Math.random() * 0.2 }, this.scene);
+        smoke.position = position.clone();
+        smoke.position.x += (Math.random() - 0.5) * 0.5;
+        smoke.position.z += (Math.random() - 0.5) * 0.5;
+        smoke.position.y = 0.5 + Math.random() * 0.3; // Slightly above tank
+        
+        // Create individual material for this smoke particle (to avoid affecting others)
+        const smokeMat = new StandardMaterial("lowHealthSmokeMat", this.scene);
+        smokeMat.diffuseColor = new Color3(0.3, 0.3, 0.3); // Dark gray
+        smokeMat.specularColor = Color3.Black();
+        smokeMat.alpha = 0.15; // Very transparent (15% opacity)
+        smoke.material = smokeMat;
+        
+        // Very slow drift upward
+        const driftX = (Math.random() - 0.5) * 0.02;
+        const driftZ = (Math.random() - 0.5) * 0.02;
+        const driftY = 0.01 + Math.random() * 0.01; // Very slow upward
+        
+        let frame = 0;
+        const animateSmoke = () => {
+            frame++;
+            smoke.position.x += driftX;
+            smoke.position.y += driftY;
+            smoke.position.z += driftZ;
+            smoke.scaling.setAll(1 + frame * 0.02); // Very slow expansion
+            
+            // Fade out gradually
+            smokeMat.alpha = Math.max(0, 0.15 - frame * 0.005);
+            
+            if (frame >= 30) {
+                smokeMat.dispose();
+                smoke.dispose();
+                return;
+            }
+            setTimeout(animateSmoke, 60); // Slower animation
+        };
+        animateSmoke();
+    }
+    
+    // ============ UNIQUE HIT EFFECTS ============
+    
+    createPlasmaBurst(position: Vector3): void {
+        // Plasma burst - expanding magenta sphere
+        const burst = MeshBuilder.CreateSphere("plasmaBurst", { diameter: 0.3, segments: 12 }, this.scene);
+        burst.position = position.clone();
+        
+        const mat = new StandardMaterial("plasmaBurstMat", this.scene);
+        mat.diffuseColor = new Color3(1, 0, 1);
+        mat.emissiveColor = new Color3(0.8, 0, 0.8);
+        mat.disableLighting = true;
+        burst.material = mat;
+        
+        let frame = 0;
+        const animate = () => {
+            frame++;
+            burst.scaling.setAll(1 + frame * 0.3);
+            const brightness = Math.max(0, 1 - frame * 0.1);
+            mat.diffuseColor = new Color3(1 * brightness, 0, 1 * brightness);
+            
+            if (frame < 10) {
+                setTimeout(animate, 40);
+            } else {
+                burst.dispose();
+            }
+        };
+        animate();
+    }
+    
+    createIceShards(position: Vector3): void {
+        // Ice shards - multiple blue crystals
+        for (let i = 0; i < 8; i++) {
+            const shard = MeshBuilder.CreateBox("iceShard", { size: 0.2 }, this.scene);
+            shard.position = position.clone();
+            shard.rotation.set(
+                Math.random() * Math.PI * 2,
+                Math.random() * Math.PI * 2,
+                Math.random() * Math.PI * 2
+            );
+            
+            const mat = new StandardMaterial("iceShardMat", this.scene);
+            mat.diffuseColor = new Color3(0.5, 0.8, 1);
+            mat.emissiveColor = new Color3(0.3, 0.5, 0.7);
+            mat.disableLighting = true;
+            shard.material = mat;
+            
+            const angle = (i * Math.PI * 2) / 8;
+            const speed = 0.3;
+            let t = 0;
+            const move = () => {
+                t += 0.05;
+                shard.position.x = position.x + Math.cos(angle) * speed * t;
+                shard.position.y = position.y + t * 0.2;
+                shard.position.z = position.z + Math.sin(angle) * speed * t;
+                shard.rotation.y += 0.1;
+                
+                if (t < 2) {
+                    setTimeout(move, 30);
+                } else {
+                    shard.dispose();
+                }
+            };
+            move();
+        }
+    }
+    
+    createPoisonCloud(position: Vector3): void {
+        // Poison cloud - expanding green cloud
+        const cloud = MeshBuilder.CreateSphere("poisonCloud", { diameter: 0.5, segments: 8 }, this.scene);
+        cloud.position = position.clone();
+        cloud.position.y += 0.5;
+        
+        const mat = new StandardMaterial("poisonCloudMat", this.scene);
+        mat.diffuseColor = new Color3(0, 1, 0);
+        mat.emissiveColor = new Color3(0, 0.5, 0);
+        mat.disableLighting = true;
+        cloud.material = mat;
+        
+        let frame = 0;
+        const animate = () => {
+            frame++;
+            cloud.scaling.setAll(1 + frame * 0.2);
+            cloud.position.y += 0.05;
+            const brightness = Math.max(0, 1 - frame * 0.08);
+            mat.diffuseColor = new Color3(0, 1 * brightness, 0);
+            
+            if (frame < 15) {
+                setTimeout(animate, 50);
+            } else {
+                cloud.dispose();
+            }
+        };
+        animate();
+    }
+    
+    createFireEffect(position: Vector3): void {
+        // Fire effect - upward flames
+        for (let i = 0; i < 6; i++) {
+            const flame = MeshBuilder.CreateBox("flame", { width: 0.15, height: 0.4, depth: 0.15 }, this.scene);
+            flame.position = position.clone();
+            flame.position.x += (Math.random() - 0.5) * 0.5;
+            flame.position.z += (Math.random() - 0.5) * 0.5;
+            
+            const mat = new StandardMaterial("flameMat", this.scene);
+            mat.diffuseColor = new Color3(1, 0.3, 0);
+            mat.emissiveColor = new Color3(1, 0.5, 0);
+            mat.disableLighting = true;
+            flame.material = mat;
+            
+            let t = 0;
+            const animate = () => {
+                t += 0.06;
+                flame.position.y = position.y + t * 0.8;
+                flame.scaling.y = 1 + t * 0.5;
+                const brightness = Math.max(0, 1 - t * 0.3);
+                mat.diffuseColor = new Color3(1 * brightness, 0.3 * brightness, 0);
+                
+                if (t < 3) {
+                    setTimeout(animate, 30);
+                } else {
+                    flame.dispose();
+                }
+            };
+            animate();
+        }
     }
 }

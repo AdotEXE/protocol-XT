@@ -2,8 +2,8 @@
 // AIMING SYSTEM - Улучшенная система прицеливания
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { Scene, Vector3, Ray, Color3, Mesh, MeshBuilder, StandardMaterial, DynamicTexture, TransformNode, Matrix } from "@babylonjs/core";
-import { AdvancedDynamicTexture, Rectangle, TextBlock, Ellipse, Line, Control } from "@babylonjs/gui";
+import { Scene, Vector3, Mesh, Matrix } from "@babylonjs/core";
+import { AdvancedDynamicTexture, Rectangle, TextBlock, Ellipse, Control } from "@babylonjs/gui";
 
 export interface TargetInfo {
     mesh: Mesh | null;
@@ -57,7 +57,6 @@ export class AimingSystem {
     
     // Lead indicator
     private leadIndicator: Ellipse | null = null;
-    private leadLine: Line | null = null;
     
     // Distance markers
     private distanceMarkers: TextBlock[] = [];
@@ -298,7 +297,6 @@ export class AimingSystem {
         // Create ray from barrel
         const barrelPos = this.tank.barrel.getAbsolutePosition();
         const barrelDir = this.tank.barrel.getDirection(Vector3.Forward()).normalize();
-        const ray = new Ray(barrelPos, barrelDir, 200);
         
         let closestTarget: TargetInfo | null = null;
         let closestDist = Infinity;
@@ -445,39 +443,8 @@ export class AimingSystem {
         if (!this.targetInfoPanel) return;
         
         // ОТКЛЮЧЕНО - используем HUD для отображения
-        if (false && this.currentTarget && this.settings.showTargetInfo) {
-            this.targetInfoPanel.isVisible = true;
-            
-            // Update name
-            if (this.targetNameText) {
-                this.targetNameText.text = this.currentTarget.name;
-            }
-            
-            // Update type
-            if (this.targetTypeText) {
-                this.targetTypeText.text = this.currentTarget.type === "tank" ? "🎯 ТАНК" : "🗼 ТУРЕЛЬ";
-            }
-            
-            // Update health bar
-            if (this.targetHealthFill) {
-                const healthPercent = (this.currentTarget.health / this.currentTarget.maxHealth) * 100;
-                this.targetHealthFill.width = `${healthPercent}%`;
-                
-                // Color based on health
-                if (healthPercent > 60) {
-                    this.targetHealthFill.background = "#0f0";
-                } else if (healthPercent > 30) {
-                    this.targetHealthFill.background = "#ff0";
-                } else {
-                    this.targetHealthFill.background = "#f00";
-                }
-            }
-            
-            // Update distance
-            if (this.targetDistanceText) {
-                this.targetDistanceText.text = `${Math.round(this.currentTarget.distance)}m`;
-            }
-        } else {
+        // Код закомментирован, так как отображение перенесено в HUD
+        if (this.targetInfoPanel) {
             this.targetInfoPanel.isVisible = false;
         }
     }

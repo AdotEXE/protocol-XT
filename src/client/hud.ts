@@ -8,6 +8,7 @@ import {
     TextBlock,
     Control
 } from "@babylonjs/gui";
+import { scalePixels } from "./utils/uiScale";
 
 // ULTRA SIMPLE HUD - NO gradients, NO shadows, NO alpha, NO transparency
 // Pure solid colors only!
@@ -30,6 +31,11 @@ export class HUD {
     private crosshairElements: Rectangle[] = [];
     private crosshairDot!: Rectangle;
     
+    // Hit marker (X shape at center when hitting enemy)
+    private hitMarkerLines: Rectangle[] = [];
+    private hitMarkerVisible = false;
+    private hitMarkerFadeTime = 0;
+    
     // Speedometer
     private speedText!: TextBlock;
     
@@ -39,6 +45,10 @@ export class HUD {
     // Kill counter
     private killsText!: TextBlock;
     private killsCount = 0;
+    
+    // Tracer counter
+    private tracerContainer!: Rectangle;
+    private tracerCountText!: TextBlock;
 
     // Currency display
     private currencyText!: TextBlock;
@@ -55,10 +65,16 @@ export class HUD {
     private targetNameText: TextBlock | null = null;
     private targetHealthBar: Rectangle | null = null;
     private targetHealthFill: Rectangle | null = null;
+    private targetHealthText: TextBlock | null = null;
     private targetDistanceText: TextBlock | null = null;
     
     // Damage indicator
     private damageIndicator!: Rectangle;
+    
+    // Low HP effect (vignette + pulse)
+    private lowHpVignette: Rectangle | null = null;
+    private lowHpPulseTime = 0;
+    private isLowHp = false;
     
     // Minimap
     private minimapContainer!: Rectangle;
@@ -77,6 +93,33 @@ export class HUD {
     private radarScanAngle = 0;
     private lastScanTime = 0;
     private scannedEnemies: Map<string, { marker: Rectangle, fadeTime: number }> = new Map();
+    
+    // Fuel indicator
+    private fuelBar: Rectangle | null = null;
+    private fuelFill: Rectangle | null = null;
+    private fuelText: TextBlock | null = null;
+    
+    // POI indicators
+    private _poiMarkers: Map<string, Rectangle> = new Map();
+    private poiCaptureProgress: Rectangle | null = null;
+    private poiCaptureProgressFill: Rectangle | null = null;
+    private poiCaptureText: TextBlock | null = null;
+    
+    // POI minimap markers
+    private poiMinimapMarkers: Map<string, Rectangle> = new Map();
+    
+    // POI 3D world markers
+    private poi3DMarkersContainer: Rectangle | null = null;
+    private poi3DMarkers: Map<string, { container: Rectangle, text: TextBlock, distance: TextBlock }> = new Map();
+    
+    // Notifications queue
+    private notifications: Array<{ text: string, type: string, element: Rectangle }> = [];
+    private notificationContainer: Rectangle | null = null;
+    
+    // Mission panel
+    private missionPanel: Rectangle | null = null;
+    private missionItems: Map<string, Rectangle> = new Map();
+    private missionPanelVisible = false;
     
     // Message
     private messageText!: TextBlock;
@@ -117,6 +160,16 @@ export class HUD {
     
     private fpsHistory: number[] = [];
     
+    // Tutorial system
+    private tutorialContainer: Rectangle | null = null;
+    private tutorialText: TextBlock | null = null;
+    private tutorialStep = 0;
+    private tutorialCompleted = false;
+    private _tutorialStartTime = 0;
+    private hasMoved = false;
+    private hasShot = false;
+    private onTutorialCompleteCallback: (() => void) | null = null;
+    
     // Game time tracking
     private gameTimeText: TextBlock | null = null;
     private gameStartTime = Date.now();
@@ -141,9 +194,19 @@ export class HUD {
     private comboAnimationTime = 0;
     private comboScale = 1.0;
     private maxComboReached = 0; // Максимальное достигнутое комбо
-    private comboParticles: Rectangle[] = []; // Частицы для эффектов комбо
+    private _comboParticles: Rectangle[] = []; // Частицы для эффектов комбо
     private experienceSystem: any = null; // ExperienceSystem для комбо
     private glowElements: Map<string, { element: Rectangle | TextBlock, baseColor: string, glowColor: string }> = new Map();
+    
+    // Multiplayer HUD elements
+    private multiplayerScoreContainer: Rectangle | null = null;
+    private team0ScoreText: TextBlock | null = null;
+    private team1ScoreText: TextBlock | null = null;
+    private matchTimerText: TextBlock | null = null;
+    private playerListContainer: Rectangle | null = null;
+    private playerListItems: Map<string, Rectangle> = new Map();
+    private minimapPlayerMarkers: Map<string, Rectangle> = new Map();
+    private minimapPlayerPool: Rectangle[] = [];
     
     // Invulnerability indicator
     private invulnerabilityIndicator: Rectangle | null = null;
@@ -163,8 +226,23 @@ export class HUD {
     private garageCaptureTimeText: TextBlock | null = null;
     
     // Player progression subscription
-    private playerProgression: any = null;
+    private _playerProgression: any = null;
     private experienceSubscription: any = null;
+    
+    // Death screen
+    private deathScreen: Rectangle | null = null;
+    private deathStatsContainer: Rectangle | null = null;
+    private deathKillsText: TextBlock | null = null;
+    private deathDamageText: TextBlock | null = null;
+    private deathTimeText: TextBlock | null = null;
+    private deathRespawnText: TextBlock | null = null;
+    private sessionKills = 0;
+    private sessionDamage = 0;
+    private sessionStartTime = Date.now();
+    
+    // Directional damage indicators
+    private damageDirectionIndicators: Map<string, { element: Rectangle, fadeTime: number }> = new Map();
+    private damageIndicatorDuration = 1500; // ms
     
     // Values
     public maxHealth = 100;
@@ -184,6 +262,7 @@ export class HUD {
         this.createCompass();          // Живой компас сверху (без буквенных обозначений)
         this.createMinimap();          // Квадратный радар справа внизу (со спидометром и координатами)
         this.createSpeedometer();      // Спидометр (скрытый, но работает)
+        this.createMultiplayerHUD();   // Multiplayer HUD elements
         this.createPositionDisplay();  // Координаты (скрытые, но работают)
         this.createConsumablesDisplay(); // Слоты 1-5 внизу
         this.createCentralXpBar();     // XP bar внизу
@@ -194,13 +273,61 @@ export class HUD {
         this.createFullMap();          // Полноценная карта (M)
         this.createGarageCaptureBar(); // Прогресс-бар захвата гаража
         this.createComboIndicator();   // Индикатор комбо
+        this.createDeathScreen();      // Экран результатов смерти
+        this.createDirectionalDamageIndicators(); // Индикаторы направления урона
+        this.createFuelIndicator();    // Индикатор топлива
+        this.createPOICaptureBar();    // Прогресс-бар захвата POI
+        this.createNotificationArea(); // Область уведомлений
+        this.createPOI3DMarkersContainer(); // 3D маркеры POI
+        this.createMissionPanel();     // Панель миссий
+        this.createTutorial();         // Система туториала
+        this.createTracerCounter();    // Счётчик трассеров
+        this._createFPSCounter();      // FPS счётчик
         
         // Убеждаемся, что прицел скрыт по умолчанию
         this.setAimMode(false);
         this.startAnimations();
         this.setupMapKeyListener(); // Обработка клавиши M
+        this.setupResizeHandler(); // Обработка изменения размера окна
         
         console.log("HUD initialized (MINIMAL MODE)");
+    }
+    
+    // === UI SCALING HELPERS ===
+    /**
+     * Get scaled pixel value for Babylon.js GUI
+     */
+    private scalePx(px: number): string {
+        return `${scalePixels(px)}px`;
+    }
+    
+    /**
+     * Get scaled font size
+     */
+    private scaleFontSize(baseSize: number, minSize: number = 8, maxSize: number = 48): number {
+        return Math.max(minSize, Math.min(maxSize, scalePixels(baseSize)));
+    }
+    
+    /**
+     * Setup window resize handler to rescale UI elements
+     */
+    private setupResizeHandler(): void {
+        let resizeTimeout: number | null = null;
+        window.addEventListener('resize', () => {
+            if (resizeTimeout) clearTimeout(resizeTimeout);
+            resizeTimeout = window.setTimeout(() => {
+                this.rescaleUI();
+            }, 100);
+        });
+    }
+    
+    /**
+     * Rescale all UI elements when window size changes
+     */
+    private rescaleUI(): void {
+        // This will be called when window is resized
+        // Individual elements will be updated as needed
+        // For now, we rely on percentage-based positioning which auto-scales
     }
     
     // Установить ExperienceSystem для комбо
@@ -216,7 +343,7 @@ export class HUD {
             this.experienceSubscription = null;
         }
         
-        this.playerProgression = playerProgression;
+        this._playerProgression = playerProgression;
         
         // Подписываемся на изменения опыта
         if (playerProgression && playerProgression.onExperienceChanged) {
@@ -235,6 +362,11 @@ export class HUD {
         }
     }
     
+    // Get GUI texture for external use (like Garage)
+    getGuiTexture(): AdvancedDynamicTexture {
+        return this.guiTexture;
+    }
+    
     // Создать индикатор защиты от урона
     // Показать плавающий текст опыта с улучшенной анимацией
     showExperienceGain(amount: number, type: "chassis" | "cannon" = "chassis"): void {
@@ -247,24 +379,25 @@ export class HUD {
         const text = new TextBlock(`xpGain_${Date.now()}_${Math.random()}`);
         text.text = `+${roundedAmount} XP`;
         text.color = type === "chassis" ? "#0ff" : "#f80";
-        text.fontSize = 28; // Немного больше для лучшей видимости
+        text.fontSize = this.scaleFontSize(28, 20, 40); // Немного больше для лучшей видимости
         text.fontWeight = "bold";
         text.fontFamily = "'Press Start 2P', monospace";
         text.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         text.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        text.top = "-80px";
-        text.shadowBlur = 10;
-        text.shadowOffsetX = 2;
-        text.shadowOffsetY = 2;
+        text.top = this.scalePx(-80);
+        text.shadowBlur = scalePixels(10);
+        text.shadowOffsetX = scalePixels(2);
+        text.shadowOffsetY = scalePixels(2);
         text.shadowColor = "#000";
         
         // Случайное смещение по X для множественных текстов
-        const xOffset = (Math.random() - 0.5) * 100;
+        const xOffset = (Math.random() - 0.5) * scalePixels(100);
         text.left = `${xOffset}px`;
         
         this.guiTexture.addControl(text);
         
         // Улучшенная анимация подъёма и исчезновения
+        const baseFontSize = this.scaleFontSize(28, 20, 40);
         let y = -80;
         let alpha = 1;
         let scale = 1.2; // Начинаем с увеличенного размера
@@ -275,14 +408,14 @@ export class HUD {
             alpha -= 0.015; // Медленнее исчезает
             scale = Math.max(1, scale - 0.008); // Плавно уменьшаемся до нормального размера
             
-            text.top = `${y}px`;
+            text.top = this.scalePx(y);
             text.alpha = alpha;
-            text.fontSize = 28 * scale;
+            text.fontSize = baseFontSize * scale;
             
             // Добавляем пульсацию в начале
             if (frame < 10) {
                 const pulse = 1 + Math.sin(frame * 0.5) * 0.1;
-                text.fontSize = 28 * scale * pulse;
+                text.fontSize = baseFontSize * scale * pulse;
             }
             
             if (alpha > 0) {
@@ -311,35 +444,35 @@ export class HUD {
     // Показать эффект повышения уровня
     showLevelUp(level: number, title: string, type: "chassis" | "cannon"): void {
         const container = new Rectangle(`levelUp_${Date.now()}`);
-        container.width = "400px";
-        container.height = "120px";
+        container.width = this.scalePx(400);
+        container.height = this.scalePx(120);
         container.cornerRadius = 0;
         container.thickness = 4;
         container.color = type === "chassis" ? "#0ff" : "#f80";
         container.background = "#000000ee";
         container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         container.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        container.top = "-200px";
+        container.top = this.scalePx(-200);
         this.guiTexture.addControl(container);
         
         const titleText = new TextBlock("levelUpTitle");
         titleText.text = "🎉 УРОВЕНЬ ПОВЫШЕН! 🎉";
         titleText.color = "#ff0";
-        titleText.fontSize = 28;
+        titleText.fontSize = this.scaleFontSize(28, 20, 36);
         titleText.fontWeight = "bold";
         titleText.fontFamily = "'Press Start 2P', monospace";
         titleText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        titleText.top = "-20px";
+        titleText.top = this.scalePx(-20);
         container.addControl(titleText);
         
         const levelText = new TextBlock("levelUpLevel");
         levelText.text = `Уровень ${level}: ${title}`;
         levelText.color = type === "chassis" ? "#0ff" : "#f80";
-        levelText.fontSize = 22;
+        levelText.fontSize = this.scaleFontSize(22, 16, 28);
         levelText.fontWeight = "bold";
         levelText.fontFamily = "'Press Start 2P', monospace";
         levelText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        levelText.top = "20px";
+        levelText.top = this.scalePx(20);
         container.addControl(levelText);
         
         // Анимация появления и исчезновения
@@ -385,37 +518,37 @@ export class HUD {
     
     private createInvulnerabilityIndicator(): void {
         const container = new Rectangle("invulnerabilityContainer");
-        container.width = "200px";
-        container.height = "35px";
+        container.width = this.scalePx(200);
+        container.height = this.scalePx(35);
         container.cornerRadius = 0;
         container.thickness = 2;
         container.color = "#0ff";
         container.background = "#000000cc";
         container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         container.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        container.top = "150px";
+        container.top = this.scalePx(150);
         container.isVisible = false; // Скрыт по умолчанию
         this.guiTexture.addControl(container);
         
         const icon = new TextBlock("invulnerabilityIcon");
         icon.text = "🛡";
         icon.color = "#0ff";
-        icon.fontSize = 18;
+        icon.fontSize = this.scaleFontSize(18, 14, 24);
         icon.fontFamily = "'Press Start 2P', monospace";
         icon.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        icon.left = "10px";
-        icon.top = "2px";
+        icon.left = this.scalePx(10);
+        icon.top = this.scalePx(2);
         container.addControl(icon);
         
         this.invulnerabilityText = new TextBlock("invulnerabilityText");
         this.invulnerabilityText.text = "ЗАЩИТА";
         this.invulnerabilityText.color = "#0ff";
-        this.invulnerabilityText.fontSize = 14;
+        this.invulnerabilityText.fontSize = this.scaleFontSize(14, 10, 18);
         this.invulnerabilityText.fontWeight = "bold";
         this.invulnerabilityText.fontFamily = "'Press Start 2P', monospace";
         this.invulnerabilityText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.invulnerabilityText.left = "40px";
-        this.invulnerabilityText.top = "2px";
+        this.invulnerabilityText.left = this.scalePx(40);
+        this.invulnerabilityText.top = this.scalePx(2);
         container.addControl(this.invulnerabilityText);
         
         this.invulnerabilityIndicator = container;
@@ -484,6 +617,11 @@ export class HUD {
         this.updateGlowEffects();
         this.updateComboAnimation(deltaTime);
         
+        // Обновление индикаторов направления урона
+        this.updateDamageIndicators();
+        this.updateHitMarker();
+        this.updateLowHpEffect(deltaTime);
+        
         // Обновление индикатора комбо (если есть experienceSystem)
         if (this.experienceSystem) {
             const comboCount = this.experienceSystem.getComboCount();
@@ -536,8 +674,8 @@ export class HUD {
     private createHealthBar() {
         // === HEALTH BAR - НАД РАСХОДНИКАМИ ===
         const container = new Rectangle("healthContainer");
-        container.width = "200px";
-        container.height = "8px";
+        container.width = this.scalePx(200);
+        container.height = this.scalePx(8);
         container.cornerRadius = 0;
         container.thickness = 1;
         container.color = "#0f03";
@@ -545,7 +683,7 @@ export class HUD {
         container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         container.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         container.left = "0px";
-        container.top = "-78px"; // HP bar above reload bar
+        container.top = this.scalePx(-78); // HP bar above reload bar
         this.guiTexture.addControl(container);
         
         // Основной бар здоровья
@@ -700,8 +838,8 @@ export class HUD {
     private createReloadIndicator() {
         // === RELOAD BAR - VISIBLE AND CLEAR ===
         const container = new Rectangle("reloadContainer");
-        container.width = "200px";
-        container.height = "12px";
+        container.width = this.scalePx(200);
+        container.height = this.scalePx(12);
         container.cornerRadius = 0;
         container.thickness = 2;
         container.color = "#f80";
@@ -709,7 +847,7 @@ export class HUD {
         container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         container.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         container.left = "0px";
-        container.top = "-62px"; // Reload bar above consumables
+        container.top = this.scalePx(-62); // Reload bar above consumables
         this.guiTexture.addControl(container);
         
         // Reload bar background
@@ -747,7 +885,7 @@ export class HUD {
         this.reloadText = new TextBlock("reloadText");
         this.reloadText.text = "READY";
         this.reloadText.color = "#0f0";
-        this.reloadText.fontSize = 9;
+        this.reloadText.fontSize = this.scaleFontSize(9, 7, 14);
         this.reloadText.fontFamily = "'Press Start 2P', monospace";
         container.addControl(this.reloadText);
     }
@@ -757,9 +895,10 @@ export class HUD {
         
         // Внешний круг (только при прицеливании)
         const outerRing = new Rectangle("crosshairOuter");
-        outerRing.width = "60px";
-        outerRing.height = "60px";
-        outerRing.cornerRadius = 30;
+        const outerSize = scalePixels(60);
+        outerRing.width = `${outerSize}px`;
+        outerRing.height = `${outerSize}px`;
+        outerRing.cornerRadius = outerSize / 2;
         outerRing.thickness = 1;
         outerRing.color = "#ff440066";
         outerRing.background = "transparent";
@@ -769,9 +908,10 @@ export class HUD {
         
         // Средний круг
         const middleRing = new Rectangle("crosshairMiddle");
-        middleRing.width = "30px";
-        middleRing.height = "30px";
-        middleRing.cornerRadius = 15;
+        const middleSize = scalePixels(30);
+        middleRing.width = `${middleSize}px`;
+        middleRing.height = `${middleSize}px`;
+        middleRing.cornerRadius = middleSize / 2;
         middleRing.thickness = 1;
         middleRing.color = "#ff8800aa";
         middleRing.background = "transparent";
@@ -781,18 +921,19 @@ export class HUD {
         
         // Center dot - точка прицела
         this.crosshairDot = new Rectangle("crosshairDot");
-        this.crosshairDot.width = "4px";
-        this.crosshairDot.height = "4px";
-        this.crosshairDot.cornerRadius = 2;
+        const dotSize = scalePixels(4);
+        this.crosshairDot.width = `${dotSize}px`;
+        this.crosshairDot.height = `${dotSize}px`;
+        this.crosshairDot.cornerRadius = dotSize / 2;
         this.crosshairDot.thickness = 0;
         this.crosshairDot.background = "#ff3300";
         this.crosshairDot.isVisible = false;
         this.guiTexture.addControl(this.crosshairDot);
         
         // Тактические линии
-        const gap = 8;
-        const length = 15;
-        const thickness = 2;
+        const gap = scalePixels(8);
+        const length = scalePixels(15);
+        const thickness = scalePixels(2);
         
         const createLine = (name: string, w: string, h: string, t: string, l: string) => {
             const line = new Rectangle(name);
@@ -831,8 +972,8 @@ export class HUD {
         createLine("crossRight", `${length}px`, `${thickness}px`, "0", `${gap}px`);
         
         // Угловые маркеры (диагональные акценты)
-        const cornerSize = 8;
-        const cornerDist = 20;
+        const cornerSize = scalePixels(8);
+        const cornerDist = scalePixels(20);
         
         const createCorner = (name: string, top: number, left: number) => {
             const corner = new Rectangle(name);
@@ -856,31 +997,31 @@ export class HUD {
         this.zoomIndicator = new TextBlock("zoomIndicator");
         this.zoomIndicator.text = "1.0x";
         this.zoomIndicator.color = "#ff8800";
-        this.zoomIndicator.fontSize = 14;
+        this.zoomIndicator.fontSize = this.scaleFontSize(14, 10, 20);
         this.zoomIndicator.fontWeight = "bold";
         this.zoomIndicator.fontFamily = "'Press Start 2P', monospace";
         this.zoomIndicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.zoomIndicator.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        this.zoomIndicator.top = "50px"; // Под прицелом
+        this.zoomIndicator.top = this.scalePx(50); // Под прицелом
         this.zoomIndicator.isVisible = false;
         this.guiTexture.addControl(this.zoomIndicator);
         
         // === ШКАЛА ДАЛЬНОСТИ (справа от прицела) ===
         this.rangeScaleContainer = new Rectangle("rangeScaleContainer");
-        this.rangeScaleContainer.width = "50px";
-        this.rangeScaleContainer.height = "120px";
+        this.rangeScaleContainer.width = this.scalePx(50);
+        this.rangeScaleContainer.height = this.scalePx(120);
         this.rangeScaleContainer.thickness = 0;
         this.rangeScaleContainer.background = "transparent";
         this.rangeScaleContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.rangeScaleContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        this.rangeScaleContainer.left = "80px"; // Справа от прицела
+        this.rangeScaleContainer.left = this.scalePx(80); // Справа от прицела
         this.rangeScaleContainer.isVisible = false;
         this.guiTexture.addControl(this.rangeScaleContainer);
         
         // Фон шкалы
         const scaleBg = new Rectangle("rangeScaleBg");
-        scaleBg.width = "8px";
-        scaleBg.height = "100px";
+        scaleBg.width = this.scalePx(8);
+        scaleBg.height = this.scalePx(100);
         scaleBg.thickness = 1;
         scaleBg.color = "#333";
         scaleBg.background = "#00000088";
@@ -889,13 +1030,13 @@ export class HUD {
         
         // Заполнение шкалы (динамическое)
         this.rangeScaleFill = new Rectangle("rangeScaleFill");
-        this.rangeScaleFill.width = "6px";
+        this.rangeScaleFill.width = this.scalePx(6);
         this.rangeScaleFill.height = "50%";
         this.rangeScaleFill.thickness = 0;
         this.rangeScaleFill.background = "#0f0";
         this.rangeScaleFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.rangeScaleFill.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.rangeScaleFill.left = "1px";
+        this.rangeScaleFill.left = this.scalePx(1);
         scaleBg.addControl(this.rangeScaleFill);
         
         // Маркеры дистанции (0-999м)
@@ -905,23 +1046,23 @@ export class HUD {
             const label = new TextBlock(`rangeLabel${i}`);
             label.text = `${dist}m`;
             label.color = "#0a0";
-            label.fontSize = 9;
+            label.fontSize = this.scaleFontSize(9, 7, 12);
             label.fontFamily = "'Press Start 2P', monospace";
             label.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            label.left = "12px";
-            label.top = `${40 - i * 20}px`; // Снизу вверх (равномерно по 20px для 5 меток)
+            label.left = this.scalePx(12);
+            label.top = this.scalePx(40 - i * 20); // Снизу вверх (равномерно по 20px для 5 меток)
             this.rangeScaleContainer!.addControl(label);
             this.rangeScaleLabels.push(label);
             
             // Линия-маркер
             const tick = new Rectangle(`rangeTick${i}`);
-            tick.width = "4px";
-            tick.height = "1px";
+            tick.width = this.scalePx(4);
+            tick.height = this.scalePx(1);
             tick.thickness = 0;
             tick.background = "#0a0";
             tick.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            tick.left = "8px";
-            tick.top = `${40 - i * 20}px`; // Синхронизировано с метками
+            tick.left = this.scalePx(8);
+            tick.top = this.scalePx(40 - i * 20); // Синхронизировано с метками
             this.rangeScaleContainer!.addControl(tick);
         });
         
@@ -929,25 +1070,107 @@ export class HUD {
         this.rangeValueText = new TextBlock("rangeValue");
         this.rangeValueText.text = "100m";
         this.rangeValueText.color = "#0f0";
-        this.rangeValueText.fontSize = 16;
+        this.rangeValueText.fontSize = this.scaleFontSize(16, 12, 22);
         this.rangeValueText.fontWeight = "bold";
         this.rangeValueText.fontFamily = "'Press Start 2P', monospace";
         this.rangeValueText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.rangeValueText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.rangeValueText.left = "12px";
-        this.rangeValueText.top = "55px";
+        this.rangeValueText.left = this.scalePx(12);
+        this.rangeValueText.top = this.scalePx(55);
         this.rangeScaleContainer.addControl(this.rangeValueText);
         
         // Индикатор текущей позиции на шкале
         this.rangeIndicator = new Rectangle("rangeIndicator");
-        this.rangeIndicator.width = "12px";
-        this.rangeIndicator.height = "3px";
+        this.rangeIndicator.width = this.scalePx(12);
+        this.rangeIndicator.height = this.scalePx(3);
         this.rangeIndicator.thickness = 0;
         this.rangeIndicator.background = "#fff";
         this.rangeIndicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.rangeIndicator.left = "-2px";
+        this.rangeIndicator.left = this.scalePx(-2);
         this.rangeIndicator.top = "0px";
         scaleBg.addControl(this.rangeIndicator);
+        
+        // === HIT MARKER (X shape when hitting enemy) ===
+        this.createHitMarker();
+    }
+    
+    // Create hit marker (X shape at center of screen)
+    private createHitMarker(): void {
+        const size = scalePixels(20); // Size of X
+        const thickness = scalePixels(3);
+        
+        // Diagonal line 1 (top-left to bottom-right)
+        const line1 = new Rectangle("hitMarker1");
+        line1.width = `${size}px`;
+        line1.height = `${thickness}px`;
+        line1.rotation = Math.PI / 4; // 45 degrees
+        line1.background = "#ff0000";
+        line1.thickness = 0;
+        line1.isVisible = false;
+        line1.zIndex = 1000;
+        this.guiTexture.addControl(line1);
+        this.hitMarkerLines.push(line1);
+        
+        // Diagonal line 2 (top-right to bottom-left)
+        const line2 = new Rectangle("hitMarker2");
+        line2.width = `${size}px`;
+        line2.height = `${thickness}px`;
+        line2.rotation = -Math.PI / 4; // -45 degrees
+        line2.background = "#ff0000";
+        line2.thickness = 0;
+        line2.isVisible = false;
+        line2.zIndex = 1000;
+        this.guiTexture.addControl(line2);
+        this.hitMarkerLines.push(line2);
+        
+        // Outline for visibility (slightly larger, darker)
+        const outline1 = new Rectangle("hitMarkerOutline1");
+        outline1.width = `${size + scalePixels(2)}px`;
+        outline1.height = `${thickness + scalePixels(2)}px`;
+        outline1.rotation = Math.PI / 4;
+        outline1.background = "#000000";
+        outline1.thickness = 0;
+        outline1.isVisible = false;
+        outline1.zIndex = 999;
+        this.guiTexture.addControl(outline1);
+        this.hitMarkerLines.push(outline1);
+        
+        const outline2 = new Rectangle("hitMarkerOutline2");
+        outline2.width = `${size + scalePixels(2)}px`;
+        outline2.height = `${thickness + scalePixels(2)}px`;
+        outline2.rotation = -Math.PI / 4;
+        outline2.background = "#000000";
+        outline2.thickness = 0;
+        outline2.isVisible = false;
+        outline2.zIndex = 999;
+        this.guiTexture.addControl(outline2);
+        this.hitMarkerLines.push(outline2);
+    }
+    
+    // Show hit marker when hitting an enemy
+    showHitMarker(isCritical: boolean = false): void {
+        const color = isCritical ? "#ffff00" : "#ff0000"; // Yellow for critical, red for normal
+        
+        this.hitMarkerLines.forEach((line, i) => {
+            line.isVisible = true;
+            // First two are main lines, last two are outlines
+            if (i < 2) {
+                line.background = color;
+            }
+        });
+        
+        this.hitMarkerVisible = true;
+        this.hitMarkerFadeTime = Date.now() + 300; // Visible for 300ms
+    }
+    
+    // Update hit marker fade
+    private updateHitMarker(): void {
+        if (this.hitMarkerVisible && Date.now() > this.hitMarkerFadeTime) {
+            this.hitMarkerLines.forEach(line => {
+                line.isVisible = false;
+            });
+            this.hitMarkerVisible = false;
+        }
     }
     
     // Show/hide full crosshair for aiming mode
@@ -955,8 +1178,9 @@ export class HUD {
         // КРИТИЧЕСКИ ВАЖНО: Прицел ТОЛЬКО в режиме прицеливания (Ctrl)
         if (this.crosshairDot) {
             this.crosshairDot.isVisible = aiming;
-            this.crosshairDot.width = aiming ? "6px" : "0px";
-            this.crosshairDot.height = aiming ? "6px" : "0px";
+            const dotSize = scalePixels(6);
+            this.crosshairDot.width = aiming ? `${dotSize}px` : "0px";
+            this.crosshairDot.height = aiming ? `${dotSize}px` : "0px";
         }
         // Show/hide lines
         this.crosshairElements.forEach(el => {
@@ -1158,8 +1382,8 @@ export class HUD {
     
     private createConsumablesDisplay() {
         // === HOTBAR - ЦЕНТР, ПОД RELOAD BAR, НАД XP BAR (10 слотов: 1-0) ===
-        const slotWidth = 36;
-        const slotGap = 4;
+        const slotWidth = scalePixels(36);
+        const slotGap = scalePixels(4);
         const totalWidth = 10 * slotWidth + 9 * slotGap; // 396px для 10 слотов
         const startX = -totalWidth / 2 + slotWidth / 2;
         
@@ -1175,7 +1399,7 @@ export class HUD {
             container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             container.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
             container.left = `${startX + (i - 1) * (slotWidth + slotGap)}px`;
-            container.top = "-20px"; // Just above XP bar
+            container.top = this.scalePx(-20); // Just above XP bar
             this.guiTexture.addControl(container);
             
             
@@ -1183,13 +1407,13 @@ export class HUD {
             const key = new TextBlock(`consumableKey${slotIndex}`);
             key.text = `${slotIndex}`;
             key.color = slotIndex >= 6 || slotIndex === 0 ? "#0ff" : "#0a0"; // Голубой для модулей
-            key.fontSize = 9;
+            key.fontSize = this.scaleFontSize(9, 7, 12);
             key.fontWeight = "bold";
             key.fontFamily = "'Press Start 2P', monospace";
             key.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
             key.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            key.left = "2px";
-            key.top = "1px";
+            key.left = this.scalePx(2);
+            key.top = this.scalePx(1);
             key.outlineWidth = 1;
             key.outlineColor = "#000";
             container.addControl(key);
@@ -1199,10 +1423,10 @@ export class HUD {
             // Для модулей 6-0 устанавливаем иконку сразу
             if (slotIndex >= 6 || slotIndex === 0) {
                 icon.text = this.moduleIcons[slotIndex] || "";
-                icon.fontSize = 18; // Немного больше для модулей
+                icon.fontSize = this.scaleFontSize(18, 14, 24); // Немного больше для модулей
             } else {
                 icon.text = "";
-                icon.fontSize = 16;
+                icon.fontSize = this.scaleFontSize(16, 12, 20);
             }
             icon.color = "#fff";
             icon.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -1373,7 +1597,8 @@ export class HUD {
             // Эффект пульсации для активного модуля
             const pulse = () => {
                 if (!hotbarSlot.container || !hotbarSlot.container.isVisible) return;
-                const currentAlpha = parseFloat((hotbarSlot.container.background as string).match(/[\d.]+$/) || "0.2");
+                const alphaMatch = (hotbarSlot.container.background as string).match(/[\d.]+$/);
+                const currentAlpha = parseFloat(alphaMatch ? alphaMatch[0] : "0.2");
                 const newAlpha = 0.2 + Math.sin(Date.now() / 500) * 0.15;
                 hotbarSlot.container.background = `#00ffff${Math.floor(newAlpha * 255).toString(16).padStart(2, '0')}`;
                 setTimeout(pulse, 50);
@@ -1573,21 +1798,21 @@ export class HUD {
     private createCompass() {
         // === ЖИВОЙ КОМПАС БЕЗ БУКВЕННЫХ ОБОЗНАЧЕНИЙ ===
         this.compassContainer = new Rectangle("compassContainer");
-        this.compassContainer.width = "250px";
-        this.compassContainer.height = "25px";
+        this.compassContainer.width = this.scalePx(250);
+        this.compassContainer.height = this.scalePx(25);
         this.compassContainer.cornerRadius = 0;
         this.compassContainer.thickness = 1;
         this.compassContainer.color = "#0f03";
         this.compassContainer.background = "#00000099";
         this.compassContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.compassContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.compassContainer.top = "10px";
+        this.compassContainer.top = this.scalePx(10);
         this.guiTexture.addControl(this.compassContainer);
         
         // Центральный маркер (красный треугольник вниз)
         const centerMarker = new Rectangle("compassCenterMarker");
-        centerMarker.width = "2px";
-        centerMarker.height = "8px";
+        centerMarker.width = this.scalePx(2);
+        centerMarker.height = this.scalePx(8);
         centerMarker.thickness = 0;
         centerMarker.background = "#f00";
         centerMarker.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
@@ -1606,7 +1831,7 @@ export class HUD {
         this.compassDegrees = new TextBlock("compassDeg");
         this.compassDegrees.text = "0°";
         this.compassDegrees.color = "#0f0";
-        this.compassDegrees.fontSize = 14;
+        this.compassDegrees.fontSize = this.scaleFontSize(14, 10, 18);
         this.compassDegrees.fontWeight = "bold";
         this.compassDegrees.fontFamily = "'Press Start 2P', monospace";
         this.compassDegrees.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -1737,22 +1962,22 @@ export class HUD {
         // === RADAR CONTAINER WITH FRAME ===
         // Создаём общий контейнер для радара + блока информации + буквенных обозначений
         this.minimapContainer = new Rectangle("minimapContainer");
-        this.minimapContainer.width = "140px";
-        this.minimapContainer.height = "176px"; // 18px буквенные обозначения + 140px радар + 18px блок информации
+        this.minimapContainer.width = this.scalePx(140);
+        this.minimapContainer.height = this.scalePx(176); // 18px буквенные обозначения + 140px радар + 18px блок информации
         this.minimapContainer.cornerRadius = 0;
         this.minimapContainer.thickness = 1; // Тонкая рамка вокруг всего блока
         this.minimapContainer.color = "#0f0"; // Зелёная рамка
         this.minimapContainer.background = "#0a1520"; // Dark navy background
         this.minimapContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         this.minimapContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.minimapContainer.left = "-10px";
-        this.minimapContainer.top = "-40px";
+        this.minimapContainer.left = this.scalePx(-10);
+        this.minimapContainer.top = this.scalePx(-40);
         this.guiTexture.addControl(this.minimapContainer);
         
         // === БЛОК БУКВЕННОГО ОБОЗНАЧЕНИЯ НАПРАВЛЕНИЯ ДВИЖЕНИЯ НАД РАДАРОМ ===
         this.directionLabelsContainer = new Rectangle("directionLabelsContainer");
-        this.directionLabelsContainer.width = "140px";
-        this.directionLabelsContainer.height = "18px";
+        this.directionLabelsContainer.width = this.scalePx(140);
+        this.directionLabelsContainer.height = this.scalePx(18);
         this.directionLabelsContainer.thickness = 1;
         this.directionLabelsContainer.color = "#0f0";
         this.directionLabelsContainer.background = "#000";
@@ -1764,23 +1989,23 @@ export class HUD {
         this.movementDirectionLabel = new TextBlock("movementDirectionLabel");
         this.movementDirectionLabel.text = "N";
         this.movementDirectionLabel.color = "#0f0";
-        this.movementDirectionLabel.fontSize = 10;
+        this.movementDirectionLabel.fontSize = this.scaleFontSize(10, 8, 14);
         this.movementDirectionLabel.fontWeight = "bold";
         this.movementDirectionLabel.fontFamily = "'Press Start 2P', monospace";
         this.movementDirectionLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.movementDirectionLabel.top = "4px";
+        this.movementDirectionLabel.top = this.scalePx(4);
         this.directionLabelsContainer.addControl(this.movementDirectionLabel);
         
         // Внутренний контейнер для радара (средняя часть)
         const radarInnerContainer = new Rectangle("radarInnerContainer");
-        radarInnerContainer.width = "140px";
-        radarInnerContainer.height = "140px";
+        radarInnerContainer.width = this.scalePx(140);
+        radarInnerContainer.height = this.scalePx(140);
         radarInnerContainer.cornerRadius = 0;
         radarInnerContainer.thickness = 0;
         radarInnerContainer.background = "#0a1520";
         radarInnerContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         radarInnerContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        radarInnerContainer.top = "18px";
+        radarInnerContainer.top = this.scalePx(18);
         this.minimapContainer.addControl(radarInnerContainer);
         
         // Область радара
@@ -2010,6 +2235,54 @@ export class HUD {
         rightEdge.isPointerBlocker = false;
         this.guiTexture.addControl(rightEdge);
         (this.damageIndicator as any)._rightEdge = rightEdge;
+        
+        // Low HP vignette (red border effect when HP < 30%)
+        this.lowHpVignette = new Rectangle("lowHpVignette");
+        this.lowHpVignette.width = "100%";
+        this.lowHpVignette.height = "100%";
+        this.lowHpVignette.thickness = 0;
+        this.lowHpVignette.isVisible = false;
+        this.lowHpVignette.isPointerBlocker = false;
+        this.lowHpVignette.zIndex = 50;
+        
+        // Create gradient-like effect with multiple rectangles
+        const vignetteTop = new Rectangle("vignetteTop");
+        vignetteTop.width = "100%";
+        vignetteTop.height = "150px";
+        vignetteTop.thickness = 0;
+        vignetteTop.background = "linear-gradient(to bottom, rgba(255,0,0,0.4), transparent)";
+        vignetteTop.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        vignetteTop.isPointerBlocker = false;
+        this.lowHpVignette.addControl(vignetteTop);
+        
+        const vignetteBottom = new Rectangle("vignetteBottom");
+        vignetteBottom.width = "100%";
+        vignetteBottom.height = "150px";
+        vignetteBottom.thickness = 0;
+        vignetteBottom.background = "linear-gradient(to top, rgba(255,0,0,0.4), transparent)";
+        vignetteBottom.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        vignetteBottom.isPointerBlocker = false;
+        this.lowHpVignette.addControl(vignetteBottom);
+        
+        const vignetteLeft = new Rectangle("vignetteLeft");
+        vignetteLeft.width = "100px";
+        vignetteLeft.height = "100%";
+        vignetteLeft.thickness = 0;
+        vignetteLeft.background = "linear-gradient(to right, rgba(255,0,0,0.3), transparent)";
+        vignetteLeft.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        vignetteLeft.isPointerBlocker = false;
+        this.lowHpVignette.addControl(vignetteLeft);
+        
+        const vignetteRight = new Rectangle("vignetteRight");
+        vignetteRight.width = "100px";
+        vignetteRight.height = "100%";
+        vignetteRight.thickness = 0;
+        vignetteRight.background = "linear-gradient(to left, rgba(255,0,0,0.3), transparent)";
+        vignetteRight.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        vignetteRight.isPointerBlocker = false;
+        this.lowHpVignette.addControl(vignetteRight);
+        
+        this.guiTexture.addControl(this.lowHpVignette);
     }
     
     private createMessageDisplay() {
@@ -2294,10 +2567,33 @@ export class HUD {
                 warningOverlay.isVisible = false;
             }
         }
+        
+        // Low HP vignette effect (< 30%)
+        this.isLowHp = percent < 30;
+        if (this.lowHpVignette) {
+            this.lowHpVignette.isVisible = this.isLowHp;
+        }
+    }
+    
+    // Update low HP pulse effect (call from updateAnimations)
+    private updateLowHpEffect(deltaTime: number): void {
+        if (!this.isLowHp || !this.lowHpVignette) return;
+        
+        this.lowHpPulseTime += deltaTime;
+        
+        // Pulse alpha based on sine wave (faster when health is lower)
+        const healthPercent = this.currentHealth / this.maxHealth;
+        const pulseSpeed = 3 + (1 - healthPercent) * 5; // Faster pulse at lower HP
+        const pulse = (Math.sin(this.lowHpPulseTime * pulseSpeed) + 1) / 2; // 0-1
+        
+        // Stronger effect at lower HP
+        const intensity = 0.3 + (1 - healthPercent * 3) * 0.4;
+        this.lowHpVignette.alpha = 0.3 + pulse * intensity;
     }
     
     damage(amount: number) {
         this.setHealth(this.currentHealth - amount);
+        this.sessionDamage += amount; // Обновляем статистику сессии
         
         // Enhanced RED flash with edge indicators
         const intensity = Math.min(1, amount / 50); // Интенсивность зависит от урона
@@ -2610,6 +2906,7 @@ export class HUD {
     
     addKill() {
         this.killsCount++;
+        this.sessionKills++; // Обновляем статистику сессии
         console.log(`[HUD] Kill added! Total: ${this.killsCount}`);
         
         if (this.killsText) {
@@ -2717,10 +3014,267 @@ export class HUD {
     
     showDeathMessage() {
         this.showMessage("DESTROYED! RESPAWN IN 3...", "#f00");
+        this.showDeathScreen();
     }
     
     showRespawnMessage() {
         this.showMessage("RESPAWNED!", "#0f0");
+        this.hideDeathScreen();
+    }
+    
+    // === DEATH SCREEN ===
+    
+    private createDeathScreen(): void {
+        // Основной контейнер экрана смерти
+        this.deathScreen = new Rectangle("deathScreen");
+        this.deathScreen.width = "100%";
+        this.deathScreen.height = "100%";
+        this.deathScreen.background = "rgba(0, 0, 0, 0.85)";
+        this.deathScreen.thickness = 0;
+        this.deathScreen.isVisible = false;
+        this.deathScreen.zIndex = 500;
+        this.guiTexture.addControl(this.deathScreen);
+        
+        // Заголовок DESTROYED
+        const title = new TextBlock("deathTitle");
+        title.text = "💀 DESTROYED 💀";
+        title.color = "#ff0000";
+        title.fontSize = 48;
+        title.fontWeight = "bold";
+        title.fontFamily = "'Press Start 2P', monospace";
+        title.top = "-120px";
+        title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.deathScreen.addControl(title);
+        
+        // Контейнер для статистики
+        this.deathStatsContainer = new Rectangle("deathStats");
+        this.deathStatsContainer.width = "400px";
+        this.deathStatsContainer.height = "200px";
+        this.deathStatsContainer.background = "rgba(20, 0, 0, 0.8)";
+        this.deathStatsContainer.thickness = 2;
+        this.deathStatsContainer.color = "#f00";
+        this.deathStatsContainer.cornerRadius = 10;
+        this.deathStatsContainer.top = "20px";
+        this.deathScreen.addControl(this.deathStatsContainer);
+        
+        // Заголовок статистики
+        const statsTitle = new TextBlock("statsTitle");
+        statsTitle.text = "📊 SESSION STATS";
+        statsTitle.color = "#ff6666";
+        statsTitle.fontSize = 16;
+        statsTitle.fontFamily = "'Press Start 2P', monospace";
+        statsTitle.top = "-70px";
+        this.deathStatsContainer.addControl(statsTitle);
+        
+        // Убийства
+        this.deathKillsText = new TextBlock("deathKills");
+        this.deathKillsText.text = "☠ Kills: 0";
+        this.deathKillsText.color = "#0f0";
+        this.deathKillsText.fontSize = 14;
+        this.deathKillsText.fontFamily = "'Press Start 2P', monospace";
+        this.deathKillsText.top = "-30px";
+        this.deathKillsText.left = "-50px";
+        this.deathKillsText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.deathStatsContainer.addControl(this.deathKillsText);
+        
+        // Урон
+        this.deathDamageText = new TextBlock("deathDamage");
+        this.deathDamageText.text = "💥 Damage: 0";
+        this.deathDamageText.color = "#ff8800";
+        this.deathDamageText.fontSize = 14;
+        this.deathDamageText.fontFamily = "'Press Start 2P', monospace";
+        this.deathDamageText.top = "10px";
+        this.deathDamageText.left = "-50px";
+        this.deathDamageText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.deathStatsContainer.addControl(this.deathDamageText);
+        
+        // Время игры
+        this.deathTimeText = new TextBlock("deathTime");
+        this.deathTimeText.text = "⏱ Time: 0:00";
+        this.deathTimeText.color = "#88ffff";
+        this.deathTimeText.fontSize = 14;
+        this.deathTimeText.fontFamily = "'Press Start 2P', monospace";
+        this.deathTimeText.top = "50px";
+        this.deathTimeText.left = "-50px";
+        this.deathTimeText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.deathStatsContainer.addControl(this.deathTimeText);
+        
+        // Таймер респавна
+        this.deathRespawnText = new TextBlock("deathRespawn");
+        this.deathRespawnText.text = "RESPAWN IN 3...";
+        this.deathRespawnText.color = "#ffff00";
+        this.deathRespawnText.fontSize = 20;
+        this.deathRespawnText.fontFamily = "'Press Start 2P', monospace";
+        this.deathRespawnText.top = "160px";
+        this.deathScreen.addControl(this.deathRespawnText);
+    }
+    
+    private showDeathScreen(): void {
+        if (!this.deathScreen) return;
+        
+        // Обновляем статистику
+        const sessionTime = Math.floor((Date.now() - this.sessionStartTime) / 1000);
+        const minutes = Math.floor(sessionTime / 60);
+        const seconds = sessionTime % 60;
+        
+        if (this.deathKillsText) {
+            this.deathKillsText.text = `☠ Kills: ${this.sessionKills}`;
+        }
+        if (this.deathDamageText) {
+            this.deathDamageText.text = `💥 Damage: ${this.sessionDamage}`;
+        }
+        if (this.deathTimeText) {
+            this.deathTimeText.text = `⏱ Time: ${minutes}:${seconds.toString().padStart(2, '0')}`;
+        }
+        
+        this.deathScreen.isVisible = true;
+        
+        // Анимация обратного отсчёта
+        let countdown = 3;
+        const updateCountdown = () => {
+            if (this.deathRespawnText && this.deathScreen?.isVisible) {
+                this.deathRespawnText.text = `RESPAWN IN ${countdown}...`;
+                countdown--;
+                if (countdown >= 0) {
+                    setTimeout(updateCountdown, 1000);
+                }
+            }
+        };
+        updateCountdown();
+    }
+    
+    private hideDeathScreen(): void {
+        if (this.deathScreen) {
+            this.deathScreen.isVisible = false;
+        }
+    }
+    
+    // Обновление статистики сессии
+    addSessionKill(): void {
+        this.sessionKills++;
+    }
+    
+    addSessionDamage(amount: number): void {
+        this.sessionDamage += amount;
+    }
+    
+    resetSession(): void {
+        this.sessionKills = 0;
+        this.sessionDamage = 0;
+        this.sessionStartTime = Date.now();
+    }
+    
+    // === DIRECTIONAL DAMAGE INDICATORS ===
+    
+    private createDirectionalDamageIndicators(): void {
+        // Создаём 4 индикатора для каждого направления: top, bottom, left, right
+        const directions = [
+            { name: "top", rotation: 0, top: "50px", left: "0", width: "200px", height: "60px" },
+            { name: "bottom", rotation: Math.PI, top: "-50px", left: "0", width: "200px", height: "60px", vAlign: Control.VERTICAL_ALIGNMENT_BOTTOM },
+            { name: "left", rotation: -Math.PI / 2, top: "0", left: "50px", width: "60px", height: "200px", hAlign: Control.HORIZONTAL_ALIGNMENT_LEFT },
+            { name: "right", rotation: Math.PI / 2, top: "0", left: "-50px", width: "60px", height: "200px", hAlign: Control.HORIZONTAL_ALIGNMENT_RIGHT }
+        ];
+        
+        directions.forEach(dir => {
+            const indicator = new Rectangle(`damageDir_${dir.name}`);
+            indicator.width = dir.width;
+            indicator.height = dir.height;
+            indicator.thickness = 0;
+            indicator.isVisible = false;
+            indicator.zIndex = 400;
+            
+            // Позиционирование
+            if (dir.vAlign !== undefined) {
+                indicator.verticalAlignment = dir.vAlign;
+            } else {
+                indicator.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            }
+            
+            if (dir.hAlign !== undefined) {
+                indicator.horizontalAlignment = dir.hAlign;
+            } else {
+                indicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            }
+            
+            indicator.top = dir.top;
+            indicator.left = dir.left;
+            
+            // Градиент от красного к прозрачному (используем сплошной красный с альфа)
+            indicator.background = dir.name === "top" || dir.name === "bottom" 
+                ? "linear-gradient(rgba(255, 0, 0, 0.8), transparent)"
+                : "rgba(255, 0, 0, 0.6)";
+            
+            this.guiTexture.addControl(indicator);
+            this.damageDirectionIndicators.set(dir.name, { element: indicator, fadeTime: 0 });
+        });
+    }
+    
+    // Показать индикатор направления урона
+    showDamageDirection(direction: "top" | "bottom" | "left" | "right"): void {
+        const indicator = this.damageDirectionIndicators.get(direction);
+        if (indicator) {
+            indicator.element.isVisible = true;
+            indicator.element.alpha = 1;
+            indicator.fadeTime = Date.now() + this.damageIndicatorDuration;
+        }
+    }
+    
+    // Показать урон с направлением от позиции атакующего
+    showDamageFromPosition(attackerPosition: Vector3, playerPosition: Vector3, playerRotation: number): void {
+        // Вычисляем направление от игрока к атакующему
+        const dx = attackerPosition.x - playerPosition.x;
+        const dz = attackerPosition.z - playerPosition.z;
+        
+        // Угол к атакующему в мировых координатах
+        let angleToAttacker = Math.atan2(dx, dz);
+        
+        // Корректируем на поворот игрока, чтобы получить относительный угол
+        let relativeAngle = angleToAttacker - playerRotation;
+        
+        // Нормализуем угол к диапазону [-PI, PI]
+        while (relativeAngle > Math.PI) relativeAngle -= Math.PI * 2;
+        while (relativeAngle < -Math.PI) relativeAngle += Math.PI * 2;
+        
+        // Определяем направление
+        // Передняя часть танка: relativeAngle около 0 (-45 до 45 градусов)
+        // Задняя часть: relativeAngle около PI или -PI (135 до 180 или -135 до -180)
+        // Левая часть: relativeAngle около -PI/2 (-135 до -45)
+        // Правая часть: relativeAngle около PI/2 (45 до 135)
+        
+        const deg45 = Math.PI / 4;
+        const deg135 = Math.PI * 3 / 4;
+        
+        if (relativeAngle >= -deg45 && relativeAngle <= deg45) {
+            // Урон спереди
+            this.showDamageDirection("top");
+        } else if (relativeAngle >= deg45 && relativeAngle <= deg135) {
+            // Урон справа
+            this.showDamageDirection("right");
+        } else if (relativeAngle >= -deg135 && relativeAngle <= -deg45) {
+            // Урон слева
+            this.showDamageDirection("left");
+        } else {
+            // Урон сзади
+            this.showDamageDirection("bottom");
+        }
+    }
+    
+    // Обновление затухания индикаторов урона
+    updateDamageIndicators(): void {
+        const now = Date.now();
+        
+        this.damageDirectionIndicators.forEach((indicator) => {
+            if (indicator.element.isVisible && indicator.fadeTime > 0) {
+                const remaining = indicator.fadeTime - now;
+                if (remaining <= 0) {
+                    indicator.element.isVisible = false;
+                    indicator.fadeTime = 0;
+                } else {
+                    // Плавное затухание
+                    indicator.element.alpha = remaining / this.damageIndicatorDuration;
+                }
+            }
+        });
     }
     
     // === TARGET INDICATOR WITH SMOOTH FADE ===
@@ -2879,9 +3433,9 @@ export class HUD {
             const marker = this.minimapEnemies[i];
             marker.isVisible = false;
             if (i < this.poolSize) {
-                if (marker.name.startsWith('enemy')) {
+                if (marker.name && marker.name.startsWith('enemy')) {
                     this.enemyMarkerPool.push(marker);
-                } else if (marker.name.startsWith('enemyBarrel')) {
+                } else if (marker.name && marker.name.startsWith('enemyBarrel')) {
                     this.enemyBarrelPool.push(marker);
                 }
             } else {
@@ -3304,9 +3858,9 @@ export class HUD {
     private _createFPSCounter() {
         // === FPS COUNTER - ЛЕВЫЙ ВЕРХНИЙ УГОЛ ===
         this.fpsContainer = new Rectangle("fpsContainer");
-        this.fpsContainer.width = "50px";
-        this.fpsContainer.height = "18px";
-        this.fpsContainer.cornerRadius = 0;
+        this.fpsContainer.width = "60px"; // Увеличено для лучшей читаемости
+        this.fpsContainer.height = "20px"; // Увеличено немного
+        this.fpsContainer.cornerRadius = 2;
         this.fpsContainer.thickness = 1;
         this.fpsContainer.color = "#0f03";
         this.fpsContainer.background = "#00000099";
@@ -3314,38 +3868,64 @@ export class HUD {
         this.fpsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.fpsContainer.left = "15px";
         this.fpsContainer.top = "10px";
+        this.fpsContainer.zIndex = 1000; // Поверх других элементов
         this.guiTexture.addControl(this.fpsContainer);
         
         this.fpsText = new TextBlock("fpsText");
-        this.fpsText.text = "60";
+        this.fpsText.text = "60 FPS"; // Явно добавляем " FPS" для отладки
         this.fpsText.color = "#0f0";
-        this.fpsText.fontSize = 10;
-        this.fpsText.fontFamily = "'Press Start 2P', monospace";
+        this.fpsText.fontSize = 11;
+        this.fpsText.fontFamily = "Consolas, monospace"; // Меняем на более читаемый шрифт
+        this.fpsText.fontWeight = "bold";
         this.fpsText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.fpsText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.fpsText.zIndex = 1001;
         this.fpsContainer.addControl(this.fpsText);
+        
+        // FPS виден по умолчанию (можно будет изменить через настройки)
+        this.fpsContainer.isVisible = true;
+        this.fpsText.isVisible = true;
+        
+        console.log("[HUD] FPS counter created:", this.fpsText.text);
     }
     
     updateFPS(fps: number) {
-        if (!this.fpsText) return;
+        if (!this.fpsText || !this.fpsContainer) {
+            return;
+        }
         
+        // Добавляем текущий FPS в историю для усреднения (плавность отображения)
         this.fpsHistory.push(fps);
-        if (this.fpsHistory.length > 10) {
+        if (this.fpsHistory.length > 5) { // Маленький буфер для быстрой реакции
             this.fpsHistory.shift();
         }
         
+        // Вычисляем средний FPS для плавности
         const avgFps = Math.round(this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length);
-        this.fpsText.text = `${avgFps}`;
+        
+        // Обновляем текст (всегда обновляем для "живого" отображения)
+        this.fpsText.text = `${avgFps} FPS`;
         
         // Цвет в зависимости от FPS
         if (avgFps >= 55) {
             this.fpsText.color = "#00ff88";
-            if (this.fpsContainer) this.fpsContainer.color = "#00ff8833";
+            this.fpsContainer.color = "#00ff8833";
         } else if (avgFps >= 30) {
             this.fpsText.color = "#ffaa00";
-            if (this.fpsContainer) this.fpsContainer.color = "#ffaa0033";
+            this.fpsContainer.color = "#ffaa0033";
         } else {
             this.fpsText.color = "#ff3366";
-            if (this.fpsContainer) this.fpsContainer.color = "#ff336633";
+            this.fpsContainer.color = "#ff336633";
+        }
+    }
+    
+    // Установить видимость FPS счётчика
+    setShowFPS(show: boolean): void {
+        if (this.fpsContainer) {
+            this.fpsContainer.isVisible = show;
+        }
+        if (this.fpsText) {
+            this.fpsText.isVisible = show;
         }
     }
     
@@ -3939,7 +4519,7 @@ export class HUD {
         this.comboContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         this.comboContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.comboContainer.top = "10px";
-        this.comboContainer.right = "10px";
+        this.comboContainer.left = "-10px";
         this.comboContainer.isVisible = false; // Скрыт по умолчанию
         this.guiTexture.addControl(this.comboContainer);
         
@@ -4147,23 +4727,25 @@ export class HUD {
                 // Визуальный эффект при увеличении комбо
                 if (this.comboIndicator) {
                     // Временно увеличиваем размер текста
-                    const originalSize = this.comboIndicator.fontSize;
-                    this.comboIndicator.fontSize = originalSize * 1.3;
+                    const originalSize = typeof this.comboIndicator.fontSize === "string" 
+                        ? parseFloat(this.comboIndicator.fontSize) 
+                        : (this.comboIndicator.fontSize as number);
+                    this.comboIndicator.fontSize = (originalSize * 1.3).toString() + "px";
                     
                     // Возвращаем размер через анимацию
                     setTimeout(() => {
                         if (this.comboIndicator) {
-                            this.comboIndicator.fontSize = originalSize;
+                            this.comboIndicator.fontSize = originalSize.toString() + "px";
                         }
                     }, 200);
                 }
                 
                 // Плавающий текст при увеличении комбо
-                this.showComboIncrease(comboCount, this.lastComboCount);
+                this._showComboIncrease(comboCount, this.lastComboCount);
                 
                 // Эффект частиц при достижении вех комбо
                 if (comboCount === 5 || comboCount === 8 || comboCount === 10) {
-                    this.createComboParticles(comboCount);
+                    this._createComboParticles(comboCount);
                 }
             }
         } else {
@@ -4200,7 +4782,7 @@ export class HUD {
         // Применяем масштаб с плавной интерполяцией
         if (this.comboContainer) {
             const currentScaleX = this.comboContainer.scaleX || 1.0;
-            const currentScaleY = this.comboContainer.scaleY || 1.0;
+            const _currentScaleY = this.comboContainer.scaleY || 1.0;
             
             // Плавная интерполяция для избежания резких скачков
             const smoothScale = currentScaleX + (this.comboScale - currentScaleX) * 0.2;
@@ -4219,5 +4801,1290 @@ export class HUD {
                 this.comboIndicator.outlineWidth = 2;
             }
         }
+    }
+    
+    // === FUEL INDICATOR ===
+    
+    private createFuelIndicator(): void {
+        // Fuel bar container (below health bar)
+        this.fuelBar = new Rectangle("fuelBar");
+        this.fuelBar.width = "120px";
+        this.fuelBar.height = "8px";
+        this.fuelBar.cornerRadius = 2;
+        this.fuelBar.color = "#444";
+        this.fuelBar.thickness = 1;
+        this.fuelBar.background = "#222";
+        this.fuelBar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.fuelBar.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.fuelBar.left = "10px";
+        this.fuelBar.top = "65px";
+        this.guiTexture.addControl(this.fuelBar);
+        
+        // Fuel fill
+        this.fuelFill = new Rectangle("fuelFill");
+        this.fuelFill.width = "100%";
+        this.fuelFill.height = "100%";
+        this.fuelFill.background = "#f90";
+        this.fuelFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.fuelBar.addControl(this.fuelFill);
+        
+        // Fuel text
+        this.fuelText = new TextBlock("fuelText");
+        this.fuelText.text = "⛽ 100%";
+        this.fuelText.color = "#f90";
+        this.fuelText.fontSize = "10px";
+        this.fuelText.fontFamily = "monospace";
+        this.fuelText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.fuelText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.fuelText.left = "135px";
+        this.fuelText.top = "63px";
+        this.guiTexture.addControl(this.fuelText);
+    }
+    
+    updateFuel(current: number, max: number): void {
+        if (!this.fuelFill || !this.fuelText) return;
+        
+        const percent = Math.max(0, Math.min(100, (current / max) * 100));
+        this.fuelFill.width = `${percent}%`;
+        this.fuelText.text = `⛽ ${Math.round(percent)}%`;
+        
+        // Color based on fuel level
+        if (percent > 50) {
+            this.fuelFill.background = "#f90";
+            this.fuelText.color = "#f90";
+        } else if (percent > 20) {
+            this.fuelFill.background = "#fa0";
+            this.fuelText.color = "#fa0";
+        } else {
+            this.fuelFill.background = "#f30";
+            this.fuelText.color = "#f30";
+        }
+    }
+    
+    // === TRACER COUNTER ===
+    
+    private createTracerCounter(): void {
+        // Tracer counter container (below fuel, left side)
+        this.tracerContainer = new Rectangle("tracerContainer");
+        this.tracerContainer.width = "80px";
+        this.tracerContainer.height = "22px";
+        this.tracerContainer.cornerRadius = 2;
+        this.tracerContainer.color = "#f60";
+        this.tracerContainer.thickness = 1;
+        this.tracerContainer.background = "rgba(50, 20, 0, 0.7)";
+        this.tracerContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.tracerContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.tracerContainer.left = "10px";
+        this.tracerContainer.top = "80px";
+        this.guiTexture.addControl(this.tracerContainer);
+        
+        // Tracer icon and count text
+        this.tracerCountText = new TextBlock("tracerCountText");
+        this.tracerCountText.text = "T: 5/5";
+        this.tracerCountText.color = "#f80";
+        this.tracerCountText.fontSize = "11px";
+        this.tracerCountText.fontWeight = "bold";
+        this.tracerCountText.fontFamily = "Consolas, monospace";
+        this.tracerContainer.addControl(this.tracerCountText);
+    }
+    
+    updateTracerCount(current: number, max: number): void {
+        if (!this.tracerCountText) return;
+        
+        this.tracerCountText.text = `T: ${current}/${max}`;
+        
+        // Color based on tracer count
+        if (current === 0) {
+            this.tracerCountText.color = "#f00";
+            this.tracerContainer.color = "#f00";
+        } else if (current <= 2) {
+            this.tracerCountText.color = "#fa0";
+            this.tracerContainer.color = "#fa0";
+        } else {
+            this.tracerCountText.color = "#f80";
+            this.tracerContainer.color = "#f60";
+        }
+    }
+    
+    // === POI CAPTURE BAR ===
+    
+    private createPOICaptureBar(): void {
+        // Capture progress bar (center top, below compass)
+        this.poiCaptureProgress = new Rectangle("poiCaptureBar");
+        this.poiCaptureProgress.width = "200px";
+        this.poiCaptureProgress.height = "12px";
+        this.poiCaptureProgress.cornerRadius = 3;
+        this.poiCaptureProgress.color = "#666";
+        this.poiCaptureProgress.thickness = 2;
+        this.poiCaptureProgress.background = "#222";
+        this.poiCaptureProgress.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.poiCaptureProgress.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.poiCaptureProgress.top = "80px";
+        this.poiCaptureProgress.isVisible = false;
+        this.guiTexture.addControl(this.poiCaptureProgress);
+        
+        // Capture fill
+        this.poiCaptureProgressFill = new Rectangle("poiCaptureFill");
+        this.poiCaptureProgressFill.width = "0%";
+        this.poiCaptureProgressFill.height = "100%";
+        this.poiCaptureProgressFill.background = "#0f0";
+        this.poiCaptureProgressFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.poiCaptureProgress.addControl(this.poiCaptureProgressFill);
+        
+        // Capture text
+        this.poiCaptureText = new TextBlock("poiCaptureText");
+        this.poiCaptureText.text = "ЗАХВАТ";
+        this.poiCaptureText.color = "#fff";
+        this.poiCaptureText.fontSize = "10px";
+        this.poiCaptureText.fontFamily = "monospace";
+        this.poiCaptureText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.poiCaptureText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.poiCaptureText.top = "95px";
+        this.poiCaptureText.isVisible = false;
+        this.guiTexture.addControl(this.poiCaptureText);
+    }
+    
+    showPOICaptureProgress(poiType: string, progress: number, contested: boolean): void {
+        if (!this.poiCaptureProgress || !this.poiCaptureProgressFill || !this.poiCaptureText) return;
+        
+        this.poiCaptureProgress.isVisible = true;
+        this.poiCaptureText.isVisible = true;
+        
+        this.poiCaptureProgressFill.width = `${Math.min(100, progress)}%`;
+        
+        // Text based on POI type
+        let typeName = "ТОЧКА";
+        switch (poiType) {
+            case "capturePoint": typeName = "ТОЧКА"; break;
+            case "ammoDepot": typeName = "СКЛАД"; break;
+            case "repairStation": typeName = "РЕМОНТ"; break;
+            case "fuelDepot": typeName = "ТОПЛИВО"; break;
+            case "radarStation": typeName = "РАДАР"; break;
+        }
+        
+        if (contested) {
+            this.poiCaptureText.text = `⚔️ КОНТЕСТ`;
+            this.poiCaptureProgressFill.background = "#fa0";
+            this.poiCaptureProgress.color = "#fa0";
+        } else {
+            this.poiCaptureText.text = `${typeName} - ${Math.round(progress)}%`;
+            this.poiCaptureProgressFill.background = "#0f0";
+            this.poiCaptureProgress.color = "#0f0";
+        }
+    }
+    
+    hidePOICaptureProgress(): void {
+        if (this.poiCaptureProgress) this.poiCaptureProgress.isVisible = false;
+        if (this.poiCaptureText) this.poiCaptureText.isVisible = false;
+    }
+    
+    // === NOTIFICATIONS ===
+    
+    private createNotificationArea(): void {
+        this.notificationContainer = new Rectangle("notificationArea");
+        this.notificationContainer.width = "300px";
+        this.notificationContainer.height = "150px";
+        this.notificationContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.notificationContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.notificationContainer.top = "120px";
+        this.notificationContainer.thickness = 0;
+        this.notificationContainer.isPointerBlocker = false;
+        this.guiTexture.addControl(this.notificationContainer);
+    }
+    
+    showNotification(text: string, type: "success" | "warning" | "error" | "info" = "info"): void {
+        if (!this.notificationContainer) return;
+        
+        const notification = new Rectangle("notification_" + Date.now());
+        notification.width = "280px";
+        notification.height = "30px";
+        notification.cornerRadius = 5;
+        notification.thickness = 2;
+        notification.paddingTop = "5px";
+        
+        // Color based on type
+        switch (type) {
+            case "success":
+                notification.background = "rgba(0, 80, 0, 0.9)";
+                notification.color = "#0f0";
+                break;
+            case "warning":
+                notification.background = "rgba(80, 60, 0, 0.9)";
+                notification.color = "#fa0";
+                break;
+            case "error":
+                notification.background = "rgba(80, 0, 0, 0.9)";
+                notification.color = "#f00";
+                break;
+            default:
+                notification.background = "rgba(0, 40, 80, 0.9)";
+                notification.color = "#0af";
+        }
+        
+        const textBlock = new TextBlock();
+        textBlock.text = text;
+        textBlock.color = "#fff";
+        textBlock.fontSize = "12px";
+        textBlock.fontFamily = "monospace";
+        notification.addControl(textBlock);
+        
+        // Position
+        const index = this.notifications.length;
+        notification.top = `${index * 35}px`;
+        notification.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        
+        this.notificationContainer.addControl(notification);
+        this.notifications.push({ text, type, element: notification });
+        
+        // Fade out and remove after 3 seconds
+        setTimeout(() => {
+            this.removeNotification(notification);
+        }, 3000);
+    }
+    
+    private removeNotification(notification: Rectangle): void {
+        const index = this.notifications.findIndex(n => n.element === notification);
+        if (index !== -1) {
+            this.notifications.splice(index, 1);
+            notification.dispose();
+            
+            // Reposition remaining notifications
+            this.notifications.forEach((n, i) => {
+                n.element.top = `${i * 35}px`;
+            });
+        }
+    }
+    
+    // === TUTORIAL SYSTEM ===
+    private createTutorial(): void {
+        // Check if tutorial was already completed
+        try {
+            if (localStorage.getItem('tutorialCompleted') === 'true') {
+                this.tutorialCompleted = true;
+                return;
+            }
+        } catch (e) {
+            // localStorage not available
+        }
+        
+        // Create tutorial container
+        this.tutorialContainer = new Rectangle("tutorialContainer");
+        this.tutorialContainer.width = "400px";
+        this.tutorialContainer.height = "80px";
+        this.tutorialContainer.cornerRadius = 10;
+        this.tutorialContainer.thickness = 2;
+        this.tutorialContainer.color = "#0f0";
+        this.tutorialContainer.background = "rgba(0, 20, 0, 0.9)";
+        this.tutorialContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.tutorialContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.tutorialContainer.top = "200px"; // Below center
+        this.tutorialContainer.isVisible = false;
+        this.guiTexture.addControl(this.tutorialContainer);
+        
+        // Tutorial text
+        this.tutorialText = new TextBlock("tutorialText");
+        this.tutorialText.text = "";
+        this.tutorialText.color = "#0f0";
+        this.tutorialText.fontSize = 16;
+        this.tutorialText.fontFamily = "'Press Start 2P', monospace";
+        this.tutorialText.textWrapping = true;
+        this.tutorialText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.tutorialContainer.addControl(this.tutorialText);
+        
+        // Skip button hint
+        const skipHint = new TextBlock("skipHint");
+        skipHint.text = "ESC - пропустить";
+        skipHint.color = "#666";
+        skipHint.fontSize = 10;
+        skipHint.fontFamily = "monospace";
+        skipHint.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        skipHint.top = "-5px";
+        this.tutorialContainer.addControl(skipHint);
+        
+        console.log("[HUD] Tutorial system created");
+    }
+    
+    // Start tutorial when game begins
+    startTutorial(): void {
+        if (this.tutorialCompleted) return;
+        
+        this.tutorialStep = 0;
+        this._tutorialStartTime = Date.now();
+        this.hasMoved = false;
+        this.hasShot = false;
+        this.showTutorialStep(0);
+        
+        // Listen for ESC to skip
+        const skipHandler = (e: KeyboardEvent) => {
+            if (e.code === "Escape") {
+                this.completeTutorial();
+                window.removeEventListener("keydown", skipHandler);
+            }
+        };
+        window.addEventListener("keydown", skipHandler);
+        
+        console.log("[HUD] Tutorial started");
+    }
+    
+    private showTutorialStep(step: number): void {
+        if (!this.tutorialContainer || !this.tutorialText || this.tutorialCompleted) return;
+        
+        const steps = [
+            "WASD - движение танка\nQ/E - поворот башни",
+            "ЛКМ - выстрел\nПКМ или Ctrl - прицеливание",
+            "Находите гаражи\nдля ремонта и улучшений",
+            "Удачной охоты, танкист!"
+        ];
+        
+        if (step >= steps.length) {
+            this.completeTutorial();
+            return;
+        }
+        
+        this.tutorialStep = step;
+        this.tutorialText.text = steps[step];
+        this.tutorialContainer.isVisible = true;
+        
+        // Auto-advance to next step
+        const duration = step === steps.length - 1 ? 2000 : 5000; // Last message shorter
+        setTimeout(() => {
+            if (!this.tutorialCompleted && this.tutorialStep === step) {
+                this.showTutorialStep(step + 1);
+            }
+        }, duration);
+    }
+    
+    // Call this when player moves
+    notifyPlayerMoved(): void {
+        if (this.tutorialCompleted || this.hasMoved) return;
+        this.hasMoved = true;
+        
+        // If on step 0, advance to step 1
+        if (this.tutorialStep === 0) {
+            this.showTutorialStep(1);
+        }
+    }
+    
+    // Call this when player shoots
+    notifyPlayerShot(): void {
+        if (this.tutorialCompleted || this.hasShot) return;
+        this.hasShot = true;
+        
+        // If on step 1, advance to step 2
+        if (this.tutorialStep === 1) {
+            this.showTutorialStep(2);
+        }
+    }
+    
+    private completeTutorial(): void {
+        this.tutorialCompleted = true;
+        if (this.tutorialContainer) {
+            this.tutorialContainer.isVisible = false;
+        }
+        
+        try {
+            localStorage.setItem('tutorialCompleted', 'true');
+        } catch (e) {
+            // localStorage not available
+        }
+        
+        // Notify callback
+        if (this.onTutorialCompleteCallback) {
+            this.onTutorialCompleteCallback();
+        }
+        
+        console.log("[HUD] Tutorial completed");
+    }
+    
+    // Set callback for tutorial completion
+    setOnTutorialComplete(callback: () => void): void {
+        this.onTutorialCompleteCallback = callback;
+    }
+    
+    // Reset tutorial (for debugging or settings)
+    resetTutorial(): void {
+        this.tutorialCompleted = false;
+        this.tutorialStep = 0;
+        this.hasMoved = false;
+        this.hasShot = false;
+        
+        try {
+            localStorage.removeItem('tutorialCompleted');
+        } catch (e) {}
+        
+        console.log("[HUD] Tutorial reset");
+    }
+    
+    // === POI MINIMAP MARKERS ===
+    
+    updateMinimapPOIs(
+        pois: Array<{id: string, type: string, worldPosition: {x: number, z: number}, ownerId: string | null, captureProgress: number}>,
+        playerPos: {x: number, z: number},
+        tankRotationY: number
+    ): void {
+        if (!this.radarArea) return;
+        
+        const radarRadius = 70;
+        const worldRadius = 150;
+        const scale = radarRadius / worldRadius;
+        
+        const angle = tankRotationY;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        
+        // Hide all existing POI markers
+        for (const marker of this.poiMinimapMarkers.values()) {
+            marker.isVisible = false;
+        }
+        
+        for (const poi of pois) {
+            const dx = poi.worldPosition.x - playerPos.x;
+            const dz = poi.worldPosition.z - playerPos.z;
+            
+            const rotX = dx * cos - dz * sin;
+            const rotZ = dx * sin + dz * cos;
+            
+            const radarX = rotX * scale;
+            const radarZ = -rotZ * scale;
+            
+            if (Math.abs(radarX) > radarRadius || Math.abs(radarZ) > radarRadius) continue;
+            
+            let marker = this.poiMinimapMarkers.get(poi.id);
+            if (!marker) {
+                marker = this.createPOIMinimapMarker(poi.type);
+                this.radarArea.addControl(marker);
+                this.poiMinimapMarkers.set(poi.id, marker);
+            }
+            
+            marker.left = `${radarX}px`;
+            marker.top = `${radarZ}px`;
+            marker.isVisible = true;
+            
+            if (poi.ownerId === "player") {
+                marker.background = "#0f0";
+                marker.color = "#0f0";
+            } else if (poi.ownerId === "enemy") {
+                marker.background = "#f00";
+                marker.color = "#f00";
+            } else {
+                marker.background = "#888";
+                marker.color = "#888";
+            }
+            
+            if (poi.captureProgress > 0 && poi.captureProgress < 100) {
+                const pulse = 1 + Math.sin(Date.now() * 0.01) * 0.3;
+                marker.scaleX = pulse;
+                marker.scaleY = pulse;
+            } else {
+                marker.scaleX = 1;
+                marker.scaleY = 1;
+            }
+        }
+    }
+    
+    private createPOIMinimapMarker(type: string): Rectangle {
+        const marker = new Rectangle("poiMarker_" + Date.now());
+        marker.width = "8px";
+        marker.height = "8px";
+        marker.thickness = 1;
+        marker.background = "#888";
+        marker.color = "#fff";
+        
+        switch (type) {
+            case "capturePoint":
+                marker.cornerRadius = 0;
+                marker.width = "10px";
+                marker.height = "10px";
+                break;
+            case "ammoDepot":
+                marker.cornerRadius = 2;
+                marker.width = "6px";
+                marker.height = "8px";
+                break;
+            case "repairStation":
+                marker.cornerRadius = 8;
+                break;
+            case "fuelDepot":
+                marker.cornerRadius = 4;
+                marker.width = "8px";
+                marker.height = "6px";
+                break;
+            case "radarStation":
+                marker.cornerRadius = 0;
+                marker.rotation = Math.PI / 4;
+                break;
+        }
+        
+        return marker;
+    }
+    
+    // === POI 3D WORLD MARKERS ===
+    
+    private createPOI3DMarkersContainer(): void {
+        this.poi3DMarkersContainer = new Rectangle("poi3DContainer");
+        this.poi3DMarkersContainer.width = "100%";
+        this.poi3DMarkersContainer.height = "100%";
+        this.poi3DMarkersContainer.thickness = 0;
+        this.poi3DMarkersContainer.isPointerBlocker = false;
+        this.guiTexture.addControl(this.poi3DMarkersContainer);
+    }
+    
+    updatePOI3DMarkers(
+        pois: Array<{
+            id: string,
+            type: string,
+            screenX: number,
+            screenY: number,
+            distance: number,
+            ownerId: string | null,
+            captureProgress: number,
+            visible: boolean
+        }>
+    ): void {
+        if (!this.poi3DMarkersContainer) return;
+        
+        for (const marker of this.poi3DMarkers.values()) {
+            marker.container.isVisible = false;
+        }
+        
+        for (const poi of pois) {
+            if (!poi.visible || poi.distance > 500) continue;
+            
+            let markerData = this.poi3DMarkers.get(poi.id);
+            if (!markerData) {
+                markerData = this.createPOI3DMarker(poi.type);
+                this.poi3DMarkersContainer.addControl(markerData.container);
+                this.poi3DMarkers.set(poi.id, markerData);
+            }
+            
+            markerData.container.left = `${poi.screenX}px`;
+            markerData.container.top = `${poi.screenY}px`;
+            markerData.container.isVisible = true;
+            
+            markerData.distance.text = `${Math.round(poi.distance)}m`;
+            
+            const scale = Math.max(0.5, 1 - poi.distance / 600);
+            markerData.container.scaleX = scale;
+            markerData.container.scaleY = scale;
+            
+            let color = "#888";
+            if (poi.ownerId === "player") color = "#0f0";
+            else if (poi.ownerId === "enemy") color = "#f00";
+            
+            markerData.container.color = color;
+            markerData.text.color = color;
+            markerData.distance.color = color;
+            
+            if (poi.captureProgress > 0 && poi.captureProgress < 100) {
+                const pulse = 1 + Math.sin(Date.now() * 0.008) * 0.2;
+                markerData.container.scaleX = scale * pulse;
+                markerData.container.scaleY = scale * pulse;
+            }
+        }
+    }
+    
+    private createPOI3DMarker(type: string): { container: Rectangle, text: TextBlock, distance: TextBlock } {
+        const container = new Rectangle("poi3D_" + Date.now());
+        container.width = "60px";
+        container.height = "40px";
+        container.thickness = 2;
+        container.color = "#888";
+        container.background = "rgba(0,0,0,0.6)";
+        container.cornerRadius = 5;
+        container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        container.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        
+        const text = new TextBlock();
+        text.fontSize = "14px";
+        text.fontFamily = "monospace";
+        text.color = "#fff";
+        text.top = "-5px";
+        
+        switch (type) {
+            case "capturePoint": text.text = "⚑"; break;
+            case "ammoDepot": text.text = "🔫"; break;
+            case "repairStation": text.text = "🔧"; break;
+            case "fuelDepot": text.text = "⛽"; break;
+            case "radarStation": text.text = "📡"; break;
+            default: text.text = "●";
+        }
+        container.addControl(text);
+        
+        const distance = new TextBlock();
+        distance.fontSize = "10px";
+        distance.fontFamily = "monospace";
+        distance.color = "#888";
+        distance.top = "10px";
+        distance.text = "0m";
+        container.addControl(distance);
+        
+        return { container, text, distance };
+    }
+    
+    getPOIIcon(type: string): string {
+        switch (type) {
+            case "capturePoint": return "⚑";
+            case "ammoDepot": return "🔫";
+            case "repairStation": return "🔧";
+            case "fuelDepot": return "⛽";
+            case "radarStation": return "📡";
+            default: return "●";
+        }
+    }
+    
+    // === MULTIPLAYER HUD ===
+    
+    createMultiplayerHUD(): void {
+        // Score container (top center)
+        this.multiplayerScoreContainer = new Rectangle("multiplayerScore");
+        this.multiplayerScoreContainer.width = "400px";
+        this.multiplayerScoreContainer.height = "60px";
+        this.multiplayerScoreContainer.cornerRadius = 5;
+        this.multiplayerScoreContainer.thickness = 2;
+        this.multiplayerScoreContainer.color = "#666";
+        this.multiplayerScoreContainer.background = "rgba(0, 0, 0, 0.7)";
+        this.multiplayerScoreContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.multiplayerScoreContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.multiplayerScoreContainer.top = "10px";
+        this.multiplayerScoreContainer.isVisible = false;
+        this.guiTexture.addControl(this.multiplayerScoreContainer);
+        
+        // Team 0 score (left)
+        this.team0ScoreText = new TextBlock("team0Score");
+        this.team0ScoreText.text = "Синие: 0";
+        this.team0ScoreText.color = "#4a9eff";
+        this.team0ScoreText.fontSize = "20px";
+        this.team0ScoreText.fontFamily = "monospace";
+        this.team0ScoreText.fontWeight = "bold";
+        this.team0ScoreText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.team0ScoreText.left = "20px";
+        this.team0ScoreText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.multiplayerScoreContainer.addControl(this.team0ScoreText);
+        
+        // Match timer (center)
+        this.matchTimerText = new TextBlock("matchTimer");
+        this.matchTimerText.text = "00:00";
+        this.matchTimerText.color = "#fff";
+        this.matchTimerText.fontSize = "18px";
+        this.matchTimerText.fontFamily = "monospace";
+        this.matchTimerText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.matchTimerText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.multiplayerScoreContainer.addControl(this.matchTimerText);
+        
+        // Team 1 score (right)
+        this.team1ScoreText = new TextBlock("team1Score");
+        this.team1ScoreText.text = "Красные: 0";
+        this.team1ScoreText.color = "#ff4a4a";
+        this.team1ScoreText.fontSize = "20px";
+        this.team1ScoreText.fontFamily = "monospace";
+        this.team1ScoreText.fontWeight = "bold";
+        this.team1ScoreText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.team1ScoreText.left = "-20px";
+        this.team1ScoreText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.multiplayerScoreContainer.addControl(this.team1ScoreText);
+        
+        // Player list container (right side)
+        this.playerListContainer = new Rectangle("playerList");
+        this.playerListContainer.width = "250px";
+        this.playerListContainer.height = "400px";
+        this.playerListContainer.cornerRadius = 5;
+        this.playerListContainer.thickness = 2;
+        this.playerListContainer.color = "#666";
+        this.playerListContainer.background = "rgba(0, 0, 0, 0.7)";
+        this.playerListContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.playerListContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.playerListContainer.left = "-10px";
+        this.playerListContainer.top = "80px";
+        this.playerListContainer.isVisible = false;
+        this.guiTexture.addControl(this.playerListContainer);
+        
+        // Title
+        const playerListTitle = new TextBlock("playerListTitle");
+        playerListTitle.text = "ИГРОКИ";
+        playerListTitle.color = "#fff";
+        playerListTitle.fontSize = "14px";
+        playerListTitle.fontFamily = "monospace";
+        playerListTitle.fontWeight = "bold";
+        playerListTitle.top = "5px";
+        playerListTitle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.playerListContainer.addControl(playerListTitle);
+        
+        // Initialize player marker pool for minimap
+        for (let i = 0; i < 32; i++) {
+            const marker = new Rectangle(`playerMarker_${i}`);
+            marker.width = "6px";
+            marker.height = "6px";
+            marker.cornerRadius = 3;
+            marker.thickness = 1;
+            marker.color = "#0f0";
+            marker.background = "#0f0";
+            marker.isVisible = false;
+            this.minimapPlayerPool.push(marker);
+        }
+    }
+    
+    showMultiplayerHUD(show: boolean): void {
+        if (this.multiplayerScoreContainer) {
+            this.multiplayerScoreContainer.isVisible = show;
+        }
+        if (this.playerListContainer) {
+            this.playerListContainer.isVisible = show;
+        }
+    }
+    
+    updateMultiplayerScore(team0Score: number, team1Score: number, gameMode: string): void {
+        if (!this.team0ScoreText || !this.team1ScoreText) return;
+        
+        if (gameMode === "tdm" || gameMode === "ctf") {
+            // Team-based modes
+            this.team0ScoreText.text = `Синие: ${team0Score}`;
+            this.team1ScoreText.text = `Красные: ${team1Score}`;
+            this.team0ScoreText.isVisible = true;
+            this.team1ScoreText.isVisible = true;
+        } else if (gameMode === "ffa") {
+            // FFA - hide team scores, show only timer
+            this.team0ScoreText.isVisible = false;
+            this.team1ScoreText.isVisible = false;
+        } else {
+            // Other modes
+            this.team0ScoreText.isVisible = false;
+            this.team1ScoreText.isVisible = false;
+        }
+    }
+    
+    updateMatchTimer(seconds: number): void {
+        if (!this.matchTimerText) return;
+        
+        const minutes = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        this.matchTimerText.text = `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    
+    updatePlayerList(players: Array<{
+        id: string;
+        name: string;
+        kills: number;
+        deaths: number;
+        score: number;
+        team?: number;
+        isAlive: boolean;
+    }>, localPlayerId: string): void {
+        if (!this.playerListContainer) return;
+        
+        // Clear existing items
+        for (const item of this.playerListItems.values()) {
+            item.dispose();
+        }
+        this.playerListItems.clear();
+        
+        // Sort players by score (descending)
+        const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
+        
+        sortedPlayers.forEach((player, index) => {
+            const item = new Rectangle(`playerListItem_${player.id}`);
+            item.width = "230px";
+            item.height = "30px";
+            item.cornerRadius = 3;
+            item.thickness = 1;
+            item.color = player.id === localPlayerId ? "#0f0" : "#666";
+            item.background = player.id === localPlayerId 
+                ? "rgba(0, 50, 0, 0.5)" 
+                : player.isAlive 
+                    ? "rgba(20, 20, 20, 0.5)" 
+                    : "rgba(50, 0, 0, 0.5)";
+            item.top = `${25 + index * 35}px`;
+            item.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            this.playerListContainer!.addControl(item);
+            this.playerListItems.set(player.id, item);
+            
+            // Rank number
+            const rankText = new TextBlock(`playerRank_${player.id}`);
+            rankText.text = `${index + 1}.`;
+            rankText.fontSize = "10px";
+            rankText.fontFamily = "monospace";
+            rankText.color = index < 3 ? "#ffaa00" : "#888";
+            rankText.left = "5px";
+            rankText.top = "10px";
+            rankText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            item.addControl(rankText);
+            
+            // Player name
+            const nameText = new TextBlock(`playerName_${player.id}`);
+            nameText.text = player.name.length > 12 ? player.name.substring(0, 12) + "..." : player.name;
+            nameText.fontSize = "11px";
+            nameText.fontFamily = "monospace";
+            nameText.color = player.isAlive ? "#fff" : "#888";
+            nameText.left = "25px";
+            nameText.top = "5px";
+            nameText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            item.addControl(nameText);
+            
+            // Team indicator (if team-based)
+            if (player.team !== undefined) {
+                const teamIndicator = new Rectangle(`teamIndicator_${player.id}`);
+                teamIndicator.width = "4px";
+                teamIndicator.height = "20px";
+                teamIndicator.background = player.team === 0 ? "#4a9eff" : "#ff4a4a";
+                teamIndicator.left = "0px";
+                teamIndicator.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+                item.addControl(teamIndicator);
+            }
+            
+            // K/D stats
+            const kdText = new TextBlock(`playerKD_${player.id}`);
+            const kdRatio = player.deaths > 0 ? (player.kills / player.deaths).toFixed(2) : player.kills.toString();
+            kdText.text = `${player.kills}/${player.deaths} (${kdRatio})`;
+            kdText.fontSize = "9px";
+            kdText.fontFamily = "monospace";
+            kdText.color = "#aaa";
+            kdText.left = "-5px";
+            kdText.top = "5px";
+            kdText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            item.addControl(kdText);
+            
+            // Score
+            const scoreText = new TextBlock(`playerScore_${player.id}`);
+            scoreText.text = `${player.score}`;
+            scoreText.fontSize = "10px";
+            scoreText.fontFamily = "monospace";
+            scoreText.color = "#ffaa00";
+            scoreText.left = "-5px";
+            scoreText.top = "18px";
+            scoreText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            item.addControl(scoreText);
+        });
+    }
+    
+    togglePlayerList(): void {
+        if (this.playerListContainer) {
+            this.playerListContainer.isVisible = !this.playerListContainer.isVisible;
+        }
+    }
+    
+    // Battle Royale HUD elements
+    private battleRoyaleContainer: Rectangle | null = null;
+    private battleRoyaleZoneStatus: TextBlock | null = null;
+    private battleRoyaleDistance: TextBlock | null = null;
+    private battleRoyaleTimer: TextBlock | null = null;
+    private battleRoyaleDamage: TextBlock | null = null;
+    
+    updateBattleRoyaleInfo(info: {
+        isInZone: boolean;
+        distance: number;
+        timeUntilShrink: number;
+        damagePerSecond: number;
+        zoneRadius: number;
+    }): void {
+        // Create container if it doesn't exist
+        if (!this.battleRoyaleContainer) {
+            this.battleRoyaleContainer = new Rectangle("battleRoyaleContainer");
+            this.battleRoyaleContainer.width = "250px";
+            this.battleRoyaleContainer.height = "120px";
+            this.battleRoyaleContainer.cornerRadius = 5;
+            this.battleRoyaleContainer.thickness = 2;
+            this.battleRoyaleContainer.color = "#0f0";
+            this.battleRoyaleContainer.background = "rgba(0, 20, 0, 0.8)";
+            this.battleRoyaleContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            this.battleRoyaleContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            this.battleRoyaleContainer.left = "-20px";
+            this.battleRoyaleContainer.top = "150px";
+            this.guiTexture.addControl(this.battleRoyaleContainer);
+            
+            // Zone status
+            this.battleRoyaleZoneStatus = new TextBlock("brZoneStatus");
+            this.battleRoyaleZoneStatus.text = "SAFE ZONE";
+            this.battleRoyaleZoneStatus.fontSize = "14px";
+            this.battleRoyaleZoneStatus.fontFamily = "monospace";
+            this.battleRoyaleZoneStatus.color = "#0f0";
+            this.battleRoyaleZoneStatus.top = "10px";
+            this.battleRoyaleContainer.addControl(this.battleRoyaleZoneStatus);
+            
+            // Distance
+            this.battleRoyaleDistance = new TextBlock("brDistance");
+            this.battleRoyaleDistance.text = "Distance: 0m";
+            this.battleRoyaleDistance.fontSize = "12px";
+            this.battleRoyaleDistance.fontFamily = "monospace";
+            this.battleRoyaleDistance.color = "#fff";
+            this.battleRoyaleDistance.top = "35px";
+            this.battleRoyaleContainer.addControl(this.battleRoyaleDistance);
+            
+            // Timer
+            this.battleRoyaleTimer = new TextBlock("brTimer");
+            this.battleRoyaleTimer.text = "Next shrink: --:--";
+            this.battleRoyaleTimer.fontSize = "12px";
+            this.battleRoyaleTimer.fontFamily = "monospace";
+            this.battleRoyaleTimer.color = "#ff0";
+            this.battleRoyaleTimer.top = "60px";
+            this.battleRoyaleContainer.addControl(this.battleRoyaleTimer);
+            
+            // Damage
+            this.battleRoyaleDamage = new TextBlock("brDamage");
+            this.battleRoyaleDamage.text = "Damage: 0/sec";
+            this.battleRoyaleDamage.fontSize = "12px";
+            this.battleRoyaleDamage.fontFamily = "monospace";
+            this.battleRoyaleDamage.color = "#f00";
+            this.battleRoyaleDamage.top = "85px";
+            this.battleRoyaleContainer.addControl(this.battleRoyaleDamage);
+        }
+        
+        // Update values
+        if (this.battleRoyaleZoneStatus) {
+            this.battleRoyaleZoneStatus.text = info.isInZone ? "SAFE ZONE" : "OUTSIDE ZONE";
+            this.battleRoyaleZoneStatus.color = info.isInZone ? "#0f0" : "#f00";
+        }
+        
+        if (this.battleRoyaleDistance) {
+            this.battleRoyaleDistance.text = `Distance: ${info.distance.toFixed(0)}m`;
+            this.battleRoyaleDistance.color = info.isInZone ? "#0f0" : "#f00";
+        }
+        
+        if (this.battleRoyaleTimer) {
+            const minutes = Math.floor(info.timeUntilShrink / 60);
+            const seconds = Math.floor(info.timeUntilShrink % 60);
+            this.battleRoyaleTimer.text = `Next shrink: ${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            this.battleRoyaleTimer.color = info.timeUntilShrink < 30 ? "#f00" : info.timeUntilShrink < 60 ? "#ff0" : "#0f0";
+        }
+        
+        if (this.battleRoyaleDamage) {
+            this.battleRoyaleDamage.text = `Damage: ${info.damagePerSecond}/sec`;
+            this.battleRoyaleDamage.color = info.isInZone ? "#888" : "#f00";
+            this.battleRoyaleDamage.isVisible = !info.isInZone;
+        }
+        
+        // Update container color based on status
+        if (this.battleRoyaleContainer) {
+            this.battleRoyaleContainer.color = info.isInZone ? "#0f0" : "#f00";
+            this.battleRoyaleContainer.background = info.isInZone 
+                ? "rgba(0, 20, 0, 0.8)" 
+                : "rgba(20, 0, 0, 0.8)";
+        }
+    }
+    
+    // CTF HUD elements
+    private ctfContainer: Rectangle | null = null;
+    private ctfOwnFlagStatus: TextBlock | null = null;
+    private ctfEnemyFlagStatus: TextBlock | null = null;
+    private ctfOwnFlagDistance: TextBlock | null = null;
+    private ctfEnemyFlagDistance: TextBlock | null = null;
+    
+    updateCTFInfo(info: {
+        ownFlag: { isCarried: boolean; carrierId: string | null; position: any } | null;
+        enemyFlag: { isCarried: boolean; carrierId: string | null; position: any } | null;
+        playerPosition: Vector3;
+        playerTeam: number;
+    }): void {
+        // Create container if it doesn't exist
+        if (!this.ctfContainer) {
+            this.ctfContainer = new Rectangle("ctfContainer");
+            this.ctfContainer.width = "250px";
+            this.ctfContainer.height = "100px";
+            this.ctfContainer.cornerRadius = 5;
+            this.ctfContainer.thickness = 2;
+            this.ctfContainer.color = "#0f0";
+            this.ctfContainer.background = "rgba(0, 20, 0, 0.8)";
+            this.ctfContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            this.ctfContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            this.ctfContainer.left = "-20px";
+            this.ctfContainer.top = "280px";
+            this.guiTexture.addControl(this.ctfContainer);
+            
+            // Own flag status
+            this.ctfOwnFlagStatus = new TextBlock("ctfOwnFlagStatus");
+            this.ctfOwnFlagStatus.text = "Your Flag: SAFE";
+            this.ctfOwnFlagStatus.fontSize = "12px";
+            this.ctfOwnFlagStatus.fontFamily = "monospace";
+            this.ctfOwnFlagStatus.color = info.playerTeam === 0 ? "#4a9eff" : "#ff4a4a";
+            this.ctfOwnFlagStatus.top = "10px";
+            this.ctfContainer.addControl(this.ctfOwnFlagStatus);
+            
+            // Own flag distance
+            this.ctfOwnFlagDistance = new TextBlock("ctfOwnFlagDistance");
+            this.ctfOwnFlagDistance.text = "Distance: --m";
+            this.ctfOwnFlagDistance.fontSize = "11px";
+            this.ctfOwnFlagDistance.fontFamily = "monospace";
+            this.ctfOwnFlagDistance.color = "#aaa";
+            this.ctfOwnFlagDistance.top = "30px";
+            this.ctfContainer.addControl(this.ctfOwnFlagDistance);
+            
+            // Enemy flag status
+            this.ctfEnemyFlagStatus = new TextBlock("ctfEnemyFlagStatus");
+            this.ctfEnemyFlagStatus.text = "Enemy Flag: AT BASE";
+            this.ctfEnemyFlagStatus.fontSize = "12px";
+            this.ctfEnemyFlagStatus.fontFamily = "monospace";
+            this.ctfEnemyFlagStatus.color = info.playerTeam === 0 ? "#ff4a4a" : "#4a9eff";
+            this.ctfEnemyFlagStatus.top = "55px";
+            this.ctfContainer.addControl(this.ctfEnemyFlagStatus);
+            
+            // Enemy flag distance
+            this.ctfEnemyFlagDistance = new TextBlock("ctfEnemyFlagDistance");
+            this.ctfEnemyFlagDistance.text = "Distance: --m";
+            this.ctfEnemyFlagDistance.fontSize = "11px";
+            this.ctfEnemyFlagDistance.fontFamily = "monospace";
+            this.ctfEnemyFlagDistance.color = "#aaa";
+            this.ctfEnemyFlagDistance.top = "75px";
+            this.ctfContainer.addControl(this.ctfEnemyFlagDistance);
+        }
+        
+        // Update own flag status
+        if (this.ctfOwnFlagStatus && info.ownFlag) {
+            if (info.ownFlag.isCarried) {
+                this.ctfOwnFlagStatus.text = "Your Flag: CARRIED!";
+                this.ctfOwnFlagStatus.color = "#f00";
+            } else {
+                this.ctfOwnFlagStatus.text = "Your Flag: SAFE";
+                this.ctfOwnFlagStatus.color = info.playerTeam === 0 ? "#4a9eff" : "#ff4a4a";
+            }
+        }
+        
+        // Update own flag distance
+        if (this.ctfOwnFlagDistance && info.ownFlag) {
+            const flagPos = new Vector3(
+                info.ownFlag.position.x || 0,
+                info.ownFlag.position.y || 0,
+                info.ownFlag.position.z || 0
+            );
+            const distance = Vector3.Distance(info.playerPosition, flagPos);
+            this.ctfOwnFlagDistance.text = `Distance: ${distance.toFixed(0)}m`;
+            this.ctfOwnFlagDistance.color = info.ownFlag.isCarried ? "#f00" : "#0f0";
+        }
+        
+        // Update enemy flag status
+        if (this.ctfEnemyFlagStatus && info.enemyFlag) {
+            if (info.enemyFlag.isCarried) {
+                this.ctfEnemyFlagStatus.text = "Enemy Flag: CARRIED";
+                this.ctfEnemyFlagStatus.color = "#ff0";
+            } else {
+                this.ctfEnemyFlagStatus.text = "Enemy Flag: AT BASE";
+                this.ctfEnemyFlagStatus.color = info.playerTeam === 0 ? "#ff4a4a" : "#4a9eff";
+            }
+        }
+        
+        // Update enemy flag distance
+        if (this.ctfEnemyFlagDistance && info.enemyFlag) {
+            const flagPos = new Vector3(
+                info.enemyFlag.position.x || 0,
+                info.enemyFlag.position.y || 0,
+                info.enemyFlag.position.z || 0
+            );
+            const distance = Vector3.Distance(info.playerPosition, flagPos);
+            this.ctfEnemyFlagDistance.text = `Distance: ${distance.toFixed(0)}m`;
+            this.ctfEnemyFlagDistance.color = info.enemyFlag.isCarried ? "#ff0" : "#0f0";
+        }
+    }
+    
+    updateMinimapPlayers(players: Array<{
+        id: string;
+        position: { x: number; z: number };
+        team?: number;
+    }>, localPlayerPos: { x: number; z: number }, localPlayerId: string): void {
+        if (!this.radarArea) return;
+        
+        // Clear existing markers
+        for (const marker of this.minimapPlayerMarkers.values()) {
+            marker.isVisible = false;
+        }
+        this.minimapPlayerMarkers.clear();
+        
+        // Radar range (same as minimap range)
+        const radarRange = 100; // meters
+        const radarSize = 130; // pixels (from createMinimap)
+        
+        players.forEach((player, index) => {
+            if (player.id === localPlayerId) return; // Don't show local player
+            
+            // Calculate relative position
+            const dx = player.position.x - localPlayerPos.x;
+            const dz = player.position.z - localPlayerPos.z;
+            const distance = Math.sqrt(dx * dx + dz * dz);
+            
+            if (distance > radarRange) return; // Too far
+            
+            // Get or create marker from pool
+            let marker = this.minimapPlayerPool[index];
+            if (!marker) {
+                marker = new Rectangle(`minimapPlayer_${player.id}`);
+                marker.width = "6px";
+                marker.height = "6px";
+                marker.cornerRadius = 3;
+                marker.thickness = 1;
+                marker.color = player.team === 0 ? "#4a9eff" : player.team === 1 ? "#ff4a4a" : "#0f0";
+                marker.background = player.team === 0 ? "#4a9eff" : player.team === 1 ? "#ff4a4a" : "#0f0";
+                marker.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                marker.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                if (this.radarArea) {
+                    this.radarArea.addControl(marker);
+                }
+                this.minimapPlayerPool.push(marker);
+            }
+            
+            // Position marker on radar (normalized to -1..1, then scaled to radar size)
+            const normalizedX = dx / radarRange;
+            const normalizedZ = dz / radarRange;
+            
+            // Clamp to radar bounds
+            const clampedX = Math.max(-1, Math.min(1, normalizedX));
+            const clampedZ = Math.max(-1, Math.min(1, normalizedZ));
+            
+            // Convert to pixel coordinates (center is at radarSize/2)
+            const pixelX = (radarSize / 2) + clampedX * (radarSize / 2 - 5);
+            const pixelZ = (radarSize / 2) + clampedZ * (radarSize / 2 - 5);
+            
+            marker.left = `${pixelX - 3}px`;
+            marker.top = `${pixelZ - 3}px`;
+            marker.isVisible = true;
+            
+            // Update color based on team
+            if (player.team !== undefined) {
+                marker.color = player.team === 0 ? "#4a9eff" : "#ff4a4a";
+                marker.background = player.team === 0 ? "#4a9eff" : "#ff4a4a";
+            } else {
+                marker.color = "#0f0";
+                marker.background = "#0f0";
+            }
+            
+            this.minimapPlayerMarkers.set(player.id, marker);
+        });
+    }
+    
+    // === MISSION PANEL ===
+    
+    private createMissionPanel(): void {
+        // Mission panel (top right, below compass)
+        this.missionPanel = new Rectangle("missionPanel");
+        this.missionPanel.width = "250px";
+        this.missionPanel.height = "200px";
+        this.missionPanel.cornerRadius = 5;
+        this.missionPanel.thickness = 2;
+        this.missionPanel.color = "#666";
+        this.missionPanel.background = "rgba(0, 0, 0, 0.7)";
+        this.missionPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.missionPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.missionPanel.left = "-10px";
+        this.missionPanel.top = "100px";
+        this.missionPanel.isVisible = false;
+        this.guiTexture.addControl(this.missionPanel);
+        
+        // Title
+        const title = new TextBlock("missionTitle");
+        title.text = "📋 МИССИИ";
+        title.color = "#fff";
+        title.fontSize = "12px";
+        title.fontFamily = "monospace";
+        title.top = "5px";
+        title.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.missionPanel.addControl(title);
+    }
+    
+    toggleMissionPanel(): void {
+        if (this.missionPanel) {
+            this.missionPanelVisible = !this.missionPanelVisible;
+            this.missionPanel.isVisible = this.missionPanelVisible;
+        }
+    }
+    
+    updateMissions(missions: Array<{
+        id: string,
+        name: string,
+        description: string,
+        icon: string,
+        current: number,
+        requirement: number,
+        completed: boolean,
+        claimed: boolean,
+        type: string
+    }>): void {
+        if (!this.missionPanel) return;
+        
+        // Clear existing mission items
+        for (const item of this.missionItems.values()) {
+            item.dispose();
+        }
+        this.missionItems.clear();
+        
+        // Show only first 3 missions
+        const visibleMissions = missions.slice(0, 3);
+        
+        visibleMissions.forEach((mission, index) => {
+            const item = new Rectangle(`mission_${mission.id}`);
+            item.width = "230px";
+            item.height = "45px";
+            item.cornerRadius = 3;
+            item.thickness = 1;
+            item.color = mission.completed ? "#0f0" : "#666";
+            item.background = mission.completed ? "rgba(0, 50, 0, 0.5)" : "rgba(20, 20, 20, 0.5)";
+            item.top = `${30 + index * 50}px`;
+            item.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            this.missionPanel!.addControl(item);
+            this.missionItems.set(mission.id, item);
+            
+            // Icon and name
+            const iconText = new TextBlock(`missionIcon_${mission.id}`);
+            iconText.text = mission.icon;
+            iconText.fontSize = "14px";
+            iconText.color = "#fff";
+            iconText.left = "5px";
+            iconText.top = "5px";
+            item.addControl(iconText);
+            
+            const nameText = new TextBlock(`missionName_${mission.id}`);
+            nameText.text = mission.name;
+            nameText.fontSize = "10px";
+            nameText.fontFamily = "monospace";
+            nameText.color = "#fff";
+            nameText.left = "25px";
+            nameText.top = "3px";
+            nameText.textWrapping = true;
+            nameText.width = "180px";
+            item.addControl(nameText);
+            
+            // Progress
+            const progress = Math.min(100, (mission.current / mission.requirement) * 100);
+            const progressText = new TextBlock(`missionProgress_${mission.id}`);
+            progressText.text = `${Math.floor(mission.current)}/${mission.requirement}`;
+            progressText.fontSize = "9px";
+            progressText.fontFamily = "monospace";
+            progressText.color = mission.completed ? "#0f0" : "#aaa";
+            progressText.left = "25px";
+            progressText.top = "18px";
+            item.addControl(progressText);
+            
+            // Progress bar
+            const progressBar = new Rectangle(`missionBar_${mission.id}`);
+            progressBar.width = "200px";
+            progressBar.height = "4px";
+            progressBar.cornerRadius = 2;
+            progressBar.background = "#333";
+            progressBar.left = "25px";
+            progressBar.top = "30px";
+            item.addControl(progressBar);
+            
+            const progressFill = new Rectangle(`missionFill_${mission.id}`);
+            progressFill.width = `${progress}%`;
+            progressFill.height = "100%";
+            progressFill.background = mission.completed ? "#0f0" : "#0af";
+            progressFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            progressBar.addControl(progressFill);
+            
+            // Completed checkmark
+            if (mission.completed) {
+                const checkmark = new TextBlock(`missionCheck_${mission.id}`);
+                checkmark.text = "✓";
+                checkmark.fontSize = "16px";
+                checkmark.color = "#0f0";
+                checkmark.left = "210px";
+                checkmark.top = "10px";
+                item.addControl(checkmark);
+            }
+        });
+    }
+    
+    private _showComboIncrease(currentCombo: number, previousCombo: number): void {
+        // Placeholder для метода показа увеличения комбо
+        // Можно реализовать позже если нужно
+    }
+    
+    private _createComboParticles(comboCount: number): void {
+        // Placeholder для метода создания частиц комбо
+        // Можно реализовать позже если нужно
     }
 }

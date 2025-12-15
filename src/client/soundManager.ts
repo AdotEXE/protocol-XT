@@ -12,6 +12,8 @@
  */
 
 import { Vector3 } from "@babylonjs/core";
+import { generateSound, varyParams } from "./jsfxr";
+import { getShootPattern } from "./soundPatterns";
 
 export class SoundManager {
     private audioContext: AudioContext | null = null;
@@ -36,17 +38,17 @@ export class SoundManager {
     private reverbGains: GainNode[] = [];
     private reverbFilters: BiquadFilterNode[] = [];
     
-    // Volume settings
+    // Volume settings - УЛУЧШЕНО: Оптимизированы уровни громкости для лучшего баланса
     public masterVolume = 1.0; // МАКСИМАЛЬНАЯ общая громкость
-    public engineVolume = 1.0; // МАКСИМАЛЬНАЯ громкость мотора для брутального звука
-    public shootVolume = 0.75;
-    public explosionVolume = 0.85;
-    public hitVolume = 0.55;
-    public reloadVolume = 0.45;
-    public movementVolume = 0.35;
-    public pickupVolume = 0.6;
-    public uiVolume = 0.5;
-    public ambientVolume = 0.2;
+    public engineVolume = 0.9; // УМЕНЬШЕНО с 1.0 до 0.9 для лучшего баланса
+    public shootVolume = 0.8; // УВЕЛИЧЕНО с 0.75 до 0.8 для лучшей слышимости
+    public explosionVolume = 0.9; // УВЕЛИЧЕНО с 0.85 до 0.9 для более эффектных взрывов
+    public hitVolume = 0.6; // УВЕЛИЧЕНО с 0.55 до 0.6
+    public reloadVolume = 0.5; // УВЕЛИЧЕНО с 0.45 до 0.5
+    public movementVolume = 0.4; // УВЕЛИЧЕНО с 0.35 до 0.4
+    public pickupVolume = 0.65; // УВЕЛИЧЕНО с 0.6 до 0.65
+    public uiVolume = 0.55; // УВЕЛИЧЕНО с 0.5 до 0.55
+    public ambientVolume = 0.25; // УВЕЛИЧЕНО с 0.2 до 0.25 для более атмосферного звука
     
     // 3D Audio settings
     private use3DAudio = true;
@@ -963,7 +965,7 @@ export class SoundManager {
     }
     
     // ═══════════════════════════════════════════════════════════════════════
-    // ENHANCED SHOOTING SOUND
+    // ENHANCED SHOOTING SOUND (JSFXR-based)
     // ═══════════════════════════════════════════════════════════════════════
     
     playShoot(cannonType: string = "standard", position?: Vector3, velocity?: Vector3) {
@@ -972,123 +974,45 @@ export class SoundManager {
         
         const now = this.audioContext.currentTime;
         
-        // Добавляем вариацию для разнообразия
-        this.soundVariationCounter++;
-        const variation = (Math.sin(this.soundVariationCounter * 0.1) + 1) / 2; // 0-1
+        // Получаем паттерн для данного типа пушки
+        const pattern = getShootPattern(cannonType);
         
-        // Параметры для разных типов пушек
-        let duration = 0.35;
-        let baseFreq = 2200;
-        let bassFreq = 85;
-        let volume = this.shootVolume;
-        let reverbAmount = 0.2;
+        // Применяем случайные вариации для уникальности каждого выстрела (±10%)
+        const variedParams = varyParams(pattern, 0.1);
         
-        switch (cannonType) {
-            case "heavy":
-                duration = 0.6;
-                baseFreq = 1400;
-                bassFreq = 45;
-                volume = this.shootVolume * 1.3;
-                reverbAmount = 0.3;
-                break;
-            case "rapid":
-            case "fast":
-                duration = 0.25;
-                baseFreq = 2800;
-                bassFreq = 110;
-                volume = this.shootVolume * 0.85;
-                reverbAmount = 0.15;
-                break;
-            case "sniper":
-                duration = 0.7;
-                baseFreq = 1100;
-                bassFreq = 35;
-                volume = this.shootVolume * 1.4;
-                reverbAmount = 0.35;
-                break;
-            case "gatling":
-                duration = 0.18;
-                baseFreq = 3200;
-                bassFreq = 130;
-                volume = this.shootVolume * 0.75;
-                reverbAmount = 0.1;
-                break;
-        }
+        // Генерируем AudioBuffer через jsfxr
+        const audioBuffer = generateSound(this.audioContext, variedParams);
         
-        // Добавляем небольшую вариацию частоты
-        baseFreq *= (0.95 + variation * 0.1);
-        bassFreq *= (0.95 + variation * 0.1);
+        // Создаём источник звука
+        const source = this.audioContext.createBufferSource();
+        source.buffer = audioBuffer;
         
-        // Шум для взрыва
-        const noiseBuffer = this.createNoiseBuffer(duration);
-        const noiseSource = this.audioContext.createBufferSource();
-        noiseSource.buffer = noiseBuffer;
-        
-        // Огибающая
-        const envelope = this.audioContext.createGain();
-        envelope.gain.setValueAtTime(volume, now);
-        envelope.gain.exponentialDecayTo(0.01, now + duration);
-        
-        // Low-pass фильтр
-        const filter = this.audioContext.createBiquadFilter();
-        filter.type = 'lowpass';
-        filter.frequency.setValueAtTime(baseFreq, now);
-        filter.frequency.exponentialDecayTo(70, now + duration * 0.75);
-        filter.Q.value = 2;
-        
-        // Басовый удар
-        const bassOsc = this.audioContext.createOscillator();
-        bassOsc.type = 'sine';
-        bassOsc.frequency.setValueAtTime(bassFreq, now);
-        bassOsc.frequency.exponentialDecayTo(bassFreq * 0.25, now + duration * 0.6);
-        
-        const bassGain = this.audioContext.createGain();
-        bassGain.gain.setValueAtTime(volume * 1.0, now);
-        bassGain.gain.exponentialDecayTo(0.01, now + duration * 0.6);
-        
-        // Высокочастотный клик
-        const clickOsc = this.audioContext.createOscillator();
-        clickOsc.type = 'square';
-        clickOsc.frequency.setValueAtTime(2500, now);
-        clickOsc.frequency.exponentialDecayTo(600, now + 0.06);
-        
-        const clickGain = this.audioContext.createGain();
-        clickGain.gain.setValueAtTime(volume * 0.4, now);
-        clickGain.gain.exponentialDecayTo(0.01, now + 0.06);
+        // Управление громкостью
+        const volumeGain = this.audioContext.createGain();
+        const finalVolume = this.shootVolume * (pattern.volumeMultiplier || 1.0);
+        volumeGain.gain.value = finalVolume;
         
         // 3D позиционирование с допплером
         const panner = position ? this.createPanner(position, velocity) : null;
         
-        // Подключаем
-        noiseSource.connect(filter);
-        filter.connect(envelope);
-        
-        bassOsc.connect(bassGain);
-        clickOsc.connect(clickGain);
+        // Подключаем цепь обработки
+        source.connect(volumeGain);
         
         if (panner) {
-            envelope.connect(panner);
-            bassGain.connect(panner);
-            clickGain.connect(panner);
+            volumeGain.connect(panner);
             panner.connect(this.masterGain);
         } else {
-            envelope.connect(this.masterGain);
-        bassGain.connect(this.masterGain);
-            clickGain.connect(this.masterGain);
+            volumeGain.connect(this.masterGain);
         }
         
-        // Улучшенная реверберация
+        // Реверберация (используем значение из паттерна)
+        const reverbAmount = pattern.reverbAmount || 0.2;
         if (reverbAmount > 0) {
-            this.connectToReverb(envelope, reverbAmount);
+            this.connectToReverb(volumeGain, reverbAmount);
         }
         
         // Воспроизведение
-        noiseSource.start(now);
-        noiseSource.stop(now + duration);
-        bassOsc.start(now);
-        bassOsc.stop(now + duration * 0.6);
-        clickOsc.start(now);
-        clickOsc.stop(now + 0.06);
+        source.start(now);
     }
     
     // ═══════════════════════════════════════════════════════════════════════
@@ -1264,6 +1188,75 @@ export class SoundManager {
     // Звук рикошета
     playRicochet(position?: Vector3) {
         this.playHit("ricochet", position);
+    }
+    
+    // Special critical hit sound with extra punch
+    playCriticalHitSpecial(position?: Vector3) {
+        if (!this.audioContext || !this.masterGain) return;
+        this.resume();
+        
+        const now = this.audioContext.currentTime;
+        
+        // 1. High-pitched "ding" for crit
+        const dingOsc = this.audioContext.createOscillator();
+        dingOsc.type = 'sine';
+        dingOsc.frequency.setValueAtTime(2000, now);
+        dingOsc.frequency.exponentialRampToValueAtTime(1500, now + 0.1);
+        
+        const dingGain = this.audioContext.createGain();
+        dingGain.gain.setValueAtTime(this.hitVolume * 0.8, now);
+        dingGain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+        
+        // 2. Low punch for impact
+        const punchOsc = this.audioContext.createOscillator();
+        punchOsc.type = 'square';
+        punchOsc.frequency.setValueAtTime(150, now);
+        punchOsc.frequency.exponentialRampToValueAtTime(50, now + 0.15);
+        
+        const punchGain = this.audioContext.createGain();
+        punchGain.gain.setValueAtTime(this.hitVolume * 1.2, now);
+        punchGain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+        
+        // 3. Metallic ring
+        const ringOsc = this.audioContext.createOscillator();
+        ringOsc.type = 'triangle';
+        ringOsc.frequency.setValueAtTime(3000, now);
+        ringOsc.frequency.exponentialRampToValueAtTime(2000, now + 0.4);
+        
+        const ringGain = this.audioContext.createGain();
+        ringGain.gain.setValueAtTime(this.hitVolume * 0.4, now + 0.05);
+        ringGain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+        
+        // Connect with optional 3D
+        const panner = position ? this.createPanner(position) : null;
+        
+        [dingGain, punchGain, ringGain].forEach(gain => {
+            if (panner) {
+                gain.connect(panner);
+            } else {
+                if (this.masterGain && gain) {
+                    gain.connect(this.masterGain);
+                }
+            }
+        });
+        
+        if (panner) {
+            panner.connect(this.masterGain);
+        }
+        
+        dingOsc.connect(dingGain);
+        punchOsc.connect(punchGain);
+        ringOsc.connect(ringGain);
+        
+        // Add reverb for epic feel
+        this.connectToReverb(dingGain, 0.3);
+        
+        dingOsc.start(now);
+        dingOsc.stop(now + 0.3);
+        punchOsc.start(now);
+        punchOsc.stop(now + 0.2);
+        ringOsc.start(now);
+        ringOsc.stop(now + 0.5);
     }
     
     // ═══════════════════════════════════════════════════════════════════════

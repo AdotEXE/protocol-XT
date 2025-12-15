@@ -1,9 +1,26 @@
-// Enhanced Garage System - покупка и улучшение корпусов, пушек и их компонентов
+// Garage System - HTML/CSS based UI for reliability
 import { CurrencyManager } from "./currencyManager";
-import { AdvancedDynamicTexture, Rectangle, TextBlock, Control, Button, ScrollViewer, InputText } from "@babylonjs/gui";
-import { Scene } from "@babylonjs/core";
-import { CHASSIS_TYPES, CANNON_TYPES } from "./tankTypes";
+import { 
+    Scene, 
+    Engine, 
+    Mesh, 
+    ArcRotateCamera, 
+    HemisphericLight, 
+    MeshBuilder, 
+    StandardMaterial, 
+    Color3,
+    Color4,
+    Vector3 
+} from "@babylonjs/core";
+import { CHASSIS_TYPES, CANNON_TYPES, getChassisById, getCannonById } from "./tankTypes";
+import { TRACK_TYPES, getTrackById, type TrackType } from "./trackTypes";
+import { MaterialFactory } from "./garage/materials";
+import { ChassisDetailsGenerator } from "./garage/chassisDetails";
+import { CannonDetailsGenerator } from "./garage/cannonDetails";
+import { initPreviewScene, cleanupPreviewScene, createPreviewTank, updatePreviewTank, type PreviewScene, type PreviewTank } from "./garage/preview";
+import { injectGarageStyles } from "./garage/ui";
 
+// ============ INTERFACES ============
 export interface TankUpgrade {
     id: string;
     name: string;
@@ -12,7 +29,7 @@ export interface TankUpgrade {
     level: number;
     maxLevel: number;
     stat: "health" | "speed" | "armor" | "firepower" | "reload" | "damage";
-    value: number; // Значение улучшения
+    value: number;
 }
 
 export interface TankPart {
@@ -21,7 +38,7 @@ export interface TankPart {
     description: string;
     cost: number;
     unlocked: boolean;
-    type: "chassis" | "turret" | "barrel" | "engine";
+    type: "chassis" | "turret" | "barrel" | "engine" | "module" | "supply";
     stats: {
         health?: number;
         speed?: number;
@@ -32,3467 +49,3266 @@ export interface TankPart {
     };
 }
 
+type CategoryType = "chassis" | "cannons" | "tracks" | "modules" | "supplies" | "shop";
+
+// ============ GARAGE CLASS ============
 export class Garage {
-    private scene: Scene;
-    private guiTexture: AdvancedDynamicTexture;
+    private _scene: Scene;
     private currencyManager: CurrencyManager;
     private isOpen: boolean = false;
-    private chatSystem: any = null; // ChatSystem будет установлен из Game
-    private tankController: any = null; // TankController для применения изменений сразу
-    private experienceSystem: any = null; // ExperienceSystem для опыта и показа уровней
-    private playerProgression: any = null; // PlayerProgressionSystem для статистики игрока
-    private experienceSubscription: any = null; // Подписка на изменения опыта
     
-    // UI Elements
-    private garageContainer: Rectangle | null = null;
-    private categoryButtons: Button[] = [];
-    private itemList: Rectangle | null = null;
-    private scrollViewer: ScrollViewer | null = null;
-    private comparisonPanel: Rectangle | null = null; // Панель сравнения
+    // External systems
+    private _chatSystem: any = null;
+    private tankController: any = null;
+    private _experienceSystem: any = null;
+    private _playerProgression: any = null;
+    private soundManager: any = null;
+    private onCloseCallback: (() => void) | null = null;
     
-    // Current category
-    private currentCategory: "chassis" | "turret" | "barrel" | "upgrades" = "chassis";
+    // HTML Elements
+    private overlay: HTMLDivElement | null = null;
     
-    // Current selected parts (for comparison)
+    // 3D Preview
+    private previewSceneData: PreviewScene | null = null;
+    private previewTank: PreviewTank | null = null;
+    
+    // State
+    private currentCategory: CategoryType = "chassis";
     private currentChassisId: string = "medium";
     private currentCannonId: string = "standard";
-    
-    // Preview selected parts (before applying)
-    private previewChassisId: string | null = null;
-    private previewCannonId: string | null = null;
-    
-    // Фильтры и сортировка
-    private searchText: string = "";
-    private sortBy: "name" | "cost" | "stats" = "name";
-    private filterUnlocked: boolean | null = null; // null = все, true = только разблокированные, false = только заблокированные
-    private _filterPrice: "all" | "cheap" | "medium" | "expensive" = "all"; // Фильтр по цене
-    private searchInput: any = null;
-    
-    // Счётчик для обновлений (зарезервирован для будущего использования)
-    
-    // Интервал для периодического обновления статистики
-    private _statsUpdateInterval: ReturnType<typeof setInterval> | null = null;
-    
-    // Навигация клавиатурой
-    private selectedItemIndex: number = -1;
+    private currentTrackId: string = "standard";
+    private selectedItemIndex: number = 0;
     private filteredItems: (TankPart | TankUpgrade)[] = [];
     
-    // История последних действий
-    private actionHistory: Array<{ type: string, text: string, timestamp: number }> = [];
-    private maxHistoryItems: number = 5;
+    // Filters
+    private searchText: string = "";
+    private sortBy: "name" | "stats" | "custom" | "unique" = "name";
+    private filterMode: "all" | "owned" | "locked" = "all";
     
-    // Available parts - используем типы из tankTypes.ts
+    // ============ DATA ============
     private chassisParts: TankPart[] = CHASSIS_TYPES.map(chassis => {
-        // Разные цены для разных корпусов
-        let cost = 0;
-        if (chassis.id === "light") cost = 400;
-        else if (chassis.id === "medium") cost = 0; // Бесплатный
-        else if (chassis.id === "heavy") cost = 600;
-        else if (chassis.id === "scout") cost = 500;
-        else if (chassis.id === "assault") cost = 800;
-        
+        // Pricing: original 5 + new 10
+        const costs: Record<string, number> = {
+            // Original
+            light: 400, medium: 0, heavy: 600, scout: 500, assault: 800,
+            // New chassis types
+            stealth: 800, hover: 750, siege: 1200, racer: 650, amphibious: 700,
+            shield: 900, drone: 950, artillery: 1100, destroyer: 850, command: 1000
+        };
+        const abilityText = chassis.specialAbility ? ` [Ability: ${chassis.specialAbility}]` : "";
         return {
-            id: chassis.id,
-            name: chassis.name,
-            description: chassis.description,
-            cost: cost,
-            unlocked: chassis.id === "medium" ? true : false,
+            id: chassis.id, name: chassis.name, description: chassis.description + abilityText,
+            cost: costs[chassis.id] || 500, unlocked: chassis.id === "medium",
             type: "chassis" as const,
-            stats: {
-                health: chassis.maxHealth,
-                speed: chassis.moveSpeed,
-                armor: chassis.maxHealth / 50
-            }
+            stats: { health: chassis.maxHealth, speed: chassis.moveSpeed, armor: chassis.maxHealth / 50 }
         };
     });
     
     private cannonParts: TankPart[] = CANNON_TYPES.map(cannon => {
-        // Разные цены для разных пушек
-        let cost = 0;
-        if (cannon.id === "standard") cost = 0; // Бесплатная
-        else if (cannon.id === "rapid") cost = 450;
-        else if (cannon.id === "heavy") cost = 600;
-        else if (cannon.id === "sniper") cost = 800;
-        else if (cannon.id === "gatling") cost = 550;
-        
+        // Pricing: original 5 + new 20
+        const costs: Record<string, number> = {
+            // Original
+            standard: 0, rapid: 450, heavy: 600, sniper: 800, gatling: 550,
+            // Energy weapons (expensive)
+            plasma: 1200, laser: 1100, tesla: 1300, railgun: 2000,
+            // Explosive weapons (medium-high)
+            rocket: 1000, mortar: 1400, cluster: 950, explosive: 1050,
+            // Special effect (medium)
+            flamethrower: 700, acid: 750, freeze: 800, poison: 720, emp: 1500,
+            // Multi-shot (medium)
+            shotgun: 600, multishot: 650,
+            // Advanced (expensive)
+            homing: 1600, piercing: 1250, shockwave: 1150, beam: 1180, vortex: 1350,
+            // Support
+            support: 1100
+        };
         return {
-            id: cannon.id,
-            name: cannon.name,
-            description: cannon.description,
-            cost: cost,
-            unlocked: cannon.id === "standard" ? true : false,
+            id: cannon.id, name: cannon.name, description: cannon.description,
+            cost: costs[cannon.id] || 500, unlocked: cannon.id === "standard",
             type: "barrel" as const,
-            stats: {
-                damage: cannon.damage,
-                reload: cannon.cooldown
-            }
+            stats: { damage: cannon.damage, reload: cannon.cooldown }
         };
     });
     
-    // Старые части для совместимости (можно удалить позже)
-    private turretParts: TankPart[] = [];
-    private _barrelParts: TankPart[] = [];
+    private trackParts: TankPart[] = TRACK_TYPES.map(track => {
+        const stats: any = {};
+        if (track.stats.speedBonus) stats.speed = track.stats.speedBonus * 100;
+        if (track.stats.durabilityBonus) stats.armor = track.stats.durabilityBonus * 100;
+        if (track.stats.armorBonus) stats.armor = (stats.armor || 0) + track.stats.armorBonus * 100;
+        
+        return {
+            id: track.id,
+            name: track.name,
+            description: track.description,
+            cost: track.cost,
+            unlocked: track.id === "standard",
+            type: "module" as const,
+            stats
+        };
+    });
     
-    private upgrades: TankUpgrade[] = [
-        { id: "health_1", name: "Health +20", description: "Increases health", cost: 200, level: 0, maxLevel: 5, stat: "health", value: 20 },
-        { id: "speed_1", name: "Speed +2", description: "Increases speed", cost: 250, level: 0, maxLevel: 5, stat: "speed", value: 2 },
-        { id: "armor_1", name: "Armor +0.2", description: "Increases armor", cost: 300, level: 0, maxLevel: 5, stat: "armor", value: 0.2 },
-        { id: "damage_1", name: "Damage +5", description: "Increases damage", cost: 300, level: 0, maxLevel: 5, stat: "damage", value: 5 },
-        { id: "reload_1", name: "Reload -100ms", description: "Faster reload", cost: 350, level: 0, maxLevel: 5, stat: "reload", value: -100 }
+    private moduleParts: TankPart[] = [
+        { id: "armor_plate", name: "Armor Plate", description: "+15% armor", cost: 300, unlocked: false, type: "module", stats: { armor: 0.15 } },
+        { id: "engine_boost", name: "Engine Boost", description: "+10% speed", cost: 350, unlocked: false, type: "module", stats: { speed: 0.1 } },
+        { id: "reload_system", name: "Auto-Loader", description: "-15% reload", cost: 400, unlocked: false, type: "module", stats: { reload: -0.15 } },
+        { id: "targeting", name: "Targeting CPU", description: "+10% damage", cost: 450, unlocked: false, type: "module", stats: { damage: 0.1 } },
     ];
     
+    private supplyParts: TankPart[] = [
+        { id: "medkit", name: "Repair Kit", description: "Restore 30 HP", cost: 50, unlocked: true, type: "supply", stats: { health: 30 } },
+        { id: "speed_boost", name: "Nitro", description: "+50% speed 5s", cost: 75, unlocked: true, type: "supply", stats: { speed: 0.5 } },
+        { id: "shield", name: "Shield", description: "Block 50 dmg", cost: 100, unlocked: false, type: "supply", stats: { armor: 50 } },
+    ];
+    
+    private shopItems: TankPart[] = [
+        { id: "premium_chassis", name: "Phantom", description: "Premium stealth", cost: 2000, unlocked: false, type: "chassis", stats: { health: 90, speed: 32 } },
+        { id: "premium_cannon", name: "Devastator", description: "Premium heavy", cost: 2500, unlocked: false, type: "barrel", stats: { damage: 60, reload: 4500 } },
+    ];
+    
+    private upgrades: TankUpgrade[] = [
+        { id: "health_1", name: "Health +20", description: "Max HP", cost: 200, level: 0, maxLevel: 5, stat: "health", value: 20 },
+        { id: "speed_1", name: "Speed +2", description: "Move speed", cost: 250, level: 0, maxLevel: 5, stat: "speed", value: 2 },
+        { id: "damage_1", name: "Damage +5", description: "Weapon dmg", cost: 300, level: 0, maxLevel: 5, stat: "damage", value: 5 },
+    ];
+    
+    // ============ CONSTRUCTOR ============
     constructor(scene: Scene, currencyManager: CurrencyManager) {
-        this.scene = scene;
+        this._scene = scene;
         this.currencyManager = currencyManager;
-        
-        // Создаем GUI texture с высоким приоритетом
-        this.guiTexture = AdvancedDynamicTexture.CreateFullscreenUI("GarageUI", true, scene);
-        this.guiTexture.isForeground = true;
-        
-        // Устанавливаем высокий приоритет для layerMask чтобы гараж был поверх всего
-        if (this.guiTexture.layer) {
-            this.guiTexture.layer.layerMask = 0xFFFFFFFF; // Все слои видимы
-            // Добавляем слой в сцену, если его там еще нет
-            if (scene.layers.indexOf(this.guiTexture.layer) === -1) {
-                scene.layers.push(this.guiTexture.layer);
-            }
-        }
-        
-        // Убеждаемся, что rootContainer видим
-        if (this.guiTexture.rootContainer) {
-            this.guiTexture.rootContainer.isVisible = true;
-            this.guiTexture.rootContainer.alpha = 1.0;
-        }
-        
-        console.log("[Garage] GUI texture created:", {
-            isForeground: this.guiTexture.isForeground,
-            layerMask: this.guiTexture.layer?.layerMask,
-            rootContainerVisible: this.guiTexture.rootContainer?.isVisible
-        });
-        
         this.loadProgress();
+        injectGarageStyles();
+        this.setupKeyboardNavigation();
+        console.log("[Garage] HTML-based garage initialized");
     }
     
-    // Установить ссылку на ChatSystem
-    setChatSystem(chatSystem: any): void {
-        this.chatSystem = chatSystem;
-    }
-    
-    // Установить ссылку на TankController
-    setTankController(tankController: any): void {
-        this.tankController = tankController;
-    }
-    
-    // Установить ссылку на ExperienceSystem
-    setExperienceSystem(experienceSystem: any): void {
-        this.experienceSystem = experienceSystem;
-    }
-    
-    // Установить ссылку на PlayerProgressionSystem
-    setPlayerProgression(playerProgression: any): void {
-        // Отписываемся от предыдущей подписки, если она была
-        if (this.experienceSubscription) {
-            this.experienceSubscription.remove();
-            this.experienceSubscription = null;
-        }
+    // ============ STYLES ============
+    private injectStyles(): void {
+        if (document.getElementById('garage-styles')) return;
         
-        this.playerProgression = playerProgression;
-        
-        // Подписываемся на изменения опыта
-        if (playerProgression && playerProgression.onExperienceChanged) {
-            console.log("[Garage] Subscribing to experience changes");
-            this.experienceSubscription = playerProgression.onExperienceChanged.add((data: {
-                current: number;
-                required: number;
-                percent: number;
-                level: number;
-            }) => {
-                console.log("[Garage] Experience changed event received:", data);
-                // Обновляем список предметов для обновления шкал опыта
-                if (this.isOpen && this.itemList) {
-                    this.updateItemList();
+        const style = document.createElement('style');
+        style.id = 'garage-styles';
+        style.textContent = `
+            .garage-overlay {
+                position: fixed;
+                top: 0; left: 0; right: 0; bottom: 0;
+                background: rgba(0, 10, 0, 0.95);
+                z-index: 10000;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                font-family: 'Consolas', 'Monaco', monospace;
+                animation: fadeIn 0.3s ease-out;
+                cursor: default;
+            }
+            @keyframes fadeIn {
+                from { opacity: 0; }
+                to { opacity: 1; }
+            }
+            @keyframes slideUp {
+                from { transform: translateY(20px); opacity: 0; }
+                to { transform: translateY(0); opacity: 1; }
+            }
+            .garage-container {
+                width: min(85vw, 900px);
+                height: min(80vh, 580px);
+                max-width: min(900px, 90vw);
+                max-height: min(580px, 85vh);
+                background: rgba(5, 15, 5, 0.98);
+                cursor: default;
+                border: clamp(1px, 0.15vw, 2px) solid #0f0;
+                display: flex;
+                flex-direction: column;
+                animation: slideUp 0.3s ease-out;
+                box-shadow: 0 0 clamp(20px, 2vw, 30px) rgba(0, 255, 0, 0.3);
+            }
+            .garage-header {
+                height: clamp(35px, 4vh, 45px);
+                background: rgba(0, 30, 0, 0.9);
+                border-bottom: clamp(1px, 0.15vw, 2px) solid #0f0;
+                display: flex;
+                align-items: center;
+                padding: 0 clamp(10px, 1.5vw, 15px);
+                justify-content: space-between;
+                flex-shrink: 0;
+            }
+            .garage-title {
+                color: #0f0;
+                font-size: clamp(16px, 2vw, 20px);
+                font-weight: bold;
+            }
+            .garage-currency {
+                color: #ff0;
+                font-size: clamp(12px, 1.5vw, 15px);
+                background: rgba(0,0,0,0.5);
+                padding: clamp(3px, 0.4vh, 4px) clamp(8px, 1.2vw, 12px);
+                border: clamp(1px, 0.1vw, 1px) solid #ff0;
+            }
+            .garage-close {
+                color: #f00;
+                font-size: clamp(16px, 2vw, 20px);
+                cursor: pointer;
+                padding: clamp(3px, 0.4vh, 4px) clamp(6px, 0.8vw, 8px);
+                border: clamp(1px, 0.1vw, 1px) solid #f00;
+                background: transparent;
+            }
+            .garage-close:hover { background: rgba(255,0,0,0.3); }
+            .garage-tabs {
+                height: clamp(30px, 3.5vh, 35px);
+                background: rgba(0, 20, 0, 0.8);
+                display: flex;
+                border-bottom: clamp(1px, 0.1vw, 1px) solid #080;
+                flex-shrink: 0;
+            }
+            .garage-tab {
+                flex: 1;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #080;
+                font-size: clamp(9px, 1.1vw, 11px);
+                cursor: pointer;
+                border-right: clamp(1px, 0.1vw, 1px) solid #040;
+                transition: all 0.2s ease;
+                position: relative;
+            }
+            .garage-tab:hover { 
+                background: rgba(0,255,0,0.1); 
+                color: #0f0;
+                transform: translateY(-1px);
+            }
+            .garage-tab.active { 
+                background: rgba(0,255,0,0.2); 
+                color: #0f0; 
+                font-weight: bold;
+                box-shadow: inset 0 -2px 0 #0f0;
+            }
+            .garage-tab.active::after {
+                content: '';
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                height: 2px;
+                background: #0f0;
+            }
+            .garage-content {
+                flex: 1;
+                display: flex;
+                overflow: hidden;
+                min-height: 0;
+            }
+            .garage-left {
+                width: 45%;
+                border-right: 1px solid #080;
+                display: flex;
+                flex-direction: column;
+                min-width: 0;
+            }
+            .garage-search {
+                padding: 8px;
+                border-bottom: 1px solid #040;
+                flex-shrink: 0;
+            }
+            .garage-search input {
+                width: 100%;
+                background: rgba(0,0,0,0.5);
+                border: 1px solid #0aa;
+                color: #0f0;
+                padding: 6px;
+                font-family: inherit;
+                font-size: 11px;
+            }
+            .garage-filters {
+                padding: 4px 8px;
+                display: flex;
+                gap: 4px;
+                border-bottom: 1px solid #040;
+                flex-shrink: 0;
+            }
+            .garage-filter-btn {
+                padding: 3px 10px;
+                background: rgba(0,0,0,0.5);
+                border: 1px solid #080;
+                color: #080;
+                cursor: pointer;
+                font-size: 9px;
+            }
+            .garage-filter-btn.active { border-color: #0f0; color: #0f0; background: rgba(0,255,0,0.2); }
+            .garage-sort-btn {
+                padding: 3px 8px;
+                background: rgba(0,255,255,0.1);
+                border: 1px solid #0aa;
+                color: #0aa;
+                cursor: pointer;
+                font-size: 9px;
+            }
+            .garage-sort-btn:hover { border-color: #0ff; color: #0ff; background: rgba(0,255,255,0.2); }
+            .garage-items {
+                flex: 1;
+                overflow-y: auto;
+                padding: 8px;
+                min-height: 0;
+            }
+            .garage-item {
+                padding: 8px;
+                margin-bottom: 6px;
+                background: rgba(0,0,0,0.4);
+                border: 1px solid #040;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                min-height: 60px;
+                position: relative;
+            }
+            .garage-item:hover { 
+                border-color: #0a0; 
+                background: rgba(0,255,0,0.08);
+                transform: translateX(2px);
+                box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
+            }
+            .garage-item.selected { 
+                border-color: #0f0; 
+                background: rgba(0,255,0,0.15);
+                box-shadow: 0 0 15px rgba(0, 255, 0, 0.3);
+            }
+            .garage-item.equipped { 
+                border-color: #0ff;
+                box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+            }
+            .garage-item-name { color: #0f0; font-size: clamp(10px, 1.2vw, 12px); font-weight: bold; }
+            .garage-item-desc { color: #080; font-size: clamp(8px, 1vw, 10px); margin-top: clamp(2px, 0.3vh, 3px); }
+            .garage-item-stats { color: #0aa; font-size: clamp(8px, 0.9vw, 9px); margin-top: clamp(3px, 0.4vh, 4px); }
+            .garage-item-price { color: #ff0; font-size: clamp(9px, 1.1vw, 11px); float: right; }
+            .garage-item.owned .garage-item-price { color: #0f0; }
+            .garage-right {
+                width: 55%;
+                display: flex;
+                flex-direction: column;
+                padding: 8px;
+                min-width: 0;
+            }
+            .garage-preview {
+                height: 40%;
+                background: rgba(0,20,0,0.5);
+                border: 1px solid #080;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                margin-bottom: 8px;
+                flex-shrink: 0;
+                position: relative;
+                overflow: hidden;
+            }
+            .garage-preview::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(0,255,0,0.1), transparent);
+                animation: scan 3s infinite;
+            }
+            @keyframes scan {
+                0% { left: -100%; }
+                100% { left: 100%; }
+            }
+            .garage-preview-title { 
+                color: #080; 
+                font-size: 9px; 
+                z-index: 1;
+                text-transform: uppercase;
+                letter-spacing: 2px;
+            }
+            .garage-preview-info { 
+                color: #0f0; 
+                font-size: 13px; 
+                margin: 8px 0;
+                z-index: 1;
+                text-align: center;
+                line-height: 1.6;
+            }
+            .garage-preview-canvas {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                opacity: 1.0;
+                pointer-events: auto;
+                z-index: 10;
+            }
+            .garage-details {
+                flex: 1;
+                background: rgba(0,0,0,0.3);
+                border: 1px solid #080;
+                padding: 10px;
+                overflow-y: auto;
+                min-height: 0;
+            }
+            .garage-details-title { color: #0f0; font-size: clamp(12px, 1.4vw, 14px); font-weight: bold; margin-bottom: clamp(6px, 0.8vh, 8px); }
+            .garage-details-desc { color: #0a0; font-size: clamp(9px, 1.1vw, 11px); margin-bottom: clamp(8px, 1vh, 10px); }
+            .garage-stats-row { display: flex; justify-content: space-between; padding: clamp(3px, 0.4vh, 4px) 0; border-bottom: clamp(1px, 0.1vw, 1px) solid #030; }
+            .garage-stat-name { color: #0aa; font-size: clamp(8px, 1vw, 10px); }
+            .garage-stat-value { color: #0f0; font-size: clamp(8px, 1vw, 10px); }
+            .garage-stat-change.positive { color: #0f0; }
+            .garage-stat-change.negative { color: #f00; }
+            .garage-action-btn {
+                width: 100%;
+                padding: clamp(8px, 1vh, 10px);
+                margin-top: clamp(8px, 1vh, 10px);
+                background: rgba(0,255,0,0.2);
+                border: clamp(1px, 0.15vw, 2px) solid #0f0;
+                color: #0f0;
+                font-size: clamp(10px, 1.2vw, 12px);
+                font-weight: bold;
+                cursor: pointer;
+                font-family: inherit;
+            }
+            .garage-action-btn:hover { background: rgba(0,255,0,0.3); }
+            .garage-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+            .garage-footer {
+                height: clamp(25px, 3vh, 30px);
+                background: rgba(0, 20, 0, 0.8);
+                border-top: clamp(1px, 0.1vw, 1px) solid #080;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #060;
+                font-size: clamp(8px, 0.9vw, 9px);
+                flex-shrink: 0;
+            }
+            
+            @media (max-width: 768px) {
+                .garage-container {
+                    width: 95vw;
+                    height: 90vh;
                 }
-                // Обновляем панель статистики игрока в гараже
-                if (this.isOpen) {
-                    this.updatePlayerStatsPanel();
+                .garage-left, .garage-right {
+                    width: 100% !important;
                 }
-            });
-        } else {
-            console.warn("[Garage] Cannot subscribe to experience changes - playerProgression or onExperienceChanged is null");
-        }
+                .garage-content {
+                    flex-direction: column;
+                }
+            }
+        `;
+        document.head.appendChild(style);
     }
     
-    // Загрузить прогресс из localStorage
+    // ============ EXTERNAL SETTERS ============
+    setChatSystem(chatSystem: any): void { this._chatSystem = chatSystem; }
+    setTankController(tankController: any): void { this.tankController = tankController; }
+    setExperienceSystem(experienceSystem: any): void { this._experienceSystem = experienceSystem; }
+    setSoundManager(soundManager: any): void { this.soundManager = soundManager; }
+    setPlayerProgression(playerProgression: any): void { this._playerProgression = playerProgression; }
+    setOnCloseCallback(callback: () => void): void { this.onCloseCallback = callback; }
+    setGuiTexture(_texture: any): void { /* Not needed for HTML version */ }
+    getGUI(): any { return null; }
+    
+    // ============ PERSISTENCE ============
     private loadProgress(): void {
         try {
             const saved = localStorage.getItem("tx_garage_progress");
             if (saved) {
                 const progress = JSON.parse(saved);
-                // Обновляем разблокированные части
-                [...this.chassisParts, ...this.cannonParts].forEach(part => {
-                    if (progress.unlocked && progress.unlocked.includes(part.id)) {
-                        part.unlocked = true;
-                    }
+                [...this.chassisParts, ...this.cannonParts, ...this.trackParts, ...this.moduleParts, ...this.supplyParts].forEach(part => {
+                    if (progress.unlocked?.includes(part.id)) part.unlocked = true;
                 });
-                // Обновляем уровни улучшений
                 if (progress.upgrades) {
-                    this.upgrades.forEach(upgrade => {
-                        if (progress.upgrades[upgrade.id] !== undefined) {
-                            upgrade.level = progress.upgrades[upgrade.id];
-                        }
+                    this.upgrades.forEach(u => {
+                        if (progress.upgrades[u.id] !== undefined) u.level = progress.upgrades[u.id];
                     });
                 }
+                if (progress.currentChassis) this.currentChassisId = progress.currentChassis;
+                if (progress.currentCannon) this.currentCannonId = progress.currentCannon;
+                if (progress.currentTrack) this.currentTrackId = progress.currentTrack;
             }
-        } catch (e) {
-            console.warn("[Garage] Failed to load progress:", e);
-        }
+        } catch (e) { console.warn("[Garage] Load failed:", e); }
     }
     
-    // Сохранить прогресс в localStorage
     private saveProgress(): void {
         try {
-            const unlocked = [...this.chassisParts, ...this.cannonParts]
-                .filter(p => p.unlocked)
-                .map(p => p.id);
-            const upgrades: { [key: string]: number } = {};
-            this.upgrades.forEach(u => {
-                upgrades[u.id] = u.level;
-            });
-            localStorage.setItem("tx_garage_progress", JSON.stringify({ unlocked, upgrades }));
-        } catch (e) {
-            console.warn("[Garage] Failed to save progress:", e);
-        }
+            const unlocked = [...this.chassisParts, ...this.cannonParts, ...this.trackParts, ...this.moduleParts, ...this.supplyParts]
+                .filter(p => p.unlocked).map(p => p.id);
+            const upgrades: Record<string, number> = {};
+            this.upgrades.forEach(u => { upgrades[u.id] = u.level; });
+            localStorage.setItem("tx_garage_progress", JSON.stringify({
+                unlocked, upgrades,
+                currentChassis: this.currentChassisId,
+                currentCannon: this.currentCannonId,
+                currentTrack: this.currentTrackId
+            }));
+        } catch (e) { console.warn("[Garage] Save failed:", e); }
     }
     
-    private soundManager: any = null; // SoundManager будет установлен из Game
+    // ============ PUBLIC API ============
+    isGarageOpen(): boolean { return this.isOpen; }
     
-    // Установить ссылку на SoundManager
-    setSoundManager(soundManager: any): void {
-        this.soundManager = soundManager;
-    }
-    
-    // Горячие клавиши
-    private setupHotkeys(): void {
-        window.addEventListener("keydown", (e) => {
-            if (!this.isOpen) return;
-            
-            // ESC - закрыть гараж
-            if (e.code === "Escape") {
-                e.preventDefault();
-                this.close();
-                return;
-            }
-            
-            // 1, 2, 3 - переключение категорий
-            if (e.code === "Digit1" || e.code === "Numpad1") {
-                e.preventDefault();
-                this.switchCategory("chassis");
-                // Обновляем кнопки категорий
-                this.categoryButtons.forEach((btn) => {
-                    const btnId = (btn as any).name;
-                    if (btnId === "cat_chassis") {
-                        btn.color = "#0f0";
-                        btn.background = "#002200aa";
-                        btn.thickness = 3;
-                        btn.fontWeight = "bold";
-                    } else {
-                        btn.color = "#0aa";
-                        btn.background = "#000000aa";
-                        btn.thickness = 2;
-                        btn.fontWeight = "normal";
-                    }
-                });
-            } else if (e.code === "Digit2" || e.code === "Numpad2") {
-                e.preventDefault();
-                this.switchCategory("barrel");
-                this.categoryButtons.forEach((btn) => {
-                    const btnId = (btn as any).name;
-                    if (btnId === "cat_barrel") {
-                        btn.color = "#0f0";
-                        btn.background = "#002200aa";
-                        btn.thickness = 3;
-                        btn.fontWeight = "bold";
-                    } else {
-                        btn.color = "#0aa";
-                        btn.background = "#000000aa";
-                        btn.thickness = 2;
-                        btn.fontWeight = "normal";
-                    }
-                });
-            } else if (e.code === "Digit3" || e.code === "Numpad3") {
-                e.preventDefault();
-                this.switchCategory("upgrades");
-                this.categoryButtons.forEach((btn) => {
-                    const btnId = (btn as any).name;
-                    if (btnId === "cat_upgrades") {
-                        btn.color = "#0f0";
-                        btn.background = "#002200aa";
-                        btn.thickness = 3;
-                        btn.fontWeight = "bold";
-                    } else {
-                        btn.color = "#0aa";
-                        btn.background = "#000000aa";
-                        btn.thickness = 2;
-                        btn.fontWeight = "normal";
-                    }
-                });
-            }
-            
-            // Enter - применить изменения
-            if (e.code === "Enter") {
-                e.preventDefault();
-                this.applySelection();
-            }
-            
-            // F - быстрая покупка
-            if (e.code === "KeyF") {
-                e.preventDefault();
-                this.quickPurchase();
-            }
-            
-            // R - сброс фильтров
-            if (e.code === "KeyR") {
-                e.preventDefault();
-                this.searchText = "";
-                this.filterUnlocked = null;
-                this._filterPrice = "all";
-                this.sortBy = "name";
-                if (this.searchInput) {
-                    if (this.searchInput) {
-                        this.searchInput.text = "";
-                    }
-                }
-                // Сбрасываем кнопки фильтров
-                const filterAll = this.garageContainer!.getChildByName("filterAll") as Button;
-                const filterOwned = this.garageContainer!.getChildByName("filterOwned") as Button;
-                const filterLocked = this.garageContainer!.getChildByName("filterLocked") as Button;
-                const priceAll = this.garageContainer!.getChildByName("priceAll") as Button;
-                if (filterAll) { filterAll.color = "#0f0"; filterAll.background = "#002200"; }
-                if (filterOwned) { filterOwned.color = "#0aa"; filterOwned.background = "#001122"; }
-                if (filterLocked) { filterLocked.color = "#0aa"; filterLocked.background = "#001122"; }
-                if (priceAll) { priceAll.color = "#0f0"; priceAll.background = "#002200"; }
-                this.selectedItemIndex = -1;
-                this.updateItemList();
-            }
-            
-            // Стрелки вверх/вниз - навигация по предметам с улучшенной обратной связью
-            if (e.code === "ArrowUp") {
-                e.preventDefault();
-                if (this.filteredItems.length > 0) {
-                    this.selectedItemIndex = Math.max(0, this.selectedItemIndex - 1);
-                    this.highlightSelectedItem();
-                    this.scrollToSelectedItem();
-                    // Визуальная обратная связь - мигание индикатора
-                    const navHint = this.garageContainer!.getChildByName("navHint") as TextBlock;
-                    if (navHint) {
-                        navHint.color = "#0f0";
-                        setTimeout(() => {
-                            if (navHint) navHint.color = "#0dd";
-                        }, 150);
-                    }
-                }
-            } else if (e.code === "ArrowDown") {
-                e.preventDefault();
-                if (this.filteredItems.length > 0) {
-                    this.selectedItemIndex = Math.min(this.filteredItems.length - 1, this.selectedItemIndex + 1);
-                    this.highlightSelectedItem();
-                    this.scrollToSelectedItem();
-                    // Визуальная обратная связь - мигание индикатора
-                    const navHint = this.garageContainer!.getChildByName("navHint") as TextBlock;
-                    if (navHint) {
-                        navHint.color = "#0f0";
-                        setTimeout(() => {
-                            if (navHint) navHint.color = "#0dd";
-                        }, 150);
-                    }
-                }
-            }
-            
-            // Space или Enter на выбранном предмете - выбрать/купить
-            if ((e.code === "Space" || e.code === "Enter") && this.selectedItemIndex >= 0 && this.selectedItemIndex < this.filteredItems.length) {
-                e.preventDefault();
-                const item = this.filteredItems[this.selectedItemIndex];
-                if (!("level" in item)) {
-                    const part = item as TankPart;
-                    if (part.unlocked) {
-                        this.selectPart(part);
-                    } else {
-                        this.purchaseItem(item);
-                    }
-                } else {
-                    this.purchaseItem(item);
-                }
-            }
-        });
-    }
-    
-    // Открыть гараж
     open(): void {
-        if (this.isOpen) {
-            console.log("[Garage] Already open, ignoring open() call");
-            return;
-        }
-        console.log("[Garage] ===== Opening garage =====");
-        console.log("[Garage] GUI texture exists:", !!this.guiTexture);
-        console.log("[Garage] Scene exists:", !!this.scene);
+        if (this.isOpen) return;
+        console.log("[Garage] Opening HTML garage...");
         
-        // Убеждаемся, что GUI texture существует и видим
-        if (!this.guiTexture) {
-            console.error("[Garage] ERROR: GUI texture not initialized!");
-            return;
-        }
-        
-        // Убеждаемся, что GUI texture видим и на переднем плане ПЕРЕД созданием UI
-        this.guiTexture.isForeground = true;
-        
-        // Убеждаемся, что GUI texture активен
-        if (this.guiTexture.rootContainer) {
-            this.guiTexture.rootContainer.isVisible = true;
-            this.guiTexture.rootContainer.alpha = 1.0;
-        }
+        // Show cursor and unlock pointer lock
+        this.showCursor();
         
         this.isOpen = true;
-        this.createGarageUI();
-        
-        // Убеждаемся, что гараж видим после создания
-        if (this.garageContainer) {
-            this.garageContainer.isVisible = true;
-            this.garageContainer.alpha = 1.0;
-        }
-        
-        // Периодическое обновление статистики в реальном времени (каждую секунду)
-        if (this._statsUpdateInterval) {
-            clearInterval(this._statsUpdateInterval);
-        }
-        this._statsUpdateInterval = setInterval(() => {
-            if (this.isOpen && this.playerProgression) {
-                this.updatePlayerStatsPanel();
-            }
-        }, 100); // Обновляем каждые 100мс для плавной анимации XP-бара
-        
-        // Настраиваем горячие клавиши
-        this.setupHotkeys();
-        
-        // Обновляем статистику после создания UI (если метод существует)
-        if (this.updatePlayerStatsPanel) {
-            try {
-                this.updatePlayerStatsPanel();
-            } catch (e) {
-                console.warn("[Garage] Failed to update player stats panel:", e);
-            }
-        }
-        
-        // Принудительно обновляем опыт при открытии гаража
-        setTimeout(() => {
-            if (this.isOpen) {
-                this.updateItemList(); // Пересоздаём список с актуальными данными опыта
-                // Также обновляем опыт сразу после создания списка
-                if (this.updateExperienceBars) {
-                    setTimeout(() => {
-                        this.updateExperienceBars();
-                    }, 200);
-                }
-            }
-        }, 100);
-        
-        // Дополнительная проверка после создания UI
-        if (this.garageContainer) {
-            this.garageContainer.isVisible = true;
-            this.garageContainer.alpha = 0.75; // 75% прозрачность
-            console.log("[Garage] Container visibility after creation:", {
-                isVisible: this.garageContainer.isVisible,
-                alpha: this.garageContainer.alpha,
-                width: this.garageContainer.width,
-                height: this.garageContainer.height
-            });
-        }
-        
-        // Убеждаемся, что GUI texture все еще видим
-        this.guiTexture.isForeground = true;
-        
-        console.log("[Garage] GUI texture settings:", {
-            isForeground: this.guiTexture.isForeground,
-            layerMask: this.guiTexture.layer?.layerMask,
-            rootContainerVisible: this.guiTexture.rootContainer?.isVisible,
-            rootContainerAlpha: this.guiTexture.rootContainer?.alpha
-        });
-        console.log("[Garage] Garage container created:", !!this.garageContainer);
-        
-        if (this.soundManager) {
-            this.soundManager.playGarageOpen();
-        }
-        console.log("[Garage] ✓ Garage opened successfully");
-    }
-    
-    // Закрыть гараж с анимацией
-    close(): void {
-        if (!this.isOpen) return;
-        
-        // Упрощенное закрытие без лишних анимаций
-        if (this.garageContainer) {
-            this.isOpen = false;
-            this.garageContainer.dispose();
-            this.garageContainer = null;
-            // Останавливаем периодическое обновление статистики
-            if (this._statsUpdateInterval) {
-                clearInterval(this._statsUpdateInterval);
-                this._statsUpdateInterval = null;
-            }
-            // Сбрасываем фильтры при закрытии
-            this.searchText = "";
-            this.filterUnlocked = null;
-            this.sortBy = "name";
-        } else {
-            this.isOpen = false;
-            // Останавливаем периодическое обновление статистики
-            if (this._statsUpdateInterval) {
-                clearInterval(this._statsUpdateInterval);
-                this._statsUpdateInterval = null;
-            }
-        }
-        
-        if (this.soundManager) {
-            this.soundManager.playGarageOpen();
-        }
-    }
-    
-    // Переключить категорию с анимацией
-    private switchCategory(category: "chassis" | "turret" | "barrel" | "upgrades"): void {
-        if (this.currentCategory === category) return;
-        
-        // Упрощенное переключение категорий без лишних анимаций
-        this.currentCategory = category;
-        this.selectedItemIndex = -1; // Сбрасываем выбор
-        this.updateItemList();
-        
-        // Обновляем опыт
-        if (this.itemList && this.updateExperienceBars) {
-            this.itemList.alpha = 1.0;
-            this.itemList.left = "0px";
-            this.updateExperienceBars();
-        }
-        
-        // Звуковой эффект переключения
-        if (this.soundManager && this.soundManager.playGarageOpen) {
-            this.soundManager.playGarageOpen();
-        }
-    }
-    
-    // Создать UI гаража - полностью переделанный с нуля в современном Low Poly стиле
-    private createGarageUI(): void {
-        // Main container - компактный и современный дизайн
-        this.garageContainer = new Rectangle("garageMain");
-        this.garageContainer.width = "1000px";
-        this.garageContainer.height = "700px";
-        this.garageContainer.cornerRadius = 0;
-        this.garageContainer.thickness = 3;
-        this.garageContainer.color = "#0f0";
-        this.garageContainer.background = "rgba(10, 20, 10, 0.95)";
-        this.garageContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.garageContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        this.garageContainer.isPointerBlocker = true;
-        // Гараж должен быть скрыт по умолчанию, пока не будет открыт
-        this.garageContainer.alpha = 0.0;
-        this.garageContainer.isVisible = false;
-        this.garageContainer.zIndex = 1000;
-        
-        // Добавляем в GUI texture
-        this.guiTexture.addControl(this.garageContainer);
-        
-        // ========== HEADER SECTION (компактный) ==========
-        // Header background - компактная высота 50px
-        const headerBg = new Rectangle("garageHeader");
-        headerBg.width = "100%";
-        headerBg.height = "50px";
-        headerBg.cornerRadius = 0;
-        headerBg.thickness = 0;
-        headerBg.background = "rgba(0, 40, 0, 0.85)";
-        headerBg.top = "-350px";
-        headerBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.garageContainer.addControl(headerBg);
-        
-        // Title - компактный
-        const title = new TextBlock("garageTitle");
-        title.text = "GARAGE";
-        title.color = "#0f0";
-        title.fontSize = 18;
-        title.fontWeight = "bold";
-        title.fontFamily = "Consolas, Monaco, monospace";
-        title.top = "-330px";
-        title.left = "-480px";
-        title.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.garageContainer.addControl(title);
-        
-        // Currency display - компактный, справа от заголовка
-        const currencyContainer = new Rectangle("currencyContainer");
-        currencyContainer.width = "160px";
-        currencyContainer.height = "28px";
-        currencyContainer.cornerRadius = 0;
-        currencyContainer.thickness = 1;
-        currencyContainer.color = "#ff0";
-        currencyContainer.background = "rgba(20, 20, 0, 0.9)";
-        currencyContainer.left = "200px";
-        currencyContainer.top = "-332px";
-        this.garageContainer.addControl(currencyContainer);
-        
-        const currencyLabel = new TextBlock("currencyLabel");
-        currencyLabel.text = "CR:";
-        currencyLabel.color = "#0ff";
-        currencyLabel.fontSize = 11;
-        currencyLabel.fontFamily = "Consolas, Monaco, monospace";
-        currencyLabel.fontWeight = "normal";
-        currencyLabel.left = "-65px";
-        currencyLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        currencyContainer.addControl(currencyLabel);
-        
-        const currencyText = new TextBlock("garageCurrency");
-        currencyText.text = `${this.currencyManager.getCurrency()}`;
-        currencyText.color = "#ff0";
-        currencyText.fontSize = 14;
-        currencyText.fontWeight = "bold";
-        currencyText.fontFamily = "Consolas, Monaco, monospace";
-        currencyText.left = "8px";
-        currencyText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        currencyContainer.addControl(currencyText);
-        
-        // Player stats panel (компактный, справа от валюты) - безопасный вызов
-        try {
-            if (this.createPlayerStatsPanel) {
-                this.createPlayerStatsPanel();
-            }
-        } catch (e) {
-            console.warn("[Garage] Failed to create player stats panel:", e);
-        }
-        
-        // Header separator line
-        const headerLine = new Rectangle("headerLine");
-        headerLine.width = "100%";
-        headerLine.height = "2px";
-        headerLine.cornerRadius = 0;
-        headerLine.thickness = 0;
-        headerLine.background = "#0f0";
-        headerLine.top = "-300px";
-        headerLine.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.garageContainer.addControl(headerLine);
-        
-        // ========== CONTENT SECTION (компактная двухколоночная структура) ==========
-        // Message display - компактный, вверху контента
-        const messageContainer = new Rectangle("messageContainer");
-        messageContainer.width = "960px";
-        messageContainer.height = "22px";
-        messageContainer.cornerRadius = 0;
-        messageContainer.thickness = 1;
-        messageContainer.color = "#0f0";
-        messageContainer.background = "rgba(0, 20, 0, 0.9)";
-        messageContainer.top = "-280px";
-        messageContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.garageContainer.addControl(messageContainer);
-        
-        const messageText = new TextBlock("garageMessage");
-        messageText.text = "";
-        messageText.color = "#0f0";
-        messageText.fontSize = 11;
-        messageText.fontFamily = "Consolas, Monaco, monospace";
-        messageText.fontWeight = "normal";
-        messageText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        messageContainer.addControl(messageText);
-        
-        // Поиск и фильтры
-        this.createSearchAndFilters();
-        
-        // Category buttons
-        this.createCategoryButtons();
-        
-        // Item list
-        this.createItemList();
-        
-        // Comparison panel
-        this.createComparisonPanel();
-        
-        // Apply button (применить изменения сразу) - улучшенный
-        this.createApplyButton();
-        
-        // ========== FOOTER SECTION (компактный) ==========
-        // Footer background - компактная высота 45px
-        const footerBg = new Rectangle("garageFooter");
-        footerBg.width = "100%";
-        footerBg.height = "45px";
-        footerBg.cornerRadius = 0;
-        footerBg.thickness = 0;
-        footerBg.background = "rgba(0, 30, 0, 0.85)";
-        footerBg.top = "310px";
-        footerBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.garageContainer.addControl(footerBg);
-        
-        // Footer separator line
-        const footerLine = new Rectangle("footerLine");
-        footerLine.width = "100%";
-        footerLine.height = "2px";
-        footerLine.cornerRadius = 0;
-        footerLine.thickness = 0;
-        footerLine.background = "#0f0";
-        footerLine.top = "310px";
-        footerLine.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.garageContainer.addControl(footerLine);
-        
-        // Changes indicator - компактный
-        const changesIndicator = new Rectangle("changesIndicator");
-        changesIndicator.width = "380px";
-        changesIndicator.height = "22px";
-        changesIndicator.cornerRadius = 0;
-        changesIndicator.thickness = 1;
-        changesIndicator.color = "#0ff";
-        changesIndicator.background = "rgba(0, 20, 20, 0.9)";
-        changesIndicator.top = "290px";
-        changesIndicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        changesIndicator.isVisible = false;
-        this.garageContainer.addControl(changesIndicator);
-        
-        const changesText = new TextBlock("changesText");
-        changesText.text = "> PENDING CHANGES | [Enter] to apply";
-        changesText.color = "#0ff";
-        changesText.fontSize = 10;
-        changesText.fontFamily = "Consolas, Monaco, monospace";
-        changesText.fontWeight = "bold";
-        changesText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        changesIndicator.addControl(changesText);
-        
-        // Navigation hint - компактный
-        const navHint = new TextBlock("navHint");
-        navHint.text = "[↑↓] Navigate | [Space/Enter] Select | [1-3] Categories | [F] Quick Buy | [R] Reset";
-        navHint.color = "#0aa";
-        navHint.fontSize = 9;
-        navHint.fontFamily = "Consolas, Monaco, monospace";
-        navHint.fontWeight = "normal";
-        navHint.top = "270px";
-        navHint.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.garageContainer.addControl(navHint);
-        
-        // Close button - компактный
-        const closeBtn = Button.CreateSimpleButton("closeGarage", "CLOSE [ESC]");
-        closeBtn.width = "120px";
-        closeBtn.height = "32px";
-        closeBtn.cornerRadius = 0;
-        closeBtn.fontFamily = "Consolas, Monaco, monospace";
-        closeBtn.color = "#f00";
-        closeBtn.background = "rgba(255, 0, 0, 0.25)";
-        closeBtn.thickness = 1;
-        closeBtn.fontSize = 10;
-        closeBtn.fontWeight = "bold";
-        closeBtn.top = "318px";
-        closeBtn.left = "280px";
-        closeBtn.isPointerBlocker = true;
-        
-        // Hover эффект для кнопки закрытия
-        closeBtn.onPointerEnterObservable.add(() => {
-            closeBtn.color = "#ff0";
-            closeBtn.background = "rgba(255, 255, 0, 0.3)";
-            closeBtn.thickness = 2;
-        });
-        closeBtn.onPointerOutObservable.add(() => {
-            closeBtn.color = "#f00";
-            closeBtn.background = "rgba(255, 0, 0, 0.2)";
-            closeBtn.thickness = 1;
-        });
-        
-        closeBtn.onPointerClickObservable.add(() => {
-            this.close();
-        });
-        this.garageContainer.addControl(closeBtn);
-        
-        // Update changes indicator periodically
-        setInterval(() => {
-            if (this.isOpen && changesIndicator) {
-                const hasChanges = (this.previewChassisId && this.previewChassisId !== this.currentChassisId) ||
-                                (this.previewCannonId && this.previewCannonId !== this.currentCannonId);
-                if (changesIndicator.isVisible !== !!hasChanges) {
-                    changesIndicator.isVisible = !!hasChanges;
-                }
-            }
-        }, 300);
-        
-        // Кнопка сброса фильтров - компактная
-        const resetFiltersBtn = Button.CreateSimpleButton("resetFilters", "RESET [R]");
-        resetFiltersBtn.width = "90px";
-        resetFiltersBtn.height = "26px";
-        resetFiltersBtn.cornerRadius = 0;
-        resetFiltersBtn.fontFamily = "Consolas, Monaco, monospace";
-        resetFiltersBtn.color = "#0aa";
-        resetFiltersBtn.background = "rgba(0, 255, 0, 0.15)";
-        resetFiltersBtn.thickness = 1;
-        resetFiltersBtn.fontSize = 9;
-        resetFiltersBtn.top = "320px";
-        resetFiltersBtn.left = "-450px";
-        
-        // Hover эффект для кнопки сброса
-        resetFiltersBtn.onPointerEnterObservable.add(() => {
-            resetFiltersBtn.color = "#0f0";
-            resetFiltersBtn.background = "rgba(0, 255, 0, 0.2)";
-            resetFiltersBtn.thickness = 2;
-        });
-        resetFiltersBtn.onPointerOutObservable.add(() => {
-            resetFiltersBtn.color = "#0aa";
-            resetFiltersBtn.background = "rgba(0, 255, 0, 0.1)";
-            resetFiltersBtn.thickness = 1;
-        });
-        
-        resetFiltersBtn.onPointerClickObservable.add(() => {
-            this.searchText = "";
-            this.filterUnlocked = null;
-            this._filterPrice = "all";
-            this.sortBy = "name";
-            if (this.searchInput) {
-                this.searchInput.text = "";
-            }
-            // Сбрасываем кнопки фильтров
-            const filterAll = this.garageContainer!.getChildByName("filterAll") as Button;
-            const filterOwned = this.garageContainer!.getChildByName("filterOwned") as Button;
-            const filterLocked = this.garageContainer!.getChildByName("filterLocked") as Button;
-            const priceAll = this.garageContainer!.getChildByName("priceAll") as Button;
-            if (filterAll) { filterAll.color = "#0f0"; filterAll.background = "#002200"; }
-            if (filterOwned) { filterOwned.color = "#0aa"; filterOwned.background = "#001122"; }
-            if (filterLocked) { filterLocked.color = "#0aa"; filterLocked.background = "#001122"; }
-            if (priceAll) { priceAll.color = "#0f0"; priceAll.background = "#002200"; }
-            this.selectedItemIndex = -1;
-            this.updateItemList();
-        });
-        this.garageContainer.addControl(resetFiltersBtn);
-        
-        // Update currency display and stats periodically - оптимизировано
-        let lastCurrencyUpdate = 0;
-        let lastStatsUpdate = 0;
-        let lastExpUpdate = 0;
-        let lastRecUpdate = 0;
-        let lastPreviewUpdate = 0;
-        let lastComparisonUpdate = 0;
-        
-        setInterval(() => {
-            if (this.isOpen && this.garageContainer) {
-                const now = Date.now();
-                
-                // Обновляем валюту только если она изменилась (оптимизация)
-                const currentCurrency = this.currencyManager.getCurrency();
-                const currencyText = this.garageContainer.getChildByName("garageCurrency") as TextBlock;
-                if (currencyText && now - lastCurrencyUpdate > 100) {
-                    const newText = `${currentCurrency}`;
-                    if (currencyText.text !== newText) {
-                        currencyText.text = newText;
-                        lastCurrencyUpdate = now;
-                    }
-                }
-                
-                // Обновляем статистику игрока реже (каждые 500мс)
-                if (now - lastStatsUpdate > 500) {
-                    try {
-                        if (this.updatePlayerStatsPanel) {
-                            this.updatePlayerStatsPanel();
-                        }
-                    } catch (e) {
-                        console.warn("[Garage] Failed to update player stats panel in interval:", e);
-                    }
-                    lastStatsUpdate = now;
-                }
-                
-                // Обновляем панель рекомендаций реже (каждые 2 секунды)
-                if (now - lastRecUpdate > 2000) {
-                    try {
-                        const recPanel = this.garageContainer.getChildByName("recommendationsPanel");
-                        if (recPanel) {
-                            recPanel.dispose();
-                            this.createRecommendationsPanel();
-                        }
-                    } catch (e) {
-                        console.warn("[Garage] Failed to update recommendations panel:", e);
-                    }
-                    lastRecUpdate = now;
-                }
-                
-                // Обновляем опыт в списке предметов (каждые 200мс для более плавной анимации)
-                if (now - lastExpUpdate > 200) {
-                    try {
-                        this.updateExperienceBars();
-                    } catch (e) {
-                        console.warn("[Garage] Failed to update experience bars:", e);
-                    }
-                    lastExpUpdate = now;
-                }
-                
-                // Обновляем превью текущего танка реже (каждую секунду)
-                if (now - lastPreviewUpdate > 1000) {
-                    try {
-                        const previewContainer = this.garageContainer.getChildByName("tankPreviewContainer");
-                        if (previewContainer) {
-                            previewContainer.dispose();
-                            this.createCurrentTankPreview();
-                        }
-                    } catch (e) {
-                        console.warn("[Garage] Failed to update current tank preview:", e);
-                    }
-                    lastPreviewUpdate = now;
-                }
-                
-                // Обновляем панель сравнения только при изменениях (каждые 300мс)
-                if (now - lastComparisonUpdate > 300) {
-                    try {
-                        this.updateComparisonPanel();
-                    } catch (e) {
-                        console.warn("[Garage] Failed to update comparison panel:", e);
-                    }
-                    lastComparisonUpdate = now;
-                }
-            }
-        }, 100); // Проверяем каждые 100мс, но обновляем с разной частотой для оптимизации
-    }
-    
-    // Создать поиск и фильтры - компактная версия
-    private createSearchAndFilters(): void {
-        // Контейнер для поиска и фильтров - компактный
-        const searchContainer = new Rectangle("searchContainer");
-        searchContainer.width = "960px";
-        searchContainer.height = "32px";
-        searchContainer.cornerRadius = 0;
-        searchContainer.thickness = 0;
-        searchContainer.background = "#00000000";
-        searchContainer.top = "-250px";
-        searchContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.garageContainer!.addControl(searchContainer);
-        
-        // Визуальный разделитель между поиском и категориями
-        const categorySeparator = new Rectangle("categorySeparator");
-        categorySeparator.width = "960px";
-        categorySeparator.height = "1px";
-        categorySeparator.cornerRadius = 0;
-        categorySeparator.thickness = 0;
-        categorySeparator.background = "#0aa";
-        categorySeparator.top = "-210px";
-        categorySeparator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.garageContainer!.addControl(categorySeparator);
-        
-        // Поиск - компактный
-        const searchLabel = new TextBlock("searchLabel");
-        searchLabel.text = "SEARCH:";
-        searchLabel.color = "#0ff";
-        searchLabel.fontSize = 10;
-        searchLabel.fontFamily = "Consolas, Monaco, monospace";
-        searchLabel.fontWeight = "normal";
-        searchLabel.left = "-470px";
-        searchLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        searchContainer.addControl(searchLabel);
-        
-        // Поле поиска - компактное
-        const searchInput = new InputText("searchInput");
-        searchInput.width = "160px";
-        searchInput.height = "24px";
-        searchInput.text = this.searchText || "";
-        searchInput.placeholderText = "Name...";
-        searchInput.color = "#0aa";
-        searchInput.background = "rgba(0, 0, 0, 0.8)";
-        searchInput.focusedBackground = "rgba(0, 20, 20, 0.9)";
-        searchInput.fontSize = 9;
-        searchInput.fontFamily = "Consolas, Monaco, monospace";
-        searchInput.thickness = 1;
-        searchInput.focusedColor = "#0f0";
-        searchInput.left = "-380px";
-        searchInput.top = "4px";
-        searchInput.onTextChangedObservable.add((text) => {
-            this.searchText = typeof text === 'string' ? text : String(text || '');
-            this.selectedItemIndex = -1; // Сбрасываем выбор при поиске
-            this.updateItemList();
-        });
-        searchContainer.addControl(searchInput);
-        this.searchInput = searchInput as any;
-        
-        // Фильтр - компактный
-        const filterLabel = new TextBlock("filterLabel");
-        filterLabel.text = "FILTER:";
-        filterLabel.color = "#0ff";
-        filterLabel.fontSize = 10;
-        filterLabel.fontFamily = "Consolas, Monaco, monospace";
-        filterLabel.fontWeight = "normal";
-        filterLabel.left = "-180px";
-        filterLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        searchContainer.addControl(filterLabel);
-        
-        const filterAll = Button.CreateSimpleButton("filterAll", "ALL");
-        filterAll.width = "50px";
-        filterAll.height = "24px";
-        filterAll.cornerRadius = 0;
-        filterAll.fontFamily = "Consolas, Monaco, monospace";
-        filterAll.color = this.filterUnlocked === null ? "#0f0" : "#0aa";
-        filterAll.background = this.filterUnlocked === null ? "rgba(0, 255, 0, 0.15)" : "rgba(0, 0, 0, 0.8)";
-        filterAll.thickness = 1;
-        filterAll.fontSize = 9;
-        filterAll.left = "-110px";
-        filterAll.top = "4px";
-        
-        // Hover эффект для кнопки фильтра
-        filterAll.onPointerEnterObservable.add(() => {
-            if (this.filterUnlocked !== null) {
-                filterAll.color = "#0f0";
-                filterAll.background = "rgba(0, 255, 0, 0.15)";
-            }
-        });
-        filterAll.onPointerOutObservable.add(() => {
-            if (this.filterUnlocked !== null) {
-                filterAll.color = "#0aa";
-                filterAll.background = "rgba(0, 0, 0, 0.8)";
-            }
-        });
-        
-        filterAll.onPointerClickObservable.add(() => {
-            this.filterUnlocked = null;
-            filterAll.color = "#0f0";
-            filterAll.background = "#002200";
-            filterOwned.color = "#0aa";
-            filterOwned.background = "#001122";
-            filterLocked.color = "#0aa";
-            filterLocked.background = "#001122";
-            this.updateItemList();
-        });
-        searchContainer.addControl(filterAll);
-        
-        const filterOwned = Button.CreateSimpleButton("filterOwned", "OWNED");
-        filterOwned.width = "60px";
-        filterOwned.height = "24px";
-        filterOwned.cornerRadius = 0;
-        filterOwned.fontFamily = "Consolas, Monaco, monospace";
-        filterOwned.color = this.filterUnlocked === true ? "#0f0" : "#0aa";
-        filterOwned.background = this.filterUnlocked === true ? "rgba(0, 255, 0, 0.15)" : "rgba(0, 0, 0, 0.8)";
-        filterOwned.thickness = 1;
-        filterOwned.fontSize = 9;
-        filterOwned.left = "-50px";
-        filterOwned.top = "4px";
-        
-        // Hover эффект для кнопки фильтра
-        filterOwned.onPointerEnterObservable.add(() => {
-            if (this.filterUnlocked !== true) {
-                filterOwned.color = "#0f0";
-                filterOwned.background = "rgba(0, 255, 0, 0.15)";
-            }
-        });
-        filterOwned.onPointerOutObservable.add(() => {
-            if (this.filterUnlocked !== true) {
-                filterOwned.color = "#0aa";
-                filterOwned.background = "rgba(0, 0, 0, 0.8)";
-            }
-        });
-        
-        filterOwned.onPointerClickObservable.add(() => {
-            this.filterUnlocked = true;
-            filterAll.color = "#0aa";
-            filterAll.background = "#001122";
-            filterOwned.color = "#0f0";
-            filterOwned.background = "#002200";
-            filterLocked.color = "#0aa";
-            filterLocked.background = "#001122";
-            this.updateItemList();
-        });
-        searchContainer.addControl(filterOwned);
-        
-        const filterLocked = Button.CreateSimpleButton("filterLocked", "LOCKED");
-        filterLocked.width = "65px";
-        filterLocked.height = "24px";
-        filterLocked.cornerRadius = 0;
-        filterLocked.fontFamily = "Consolas, Monaco, monospace";
-        filterLocked.color = this.filterUnlocked === false ? "#0f0" : "#0aa";
-        filterLocked.background = this.filterUnlocked === false ? "rgba(0, 255, 0, 0.15)" : "rgba(0, 0, 0, 0.8)";
-        filterLocked.thickness = 1;
-        filterLocked.fontSize = 9;
-        filterLocked.left = "20px";
-        filterLocked.top = "4px";
-        
-        // Hover эффект для кнопки фильтра
-        filterLocked.onPointerEnterObservable.add(() => {
-            if (this.filterUnlocked !== false) {
-                filterLocked.color = "#0f0";
-                filterLocked.background = "rgba(0, 255, 0, 0.15)";
-            }
-        });
-        filterLocked.onPointerOutObservable.add(() => {
-            if (this.filterUnlocked !== false) {
-                filterLocked.color = "#0aa";
-                filterLocked.background = "rgba(0, 0, 0, 0.8)";
-            }
-        });
-        
-        filterLocked.onPointerClickObservable.add(() => {
-            this.filterUnlocked = false;
-            filterAll.color = "#0aa";
-            filterAll.background = "#001122";
-            filterOwned.color = "#0aa";
-            filterOwned.background = "#001122";
-            filterLocked.color = "#0f0";
-            filterLocked.background = "#002200";
-            this.updateItemList();
-        });
-        searchContainer.addControl(filterLocked);
-        
-        // Сортировка - компактная
-        const sortLabel = new TextBlock("sortLabel");
-        sortLabel.text = "SORT:";
-        sortLabel.color = "#0ff";
-        sortLabel.fontSize = 10;
-        sortLabel.fontFamily = "Consolas, Monaco, monospace";
-        sortLabel.fontWeight = "normal";
-        sortLabel.left = "100px";
-        sortLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        searchContainer.addControl(sortLabel);
-        
-        const sortBtn = Button.CreateSimpleButton("sortBtn", this.sortBy === "name" ? "NAME" : this.sortBy === "cost" ? "COST" : "STATS");
-        sortBtn.width = "60px";
-        sortBtn.height = "24px";
-        sortBtn.cornerRadius = 0;
-        sortBtn.fontFamily = "Consolas, Monaco, monospace";
-        sortBtn.color = "#0ff";
-        sortBtn.background = "rgba(0, 255, 255, 0.1)";
-        sortBtn.thickness = 1;
-        sortBtn.fontSize = 9;
-        sortBtn.left = "150px";
-        sortBtn.top = "4px";
-        
-        // Hover эффект для кнопки сортировки
-        sortBtn.onPointerEnterObservable.add(() => {
-            sortBtn.color = "#0f0";
-            sortBtn.background = "rgba(0, 255, 0, 0.2)";
-            sortBtn.thickness = 2;
-        });
-        sortBtn.onPointerOutObservable.add(() => {
-            sortBtn.color = "#0ff";
-            sortBtn.background = "rgba(0, 255, 255, 0.1)";
-            sortBtn.thickness = 1;
-        });
-        
-        sortBtn.onPointerClickObservable.add(() => {
-            // Циклическая смена: name -> cost -> stats -> name
-            if (this.sortBy === "name") {
-                this.sortBy = "cost";
-                sortBtn.textBlock!.text = "COST";
-            } else if (this.sortBy === "cost") {
-                this.sortBy = "stats";
-                sortBtn.textBlock!.text = "STATS";
-            } else {
-                this.sortBy = "name";
-                sortBtn.textBlock!.text = "NAME";
-            }
-            this.updateItemList();
-        });
-        searchContainer.addControl(sortBtn);
-    }
-    
-    // Создать кнопки категорий - компактные
-    private createCategoryButtons(): void {
-        const categories = [
-            { name: "CHASSIS", id: "chassis" as const },
-            { name: "CANNONS", id: "barrel" as const },
-            { name: "UPGRADES", id: "upgrades" as const }
-        ];
-        
-        categories.forEach((cat, i) => {
-            const btn = Button.CreateSimpleButton(`cat_${cat.id}`, cat.name);
-            btn.width = "180px";
-            btn.height = "30px";
-            btn.cornerRadius = 0;
-            btn.color = this.currentCategory === cat.id ? "#0f0" : "#0aa";
-            btn.background = this.currentCategory === cat.id ? "rgba(0, 255, 0, 0.25)" : "rgba(0, 0, 0, 0.8)";
-            btn.thickness = this.currentCategory === cat.id ? 2 : 1;
-            btn.fontSize = 10;
-            btn.fontFamily = "Consolas, Monaco, monospace";
-            btn.fontWeight = this.currentCategory === cat.id ? "bold" : "normal";
-            // Выравнивание кнопок категорий по центру с равными отступами
-            const totalWidth = 180 * 3 + 15 * 2; // ширина кнопок + отступы
-            const startPos = -totalWidth / 2 + 90; // центр первой кнопки
-            btn.left = `${startPos + i * 195}px`; // 195 = 180 (ширина) + 15 (отступ)
-            btn.top = "-195px";
-            btn.isPointerBlocker = true;
-            
-            // Hover эффекты для кнопок категорий
-            const originalColor = btn.color;
-            const originalBg = btn.background;
-            const originalThickness = btn.thickness;
-            
-            // Упрощенный hover эффект для кнопок категорий (без лишних анимаций)
-            btn.onPointerEnterObservable.add(() => {
-                if (this.currentCategory !== cat.id) {
-                    btn.color = "#0f0";
-                    btn.background = "rgba(0, 255, 0, 0.15)";
-                    btn.thickness = 2;
-                }
-            });
-            
-            btn.onPointerOutObservable.add(() => {
-                if (this.currentCategory !== cat.id) {
-                    btn.color = originalColor;
-                    btn.background = originalBg;
-                    btn.thickness = originalThickness;
-                }
-            });
-            
-            btn.onPointerClickObservable.add(() => {
-                this.switchCategory(cat.id);
-                // Update button colors в терминальном стиле
-                this.categoryButtons.forEach(b => {
-                    const btnId = (b as any).name;
-                    if (btnId === `cat_${cat.id}`) {
-                        b.color = "#0f0";
-                        b.background = "rgba(0, 255, 0, 0.2)";
-                        b.thickness = 2;
-                        b.fontWeight = "bold";
-                    } else {
-                        b.color = "#0aa";
-                        b.background = "rgba(0, 0, 0, 0.8)";
-                        b.thickness = 1;
-                        b.fontWeight = "normal";
-                    }
-                });
-            });
-            this.categoryButtons.push(btn);
-            this.garageContainer!.addControl(btn);
-        });
-    }
-    
-    // Создать список товаров с прокруткой - компактный
-    private createItemList(): void {
-        // Контейнер для прокрутки - компактный, занимает левую часть
-        this.scrollViewer = new ScrollViewer("itemScrollViewer");
-        this.scrollViewer.width = "480px";
-        this.scrollViewer.height = "480px";
-        this.scrollViewer.cornerRadius = 0;
-        this.scrollViewer.thickness = 2;
-        this.scrollViewer.color = "#0f0";
-        this.scrollViewer.background = "rgba(0, 0, 0, 0.9)";
-        this.scrollViewer.top = "-150px";
-        this.scrollViewer.left = "-480px";
-        this.scrollViewer.barSize = 8;
-        this.scrollViewer.barColor = "rgba(0, 255, 0, 0.15)";
-        this.garageContainer!.addControl(this.scrollViewer);
-        
-        // Разделительная линия перед списком элементов
-        const listSeparator = new Rectangle("listSeparator");
-        listSeparator.width = "480px";
-        listSeparator.height = "1px";
-        listSeparator.cornerRadius = 0;
-        listSeparator.thickness = 0;
-        listSeparator.background = "#0aa";
-        listSeparator.top = "-155px";
-        listSeparator.left = "-480px";
-        this.garageContainer!.addControl(listSeparator);
-        
-        // Контейнер для элементов (будет обновляться динамически)
-        this.itemList = new Rectangle("itemListContainer");
-        this.itemList.width = "460px";
-        this.itemList.height = "1px"; // Будет обновляться
-        this.itemList.cornerRadius = 0;
-        this.itemList.thickness = 0;
-        this.itemList.background = "#00000000";
-        this.scrollViewer.addControl(this.itemList);
-        
-        // Загружаем текущие выбранные части
         this.currentChassisId = localStorage.getItem("selectedChassis") || "medium";
         this.currentCannonId = localStorage.getItem("selectedCannon") || "standard";
+        this.currentTrackId = localStorage.getItem("selectedTrack") || "standard";
         
-        this.updateItemList();
+        this.createUI();
+        
+        // Initialize 3D preview after UI is created
+        setTimeout(() => {
+            this.init3DPreview();
+        }, 100);
+        
+        if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
+        console.log("[Garage] Opened");
     }
     
-    // Обновить список товаров
-    private updateItemList(): void {
-        if (!this.itemList) return;
+    close(): void {
+        if (!this.isOpen) return;
+        console.log("[Garage] Closing...");
         
-        // Clear existing items
-        if (this.itemList.children) {
-            this.itemList.children.forEach((child: any) => child.dispose());
+        this.isOpen = false;
+        
+        // Cleanup 3D preview
+        this.cleanup3DPreview();
+        
+        if (this.overlay) {
+            this.overlay.remove();
+            this.overlay = null;
         }
         
-        let items: (TankPart | TankUpgrade)[] = [];
+        // Hide cursor (will be shown again when user clicks on canvas)
+        this.hideCursor();
         
-        // Получаем все предметы категории
-        if (this.currentCategory === "chassis") {
-            items = [...this.chassisParts];
-        } else if (this.currentCategory === "turret") {
-            items = [...this.turretParts];
-        } else if (this.currentCategory === "barrel") {
-            items = [...this.cannonParts];
-        } else if (this.currentCategory === "upgrades") {
-            items = this.upgrades.filter(u => u.level < u.maxLevel);
+        if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
+        
+        // Call close callback if set
+        if (this.onCloseCallback) {
+            this.onCloseCallback();
         }
         
-        // Применяем поиск
-        if (this.searchText && this.searchText.trim() !== "") {
-            const searchLower = this.searchText.toLowerCase();
-            items = items.filter(item => 
-                item.name.toLowerCase().includes(searchLower) ||
-                item.description.toLowerCase().includes(searchLower)
-            );
-        }
-        
-        // Применяем фильтр по разблокированности
-        if (this.filterUnlocked !== null) {
-            items = items.filter(item => {
-                if ("level" in item) {
-                    return this.filterUnlocked ? (item as TankUpgrade).level > 0 : (item as TankUpgrade).level === 0;
-                } else {
-                    return (item as TankPart).unlocked === this.filterUnlocked;
-                }
-            });
-        }
-        
-        // Сортировка
-        items.sort((a, b) => {
-            if (this.sortBy === "name") {
-                return a.name.localeCompare(b.name);
-            } else if (this.sortBy === "cost") {
-                return a.cost - b.cost;
-            } else {
-                // Сортировка по статистике (для корпусов - HP, для пушек - урон)
-                if (!("level" in a) && !("level" in b)) {
-                    const partA = a as TankPart;
-                    const partB = b as TankPart;
-                    if (partA.type === "chassis" && partB.type === "chassis") {
-                        return (partB.stats.health || 0) - (partA.stats.health || 0);
-                    } else if (partA.type === "barrel" && partB.type === "barrel") {
-                        return (partB.stats.damage || 0) - (partA.stats.damage || 0);
-                    }
-                }
-                return 0;
-            }
-        });
-        
-        // Сохраняем отфильтрованные элементы для навигации
-        this.filteredItems = items;
-        
-        // Сбрасываем индекс выбранного элемента, если он выходит за границы
-        if (this.selectedItemIndex >= items.length) {
-            this.selectedItemIndex = items.length > 0 ? 0 : -1;
-        } else if (this.selectedItemIndex < 0 && items.length > 0) {
-            this.selectedItemIndex = 0;
-        }
-        
-        console.log(`[Garage] Showing ${items.length} items (filtered and sorted)`);
-        
-        // Обновляем высоту контейнера - компактный spacing
-        const itemHeight = 95; // Компактная высота
-        const spacing = 10; // Компактный spacing
-        const totalHeight = items.length > 0 ? items.length * itemHeight + (items.length - 1) * spacing : 1;
-        this.itemList!.height = `${totalHeight}px`;
-        
-        items.forEach((item, i) => {
-            const itemContainer = new Rectangle(`item_${i}`);
-            itemContainer.width = "440px";
-            itemContainer.height = "90px"; // Компактная высота
-            itemContainer.cornerRadius = 0;
-            itemContainer.thickness = 2;
-            itemContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            
-            // Определяем, выбран ли этот предмет
-            let isSelected = false;
-            if (!("level" in item)) {
-                const part = item as TankPart;
-                if (part.type === "chassis") {
-                    isSelected = part.id === this.currentChassisId;
-                } else if (part.type === "barrel") {
-                    isSelected = part.id === this.currentCannonId;
-                }
-            }
-            
-            // Цвет рамки зависит от статуса в терминальном стиле
-            const isKeyboardSelected = i === this.selectedItemIndex;
-            if (isSelected) {
-                itemContainer.color = "#ff0";
-                itemContainer.background = "rgba(255, 255, 0, 0.2)"; // Более заметный фон для выбранных
-                itemContainer.thickness = 3; // Увеличенная толщина для акцента
-            } else if (isKeyboardSelected) {
-                itemContainer.color = "#0ff";
-                itemContainer.background = "rgba(0, 255, 255, 0.25)"; // Более заметный фон
-                itemContainer.thickness = 3; // Увеличенная толщина для акцента
-            } else if ((!("level" in item) && (item as TankPart).unlocked) || (("level" in item) && (item as TankUpgrade).level > 0)) {
-                itemContainer.color = "#0f0"; // Яркий зелёный для разблокированных
-                itemContainer.background = "rgba(0, 255, 0, 0.08)"; // Более заметный фон
-                itemContainer.thickness = 1;
-            } else {
-                itemContainer.color = "#055"; // Приглушённый зелёный для заблокированных
-                itemContainer.background = "rgba(0, 0, 0, 0.6)"; // Более тёмный фон
-                itemContainer.thickness = 1;
-            }
-            
-            itemContainer.top = `${i * (itemHeight + spacing)}px`;
-            
-            // Hover эффекты для элементов списка
-            const originalItemColor = itemContainer.color;
-            const originalItemBg = itemContainer.background;
-            const originalItemThickness = itemContainer.thickness;
-            
-            itemContainer.onPointerEnterObservable.add(() => {
-                if (!isSelected && !isKeyboardSelected) {
-                    itemContainer.color = "#0ff";
-                    itemContainer.background = "rgba(0, 255, 255, 0.15)";
-                    itemContainer.thickness = 2;
-                }
-            });
-            
-            itemContainer.onPointerOutObservable.add(() => {
-                if (!isSelected && !isKeyboardSelected) {
-                    itemContainer.color = originalItemColor;
-                    itemContainer.background = originalItemBg;
-                    itemContainer.thickness = originalItemThickness;
-                }
-            });
-            
-            // Добавляем tooltip при наведении (безопасный вызов)
-            try {
-                if (this.addTooltipToItem) {
-                    this.addTooltipToItem(itemContainer, item, i);
-                }
-            } catch (e) {
-                console.warn(`[Garage] Failed to add tooltip to item ${i}:`, e);
-            }
-            
-            this.itemList!.addControl(itemContainer);
-            
-            // Индикатор "NEW" в терминальном стиле - улучшенный
-            if (!("level" in item)) {
-                const part = item as TankPart;
-                // Показываем "NEW" если предмет разблокирован, но еще не выбран
-                if (part.unlocked && !isSelected) {
-                    const newBadge = new Rectangle(`newBadge_${i}`);
-                    newBadge.width = "50px";
-                    newBadge.height = "18px";
-                    newBadge.cornerRadius = 0;
-                    newBadge.thickness = 1;
-                    newBadge.color = "#ff0";
-                    newBadge.background = "rgba(255, 255, 0, 0.2)";
-                    newBadge.left = "-400px";
-                    newBadge.top = "-47px";
-                    newBadge.zIndex = 10;
-                    itemContainer.addControl(newBadge);
-                    
-                    const newText = new TextBlock(`newText_${i}`);
-                    newText.text = "NEW";
-                    newText.color = "#ff0";
-                    newText.fontSize = 10;
-                    newText.fontFamily = "Consolas, Monaco, monospace";
-                    newText.fontWeight = "bold";
-                    newText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-                    newBadge.addControl(newText);
-                }
-            }
-            
-            // Item name with selection indicator and level - улучшенный с иконками
-            const nameText = new TextBlock(`itemName_${i}`);
-            let namePrefix = "";
-            let levelSuffix = "";
-            let icon = "";
-            
-            // Префиксы для разных типов (ASCII вместо эмодзи)
-            if (!("level" in item)) {
-                const part = item as TankPart;
-                if (part.type === "chassis") {
-                    icon = "[CH] ";
-                } else if (part.type === "barrel") {
-                    icon = "[CN] ";
-                }
-            } else {
-                icon = "[UP] ";
-            }
-            
-            if (isSelected) {
-                namePrefix = "> ";
-            } else if (!("level" in item) && (item as TankPart).unlocked) {
-                namePrefix = "+ ";
-            } else if ("level" in item && (item as TankUpgrade).level > 0) {
-                namePrefix = "+ ";
-            }
-            
-            // Показываем уровень опыта для корпусов и пушек
-            if (!("level" in item) && this.experienceSystem) {
-                const part = item as TankPart;
-                if (part.type === "chassis") {
-                    const level = this.experienceSystem.getChassisLevel(part.id);
-                    const levelInfo = this.experienceSystem.getLevelInfo(part.id, "chassis");
-                    levelSuffix = level > 1 ? ` [${levelInfo?.title || `Ур.${level}`}]` : "";
-                } else if (part.type === "barrel") {
-                    const level = this.experienceSystem.getCannonLevel(part.id);
-                    const levelInfo = this.experienceSystem.getLevelInfo(part.id, "cannon");
-                    levelSuffix = level > 1 ? ` [${levelInfo?.title || `Ур.${level}`}]` : "";
-                }
-            }
-            
-            nameText.text = `${namePrefix}${icon}${item.name}${levelSuffix}`;
-            // Улучшенная цветовая кодировка: выбранный - жёлтый, разблокированный - яркий зелёный, заблокированный - приглушённый
-            const isUnlocked = (!("level" in item) && (item as TankPart).unlocked) || (("level" in item) && (item as TankUpgrade).level > 0);
-            nameText.color = isSelected ? "#ff0" : (isUnlocked ? "#0ff0" : "#0aa");
-            nameText.fontSize = 15; // Согласно плану: названия предметов 15px
-            nameText.fontFamily = "Consolas, Monaco, monospace";
-            nameText.fontWeight = "bold";
-            nameText.left = "-400px";
-            nameText.top = "-45px";
-            nameText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            itemContainer.addControl(nameText);
-            
-            // Подсветка рекомендуемых предметов в терминальном стиле - улучшенная
-            const currency = this.currencyManager.getCurrency();
-            if (!("level" in item) && !(item as TankPart).unlocked && item.cost <= currency && item.cost > 0) {
-                const recBadge = new Rectangle(`recBadge_${i}`);
-                recBadge.width = "65px";
-                recBadge.height = "18px";
-                recBadge.cornerRadius = 0;
-                recBadge.thickness = 1;
-                recBadge.color = "#ff0";
-                recBadge.background = "rgba(255, 255, 0, 0.15)";
-                recBadge.left = "-300px";
-                recBadge.top = "-47px";
-                recBadge.zIndex = 10;
-                itemContainer.addControl(recBadge);
-                
-                const recText = new TextBlock(`recText_${i}`);
-                recText.text = "REC";
-                recText.color = "#ff0";
-                recText.fontSize = 10;
-                recText.fontFamily = "Consolas, Monaco, monospace";
-                recText.fontWeight = "bold";
-                recText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-                recBadge.addControl(recText);
-            }
-            
-            // Item description - оптимизированная статистика (детали в tooltip)
-            const descText = new TextBlock(`itemDesc_${i}`);
-            let desc = "";
-            // Показываем только ключевые параметры в компактном формате
-            if (!("level" in item)) {
-                const part = item as TankPart;
-                if (part.type === "chassis" && part.stats) {
-                    let baseHp = part.stats.health || 0;
-                    let baseSpeed = part.stats.speed || 0;
-                    if (this.experienceSystem) {
-                        const bonus = this.experienceSystem.getChassisLevelBonus(part.id);
-                        baseHp += bonus.healthBonus;
-                        baseSpeed += bonus.speedBonus;
-                    }
-                    desc = `HP: ${baseHp} | SPD: ${baseSpeed.toFixed(1)} | ARM: ${(part.stats.armor || 0).toFixed(1)}`;
-                } else if (part.type === "barrel" && part.stats) {
-                    let baseDmg = part.stats.damage || 0;
-                    let baseReload = part.stats.reload || 0;
-                    if (this.experienceSystem) {
-                        const bonus = this.experienceSystem.getCannonLevelBonus(part.id);
-                        baseDmg += bonus.damageBonus;
-                        baseReload -= bonus.reloadBonus;
-                    }
-                    desc = `DMG: ${baseDmg} | REL: ${(baseReload / 1000).toFixed(1)}s`;
-                }
-            } else {
-                const upgrade = item as TankUpgrade;
-                desc = upgrade.level > 0 ? `Lv.${upgrade.level}/${upgrade.maxLevel} +${upgrade.level * upgrade.value}` : item.description;
-            }
-            descText.text = desc;
-            descText.color = "#0ff"; // Максимально яркий цвет для лучшей читаемости описаний
-            descText.fontSize = 12; // Согласно плану: описания/статистика 12px
-            descText.fontFamily = "Consolas, Monaco, monospace";
-            descText.fontWeight = "normal";
-            descText.left = "-400px";
-            descText.top = "-25px";
-            descText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            itemContainer.addControl(descText);
-            
-            // Experience bar для корпусов и пушек
-            if (!("level" in item) && this.experienceSystem) {
-                const part = item as TankPart;
-                const expType = part.type === "chassis" ? "chassis" : "cannon";
-                const expInfo = expType === "chassis" 
-                    ? this.experienceSystem.getChassisExperience(part.id)
-                    : this.experienceSystem.getCannonExperience(part.id);
-                
-                if (expInfo) {
-                    const progressData = this.experienceSystem.getExperienceToNextLevel(expInfo);
-                    const levelInfo = this.experienceSystem.getLevelInfo(part.id, expType);
-                    
-                    // Experience bar - улучшенный с лучшей видимостью
-                    const expBarBg = new Rectangle(`expBarBg_${i}`);
-                    expBarBg.width = "200px";
-                    expBarBg.height = "10px"; // Значительно увеличен для лучшей видимости
-                    expBarBg.cornerRadius = 0;
-                    expBarBg.thickness = 2;
-                    expBarBg.color = "#0ff";
-                    expBarBg.background = "rgba(0, 0, 0, 0.9)";
-                    expBarBg.left = "-400px";
-                    expBarBg.top = "-5px";
-                    expBarBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                    itemContainer.addControl(expBarBg);
-                    
-                    // Experience bar fill - улучшенный
-                    const fillWidth = Math.max(2, progressData.progress * 196);
-                    const expBarFill = new Rectangle(`expBarFill_${i}`);
-                    expBarFill.width = `${fillWidth}px`;
-                    expBarFill.height = "8px"; // Значительно увеличен для лучшей видимости
-                    expBarFill.cornerRadius = 0;
-                    expBarFill.thickness = 0;
-                    expBarFill.background = levelInfo?.titleColor || "#0f0";
-                    expBarFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                    expBarBg.addControl(expBarFill);
-                    
-                    // Level and experience text - исправленный формат
-                    const expToNext = this.experienceSystem.getExpToNextLevel(part.id, expType);
-                    const expText = new TextBlock(`expText_${i}`);
-                    // Правильное форматирование опыта с разделителями
-                    const levelTitle = levelInfo?.title || `Lv.${expInfo.level}`;
-                    const expValue = expInfo.experience;
-                    const nextText = expToNext > 0 ? `Next: ${expToNext}` : "MAX";
-                    expText.text = `${levelTitle} | ${expValue} XP | ${nextText}`;
-                    expText.color = levelInfo?.titleColor || "#0f0";
-                    expText.fontSize = 12;
-                    expText.fontFamily = "Consolas, Monaco, monospace";
-                    expText.fontWeight = "bold";
-                    expText.left = "-190px";
-                    expText.top = "-5px";
-                    expText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                    itemContainer.addControl(expText);
-                }
-            }
-            
-            // Cost or level - оптимизированный с лучшей структурой и читаемостью
-            const costText = new TextBlock(`itemCost_${i}`);
-            if ("level" in item) {
-                const upgrade = item as TankUpgrade;
-                const canAfford = this.currencyManager.canAfford(upgrade.cost);
-                costText.text = `Lv.${upgrade.level}/${upgrade.maxLevel} | ${upgrade.cost} CR`;
-                costText.color = canAfford ? "#ff0" : "#999"; // Более заметный серый для недоступных
-            } else {
-                const part = item as TankPart;
-                if (part.unlocked) {
-                    costText.text = isSelected ? "[SELECTED]" : "[OWNED]";
-                    costText.color = isSelected ? "#ff0" : "#0ff0"; // Более яркий зелёный для owned
-                } else {
-                    const canAfford = this.currencyManager.canAfford(part.cost);
-                    costText.text = `${part.cost} CR`;
-                    costText.color = canAfford ? "#ff0" : "#999"; // Более заметный серый для недоступных
-                }
-            }
-            costText.fontSize = 14; // Значительно увеличен для лучшей читаемости
-            costText.fontFamily = "Consolas, Monaco, monospace";
-            costText.fontWeight = "bold";
-            costText.left = "360px";
-            costText.top = "-45px";
-            costText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-            itemContainer.addControl(costText);
-            
-            // Buy/Upgrade button в терминальном стиле - упрощенный
-            if (!("level" in item) || (item as TankUpgrade).level < (item as TankUpgrade).maxLevel) {
-                const canAfford = this.currencyManager.canAfford(item.cost);
-                const partUnlocked = !("level" in item) && (item as TankPart).unlocked;
-                const buyBtn = Button.CreateSimpleButton(`buy_${i}`, "level" in item ? "UPGRADE" : partUnlocked ? "OWNED" : "BUY");
-                buyBtn.width = "100px";
-                buyBtn.height = "30px";
-                buyBtn.cornerRadius = 0;
-                buyBtn.fontFamily = "Consolas, Monaco, monospace";
-                
-                if (partUnlocked) {
-                    buyBtn.color = "#0a0";
-                    buyBtn.background = "rgba(0, 255, 0, 0.05)";
-                    buyBtn.isEnabled = false;
-                } else {
-                    buyBtn.color = canAfford ? "#0ff0" : "#888"; // Более яркий зелёный для доступных, более заметный серый для недоступных
-                    buyBtn.background = canAfford ? "rgba(0, 255, 0, 0.25)" : "rgba(0, 0, 0, 0.6)";
-                    buyBtn.isEnabled = canAfford;
-                }
-                
-                buyBtn.thickness = 1;
-                buyBtn.fontSize = 10;
-                buyBtn.fontWeight = "bold";
-                buyBtn.left = "350px";
-                buyBtn.top = "25px";
-                
-            // Упрощенный hover эффект для кнопки покупки (без лишних анимаций)
-            if (canAfford && !partUnlocked) {
-                const originalBuyColor = buyBtn.color;
-                const originalBuyBg = buyBtn.background;
-                buyBtn.onPointerEnterObservable.add(() => {
-                    buyBtn.color = "#ff0";
-                    buyBtn.background = "rgba(255, 255, 0, 0.3)";
-                    buyBtn.thickness = 2;
-                });
-                buyBtn.onPointerOutObservable.add(() => {
-                    buyBtn.color = originalBuyColor;
-                    buyBtn.background = originalBuyBg;
-                    buyBtn.thickness = 1;
-                });
-                    buyBtn.onPointerClickObservable.add(() => {
-                        // Визуальный эффект при покупке
-                        const originalColor = itemContainer.color;
-                        const originalBg = itemContainer.background;
-                        itemContainer.color = "#0f0";
-                        itemContainer.background = "rgba(0, 255, 0, 0.3)";
-                        itemContainer.thickness = 3;
-                        
-                        setTimeout(() => {
-                            if (itemContainer) {
-                                itemContainer.color = originalColor;
-                                itemContainer.background = originalBg;
-                            }
-                        }, 300);
-                        
-                        this.purchaseItem(item);
-                    });
-                }
-                itemContainer.addControl(buyBtn);
-            }
-            
-            // Select button в терминальном стиле - упрощенный
-            if (!("level" in item)) {
-                const part = item as TankPart;
-                if (part.unlocked && (part.type === "chassis" || part.type === "barrel")) {
-                    const selectBtn = Button.CreateSimpleButton(`select_${i}`, isSelected ? "[✓]" : "SELECT");
-                    selectBtn.width = "90px";
-                    selectBtn.height = "30px";
-                    selectBtn.cornerRadius = 0;
-                    selectBtn.fontFamily = "Consolas, Monaco, monospace";
-                    selectBtn.color = isSelected ? "#ff0" : "#0ff";
-                    selectBtn.background = isSelected ? "rgba(255, 255, 0, 0.2)" : "rgba(0, 255, 255, 0.15)";
-                    selectBtn.thickness = 1;
-                    selectBtn.fontSize = 10;
-                    selectBtn.fontWeight = "bold";
-                    selectBtn.left = "240px";
-                    selectBtn.top = "25px";
-                    
-            // Улучшенный hover эффект для кнопки выбора с эффектом свечения
-            const originalSelectColor = selectBtn.color;
-            const originalSelectBg = selectBtn.background;
-            let selectGlowInterval: any = null;
-            selectBtn.onPointerEnterObservable.add(() => {
-                if (!isSelected) {
-                    selectBtn.color = "#0f0";
-                    selectBtn.background = "rgba(0, 255, 0, 0.25)";
-                    selectBtn.thickness = 2;
-                    // Эффект свечения при наведении
-                    let hoverGlow = 0;
-                    selectGlowInterval = setInterval(() => {
-                        hoverGlow += 0.2;
-                        if (selectBtn && selectBtn.isPointerBlocker) {
-                            selectBtn.thickness = 2 + Math.sin(hoverGlow) * 0.5;
-                        } else {
-                            if (selectGlowInterval) clearInterval(selectGlowInterval);
-                        }
-                    }, 50);
-                }
-            });
-            selectBtn.onPointerOutObservable.add(() => {
-                if (selectGlowInterval) {
-                    clearInterval(selectGlowInterval);
-                    selectGlowInterval = null;
-                }
-                if (!isSelected) {
-                    selectBtn.color = originalSelectColor;
-                    selectBtn.background = originalSelectBg;
-                    selectBtn.thickness = 1;
-                }
-            });
-                    
-                    selectBtn.onPointerClickObservable.add(() => {
-                        // Визуальный эффект при выборе
-                        const originalColor = itemContainer.color;
-                        const originalBg = itemContainer.background;
-                        itemContainer.color = "#ff0";
-                        itemContainer.background = "rgba(255, 255, 0, 0.3)";
-                        itemContainer.thickness = 3;
-                        
-                        setTimeout(() => {
-                            if (itemContainer) {
-                                itemContainer.color = originalColor;
-                                itemContainer.background = originalBg;
-                            }
-                        }, 300);
-                        
-                        this.selectPart(part);
-                        // Обновляем текущие выбранные части
-                        if (part.type === "chassis") {
-                            this.currentChassisId = part.id;
-                            this.previewChassisId = part.id;
-                        } else if (part.type === "barrel") {
-                            this.currentCannonId = part.id;
-                            this.previewCannonId = part.id;
-                        }
-                        this.updateItemList(); // Обновляем чтобы показать "ВЫБРАНО"
-                        this.updateComparisonPanel(); // Обновляем панель сравнения
-                    });
-                    itemContainer.addControl(selectBtn);
-                }
-            }
-        });
+        console.log("[Garage] Closed");
     }
     
-    // Покупка/улучшение предмета - с визуальными эффектами
-    private purchaseItem(item: TankPart | TankUpgrade): void {
-        if (!this.currencyManager.canAfford(item.cost)) {
-            console.log("[Garage] Not enough currency!");
-            // Показываем сообщение игроку с анимацией
-            const msgContainer = this.garageContainer!.getChildByName("messageContainer") as Rectangle;
-            const msg = msgContainer?.getChildByName("garageMessage") as TextBlock;
-            if (msg) {
-                msg.text = "[ERROR] Not enough currency!";
-                msg.color = "#f00";
-                setTimeout(() => {
-                    if (msg) msg.text = "";
-                }, 2000);
-            }
+    // ============ 3D PREVIEW ============
+    private init3DPreview(): void {
+        const previewContainer = this.overlay?.querySelector('.garage-preview');
+        if (!previewContainer) {
+            console.warn("[Garage] Preview container not found");
             return;
         }
         
-            if (this.currencyManager.spendCurrency(item.cost)) {
-            // Звук покупки
-            if (this.soundManager) {
-                this.soundManager.playPurchase();
-            }
-            
-            // Улучшенный визуальный эффект успешной покупки с анимацией
-            const msgContainer = this.garageContainer!.getChildByName("messageContainer") as Rectangle;
-            const msg = msgContainer?.getChildByName("garageMessage") as TextBlock;
-            
-            // Упрощенный эффект для контейнера сообщения (без пульсации)
-            
-            if ("level" in item) {
-                // Upgrade
-                const upgrade = item as TankUpgrade;
-                upgrade.level++;
-                console.log(`[Garage] Upgraded ${upgrade.name} to level ${upgrade.level}`);
-                
-                // Добавляем в историю
-                this.addToHistory("upgrade", `[UP] ${upgrade.name} -> Lv.${upgrade.level}`);
-                
-                // Показываем сообщение (упрощенное, без лишних анимаций)
-                if (msg) {
-                    msg.text = `[UP] Upgraded: ${upgrade.name} (Level ${upgrade.level})`;
-                    msg.color = "#0f0";
-                    setTimeout(() => {
-                        if (msg) {
-                            msg.text = "";
-                        }
-                    }, 3000);
-                }
-                if (this.chatSystem) {
-                    this.chatSystem.success(`[UP] Upgraded: ${upgrade.name} (Level ${upgrade.level})`);
-                }
-            } else {
-                // Unlock part
-                const part = item as TankPart;
-                part.unlocked = true;
-                console.log(`[Garage] Unlocked ${part.name}`);
-                
-                // Добавляем в историю
-                this.addToHistory("purchase", `[OK] ${part.name} (${part.cost} CR)`);
-                
-                // Показываем сообщение (упрощенное, без лишних анимаций)
-                if (msg) {
-                    msg.text = `[OK] Purchased: ${part.name}`;
-                    msg.color = "#0f0";
-                    setTimeout(() => {
-                        if (msg) {
-                            msg.text = "";
-                        }
-                    }, 3000);
-                }
-                if (this.chatSystem) {
-                    this.chatSystem.economy(`[OK] Purchased: ${part.name}`);
-                }
-            }
-            
-            this.saveProgress();
-            this.updateItemList();
-            // Update currency display с улучшенной анимацией
-            const currencyText = this.garageContainer!.getChildByName("garageCurrency") as TextBlock;
-            if (currencyText) {
-                const newValue = this.currencyManager.getCurrency();
-                currencyText.text = `${newValue}`;
-                
-                // Улучшенный эффект обновления валюты с плавным изменением
-                let flash = 0;
-                const flashInterval = setInterval(() => {
-                    flash++;
-                    if (currencyText) {
-                        // Плавное изменение цвета и размера
-                        const intensity = Math.sin(flash * 0.5);
-                        currencyText.color = flash % 2 === 0 ? "#ff0" : "#fff";
-                        currencyText.fontSize = 16 + intensity * 2;
-                    }
-                    if (flash > 8) {
-                        clearInterval(flashInterval);
-                        if (currencyText) {
-                            currencyText.color = "#ff0";
-                            currencyText.fontSize = 16;
-                        }
-                    }
-                }, 80);
-            }
-            
-            // Обновляем рекомендации
-            const recPanel = this.garageContainer!.getChildByName("recommendationsPanel");
-            if (recPanel) {
-                recPanel.dispose();
-                this.createRecommendationsPanel();
-            }
+        // Initialize preview scene using module
+        this.previewSceneData = initPreviewScene(previewContainer as HTMLElement);
+        
+        if (this.previewSceneData && this.previewSceneData.scene) {
+        // Initial render
+        this.renderTankPreview(this.currentChassisId, this.currentCannonId);
         }
     }
     
-    // Выбрать корпус или пушку (предпросмотр, без применения) - с визуальными эффектами
-    private selectPart(part: TankPart): void {
-        if (part.type === "chassis") {
-            this.previewChassisId = part.id;
-            console.log(`[Garage] Preview chassis: ${part.name}`);
-            
-            // Показываем сообщение (упрощенное, без лишних анимаций)
-            const msgContainer = this.garageContainer!.getChildByName("messageContainer") as Rectangle;
-            const msg = msgContainer?.getChildByName("garageMessage") as TextBlock;
-            if (msg) {
-                msg.text = `[CH] Selected chassis: ${part.name} (press APPLY to confirm)`;
-                msg.color = "#0ff";
-                setTimeout(() => {
-                    if (msg) {
-                        msg.text = "";
-                    }
-                }, 4000);
-            }
-            if (this.chatSystem) {
-                this.chatSystem.info(`[CH] Selected chassis: ${part.name}`);
-            }
-        } else if (part.type === "barrel") {
-            this.previewCannonId = part.id;
-            console.log(`[Garage] Preview cannon: ${part.name}`);
-            
-            // Показываем сообщение (упрощенное, без лишних анимаций)
-            const msgContainer = this.garageContainer!.getChildByName("messageContainer") as Rectangle;
-            const msg = msgContainer?.getChildByName("garageMessage") as TextBlock;
-            if (msg) {
-                msg.text = `[CN] Selected cannon: ${part.name} (press APPLY to confirm)`;
-                msg.color = "#0ff";
-                setTimeout(() => {
-                    if (msg) {
-                        msg.text = "";
-                    }
-                }, 4000);
-            }
-            if (this.chatSystem) {
-                this.chatSystem.info(`[CN] Selected cannon: ${part.name}`);
-            }
+    private renderTankPreview(chassisId: string, cannonId: string): void {
+        if (!this.previewSceneData || !this.previewSceneData.scene) {
+            console.warn("[Garage] Preview scene not initialized");
+            return;
         }
         
-        // Звук выбора
-        if (this.soundManager) {
-            this.soundManager.playSelect();
-        }
-        
-        // Обновляем панель сравнения с анимацией
-        this.updateComparisonPanel();
+        // Use module function to create/update preview tank
+        this.previewTank = updatePreviewTank(
+            this.previewTank,
+            chassisId,
+            cannonId,
+            this.currentTrackId,
+            this.previewSceneData.scene
+        );
     }
     
-    // Применить выбранные изменения
-    private applySelection(): void {
-        let applied = false;
+    // NOTE: Preview methods moved to garage/preview.ts
+    // Methods createUniqueChassisPreview, createTurretPreview, createUniqueCannonPreview, 
+    // and createPreviewTracks have been moved to garage/preview.ts module
+    
+    // Add chassis details - ПОЛНАЯ КОПИЯ из TankController
+    // NOTE: This method should be moved to garage/preview.ts eventually
+    private addChassisDetailsPreview(chassis: Mesh, chassisType: any, scene: Scene, baseColor: Color3): void {
+        const w = chassisType.width;
+        const h = chassisType.height;
+        const d = chassisType.depth;
         
-        if (this.previewChassisId && this.previewChassisId !== this.currentChassisId) {
-            localStorage.setItem("selectedChassis", this.previewChassisId);
-            this.currentChassisId = this.previewChassisId;
-            applied = true;
-            
-            // Применяем сразу к танку, если он жив
-            if (this.tankController && this.tankController.isAlive) {
-                const chassisType = CHASSIS_TYPES.find(c => c.id === this.previewChassisId);
-                if (chassisType) {
-                    this.tankController.chassisType = chassisType;
-                    // Обновляем параметры танка
-                    this.tankController.moveSpeed = chassisType.moveSpeed;
-                    this.tankController.turnSpeed = chassisType.turnSpeed;
-                    this.tankController.acceleration = chassisType.acceleration;
-                    this.tankController.maxHealth = chassisType.maxHealth;
-                    // Обновляем здоровье пропорционально
-                    const healthRatio = this.tankController.currentHealth / this.tankController.maxHealth;
-                    this.tankController.currentHealth = chassisType.maxHealth * healthRatio;
+        // Используем MaterialFactory для создания материалов
+        const armorMat = MaterialFactory.createArmorMaterial(scene, baseColor, "preview");
+        const accentMat = MaterialFactory.createAccentMaterial(scene, baseColor, "preview");
+        
+        switch (chassisType.id) {
+            case "light":
+                // Light - Прототип: БТ-7 - Наклонная лобовая броня, воздухозаборники, спойлер
+                // Наклонная лобовая плита (угол 60°)
+                ChassisDetailsGenerator.createSlopedArmor(
+                    scene, chassis,
+                    new Vector3(0, h * 0.15, d * 0.52),
+                    w * 0.88, h * 0.6, 0.2,
+                    -Math.PI / 6, armorMat, "previewLight"
+                );
+                
+                // Воздухозаборники (угловатые)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createIntake(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.42, h * 0.2, d * 0.45),
+                        0.3, h * 0.65, 0.35,
+                        accentMat, `previewLight${i}`
+                    );
+                }
+                
+                // Задний спойлер (угловатый)
+                ChassisDetailsGenerator.createSpoiler(
+                    scene, chassis,
+                    new Vector3(0, h * 0.5, -d * 0.48),
+                    w * 1.2, 0.2, 0.25,
+                    accentMat, "previewLight"
+                );
+                
+                // Боковые обтекатели (угловатые)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createFairing(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.5, 0, d * 0.2),
+                        0.15, h * 0.75, d * 0.55,
+                        accentMat, `previewLight${i}`
+                    );
+                }
+                
+                // Люки на крыше (2 штуки)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHatch(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.25, h * 0.48, -d * 0.1),
+                        0.2, 0.08, 0.2,
+                        armorMat, `previewLight${i}`
+                    );
+                }
+                
+                // Выхлопная труба сзади
+                ChassisDetailsGenerator.createExhaust(
+                    scene, chassis,
+                    new Vector3(w * 0.35, h * 0.2, -d * 0.48),
+                    0.15, 0.15, 0.2,
+                    armorMat, "previewLight"
+                );
+                
+                // Фары спереди (маленькие, угловатые)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.15, d * 0.5),
+                        0.08, 0.08, 0.06,
+                        i, "previewLight"
+                    );
+                }
+                
+                // Инструменты: лопата и топор на корме
+                ChassisDetailsGenerator.createShovel(
+                    scene, chassis,
+                    new Vector3(-w * 0.4, h * 0.2, -d * 0.48),
+                    0.12, 0.3, 0.02,
+                    armorMat, "previewLight"
+                );
+                
+                ChassisDetailsGenerator.createAxe(
+                    scene, chassis,
+                    new Vector3(-w * 0.3, h * 0.25, -d * 0.48),
+                    0.25, 0.08, 0.02,
+                    armorMat, "previewLight"
+                );
+                
+                // Вентиляционные решетки по бокам (улучшенные)
+                for (let i = 0; i < 2; i++) {
+                    const ventPos = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.1, d * 0.1);
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis, ventPos,
+                        0.05, 0.12, 0.15,
+                        i, "previewLight"
+                    );
                     
-                    if (this.chatSystem) {
-                        this.chatSystem.success(`[CH] Chassis applied: ${chassisType.name}`);
-                    }
+                    // Детали решетки
+                    const ventMat = MaterialFactory.createVentMaterial(scene, i, "previewLight");
+                    ChassisDetailsGenerator.createVentBars(
+                        scene, chassis, ventPos,
+                        3, 0.03, 0.1, 0.02, 0.05,
+                        i, ventMat, "previewLight"
+                    );
                 }
-            }
-        }
-        
-        if (this.previewCannonId && this.previewCannonId !== this.currentCannonId) {
-            localStorage.setItem("selectedCannon", this.previewCannonId);
-            this.currentCannonId = this.previewCannonId;
-            applied = true;
-            
-            // Применяем сразу к танку, если он жив
-            if (this.tankController && this.tankController.isAlive) {
-                const cannonType = CANNON_TYPES.find(c => c.id === this.previewCannonId);
-                if (cannonType) {
-                    this.tankController.cannonType = cannonType;
-                    // Обновляем параметры пушки
-                    this.tankController.cooldown = cannonType.cooldown;
-                    this.tankController.damage = cannonType.damage;
-                    this.tankController.projectileSpeed = cannonType.projectileSpeed;
-                    this.tankController.projectileSize = cannonType.projectileSize;
+                
+                // Перископ на люке
+                ChassisDetailsGenerator.createPeriscope(
+                    scene, chassis,
+                    new Vector3(0, h * 0.55, -d * 0.1),
+                    0.15, 0.06,
+                    0, "previewLight"
+                );
+                
+                // Дополнительная оптика - бинокль на корпусе
+                ChassisDetailsGenerator.createBinocular(
+                    scene, chassis,
+                    new Vector3(0, h * 0.48, d * 0.4),
+                    0.2, 0.08, 0.12,
+                    "previewLight"
+                );
+                
+                // Дополнительные броневые накладки на лобовой части
+                for (let i = 0; i < 3; i++) {
+                    ChassisDetailsGenerator.createArmorPlate(
+                        scene, chassis,
+                        new Vector3((i - 1) * w * 0.25, h * 0.05, d * 0.48),
+                        w * 0.25, h * 0.15, 0.08,
+                        armorMat, `previewLight${i}`
+                    );
+                }
+                
+                // Верхние вентиляционные решетки на крыше (улучшенные)
+                for (let i = 0; i < 3; i++) {
+                    const roofVentPos = new Vector3((i - 1) * w * 0.3, h * 0.47, d * 0.2);
+                    ChassisDetailsGenerator.createRoofVent(
+                        scene, chassis, roofVentPos,
+                        0.2, 0.05, 0.15,
+                        i, "previewLight"
+                    );
                     
-                    if (this.chatSystem) {
-                        this.chatSystem.success(`[CN] Cannon applied: ${cannonType.name}`);
-                    }
+                    // Детали решетки
+                    const roofVentMat = MaterialFactory.createRoofVentMaterial(scene, i, "previewLight");
+                    ChassisDetailsGenerator.createVentBars(
+                        scene, chassis, roofVentPos,
+                        5, 0.02, 0.04, 0.13, 0.04,
+                        i, roofVentMat, "previewLightRoof"
+                    );
                 }
-            }
-        }
-        
-        if (applied) {
-            // Звук применения
-            if (this.soundManager) {
-                this.soundManager.playPurchase();
-            }
-            
-            // Показываем сообщение с эффектом успеха
-            const msgContainer = this.garageContainer!.getChildByName("messageContainer") as Rectangle;
-            const msg = msgContainer?.getChildByName("garageMessage") as TextBlock;
-            if (msg) {
-                msg.text = "[OK] Changes applied!";
-                msg.color = "#0f0";
-                setTimeout(() => {
-                    if (msg) {
-                        msg.text = "";
-                    }
-                }, 3000);
-            }
-            
-            // Сбрасываем предпросмотр
-            this.previewChassisId = null;
-            this.previewCannonId = null;
-            
-            // Обновляем список
-            this.updateItemList();
-            this.updateComparisonPanel();
-            
-            // Обновляем превью текущего танка
-            const previewContainer = this.garageContainer!.getChildByName("tankPreviewContainer");
-            if (previewContainer) {
-                previewContainer.dispose();
-                this.createCurrentTankPreview();
-            }
-        } else {
-            // Показываем сообщение, что нечего применять
-            const msgContainer = this.garageContainer!.getChildByName("messageContainer") as Rectangle;
-            const msg = msgContainer?.getChildByName("garageMessage") as TextBlock;
-            if (msg) {
-                msg.text = "[WARN] No changes to apply";
-                msg.color = "#ff0";
-                setTimeout(() => {
-                    if (msg) msg.text = "";
-                }, 2000);
-            }
-        }
-    }
-    
-    // Создать панель сравнения в терминальном стиле
-    private createComparisonPanel(): void {
-        this.comparisonPanel = new Rectangle("comparisonPanel");
-        this.comparisonPanel.width = "480px";
-        this.comparisonPanel.height = "200px";
-        this.comparisonPanel.cornerRadius = 0;
-        this.comparisonPanel.thickness = 1;
-        this.comparisonPanel.color = "#0ff";
-        this.comparisonPanel.background = "rgba(0, 0, 0, 0.8)";
-        this.comparisonPanel.top = "-150px";
-        this.comparisonPanel.left = "20px";
-        this.garageContainer!.addControl(this.comparisonPanel);
-        
-        this.updateComparisonPanel();
-    }
-    
-    // Обновить панель сравнения с цветовыми индикаторами
-    private updateComparisonPanel(): void {
-        if (!this.comparisonPanel) return;
-        
-        // Очищаем старые элементы
-        if (this.comparisonPanel.children) {
-            this.comparisonPanel.children.forEach((child: any) => {
-                if (child.name !== "comparisonTitle") child.dispose();
-            });
-        }
-        
-        // Заголовок в терминальном стиле
-        let title = this.comparisonPanel.getChildByName("comparisonTitle") as TextBlock;
-        if (!title) {
-            title = new TextBlock("comparisonTitle");
-            title.text = "COMPARISON";
-            title.color = "#0ff";
-            title.fontSize = 12;
-            title.fontFamily = "Consolas, Monaco, monospace";
-            title.fontWeight = "bold";
-            title.top = "-65px";
-            title.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            this.comparisonPanel.addControl(title);
-            
-            // Разделительная линия
-            const titleLine = new Rectangle("comparisonTitleLine");
-            titleLine.width = "100%";
-            titleLine.height = "1px";
-            titleLine.cornerRadius = 0;
-            titleLine.thickness = 0;
-            titleLine.background = "#0ff";
-            titleLine.top = "-50px";
-            titleLine.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            this.comparisonPanel.addControl(titleLine);
-        }
-        
-        // Вспомогательная функция для получения цвета изменения
-        const getChangeColor = (diff: number, isBetter: boolean): string => {
-            if (diff === 0) return "#aaa";
-            if (isBetter) {
-                return diff > 0 ? "#0f0" : "#f00"; // Зеленый для улучшения, красный для ухудшения
-            } else {
-                return diff < 0 ? "#0f0" : "#f00"; // Для перезарядки меньше = лучше
-            }
-        };
-        
-        // Вспомогательная функция для форматирования изменения (зарезервирована для будущего использования)
-        const _formatChange = (diff: number, _isBetter: boolean): string => {
-            if (diff === 0) return "";
-            const sign = diff > 0 ? "+" : "";
-            void getChangeColor; // Сохраняем ссылку
-            return ` [${sign}${diff.toFixed(1)}]`;
-        };
-        void _formatChange;
-        
-        // Текущий корпус с бонусами от опыта
-        const currentChassis = CHASSIS_TYPES.find(c => c.id === this.currentChassisId);
-        const previewChassis = this.previewChassisId ? CHASSIS_TYPES.find(c => c.id === this.previewChassisId) : null;
-        
-        // Получаем бонусы от опыта
-        let currentChassisBonus = { healthBonus: 0, speedBonus: 0, armorBonus: 0, title: "" };
-        let previewChassisBonus = { healthBonus: 0, speedBonus: 0, armorBonus: 0, title: "" };
-        let currentCannonBonus = { damageBonus: 0, reloadBonus: 0, title: "" };
-        let previewCannonBonus = { damageBonus: 0, reloadBonus: 0, title: "" };
-        
-        if (this.experienceSystem) {
-            currentChassisBonus = this.experienceSystem.getChassisLevelBonus(this.currentChassisId) || currentChassisBonus;
-            if (this.previewChassisId) {
-                previewChassisBonus = this.experienceSystem.getChassisLevelBonus(this.previewChassisId) || previewChassisBonus;
-            }
-            currentCannonBonus = this.experienceSystem.getCannonLevelBonus(this.currentCannonId) || currentCannonBonus;
-            if (this.previewCannonId) {
-                previewCannonBonus = this.experienceSystem.getCannonLevelBonus(this.previewCannonId) || previewCannonBonus;
-            }
-        }
-        
-        if (currentChassis) {
-            const totalHp = currentChassis.maxHealth + currentChassisBonus.healthBonus;
-            const totalSpeed = currentChassis.moveSpeed + currentChassisBonus.speedBonus;
-            const expBonusText = currentChassisBonus.healthBonus > 0 ? ` (+${currentChassisBonus.healthBonus} XP)` : "";
-            const speedBonusText = currentChassisBonus.speedBonus > 0 ? ` (+${currentChassisBonus.speedBonus.toFixed(1)} XP)` : "";
-            
-            // Текущий корпус
-            const currentLabel = new TextBlock("currentChassisLabel");
-            currentLabel.text = "CURRENT:";
-            currentLabel.color = "#0f0";
-            currentLabel.fontSize = 10;
-            currentLabel.fontFamily = "Consolas, Monaco, monospace";
-            currentLabel.fontWeight = "bold";
-            currentLabel.top = "-35px";
-            currentLabel.left = "-370px";
-            this.comparisonPanel.addControl(currentLabel);
-            
-            const currentText = new TextBlock("currentChassis");
-            currentText.text = `${currentChassis.name} [${currentChassisBonus.title || "Lv.1"}] | HP: ${totalHp}${expBonusText} | Speed: ${totalSpeed.toFixed(1)}${speedBonusText}`;
-            currentText.color = "#0f0";
-            currentText.fontSize = 10;
-            currentText.fontFamily = "Consolas, Monaco, monospace";
-            currentText.top = "-35px";
-            currentText.left = "-280px";
-            this.comparisonPanel.addControl(currentText);
-            
-            if (previewChassis && previewChassis.id !== currentChassis.id) {
-                const previewTotalHp = previewChassis.maxHealth + previewChassisBonus.healthBonus;
-                const previewTotalSpeed = previewChassis.moveSpeed + previewChassisBonus.speedBonus;
-                const hpDiff = previewTotalHp - totalHp;
-                const speedDiff = previewTotalSpeed - totalSpeed;
                 
-                // Новый корпус
-                const previewLabel = new TextBlock("previewChassisLabel");
-                previewLabel.text = "NEW:";
-                previewLabel.color = "#0ff";
-                previewLabel.fontSize = 10;
-                previewLabel.fontWeight = "bold";
-                previewLabel.top = "-15px";
-                previewLabel.left = "-370px";
-                this.comparisonPanel.addControl(previewLabel);
+                // Радиоантенна сзади
+                ChassisDetailsGenerator.createAntenna(
+                    scene, chassis,
+                    new Vector3(0, h * 0.6, -d * 0.4),
+                    0.4, 0.02,
+                    "previewLight"
+                );
                 
-                // HP с цветовым индикатором
-                const hpColor = getChangeColor(hpDiff, true);
-                const hpChangeText = new TextBlock("hpChange");
-                hpChangeText.text = `HP: ${previewTotalHp}`;
-                hpChangeText.color = hpColor;
-                hpChangeText.fontSize = 11;
-                hpChangeText.fontWeight = "bold";
-                hpChangeText.top = "-15px";
-                hpChangeText.left = "-280px";
-                this.comparisonPanel.addControl(hpChangeText);
+                // Основание антенны
+                ChassisDetailsGenerator.createAntennaBase(
+                    scene, chassis,
+                    new Vector3(0, h * 0.52, -d * 0.4),
+                    0.08,
+                    armorMat, "previewLight"
+                );
                 
-                const hpDiffText = new TextBlock("hpDiff");
-                hpDiffText.text = `(${hpDiff > 0 ? "+" : ""}${hpDiff})`;
-                hpDiffText.color = hpColor;
-                hpDiffText.fontSize = 10;
-                hpDiffText.top = "-15px";
-                hpDiffText.left = "-200px";
-                this.comparisonPanel.addControl(hpDiffText);
-                
-                // Speed с цветовым индикатором
-                const speedColor = getChangeColor(speedDiff, true);
-                const speedChangeText = new TextBlock("speedChange");
-                speedChangeText.text = `Speed: ${previewTotalSpeed.toFixed(1)}`;
-                speedChangeText.color = speedColor;
-                speedChangeText.fontSize = 11;
-                speedChangeText.fontWeight = "bold";
-                speedChangeText.top = "-15px";
-                speedChangeText.left = "-120px";
-                this.comparisonPanel.addControl(speedChangeText);
-                
-                const speedDiffText = new TextBlock("speedDiff");
-                speedDiffText.text = `(${speedDiff > 0 ? "+" : ""}${speedDiff.toFixed(1)})`;
-                speedDiffText.color = speedColor;
-                speedDiffText.fontSize = 10;
-                speedDiffText.top = "-15px";
-                speedDiffText.left = "-30px";
-                this.comparisonPanel.addControl(speedDiffText);
-            }
-        }
-        
-        // Текущая пушка с бонусами от опыта
-        const currentCannon = CANNON_TYPES.find(c => c.id === this.currentCannonId);
-        const previewCannon = this.previewCannonId ? CANNON_TYPES.find(c => c.id === this.previewCannonId) : null;
-        
-        if (currentCannon) {
-            const totalDmg = currentCannon.damage + currentCannonBonus.damageBonus;
-            const totalReload = Math.max(300, currentCannon.cooldown - currentCannonBonus.reloadBonus);
-            const dmgBonusText = currentCannonBonus.damageBonus > 0 ? ` (+${currentCannonBonus.damageBonus} XP)` : "";
-            const reloadBonusText = currentCannonBonus.reloadBonus > 0 ? ` (-${currentCannonBonus.reloadBonus}ms XP)` : "";
-            
-            // Текущая пушка
-            const currentCannonLabel = new TextBlock("currentCannonLabel");
-            currentCannonLabel.text = "CURRENT:";
-            currentCannonLabel.color = "#0a0";
-            currentCannonLabel.fontSize = 10;
-            currentCannonLabel.fontWeight = "bold";
-            currentCannonLabel.top = "10px";
-            currentCannonLabel.left = "-370px";
-            this.comparisonPanel.addControl(currentCannonLabel);
-            
-            const currentCannonText = new TextBlock("currentCannon");
-            currentCannonText.text = `${currentCannon.name} [${currentCannonBonus.title || "Lv.1"}] | Damage: ${totalDmg}${dmgBonusText} | Reload: ${(totalReload / 1000).toFixed(2)}s${reloadBonusText}`;
-            currentCannonText.color = "#0a0";
-            currentCannonText.fontSize = 11;
-            currentCannonText.top = "10px";
-            currentCannonText.left = "-280px";
-            this.comparisonPanel.addControl(currentCannonText);
-            
-            if (previewCannon && previewCannon.id !== currentCannon.id) {
-                const previewTotalDmg = previewCannon.damage + previewCannonBonus.damageBonus;
-                const previewTotalReload = Math.max(300, previewCannon.cooldown - previewCannonBonus.reloadBonus);
-                const dmgDiff = previewTotalDmg - totalDmg;
-                const reloadDiff = (previewTotalReload - totalReload) / 1000;
-                
-                // Новая пушка
-                const previewCannonLabel = new TextBlock("previewCannonLabel");
-                previewCannonLabel.text = "NEW:";
-                previewCannonLabel.color = "#0ff";
-                previewCannonLabel.fontSize = 10;
-                previewCannonLabel.fontWeight = "bold";
-                previewCannonLabel.top = "30px";
-                previewCannonLabel.left = "-370px";
-                this.comparisonPanel.addControl(previewCannonLabel);
-                
-                // Damage с цветовым индикатором
-                const dmgColor = getChangeColor(dmgDiff, true);
-                const dmgChangeText = new TextBlock("dmgChange");
-                dmgChangeText.text = `Damage: ${previewTotalDmg}`;
-                dmgChangeText.color = dmgColor;
-                dmgChangeText.fontSize = 11;
-                dmgChangeText.fontWeight = "bold";
-                dmgChangeText.top = "30px";
-                dmgChangeText.left = "-280px";
-                this.comparisonPanel.addControl(dmgChangeText);
-                
-                const dmgDiffText = new TextBlock("dmgDiff");
-                dmgDiffText.text = `(${dmgDiff > 0 ? "+" : ""}${dmgDiff})`;
-                dmgDiffText.color = dmgColor;
-                dmgDiffText.fontSize = 10;
-                dmgDiffText.top = "30px";
-                dmgDiffText.left = "-200px";
-                this.comparisonPanel.addControl(dmgDiffText);
-                
-                // Reload с цветовым индикатором (меньше = лучше)
-                const reloadColor = getChangeColor(-reloadDiff * 1000, true); // Инвертируем для перезарядки
-                const reloadChangeText = new TextBlock("reloadChange");
-                reloadChangeText.text = `Reload: ${(previewTotalReload / 1000).toFixed(2)}s`;
-                reloadChangeText.color = reloadColor;
-                reloadChangeText.fontSize = 11;
-                reloadChangeText.fontWeight = "bold";
-                reloadChangeText.top = "30px";
-                reloadChangeText.left = "-120px";
-                this.comparisonPanel.addControl(reloadChangeText);
-                
-                const reloadDiffText = new TextBlock("reloadDiff");
-                reloadDiffText.text = `(${reloadDiff < 0 ? "" : "+"}${reloadDiff.toFixed(2)}s)`;
-                reloadDiffText.color = reloadColor;
-                reloadDiffText.fontSize = 10;
-                reloadDiffText.top = "30px";
-                reloadDiffText.left = "-30px";
-                this.comparisonPanel.addControl(reloadDiffText);
-            }
-        }
-        
-        // Показываем панель только если есть изменения (упрощено, без анимации)
-        const hasChanges = (this.previewChassisId && this.previewChassisId !== this.currentChassisId) ||
-                          (this.previewCannonId && this.previewCannonId !== this.currentCannonId);
-        this.comparisonPanel.isVisible = !!hasChanges;
-        this.comparisonPanel.alpha = 1.0;
-    }
-    
-        // Создать кнопку применения - компактная
-    private createApplyButton(): void {
-        const applyBtn = Button.CreateSimpleButton("applySelection", "APPLY [Enter]");
-        applyBtn.width = "140px";
-        applyBtn.height = "32px";
-        applyBtn.cornerRadius = 0;
-        applyBtn.fontFamily = "Consolas, Monaco, monospace";
-        applyBtn.color = "#0f0";
-        applyBtn.background = "rgba(0, 255, 0, 0.25)";
-        applyBtn.thickness = 1;
-        applyBtn.fontSize = 10;
-        applyBtn.fontWeight = "bold";
-        applyBtn.top = "318px";
-        applyBtn.left = "-80px";
-        
-        // Проверяем, есть ли изменения для применения
-        const hasChanges = (this.previewChassisId && this.previewChassisId !== this.currentChassisId) ||
-                          (this.previewCannonId && this.previewCannonId !== this.currentCannonId);
-        
-        if (!hasChanges) {
-            applyBtn.color = "#666";
-            applyBtn.background = "#001100aa";
-            (applyBtn as any).isEnabled = false;
-        }
-        
-        // Hover эффект для кнопки применения
-        applyBtn.onPointerEnterObservable.add(() => {
-            if (applyBtn.isEnabled) {
-                applyBtn.color = "#ff0";
-                applyBtn.background = "rgba(255, 255, 0, 0.3)";
-                applyBtn.thickness = 2;
-            }
-        });
-        applyBtn.onPointerOutObservable.add(() => {
-            if (applyBtn.isEnabled) {
-                applyBtn.color = "#0f0";
-                applyBtn.background = "rgba(0, 255, 0, 0.2)";
-                applyBtn.thickness = 1;
-            }
-        });
-        
-        applyBtn.onPointerClickObservable.add(() => {
-            this.applySelection();
-            // Обновляем кнопку после применения
-            const hasChangesAfter = (this.previewChassisId && this.previewChassisId !== this.currentChassisId) ||
-                                  (this.previewCannonId && this.previewCannonId !== this.currentCannonId);
-            if (!hasChangesAfter) {
-                applyBtn.color = "#666";
-                applyBtn.background = "#001100aa";
-                applyBtn.isEnabled = false;
-            }
-        });
-        this.garageContainer!.addControl(applyBtn);
-        
-        // Обновляем кнопку периодически - оптимизировано
-        setInterval(() => {
-            if (this.isOpen && applyBtn) {
-                const hasChangesNow = (this.previewChassisId && this.previewChassisId !== this.currentChassisId) ||
-                                    (this.previewCannonId && this.previewCannonId !== this.currentCannonId);
-                const shouldBeEnabled = hasChangesNow;
-                if (shouldBeEnabled !== applyBtn.isEnabled) {
-                    if (shouldBeEnabled) {
-                        applyBtn.color = "#0f0";
-                        applyBtn.background = "#002200aa";
-                        applyBtn.isEnabled = true;
-                    } else {
-                        applyBtn.color = "#666";
-                        applyBtn.background = "#001100aa";
-                        applyBtn.isEnabled = false;
-                    }
+                // Боковые броневые экраны
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createArmorScreen(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.1, d * 0.05),
+                        0.12, h * 0.5, d * 0.3,
+                        0, armorMat, `previewLight${i}`
+                    );
                 }
-            }
-        }, 300); // Реже проверяем для оптимизации
-    }
-    
-    // Получить текущие улучшения
-    getUpgrades(): { [stat: string]: number } {
-        const result: { [stat: string]: number } = {};
-        this.upgrades.forEach(u => {
-            if (u.level > 0) {
-                result[u.stat] = (result[u.stat] || 0) + u.level * u.value;
-            }
-        });
-        return result;
-    }
-    
-    // Проверить, открыт ли гараж
-    isGarageOpen(): boolean {
-        return this.isOpen;
-    }
-    
-    // Создать панель статистики игрока в терминальном стиле
-    private createPlayerStatsPanel(): void {
-        if (!this.playerProgression) return;
-        
-        const stats = this.playerProgression.getStats();
-        const xpProgress = this.playerProgression.getExperienceProgress();
-        
-        // Контейнер для статистики - компактный, справа от валюты
-        const statsContainer = new Rectangle("playerStatsContainer");
-        statsContainer.width = "180px";
-        statsContainer.height = "40px";
-        statsContainer.cornerRadius = 0;
-        statsContainer.thickness = 1;
-        statsContainer.color = "#0ff";
-        statsContainer.background = "rgba(0, 20, 20, 0.9)";
-        statsContainer.left = "380px";
-        statsContainer.top = "-332px";
-        this.garageContainer!.addControl(statsContainer);
-        
-        // Компактная статистика в одну строку
-        const statsText = new TextBlock("playerStatsText");
-        const kd = this.playerProgression.getKDRatio();
-        statsText.text = `Lv.${stats.level} | K/D:${kd} | ${xpProgress.current}/${xpProgress.required}XP`;
-        statsText.color = "#0ff";
-        statsText.fontSize = 10;
-        statsText.fontFamily = "Consolas, Monaco, monospace";
-        statsText.fontWeight = "normal";
-        statsText.top = "-20px";
-        statsText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        statsContainer.addControl(statsText);
-        
-        // Прогресс-бар опыта - компактный
-        const xpBarBg = new Rectangle("xpBarBg");
-        xpBarBg.width = "160px";
-        xpBarBg.height = "4px";
-        xpBarBg.background = "rgba(0, 0, 0, 0.8)";
-        xpBarBg.thickness = 1;
-        xpBarBg.color = "#0aa";
-        xpBarBg.cornerRadius = 0;
-        xpBarBg.top = "5px";
-        xpBarBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        statsContainer.addControl(xpBarBg);
-        
-        const xpBarFill = new Rectangle("xpBarFill");
-        const xpPercent = xpProgress.required > 0 ? (xpProgress.current / xpProgress.required) : 0;
-        xpBarFill.width = `${160 * Math.min(xpPercent, 1)}px`;
-        xpBarFill.height = "2px";
-        xpBarFill.cornerRadius = 0;
-        xpBarFill.background = "#0ff";
-        xpBarFill.top = "5px";
-        xpBarFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        xpBarBg.addControl(xpBarFill);
-    }
-    
-    // Обновить панель статистики игрока
-    private updatePlayerStatsPanel(): void {
-        if (!this.playerProgression || !this.garageContainer) return;
-        
-        const stats = this.playerProgression.getStats();
-        const xpProgress = this.playerProgression.getExperienceProgress();
-        const kd = this.playerProgression.getKDRatio();
-        
-        // Обновляем уровень
-        const levelText = this.garageContainer.getChildByName("playerLevel") as TextBlock;
-        if (levelText) {
-            levelText.text = `Lv.${stats.level}`;
-        }
-        
-        // Обновляем опыт
-        const xpText = this.garageContainer.getChildByName("playerXP") as TextBlock;
-        if (xpText) {
-            xpText.text = `XP: ${xpProgress.current}/${xpProgress.required}`;
-        }
-        
-        // Обновляем прогресс-бар опыта с плавной анимацией
-        const xpBarFill = this.garageContainer.getChildByName("xpBarFill") as Rectangle;
-        if (xpBarFill) {
-            const targetPercent = xpProgress.required > 0 ? (xpProgress.current / xpProgress.required) : 0;
-            const targetWidth = 180 * Math.min(targetPercent, 1);
-            const currentWidth = parseFloat(xpBarFill.width.toString().replace("px", "")) || 0;
-            
-            // Плавная интерполяция к целевому значению
-            if (Math.abs(targetWidth - currentWidth) > 1) {
-                const diff = targetWidth - currentWidth;
-                const newWidth = currentWidth + diff * 0.15; // Плавное приближение
-                xpBarFill.width = `${Math.max(0, Math.min(180, newWidth))}px`;
-            } else {
-                xpBarFill.width = `${targetWidth}px`;
-            }
-        }
-        
-        // Обновляем K/D
-        const kdText = this.garageContainer.getChildByName("playerKD") as TextBlock;
-        if (kdText) {
-            kdText.text = `K/D: ${kd}`;
-        }
-        
-        // Обновляем убийства/смерти
-        const killsDeathsText = this.garageContainer.getChildByName("killsDeaths") as TextBlock;
-        if (killsDeathsText) {
-            killsDeathsText.text = `K: ${stats.totalKills} | D: ${stats.totalDeaths}`;
-        }
-    }
-    
-    // Добавить tooltip к элементу списка - улучшенный с детальной информацией
-    private addTooltipToItem(container: Rectangle, item: TankPart | TankUpgrade, index: number): void {
-        let tooltip: Rectangle | null = null;
-        
-        // Эффект подсветки при наведении
-        container.onPointerEnterObservable.add(() => {
-            // Увеличиваем яркость контейнера
-            const originalThickness = container.thickness;
-            container.thickness = Math.min(originalThickness + 1, 4);
-            
-            // Создаем tooltip в терминальном стиле
-            tooltip = new Rectangle(`tooltip_${index}`);
-            tooltip.width = "360px";
-            tooltip.height = "220px";
-            tooltip.cornerRadius = 0;
-            tooltip.thickness = 1;
-            tooltip.color = "#0ff";
-            tooltip.background = "rgba(0, 0, 0, 0.95)";
-            tooltip.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            tooltip.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            tooltip.left = "430px";
-            tooltip.top = `${index * 115 - 80}px`;
-            tooltip.zIndex = 2000;
-            tooltip.isPointerBlocker = false;
-            
-            // Заголовок tooltip в терминальном стиле
-            const tooltipTitle = new TextBlock(`tooltipTitle_${index}`);
-            let prefix = "";
-            if (!("level" in item)) {
-                const part = item as TankPart;
-                prefix = part.type === "chassis" ? "CHASSIS: " : "CANNON: ";
-            } else {
-                prefix = "UPGRADE: ";
-            }
-            tooltipTitle.text = `${prefix}${item.name}`;
-            tooltipTitle.color = "#0ff";
-            tooltipTitle.fontSize = 12;
-            tooltipTitle.fontFamily = "Consolas, Monaco, monospace";
-            tooltipTitle.fontWeight = "bold";
-            tooltipTitle.top = "-105px";
-            tooltipTitle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            tooltip.addControl(tooltipTitle);
-            
-            // Разделительная линия
-            const tooltipLine = new Rectangle(`tooltipLine_${index}`);
-            tooltipLine.width = "100%";
-            tooltipLine.height = "1px";
-            tooltipLine.cornerRadius = 0;
-            tooltipLine.thickness = 0;
-            tooltipLine.background = "#0ff";
-            tooltipLine.top = "-100px";
-            tooltipLine.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            tooltip.addControl(tooltipLine);
-            
-            // Статус разблокированности в терминальном стиле
-            const statusText = new TextBlock(`tooltipStatus_${index}`);
-            if (!("level" in item)) {
-                const part = item as TankPart;
-                statusText.text = part.unlocked ? "[UNLOCKED]" : `[LOCKED] Cost: ${item.cost} CR`;
-                statusText.color = part.unlocked ? "#0f0" : "#f00";
-            } else {
-                const upgrade = item as TankUpgrade;
-                statusText.text = `LEVEL: ${upgrade.level}/${upgrade.maxLevel}`;
-                statusText.color = upgrade.level > 0 ? "#0f0" : "#0aa";
-            }
-            statusText.fontSize = 10;
-            statusText.fontFamily = "Consolas, Monaco, monospace";
-            statusText.top = "-90px";
-            statusText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            tooltip.addControl(statusText);
-            
-            // Описание в терминальном стиле
-            const tooltipDesc = new TextBlock(`tooltipDesc_${index}`);
-            tooltipDesc.text = item.description;
-            tooltipDesc.color = "#aaa";
-            tooltipDesc.fontSize = 11;
-            tooltipDesc.fontFamily = "Consolas, Monaco, monospace";
-            tooltipDesc.top = "-70px";
-            tooltipDesc.left = "-170px";
-            tooltipDesc.textWrapping = true;
-            tooltipDesc.resizeToFit = true;
-            tooltip.addControl(tooltipDesc);
-            
-            // Детальная статистика
-            let statsLines: string[] = [];
-            if (!("level" in item)) {
-                const part = item as TankPart;
-                if (part.type === "chassis" && part.stats) {
-                    // Получаем бонусы от опыта
-                    let baseHp = part.stats.health || 0;
-                    let baseSpeed = part.stats.speed || 0;
-                    let expBonus = "";
-                    if (this.experienceSystem) {
-                        const bonus = this.experienceSystem.getChassisLevelBonus(part.id);
-                        baseHp += bonus.healthBonus;
-                        baseSpeed += bonus.speedBonus;
-                        if (bonus.healthBonus > 0 || bonus.speedBonus > 0) {
-                            expBonus = ` (+${bonus.healthBonus} HP, +${bonus.speedBonus.toFixed(1)} SPD from XP)`;
-                        }
-                    }
-                    statsLines.push(`HP: ${baseHp}${expBonus}`);
-                    statsLines.push(`SPD: ${baseSpeed.toFixed(1)}`);
-                    statsLines.push(`ARM: ${(part.stats.armor || 0).toFixed(1)}`);
+                
+                // Дополнительные фары на боковых панелях
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createSideLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.42, h * 0.05, -d * 0.2),
+                        0.06, 0.06, 0.04,
+                        i, "previewLight"
+                    );
+                }
+                
+                // Задние огни (стоп-сигналы)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createTailLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.15, -d * 0.49),
+                        0.05, 0.08, 0.03,
+                        i, "previewLight"
+                    );
+                }
+                break;
+            case "scout": 
+                // Scout - Прототип: Т-70 - Острый клиновидный нос, минимальный профиль
+                // Острый клиновидный нос (угол 45°)
+                ChassisDetailsGenerator.createSlopedArmor(
+                    scene, chassis,
+                    new Vector3(0, 0, d * 0.5),
+                    w * 0.8, h * 0.7, 0.4,
+                    -Math.PI / 4, accentMat, "previewScout"
+                );
+                
+                // Боковые крылья (угловатые)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createWing(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.48, -h * 0.05, d * 0.3),
+                        0.15, h * 0.85, d * 0.6,
+                        accentMat, `previewScout${i}`
+                    );
+                }
+                
+                // Задний диффузор (угловатый)
+                ChassisDetailsGenerator.createDiffuser(
+                    scene, chassis,
+                    new Vector3(0, -h * 0.42, -d * 0.45),
+                    w * 0.9, 0.15, 0.2,
+                    accentMat, "previewScout"
+                );
+                
+                // Один люк на крыше
+                ChassisDetailsGenerator.createHatch(
+                    scene, chassis,
+                    new Vector3(0, h * 0.42, 0),
+                    0.18, 0.06, 0.18,
+                    armorMat, "previewScout"
+                );
+                
+                // Радиоантенна на корме (угловатая)
+                ChassisDetailsGenerator.createAntenna(
+                    scene, chassis,
+                    new Vector3(0, h * 0.45, -d * 0.45),
+                    0.3, 0.02,
+                    "previewScout"
+                );
+                
+                // Две фары (очень маленькие, скрытые)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.1, d * 0.48),
+                        0.06, 0.06, 0.04,
+                        i, "previewScout"
+                    );
+                }
+                
+                // Скрытые вентиляционные решетки
+                for (let i = 0; i < 2; i++) {
+                    const vent = MeshBuilder.CreateBox(`previewScoutVent${i}`, { width: 0.04, height: 0.08, depth: 0.12 }, scene);
+                    vent.position = new Vector3((i === 0 ? -1 : 1) * w * 0.42, h * 0.05, d * 0.15);
+                    vent.parent = chassis;
+                    const ventMat = new StandardMaterial(`previewScoutVentMat${i}`, scene);
+                    ventMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
+                    vent.material = ventMat;
                     
-                    // Опыт и статистика использования
-                    if (this.experienceSystem) {
-                        const expInfo = this.experienceSystem.getChassisExperience(part.id);
-                        if (expInfo) {
-                            statsLines.push(`XP: ${expInfo.experience} XP`);
-                            statsLines.push(`Kills: ${expInfo.kills}`);
-                            statsLines.push(`DMG: ${Math.round(expInfo.damageDealt)}`);
-                        }
+                    // Детали решетки
+                    for (let j = 0; j < 3; j++) {
+                        const ventBar = MeshBuilder.CreateBox(`previewScoutVentBar${i}_${j}`, { width: 0.02, height: 0.06, depth: 0.1 }, scene);
+                        ventBar.position = new Vector3((i === 0 ? -1 : 1) * w * 0.42, h * 0.05, d * 0.15 + (j - 1) * 0.04);
+                        ventBar.parent = chassis;
+                        ventBar.material = ventMat;
                     }
-                } else if (part.type === "barrel" && part.stats) {
-                    // Получаем бонусы от опыта
-                    let baseDmg = part.stats.damage || 0;
-                    let baseReload = part.stats.reload || 0;
-                    let expBonus = "";
-                    if (this.experienceSystem) {
-                        const bonus = this.experienceSystem.getCannonLevelBonus(part.id);
-                        baseDmg += bonus.damageBonus;
-                        baseReload -= bonus.reloadBonus;
-                        if (bonus.damageBonus > 0 || bonus.reloadBonus > 0) {
-                            expBonus = ` (+${bonus.damageBonus} DMG, -${bonus.reloadBonus}ms from XP)`;
-                        }
+                }
+                
+                // Перископ на люке
+                const scoutPeriscope = MeshBuilder.CreateCylinder("previewScoutPeriscope", { height: 0.12, diameter: 0.05, tessellation: 8 }, scene);
+                scoutPeriscope.position = new Vector3(0, h * 0.5, 0);
+                scoutPeriscope.parent = chassis;
+                const scoutPeriscopeMat = new StandardMaterial("previewScoutPeriscopeMat", scene);
+                scoutPeriscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
+                scoutPeriscope.material = scoutPeriscopeMat;
+                
+                // Оптический прицел на передней части
+                const scoutSight = MeshBuilder.CreateBox("previewScoutSight", { width: 0.1, height: 0.06, depth: 0.08 }, scene);
+                scoutSight.position = new Vector3(0, h * 0.2, d * 0.48);
+                scoutSight.parent = chassis;
+                const scoutSightMat = new StandardMaterial("previewScoutSightMat", scene);
+                scoutSightMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
+                scoutSight.material = scoutSightMat;
+                
+                // Линза прицела
+                const scoutSightLens = MeshBuilder.CreateCylinder("previewScoutSightLens", { height: 0.02, diameter: 0.05, tessellation: 8 }, scene);
+                scoutSightLens.position = new Vector3(0, 0, 0.05);
+                scoutSightLens.parent = scoutSight;
+                const scoutLensMat = new StandardMaterial("previewScoutSightLensMat", scene);
+                scoutLensMat.diffuseColor = new Color3(0.1, 0.2, 0.3);
+                scoutLensMat.emissiveColor = new Color3(0.05, 0.1, 0.15);
+                scoutSightLens.material = scoutLensMat;
+                
+                // Легкие броневые накладки на лобовой части
+                for (let i = 0; i < 2; i++) {
+                    const frontArmor = MeshBuilder.CreateBox(`previewScoutFrontArmor${i}`, { width: w * 0.25, height: h * 0.12, depth: 0.06 }, scene);
+                    frontArmor.position = new Vector3((i === 0 ? -1 : 1) * w * 0.2, h * 0.02, d * 0.48);
+                    frontArmor.parent = chassis;
+                    frontArmor.material = armorMat;
+                }
+                
+                // Выхлопная труба сзади (маленькая)
+                const scoutExhaust = MeshBuilder.CreateBox("previewScoutExhaust", { width: 0.1, height: 0.1, depth: 0.15 }, scene);
+                scoutExhaust.position = new Vector3(w * 0.3, h * 0.15, -d * 0.48);
+                scoutExhaust.parent = chassis;
+                scoutExhaust.material = armorMat;
+                
+                // Задние огни (стоп-сигналы)
+                for (let i = 0; i < 2; i++) {
+                    const tailLight = MeshBuilder.CreateBox(`previewScoutTailLight${i}`, { width: 0.04, height: 0.06, depth: 0.03 }, scene);
+                    tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.12, -d * 0.49);
+                    tailLight.parent = chassis;
+                    const tailLightMat = new StandardMaterial(`previewScoutTailLightMat${i}`, scene);
+                    tailLightMat.diffuseColor = new Color3(0.6, 0.1, 0.1);
+                    tailLightMat.emissiveColor = new Color3(0.3, 0.05, 0.05);
+                    tailLight.material = tailLightMat;
+                }
+                
+                // Боковые фары (сигнальные)
+                for (let i = 0; i < 2; i++) {
+                    const sideLight = MeshBuilder.CreateBox(`previewScoutSideLight${i}`, { width: 0.04, height: 0.05, depth: 0.04 }, scene);
+                    sideLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.05, -d * 0.2);
+                    sideLight.parent = chassis;
+                    const sideLightMat = new StandardMaterial(`previewScoutSideLightMat${i}`, scene);
+                    sideLightMat.diffuseColor = new Color3(0.7, 0.6, 0.3);
+                    sideLightMat.emissiveColor = new Color3(0.15, 0.12, 0.08);
+                    sideLight.material = sideLightMat;
+                }
+                
+                // Верхняя вентиляционная решетка на крыше
+                const scoutRoofVent = MeshBuilder.CreateBox("previewScoutRoofVent", { width: 0.15, height: 0.04, depth: 0.1 }, scene);
+                scoutRoofVent.position = new Vector3(0, h * 0.44, d * 0.2);
+                scoutRoofVent.parent = chassis;
+                const scoutRoofVentMat = new StandardMaterial("previewScoutRoofVentMat", scene);
+                scoutRoofVentMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
+                scoutRoofVent.material = scoutRoofVentMat;
+                
+                // Детали решетки
+                for (let i = 0; i < 4; i++) {
+                    const ventBar = MeshBuilder.CreateBox(`previewScoutRoofVentBar${i}`, { width: 0.02, height: 0.03, depth: 0.08 }, scene);
+                    ventBar.position = new Vector3((i - 1.5) * 0.04, h * 0.44, d * 0.2);
+                    ventBar.parent = chassis;
+                    ventBar.material = scoutRoofVentMat;
+                }
+                
+                // Легкие броневые экраны по бокам
+                for (let i = 0; i < 2; i++) {
+                    const sideArmor = MeshBuilder.CreateBox(`previewScoutSideArmor${i}`, { width: 0.1, height: h * 0.4, depth: d * 0.25 }, scene);
+                    sideArmor.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.08, d * 0.08);
+                    sideArmor.parent = chassis;
+                    sideArmor.material = armorMat;
+                }
+                break;
+            case "heavy":
+                // Heavy - массивные бронеплиты со всех сторон - ОЧЕНЬ ЗАМЕТНЫЕ
+                // Боковые бронеплиты
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(-w * 0.62, 0, 0),
+                    0.3, h * 0.95, d * 0.75,
+                    armorMat, "previewHeavy0"
+                );
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(w * 0.62, 0, 0),
+                    0.3, h * 0.95, d * 0.75,
+                    armorMat, "previewHeavy1"
+                );
+                // Лобовая бронеплита
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(0, h * 0.35, d * 0.58),
+                    w * 0.85, h * 0.35, 0.22,
+                    armorMat, "previewHeavy2"
+                );
+                // Нижняя бронеплита
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(0, -h * 0.35, 0),
+                    w * 1.05, 0.28, d * 1.05,
+                    armorMat, "previewHeavy3"
+                );
+                // Верхняя бронеплита - ОЧЕНЬ БОЛЬШАЯ
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(0, h * 0.65, 0),
+                    w * 0.95, 0.25, d * 0.8,
+                    armorMat, "previewHeavy"
+                );
+                // Угловые усиления - БОЛЬШЕ
+                for (let i = 0; i < 4; i++) {
+                    const posX = (i % 2 === 0 ? -1 : 1) * w * 0.58;
+                    const posZ = (i < 2 ? -1 : 1) * d * 0.58;
+                    ChassisDetailsGenerator.createArmorPlate(
+                        scene, chassis,
+                        new Vector3(posX, h * 0.55, posZ),
+                        0.3, 0.3, 0.3,
+                        armorMat, `previewHeavy${i}`
+                    );
+                }
+                
+                // Фары
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.15, d * 0.5),
+                        0.12, 0.12, 0.1,
+                        i, "previewHeavy"
+                    );
+                }
+                
+                // Выхлопные трубы
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createExhaust(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.2, -d * 0.48),
+                        0.14, 0.14, 0.2,
+                        armorMat, `previewHeavy${i}`
+                    );
+                }
+                
+                // Инструменты: лопата, топор, канистра
+                ChassisDetailsGenerator.createShovel(
+                    scene, chassis,
+                    new Vector3(-w * 0.45, h * 0.2, -d * 0.45),
+                    0.15, 0.4, 0.02,
+                    armorMat, "previewHeavy"
+                );
+                
+                ChassisDetailsGenerator.createAxe(
+                    scene, chassis,
+                    new Vector3(-w * 0.35, h * 0.25, -d * 0.45),
+                    0.3, 0.1, 0.02,
+                    armorMat, "previewHeavy"
+                );
+                
+                ChassisDetailsGenerator.createCanister(
+                    scene, chassis,
+                    new Vector3(w * 0.45, h * 0.22, -d * 0.4),
+                    0.14, 0.25, 0.14,
+                    armorMat, "previewHeavy"
+                );
+                
+                // Вентиляционные решетки (большие, с деталями)
+                for (let i = 0; i < 4; i++) {
+                    const posX = (i % 2 === 0 ? -1 : 1) * w * 0.4;
+                    const posZ = (i < 2 ? -1 : 1) * d * 0.3;
+                    const ventPos = new Vector3(posX, h * 0.5, posZ);
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis, ventPos,
+                        0.1, 0.06, 0.12,
+                        i, "previewHeavy"
+                    );
+                    // Детали решетки
+                    ChassisDetailsGenerator.createVentBars(
+                        scene, chassis, ventPos,
+                        5, 0.08, 0.04, 0.02, 0.025,
+                        i, MaterialFactory.createVentMaterial(scene, i, "previewHeavy"), "previewHeavy"
+                    );
+                }
+                
+                // Перископы на люках (три штуки)
+                for (let i = 0; i < 3; i++) {
+                    ChassisDetailsGenerator.createPeriscope(
+                        scene, chassis,
+                        new Vector3((i - 1) * w * 0.3, h * 0.75, -d * 0.1),
+                        0.2, 0.08,
+                        i, "previewHeavy"
+                    );
+                }
+                
+                // Люки на крыше (два больших)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHatch(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.68, -d * 0.1),
+                        0.25, 0.1, 0.25,
+                        armorMat, `previewHeavy${i}`
+                    );
+                }
+                
+                // Энергетические усилители брони (футуристические элементы)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createEnergyBooster(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.5, h * 0.3, d * 0.4),
+                        0.12,
+                        i, "previewHeavy"
+                    );
+                }
+                break;
+            case "assault":
+                // Assault - агрессивные угловые бронеплиты, шипы
+                // Лобовая бронеплита
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(0, h * 0.25, d * 0.52),
+                    w * 0.8, h * 0.35, 0.15,
+                    armorMat, "previewAssault0"
+                );
+                // Боковые бронеплиты
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(-w * 0.5, 0, d * 0.3),
+                    0.12, h * 0.6, d * 0.4,
+                    armorMat, "previewAssault1"
+                );
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(w * 0.5, 0, d * 0.3),
+                    0.12, h * 0.6, d * 0.4,
+                    armorMat, "previewAssault2"
+                );
+                
+                // Шипы спереди
+                for (let i = 0; i < 3; i++) {
+                    ChassisDetailsGenerator.createSpike(
+                        scene, chassis,
+                        new Vector3((i - 1) * w * 0.25, h * 0.3, d * 0.52),
+                        0.08, 0.15, 0.12,
+                        0, accentMat, `previewAssault${i}`
+                    );
+                }
+                
+                // Фары с защитой
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.13, d * 0.48),
+                        0.1, 0.1, 0.08,
+                        i, "previewAssault"
+                    );
+                    // Защита фары
+                    ChassisDetailsGenerator.createHeadlightGuard(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.13, d * 0.46),
+                        0.14, 0.14, 0.06,
+                        i, armorMat, "previewAssault"
+                    );
+                }
+                
+                // Выхлоп
+                ChassisDetailsGenerator.createExhaust(
+                    scene, chassis,
+                    new Vector3(w * 0.38, h * 0.18, -d * 0.45),
+                    0.13, 0.13, 0.18,
+                    armorMat, "previewAssault"
+                );
+                
+                // Инструменты
+                ChassisDetailsGenerator.createShovel(
+                    scene, chassis,
+                    new Vector3(-w * 0.4, h * 0.18, -d * 0.45),
+                    0.13, 0.32, 0.02,
+                    armorMat, "previewAssault"
+                );
+                
+                ChassisDetailsGenerator.createCanister(
+                    scene, chassis,
+                    new Vector3(w * 0.38, h * 0.2, -d * 0.4),
+                    0.11, 0.18, 0.11,
+                    armorMat, "previewAssault"
+                );
+                
+                // Вентиляционные решетки (улучшенные)
+                for (let i = 0; i < 2; i++) {
+                    const ventPos = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.35, -d * 0.25);
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis, ventPos,
+                        0.08, 0.05, 0.1,
+                        i, "previewAssault"
+                    );
+                    // Детали решетки
+                    ChassisDetailsGenerator.createVentBars(
+                        scene, chassis, ventPos,
+                        4, 0.06, 0.03, 0.02, 0.03,
+                        i, MaterialFactory.createVentMaterial(scene, i, "previewAssault"), "previewAssault"
+                    );
+                }
+                
+                // Перископы (улучшенные)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createPeriscope(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.52, -d * 0.1),
+                        0.16, 0.07,
+                        i, "previewAssault"
+                    );
+                }
+                
+                // Агрессивные боковые шипы (дополнительные)
+                for (let i = 0; i < 2; i++) {
+                    for (let j = 0; j < 3; j++) {
+                        ChassisDetailsGenerator.createSpike(
+                            scene, chassis,
+                            new Vector3((i === 0 ? -1 : 1) * w * 0.52, h * 0.05 + j * h * 0.2, d * 0.1 + (j - 1) * d * 0.15),
+                            0.06, 0.12, 0.1,
+                            (i === 0 ? 1 : -1) * Math.PI / 8, accentMat, `previewAssault${i}_${j}`
+                        );
                     }
-                    statsLines.push(`DMG: ${baseDmg}${expBonus}`);
-                    statsLines.push(`REL: ${(baseReload / 1000).toFixed(2)}s`);
+                }
+                
+                // Броневые экраны на лобовой части (угловатые)
+                for (let i = 0; i < 4; i++) {
+                    ChassisDetailsGenerator.createSlopedArmor(
+                        scene, chassis,
+                        new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.28, h * 0.08 + (i < 2 ? 0 : h * 0.15), d * 0.5),
+                        w * 0.22, h * 0.18, 0.1,
+                        -Math.PI / 12, armorMat, `previewAssault${i}`
+                    );
+                }
+                
+                // Угловые броневые накладки (агрессивный стиль)
+                for (let i = 0; i < 4; i++) {
+                    const posX = (i % 2 === 0 ? -1 : 1) * w * 0.55;
+                    const posZ = (i < 2 ? -1 : 1) * d * 0.5;
+                    ChassisDetailsGenerator.createArmorPlate(
+                        scene, chassis,
+                        new Vector3(posX, h * 0.45, posZ),
+                        0.2, 0.25, 0.2,
+                        armorMat, `previewAssault${i}`
+                    );
+                }
+                
+                // Верхние вентиляционные решетки (агрессивные, угловатые)
+                for (let i = 0; i < 5; i++) {
+                    ChassisDetailsGenerator.createRoofVent(
+                        scene, chassis,
+                        new Vector3((i - 2) * w * 0.25, h * 0.54, (i < 3 ? -1 : 1) * d * 0.25),
+                        0.15, 0.05, 0.12,
+                        i, "previewAssault"
+                    );
+                }
+                
+                // Задние шипы (агрессивный стиль)
+                for (let i = 0; i < 4; i++) {
+                    ChassisDetailsGenerator.createSpike(
+                        scene, chassis,
+                        new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.35, h * 0.3 + (i < 2 ? 0 : h * 0.15), -d * 0.48),
+                        0.08, 0.18, 0.1,
+                        0, accentMat, `previewAssault${i}`
+                    );
+                }
+                
+                // Задние огни (стоп-сигналы)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createTailLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.16, -d * 0.49),
+                        0.06, 0.1, 0.04,
+                        i, "previewAssault"
+                    );
+                }
+                
+                // Оптический прицел на лобовой части
+                ChassisDetailsGenerator.createSight(
+                    scene, chassis,
+                    new Vector3(0, h * 0.22, d * 0.49),
+                    0.14, 0.09, 0.11,
+                    "previewAssault"
+                );
+                
+                // Радиоантенна сзади
+                ChassisDetailsGenerator.createAntenna(
+                    scene, chassis,
+                    new Vector3(0, h * 0.65, -d * 0.3),
+                    0.45, 0.025,
+                    "previewAssault"
+                );
+                
+                // Основание антенны
+                ChassisDetailsGenerator.createAntennaBase(
+                    scene, chassis,
+                    new Vector3(0, h * 0.54, -d * 0.3),
+                    0.1, armorMat, "previewAssault"
+                );
+                
+                // Боковые фары (сигнальные)
+                for (let i = 0; i < 2; i++) {
+                    const sideLight = MeshBuilder.CreateBox(`previewAssaultSideLight${i}`, { width: 0.05, height: 0.07, depth: 0.05 }, scene);
+                    sideLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.1, -d * 0.2);
+                    sideLight.parent = chassis;
+                    const sideLightMat = new StandardMaterial(`previewAssaultSideLightMat${i}`, scene);
+                    sideLightMat.diffuseColor = new Color3(0.7, 0.6, 0.3);
+                    sideLightMat.emissiveColor = new Color3(0.15, 0.12, 0.08);
+                    sideLight.material = sideLightMat;
+                }
+                
+                // Выхлопная труба (улучшенная, больше)
+                const assaultExhaustUpgraded = MeshBuilder.CreateCylinder("previewAssaultExhaustUpgraded", { height: 0.22, diameter: 0.13, tessellation: 8 }, scene);
+                assaultExhaustUpgraded.position = new Vector3(w * 0.38, h * 0.2, -d * 0.48);
+                assaultExhaustUpgraded.rotation.z = Math.PI / 2;
+                assaultExhaustUpgraded.parent = chassis;
+                assaultExhaustUpgraded.material = armorMat;
+                
+                // Выхлопное отверстие
+                const assaultExhaustHole = MeshBuilder.CreateCylinder("previewAssaultExhaustHole", { height: 0.04, diameter: 0.11, tessellation: 8 }, scene);
+                assaultExhaustHole.position = new Vector3(w * 0.38, h * 0.2, -d * 0.52);
+                assaultExhaustHole.rotation.z = Math.PI / 2;
+                assaultExhaustHole.parent = chassis;
+                const assaultExhaustHoleMat = new StandardMaterial("previewAssaultExhaustHoleMat", scene);
+                assaultExhaustHoleMat.diffuseColor = new Color3(0.05, 0.05, 0.05);
+                assaultExhaustHoleMat.emissiveColor = new Color3(0.1, 0.05, 0);
+                assaultExhaustHole.material = assaultExhaustHoleMat;
+                break;
+            case "medium":
+                // Medium - Прототип: Т-34 - Классический средний танк, наклонная броня
+                // Наклонная лобовая броня (45°)
+                ChassisDetailsGenerator.createSlopedArmor(
+                    scene, chassis,
+                    new Vector3(0, h * 0.1, d * 0.5),
+                    w * 1.0, h * 0.7, 0.18,
+                    -Math.PI / 4, armorMat, "previewMedium"
+                );
+                
+                // Вентиляционные решетки (угловатые)
+                for (let i = 0; i < 3; i++) {
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis,
+                        new Vector3((i - 1) * w * 0.28, h * 0.38, -d * 0.28),
+                        0.06, 0.04, 0.08,
+                        i, "previewMedium"
+                    );
+                }
+                
+                // Два люка на крыше
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHatch(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.48, -d * 0.1),
+                        0.22, 0.08, 0.22,
+                        armorMat, `previewMedium${i}`
+                    );
+                }
+                
+                // Выхлопные трубы сзади
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createExhaust(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.18, -d * 0.45),
+                        0.12, 0.12, 0.18,
+                        armorMat, `previewMedium${i}`
+                    );
+                }
+                
+                // Фары спереди
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.12, d * 0.48),
+                        0.1, 0.1, 0.08,
+                        i, "previewMedium"
+                    );
+                }
+                
+                // Инструменты: лопата, канистра
+                ChassisDetailsGenerator.createShovel(
+                    scene, chassis,
+                    new Vector3(-w * 0.42, h * 0.18, -d * 0.45),
+                    0.14, 0.35, 0.02,
+                    armorMat, "previewMedium"
+                );
+                
+                ChassisDetailsGenerator.createCanister(
+                    scene, chassis,
+                    new Vector3(w * 0.42, h * 0.2, -d * 0.4),
+                    0.12, 0.2, 0.12,
+                    armorMat, "previewMedium"
+                );
+                
+                // Вентиляционные решетки (улучшенные)
+                for (let i = 0; i < 3; i++) {
+                    const ventPos = new Vector3((i - 1) * w * 0.3, h * 0.4, -d * 0.3);
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis, ventPos,
+                        0.08, 0.05, 0.1,
+                        i, "previewMedium"
+                    );
+                    // Детали решетки
+                    ChassisDetailsGenerator.createVentBars(
+                        scene, chassis, ventPos,
+                        4, 0.06, 0.03, 0.02, 0.03,
+                        i, MaterialFactory.createVentMaterial(scene, i, "previewMedium"), "previewMedium"
+                    );
+                }
+                
+                // Перископы на люках
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createPeriscope(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.55, -d * 0.1),
+                        0.18, 0.07,
+                        i, "previewMedium"
+                    );
+                }
+                
+                // Броневые накладки на лобовой части (характерные для Т-34)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createArmorPlate(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.25, h * 0.05, d * 0.48),
+                        w * 0.3, h * 0.2, 0.1,
+                        armorMat, `previewMedium${i}`
+                    );
+                }
+                
+                // Центральная броневая накладка на лбу
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(0, h * 0.2, d * 0.49),
+                    w * 0.2, h * 0.15, 0.12,
+                    armorMat, "previewMedium"
+                );
+                
+                // Боковые броневые экраны (противокумулятивные)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createArmorScreen(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.52, h * 0.15, d * 0.1),
+                        0.15, h * 0.6, d * 0.35,
+                        0, armorMat, `previewMedium${i}`
+                    );
+                }
+                
+                // Дополнительные вентиляционные решетки на крыше
+                for (let i = 0; i < 4; i++) {
+                    ChassisDetailsGenerator.createRoofVent(
+                        scene, chassis,
+                        new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.25, h * 0.46, (i < 2 ? -1 : 1) * d * 0.25),
+                        0.15, 0.04, 0.12,
+                        i, "previewMedium"
+                    );
+                }
+                
+                // Радиоантенна сзади (характерная для Т-34)
+                ChassisDetailsGenerator.createAntenna(
+                    scene, chassis,
+                    new Vector3(0, h * 0.65, -d * 0.35),
+                    0.5, 0.025,
+                    "previewMedium"
+                );
+                
+                // Основание антенны
+                ChassisDetailsGenerator.createAntennaBase(
+                    scene, chassis,
+                    new Vector3(0, h * 0.54, -d * 0.35),
+                    0.1, armorMat, "previewMedium"
+                );
+                
+                // Оптический прицел на лобовой части
+                ChassisDetailsGenerator.createSight(
+                    scene, chassis,
+                    new Vector3(0, h * 0.25, d * 0.48),
+                    0.12, 0.08, 0.1,
+                    "previewMedium"
+                );
+                
+                // Задние огни (стоп-сигналы)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createTailLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.16, -d * 0.49),
+                        0.06, 0.1, 0.04,
+                        i, "previewMedium"
+                    );
+                }
+                
+                // Дополнительные инструменты на корме
+                ChassisDetailsGenerator.createToolBox(
+                    scene, chassis,
+                    new Vector3(0, h * 0.22, -d * 0.42),
+                    0.18, 0.12, 0.14,
+                    armorMat, "previewMedium"
+                );
+                
+                // Боковые фары (сигнальные)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createSideLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.08, -d * 0.25),
+                        0.05, 0.07, 0.05,
+                        i, "previewMedium"
+                    );
+                }
+                break;
+            case "stealth":
+                // Stealth - угловатые панели, генератор невидимости, низкий профиль
+                // Боковые панели
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(-w * 0.45, h * 0.2, d * 0.3),
+                    0.08, h * 0.3, d * 0.4,
+                    armorMat, "previewStealth0"
+                );
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(w * 0.45, h * 0.2, d * 0.3),
+                    0.08, h * 0.3, d * 0.4,
+                    armorMat, "previewStealth1"
+                );
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(0, h * 0.35, -d * 0.35),
+                    w * 0.4, h * 0.25, w * 0.3,
+                    armorMat, "previewStealth2"
+                );
+                
+                // Генератор невидимости
+                ChassisDetailsGenerator.createStealthGenerator(
+                    scene, chassis,
+                    new Vector3(0, h * 0.35, -d * 0.35),
+                    w * 0.35, h * 0.45, w * 0.35,
+                    "previewStealth"
+                );
+                
+                // Две фары (очень маленькие, скрытые)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.1, d * 0.48),
+                        0.06, 0.06, 0.04,
+                        i, "previewStealth"
+                    );
+                }
+                
+                // Две задние фары (скрытые)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createTailLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.1, -d * 0.49),
+                        0.04, 0.05, 0.03,
+                        i, "previewStealth"
+                    );
+                }
+                
+                // Скрытые вентиляционные решетки по бокам
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.42, h * 0.05, d * 0.15),
+                        0.04, 0.06, 0.1,
+                        i, "previewStealth"
+                    );
+                }
+                break;
+            case "hover":
+                // Hover - обтекаемые панели, реактивные двигатели
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createArmorPlate(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.42, 0, 0),
+                        0.06, h * 0.6, d * 0.5,
+                        accentMat, `previewHover${i}`
+                    );
+                }
+                
+                // Реактивные двигатели (4 штуки)
+                for (let i = 0; i < 4; i++) {
+                    const posX = (i % 2 === 0 ? -1 : 1) * w * 0.38;
+                    const posZ = (i < 2 ? -1 : 1) * d * 0.38;
+                    ChassisDetailsGenerator.createThruster(
+                        scene, chassis,
+                        new Vector3(posX, -h * 0.45, posZ),
+                        0.25, 0.18,
+                        i, "previewHover"
+                    );
+                }
+                
+                // Обтекаемые фары спереди
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHeadlightCylindrical(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.15, d * 0.48),
+                        0.12, 0.08,
+                        i, "previewHover"
+                    );
+                }
+                
+                // Обтекаемый люк на крыше (цилиндрический)
+                const hoverHatch = MeshBuilder.CreateCylinder("previewHoverHatch", { height: 0.08, diameter: 0.28, tessellation: 8 }, scene);
+                hoverHatch.position = new Vector3(0, h * 0.52, -d * 0.1);
+                hoverHatch.parent = chassis;
+                hoverHatch.material = armorMat;
+                
+                // Перископ на люке (обтекаемый)
+                ChassisDetailsGenerator.createPeriscope(
+                    scene, chassis,
+                    new Vector3(0, h * 0.58, -d * 0.1),
+                    0.18, 0.06,
+                    0, "previewHover"
+                );
+                
+                // Вентиляционные решетки на крыше (обтекаемые)
+                for (let i = 0; i < 4; i++) {
+                    ChassisDetailsGenerator.createRoofVentCylindrical(
+                        scene, chassis,
+                        new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.28, h * 0.5, (i < 2 ? -1 : 1) * d * 0.25),
+                        0.12, 0.05,
+                        i, "previewHover"
+                    );
+                }
+                
+                // Оптические сенсоры (округлые)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createOpticalSensor(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.2, d * 0.45),
+                        0.06, 0.08,
+                        i, "previewHover"
+                    );
+                }
+                
+                // Задние огни (округлые)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createTailLightCylindrical(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.18, -d * 0.49),
+                        0.08, 0.04,
+                        i, "previewHover"
+                    );
+                }
+                
+                // Обтекаемые воздухозаборники по бокам
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createIntakeCylindrical(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.42, h * 0.1, d * 0.2),
+                        0.15, 0.14,
+                        `previewHover${i}`
+                    );
+                }
+                
+                // Стабилизационные панели (обтекаемые)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createStabilizer(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.1, -d * 0.15),
+                        0.08, h * 0.4, d * 0.3,
+                        accentMat, `previewHover${i}`
+                    );
+                }
+                break;
+            case "siege":
+                // Siege - массивные многослойные бронеплиты
+                // Боковые бронеплиты
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(-w * 0.62, 0, 0),
+                    0.22, h * 0.95, d * 0.75,
+                    armorMat, "previewSiege0"
+                );
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(w * 0.62, 0, 0),
+                    0.22, h * 0.95, d * 0.75,
+                    armorMat, "previewSiege1"
+                );
+                // Лобовая бронеплита
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(0, h * 0.35, d * 0.58),
+                    w * 0.85, h * 0.25, 0.18,
+                    armorMat, "previewSiege2"
+                );
+                // Нижняя бронеплита
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(0, -h * 0.35, 0),
+                    w * 0.98, 0.2, d * 0.98,
+                    armorMat, "previewSiege3"
+                );
+                // Верхняя бронеплита
+                ChassisDetailsGenerator.createArmorPlate(
+                    scene, chassis,
+                    new Vector3(0, h * 0.6, 0),
+                    w * 0.9, 0.15, d * 0.8,
+                    armorMat, "previewSiege4"
+                );
+                
+                // Дополнительные угловые бронеплиты
+                for (let i = 0; i < 4; i++) {
+                    const angle = (i * Math.PI * 2) / 4;
+                    ChassisDetailsGenerator.createArmorPlate(
+                        scene, chassis,
+                        new Vector3(Math.cos(angle) * w * 0.55, h * 0.2, Math.sin(angle) * d * 0.55),
+                        0.15, h * 0.4, 0.15,
+                        armorMat, `previewSiege${i}`
+                    );
+                }
+                
+                // Три люка
+                for (let i = 0; i < 3; i++) {
+                    ChassisDetailsGenerator.createHatch(
+                        scene, chassis,
+                        new Vector3((i - 1) * w * 0.3, h * 0.7, -d * 0.1),
+                        0.25, 0.1, 0.25,
+                        armorMat, `previewSiege${i}`
+                    );
+                }
+                
+                // Фары
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.18, d * 0.5),
+                        0.14, 0.14, 0.12,
+                        i, "previewSiege"
+                    );
+                }
+                
+                // Две выхлопные трубы
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createExhaust(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.22, -d * 0.48),
+                        0.16, 0.16, 0.22,
+                        armorMat, `previewSiege${i}`
+                    );
+                }
+                
+                // Множество инструментов
+                ChassisDetailsGenerator.createShovel(
+                    scene, chassis,
+                    new Vector3(-w * 0.48, h * 0.22, -d * 0.45),
+                    0.16, 0.45, 0.02,
+                    armorMat, "previewSiege"
+                );
+                
+                ChassisDetailsGenerator.createAxe(
+                    scene, chassis,
+                    new Vector3(-w * 0.38, h * 0.28, -d * 0.45),
+                    0.35, 0.12, 0.02,
+                    armorMat, "previewSiege"
+                );
+                
+                ChassisDetailsGenerator.createCanister(
+                    scene, chassis,
+                    new Vector3(w * 0.48, h * 0.25, -d * 0.4),
+                    0.16, 0.3, 0.16,
+                    armorMat, "previewSiege"
+                );
+                
+                // Антенны (большие)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createAntenna(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.8, -d * 0.4),
+                        0.5, 0.03,
+                        `previewSiege${i}`
+                    );
+                }
+                
+                // Перископы на люках
+                for (let i = 0; i < 3; i++) {
+                    ChassisDetailsGenerator.createPeriscope(
+                        scene, chassis,
+                        new Vector3((i - 1) * w * 0.3, h * 0.8, -d * 0.1),
+                        0.22, 0.09,
+                        i, "previewSiege"
+                    );
+                }
+                
+                // Большие вентиляционные решетки на крыше
+                for (let i = 0; i < 5; i++) {
+                    const ventPos = new Vector3((i - 2) * w * 0.25, h * 0.68, d * 0.25);
+                    ChassisDetailsGenerator.createRoofVent(
+                        scene, chassis, ventPos,
+                        0.3, 0.08, 0.2,
+                        i, "previewSiege"
+                    );
+                    // Детали решетки (много планок)
+                    ChassisDetailsGenerator.createVentBars(
+                        scene, chassis, ventPos,
+                        8, 0.04, 0.07, 0.18, 0.04,
+                        i, MaterialFactory.createRoofVentMaterial(scene, i, "previewSiege"), "previewSiege"
+                    );
+                }
+                
+                // Массивные выхлопные трубы (большие)
+                for (let i = 0; i < 3; i++) {
+                    ChassisDetailsGenerator.createExhaustCylindrical(
+                        scene, chassis,
+                        new Vector3((i - 1) * w * 0.3, h * 0.25, -d * 0.48),
+                        0.3, 0.16,
+                        `previewSiege${i}`
+                    );
+                    // Выхлопное отверстие
+                    ChassisDetailsGenerator.createExhaustHole(
+                        scene, chassis,
+                        new Vector3((i - 1) * w * 0.3, h * 0.25, -d * 0.52),
+                        0.05, 0.14,
+                        i, `previewSiege${i}`
+                    );
+                }
+                
+                // Оптический прицел на лобовой части (огромный)
+                ChassisDetailsGenerator.createSight(
+                    scene, chassis,
+                    new Vector3(0, h * 0.3, d * 0.5),
+                    0.22, 0.15, 0.18,
+                    "previewSiege"
+                );
+                
+                // Дополнительные броневые накладки на лобовой части (огромные)
+                for (let i = 0; i < 3; i++) {
+                    ChassisDetailsGenerator.createArmorPlate(
+                        scene, chassis,
+                        new Vector3((i - 1) * w * 0.32, h * 0.1, d * 0.5),
+                        w * 0.35, h * 0.25, 0.15,
+                        armorMat, `previewSiege${i}`
+                    );
+                }
+                
+                // Задние огни (стоп-сигналы, большие)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createTailLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.22, -d * 0.49),
+                        0.1, 0.15, 0.06,
+                        i, "previewSiege"
+                    );
+                }
+                
+                // Боковые вентиляционные решетки (большие)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.12, d * 0.15),
+                        0.08, 0.15, 0.2,
+                        i, "previewSiege"
+                    );
+                }
+                break;
+            case "racer":
+                // Racer - очень низкий, спортивный - гонщик
+                // Передний спойлер
+                ChassisDetailsGenerator.createSpoiler(
+                    scene, chassis,
+                    new Vector3(0, -h * 0.4, d * 0.48),
+                    w * 0.9, 0.12, 0.15,
+                    accentMat, "previewRacer"
+                );
+                
+                // Задний спойлер (большой)
+                ChassisDetailsGenerator.createSpoiler(
+                    scene, chassis,
+                    new Vector3(0, h * 0.45, -d * 0.48),
+                    w * 1.1, 0.25, 0.2,
+                    accentMat, "previewRacer"
+                );
+                
+                // Боковые обтекатели (низкопрофильные)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createFairing(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.48, 0, d * 0.1),
+                        0.12, h * 0.6, d * 0.7,
+                        accentMat, `previewRacer${i}`
+                    );
+                }
+                
+                // Передние фары (большие, агрессивные)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.32, h * 0.1, d * 0.49),
+                        0.15, 0.12, 0.1,
+                        i, "previewRacer"
+                    );
+                }
+                
+                // Центральная воздухозаборная решетка
+                ChassisDetailsGenerator.createIntake(
+                    scene, chassis,
+                    new Vector3(0, h * 0.15, d * 0.48),
+                    w * 0.4, h * 0.25, 0.08,
+                    MaterialFactory.createVentMaterial(scene, 0, "previewRacer"), "previewRacer"
+                );
+                
+                // Детали решетки
+                const intakePos = new Vector3(0, h * 0.15, d * 0.48);
+                ChassisDetailsGenerator.createVentBars(
+                    scene, chassis, intakePos,
+                    5, 0.02, h * 0.2, 0.06, w * 0.09,
+                    0, MaterialFactory.createVentMaterial(scene, 0, "previewRacer"), "previewRacer"
+                );
+                
+                // Верхние воздухозаборники на крыше
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createIntake(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.25, h * 0.42, d * 0.3),
+                        0.18, 0.08, 0.12,
+                        MaterialFactory.createVentMaterial(scene, i, "previewRacer"), `previewRacer${i}`
+                    );
+                }
+                
+                // Выхлопные трубы (большие, по бокам)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createExhaustCylindrical(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.08, -d * 0.48),
+                        0.3, 0.1,
+                        `previewRacer${i}`
+                    );
+                    // Выхлопное отверстие
+                    ChassisDetailsGenerator.createExhaustHole(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.08, -d * 0.52),
+                        0.05, 0.08,
+                        i, `previewRacer${i}`
+                    );
+                }
+                
+                // Боковые зеркала
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createMirror(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.52, h * 0.35, d * 0.35),
+                        0.08, 0.05, 0.04,
+                        i, "previewRacer"
+                    );
+                }
+                
+                // Задние огни (большие стоп-сигналы)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createTailLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.12, -d * 0.49),
+                        0.08, 0.12, 0.04,
+                        i, "previewRacer"
+                    );
+                }
+                
+                // Вентиляционные отверстия на боковых панелях
+                for (let i = 0; i < 2; i++) {
+                    for (let j = 0; j < 3; j++) {
+                        ChassisDetailsGenerator.createVent(
+                            scene, chassis,
+                            new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.05, d * 0.1 + (j - 1) * d * 0.15),
+                            0.04, 0.1, 0.04,
+                            j, `previewRacer${i}`
+                        );
+                    }
+                }
+                
+                // Люк на крыше (спортивный стиль)
+                ChassisDetailsGenerator.createHatch(
+                    scene, chassis,
+                    new Vector3(0, h * 0.46, -d * 0.1),
+                    0.3, 0.06, 0.25,
+                    armorMat, "previewRacer"
+                );
+                
+                // Перископ на люке
+                ChassisDetailsGenerator.createPeriscope(
+                    scene, chassis,
+                    new Vector3(0, h * 0.56, -d * 0.1),
+                    0.2, 0.06,
+                    0, "previewRacer"
+                );
+                break;
+            case "amphibious":
+                // Amphibious - большие поплавки, водонепроницаемые панели
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createFloat(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.42, -h * 0.25, 0),
+                        h * 0.7, w * 0.35,
+                        accentMat, `previewAmphibious${i}`
+                    );
+                }
+                
+                // Водонепроницаемые панели
+                ChassisDetailsGenerator.createWaterSeal(
+                    scene, chassis,
+                    new Vector3(0, h * 0.5, 0),
+                    w * 1.05, 0.08, d * 1.05,
+                    armorMat, "previewAmphibious"
+                );
+                
+                // Люки
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHatch(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.52, -d * 0.1),
+                        0.2, 0.08, 0.2,
+                        armorMat, `previewAmphibious${i}`
+                    );
+                }
+                
+                // Фары
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.15, d * 0.48),
+                        0.1, 0.1, 0.08,
+                        i, "previewAmphibious"
+                    );
+                }
+                
+                // Вентиляционные решетки (водонепроницаемые)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.3, -d * 0.25),
+                        0.08, 0.05, 0.1,
+                        i, "previewAmphibious"
+                    );
+                }
+                
+                // Перископы
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createPeriscope(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.58, -d * 0.1),
+                        0.18, 0.07,
+                        i, "previewAmphibious"
+                    );
+                }
+                break;
+            case "shield":
+                // Shield - генератор щита, энергетические панели
+                ChassisDetailsGenerator.createEnergyGenerator(
+                    scene, chassis,
+                    new Vector3(0, h * 0.45, -d * 0.25),
+                    w * 0.45,
+                    "previewShield"
+                );
+                
+                // Энергетические панели по бокам
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createEnergyPanel(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.55, h * 0.15, 0),
+                        0.1, h * 0.5, d * 0.3,
+                        i, "previewShield"
+                    );
+                }
+                
+                // Люки
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHatch(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.52, -d * 0.1),
+                        0.2, 0.08, 0.2,
+                        armorMat, `previewShield${i}`
+                    );
+                }
+                
+                // Фары
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.15, d * 0.48),
+                        0.1, 0.1, 0.08,
+                        i, "previewShield"
+                    );
+                }
+                
+                // Вентиляционные решетки (энергетические)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.3, -d * 0.25),
+                        0.08, 0.05, 0.1,
+                        i, "previewShield"
+                    );
+                }
+                
+                // Энергетические катушки вокруг генератора
+                for (let i = 0; i < 4; i++) {
+                    const angle = (i * Math.PI * 2) / 4;
+                    ChassisDetailsGenerator.createEnergyCoil(
+                        scene, chassis,
+                        new Vector3(0, h * 0.45, -d * 0.25),
+                        w * 0.5, 0.06,
+                        angle,
+                        i, "previewShield"
+                    );
+                }
+                
+                // Перископы на люках
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createPeriscope(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.6, -d * 0.1),
+                        0.18, 0.07,
+                        i, "previewShield"
+                    );
+                }
+                
+                // Энергетические порты (для зарядки щита)
+                for (let i = 0; i < 4; i++) {
+                    const angle = (i * Math.PI * 2) / 4;
+                    ChassisDetailsGenerator.createEnergyPort(
+                        scene, chassis,
+                        new Vector3(Math.cos(angle) * w * 0.4, h * 0.25, -d * 0.25 + Math.sin(angle) * d * 0.2),
+                        0.08, 0.1,
+                        angle + Math.PI / 2,
+                        i, "previewShield"
+                    );
+                }
+                
+                // Верхние вентиляционные решетки (энергетические)
+                for (let i = 0; i < 4; i++) {
+                    ChassisDetailsGenerator.createRoofVent(
+                        scene, chassis,
+                        new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.25, h * 0.54, (i < 2 ? -1 : 1) * d * 0.25),
+                        0.15, 0.04, 0.12,
+                        i, "previewShield"
+                    );
+                }
+                
+                // Задние огни (стоп-сигналы)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createTailLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.16, -d * 0.49),
+                        0.06, 0.1, 0.04,
+                        i, "previewShield"
+                    );
+                }
+                
+                // Радиоантенна сзади
+                ChassisDetailsGenerator.createAntenna(
+                    scene, chassis,
+                    new Vector3(0, h * 0.65, -d * 0.3),
+                    0.5, 0.025,
+                    "previewShield"
+                );
+                
+                // Основание антенны
+                ChassisDetailsGenerator.createAntennaBase(
+                    scene, chassis,
+                    new Vector3(0, h * 0.54, -d * 0.3),
+                    0.1, armorMat, "previewShield"
+                );
+                
+                // Оптический прицел на лобовой части
+                ChassisDetailsGenerator.createSight(
+                    scene, chassis,
+                    new Vector3(0, h * 0.22, d * 0.49),
+                    0.14, 0.09, 0.11,
+                    "previewShield"
+                );
+                
+                // Выхлопные трубы сзади
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createExhaustCylindrical(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.2, -d * 0.48),
+                        0.2, 0.12,
+                        `previewShield${i}`
+                    );
+                }
+                break;
+            case "drone":
+                // Drone - платформы для дронов, антенны связи
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createDronePlatform(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.65, 0),
+                        w * 0.45, 0.12, w * 0.45,
+                        i, "previewDrone"
+                    );
                     
-                    // Опыт и статистика использования
-                    if (this.experienceSystem) {
-                        const expInfo = this.experienceSystem.getCannonExperience(part.id);
-                        if (expInfo) {
-                            statsLines.push(`XP: ${expInfo.experience} XP`);
-                            statsLines.push(`Kills: ${expInfo.kills}`);
-                            statsLines.push(`DMG: ${Math.round(expInfo.damageDealt)}`);
-                        }
+                    // Антенны на платформах
+                    ChassisDetailsGenerator.createAntenna(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.72, 0),
+                        0.15, 0.03,
+                        `previewDrone${i}`
+                    );
+                }
+                
+                // Люки
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHatch(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.6, -d * 0.1),
+                        0.2, 0.08, 0.2,
+                        armorMat, `previewDrone${i}`
+                    );
+                }
+                
+                // Фары
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.15, d * 0.48),
+                        0.1, 0.1, 0.08,
+                        i, "previewDrone"
+                    );
+                }
+                
+                // Вентиляционные решетки (для охлаждения систем управления дронами)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.3, -d * 0.25),
+                        0.08, 0.05, 0.1,
+                        i, "previewDrone"
+                    );
+                }
+                
+                // Перископы
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createPeriscope(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.66, -d * 0.1),
+                        0.18, 0.07,
+                        i, "previewDrone"
+                    );
+                }
+                
+                // Сенсорные панели на платформах
+                for (let i = 0; i < 2; i++) {
+                    for (let j = 0; j < 2; j++) {
+                        ChassisDetailsGenerator.createSensor(
+                            scene, chassis,
+                            new Vector3((i === 0 ? -1 : 1) * w * 0.38 + (j === 0 ? -1 : 1) * 0.1, h * 0.68, (j === 0 ? -1 : 1) * 0.1),
+                            0.08, 0.04, 0.08,
+                            j, `previewDrone${i}`
+                        );
                     }
                 }
-            } else {
-                const upgrade = item as TankUpgrade;
-                statsLines.push(`Current: ${upgrade.level * upgrade.value}${upgrade.stat === "reload" ? "ms" : ""}`);
-                statsLines.push(`Next: +${upgrade.value}${upgrade.stat === "reload" ? "ms" : ""}`);
-                statsLines.push(`Cost: ${upgrade.cost} CR`);
-            }
-            
-            // Отображаем статистику в терминальном стиле
-            statsLines.forEach((line, i) => {
-                const statLine = new TextBlock(`tooltipStat_${index}_${i}`);
-                // Убираем эмодзи и форматируем в терминальном стиле
-                let cleanLine = line.trim();
-                // Уже в правильном формате, убираем лишние замены
-                statLine.text = `> ${cleanLine}`;
-                statLine.color = "#0f0";
-                statLine.fontSize = 11;
-                statLine.fontFamily = "Consolas, Monaco, monospace";
-                statLine.top = `${-50 + i * 16}px`;
-                statLine.left = "-170px";
-                statLine.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                if (tooltip) tooltip.addControl(statLine);
-            });
-            
-            // Рекомендация в терминальном стиле
-            const currency = this.currencyManager.getCurrency();
-            if (!("level" in item) && !(item as TankPart).unlocked && item.cost <= currency) {
-                const recText = new TextBlock(`tooltipRec_${index}`);
-                recText.text = "> RECOMMENDED";
-                recText.color = "#ff0";
-                recText.fontSize = 10;
-                recText.fontFamily = "Consolas, Monaco, monospace";
-                recText.fontWeight = "bold";
-                recText.top = "100px";
-                recText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-                tooltip.addControl(recText);
-            }
-            
-            // Добавляем tooltip в контейнер списка
-            if (this.itemList) {
-                this.itemList.addControl(tooltip);
-            }
-        });
-        
-        container.onPointerOutObservable.add(() => {
-            // Восстанавливаем оригинальную толщину
-            container.thickness = Math.max(container.thickness - 1, 1);
-            
-            // Удаляем tooltip
-            if (tooltip) {
-                tooltip.dispose();
-                tooltip = null;
-            }
-        });
-    }
-    
-    // Создать превью текущего танка - улучшенное
-    private createCurrentTankPreview(): void {
-        const currentChassis = CHASSIS_TYPES.find(c => c.id === this.currentChassisId);
-        const currentCannon = CANNON_TYPES.find(c => c.id === this.currentCannonId);
-        
-        if (!currentChassis || !currentCannon) return;
-        
-        // Получаем бонусы от опыта
-        let chassisBonus = { healthBonus: 0, speedBonus: 0, armorBonus: 0, title: "" };
-        let cannonBonus = { damageBonus: 0, reloadBonus: 0, title: "" };
-        if (this.experienceSystem) {
-            chassisBonus = this.experienceSystem.getChassisLevelBonus(this.currentChassisId) || chassisBonus;
-            cannonBonus = this.experienceSystem.getCannonLevelBonus(this.currentCannonId) || cannonBonus;
-        }
-        
-        // Контейнер для превью - компактный, справа вверху
-        const previewContainer = new Rectangle("tankPreviewContainer");
-        previewContainer.width = "220px";
-        previewContainer.height = "80px";
-        previewContainer.cornerRadius = 0;
-        previewContainer.thickness = 1;
-        previewContainer.color = "#0f0";
-        previewContainer.background = "rgba(0, 0, 0, 0.8)";
-        previewContainer.left = "20px";
-        previewContainer.top = "-250px";
-        this.garageContainer!.addControl(previewContainer);
-        
-        // Заголовок в терминальном стиле - упрощенный
-        const previewTitle = new TextBlock("previewTitle");
-        previewTitle.text = "CURRENT";
-        previewTitle.color = "#0f0";
-        previewTitle.fontSize = 10;
-        previewTitle.fontFamily = "Consolas, Monaco, monospace";
-        previewTitle.fontWeight = "bold";
-        previewTitle.top = "-40px";
-        previewTitle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        previewContainer.addControl(previewTitle);
-        
-        // Название корпуса с уровнем в терминальном стиле - упрощенный
-        const chassisText = new TextBlock("currentChassis");
-        chassisText.text = `${currentChassis.name} [${chassisBonus.title || "Lv.1"}]`;
-        chassisText.color = "#0f0";
-        chassisText.fontSize = 11;
-        chassisText.fontFamily = "Consolas, Monaco, monospace";
-        chassisText.fontWeight = "bold";
-        chassisText.top = "-25px";
-        chassisText.left = "-110px";
-        previewContainer.addControl(chassisText);
-        
-        // Название пушки с уровнем в терминальном стиле - упрощенный
-        const cannonText = new TextBlock("currentCannon");
-        cannonText.text = `${currentCannon.name} [${cannonBonus.title || "Lv.1"}]`;
-        cannonText.color = "#0ff";
-        cannonText.fontSize = 11;
-        cannonText.fontFamily = "Consolas, Monaco, monospace";
-        cannonText.fontWeight = "bold";
-        cannonText.top = "-10px";
-        cannonText.left = "-110px";
-        previewContainer.addControl(cannonText);
-        
-        // Статистика с бонусами в терминальном стиле - упрощенная
-        const totalHp = currentChassis.maxHealth + chassisBonus.healthBonus;
-        const totalDmg = currentCannon.damage + cannonBonus.damageBonus;
-        const totalSpeed = currentChassis.moveSpeed + chassisBonus.speedBonus;
-        const statsText = new TextBlock("tankStats");
-        statsText.text = `HP:${totalHp} DMG:${totalDmg} SPD:${totalSpeed.toFixed(1)}`;
-        statsText.color = "#0aa";
-        statsText.fontSize = 10;
-        statsText.fontFamily = "Consolas, Monaco, monospace";
-        statsText.top = "5px";
-        statsText.left = "-110px";
-        previewContainer.addControl(statsText);
-    }
-    
-    // Создать быстрые действия (вызывается из createGarageUI)
-    public createQuickActions(): void {
-        const quickContainer = new Rectangle("quickActions");
-        quickContainer.width = "480px";
-        quickContainer.height = "40px";
-        quickContainer.cornerRadius = 0;
-        quickContainer.thickness = 0;
-        quickContainer.background = "#00000000";
-        quickContainer.top = "-150px";
-        quickContainer.left = "20px";
-        this.garageContainer!.addControl(quickContainer);
-        
-        // Быстрая покупка - компактная
-        const quickBuyBtn = Button.CreateSimpleButton("quickBuy", "QUICK BUY [F]");
-        quickBuyBtn.width = "140px";
-        quickBuyBtn.height = "28px";
-        quickBuyBtn.cornerRadius = 0;
-        quickBuyBtn.fontFamily = "Consolas, Monaco, monospace";
-        quickBuyBtn.color = "#0f0";
-        quickBuyBtn.background = "rgba(0, 255, 0, 0.2)";
-        quickBuyBtn.thickness = 1;
-        quickBuyBtn.fontSize = 9;
-        quickBuyBtn.fontWeight = "bold";
-        quickBuyBtn.left = "-230px";
-        quickBuyBtn.top = "6px";
-        
-        // Hover эффект для кнопки быстрой покупки
-        quickBuyBtn.onPointerEnterObservable.add(() => {
-            quickBuyBtn.color = "#ff0";
-            quickBuyBtn.background = "rgba(255, 255, 0, 0.25)";
-            quickBuyBtn.thickness = 2;
-        });
-        quickBuyBtn.onPointerOutObservable.add(() => {
-            quickBuyBtn.color = "#0f0";
-            quickBuyBtn.background = "rgba(0, 255, 0, 0.15)";
-            quickBuyBtn.thickness = 1;
-        });
-        
-        quickBuyBtn.onPointerClickObservable.add(() => {
-            this.quickPurchase();
-        });
-        quickContainer.addControl(quickBuyBtn);
-        
-        // Показать только доступные - компактная
-        const showAffordableBtn = Button.CreateSimpleButton("showAffordable", "AFFORDABLE");
-        showAffordableBtn.width = "120px";
-        showAffordableBtn.height = "28px";
-        showAffordableBtn.cornerRadius = 0;
-        showAffordableBtn.fontFamily = "Consolas, Monaco, monospace";
-        showAffordableBtn.color = "#0ff";
-        showAffordableBtn.background = "rgba(0, 255, 255, 0.15)";
-        showAffordableBtn.thickness = 1;
-        showAffordableBtn.fontSize = 9;
-        showAffordableBtn.left = "-70px";
-        showAffordableBtn.top = "6px";
-        
-        // Hover эффект для кнопки доступных
-        showAffordableBtn.onPointerEnterObservable.add(() => {
-            showAffordableBtn.color = "#0f0";
-            showAffordableBtn.background = "rgba(0, 255, 0, 0.2)";
-            showAffordableBtn.thickness = 2;
-        });
-        showAffordableBtn.onPointerOutObservable.add(() => {
-            showAffordableBtn.color = "#0ff";
-            showAffordableBtn.background = "rgba(0, 255, 255, 0.1)";
-            showAffordableBtn.thickness = 1;
-        });
-        
-        showAffordableBtn.onPointerClickObservable.add(() => {
-            // Показываем только то, что можем купить
-            this.filterUnlocked = false;
-            this.updateItemList();
-            // Обновляем кнопки фильтров
-            const filterAll = this.garageContainer!.getChildByName("filterAll") as Button;
-            const filterOwned = this.garageContainer!.getChildByName("filterOwned") as Button;
-            const filterLocked = this.garageContainer!.getChildByName("filterLocked") as Button;
-            if (filterAll) { filterAll.color = "#0aa"; filterAll.background = "#001122"; }
-            if (filterOwned) { filterOwned.color = "#0aa"; filterOwned.background = "#001122"; }
-            if (filterLocked) { filterLocked.color = "#0f0"; filterLocked.background = "#002200"; }
-        });
-        quickContainer.addControl(showAffordableBtn);
-        
-        // Показать статистику категории - компактная
-        const statsBtn = Button.CreateSimpleButton("categoryStats", "STATS");
-        statsBtn.width = "90px";
-        statsBtn.height = "28px";
-        statsBtn.cornerRadius = 0;
-        statsBtn.fontFamily = "Consolas, Monaco, monospace";
-        statsBtn.color = "#0aa";
-        statsBtn.background = "rgba(0, 255, 0, 0.15)";
-        statsBtn.thickness = 1;
-        statsBtn.fontSize = 9;
-        statsBtn.left = "60px";
-        statsBtn.top = "6px";
-        
-        // Hover эффект для кнопки статистики
-        statsBtn.onPointerEnterObservable.add(() => {
-            statsBtn.color = "#0ff";
-            statsBtn.background = "rgba(0, 255, 255, 0.2)";
-            statsBtn.thickness = 2;
-        });
-        statsBtn.onPointerOutObservable.add(() => {
-            statsBtn.color = "#0aa";
-            statsBtn.background = "rgba(0, 255, 0, 0.1)";
-            statsBtn.thickness = 1;
-        });
-        
-        statsBtn.onPointerClickObservable.add(() => {
-            this.showCategoryStats();
-        });
-        quickContainer.addControl(statsBtn);
-    }
-    
-    // Быстрая покупка самого дешёвого доступного предмета
-    private quickPurchase(): void {
-        const currency = this.currencyManager.getCurrency();
-        let cheapest: TankPart | TankUpgrade | null = null;
-        let cheapestCost = Infinity;
-        
-        // Ищем самый дешёвый доступный предмет в текущей категории
-        let items: (TankPart | TankUpgrade)[] = [];
-        if (this.currentCategory === "chassis") {
-            items = this.chassisParts.filter(p => !p.unlocked && p.cost <= currency);
-        } else if (this.currentCategory === "barrel") {
-            items = this.cannonParts.filter(p => !p.unlocked && p.cost <= currency);
-        } else if (this.currentCategory === "upgrades") {
-            items = this.upgrades.filter(u => u.level < u.maxLevel && u.cost <= currency);
-        }
-        
-        items.forEach(item => {
-            if (item.cost < cheapestCost) {
-                cheapestCost = item.cost;
-                cheapest = item;
-            }
-        });
-        
-        if (cheapest) {
-            this.purchaseItem(cheapest);
-            const msg = this.garageContainer!.getChildByName("garageMessage") as TextBlock;
-            if (msg) {
-                let itemName = "Unknown";
-                if (cheapest && typeof cheapest === 'object' && 'name' in cheapest) {
-                    itemName = (cheapest as { name: string }).name;
+                
+                // Верхние вентиляционные решетки на крыше
+                for (let i = 0; i < 4; i++) {
+                    ChassisDetailsGenerator.createRoofVent(
+                        scene, chassis,
+                        new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.25, h * 0.58, (i < 2 ? -1 : 1) * d * 0.25),
+                        0.12, 0.04, 0.1,
+                        i, "previewDrone"
+                    );
                 }
-                msg.text = `[QUICK] Quick buy: ${itemName}`;
-                msg.color = "#0f0";
-            }
-        } else {
-            const msg = this.garageContainer!.getChildByName("garageMessage") as TextBlock;
-            if (msg) {
-                msg.text = "Нет доступных предметов для покупки";
-                msg.color = "#ff0";
-                setTimeout(() => {
-                    if (msg) msg.text = "";
-                }, 2000);
-            }
+                
+                // Задние огни (стоп-сигналы)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createTailLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.16, -d * 0.49),
+                        0.06, 0.1, 0.04,
+                        i, "previewDrone"
+                    );
+                }
+                
+                // Оптический прицел на лобовой части
+                ChassisDetailsGenerator.createSight(
+                    scene, chassis,
+                    new Vector3(0, h * 0.22, d * 0.49),
+                    0.14, 0.09, 0.11,
+                    "previewDrone"
+                );
+                
+                // Радиоантенна сзади (для связи с дронами)
+                ChassisDetailsGenerator.createAntenna(
+                    scene, chassis,
+                    new Vector3(0, h * 0.72, -d * 0.3),
+                    0.55, 0.025,
+                    "previewDrone"
+                );
+                
+                // Основание антенны
+                ChassisDetailsGenerator.createAntennaBase(
+                    scene, chassis,
+                    new Vector3(0, h * 0.6, -d * 0.3),
+                    0.1, armorMat, "previewDrone"
+                );
+                
+                // Выхлопные трубы сзади
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createExhaustCylindrical(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.2, -d * 0.48),
+                        0.2, 0.12,
+                        `previewDrone${i}`
+                    );
+                }
+                break;
+            case "artillery":
+                // Artillery - массивные стабилизаторы, опорные лапы
+                for (let i = 0; i < 4; i++) {
+                    const angle = (i * Math.PI * 2) / 4;
+                    ChassisDetailsGenerator.createStabilizerCylindrical(
+                        scene, chassis,
+                        new Vector3(Math.cos(angle) * w * 0.65, -h * 0.45, Math.sin(angle) * d * 0.65),
+                        0.35, 0.25,
+                        armorMat, `previewArtillery${i}`
+                    );
+                    
+                    // Опорные лапы
+                    ChassisDetailsGenerator.createArmorPlate(
+                        scene, chassis,
+                        new Vector3(Math.cos(angle) * w * 0.7, -h * 0.55, Math.sin(angle) * d * 0.7),
+                        0.12, 0.2, 0.12,
+                        armorMat, `previewArtilleryLeg${i}`
+                    );
+                }
+                
+                // Люки
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHatch(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.7, -d * 0.1),
+                        0.22, 0.1, 0.22,
+                        armorMat, `previewArtillery${i}`
+                    );
+                }
+                
+                // Фары
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.2, d * 0.5),
+                        0.12, 0.12, 0.1,
+                        i, "previewArtillery"
+                    );
+                }
+                
+                // Выхлоп
+                ChassisDetailsGenerator.createExhaust(
+                    scene, chassis,
+                    new Vector3(w * 0.4, h * 0.22, -d * 0.48),
+                    0.14, 0.14, 0.2,
+                    armorMat, "previewArtillery"
+                );
+                
+                // Вентиляционные решетки (большие для артиллерии)
+                for (let i = 0; i < 3; i++) {
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis,
+                        new Vector3((i - 1) * w * 0.35, h * 0.6, -d * 0.3),
+                        0.12, 0.08, 0.14,
+                        i, "previewArtillery"
+                    );
+                }
+                
+                // Перископы
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createPeriscope(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.85, -d * 0.1),
+                        0.22, 0.09,
+                        i, "previewArtillery"
+                    );
+                }
+                
+                // Системы наведения (оптические прицелы)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createSight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.75, d * 0.45),
+                        0.16, 0.12, 0.14,
+                        `previewArtillery${i}`
+                    );
+                }
+                
+                // Верхние вентиляционные решетки на крыше (большие)
+                for (let i = 0; i < 5; i++) {
+                    const ventPos = new Vector3((i - 2) * w * 0.28, h * 0.72, d * 0.25);
+                    ChassisDetailsGenerator.createRoofVent(
+                        scene, chassis, ventPos,
+                        0.2, 0.06, 0.16,
+                        i, "previewArtillery"
+                    );
+                    // Детали решетки
+                    ChassisDetailsGenerator.createVentBars(
+                        scene, chassis, ventPos,
+                        5, 0.03, 0.05, 0.14, 0.04,
+                        i, MaterialFactory.createRoofVentMaterial(scene, i, "previewArtillery"), "previewArtillery"
+                    );
+                }
+                
+                // Радиоантенна сзади
+                ChassisDetailsGenerator.createAntenna(
+                    scene, chassis,
+                    new Vector3(0, h * 0.9, -d * 0.3),
+                    0.6, 0.03,
+                    "previewArtillery"
+                );
+                
+                // Основание антенны
+                ChassisDetailsGenerator.createAntennaBase(
+                    scene, chassis,
+                    new Vector3(0, h * 0.76, -d * 0.3),
+                    0.12, armorMat, "previewArtillery"
+                );
+                
+                // Задние огни (стоп-сигналы, большие)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createTailLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.22, -d * 0.49),
+                        0.08, 0.14, 0.06,
+                        i, "previewArtillery"
+                    );
+                }
+                
+                // Боковые фары (сигнальные)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createSideLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.15, -d * 0.25),
+                        0.06, 0.09, 0.06,
+                        i, "previewArtillery"
+                    );
+                }
+                
+                // Выхлопная труба (большая)
+                ChassisDetailsGenerator.createExhaustCylindrical(
+                    scene, chassis,
+                    new Vector3(0, h * 0.25, -d * 0.48),
+                    0.28, 0.18,
+                    "previewArtillery"
+                );
+                
+                // Выхлопное отверстие
+                ChassisDetailsGenerator.createExhaustHole(
+                    scene, chassis,
+                    new Vector3(0, h * 0.25, -d * 0.52),
+                    0.05, 0.16,
+                    0, "previewArtillery"
+                );
+                break;
+            case "destroyer":
+                // Destroyer - длинный клиновидный нос, низкий профиль
+                ChassisDetailsGenerator.createSlopedArmor(
+                    scene, chassis,
+                    new Vector3(0, 0, d * 0.52),
+                    w * 0.85, h * 0.55, 0.35,
+                    -Math.PI / 6, accentMat, "previewDestroyer"
+                );
+                
+                // Боковые бронеплиты
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createArmorPlate(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.48, 0, d * 0.15),
+                        0.12, h * 0.7, d * 0.5,
+                        armorMat, `previewDestroyer${i}`
+                    );
+                }
+                
+                // Люки
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHatch(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.48, -d * 0.1),
+                        0.18, 0.06, 0.18,
+                        armorMat, `previewDestroyer${i}`
+                    );
+                }
+                
+                // Фары
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createHeadlight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.1, d * 0.48),
+                        0.1, 0.1, 0.08,
+                        i, "previewDestroyer"
+                    );
+                }
+                
+                // Вентиляционные решетки
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createVent(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.25, -d * 0.25),
+                        0.08, 0.05, 0.1,
+                        i, "previewDestroyer"
+                    );
+                }
+                
+                // Перископы
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createPeriscope(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.54, -d * 0.1),
+                        0.14, 0.07,
+                        i, "previewDestroyer"
+                    );
+                }
+                
+                // Оптический прицел на лобовой части (большой)
+                ChassisDetailsGenerator.createSight(
+                    scene, chassis,
+                    new Vector3(0, h * 0.2, d * 0.48),
+                    0.15, 0.1, 0.12,
+                    "previewDestroyer"
+                );
+                
+                // Дополнительные броневые накладки на лобовой части
+                for (let i = 0; i < 3; i++) {
+                    ChassisDetailsGenerator.createArmorPlate(
+                        scene, chassis,
+                        new Vector3((i - 1) * w * 0.28, h * 0.05, d * 0.48),
+                        w * 0.28, h * 0.18, 0.1,
+                        armorMat, `previewDestroyer${i}`
+                    );
+                }
+                
+                // Верхние вентиляционные решетки на крыше
+                for (let i = 0; i < 4; i++) {
+                    const ventPos = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.28, h * 0.46, (i < 2 ? -1 : 1) * d * 0.2);
+                    ChassisDetailsGenerator.createRoofVent(
+                        scene, chassis, ventPos,
+                        0.12, 0.04, 0.1,
+                        i, "previewDestroyer"
+                    );
+                    // Детали решетки
+                    ChassisDetailsGenerator.createVentBars(
+                        scene, chassis, ventPos,
+                        3, 0.02, 0.03, 0.08, 0.03,
+                        i, MaterialFactory.createRoofVentMaterial(scene, i, "previewDestroyer"), "previewDestroyer"
+                    );
+                }
+                
+                // Выхлопные трубы сзади (большие)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createExhaustCylindrical(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.18, -d * 0.48),
+                        0.25, 0.12,
+                        `previewDestroyer${i}`
+                    );
+                    // Выхлопное отверстие
+                    ChassisDetailsGenerator.createExhaustHole(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.18, -d * 0.52),
+                        0.05, 0.1,
+                        i, `previewDestroyer${i}`
+                    );
+                }
+                
+                // Задние огни (стоп-сигналы)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createTailLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.15, -d * 0.49),
+                        0.06, 0.1, 0.04,
+                        i, "previewDestroyer"
+                    );
+                }
+                
+                // Боковые фары (сигнальные)
+                for (let i = 0; i < 2; i++) {
+                    ChassisDetailsGenerator.createSideLight(
+                        scene, chassis,
+                        new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.08, -d * 0.2),
+                        0.05, 0.07, 0.05,
+                        i, "previewDestroyer"
+                    );
+                }
+                break;
+            case "command":
+                // Command - аура, множественные антенны, командный модуль
+                const commandAura = MeshBuilder.CreateTorus("previewCommandAura", { diameter: w * 1.6, thickness: 0.06, tessellation: 20 }, scene);
+                commandAura.position = new Vector3(0, h * 0.55, 0);
+                commandAura.rotation.x = Math.PI / 2;
+                commandAura.parent = chassis;
+                const auraMat = new StandardMaterial("previewAuraMat", scene);
+                auraMat.diffuseColor = new Color3(1, 0.88, 0);
+                auraMat.emissiveColor = new Color3(0.6, 0.5, 0);
+                auraMat.disableLighting = true;
+                commandAura.material = auraMat;
+                
+                // Командный модуль сверху
+                const commandModule = MeshBuilder.CreateBox("previewCommandModule", { width: w * 0.6, height: h * 0.3, depth: d * 0.4 }, scene);
+                commandModule.position = new Vector3(0, h * 0.6, -d * 0.3);
+                commandModule.parent = chassis;
+                const moduleMat = new StandardMaterial("previewModuleMat", scene);
+                moduleMat.diffuseColor = new Color3(1, 0.9, 0.3);
+                moduleMat.emissiveColor = new Color3(0.3, 0.27, 0.1);
+                commandModule.material = moduleMat;
+                
+                // Множественные антенны
+                for (let i = 0; i < 4; i++) {
+                    const antenna = MeshBuilder.CreateCylinder(`previewCmdAntenna${i}`, { height: 0.5, diameter: 0.025 }, scene);
+                    antenna.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.35, h * 0.7, (i < 2 ? -1 : 1) * d * 0.35);
+                    antenna.parent = chassis;
+                    const antennaMat = new StandardMaterial(`previewCmdAntennaMat${i}`, scene);
+                    antennaMat.diffuseColor = new Color3(1, 0.9, 0.2);
+                    antenna.material = antennaMat;
+                }
+                
+                // Люки
+                for (let i = 0; i < 2; i++) {
+                    const hatch = MeshBuilder.CreateBox(`previewCommandHatch${i}`, { width: 0.22, height: 0.08, depth: 0.22 }, scene);
+                    hatch.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.6, -d * 0.1);
+                    hatch.parent = chassis;
+                    hatch.material = armorMat;
+                }
+                
+                // Фары
+                for (let i = 0; i < 2; i++) {
+                    const headlight = MeshBuilder.CreateBox(`previewCommandHeadlight${i}`, { width: 0.1, height: 0.1, depth: 0.08 }, scene);
+                    headlight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.15, d * 0.48);
+                    headlight.parent = chassis;
+                    const headlightMat = new StandardMaterial(`previewCommandHeadlightMat${i}`, scene);
+                    headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.7);
+                    headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
+                    headlight.material = headlightMat;
+                }
+                
+                // Перископы на люках
+                for (let i = 0; i < 2; i++) {
+                    const periscope = MeshBuilder.CreateCylinder(`previewCommandPeriscope${i}`, { height: 0.2, diameter: 0.08, tessellation: 8 }, scene);
+                    periscope.position = new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.68, -d * 0.1);
+                    periscope.parent = chassis;
+                    const periscopeMat = new StandardMaterial(`previewCommandPeriscopeMat${i}`, scene);
+                    periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
+                    periscope.material = periscopeMat;
+                }
+                
+                // Радиостанции на командном модуле
+                for (let i = 0; i < 2; i++) {
+                    const radio = MeshBuilder.CreateBox(`previewCommandRadio${i}`, { width: 0.15, height: 0.12, depth: 0.1 }, scene);
+                    radio.position = new Vector3((i === 0 ? -1 : 1) * w * 0.22, h * 0.72, -d * 0.3);
+                    radio.parent = chassis;
+                    const radioMat = new StandardMaterial(`previewCommandRadioMat${i}`, scene);
+                    radioMat.diffuseColor = new Color3(0.8, 0.7, 0.2);
+                    radioMat.emissiveColor = new Color3(0.2, 0.15, 0.05);
+                    radio.material = radioMat;
+                }
+                
+                // Сенсорные панели на командном модуле
+                for (let i = 0; i < 3; i++) {
+                    const sensor = MeshBuilder.CreateBox(`previewCommandSensor${i}`, { width: 0.1, height: 0.06, depth: 0.08 }, scene);
+                    sensor.position = new Vector3((i - 1) * w * 0.18, h * 0.72, -d * 0.2);
+                    sensor.parent = chassis;
+                    const sensorMat = new StandardMaterial(`previewCommandSensorMat${i}`, scene);
+                    sensorMat.diffuseColor = new Color3(0.1, 0.15, 0.2);
+                    sensorMat.emissiveColor = new Color3(0.3, 0.25, 0);
+                    sensor.material = sensorMat;
+                }
+                
+                // Верхние вентиляционные решетки на крыше
+                for (let i = 0; i < 4; i++) {
+                    const roofVent = MeshBuilder.CreateBox(`previewCommandRoofVent${i}`, { width: 0.15, height: 0.04, depth: 0.12 }, scene);
+                    roofVent.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.25, h * 0.58, (i < 2 ? -1 : 1) * d * 0.25);
+                    roofVent.parent = chassis;
+                    const roofVentMat = new StandardMaterial(`previewCommandRoofVentMat${i}`, scene);
+                    roofVentMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
+                    roofVent.material = roofVentMat;
+                }
+                
+                // Задние огни (стоп-сигналы)
+                for (let i = 0; i < 2; i++) {
+                    const tailLight = MeshBuilder.CreateBox(`previewCommandTailLight${i}`, { width: 0.06, height: 0.1, depth: 0.04 }, scene);
+                    tailLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.4, h * 0.16, -d * 0.49);
+                    tailLight.parent = chassis;
+                    const tailLightMat = new StandardMaterial(`previewCommandTailLightMat${i}`, scene);
+                    tailLightMat.diffuseColor = new Color3(0.6, 0.1, 0.1);
+                    tailLightMat.emissiveColor = new Color3(0.3, 0.05, 0.05);
+                    tailLight.material = tailLightMat;
+                }
+                
+                // Радиоантенна сзади (главная)
+                const commandAntenna = MeshBuilder.CreateCylinder("previewCommandAntenna", { height: 0.6, diameter: 0.03, tessellation: 8 }, scene);
+                commandAntenna.position = new Vector3(0, h * 0.8, -d * 0.3);
+                commandAntenna.parent = chassis;
+                const commandAntennaMat = new StandardMaterial("previewCommandAntennaMat", scene);
+                commandAntennaMat.diffuseColor = new Color3(1, 0.9, 0.2);
+                commandAntenna.material = commandAntennaMat;
+                
+                // Основание антенны
+                const commandAntennaBase = MeshBuilder.CreateBox("previewCommandAntennaBase", { width: 0.12, height: 0.12, depth: 0.12 }, scene);
+                commandAntennaBase.position = new Vector3(0, h * 0.66, -d * 0.3);
+                commandAntennaBase.parent = chassis;
+                commandAntennaBase.material = armorMat;
+                
+                // Выхлопные трубы сзади
+                for (let i = 0; i < 2; i++) {
+                    const exhaust = MeshBuilder.CreateCylinder(`previewCommandExhaust${i}`, { height: 0.2, diameter: 0.12, tessellation: 8 }, scene);
+                    exhaust.position = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.2, -d * 0.48);
+                    exhaust.rotation.z = Math.PI / 2;
+                    exhaust.parent = chassis;
+                    exhaust.material = armorMat;
+                }
+                
+                // Боковые фары (сигнальные)
+                for (let i = 0; i < 2; i++) {
+                    const sideLight = MeshBuilder.CreateBox(`previewCommandSideLight${i}`, { width: 0.05, height: 0.07, depth: 0.05 }, scene);
+                    sideLight.position = new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.1, -d * 0.2);
+                    sideLight.parent = chassis;
+                    const sideLightMat = new StandardMaterial(`previewCommandSideLightMat${i}`, scene);
+                    sideLightMat.diffuseColor = new Color3(0.7, 0.6, 0.3);
+                    sideLightMat.emissiveColor = new Color3(0.15, 0.12, 0.08);
+                    sideLight.material = sideLightMat;
+                }
+                break;
+        }
+        
+        // Antenna for medium/heavy/assault
+        if (chassisType.id === "medium" || chassisType.id === "heavy" || chassisType.id === "assault") {
+            const antenna = MeshBuilder.CreateCylinder("previewAntenna", { height: 0.35, diameter: 0.025 }, scene);
+            antenna.position = new Vector3(w * 0.42, h * 0.65, -d * 0.42);
+            antenna.parent = chassis;
+            const antennaMat = new StandardMaterial("previewAntennaMat", scene);
+            antennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
+            antenna.material = antennaMat;
         }
     }
     
-    // Показать статистику категории
-    private showCategoryStats(): void {
-        let items: (TankPart | TankUpgrade)[] = [];
-        if (this.currentCategory === "chassis") {
-            items = this.chassisParts;
-        } else if (this.currentCategory === "barrel") {
-            items = this.cannonParts;
-        } else if (this.currentCategory === "upgrades") {
-            items = this.upgrades;
-        }
-        
-        const total = items.length;
-        const unlocked = items.filter(i => !("level" in i) ? (i as TankPart).unlocked : (i as TankUpgrade).level > 0).length;
-        const locked = total - unlocked;
-        const totalCost = items.filter(i => !("level" in i) ? !(i as TankPart).unlocked : (i as TankUpgrade).level < (i as TankUpgrade).maxLevel)
-            .reduce((sum, i) => sum + i.cost, 0);
-        
-        const msg = this.garageContainer!.getChildByName("garageMessage") as TextBlock;
-        if (msg) {
-            msg.text = `[STATS] Total: ${total} | Unlocked: ${unlocked} | Locked: ${locked} | Total cost: ${totalCost} CR`;
-            msg.color = "#0ff";
-            setTimeout(() => {
-                if (msg) msg.text = "";
-            }, 4000);
-        }
+    // NOTE: createTurretPreview and createUniqueCannonPreview moved to garage/preview.ts
+    
+    private cleanup3DPreview(): void {
+        // Cleanup using module function
+        cleanupPreviewScene(this.previewSceneData);
+        this.previewSceneData = null;
+            this.previewTank = null;
     }
     
-    // Создать панель рекомендаций в терминальном стиле
-    private createRecommendationsPanel(): void {
-        if (!this.playerProgression || !this.currencyManager) return;
-        
-        // Удаляем старую панель, если есть
-        const oldPanel = this.garageContainer!.getChildByName("recommendationsPanel");
-        if (oldPanel) {
-            oldPanel.dispose();
+    // ============ CURSOR MANAGEMENT ============
+    private showCursor(): void {
+        // Unlock pointer lock if active
+        if (document.pointerLockElement) {
+            document.exitPointerLock();
         }
         
-        const recContainer = new Rectangle("recommendationsPanel");
-        recContainer.width = "220px";
-        recContainer.height = "100px";
-        recContainer.cornerRadius = 0;
-        recContainer.thickness = 1;
-        recContainer.color = "#0ff";
-        recContainer.background = "rgba(0, 0, 0, 0.8)";
-        recContainer.left = "20px";
-        recContainer.top = "-160px";
-        this.garageContainer!.addControl(recContainer);
+        // Show cursor
+        const canvas = this._scene?.getEngine()?.getRenderingCanvas() as HTMLCanvasElement;
+        if (canvas) {
+            canvas.style.cursor = "default";
+        }
+        document.body.style.cursor = "default";
+    }
+    
+    private hideCursor(): void {
+        // Hide cursor (will be locked again when user clicks on canvas)
+        const canvas = this._scene?.getEngine()?.getRenderingCanvas() as HTMLCanvasElement;
+        if (canvas) {
+            canvas.style.cursor = "none";
+        }
+        document.body.style.cursor = "none";
+    }
+    
+    // ============ UI CREATION ============
+    private createUI(): void {
+        this.overlay = document.createElement('div');
+        this.overlay.className = 'garage-overlay';
+        this.overlay.innerHTML = `
+            <div class="garage-container">
+                <div class="garage-header">
+                    <div class="garage-title">[ GARAGE ]</div>
+                    <div class="garage-currency">CR: ${this.currencyManager.getCurrency()}</div>
+                    <button class="garage-close">X</button>
+                </div>
+                <div class="garage-tabs">
+                    <div class="garage-tab ${this.currentCategory === 'chassis' ? 'active' : ''}" data-cat="chassis">[1] CHASSIS</div>
+                    <div class="garage-tab ${this.currentCategory === 'cannons' ? 'active' : ''}" data-cat="cannons">[2] CANNONS</div>
+                    <div class="garage-tab ${this.currentCategory === 'tracks' ? 'active' : ''}" data-cat="tracks">[3] TRACKS</div>
+                    <div class="garage-tab ${this.currentCategory === 'modules' ? 'active' : ''}" data-cat="modules">[4] MODULES</div>
+                    <div class="garage-tab ${this.currentCategory === 'supplies' ? 'active' : ''}" data-cat="supplies">[5] SUPPLIES</div>
+                    <div class="garage-tab ${this.currentCategory === 'shop' ? 'active' : ''}" data-cat="shop">[6] SHOP</div>
+                </div>
+                <div class="garage-content">
+                    <div class="garage-left">
+                        <div class="garage-search">
+                            <input type="text" placeholder="Search..." id="garage-search-input">
+                        </div>
+                        <div class="garage-filters">
+                            <button class="garage-filter-btn ${this.filterMode === 'all' ? 'active' : ''}" data-filter="all">ALL</button>
+                            <button class="garage-filter-btn ${this.filterMode === 'owned' ? 'active' : ''}" data-filter="owned">OWNED</button>
+                            <button class="garage-filter-btn ${this.filterMode === 'locked' ? 'active' : ''}" data-filter="locked">LOCKED</button>
+                            <div style="margin-left: auto; display: flex; gap: 4px; align-items: center;">
+                                <button class="garage-sort-btn" id="garage-sort-btn">SORT: ${this.sortBy.toUpperCase()}</button>
+                            </div>
+                        </div>
+                        <div class="garage-items" id="garage-items-list"></div>
+                    </div>
+                    <div class="garage-right">
+                        <div class="garage-preview">
+                            <div class="garage-preview-title">[ CURRENT LOADOUT ]</div>
+                            <div class="garage-preview-info">
+                                CHASSIS: ${getChassisById(this.currentChassisId).name}<br>
+                                CANNON: ${getCannonById(this.currentCannonId).name}<br>
+                                TRACKS: ${getTrackById(this.currentTrackId).name}
+                            </div>
+                        </div>
+                        <div class="garage-details" id="garage-details">
+                            <div class="garage-details-title">[ SELECT AN ITEM ]</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="garage-footer">
+                    [↑↓] Navigate | [Enter] Select | [1-6] Categories | [ESC] Close
+                </div>
+            </div>
+        `;
         
-        const recTitle = new TextBlock("recTitle");
-        recTitle.text = "RECOMMENDED";
-        recTitle.color = "#0ff";
-        recTitle.fontSize = 10;
-        recTitle.fontFamily = "Consolas, Monaco, monospace";
-        recTitle.fontWeight = "bold";
-        recTitle.top = "-55px";
-        recTitle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        recContainer.addControl(recTitle);
+        document.body.appendChild(this.overlay);
         
-        // Генерируем рекомендации с приоритетами
-        const recommendations: Array<{text: string, priority: number, action?: () => void}> = [];
-        const currency = this.currencyManager.getCurrency();
+        // Ensure cursor is visible (in case createUI is called separately)
+        this.showCursor();
         
-        // Рекомендация по валюте - приоритет по соотношению цена/эффективность
-        const lockedChassis = this.chassisParts.filter(p => !p.unlocked && p.cost <= currency);
-        const lockedCannons = this.cannonParts.filter(p => !p.unlocked && p.cost <= currency);
-        const availableUpgrades = this.upgrades.filter(u => u.level < u.maxLevel && u.cost <= currency);
+        this.setupEventListeners();
+        this.refreshItemList();
+    }
+    
+    private setupEventListeners(): void {
+        if (!this.overlay) return;
         
-        // Сортируем по эффективности (статистика / цена)
-        if (lockedChassis.length > 0) {
-            const best = lockedChassis.sort((a, b) => {
-                const aValue = (a.stats.health || 0) / Math.max(a.cost, 1);
-                const bValue = (b.stats.health || 0) / Math.max(b.cost, 1);
-                return bValue - aValue;
-            })[0];
-            recommendations.push({
-                text: `[CH] ${best.name} (${best.cost} CR)`,
-                priority: 3,
-                action: () => {
-                    const item = this.chassisParts.find(p => p.id === best.id);
-                    if (item) this.purchaseItem(item);
-                }
+        // Close button
+        this.overlay.querySelector('.garage-close')?.addEventListener('click', () => this.close());
+        
+        // Tabs
+        this.overlay.querySelectorAll('.garage-tab').forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                const cat = (e.target as HTMLElement).dataset.cat as CategoryType;
+                this.switchCategory(cat);
             });
-        }
-        if (lockedCannons.length > 0) {
-            const best = lockedCannons.sort((a, b) => {
-                const aValue = (a.stats.damage || 0) / Math.max(a.cost, 1);
-                const bValue = (b.stats.damage || 0) / Math.max(b.cost, 1);
-                return bValue - aValue;
-            })[0];
-            recommendations.push({
-                text: `[CN] ${best.name} (${best.cost} CR)`,
-                priority: 3,
-                action: () => {
-                    const item = this.cannonParts.find(p => p.id === best.id);
-                    if (item) this.purchaseItem(item);
-                }
-            });
-        }
-        if (availableUpgrades.length > 0) {
-            const best = availableUpgrades.sort((a, b) => {
-                const aValue = a.value / Math.max(a.cost, 1);
-                const bValue = b.value / Math.max(b.cost, 1);
-                return bValue - aValue;
-            })[0];
-            recommendations.push({
-                text: `[UP] ${best.name} (${best.cost} CR)`,
-                priority: 2,
-                action: () => {
-                    const item = this.upgrades.find(u => u.id === best.id);
-                    if (item) this.purchaseItem(item);
-                }
-            });
-        }
+        });
         
-        // Рекомендация по опыту (если есть предметы с низким уровнем)
-        if (this.experienceSystem) {
-            const lowLevelChassis = this.chassisParts.filter(p => {
-                if (!p.unlocked) return false;
-                const level = this.experienceSystem!.getChassisLevel(p.id);
-                return level < 3;
+        // Filters
+        this.overlay.querySelectorAll('.garage-filter-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                this.filterMode = (e.target as HTMLElement).dataset.filter as "all" | "owned" | "locked";
+                this.overlay!.querySelectorAll('.garage-filter-btn').forEach(b => b.classList.remove('active'));
+                (e.target as HTMLElement).classList.add('active');
+                this.refreshItemList();
             });
-            if (lowLevelChassis.length > 0) {
-                recommendations.push({
-                    text: `[XP] Use ${lowLevelChassis[0].name} to level up`,
-                    priority: 1
-                });
-            }
-        }
+        });
         
-        if (recommendations.length === 0) {
-            recommendations.push({
-                text: "[OK] All items purchased! Great work!",
-                priority: 0
-            });
-        }
+        // Sort button
+        const sortBtn = this.overlay.querySelector('#garage-sort-btn');
+        sortBtn?.addEventListener('click', () => {
+            if (this.sortBy === 'name') this.sortBy = 'stats';
+            else if (this.sortBy === 'stats') this.sortBy = 'custom';
+            else if (this.sortBy === 'custom') this.sortBy = 'unique';
+            else this.sortBy = 'name';
+            (sortBtn as HTMLElement).textContent = `SORT: ${this.sortBy.toUpperCase()}`;
+            this.refreshItemList();
+        });
         
-        // Сортируем по приоритету и показываем до 3 рекомендаций в терминальном стиле - упрощенные
-        recommendations.sort((a, b) => b.priority - a.priority);
-        recommendations.slice(0, 3).forEach((rec, i) => {
-            const recText = new TextBlock(`rec_${i}`);
-            recText.text = `> ${rec.text.trim()}`;
-            recText.color = rec.priority > 2 ? "#0f0" : rec.priority > 1 ? "#0aa" : "#aaa";
-            recText.fontSize = 10;
-            recText.fontFamily = "Consolas, Monaco, monospace";
-            recText.top = `${-40 + i * 18}px`;
-            recText.left = "-110px";
-            recText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            recContainer.addControl(recText);
-            
-            // Делаем кликабельными рекомендации с действиями
-            if (rec.action) {
-                recText.color = "#0ff";
-                recText.onPointerClickObservable.add(() => {
-                    if (rec.action) rec.action();
-                });
-            }
+        // Search
+        const searchInput = this.overlay.querySelector('#garage-search-input') as HTMLInputElement;
+        searchInput?.addEventListener('input', () => {
+            this.searchText = searchInput.value;
+            this.refreshItemList();
+        });
+        
+        // Click outside to close
+        this.overlay.addEventListener('click', (e) => {
+            if (e.target === this.overlay) this.close();
         });
     }
     
-    // Обновить прогресс-бары опыта в списке предметов
-    private updateExperienceBars(): void {
-        if (!this.itemList || !this.experienceSystem) return;
+    private switchCategory(cat: CategoryType): void {
+        this.currentCategory = cat;
+        this.selectedItemIndex = 0;
         
-        // Получаем текущий список предметов с учетом фильтров
-        let allItems: (TankPart | TankUpgrade)[] = [];
-        if (this.currentCategory === "chassis") {
-            allItems = this.chassisParts;
-        } else if (this.currentCategory === "barrel") {
-            allItems = this.cannonParts;
-        } else {
-            return; // Для upgrades нет опыта
+        this.overlay?.querySelectorAll('.garage-tab').forEach(tab => {
+            tab.classList.toggle('active', tab.getAttribute('data-cat') === cat);
+        });
+        
+        this.refreshItemList();
+    }
+    
+    private getItemsForCategory(): (TankPart | TankUpgrade)[] {
+        switch (this.currentCategory) {
+            case "chassis": return [...this.chassisParts];
+            case "cannons": return [...this.cannonParts];
+            case "tracks": return [...this.trackParts];
+            case "modules": return [...this.moduleParts, ...this.upgrades.filter(u => u.level < u.maxLevel)];
+            case "supplies": return [...this.supplyParts];
+            case "shop": return [...this.shopItems];
+            default: return [];
+        }
+    }
+    
+    private refreshItemList(): void {
+        const container = this.overlay?.querySelector('#garage-items-list');
+        if (!container) return;
+        
+        let items = this.getItemsForCategory();
+        
+        // Filter by search
+        if (this.searchText.trim()) {
+            const s = this.searchText.toLowerCase();
+            items = items.filter(i => i.name.toLowerCase().includes(s) || i.description.toLowerCase().includes(s));
         }
         
-        // Применяем фильтры (как в updateItemList)
-        let items = [...allItems];
-        if (this.searchText && this.searchText.trim() !== "") {
-            const searchLower = this.searchText.toLowerCase();
-            items = items.filter(item => 
-                item.name.toLowerCase().includes(searchLower) ||
-                item.description.toLowerCase().includes(searchLower)
+        // Filter by owned/locked
+        if (this.filterMode !== 'all') {
+            items = items.filter(i => {
+                const owned = 'level' in i ? i.level > 0 : (i as TankPart).unlocked;
+                return this.filterMode === 'owned' ? owned : !owned;
+            });
+        }
+        
+        // Sort items
+        items.sort((a, b) => {
+            if (this.sortBy === 'name') {
+                return a.name.localeCompare(b.name);
+            } else if (this.sortBy === 'stats') {
+                const aStats = this.getTotalStats(a);
+                const bStats = this.getTotalStats(b);
+                return bStats - aStats; // Higher stats first
+            } else if (this.sortBy === 'custom') {
+                // CUSTOM: показываем только кастомные танки (для будущего конструктора)
+                // Пока что все элементы не кастомные, поэтому сортируем по имени
+                const aIsCustom = (a as any).isCustom || false;
+                const bIsCustom = (b as any).isCustom || false;
+                if (aIsCustom && !bIsCustom) return -1;
+                if (!aIsCustom && bIsCustom) return 1;
+                return a.name.localeCompare(b.name);
+            } else { // unique
+                // UNIQUE: показываем только уникальные элементы
+                // Пока что все элементы не уникальные, поэтому сортируем по имени
+                const aIsUnique = (a as any).isUnique || false;
+                const bIsUnique = (b as any).isUnique || false;
+                if (aIsUnique && !bIsUnique) return -1;
+                if (!aIsUnique && bIsUnique) return 1;
+                return a.name.localeCompare(b.name);
+            }
+        });
+        
+        this.filteredItems = items;
+        if (this.selectedItemIndex >= items.length) this.selectedItemIndex = Math.max(0, items.length - 1);
+        
+        container.innerHTML = items.map((item, i) => {
+            const isUpgrade = 'level' in item;
+            const owned = isUpgrade ? true : (item as TankPart).unlocked;
+            const equipped = !isUpgrade && (
+                ((item as TankPart).type === 'chassis' && item.id === this.currentChassisId) ||
+                ((item as TankPart).type === 'barrel' && item.id === this.currentCannonId) ||
+                ((item as TankPart).type === 'module' && item.id === this.currentTrackId)
             );
-        }
-        if (this.filterUnlocked !== null) {
-            items = items.filter(item => {
-                if ("level" in item) {
-                    return this.filterUnlocked ? (item as TankUpgrade).level > 0 : (item as TankUpgrade).level === 0;
-                } else {
-                    return (item as TankPart).unlocked === this.filterUnlocked;
-                }
+            const selected = i === this.selectedItemIndex;
+            
+            const statsStr = this.formatStats(item);
+            const priceStr = owned && !isUpgrade ? 'OWNED' : `${item.cost} CR`;
+            
+            return `
+                <div class="garage-item ${selected ? 'selected' : ''} ${owned ? 'owned' : ''} ${equipped ? 'equipped' : ''}" data-index="${i}">
+                    <div class="garage-item-name">${item.name} ${equipped ? '[EQUIPPED]' : ''}</div>
+                    <div class="garage-item-desc">${item.description}</div>
+                    <div class="garage-item-stats">${statsStr}</div>
+                    <div class="garage-item-price">${priceStr}</div>
+                </div>
+            `;
+        }).join('');
+        
+        // Add click listeners
+        container.querySelectorAll('.garage-item').forEach(el => {
+            el.addEventListener('click', () => {
+                const idx = parseInt(el.getAttribute('data-index') || '0');
+                this.selectedItemIndex = idx;
+                this.refreshItemList();
+                this.showDetails(this.filteredItems[idx]);
             });
+            el.addEventListener('dblclick', () => {
+                const idx = parseInt(el.getAttribute('data-index') || '0');
+                this.handleAction(this.filteredItems[idx]);
+            });
+        });
+        
+        // Show details if item selected
+        if (items.length > 0) {
+            this.showDetails(items[this.selectedItemIndex]);
+            // Update preview only if 3D scene is initialized
+            if (this.previewSceneData?.scene) {
+            this.updatePreview(items[this.selectedItemIndex]);
+            }
         }
         
-        // Обновляем каждый элемент в списке
-        items.forEach((item, displayIndex) => {
-            if ("level" in item) return; // Это upgrade, не часть
-            
+        // Update currency
+        const currencyEl = this.overlay?.querySelector('.garage-currency');
+        if (currencyEl) currencyEl.textContent = `CR: ${this.currencyManager.getCurrency()}`;
+    }
+    
+    private updatePreview(item: TankPart | TankUpgrade): void {
+        const previewInfo = this.overlay?.querySelector('.garage-preview-info');
+        if (!previewInfo) return;
+        
+        if ('level' in item) {
+            // Upgrade preview
+            previewInfo.innerHTML = `
+                <div style="color: #0aa;">UPGRADE: ${item.name}</div>
+                <div style="color: #080; font-size: 11px; margin-top: 5px;">
+                    Level: ${item.level}/${item.maxLevel}<br>
+                    ${item.stat.toUpperCase()}: ${item.value > 0 ? '+' : ''}${item.value}
+                </div>
+            `;
+        } else {
             const part = item as TankPart;
-            const expType = part.type === "chassis" ? "chassis" : "cannon";
-            const expInfo = expType === "chassis" 
-                ? this.experienceSystem.getChassisExperience(part.id)
-                : this.experienceSystem.getCannonExperience(part.id);
+            let chassisName = getChassisById(this.currentChassisId).name;
+            let cannonName = getCannonById(this.currentCannonId).name;
+            let trackName = getTrackById(this.currentTrackId).name;
+            let previewChassisId = this.currentChassisId;
+            let previewCannonId = this.currentCannonId;
+            let previewTrackId = this.currentTrackId;
             
-            if (!expInfo) return;
+            if (part.type === 'chassis') {
+                chassisName = part.name;
+                previewChassisId = part.id;
+            } else if (part.type === 'barrel') {
+                cannonName = part.name;
+                previewCannonId = part.id;
+            } else if (part.type === 'module' && this.trackParts.find(t => t.id === part.id)) {
+                trackName = getTrackById(part.id).name;
+                previewTrackId = part.id;
+            }
+            previewInfo.innerHTML = `
+                <div style="color: #0f0;">CHASSIS: ${chassisName}</div>
+                <div style="color: #0aa; margin-top: 5px;">CANNON: ${cannonName}</div>
+                <div style="color: #ff0; margin-top: 5px;">TRACKS: ${trackName}</div>
+                ${part.type === 'chassis' || part.type === 'barrel' || (part.type === 'module' && this.trackParts.find(t => t.id === part.id)) ? 
+                    '<div style="color: #ff0; font-size: 10px; margin-top: 8px;">[ PREVIEW ]</div>' : ''}
+            `;
             
-            const progressData = this.experienceSystem.getExperienceToNextLevel(expInfo);
-            const levelInfo = this.experienceSystem.getLevelInfo(part.id, expType);
-            
-            // Находим контейнер элемента по индексу отображения
-            if (!this.itemList) return;
-            const itemContainer = this.itemList.getChildByName(`item_${displayIndex}`) as Rectangle;
-            if (!itemContainer) return;
-            
-            // Обновляем прогресс-бар с плавной анимацией
-            const expBarBg = itemContainer.getChildByName(`expBarBg_${displayIndex}`) as Rectangle;
-            if (expBarBg) {
-                const expBarFill = expBarBg.getChildByName(`expBarFill_${displayIndex}`) as Rectangle;
-                if (expBarFill) {
-                    // Используем ту же ширину, что и при создании (198px для fill, 200px для bg)
-                    const targetWidth = Math.max(1, Math.min(198, progressData.progress * 198));
-                    const currentWidth = parseFloat(expBarFill.width.toString().replace("px", "")) || 0;
-                    
-                    // Плавная интерполяция к целевому значению
-                    if (Math.abs(targetWidth - currentWidth) > 0.5) {
-                        const diff = targetWidth - currentWidth;
-                        const newWidth = currentWidth + diff * 0.2; // Плавное приближение
-                        expBarFill.width = `${Math.max(1, Math.min(198, newWidth))}px`;
-                    } else {
-                        expBarFill.width = `${targetWidth}px`;
-                    }
-                    
-                    // Обновляем цвет в зависимости от уровня
-                    if (levelInfo?.titleColor) {
-                        expBarFill.background = levelInfo.titleColor;
-                    }
+            // Update 3D preview if chassis, barrel or tracks changed (only if scene is initialized)
+            if ((part.type === 'chassis' || part.type === 'barrel' || (part.type === 'module' && this.trackParts.find(t => t.id === part.id))) && this.previewSceneData?.scene) {
+                if (part.type === 'module' && this.trackParts.find(t => t.id === part.id)) {
+                    this.currentTrackId = previewTrackId;
                 }
+                this.renderTankPreview(previewChassisId, previewCannonId);
             }
-            
-            // Обновляем текст опыта (правильный формат согласно плану)
-            const expText = itemContainer.getChildByName(`expText_${displayIndex}`) as TextBlock;
-            if (expText) {
-                const expToNext = this.experienceSystem.getExpToNextLevel(part.id, expType);
-                const levelTitle = levelInfo?.title || `Lv.${expInfo.level}`;
-                const expValue = expInfo.experience;
-                const nextText = expToNext > 0 ? `Next: ${expToNext}` : "MAX";
-                expText.text = `${levelTitle} | ${expValue} XP | ${nextText}`;
-            }
-            
-            // Обновляем статистику (убийства, урон)
-            const statsText = itemContainer.getChildByName(`statsText_${displayIndex}`) as TextBlock;
-            if (statsText) {
-                const deaths = (expInfo as any).deaths || 0;
-                const kdr = deaths > 0 ? (expInfo.kills / deaths).toFixed(2) : expInfo.kills > 0 ? "INF" : "0.00";
-                statsText.text = `KILLS: ${expInfo.kills} | DMG: ${Math.round(expInfo.damageDealt)} | K/D: ${kdr}`;
-            }
-            
-            // Обновляем уровень в названии
-            const nameText = itemContainer.getChildByName(`itemName_${displayIndex}`) as TextBlock;
-            if (nameText) {
-                const level = expType === "chassis" 
-                    ? this.experienceSystem.getChassisLevel(part.id)
-                    : this.experienceSystem.getCannonLevel(part.id);
-                const levelInfo = this.experienceSystem.getLevelInfo(part.id, expType);
-                const levelSuffix = level > 1 ? ` [${levelInfo?.title || `Lv.${level}`}]` : "";
-                
-                // Сохраняем префикс (ASCII формат: > или +)
-                let prefix = "";
-                let icon = "";
-                
-                // Определяем префикс и иконку как в updateItemList
-                if (!("level" in item)) {
-                    const part = item as TankPart;
-                    if (part.type === "chassis") {
-                        icon = "[CH] ";
-                    } else if (part.type === "barrel") {
-                        icon = "[CN] ";
-                    }
-                } else {
-                    icon = "[UP] ";
-                }
-                
-                const isSelected = !("level" in item) && 
-                    ((item as TankPart).type === "chassis" ? (item as TankPart).id === this.currentChassisId :
-                     (item as TankPart).type === "barrel" ? (item as TankPart).id === this.currentCannonId : false);
-                
-                if (isSelected) {
-                    prefix = "> ";
-                } else if (!("level" in item) && (item as TankPart).unlocked) {
-                    prefix = "+ ";
-                }
-                
-                nameText.text = `${prefix}${icon}${item.name}${levelSuffix}`;
-            }
-        });
-    }
-    
-    // Получить GUI texture для проверки видимости
-    getGUI(): AdvancedDynamicTexture | null {
-        return this.guiTexture;
-    }
-    
-    // Подсветить выбранный элемент (клавиатурная навигация)
-    private highlightSelectedItem(): void {
-        if (!this.itemList) return;
-        
-        // Обновляем все элементы для подсветки выбранного
-        this.itemList.children.forEach((child: any) => {
-            if (child.name && child.name.startsWith("item_")) {
-                const itemIndex = parseInt(child.name.split("_")[1]);
-                const isKeyboardSelected = itemIndex === this.selectedItemIndex;
-                const item = this.filteredItems[itemIndex];
-                
-                if (item) {
-                    let isSelected = false;
-                    if (!("level" in item)) {
-                        const part = item as TankPart;
-                        if (part.type === "chassis") {
-                            isSelected = part.id === this.currentChassisId;
-                        } else if (part.type === "barrel") {
-                            isSelected = part.id === this.currentCannonId;
-                        }
-                    }
-                    
-                    // Обновляем цвета в зависимости от состояния - улучшенная визуальная обратная связь
-                    if (isSelected) {
-                        child.color = "#ff0";
-                        child.background = "rgba(255, 255, 0, 0.25)"; // Более заметный фон
-                        child.thickness = 3; // Увеличенная толщина для акцента
-                    } else if (isKeyboardSelected) {
-                        child.color = "#0ff";
-                        child.background = "rgba(0, 255, 255, 0.3)"; // Более заметный фон для клавиатурной навигации
-                        child.thickness = 3; // Увеличенная толщина для акцента
-                    } else if ((!("level" in item) && (item as TankPart).unlocked) || (("level" in item) && (item as TankUpgrade).level > 0)) {
-                        child.color = "#0f0";
-                        child.background = "rgba(0, 255, 0, 0.08)";
-                        child.thickness = 1;
-                    } else {
-                        child.color = "#055";
-                        child.background = "rgba(0, 0, 0, 0.6)";
-                        child.thickness = 1;
-                    }
-                }
-            }
-        });
-    }
-    
-    // Прокрутить к выбранному элементу
-    private scrollToSelectedItem(): void {
-        if (!this.scrollViewer || !this.itemList || this.selectedItemIndex < 0) return;
-        
-        const itemHeight = 100;
-        const spacing = 10; // Обновлено для соответствия новому spacing
-        const itemTop = this.selectedItemIndex * (itemHeight + spacing);
-        const scrollViewerHeight = 450;
-        
-        // Вычисляем позицию прокрутки
-        const scrollPosition = Math.max(0, itemTop - scrollViewerHeight / 2 + itemHeight / 2);
-        
-        // Устанавливаем позицию прокрутки
-        if (this.scrollViewer.verticalBar) {
-            const maxScroll = Math.max(0, (this.itemList.heightInPixels || 0) - scrollViewerHeight);
-            const normalizedScroll = maxScroll > 0 ? scrollPosition / maxScroll : 0;
-            this.scrollViewer.verticalBar.value = Math.max(0, Math.min(1, normalizedScroll));
         }
     }
     
-    // Создать визуальные прогресс-бары для статистики (используется в updateItemList)
-    public createStatBars(container: Rectangle, index: number, stats: { [key: string]: { value: number, max: number, diff: number, label: string } }): void {
-        const barY = 60;
-        const barWidth = 150;
-        const barHeight = 6;
-        let barIndex = 0;
+    private getTotalStats(item: TankPart | TankUpgrade): number {
+        if ('level' in item) {
+            return item.value * item.level;
+        }
+        const part = item as TankPart;
+        let total = 0;
+        if (part.stats.health) total += part.stats.health;
+        if (part.stats.speed) total += part.stats.speed * 10;
+        if (part.stats.damage) total += part.stats.damage * 5;
+        if (part.stats.armor) total += part.stats.armor * 20;
+        if (part.stats.reload) total += Math.abs(part.stats.reload) * 0.1;
+        return total;
+    }
+    
+    private formatStats(item: TankPart | TankUpgrade): string {
+        if ('level' in item) return `Lv.${item.level}/${item.maxLevel} | ${item.stat.toUpperCase()}: ${item.value > 0 ? '+' : ''}${item.value}`;
+        const p = item as TankPart;
+        const s: string[] = [];
+        if (p.stats.health) s.push(`HP:${p.stats.health}`);
+        if (p.stats.speed) s.push(`SPD:${p.stats.speed}`);
+        if (p.stats.damage) s.push(`DMG:${p.stats.damage}`);
+        if (p.stats.reload) s.push(`RLD:${p.stats.reload}ms`);
+        return s.join(' | ');
+    }
+    
+    private showDetails(item: TankPart | TankUpgrade): void {
+        const container = this.overlay?.querySelector('#garage-details');
+        if (!container) return;
         
-        Object.entries(stats).forEach(([key, stat]) => {
-            const percent = Math.min(1, stat.value / stat.max);
-            const barX = -400 + (barIndex * (barWidth + 20));
+        const isUpgrade = 'level' in item;
+        const canAfford = this.currencyManager.getCurrency() >= item.cost;
+        const equipped = !isUpgrade && (
+            ((item as TankPart).type === 'chassis' && item.id === this.currentChassisId) ||
+            ((item as TankPart).type === 'barrel' && item.id === this.currentCannonId) ||
+            ((item as TankPart).type === 'module' && this.trackParts.find(t => t.id === item.id) && item.id === this.currentTrackId)
+        );
+        
+        let btnText = '';
+        let btnDisabled = false;
+        
+        if (isUpgrade) {
+            if ((item as TankUpgrade).level >= (item as TankUpgrade).maxLevel) { btnText = 'MAX LEVEL'; btnDisabled = true; }
+            else if (!canAfford) { btnText = `NEED ${item.cost} CR`; btnDisabled = true; }
+            else btnText = `UPGRADE (${item.cost} CR)`;
+        } else {
+            if ((item as TankPart).unlocked) {
+                if (equipped) { btnText = 'EQUIPPED'; btnDisabled = true; }
+                else btnText = 'EQUIP';
+            } else if (!canAfford) { btnText = `NEED ${item.cost} CR`; btnDisabled = true; }
+            else btnText = `BUY (${item.cost} CR)`;
+        }
+        
+        container.innerHTML = `
+            <div class="garage-details-title">[ ${item.name.toUpperCase()} ]</div>
+            <div class="garage-details-desc">${item.description}</div>
+            ${this.getComparisonHTML(item)}
+            <button class="garage-action-btn" ${btnDisabled ? 'disabled' : ''} id="garage-action">${btnText}</button>
+        `;
+        
+        container.querySelector('#garage-action')?.addEventListener('click', () => {
+            if (!btnDisabled) this.handleAction(item);
+        });
+    }
+    
+    private getComparisonHTML(item: TankPart | TankUpgrade): string {
+        if ('level' in item) {
+            const upgrade = item as TankUpgrade;
+            const nextLevel = upgrade.level + 1;
+            if (nextLevel > upgrade.maxLevel) return '<div style="color: #0aa; margin-top: 10px;">MAX LEVEL REACHED</div>';
+            return `
+                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #030;">
+                    <div class="garage-stats-row"><span class="garage-stat-name">Current Level</span><span class="garage-stat-value">${upgrade.level}/${upgrade.maxLevel}</span></div>
+                    <div class="garage-stats-row"><span class="garage-stat-name">Current ${upgrade.stat.toUpperCase()}</span><span class="garage-stat-value">${upgrade.value * upgrade.level > 0 ? '+' : ''}${upgrade.value * upgrade.level}</span></div>
+                    <div class="garage-stats-row"><span class="garage-stat-name">Next Level</span><span class="garage-stat-value">${nextLevel}/${upgrade.maxLevel} <span class="garage-stat-change positive">(+${upgrade.value})</span></span></div>
+                </div>
+            `;
+        }
+        
+        const part = item as TankPart;
+        let rows = '';
+        
+        if (part.type === 'chassis') {
+            const current = getChassisById(this.currentChassisId);
+            const next = getChassisById(part.id);
+            const hpDiff = next.maxHealth - current.maxHealth;
+            const spdDiff = next.moveSpeed - current.moveSpeed;
+            const armorDiff = (next.maxHealth / 50) - (current.maxHealth / 50);
+            rows = `
+                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #030;">
+                    <div style="color: #0aa; font-size: 10px; margin-bottom: 8px; font-weight: bold;">COMPARISON</div>
+                    <div class="garage-stats-row">
+                        <span class="garage-stat-name">HP</span>
+                        <span class="garage-stat-value">
+                            <span style="color: #080;">${current.maxHealth}</span> → 
+                            <span style="color: #0f0;">${next.maxHealth}</span>
+                            <span class="garage-stat-change ${hpDiff >= 0 ? 'positive' : 'negative'}">(${hpDiff >= 0 ? '+' : ''}${hpDiff})</span>
+                        </span>
+                    </div>
+                    <div class="garage-stats-row">
+                        <span class="garage-stat-name">Speed</span>
+                        <span class="garage-stat-value">
+                            <span style="color: #080;">${current.moveSpeed}</span> → 
+                            <span style="color: #0f0;">${next.moveSpeed}</span>
+                            <span class="garage-stat-change ${spdDiff >= 0 ? 'positive' : 'negative'}">(${spdDiff >= 0 ? '+' : ''}${spdDiff.toFixed(1)})</span>
+                        </span>
+                    </div>
+                    <div class="garage-stats-row">
+                        <span class="garage-stat-name">Armor</span>
+                        <span class="garage-stat-value">
+                            <span style="color: #080;">${(current.maxHealth / 50).toFixed(1)}</span> → 
+                            <span style="color: #0f0;">${(next.maxHealth / 50).toFixed(1)}</span>
+                            <span class="garage-stat-change ${armorDiff >= 0 ? 'positive' : 'negative'}">(${armorDiff >= 0 ? '+' : ''}${armorDiff.toFixed(1)})</span>
+                        </span>
+                    </div>
+                </div>
+            `;
+        } else if (part.type === 'barrel') {
+            const current = getCannonById(this.currentCannonId);
+            const next = getCannonById(part.id);
+            const dmgDiff = next.damage - current.damage;
+            const rldDiff = next.cooldown - current.cooldown;
+            const projSpeedDiff = next.projectileSpeed - current.projectileSpeed;
+            rows = `
+                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #030;">
+                    <div style="color: #0aa; font-size: 10px; margin-bottom: 8px; font-weight: bold;">COMPARISON</div>
+                    <div class="garage-stats-row">
+                        <span class="garage-stat-name">Damage</span>
+                        <span class="garage-stat-value">
+                            <span style="color: #080;">${current.damage}</span> → 
+                            <span style="color: #0f0;">${next.damage}</span>
+                            <span class="garage-stat-change ${dmgDiff >= 0 ? 'positive' : 'negative'}">(${dmgDiff >= 0 ? '+' : ''}${dmgDiff})</span>
+                        </span>
+                    </div>
+                    <div class="garage-stats-row">
+                        <span class="garage-stat-name">Reload</span>
+                        <span class="garage-stat-value">
+                            <span style="color: #080;">${current.cooldown}ms</span> → 
+                            <span style="color: #0f0;">${next.cooldown}ms</span>
+                            <span class="garage-stat-change ${rldDiff <= 0 ? 'positive' : 'negative'}">(${rldDiff >= 0 ? '+' : ''}${rldDiff}ms)</span>
+                        </span>
+                    </div>
+                    <div class="garage-stats-row">
+                        <span class="garage-stat-name">Proj. Speed</span>
+                        <span class="garage-stat-value">
+                            <span style="color: #080;">${current.projectileSpeed}</span> → 
+                            <span style="color: #0f0;">${next.projectileSpeed}</span>
+                            <span class="garage-stat-change ${projSpeedDiff >= 0 ? 'positive' : 'negative'}">(${projSpeedDiff >= 0 ? '+' : ''}${projSpeedDiff})</span>
+                        </span>
+                    </div>
+                </div>
+            `;
+        }
+        
+        return rows;
+    }
+    
+    private handleAction(item: TankPart | TankUpgrade): void {
+        if ('level' in item) {
+            this.purchaseUpgrade(item);
+        } else {
+            const part = item as TankPart;
+            if (part.unlocked) this.equipPart(part);
+            else this.purchasePart(part);
+        }
+    }
+    
+    private purchasePart(part: TankPart): void {
+        if (part.unlocked || this.currencyManager.getCurrency() < part.cost) return;
+        this.currencyManager.addCurrency(-part.cost);
+        part.unlocked = true;
+        this.saveProgress();
+        this.refreshItemList();
+        if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
+    }
+    
+    private equipPart(part: TankPart): void {
+        if (!part.unlocked) return;
+        
+        if (part.type === 'chassis') {
+            this.currentChassisId = part.id;
+            localStorage.setItem("selectedChassis", part.id);
+            if (this.tankController?.setChassisType) this.tankController.setChassisType(part.id);
+        } else if (part.type === 'barrel') {
+            this.currentCannonId = part.id;
+            localStorage.setItem("selectedCannon", part.id);
+            if (this.tankController?.setCannonType) this.tankController.setCannonType(part.id);
+        } else if (part.type === 'module' && this.trackParts.find(t => t.id === part.id)) {
+            this.currentTrackId = part.id;
+            localStorage.setItem("selectedTrack", part.id);
+            if (this.tankController?.setTrackType) this.tankController.setTrackType(part.id);
+        }
+        
+        this.saveProgress();
+        this.refreshItemList();
+        
+        // Update preview
+        const previewInfo = this.overlay?.querySelector('.garage-preview-info');
+        if (previewInfo) {
+            previewInfo.innerHTML = `CHASSIS: ${getChassisById(this.currentChassisId).name}<br>CANNON: ${getCannonById(this.currentCannonId).name}`;
+        }
+        
+        // Update 3D preview
+        // Render preview only if scene is initialized
+        if (this.previewSceneData && this.previewSceneData.scene) {
+        this.renderTankPreview(this.currentChassisId, this.currentCannonId);
+        }
+        
+        if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
+    }
+    
+    private purchaseUpgrade(upgrade: TankUpgrade): void {
+        if (upgrade.level >= upgrade.maxLevel || this.currencyManager.getCurrency() < upgrade.cost) return;
+        this.currencyManager.addCurrency(-upgrade.cost);
+        upgrade.level++;
+        this.saveProgress();
+        this.refreshItemList();
+        if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
+    }
+    
+    // ============ KEYBOARD NAVIGATION ============
+    private setupKeyboardNavigation(): void {
+        window.addEventListener('keydown', (e) => {
+            if (!this.isOpen) return;
             
-            // Фон прогресс-бара
-            const barBg = new Rectangle(`statBarBg_${index}_${key}`);
-            barBg.width = `${barWidth}px`;
-            barBg.height = `${barHeight}px`;
-            barBg.cornerRadius = 0;
-            barBg.thickness = 1;
-            barBg.color = "#0a0";
-            barBg.background = "rgba(0, 0, 0, 0.8)";
-            barBg.left = `${barX}px`;
-            barBg.top = `${barY}px`;
-            barBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            container.addControl(barBg);
+            if (e.code === 'Escape') { e.preventDefault(); this.close(); return; }
             
-            // Заполнение прогресс-бара
-            const barFill = new Rectangle(`statBarFill_${index}_${key}`);
-            barFill.width = `${barWidth * percent}px`;
-            barFill.height = `${barHeight - 2}px`;
-            barFill.cornerRadius = 0;
-            barFill.thickness = 0;
-            // Цвет зависит от разницы: зеленый если лучше, красный если хуже
-            if (stat.diff > 0) {
-                barFill.background = "#0f0"; // Улучшение
-            } else if (stat.diff < 0) {
-                barFill.background = "#f00"; // Ухудшение
-            } else {
-                barFill.background = "#0aa"; // Без изменений
+            const cats: CategoryType[] = ['chassis', 'cannons', 'tracks', 'modules', 'supplies', 'shop'];
+            for (let i = 1; i <= 6; i++) {
+                if (e.code === `Digit${i}` || e.code === `Numpad${i}`) {
+                    e.preventDefault();
+                    this.switchCategory(cats[i - 1]);
+                    return;
+                }
             }
-            barFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            barBg.addControl(barFill);
             
-            // Текст со значением и индикатором изменения
-            const statText = new TextBlock(`statText_${index}_${key}`);
-            let diffIcon = "";
-            if (stat.diff > 0) diffIcon = " ↑";
-            else if (stat.diff < 0) diffIcon = " ↓";
-            statText.text = `${stat.label}: ${stat.value.toFixed(stat.label === "Reload" ? 1 : 0)}${diffIcon}`;
-            statText.color = stat.diff > 0 ? "#0f0" : stat.diff < 0 ? "#f00" : "#aaa";
-            statText.fontSize = 10;
-            statText.fontFamily = "Consolas, Monaco, monospace";
-            statText.left = `${barX}px`;
-            statText.top = `${barY - 12}px`;
-            statText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            container.addControl(statText);
+            if (e.code === 'ArrowUp') {
+                e.preventDefault();
+                this.selectedItemIndex = Math.max(0, this.selectedItemIndex - 1);
+                this.refreshItemList();
+            } else if (e.code === 'ArrowDown') {
+                e.preventDefault();
+                this.selectedItemIndex = Math.min(this.filteredItems.length - 1, this.selectedItemIndex + 1);
+                this.refreshItemList();
+            }
             
-            barIndex++;
+            if ((e.code === 'Enter' || e.code === 'Space') && this.filteredItems[this.selectedItemIndex]) {
+                e.preventDefault();
+                this.handleAction(this.filteredItems[this.selectedItemIndex]);
+            }
         });
-    }
-    
-    // Добавить действие в историю
-    private addToHistory(type: string, text: string): void {
-        this.actionHistory.unshift({
-            type,
-            text,
-            timestamp: Date.now()
-        });
-        
-        // Ограничиваем размер истории
-        if (this.actionHistory.length > this.maxHistoryItems) {
-            this.actionHistory = this.actionHistory.slice(0, this.maxHistoryItems);
-        }
-        
-        // Обновляем панель истории
-        this.updateActionHistoryPanel();
-    }
-    
-    // Создать панель истории действий (вызывается из createGarageUI)
-    public createActionHistoryPanel(): void {
-        const historyContainer = new Rectangle("actionHistoryPanel");
-        historyContainer.width = "220px";
-        historyContainer.height = "90px";
-        historyContainer.cornerRadius = 0;
-        historyContainer.thickness = 1;
-        historyContainer.color = "#0aa";
-        historyContainer.background = "rgba(0, 0, 0, 0.8)";
-        historyContainer.left = "20px";
-        historyContainer.top = "-50px";
-        this.garageContainer!.addControl(historyContainer);
-        
-        const historyTitle = new TextBlock("historyTitle");
-        historyTitle.text = "ACTIONS";
-        historyTitle.color = "#0aa";
-        historyTitle.fontSize = 10;
-        historyTitle.fontFamily = "Consolas, Monaco, monospace";
-        historyTitle.fontWeight = "bold";
-        historyTitle.top = "-45px";
-        historyTitle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        historyContainer.addControl(historyTitle);
-        
-        // Контейнер для элементов истории - упрощенный
-        const historyList = new Rectangle("historyList");
-        historyList.width = "220px";
-        historyList.height = "80px";
-        historyList.cornerRadius = 0;
-        historyList.thickness = 0;
-        historyList.background = "#00000000";
-        historyList.top = "-35px";
-        historyContainer.addControl(historyList);
-        
-        this.updateActionHistoryPanel();
-    }
-    
-    // Обновить панель истории действий
-    private updateActionHistoryPanel(): void {
-        if (!this.garageContainer) return;
-        
-        const historyList = this.garageContainer.getChildByName("historyList") as Rectangle;
-        if (!historyList) return;
-        
-        // Очищаем старые элементы
-        if (historyList.children) {
-            historyList.children.forEach((child: any) => child.dispose());
-        }
-        
-        // Добавляем элементы истории - упрощенные (максимум 4)
-        this.actionHistory.slice(0, 4).forEach((action, i) => {
-            const historyItem = new TextBlock(`historyItem_${i}`);
-            const timeAgo = Math.floor((Date.now() - action.timestamp) / 1000);
-            const timeText = timeAgo < 60 ? `${timeAgo}s` : `${Math.floor(timeAgo / 60)}m`;
-            historyItem.text = `${action.text.trim()} [${timeText}]`;
-            historyItem.color = action.type === "purchase" ? "#0f0" : action.type === "upgrade" ? "#0ff" : "#aaa";
-            historyItem.fontSize = 10;
-            historyItem.fontFamily = "Consolas, Monaco, monospace";
-            historyItem.top = `${i * 16}px`;
-            historyItem.left = "-110px";
-            historyItem.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            historyList.addControl(historyItem);
-        });
-        
-        // Если истории нет, показываем сообщение
-        if (this.actionHistory.length === 0) {
-            const emptyText = new TextBlock("historyEmpty");
-            emptyText.text = "No actions";
-            emptyText.color = "#666";
-            emptyText.fontSize = 10;
-            emptyText.fontFamily = "Consolas, Monaco, monospace";
-            emptyText.top = "35px";
-            emptyText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            historyList.addControl(emptyText);
-        }
-    }
-    
-    // Упрощенный визуальный эффект при покупке (без лишних анимаций, используется при покупке)
-    public createPurchaseEffect(container: Rectangle | null, color: string): void {
-        if (!container || !this.garageContainer) return;
-        
-        // Простая вспышка без частиц
-        const originalBg = container.background;
-        const flashColor = color === "#0f0" ? "rgba(0, 255, 0, 0.3)" : "rgba(255, 255, 0, 0.3)";
-        container.background = flashColor;
-        setTimeout(() => {
-            if (container) container.background = originalBg;
-        }, 200);
     }
 }

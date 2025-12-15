@@ -29,10 +29,14 @@ class Logger {
     }
 
     /**
-     * Логирует ошибку (всегда видно)
+     * УЛУЧШЕНО: Логирует ошибку (всегда видно) с дополнительной информацией
      */
     error(...args: any[]): void {
         console.error(this.prefix, ...args);
+        // В development режиме добавляем stack trace для ошибок
+        if (isDevelopment && args[0] instanceof Error) {
+            console.error(this.prefix, "Stack trace:", args[0].stack);
+        }
     }
 
     /**
