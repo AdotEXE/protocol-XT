@@ -396,6 +396,21 @@ export class ChunkSystem {
         floor.material = floorMat;
         floor.name = `garageFloor_${index}`;
         
+        // Прозрачный физический пол для предотвращения проваливания танка
+        const collisionFloor = MeshBuilder.CreateBox(`garageFloorCollision_${index}`, {
+            width: garageWidth - 0.5,
+            height: 0.15,
+            depth: garageDepth - 0.5
+        }, this.scene);
+        collisionFloor.position = new Vector3(garageX, 0.075, garageZ);
+        collisionFloor.isVisible = false;
+        collisionFloor.visibility = 0;
+        const collisionMat = new StandardMaterial(`garageFloorCollisionMat_${index}`, this.scene);
+        collisionMat.alpha = 0;
+        collisionFloor.material = collisionMat;
+        collisionFloor.name = `garageFloorCollision_${index}`;
+        new PhysicsAggregate(collisionFloor, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        
         // ЗАДНЯЯ СТЕНА С ПРОЁМОМ (ворота)
         // Левая часть задней стены
         const backLeftWidth = (garageWidth - doorWidth) / 2;
@@ -5579,6 +5594,23 @@ export class ChunkSystem {
         floor.parent = chunk.node;
         floor.freezeWorldMatrix();
         chunk.meshes.push(floor);
+        
+        // Прозрачный физический пол для предотвращения проваливания танка
+        const collisionFloor = MeshBuilder.CreateBox("garageFloorCollision", {
+            width: garageWidth - wallThickness * 2,
+            height: 0.15,
+            depth: garageDepth - wallThickness * 2
+        }, this.scene);
+        collisionFloor.position = new Vector3(worldGarageX, 0.075, worldGarageZ);
+        collisionFloor.isVisible = false;
+        collisionFloor.visibility = 0;
+        const collisionMat = new StandardMaterial("garageFloorCollisionMat", this.scene);
+        collisionMat.alpha = 0;
+        collisionFloor.material = collisionMat;
+        collisionFloor.parent = chunk.node;
+        collisionFloor.freezeWorldMatrix();
+        chunk.meshes.push(collisionFloor);
+        new PhysicsAggregate(collisionFloor, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         
         // Сохраняем область гаража для исключения из генерации других объектов
         // УВЕЛИЧЕННЫЙ ЗАПАС чтобы ничего не спавнилось внутри или рядом с гаражом

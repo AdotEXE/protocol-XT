@@ -149,18 +149,20 @@ export class ChatSystem {
             top: ${scaledTop}px;
             width: ${scaledWidth}px;
             height: ${defaultCollapsed ? `${30 * scaleFactor}px` : `${scaledHeight}px`};
-            background: rgba(0, 0, 0, 0.7);
-            border: ${2 * scaleFactor}px solid #0f0;
-            border-radius: 0;
-            font-family: 'Courier New', monospace;
-            font-size: clamp(9px, 1vw, 13px);
+            background: rgba(0, 10, 0, 0.95);
+            border: ${2 * scaleFactor}px solid rgba(0, 255, 4, 0.6);
+            border-radius: ${4 * scaleFactor}px;
+            font-family: Consolas, Monaco, 'Courier New', monospace;
+            font-size: clamp(10px, 1.1vw, 12px);
             z-index: 10000;
             cursor: default;
             user-select: none;
-            box-shadow: 0 0 ${10 * scaleFactor}px rgba(0, 255, 0, 0.3);
+            box-shadow: 0 0 ${15 * scaleFactor}px rgba(0, 255, 0, 0.4), inset 0 0 ${20 * scaleFactor}px rgba(0, 10, 0, 0.5);
             transform-origin: top;
             pointer-events: auto;
             display: none;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(4px);
         `;
         document.body.appendChild(htmlContainer);
         
@@ -173,8 +175,8 @@ export class ChatSystem {
         header.style.cssText = `
             width: 100%;
             height: ${headerHeight}px;
-            background: rgba(0, 0, 0, 0.8);
-            border-bottom: ${2 * scaleFactor}px solid #0f0;
+            background: linear-gradient(180deg, rgba(0, 20, 0, 0.9) 0%, rgba(0, 10, 0, 0.95) 100%);
+            border-bottom: ${2 * scaleFactor}px solid rgba(0, 255, 4, 0.4);
             display: flex;
             align-items: center;
             padding: 0 ${10 * scaleFactor}px;
@@ -183,16 +185,19 @@ export class ChatSystem {
             z-index: 10001;
             box-sizing: border-box;
             overflow: hidden;
+            border-radius: ${4 * scaleFactor}px ${4 * scaleFactor}px 0 0;
         `;
         htmlContainer.appendChild(header);
         
         const headerText = document.createElement("span");
         headerText.textContent = isCollapsed ? "> SYSTEM TERMINAL [COLLAPSED]" : "> SYSTEM TERMINAL [ACTIVE]";
         headerText.style.cssText = `
-            color: #0f0;
-            font-size: clamp(10px, 1.2vw, 13px);
+            color: #0ff;
+            font-size: clamp(11px, 1.3vw, 14px);
             font-weight: bold;
             flex: 1;
+            text-shadow: 0 0 ${4 * scaleFactor}px rgba(0, 255, 255, 0.6);
+            letter-spacing: ${0.5 * scaleFactor}px;
         `;
         header.appendChild(headerText);
         
@@ -203,11 +208,35 @@ export class ChatSystem {
             width: 100%;
             height: calc(100% - ${headerHeight}px - ${60 * scaleFactor}px);
             overflow-y: auto;
-            padding: ${5 * scaleFactor}px;
-            font-size: clamp(9px, 1vw, 11px);
-            color: #0a0;
+            padding: ${8 * scaleFactor}px;
+            font-size: clamp(10px, 1.1vw, 12px);
+            color: #0f0;
             display: ${isCollapsed ? 'none' : 'block'};
+            background: rgba(0, 5, 0, 0.3);
+            font-family: Consolas, Monaco, 'Courier New', monospace;
+            line-height: 1.5;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(0, 255, 4, 0.4) rgba(0, 10, 0, 0.2);
         `;
+        
+        // Стилизация скроллбара для WebKit
+        const scrollbarStyle = document.createElement('style');
+        scrollbarStyle.textContent = `
+            #terminal-messages::-webkit-scrollbar {
+                width: ${8 * scaleFactor}px;
+            }
+            #terminal-messages::-webkit-scrollbar-track {
+                background: rgba(0, 10, 0, 0.2);
+            }
+            #terminal-messages::-webkit-scrollbar-thumb {
+                background: rgba(0, 255, 4, 0.4);
+                border-radius: ${4 * scaleFactor}px;
+            }
+            #terminal-messages::-webkit-scrollbar-thumb:hover {
+                background: rgba(0, 255, 4, 0.6);
+            }
+        `;
+        document.head.appendChild(scrollbarStyle);
         htmlContainer.appendChild(messagesDiv);
         (htmlContainer as any)._messagesDiv = messagesDiv;
         
@@ -321,13 +350,13 @@ export class ChatSystem {
         // Кнопка сворачивания/разворачивания (в правом верхнем углу терминала)
         const collapseBtn = document.createElement("button");
         collapseBtn.textContent = isCollapsed ? "▼" : "▲";
-        collapseBtn.style.cssText = `
+            collapseBtn.style.cssText = `
             position: absolute;
             top: 2px;
             right: 2px;
-            background: rgba(0, 255, 0, 0.2);
-            border: 1px solid #0f0;
-            color: #0f0;
+            background: rgba(0, 255, 4, 0.2);
+            border: 1px solid rgba(0, 255, 4, 0.6);
+            color: #0ff;
             width: 22px;
             height: 20px;
             cursor: pointer;
@@ -337,18 +366,21 @@ export class ChatSystem {
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: all 0.2s;
+            transition: all 0.3s ease;
             flex-shrink: 0;
             box-sizing: border-box;
             z-index: 10003;
+            border-radius: ${2 * scaleFactor}px;
         `;
         collapseBtn.addEventListener("mouseenter", () => {
-            collapseBtn.style.background = "rgba(0, 255, 0, 0.4)";
+            collapseBtn.style.background = "rgba(0, 255, 4, 0.4)";
             collapseBtn.style.borderColor = "#0ff";
+            collapseBtn.style.transform = "scale(1.1)";
         });
         collapseBtn.addEventListener("mouseleave", () => {
-            collapseBtn.style.background = "rgba(0, 255, 0, 0.2)";
-            collapseBtn.style.borderColor = "#0f0";
+            collapseBtn.style.background = "rgba(0, 255, 4, 0.2)";
+            collapseBtn.style.borderColor = "rgba(0, 255, 4, 0.6)";
+            collapseBtn.style.transform = "scale(1)";
         });
         collapseBtn.addEventListener("mousedown", (e) => {
             e.stopPropagation();
@@ -584,9 +616,11 @@ export class ChatSystem {
         }
     }
     
-    // Создать кнопки фильтров
+    // Создать кнопки фильтров (зарезервировано для будущего использования)
+    // @ts-ignore - метод зарезервирован для будущей реализации
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private _createFilterButtons(): void {
+        // Метод зарезервирован для будущей реализации фильтров
         if (!this.chatContainer) return;
         
         const filterContainer = new Rectangle("filterContainer");
@@ -796,11 +830,11 @@ export class ChatSystem {
     
     private getColorForType(type: MessageType): string {
         switch (type) {
-            case "system": return "#0f0"; // Зелёный
-            case "info": return "#0ff"; // Голубой
-            case "warning": return "#ff0"; // Жёлтый
-            case "error": return "#f00"; // Красный
-            case "success": return "#0f0"; // Зелёный
+            case "system": return "#0ff"; // Cyan (системные)
+            case "info": return "#aaa"; // Серый (информация)
+            case "warning": return "#ff0"; // Жёлтый (предупреждения)
+            case "error": return "#f00"; // Красный (ошибки)
+            case "success": return "#0f0"; // Зелёный (успех)
             case "log": return "#888"; // Серый
             case "combat": return "#f80"; // Оранжевый
             case "economy": return "#ffd700"; // Золотой
@@ -856,9 +890,16 @@ export class ChatSystem {
             const msgDiv = document.createElement("div");
             msgDiv.style.cssText = `
                 color: ${message.color};
-                font-size: clamp(9px, 1vw, 11px);
-                margin: ${2 * scaleFactor}px 0;
+                font-size: clamp(10px, 1.1vw, 12px);
+                margin: ${3 * scaleFactor}px 0;
+                padding: ${2 * scaleFactor}px ${4 * scaleFactor}px;
                 word-wrap: break-word;
+                font-family: Consolas, Monaco, 'Courier New', monospace;
+                line-height: 1.4;
+                text-shadow: 0 0 ${2 * scaleFactor}px ${message.color}40;
+                transition: opacity 0.2s ease;
+                border-left: ${2 * scaleFactor}px solid ${message.color}40;
+                padding-left: ${6 * scaleFactor}px;
             `;
             
             const prefix = timeStr ? `[${timeStr}]` : "";
@@ -876,7 +917,12 @@ export class ChatSystem {
         }
     }
     
+    // Создать элемент сообщения (зарезервировано для будущего использования)
+    // @ts-ignore - метод зарезервирован для будущей реализации
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private _createMessageElement(message: ChatMessage, index: number): TextBlock {
+        // Метод зарезервирован для будущей реализации GUI элементов через Babylon.js
+        // В данный момент используется HTML-реализация для лучшей производительности
         const element = new TextBlock(`chatMsg_${message.timestamp}`);
         
         // Форматируем время

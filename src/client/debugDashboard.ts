@@ -1,5 +1,7 @@
 import { Scene, Engine } from "@babylonjs/core";
 import { ChunkSystem } from "./chunkSystem";
+import { Game } from "./game";
+import { TankController } from "./tankController";
 
 export class DebugDashboard {
     private container!: HTMLDivElement;
@@ -7,6 +9,8 @@ export class DebugDashboard {
     private engine: Engine;
     private scene: Scene;
     private chunkSystem: ChunkSystem | null = null;
+    private game: Game | null = null;
+    private tank: TankController | null = null;
     
     private fpsHistory: number[] = [];
     private maxHistoryLength = 60;
@@ -30,6 +34,14 @@ export class DebugDashboard {
         this.chunkSystem = chunkSystem;
     }
     
+    setGame(game: Game | null): void {
+        this.game = game;
+    }
+    
+    setTank(tank: TankController | null): void {
+        this.tank = tank;
+    }
+    
     private createUI(): void {
         this.container = document.createElement("div");
         this.container.id = "debug-dashboard";
@@ -50,14 +62,36 @@ export class DebugDashboard {
                 <div class="debug-row"><span>Triangles:</span><span id="dbg-faces">-</span></div>
             </div>
             <div class="debug-section">
+                <div class="debug-label">ENEMIES</div>
+                <div class="debug-row"><span>Count:</span><span id="dbg-enemy-count">-</span></div>
+                <div class="debug-row"><span>Active:</span><span id="dbg-enemy-active">-</span></div>
+                <div class="debug-row"><span>Spawned:</span><span id="dbg-enemy-spawned">-</span></div>
+            </div>
+            <div class="debug-section">
+                <div class="debug-label">TANK PHYSICS</div>
+                <div class="debug-row"><span>Speed:</span><span id="dbg-tank-speed">-</span></div>
+                <div class="debug-row"><span>Hover:</span><span id="dbg-tank-hover">-</span></div>
+                <div class="debug-row"><span>Upright:</span><span id="dbg-tank-upright">-</span></div>
+                <div class="debug-row"><span>Stability:</span><span id="dbg-tank-stability">-</span></div>
+            </div>
+            <div class="debug-section">
                 <div class="debug-label">CHUNKS</div>
                 <div class="debug-row"><span>Loaded:</span><span id="dbg-chunks-loaded">-</span></div>
                 <div class="debug-row"><span>In Memory:</span><span id="dbg-chunks-mem">-</span></div>
+                <div class="debug-row"><span>Visible:</span><span id="dbg-chunks-visible">-</span></div>
                 <div class="debug-row"><span>Update Time:</span><span id="dbg-chunk-time">-</span></div>
             </div>
             <div class="debug-section">
+                <div class="debug-label">NETWORK</div>
+                <div class="debug-row"><span>Ping:</span><span id="dbg-network-ping">-</span></div>
+                <div class="debug-row"><span>Players:</span><span id="dbg-network-players">-</span></div>
+                <div class="debug-row"><span>Packets/s:</span><span id="dbg-network-packets">-</span></div>
+            </div>
+            <div class="debug-section">
                 <div class="debug-label">MEMORY</div>
-                <div class="debug-row"><span>JS Heap:</span><span id="dbg-memory">-</span></div>
+                <div class="debug-row"><span>Used:</span><span id="dbg-memory-used">-</span></div>
+                <div class="debug-row"><span>Peak:</span><span id="dbg-memory-peak">-</span></div>
+                <div class="debug-row"><span>Limit:</span><span id="dbg-memory-limit">-</span></div>
             </div>
             <div class="debug-section">
                 <div class="debug-label">POSITION</div>
@@ -188,18 +222,71 @@ export class DebugDashboard {
         set("dbg-vertices", this.formatNumber(this.scene.getTotalVertices()));
         set("dbg-faces", this.formatNumber(Math.floor(this.scene.getTotalVertices() / 3)));
         
+        // ENEMIES
+        if (this.game) {
+            const enemyTanks = (this.game as any).enemyTanks || [];
+            const activeEnemies = enemyTanks.filter((e: any) => e && e.isAlive !== false).length;
+            set("dbg-enemy-count", enemyTanks.length.toString());
+            set("dbg-enemy-active", activeEnemies.toString());
+            set("dbg-enemy-spawned", enemyTanks.length.toString());
+        } else {
+            set("dbg-enemy-count", "0");
+            set("dbg-enemy-active", "0");
+            set("dbg-enemy-spawned", "0");
+        }
+        
+        // TANK PHYSICS
+        if (this.tank) {
+            set("dbg-tank-speed", this.tank.moveSpeed?.toFixed(1) || "0");
+            set("dbg-tank-hover", this.tank.hoverHeight?.toFixed(2) || "0");
+            set("dbg-tank-upright", this.tank.uprightForce?.toFixed(0) || "0");
+            set("dbg-tank-stability", this.tank.stabilityForce?.toFixed(0) || "0");
+        } else {
+            set("dbg-tank-speed", "-");
+            set("dbg-tank-hover", "-");
+            set("dbg-tank-upright", "-");
+            set("dbg-tank-stability", "-");
+        }
+        
+        // CHUNKS
         if (chunkStats) {
             set("dbg-chunks-loaded", chunkStats.loadedChunks.toString());
             set("dbg-chunks-mem", chunkStats.totalChunksInMemory.toString());
+            set("dbg-chunks-visible", (chunkStats.loadedChunks || 0).toString());
             set("dbg-chunk-time", `${chunkStats.lastUpdateTime.toFixed(2)} ms`);
+        } else {
+            set("dbg-chunks-loaded", "-");
+            set("dbg-chunks-mem", "-");
+            set("dbg-chunks-visible", "-");
+            set("dbg-chunk-time", "-");
         }
         
+        // NETWORK
+        if (this.game && (this.game as any).multiplayerManager) {
+            const mp = (this.game as any).multiplayerManager;
+            set("dbg-network-ping", mp.ping?.toString() || "N/A");
+            set("dbg-network-players", ((this.game as any).networkPlayerTanks?.size || 0).toString());
+            set("dbg-network-packets", "N/A"); // Пакеты в секунду - если доступно
+        } else {
+            set("dbg-network-ping", "N/A");
+            set("dbg-network-players", "0");
+            set("dbg-network-packets", "N/A");
+        }
+        
+        // MEMORY
         let memoryUsed = 0;
+        let memoryPeak = 0;
+        let memoryLimit = 0;
         const perfMem = (performance as any).memory;
         if (perfMem) {
             memoryUsed = perfMem.usedJSHeapSize / 1048576;
+            memoryPeak = perfMem.peakJSHeapSize / 1048576;
+            memoryLimit = perfMem.jsHeapSizeLimit / 1048576;
         }
-        set("dbg-memory", `${memoryUsed.toFixed(1)} MB`);
+        set("dbg-memory-used", `${memoryUsed.toFixed(1)} MB`);
+        set("dbg-memory-peak", `${memoryPeak.toFixed(1)} MB`);
+        set("dbg-memory-limit", `${memoryLimit.toFixed(1)} MB`);
+        
         set("dbg-pos-x", playerPos.x.toFixed(1));
         set("dbg-pos-y", playerPos.y.toFixed(1));
         set("dbg-pos-z", playerPos.z.toFixed(1));

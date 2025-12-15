@@ -82,6 +82,9 @@ export class Game {
     // Cheat menu
     cheatMenu: CheatMenu | undefined;
     
+    // Session settings
+    sessionSettings: { getSettings: () => { enemyCount?: number; aiDifficulty?: string }; setGame: (game: Game) => void } | undefined;
+    
     // Enemy tanks
     enemyTanks: EnemyTank[] = [];
     
@@ -614,6 +617,13 @@ export class Game {
             if (e.code === "Tab" && this.gameStarted) {
                 e.preventDefault(); // Предотвращаем переключение фокуса
                 this.showStatsOverlay(); // Показываем при нажатии
+                return;
+            }
+            
+            // Скриншот (F2)
+            if (e.code === "F2" && this.gameStarted) {
+                e.preventDefault();
+                this.takeScreenshot();
                 return;
             }
             
@@ -1297,6 +1307,23 @@ export class Game {
         this.gamePaused = false;
         this.settings = this.mainMenu.getSettings();
         
+        // Инициализируем массив врагов
+        if (!this.enemyTanks) {
+            this.enemyTanks = [];
+        } else {
+            // Очищаем старых врагов при перезапуске
+            this.enemyTanks.forEach(enemy => {
+                if (enemy && enemy.chassis) {
+                    try {
+                        enemy.chassis.dispose();
+                    } catch (e) {
+                        // Игнорируем ошибки при dispose
+                    }
+                }
+            });
+            this.enemyTanks = [];
+        }
+        
         // Track survival time for achievements
         this.survivalStartTime = Date.now();
         
@@ -1751,6 +1778,9 @@ export class Game {
             if (this.cheatMenu) {
                 this.cheatMenu.setTank(this.tank);
             }
+            if (this.debugDashboard) {
+                this.debugDashboard.setTank(this.tank);
+            }
             
             // Устанавливаем callback для респавна в гараже
             this.tank.setRespawnPositionCallback(() => this.getPlayerGaragePosition());
@@ -2112,6 +2142,7 @@ export class Game {
             // === DEBUG DASHBOARD ===
             this.debugDashboard = new DebugDashboard(this.engine, this.scene);
             this.debugDashboard.setChunkSystem(this.chunkSystem);
+            this.debugDashboard.setGame(this);
             logger.log("Debug dashboard created (F3 to toggle)");
             
             // === PHYSICS PANEL ===
@@ -2122,6 +2153,11 @@ export class Game {
             
             // Initialize cheat menu
             this.cheatMenu = new CheatMenu();
+            
+            // Initialize session settings
+            const { SessionSettings } = await import("./sessionSettings");
+            this.sessionSettings = new SessionSettings();
+            this.sessionSettings.setGame(this);
             if (this.tank) {
                 this.cheatMenu.setTank(this.tank);
             }
@@ -2172,7 +2208,23 @@ export class Game {
             return;
         }
         
-        if (!this.soundManager || !this.effectsManager) return;
+        // Проверяем необходимые системы
+        if (!this.soundManager || !this.effectsManager) {
+            logger.warn("[Game] Cannot spawn enemies: soundManager or effectsManager not initialized");
+            return;
+        }
+        
+        if (!this.scene) {
+            logger.warn("[Game] Cannot spawn enemies: scene not initialized");
+            return;
+        }
+        
+        // Убеждаемся, что массив инициализирован
+        if (!this.enemyTanks) {
+            this.enemyTanks = [];
+        }
+        
+        logger.log(`[Game] Spawning enemies for map: ${this.currentMapType}`);
         
         // Для полигона - спавним ботов в зоне боя (юго-восточный квадрант)
         if (this.currentMapType === "polygon") {
@@ -2186,10 +2238,20 @@ export class Game {
             return;
         }
         
+        // Для всех остальных карт (включая normal) - спавним врагов
         // Разбрасываем врагов по всей карте случайным образом
         const minDistance = 60; // Минимальное расстояние от центра
         const maxDistance = 180; // Максимальное расстояние от центра
-        const enemyCount = 7;
+        
+        // Используем настройки из sessionSettings, если доступны
+        let enemyCount = 7;
+        let aiDifficulty = this.mainMenu?.getSettings().enemyDifficulty || "medium";
+        
+        if (this.sessionSettings) {
+            const sessionSettings = this.sessionSettings.getSettings();
+            enemyCount = sessionSettings.enemyCount || 7;
+            aiDifficulty = sessionSettings.aiDifficulty || aiDifficulty;
+        }
         
         const spawnPositions: Vector3[] = [];
         
@@ -2226,8 +2288,8 @@ export class Game {
         }
         
         spawnPositions.forEach((pos) => {
-            // Используем сложность из настроек меню
-            const difficulty = this.mainMenu?.getSettings().enemyDifficulty || "medium";
+            // Используем сложность из sessionSettings или настроек меню
+            const difficulty = aiDifficulty;
             const enemyTank = new EnemyTank(this.scene, pos, this.soundManager!, this.effectsManager!, difficulty);
             if (this.tank) {
                 enemyTank.setTarget(this.tank);
@@ -2308,7 +2370,8 @@ export class Game {
             this.enemyTanks.push(enemyTank);
         });
         
-        logger.log(`Spawned ${this.enemyTanks.length} enemy tanks`);
+        logger.log(`[Game] Spawned ${this.enemyTanks.length} enemy tanks for map: ${this.currentMapType}`);
+        logger.log(`[Game] Enemy count: ${enemyCount}, Positions generated: ${spawnPositions.length}`);
     }
     
     // Спавн тренировочных ботов для режима полигона
@@ -7142,6 +7205,51 @@ export class Game {
     }
     
     // === FIREBASE INTEGRATION ===
+    
+    private async takeScreenshot(): Promise<void> {
+        try {
+            // Используем Babylon.js API для создания скриншота
+            const dataUrl = await this.engine.createScreenshot();
+            
+            // Конвертируем data URL в blob
+            const response = await fetch(dataUrl);
+            const blob = await response.blob();
+            
+            // Копирование в буфер обмена
+            if (navigator.clipboard && navigator.clipboard.write) {
+                try {
+                    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+                } catch (clipboardError) {
+                    logger.warn("[Game] Clipboard write failed, continuing with localStorage save:", clipboardError);
+                }
+            }
+            
+            // Сохранение в localStorage
+            const timestamp = Date.now();
+            const key = `ptx_screenshot_${timestamp}`;
+            
+            // Сохраняем base64 строку (ограничение ~5MB на ключ)
+            localStorage.setItem(key, dataUrl);
+            
+            // Обновление метаданных
+            const metaKey = "ptx_screenshots_meta";
+            const meta = JSON.parse(localStorage.getItem(metaKey) || "[]");
+            meta.push({ timestamp, size: blob.size });
+            // Ограничиваем количество сохраненных скриншотов (последние 50)
+            if (meta.length > 50) {
+                const oldest = meta.shift();
+                localStorage.removeItem(`ptx_screenshot_${oldest.timestamp}`);
+            }
+            localStorage.setItem(metaKey, JSON.stringify(meta));
+            
+            // Уведомление
+            this.hud?.showMessage("📸 Screenshot saved! (F2)", "#0f0", 3000);
+            logger.log(`[Game] Screenshot saved: ${key}, size: ${(blob.size / 1024).toFixed(2)} KB`);
+        } catch (error) {
+            logger.error("[Game] Screenshot failed:", error);
+            this.hud?.showMessage("Screenshot failed", "#f00", 2000);
+        }
+    }
     
     private async saveMatchStatistics(matchData: any): Promise<void> {
         if (!firebaseService.isInitialized()) {

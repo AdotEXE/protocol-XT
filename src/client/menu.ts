@@ -18,6 +18,7 @@ const VERSION_MINOR = 3;
 // В dev режиме используем текущее время
 declare const __BUILD_TIME__: string | undefined;
 declare const __COMMIT_HASH__: string | undefined;
+declare const __BUILD_NUMBER__: string | undefined;
 
 const BUILD_TIME = typeof __BUILD_TIME__ !== 'undefined' 
     ? __BUILD_TIME__ 
@@ -34,13 +35,17 @@ const BUILD_TIME = typeof __BUILD_TIME__ !== 'undefined'
 
 const COMMIT_HASH = typeof __COMMIT_HASH__ !== 'undefined' ? __COMMIT_HASH__ : 'dev';
 
-// Используем первые 4 символа commit hash как build number (конвертируем hex в число)
+// Используем build number из vite.config.ts (генерируется во время сборки)
 // Для dev режима используем 0
-let buildNumber = 0;
-if (COMMIT_HASH !== 'dev' && COMMIT_HASH.length >= 4) {
-    // Берем первые 4 символа и конвертируем из hex в число, затем берем остаток от 10000
-    buildNumber = parseInt(COMMIT_HASH.substring(0, 4), 16) % 10000;
-}
+const buildNumber = typeof __BUILD_NUMBER__ !== 'undefined' 
+    ? parseInt(__BUILD_NUMBER__) 
+    : (() => {
+        // Fallback: вычисляем из commit hash если доступен
+        if (COMMIT_HASH !== 'dev' && COMMIT_HASH.length >= 4) {
+            return parseInt(COMMIT_HASH.substring(0, 4), 16) % 10000;
+        }
+        return 0;
+    })();
 
 const VERSION = `v${VERSION_MAJOR}.${VERSION_MINOR}.${buildNumber} ${BUILD_TIME}`;
 

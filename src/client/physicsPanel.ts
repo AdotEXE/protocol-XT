@@ -405,13 +405,25 @@ export class PhysicsPanel {
         window.addEventListener("keydown", (e) => {
             if (e.code === "F4") {
                 e.preventDefault();
+                e.stopPropagation();
+                if (!this.container) {
+                    logger.warn("[PhysicsPanel] Container not initialized!");
+                    return;
+                }
                 this.toggle();
             }
         });
     }
     
     toggle(): void {
+        if (!this.container) {
+            logger.warn("[PhysicsPanel] Cannot toggle: container not initialized");
+            return;
+        }
+        
         this.visible = !this.visible;
+        logger.debug(`[PhysicsPanel] Toggle: ${this.visible ? 'show' : 'hide'}`);
+        
         if (this.visible) {
             this.container.classList.remove("hidden");
             this.container.style.display = "";

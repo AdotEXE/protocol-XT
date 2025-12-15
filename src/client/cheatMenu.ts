@@ -4,6 +4,7 @@
 
 import { TankController } from "./tankController";
 import { Game } from "./game";
+import { Vector3 } from "@babylonjs/core";
 
 export interface Cheat {
     id: string;
@@ -226,6 +227,186 @@ export class CheatMenu {
                 }
             }
         });
+        
+        // НОВЫЕ ЧИТЫ
+        
+        // Телепорт
+        this.addCheat({
+            id: "teleport",
+            name: "Телепорт",
+            description: "Телепортирует танк в указанные координаты",
+            enabled: false,
+            category: "debug",
+            toggle: () => {
+                if (!this.tank || !this.game) {
+                    alert("Танк или игра не инициализированы!");
+                    return;
+                }
+                
+                const x = prompt("X координата:", "0");
+                const y = prompt("Y координата:", "2");
+                const z = prompt("Z координата:", "0");
+                
+                if (x !== null && y !== null && z !== null) {
+                    const posX = parseFloat(x);
+                    const posY = parseFloat(y);
+                    const posZ = parseFloat(z);
+                    
+                    if (!isNaN(posX) && !isNaN(posY) && !isNaN(posZ)) {
+                        this.tank.chassis.position = new Vector3(posX, posY, posZ);
+                        if (this.tank.physicsBody) {
+                            this.tank.physicsBody.setTargetTransform(
+                                this.tank.chassis.position,
+                                this.tank.chassis.rotationQuaternion!
+                            );
+                        }
+                        if (this.game.hud) {
+                            this.game.hud.showMessage(`Телепорт: (${posX.toFixed(1)}, ${posY.toFixed(1)}, ${posZ.toFixed(1)})`, "#0f0", 2000);
+                        }
+                    } else {
+                        alert("Неверные координаты!");
+                    }
+                }
+            }
+        });
+        
+        // Спавн врага (улучшенная версия)
+        this.addCheat({
+            id: "spawnEnemyNear",
+            name: "Спавн врага рядом",
+            description: "Создаёт врага рядом с игроком",
+            enabled: false,
+            category: "debug",
+            toggle: async () => {
+                if (!this.game || !this.tank) {
+                    alert("Игра или танк не инициализированы!");
+                    return;
+                }
+                
+                const { Vector3 } = await import("@babylonjs/core");
+                const { EnemyTank } = await import("./enemyTank");
+                
+                const pos = this.tank.chassis.absolutePosition;
+                const offset = new Vector3(
+                    (Math.random() - 0.5) * 20,
+                    0.6,
+                    (Math.random() - 0.5) * 20
+                );
+                const spawnPos = pos.add(offset);
+                
+                if (this.game.scene && this.game.soundManager && this.game.effectsManager) {
+                    const difficulty = (this.game.mainMenu as any)?.getSettings()?.enemyDifficulty || "medium";
+                    const enemyTank = new EnemyTank(
+                        this.game.scene,
+                        spawnPos,
+                        this.game.soundManager,
+                        this.game.effectsManager,
+                        difficulty
+                    );
+                    
+                    if (this.tank) {
+                        enemyTank.setTarget(this.tank);
+                    }
+                    
+                    if ((this.game as any).enemyTanks) {
+                        (this.game as any).enemyTanks.push(enemyTank);
+                    }
+                    
+                    if (this.game.hud) {
+                        this.game.hud.showMessage("Враг заспавнен!", "#0f0", 2000);
+                    }
+                }
+            }
+        });
+        
+        // Разблокировать все
+        this.addCheat({
+            id: "unlockAll",
+            name: "Разблокировать всё",
+            description: "Разблокирует все улучшения и оружие",
+            enabled: false,
+            category: "resources",
+            toggle: () => {
+                if (!this.game) {
+                    alert("Игра не инициализирована!");
+                    return;
+                }
+                
+                // Разблокируем все через playerProgression
+                if ((this.game as any).playerProgression) {
+                    const progression = (this.game as any).playerProgression;
+                    // Разблокируем все уровни и улучшения
+                    if (progression.unlockAll) {
+                        progression.unlockAll();
+                    } else {
+                        // Fallback: устанавливаем высокий уровень
+                        progression.level = 50;
+                        progression.experience = 999999;
+                    }
+                }
+                
+                // Разблокируем все оружие через garage
+                if ((this.game as any).garage) {
+                    const garage = (this.game as any).garage;
+                    if (garage.unlockAllWeapons) {
+                        garage.unlockAllWeapons();
+                    }
+                }
+                
+                // Обновляем HUD
+                if (this.game.hud) {
+                    this.game.hud.showMessage("Всё разблокировано!", "#0f0", 3000);
+                }
+                
+                alert("Все улучшения и оружие разблокированы!");
+            }
+        });
+        
+        // Бесконечные ресурсы
+        this.addCheat({
+            id: "infiniteResources",
+            name: "Бесконечные ресурсы",
+            description: "Бесконечные кредиты и опыт",
+            enabled: false,
+            category: "resources",
+            toggle: () => {
+                const cheat = this.cheats.get("infiniteResources")!;
+                cheat.enabled = !cheat.enabled;
+                
+                if (this.game) {
+                    (this.game as any).infiniteCredits = cheat.enabled;
+                    (this.game as any).infiniteXP = cheat.enabled;
+                    
+                    if (cheat.enabled) {
+                        // Устанавливаем флаги для предотвращения уменьшения ресурсов
+                        if ((this.game as any).currencyManager) {
+                            const originalAdd = (this.game as any).currencyManager.addCurrency;
+                            (this.game as any).currencyManager.addCurrency = (amount: number) => {
+                                // Не уменьшаем, только добавляем
+                                if (amount > 0) {
+                                    originalAdd.call((this.game as any).currencyManager, amount);
+                                }
+                            };
+                        }
+                        
+                        if (this.game.hud) {
+                            this.game.hud.showMessage("Бесконечные ресурсы: ВКЛ", "#0f0", 2000);
+                        }
+                    } else {
+                        // Восстанавливаем оригинальные методы
+                        if ((this.game as any).currencyManager && (this.game as any).currencyManager._originalAddCurrency) {
+                            (this.game as any).currencyManager.addCurrency = (this.game as any).currencyManager._originalAddCurrency;
+                        }
+                        
+                        if (this.game.hud) {
+                            this.game.hud.showMessage("Бесконечные ресурсы: ВЫКЛ", "#f00", 2000);
+                        }
+                    }
+                }
+                
+                this.updateCheatUI("infiniteResources");
+            }
+        });
     }
     
     private addCheat(cheat: Cheat): void {
@@ -434,13 +615,25 @@ export class CheatMenu {
         window.addEventListener("keydown", (e) => {
             if (e.code === "F7") {
                 e.preventDefault();
+                e.stopPropagation();
+                if (!this.container) {
+                    console.warn("[CheatMenu] Container not initialized!");
+                    return;
+                }
                 this.toggle();
             }
         });
     }
     
     toggle(): void {
+        if (!this.container) {
+            console.warn("[CheatMenu] Cannot toggle: container not initialized");
+            return;
+        }
+        
         this.visible = !this.visible;
+        console.log(`[CheatMenu] Toggle: ${this.visible ? 'show' : 'hide'}`);
+        
         if (this.visible) {
             this.show();
         } else {

@@ -1410,12 +1410,6 @@ export class HUD {
     // Кулдауны арсенала (0-4)
     private arsenalCooldowns: Map<number, { startTime: number, duration: number }> = new Map();
     
-    // Кулдауны припасов (1-5)
-    private consumableCooldowns: Map<number, { startTime: number, duration: number }> = new Map();
-    
-    // Кулдауны арсенала (0-4)
-    private arsenalCooldowns: Map<number, { startTime: number, duration: number }> = new Map();
-    
     private createConsumablesDisplay() {
         // === HOTBAR - ЦЕНТР, ПОД RELOAD BAR, НАД XP BAR (10 слотов: 1-0) ===
         const slotWidth = scalePixels(44); // Увеличено с 36

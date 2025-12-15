@@ -2,6 +2,18 @@ import { defineConfig } from 'vite';
 import path from 'path';
 import { execSync } from 'child_process';
 
+// Плагин для вывода версии при сборке
+function versionPlugin() {
+  return {
+    name: 'version-plugin',
+    buildStart() {
+      const buildInfo = getBuildVersion();
+      const version = `v0.3.${buildInfo.buildNumber} ${buildInfo.buildTime}`;
+      console.log(`> tx@${version} build`);
+    },
+  };
+}
+
 // Генерируем версию во время сборки
 function getBuildVersion() {
   const now = new Date();
@@ -21,18 +33,27 @@ function getBuildVersion() {
     // Git не доступен (например, в CI/CD)
   }
   
+  // Генерируем build number из commit hash
+  let buildNumber = 0;
+  if (commitHash !== 'unknown' && commitHash.length >= 4) {
+    buildNumber = parseInt(commitHash.substring(0, 4), 16) % 10000;
+  }
+  
   return {
     buildTime,
     commitHash,
+    buildNumber,
   };
 }
 
 const buildInfo = getBuildVersion();
 
 export default defineConfig({
+  plugins: [versionPlugin()],
   define: {
     __BUILD_TIME__: JSON.stringify(buildInfo.buildTime),
     __COMMIT_HASH__: JSON.stringify(buildInfo.commitHash),
+    __BUILD_NUMBER__: JSON.stringify(buildInfo.buildNumber),
   },
   resolve: {
     alias: {
