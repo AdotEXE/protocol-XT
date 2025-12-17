@@ -140,7 +140,7 @@ export class PhysicsPanel {
         let html = `
             <div class="panel">
                 <div class="panel-header">
-                    <div class="panel-title">НАСТРОЙКИ ФИЗИКИ [F4]</div>
+                    <div class="panel-title">НАСТРОЙКИ ФИЗИКИ [Ctrl+4]</div>
                     <button class="panel-close" id="physics-close">✕</button>
                 </div>
                 <div class="panel-content">
@@ -511,17 +511,8 @@ export class PhysicsPanel {
     }
     
     private setupToggle(): void {
-        window.addEventListener("keydown", (e) => {
-            if (e.code === "F4") {
-                e.preventDefault();
-                e.stopPropagation();
-                if (!this.container) {
-                    logger.warn("[PhysicsPanel] Container not initialized!");
-                    return;
-                }
-                this.toggle();
-            }
-        });
+        // F4 обработчик управляется в game.ts для консистентности
+        // Этот метод оставлен для возможного будущего использования
     }
     
     toggle(): void {

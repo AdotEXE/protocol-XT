@@ -33,13 +33,14 @@ import {
 } from "firebase/auth";
 
 // Firebase configuration (should be in .env or config file)
+// Используем реальную конфигурацию из документации, если переменные окружения не заданы
 const firebaseConfig = {
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "demo-key",
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "demo.firebaseapp.com",
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "demo-project",
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "demo.appspot.com",
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "123456789",
-    appId: import.meta.env.VITE_FIREBASE_APP_ID || "demo-app-id"
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyBvTtaOb9NuWgwJJgQ0lhnyLDkoRpvhAAY",
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "protocol-tx.firebaseapp.com",
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "protocol-tx",
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "protocol-tx.firebasestorage.app",
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "513687323344",
+    appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:513687323344:web:bdcbda7d8aa142cac8d4d5"
 };
 
 // Validate configuration

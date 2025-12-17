@@ -68,5 +68,63 @@ monitor-exports/
 
 # Temporary scripts
 *.ps1
+*.bat
+*.cmd
 
+# Vercel
 .vercel
+
+# Build artifacts
+*.map
+*.min.js
+*.min.css
+
+# Package manager locks (optional - uncomment if needed)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Performance and profiling
+*.cpuprofile
+*.heapsnapshot
+*.heapprofile
+
+# TypeScript
+*.tsbuildinfo
+
+# ESLint
+.eslintcache
+
+# Prettier
+.prettierignore
+
+# Testing
+coverage/
+.nyc_output/
+*.lcov
+
+# Misc
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/

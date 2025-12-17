@@ -63,7 +63,7 @@ export class DebugDashboard {
         this.container = document.createElement("div");
         this.container.id = "debug-dashboard";
         this.container.innerHTML = `
-            <div class="debug-title">DEV DASHBOARD [F3]</div>
+            <div class="debug-title">DEV DASHBOARD [Ctrl+3]</div>
             <div class="debug-section">
                 <div class="debug-label">PERFORMANCE</div>
                 <div class="debug-row"><span>FPS:</span><span id="dbg-fps">-</span></div>

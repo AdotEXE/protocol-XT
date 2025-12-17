@@ -14,6 +14,8 @@ import { MaterialFactory } from "./garage/materials";
 import { ChassisDetailsGenerator } from "./garage/chassisDetails";
 import { initPreviewScene, cleanupPreviewScene, updatePreviewTank, type PreviewScene, type PreviewTank } from "./garage/preview";
 import { injectGarageStyles } from "./garage/ui";
+import { TankEditor, TankConfiguration } from "./tank/tankEditor";
+import { SKIN_PRESETS, saveSelectedSkin, loadSelectedSkin, getSkinById, applySkinToTank } from "./tank/tankSkins";
 
 // ============ INTERFACES ============
 export interface TankUpgrade {
@@ -33,7 +35,7 @@ export interface TankPart {
     description: string;
     cost: number;
     unlocked: boolean;
-    type: "chassis" | "turret" | "barrel" | "engine" | "module" | "supply";
+    type: "chassis" | "turret" | "barrel" | "engine" | "module" | "supply" | "preset";
     stats: {
         health?: number;
         speed?: number;
@@ -44,7 +46,7 @@ export interface TankPart {
     };
 }
 
-type CategoryType = "chassis" | "cannons" | "tracks" | "modules" | "supplies" | "shop";
+type CategoryType = "chassis" | "cannons" | "tracks" | "modules" | "supplies" | "shop" | "skins" | "presets";
 
 // ============ GARAGE CLASS ============
 export class Garage {
@@ -54,13 +56,13 @@ export class Garage {
     
     // External systems
     // @ts-expect-error - Reserved for future use
-    private _chatSystem: any = null;
-    private tankController: any = null;
+    private _chatSystem: { success: (message: string, duration?: number) => void } | null = null;
+    private tankController: { chassis: Mesh; turret: Mesh; barrel: Mesh; respawn: () => void } | null = null;
     // @ts-expect-error - Reserved for future use
-    private _experienceSystem: any = null;
+    private _experienceSystem: { addExperience: (partId: string, type: "chassis" | "cannon", amount: number) => void } | null = null;
     // @ts-expect-error - Reserved for future use
-    private _playerProgression: any = null;
-    private soundManager: any = null;
+    private _playerProgression: { addExperience: (amount: number) => void } | null = null;
+    private soundManager: { play: (sound: string, volume?: number) => void } | null = null;
     private onCloseCallback: (() => void) | null = null;
     
     // HTML Elements
@@ -75,8 +77,11 @@ export class Garage {
     private currentChassisId: string = "medium";
     private currentCannonId: string = "standard";
     private currentTrackId: string = "standard";
+    private currentSkinId: string = loadSelectedSkin() || "default";
     private selectedItemIndex: number = 0;
     private filteredItems: (TankPart | TankUpgrade)[] = [];
+    private tankEditor: TankEditor | null = null; // Редактор танков
+    private savedTankConfigurations: TankConfiguration[] = []; // Сохраненные конфигурации
     
     // Filters
     private searchText: string = "";
@@ -250,6 +255,11 @@ export class Garage {
         this.loadProgress();
         injectGarageStyles();
         this.setupKeyboardNavigation();
+        
+        // Инициализируем редактор танков
+        this.tankEditor = new TankEditor(scene);
+        this.loadSavedTankConfigurations();
+        
         console.log("[Garage] HTML-based garage initialized");
     }
     
@@ -671,41 +681,58 @@ export class Garage {
         if (!this.isOpen) return;
         console.log("[Garage] Closing...");
         
+        // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Правильный порядок очистки
+        // 1. Сначала устанавливаем флаг isOpen = false
         this.isOpen = false;
         
+        // 2. Останавливаем все анимации и таймеры
         try {
-            // Cleanup 3D preview
+            if (this.previewSceneData?.animationGroups) {
+                this.previewSceneData.animationGroups.forEach(ag => {
+                    try {
+                        ag.stop();
+                    } catch (e) {
+                        console.warn("[Garage] Error stopping animation:", e);
+                    }
+                });
+            }
+        } catch (error) {
+            console.error("[Garage] Error stopping animations:", error);
+        }
+        
+        // 3. Очищаем 3D preview (самый критичный шаг)
+        try {
             this.cleanup3DPreview();
         } catch (error) {
             console.error("[Garage] Error cleaning up 3D preview:", error);
+            // Продолжаем даже при ошибке
         }
         
+        // 4. Удаляем overlay (проверяем существование)
         try {
-            // ИСПРАВЛЕНИЕ: Безопасное удаление overlay с проверками
-            if (this.overlay && this.overlay.parentNode) {
-                this.overlay.remove();
+            if (this.overlay) {
+                if (this.overlay.parentNode) {
+                    this.overlay.remove();
+                } else if (this.overlay.parentElement) {
+                    this.overlay.parentElement.removeChild(this.overlay);
+                }
+                this.overlay = null;
             }
-            this.overlay = null;
         } catch (error) {
             console.error("[Garage] Error removing overlay:", error);
-            // Пытаемся удалить через другой способ если первый не сработал
             if (this.overlay) {
-                try {
-                    this.overlay.parentElement?.removeChild(this.overlay);
-                } catch (e) {
-                    console.error("[Garage] Error removing overlay (fallback):", e);
-                }
                 this.overlay = null;
             }
         }
         
+        // 5. Скрываем курсор
         try {
-            // Hide cursor (will be shown again when user clicks on canvas)
             this.hideCursor();
         } catch (error) {
             console.error("[Garage] Error hiding cursor:", error);
         }
         
+        // 6. Воспроизводим звук (опционально)
         try {
             if (this.soundManager?.playGarageOpen) {
                 this.soundManager.playGarageOpen();
@@ -714,10 +741,12 @@ export class Garage {
             console.error("[Garage] Error playing sound:", error);
         }
         
-        // ИСПРАВЛЕНИЕ: Безопасный вызов callback с проверкой
+        // 7. ВЫЗЫВАЕМ CALLBACK В САМОМ КОНЦЕ (после всей очистки)
         try {
             if (this.onCloseCallback) {
-                this.onCloseCallback();
+                const callback = this.onCloseCallback;
+                this.onCloseCallback = null; // Очищаем перед вызовом
+                callback();
             }
         } catch (error) {
             console.error("[Garage] Error in close callback:", error);
@@ -2876,10 +2905,38 @@ export class Garage {
     // NOTE: createTurretPreview and createUniqueCannonPreview moved to garage/preview.ts
     
     private cleanup3DPreview(): void {
-        // Cleanup using module function
-            cleanupPreviewScene(this.previewSceneData);
+        if (!this.previewSceneData) return;
+        
+        try {
+            // 1. Останавливаем все анимации
+            if (this.previewSceneData.animationGroups) {
+                this.previewSceneData.animationGroups.forEach(ag => {
+                    try {
+                        ag.stop();
+                        ag.dispose();
+                    } catch (e) {
+                        console.warn("[Garage] Error disposing animation:", e);
+                    }
+                });
+                this.previewSceneData.animationGroups = [];
+            }
+            
+            // 2. Используем модульную функцию очистки
+            try {
+                cleanupPreviewScene(this.previewSceneData);
+            } catch (e) {
+                console.warn("[Garage] Error in cleanupPreviewScene:", e);
+            }
+            
+            // 3. Очищаем ссылки
             this.previewSceneData = null;
             this.previewTank = null;
+        } catch (error) {
+            console.error("[Garage] Error in cleanup3DPreview:", error);
+            // Принудительно очищаем ссылки даже при ошибке
+            this.previewSceneData = null;
+            this.previewTank = null;
+        }
     }
     
     // ============ CURSOR MANAGEMENT ============
@@ -2955,7 +3012,7 @@ export class Garage {
                     </div>
                 </div>
                 <div class="garage-footer">
-                    [↑↓] Navigate | [Enter] Select | [1-6] Categories | [ESC] Close
+                    [↑↓] Navigate | [Enter] Select | [1-8] Categories | [ESC] Close
                 </div>
             </div>
         `;
@@ -2974,6 +3031,11 @@ export class Garage {
         
         // Close button
         this.overlay.querySelector('.garage-close')?.addEventListener('click', () => this.close());
+        
+        // Кнопка сохранения пресета
+        this.overlay.querySelector('#save-preset-btn')?.addEventListener('click', () => {
+            this.saveCurrentConfigurationAsPreset();
+        });
         
         // Tabs
         this.overlay.querySelectorAll('.garage-tab').forEach(tab => {
@@ -3036,8 +3098,327 @@ export class Garage {
             case "modules": return [...this.moduleParts, ...this.upgrades.filter(u => u.level < u.maxLevel)];
             case "supplies": return [...this.supplyParts];
             case "shop": return [...this.shopItems];
+            case "skins": 
+                // Преобразуем скины в формат TankPart для совместимости
+                return SKIN_PRESETS.map(skin => ({
+                    id: skin.id,
+                    name: skin.name,
+                    description: skin.description,
+                    cost: 0, // Скины бесплатные
+                    unlocked: true, // Все скины разблокированы
+                    type: "module" as const, // Используем module для совместимости
+                    stats: {}
+                }));
+            case "presets": return this.getPresetParts(); // Пресеты танков
             default: return [];
         }
+    }
+    
+    /**
+     * Получить пресеты танков как TankPart для отображения в списке
+     */
+    private getPresetParts(): TankPart[] {
+        return this.savedTankConfigurations.map(config => ({
+            id: config.name || `preset_${config.chassisId}_${config.cannonId}`,
+            name: config.name || `Пресет: ${config.chassisId} + ${config.cannonId}`,
+            description: `Корпус: ${config.chassisId}, Пушка: ${config.cannonId}, Гусеницы: ${config.trackId}, Скин: ${config.skinId}`,
+            cost: 0,
+            unlocked: true,
+            type: "preset" as const,
+            stats: {}
+        }));
+    }
+    
+    /**
+     * Загрузить сохраненные конфигурации танков
+     */
+    private loadSavedTankConfigurations(): void {
+        if (this.tankEditor) {
+            this.savedTankConfigurations = this.tankEditor.loadSavedTanks();
+        }
+    }
+    
+    /**
+     * Сохранить текущую конфигурацию как пресет
+     */
+    private saveCurrentConfigurationAsPreset(): void {
+        if (!this.tankEditor) return;
+        
+        const name = prompt("Имя пресета:", `Tank_${Date.now()}`);
+        if (!name) return;
+        
+        const config: TankConfiguration = {
+            chassisId: this.currentChassisId,
+            cannonId: this.currentCannonId,
+            trackId: this.currentTrackId,
+            skinId: this.currentSkinId || "default",
+            name: name
+        };
+        
+        this.tankEditor.setConfiguration(config);
+        this.tankEditor.saveConfiguration(name);
+        this.loadSavedTankConfigurations();
+        this.refreshItemList();
+        
+        // Показываем уведомление
+        this.showNotification(`Пресет "${name}" сохранен!`, "success");
+    }
+    
+    /**
+     * Применить пресет танка
+     */
+    private applyPreset(presetId: string): void {
+        const preset = this.savedTankConfigurations.find(p => 
+            (p.name || `preset_${p.chassisId}_${p.cannonId}`) === presetId
+        );
+        
+        if (!preset) return;
+        
+        // Применяем конфигурацию
+        if (preset.chassisId && this.tankController?.setChassisType) {
+            this.tankController.setChassisType(preset.chassisId);
+            this.currentChassisId = preset.chassisId;
+            localStorage.setItem("selectedChassis", preset.chassisId);
+        }
+        
+        if (preset.cannonId && this.tankController?.setCannonType) {
+            this.tankController.setCannonType(preset.cannonId);
+            this.currentCannonId = preset.cannonId;
+            localStorage.setItem("selectedCannon", preset.cannonId);
+        }
+        
+        if (preset.trackId && this.tankController?.setTrackType) {
+            this.tankController.setTrackType(preset.trackId);
+            this.currentTrackId = preset.trackId;
+            localStorage.setItem("selectedTrack", preset.trackId);
+        }
+        
+        if (preset.skinId) {
+            saveSelectedSkin(preset.skinId);
+            this.currentSkinId = preset.skinId;
+            const skin = getSkinById(preset.skinId);
+            if (skin && this.tankController) {
+                const skinColors = applySkinToTank(skin);
+                if (this.tankController.chassis?.material) {
+                    (this.tankController.chassis.material as StandardMaterial).diffuseColor = skinColors.chassisColor;
+                }
+                if (this.tankController.turret?.material) {
+                    (this.tankController.turret.material as StandardMaterial).diffuseColor = skinColors.turretColor;
+                }
+            }
+        }
+        
+        this.showNotification(`Пресет "${preset.name || presetId}" применен!`, "success");
+        this.refreshItemList();
+    }
+    
+    /**
+     * Получить HTML информацию о пресете
+     */
+    private getPresetInfoHTML(item: TankPart): string {
+        const preset = this.savedTankConfigurations.find(p => 
+            (p.name || `preset_${p.chassisId}_${p.cannonId}`) === item.id
+        );
+        
+        if (!preset) return '';
+        
+        const chassis = getChassisById(preset.chassisId);
+        const cannon = getCannonById(preset.cannonId);
+        const track = getTrackById(preset.trackId);
+        const skin = getSkinById(preset.skinId || "default");
+        
+        return `
+            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #030;">
+                <div style="color: #0ff; font-size: 10px; margin-bottom: 8px; font-weight: bold;">КОНФИГУРАЦИЯ ПРЕСЕТА</div>
+                <div class="garage-stats-row">
+                    <span class="garage-stat-name">Корпус</span>
+                    <span class="garage-stat-value" style="color: #0f0;">${chassis.name}</span>
+                </div>
+                <div class="garage-stats-row">
+                    <span class="garage-stat-name">Пушка</span>
+                    <span class="garage-stat-value" style="color: #0aa;">${cannon.name}</span>
+                </div>
+                <div class="garage-stats-row">
+                    <span class="garage-stat-name">Гусеницы</span>
+                    <span class="garage-stat-value" style="color: #ff0;">${track.name}</span>
+                </div>
+                ${skin ? `
+                    <div class="garage-stats-row">
+                        <span class="garage-stat-name">Скин</span>
+                        <span class="garage-stat-value" style="color: ${skin.chassisColor};">${skin.name}</span>
+                    </div>
+                ` : ''}
+                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #030;">
+                    <div style="color: #0aa; font-size: 10px; margin-bottom: 5px;">ХАРАКТЕРИСТИКИ</div>
+                    <div class="garage-stats-row">
+                        <span class="garage-stat-name">HP</span>
+                        <span class="garage-stat-value">${chassis.maxHealth}</span>
+                    </div>
+                    <div class="garage-stats-row">
+                        <span class="garage-stat-name">Скорость</span>
+                        <span class="garage-stat-value">${chassis.moveSpeed}</span>
+                    </div>
+                    <div class="garage-stats-row">
+                        <span class="garage-stat-name">Урон</span>
+                        <span class="garage-stat-value">${cannon.damage}</span>
+                    </div>
+                    <div class="garage-stats-row">
+                        <span class="garage-stat-name">Перезарядка</span>
+                        <span class="garage-stat-value">${(cannon.cooldown / 1000).toFixed(1)}s</span>
+                    </div>
+                    <div class="garage-stats-row">
+                        <span class="garage-stat-name">DPS</span>
+                        <span class="garage-stat-value" style="color: #ff0;">${(cannon.damage / (cannon.cooldown / 1000)).toFixed(1)}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    /**
+     * Переименовать пресет
+     */
+    private renamePreset(presetId: string): void {
+        const preset = this.savedTankConfigurations.find(p => 
+            (p.name || `preset_${p.chassisId}_${p.cannonId}`) === presetId
+        );
+        
+        if (!preset) return;
+        
+        const newName = prompt(`Введите новое имя для пресета "${presetId}":`, preset.name || presetId);
+        if (!newName || newName.trim() === '' || newName === preset.name) return;
+        
+        // Находим индекс пресета в сохраненных конфигурациях
+        const presetIndex = this.savedTankConfigurations.findIndex(p => 
+            (p.name || `preset_${p.chassisId}_${p.cannonId}`) === presetId
+        );
+        
+        if (presetIndex >= 0 && presetIndex < this.savedTankConfigurations.length) {
+            // Обновляем имя пресета, сохраняя все остальные поля
+            const originalConfig = this.savedTankConfigurations[presetIndex];
+            if (!originalConfig) return;
+            
+            const updatedConfig: TankConfiguration = {
+                chassisId: originalConfig.chassisId,
+                cannonId: originalConfig.cannonId,
+                trackId: originalConfig.trackId,
+                skinId: originalConfig.skinId,
+                name: newName.trim()
+            };
+            this.savedTankConfigurations[presetIndex] = updatedConfig;
+            
+            // Сохраняем все конфигурации обратно
+            try {
+                const saved = localStorage.getItem("savedTankConfigurations");
+                if (saved) {
+                    const allConfigs: TankConfiguration[] = JSON.parse(saved);
+                    allConfigs[presetIndex] = updatedConfig;
+                    localStorage.setItem("savedTankConfigurations", JSON.stringify(allConfigs));
+                }
+            } catch (e) {
+                console.warn("Failed to rename preset:", e);
+                return;
+            }
+            
+            this.loadSavedTankConfigurations();
+            this.refreshItemList();
+            this.showNotification(`Пресет переименован в "${newName}"!`, "success");
+        }
+    }
+    
+    /**
+     * Удалить пресет
+     */
+    private deletePreset(presetId: string): void {
+        if (!confirm(`Удалить пресет "${presetId}"?`)) return;
+        
+        if (!this.tankEditor) return;
+        
+        // Находим индекс пресета в сохраненных конфигурациях
+        const presetIndex = this.savedTankConfigurations.findIndex(p => 
+            (p.name || `preset_${p.chassisId}_${p.cannonId}`) === presetId
+        );
+        
+        if (presetIndex >= 0) {
+            this.tankEditor.deleteSavedConfiguration(presetIndex);
+            this.loadSavedTankConfigurations();
+            this.refreshItemList();
+            this.showNotification(`Пресет "${presetId}" удален!`, "info");
+        }
+    }
+    
+    /**
+     * Показать уведомление
+     */
+    private showNotification(message: string, type: "success" | "error" | "info" = "success"): void {
+        // Создаем визуальное уведомление
+        const notification = document.createElement("div");
+        const colors = {
+            success: { bg: "rgba(0, 50, 0, 0.95)", border: "#0f0", text: "#0f0" },
+            error: { bg: "rgba(50, 0, 0, 0.95)", border: "#f00", text: "#f00" },
+            info: { bg: "rgba(0, 30, 50, 0.95)", border: "#0aa", text: "#0aa" }
+        };
+        const color = colors[type];
+        
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: ${color.bg};
+            border: 2px solid ${color.border};
+            color: ${color.text};
+            padding: 15px 25px;
+            z-index: 10001;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 14px;
+            font-weight: bold;
+            box-shadow: 0 0 20px ${color.border}88;
+            animation: slideInRight 0.3s ease-out;
+            max-width: 400px;
+            word-wrap: break-word;
+        `;
+        
+        // Добавляем стили для анимации, если их еще нет
+        if (!document.getElementById("garage-notification-styles")) {
+            const style = document.createElement("style");
+            style.id = "garage-notification-styles";
+            style.textContent = `
+                @keyframes slideInRight {
+                    from {
+                        transform: translateX(100%);
+                        opacity: 0;
+                    }
+                    to {
+                        transform: translateX(0);
+                        opacity: 1;
+                    }
+                }
+                @keyframes slideOutRight {
+                    from {
+                        transform: translateX(0);
+                        opacity: 1;
+                    }
+                    to {
+                        transform: translateX(100%);
+                        opacity: 0;
+                    }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+        
+        notification.textContent = message;
+        document.body.appendChild(notification);
+        
+        // Удаляем уведомление через 3 секунды
+        setTimeout(() => {
+            notification.style.animation = "slideOutRight 0.3s ease-out";
+            setTimeout(() => {
+                notification.remove();
+            }, 300);
+        }, 3000);
+        
+        console.log(`[Garage] ${message}`);
     }
     
     private refreshItemList(): void {
@@ -3112,39 +3493,72 @@ export class Garage {
             const priceStr = owned && !isUpgrade ? 'OWNED' : `${item.cost} CR`;
             
             const itemNumber = i + 1; // Нумерация с 1
+            const isPreset = !isUpgrade && (item as TankPart).type === 'preset';
             return `
                 <div class="garage-item ${selected ? 'selected' : ''} ${owned ? 'owned' : ''} ${equipped ? 'equipped' : ''} ${isNew ? 'new-item' : ''}" data-index="${i}">
                     <div class="garage-item-name">
                         <span style="color: #ffd700; font-weight: bold; margin-right: 8px;">[${itemNumber}]</span>
-                        ${isNew ? '<span class="new-badge">[NEW]</span> ' : ''}${item.name} ${equipped ? '[EQUIPPED]' : ''}
+                        ${isPreset ? '<span style="color: #0ff; font-weight: bold; margin-right: 5px;">📦</span>' : ''}
+                        ${isNew ? '<span class="new-badge">[NEW]</span> ' : ''}${item.name} ${equipped ? '<span style="color: #0f0; margin-left: 5px;">[EQUIPPED]</span>' : ''}
+                        ${isPreset ? '<span style="color: #0ff; margin-left: 8px; font-size: 9px;">[ПРЕСЕТ]</span>' : ''}
                     </div>
                     <div class="garage-item-desc">${item.description}</div>
                     <div class="garage-item-stats">${statsStr}</div>
                     <div class="garage-item-price">${priceStr}</div>
+                    ${isPreset ? `
+                        <div style="margin-top: 5px; display: flex; gap: 5px;">
+                            <button class="preset-action-btn" data-action="rename-preset" data-preset-id="${item.id}" style="background: rgba(0,255,255,0.2); border: 1px solid #0ff; color: #0ff; padding: 2px 6px; font-size: 9px; cursor: pointer;">✏️ Переименовать</button>
+                            <button class="preset-action-btn" data-action="delete-preset" data-preset-id="${item.id}" style="background: rgba(255,0,0,0.2); border: 1px solid #f00; color: #f00; padding: 2px 6px; font-size: 9px; cursor: pointer;">🗑️ Удалить</button>
+                        </div>
+                    ` : ''}
                 </div>
             `;
         }).join('');
         
         // Add click listeners
         container.querySelectorAll('.garage-item').forEach(el => {
-            el.addEventListener('click', () => {
+            el.addEventListener('click', (e) => {
+                // Не обрабатываем клик, если нажата кнопка действия
+                if ((e.target as HTMLElement).closest('.preset-action-btn')) {
+                    return;
+                }
                 const idx = parseInt(el.getAttribute('data-index') || '0');
                 this.selectedItemIndex = idx;
                 this.refreshItemList();
-                this.showDetails(this.filteredItems[idx]);
+                const item = this.filteredItems[idx];
+                if (item) {
+                    this.showDetails(item);
+                }
             });
             el.addEventListener('dblclick', () => {
                 const idx = parseInt(el.getAttribute('data-index') || '0');
-                this.handleAction(this.filteredItems[idx]);
+                const item = this.filteredItems[idx];
+                if (item) {
+                    this.handleAction(item);
+                }
+            });
+        });
+        
+        // Add listeners for preset action buttons
+        container.querySelectorAll('[data-action="delete-preset"]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const presetId = (e.target as HTMLElement).getAttribute('data-preset-id');
+                if (presetId) {
+                    this.deletePreset(presetId);
+                }
             });
         });
         
         // Show details if item selected
-        if (items.length > 0) {
-            this.showDetails(items[this.selectedItemIndex]);
-            // Update preview only if 3D scene is initialized
-            if (this.previewSceneData?.scene) {
-            this.updatePreview(items[this.selectedItemIndex]);
+        if (items.length > 0 && items[this.selectedItemIndex]) {
+            const selectedItem = items[this.selectedItemIndex];
+            if (selectedItem) {
+                this.showDetails(selectedItem);
+                // Update preview only if 3D scene is initialized
+                if (this.previewSceneData?.scene) {
+                    this.updatePreview(selectedItem);
+                }
             }
         }
         
@@ -3237,7 +3651,8 @@ export class Garage {
         const equipped = !isUpgrade && (
             ((item as TankPart).type === 'chassis' && item.id === this.currentChassisId) ||
             ((item as TankPart).type === 'barrel' && item.id === this.currentCannonId) ||
-            ((item as TankPart).type === 'module' && this.trackParts.find(t => t.id === item.id) && item.id === this.currentTrackId)
+            ((item as TankPart).type === 'module' && this.trackParts.find(t => t.id === item.id) && item.id === this.currentTrackId) ||
+            (this.currentCategory === 'skins' && item.id === this.currentSkinId)
         );
         
         // Define new models
@@ -3252,7 +3667,12 @@ export class Garage {
             else if (!canAfford) { btnText = `NEED ${item.cost} CR`; btnDisabled = true; }
             else btnText = `UPGRADE (${item.cost} CR)`;
         } else {
-            if ((item as TankPart).unlocked) {
+            const part = item as TankPart;
+            if (part.type === 'preset') {
+                // Для пресетов показываем кнопку "Применить"
+                btnText = 'ПРИМЕНИТЬ ПРЕСЕТ';
+                btnDisabled = false;
+            } else if (part.unlocked) {
                 if (equipped) { btnText = 'EQUIPPED'; btnDisabled = true; }
                 else btnText = 'EQUIP';
             } else if (!canAfford) { btnText = `NEED ${item.cost} CR`; btnDisabled = true; }
@@ -3264,15 +3684,36 @@ export class Garage {
             ((item as TankPart).type === 'barrel' && newCannonIds.has(item.id))
         );
         
+        const isPreset = !isUpgrade && (item as TankPart).type === 'preset';
+        const presetInfo = isPreset ? this.getPresetInfoHTML(item as TankPart) : '';
+        
         container.innerHTML = `
             <div class="garage-details-title">
-                ${isNew ? '<span class="new-badge">[NEW]</span> ' : ''}[ ${item.name.toUpperCase()} ]
+                ${isNew ? '<span class="new-badge">[NEW]</span> ' : ''}${isPreset ? '<span style="color: #0ff;">[ПРЕСЕТ]</span> ' : ''}[ ${item.name.toUpperCase()} ]
             </div>
             <div class="garage-details-desc">${item.description}</div>
-            ${this.getFullStatsHTML(item)}
-            ${this.getComparisonHTML(item)}
+            ${presetInfo}
+            ${!isPreset ? this.getFullStatsHTML(item) : ''}
+            ${!isPreset ? this.getComparisonHTML(item) : ''}
+            ${isPreset ? `
+                <div style="margin-top: 15px; padding-top: 15px; border-top: 2px solid #030;">
+                    <div style="color: #0aa; font-size: 10px; margin-bottom: 10px; font-weight: bold;">УПРАВЛЕНИЕ ПРЕСЕТОМ</div>
+                    <button class="preset-action-btn" data-action="rename-preset-details" data-preset-id="${item.id}" style="background: rgba(0,255,255,0.2); border: 2px solid #0ff; color: #0ff; padding: 8px 15px; font-size: 11px; cursor: pointer; width: 100%; margin-bottom: 8px; font-weight: bold; transition: all 0.2s;" onmouseover="this.style.background='rgba(0,255,255,0.4)'" onmouseout="this.style.background='rgba(0,255,255,0.2)'">✏️ ПЕРЕИМЕНОВАТЬ</button>
+                    <button class="preset-action-btn" data-action="delete-preset-details" data-preset-id="${item.id}" style="background: rgba(255,0,0,0.2); border: 2px solid #f00; color: #f00; padding: 8px 15px; font-size: 11px; cursor: pointer; width: 100%; font-weight: bold; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,0,0,0.4)'" onmouseout="this.style.background='rgba(255,0,0,0.2)'">🗑️ УДАЛИТЬ</button>
+                </div>
+            ` : ''}
             <button class="garage-action-btn" ${btnDisabled ? 'disabled' : ''} id="garage-action">${btnText}</button>
         `;
+        
+        // Добавляем обработчики для кнопок действий пресетов в деталях
+        if (isPreset) {
+            container.querySelector('[data-action="rename-preset-details"]')?.addEventListener('click', () => {
+                this.renamePreset(item.id);
+            });
+            container.querySelector('[data-action="delete-preset-details"]')?.addEventListener('click', () => {
+                this.deletePreset(item.id);
+            });
+        }
         
         container.querySelector('#garage-action')?.addEventListener('click', () => {
             if (!btnDisabled) this.handleAction(item);
@@ -3306,6 +3747,16 @@ export class Garage {
                 <div class="garage-stats-row"><span class="garage-stat-name">Barrel Length</span><span class="garage-stat-value">${cannon.barrelLength}m</span></div>
                 <div class="garage-stats-row"><span class="garage-stat-name">DPS</span><span class="garage-stat-value" style="color: #ff0;">${(cannon.damage / (cannon.cooldown / 1000)).toFixed(1)}</span></div>
             `;
+        } else if (this.currentCategory === 'skins') {
+            const skin = getSkinById(part.id);
+            if (skin) {
+                statsHTML += `
+                    <div class="garage-stats-row"><span class="garage-stat-name">Корпус</span><span class="garage-stat-value" style="color: ${skin.chassisColor};">${skin.chassisColor}</span></div>
+                    <div class="garage-stats-row"><span class="garage-stat-name">Башня</span><span class="garage-stat-value" style="color: ${skin.turretColor};">${skin.turretColor}</span></div>
+                    ${skin.accentColor ? `<div class="garage-stats-row"><span class="garage-stat-name">Акценты</span><span class="garage-stat-value" style="color: ${skin.accentColor};">${skin.accentColor}</span></div>` : ''}
+                    ${skin.pattern ? `<div class="garage-stats-row"><span class="garage-stat-name">Стиль</span><span class="garage-stat-value">${skin.pattern}</span></div>` : ''}
+                `;
+            }
         }
         
         statsHTML += '</div>';
@@ -3426,6 +3877,12 @@ export class Garage {
     private equipPart(part: TankPart): void {
         if (!part.unlocked) return;
         
+        // Обработка пресетов
+        if (part.type === 'preset') {
+            this.applyPreset(part.id);
+            return;
+        }
+        
         if (part.type === 'chassis') {
             this.currentChassisId = part.id;
                 localStorage.setItem("selectedChassis", part.id);
@@ -3438,6 +3895,24 @@ export class Garage {
             this.currentTrackId = part.id;
                 localStorage.setItem("selectedTrack", part.id);
             if (this.tankController?.setTrackType) this.tankController.setTrackType(part.id);
+        } else if (this.currentCategory === 'skins') {
+            // Обработка выбора скина
+            this.currentSkinId = part.id;
+            saveSelectedSkin(part.id);
+            // Применяем скин к танку, если он существует
+            if (this.tankController) {
+                const skin = getSkinById(part.id);
+                if (skin) {
+                    const skinColors = applySkinToTank(skin);
+                    // Обновляем цвета корпуса и башни
+                    if (this.tankController.chassis?.material) {
+                        (this.tankController.chassis.material as StandardMaterial).diffuseColor = skinColors.chassisColor;
+                    }
+                    if (this.tankController.turret?.material) {
+                        (this.tankController.turret.material as StandardMaterial).diffuseColor = skinColors.turretColor;
+                    }
+                }
+            }
         }
         
         this.saveProgress();
@@ -3474,11 +3949,14 @@ export class Garage {
             
             if (e.code === 'Escape') { e.preventDefault(); this.close(); return; }
             
-            const cats: CategoryType[] = ['chassis', 'cannons', 'tracks', 'modules', 'supplies', 'shop'];
-            for (let i = 1; i <= 6; i++) {
+            const cats: CategoryType[] = ['chassis', 'cannons', 'tracks', 'modules', 'supplies', 'shop', 'skins', 'presets'];
+            for (let i = 1; i <= 8; i++) {
                 if (e.code === `Digit${i}` || e.code === `Numpad${i}`) {
                     e.preventDefault();
-                    this.switchCategory(cats[i - 1]);
+                    const cat = cats[i - 1];
+                    if (cat) {
+                        this.switchCategory(cat);
+                    }
                     return;
                 }
             }
@@ -3493,9 +3971,12 @@ export class Garage {
                 this.refreshItemList();
             }
             
-            if ((e.code === 'Enter' || e.code === 'Space') && this.filteredItems[this.selectedItemIndex]) {
-                e.preventDefault();
-                this.handleAction(this.filteredItems[this.selectedItemIndex]);
+            if ((e.code === 'Enter' || e.code === 'Space')) {
+                const item = this.filteredItems[this.selectedItemIndex];
+                if (item) {
+                    e.preventDefault();
+                    this.handleAction(item);
+                }
             }
         });
     }

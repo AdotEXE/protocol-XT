@@ -100,7 +100,7 @@ export class SettingsExporter {
     }
     
     /**
-     * Экспорт настроек скриншотов (F2)
+     * Экспорт настроек скриншотов (Ctrl+2)
      */
     private exportScreenshotSettings(): ScreenshotSettings {
         const settings: ScreenshotSettings = {
@@ -127,7 +127,7 @@ export class SettingsExporter {
     }
     
     /**
-     * Экспорт настроек Dashboard (F3)
+     * Экспорт настроек Dashboard (Ctrl+3)
      */
     private exportDashboardSettings(): DashboardSettings {
         const settings: DashboardSettings = {
@@ -150,7 +150,7 @@ export class SettingsExporter {
     }
     
     /**
-     * Экспорт пресетов физики (F4)
+     * Экспорт пресетов физики (Ctrl+4)
      */
     private exportPhysicsPresets(): PhysicsPresets {
         const presets = JSON.parse(localStorage.getItem('tankPhysicsPresets') || '[]');
@@ -170,7 +170,7 @@ export class SettingsExporter {
     }
     
     /**
-     * Экспорт настроек Terminal (F5)
+     * Экспорт настроек Terminal (Ctrl+5)
      */
     private exportTerminalSettings(): TerminalSettings {
         const saved = localStorage.getItem('window_position_system-terminal');
@@ -207,7 +207,7 @@ export class SettingsExporter {
     }
     
     /**
-     * Экспорт настроек Session (F6)
+     * Экспорт настроек Session (Ctrl+6)
      */
     private exportSessionSettings(): SessionSettings {
         // Настройки сессии хранятся в sessionSettings объекте
@@ -234,7 +234,7 @@ export class SettingsExporter {
     }
     
     /**
-     * Экспорт профилей читов (F7)
+     * Экспорт профилей читов (Ctrl+7)
      */
     private exportCheatProfiles(): CheatProfiles {
         const profiles = JSON.parse(localStorage.getItem('ptx_cheat_profiles') || '[]');

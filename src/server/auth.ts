@@ -27,15 +27,43 @@ export function initializeFirebaseAdmin(): boolean {
         // Проверяем, не инициализирован ли уже (избегаем дублирования)
         const existingApps = getApps();
         if (existingApps.length > 0) {
-            adminApp = existingApps[0];
+            adminApp = existingApps[0] || null;
             console.log("[Auth] Firebase Admin already initialized");
             return true;
         }
 
         // Способ 1: Попытка загрузить из JSON файла
-        const serviceAccountPath = path.join(process.cwd(), "protocol-tx-firebase-adminsdk-fbsvc-9c20956c7d.json");
+        // Ищем JSON файл с любым private_key_id
+        let serviceAccountPath: string | null = null;
         
-        if (fs.existsSync(serviceAccountPath)) {
+        // Сначала проверяем конкретные имена файлов
+        const jsonFiles = [
+            "protocol-tx-firebase-adminsdk-fbsvc-f655d015b0.json", // Текущий файл
+            "protocol-tx-firebase-adminsdk-fbsvc-9c20956c7d.json"  // Старый файл
+        ];
+        
+        for (const fileName of jsonFiles) {
+            const fullPath = path.join(process.cwd(), fileName);
+            if (fs.existsSync(fullPath)) {
+                serviceAccountPath = fullPath;
+                break;
+            }
+        }
+        
+        // Если точное имя не найдено, ищем любой файл с паттерном
+        if (!serviceAccountPath) {
+            try {
+                const files = fs.readdirSync(process.cwd());
+                const matchingFile = files.find(f => f.startsWith("protocol-tx-firebase-adminsdk-") && f.endsWith(".json"));
+                if (matchingFile) {
+                    serviceAccountPath = path.join(process.cwd(), matchingFile);
+                }
+            } catch (error) {
+                // Игнорируем ошибки чтения директории
+            }
+        }
+        
+        if (serviceAccountPath && fs.existsSync(serviceAccountPath)) {
             try {
                 const serviceAccount = require(serviceAccountPath);
                 
@@ -45,6 +73,7 @@ export function initializeFirebaseAdmin(): boolean {
 
                 console.log("[Auth] ✅ Firebase Admin initialized from service account JSON file");
                 console.log("[Auth] Service account:", serviceAccount.client_email);
+                console.log("[Auth] JSON file:", serviceAccountPath);
                 return true;
             } catch (error: any) {
                 console.warn("[Auth] Failed to load from JSON file, trying environment variables:", error.message);

@@ -39,6 +39,7 @@ export interface PlayerInput {
     aimPitch: number;
     isShooting: boolean;
     timestamp: number;
+    sequence?: number; // Sequence number for client-side prediction and server reconciliation
 }
 
 export interface ProjectileData {
@@ -105,5 +106,32 @@ export interface PlayerMatchResult {
     score: number;
     team?: number;
     won: boolean;
+}
+
+// Client-side prediction types
+export interface PredictedState {
+    sequence: number;
+    timestamp: number;
+    position: Vector3;
+    rotation: number;
+    turretRotation: number;
+    aimPitch: number;
+    input: PlayerInput;
+}
+
+export interface ClientPredictionState {
+    predictedStates: Map<number, PredictedState>; // sequence -> state
+    confirmedSequence: number; // Last server-confirmed sequence
+    lastServerState: PlayerData | null;
+    maxHistorySize: number; // Maximum number of states to keep (default: 60 = 1 second at 60Hz)
+}
+
+// Network quality metrics
+export interface NetworkMetrics {
+    rtt: number; // Round-trip time (ms)
+    jitter: number; // Variation in RTT (ms)
+    packetLoss: number; // Packet loss percentage (0-1)
+    lastPingTime: number; // Timestamp of last ping
+    pingHistory: number[]; // Last 10 RTT measurements
 }
 

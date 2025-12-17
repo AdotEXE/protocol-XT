@@ -3,7 +3,7 @@
  * HTML/CSS UI логика гаража из garage.ts
  */
 
-export type CategoryType = "chassis" | "cannons" | "tracks" | "modules" | "supplies" | "shop";
+export type CategoryType = "chassis" | "cannons" | "tracks" | "modules" | "supplies" | "shop" | "skins" | "presets";
 
 export interface GarageUIState {
     currentCategory: CategoryType;

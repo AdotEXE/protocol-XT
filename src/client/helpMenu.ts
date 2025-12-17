@@ -60,15 +60,17 @@ export class HelpMenu {
             title: "ГОРЯЧИЕ КЛАВИШИ",
             icon: "⌨",
             controls: [
-                { key: "F1", description: "Помощь / Управление" },
-                { key: "F2", description: "Настройки скриншотов" },
-                { key: "F3", description: "Панель отладки" },
-                { key: "F4", description: "Настройки физики" },
-                { key: "F5", description: "Системная консоль" },
-                { key: "F6", description: "Настройки сессии" },
-                { key: "F7", description: "Меню читов" },
-                { key: "F8", description: "Настройки сети" },
-                { key: "F9", description: "Генерация мира" },
+                { key: "Ctrl+1", description: "Помощь / Управление" },
+                { key: "Ctrl+2", description: "Настройки скриншотов" },
+                { key: "Ctrl+3", description: "Панель отладки" },
+                { key: "Ctrl+4", description: "Настройки физики" },
+                { key: "Ctrl+5", description: "Системная консоль" },
+                { key: "Ctrl+6", description: "Настройки сессии" },
+                { key: "Ctrl+7", description: "Меню читов" },
+                { key: "Ctrl+8", description: "Настройки сети" },
+                { key: "Ctrl+9", description: "Генерация мира" },
+                { key: "Ctrl+0", description: "Друзья и кланы" },
+                { key: "Ctrl+Shift+M", description: "Редактор карт" },
             ]
         },
         {
@@ -105,7 +107,7 @@ export class HelpMenu {
         const html = `
             <div class="panel" style="width: min(800px, 90vw); max-height: min(700px, 90vh);">
                 <div class="panel-header">
-                    <div class="panel-title">HELP / CONTROLS [F1]</div>
+                    <div class="panel-title">HELP / CONTROLS [Ctrl+1]</div>
                     <button class="panel-close" id="help-close">×</button>
                 </div>
                 <div class="panel-content">

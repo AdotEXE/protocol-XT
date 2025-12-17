@@ -257,11 +257,11 @@ export class POISystem {
     private createCapturePoint(position: Vector3, id: string, parent: TransformNode, worldPos: Vector3): POI {
         const meshes: Mesh[] = [];
         
-        // Large circular platform
-        const platform = MeshBuilder.CreateCylinder(`${id}_platform`, {
+        // Large square platform (replaced cylinder with box)
+        const platform = MeshBuilder.CreateBox(`${id}_platform`, {
+            width: 12,
             height: 0.4,
-            diameter: 12,
-            tessellation: 24
+            depth: 12
         }, this.scene);
         platform.position = position.clone();
         platform.position.y = 0.2;
@@ -269,11 +269,11 @@ export class POISystem {
         platform.parent = parent;
         meshes.push(platform);
         
-        // Inner ring (progress indicator)
-        const innerRing = MeshBuilder.CreateTorus(`${id}_ring`, {
-            diameter: 8,
-            thickness: 0.3,
-            tessellation: 24
+        // Inner ring (progress indicator) - replaced torus with box
+        const innerRing = MeshBuilder.CreateBox(`${id}_ring`, {
+            width: 8,
+            height: 0.3,
+            depth: 8
         }, this.scene);
         innerRing.position = position.clone();
         innerRing.position.y = 0.5;
@@ -281,11 +281,11 @@ export class POISystem {
         innerRing.parent = parent;
         meshes.push(innerRing);
         
-        // Flag pole
-        const pole = MeshBuilder.CreateCylinder(`${id}_pole`, {
+        // Flag pole (replaced cylinder with box)
+        const pole = MeshBuilder.CreateBox(`${id}_pole`, {
+            width: 0.3,
             height: 8,
-            diameter: 0.3,
-            tessellation: 8
+            depth: 0.3
         }, this.scene);
         pole.position = position.clone();
         pole.position.y = 4;
@@ -320,8 +320,8 @@ export class POISystem {
         flag.animations.push(animation);
         this.scene.beginAnimation(flag, 0, 30, true);
         
-        // Beacon light on top of pole
-        const beacon = MeshBuilder.CreateSphere(`${id}_beacon`, { diameter: 0.8 }, this.scene);
+        // Beacon light on top of pole (replaced sphere with box)
+        const beacon = MeshBuilder.CreateBox(`${id}_beacon`, { width: 0.8, height: 0.8, depth: 0.8 }, this.scene);
         beacon.position = position.clone();
         beacon.position.y = 8.5;
         const beaconMat = new StandardMaterial(`${id}_beaconMat`, this.scene);
@@ -395,11 +395,11 @@ export class POISystem {
         meshes.push(building);
         new PhysicsAggregate(building, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         
-        // Capture platform
-        const platform = MeshBuilder.CreateCylinder(`${id}_platform`, {
+        // Capture platform (replaced cylinder with box)
+        const platform = MeshBuilder.CreateBox(`${id}_platform`, {
+            width: 8,
             height: 0.2,
-            diameter: 8,
-            tessellation: 16
+            depth: 8
         }, this.scene);
         platform.position = position.clone();
         platform.position.y = 0.1;
@@ -491,11 +491,11 @@ export class POISystem {
         repairBay.parent = parent;
         meshes.push(repairBay);
         
-        // Capture platform outside
-        const platform = MeshBuilder.CreateCylinder(`${id}_platform`, {
+        // Capture platform outside (replaced cylinder with box)
+        const platform = MeshBuilder.CreateBox(`${id}_platform`, {
+            width: 6,
             height: 0.2,
-            diameter: 6,
-            tessellation: 16
+            depth: 6
         }, this.scene);
         platform.position = position.clone();
         platform.position.y = 0.1;
@@ -568,12 +568,12 @@ export class POISystem {
         meshes.push(office);
         new PhysicsAggregate(office, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         
-        // Fuel tanks (explosive!)
+        // Fuel tanks (explosive!) - replaced cylinders with boxes
         for (let i = 0; i < 3; i++) {
-            const tank = MeshBuilder.CreateCylinder(`${id}_tank_${i}`, {
+            const tank = MeshBuilder.CreateBox(`${id}_tank_${i}`, {
+                width: 3,
                 height: 5,
-                diameter: 3,
-                tessellation: 16
+                depth: 3
             }, this.scene);
             tank.position = position.clone();
             tank.position.x += (i - 1) * 4;
@@ -624,11 +624,11 @@ export class POISystem {
         sign.parent = parent;
         meshes.push(sign);
         
-        // Capture platform
-        const platform = MeshBuilder.CreateCylinder(`${id}_platform`, {
+        // Capture platform (replaced cylinder with box)
+        const platform = MeshBuilder.CreateBox(`${id}_platform`, {
+            width: 6,
             height: 0.2,
-            diameter: 6,
-            tessellation: 16
+            depth: 6
         }, this.scene);
         platform.position = position.clone();
         platform.position.y = 0.1;
@@ -748,11 +748,11 @@ export class POISystem {
         meshes.push(base);
         new PhysicsAggregate(base, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         
-        // Radar tower
-        const tower = MeshBuilder.CreateCylinder(`${id}_tower`, {
+        // Radar tower (replaced cylinder with box)
+        const tower = MeshBuilder.CreateBox(`${id}_tower`, {
+            width: 1.5,
             height: 12,
-            diameter: 1.5,
-            tessellation: 8
+            depth: 1.5
         }, this.scene);
         tower.position = position.clone();
         tower.position.y = 10;
@@ -760,12 +760,11 @@ export class POISystem {
         tower.parent = parent;
         meshes.push(tower);
         
-        // Radar dish
-        const dish = MeshBuilder.CreateCylinder(`${id}_dish`, {
+        // Radar dish (replaced cylinder with box)
+        const dish = MeshBuilder.CreateBox(`${id}_dish`, {
+            width: 6,
             height: 0.5,
-            diameterTop: 6,
-            diameterBottom: 4,
-            tessellation: 24
+            depth: 6
         }, this.scene);
         dish.position = position.clone();
         dish.position.y = 16;
@@ -788,10 +787,10 @@ export class POISystem {
         this.scene.beginAnimation(dish, 0, 180, true);
         
         // Capture platform
-        const platform = MeshBuilder.CreateCylinder(`${id}_platform`, {
+        const platform = MeshBuilder.CreateBox(`${id}_platform`, {
+            width: 10,
             height: 0.3,
-            diameter: 10,
-            tessellation: 20
+            depth: 10
         }, this.scene);
         platform.position = position.clone();
         platform.position.y = 0.15;
@@ -1156,11 +1155,11 @@ export class POISystem {
             rubble.parent = parent;
         }
         
-        // Crater
-        const crater = MeshBuilder.CreateCylinder(`${poi.id}_crater`, {
+        // Crater (replaced cylinder with box)
+        const crater = MeshBuilder.CreateBox(`${poi.id}_crater`, {
+            width: 8,
             height: 0.5,
-            diameter: 8,
-            tessellation: 16
+            depth: 8
         }, this.scene);
         crater.position = poi.position.clone();
         crater.position.y = -0.2;

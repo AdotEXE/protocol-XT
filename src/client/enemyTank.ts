@@ -16,6 +16,7 @@ import {
 import { AdvancedDynamicTexture, Rectangle, TextBlock, Control } from "@babylonjs/gui";
 import { SoundManager } from "./soundManager";
 import { EffectsManager } from "./effects";
+import { logger } from "./utils/logger";
 
 // === AI States ===
 type AIState = "idle" | "patrol" | "chase" | "attack" | "flank" | "retreat" | "evade" | "capturePOI";
@@ -200,14 +201,34 @@ export class EnemyTank {
         this._spawnStabilizing = true;
         setTimeout(() => {
             this._spawnStabilizing = false;
-            // Ensure clean start
+            // Ensure clean start - корректируем ориентацию и скорости
             if (this.physicsBody && this.chassis && !this.chassis.isDisposed()) {
+                // Сбрасываем скорости
                 this.physicsBody.setLinearVelocity(Vector3.Zero());
                 this.physicsBody.setAngularVelocity(Vector3.Zero());
+                
+                // КРИТИЧНО: Проверяем и корректируем ориентацию
+                const currentRotation = this.chassis.rotationQuaternion;
+                if (currentRotation) {
+                    // Проверяем, не перевёрнут ли танк (если up вектор смотрит вниз)
+                    const up = Vector3.TransformNormalToRef(
+                        Vector3.Up(), 
+                        this.chassis.getWorldMatrix(), 
+                        new Vector3()
+                    );
+                    
+                    // Если танк перевёрнут (up.y < 0), исправляем
+                    if (up.y < 0.5) {
+                        this.chassis.rotationQuaternion = Quaternion.Identity();
+                        // Применяем небольшой импульс вниз для стабилизации
+                        const pos = this.chassis.absolutePosition;
+                        this.physicsBody.applyImpulse(new Vector3(0, -1000, 0), pos);
+                    }
+                }
             }
         }, 500);
         
-        console.log(`[EnemyTank ${this.id}] Created at ${position.x.toFixed(0)}, ${position.z.toFixed(0)} with difficulty: ${difficulty}`);
+        logger.log(`[EnemyTank ${this.id}] Created at ${position.x.toFixed(0)}, ${position.z.toFixed(0)} with difficulty: ${difficulty}`);
     }
     
     private applyDifficultySettings() {
@@ -271,6 +292,8 @@ export class EnemyTank {
             width, height, depth
         }, this.scene);
         chassis.position = position.add(new Vector3(0, 0.5, 0));
+        // КРИТИЧНО: Устанавливаем правильную ориентацию при создании
+        chassis.rotationQuaternion = Quaternion.Identity();
         
         const mat = new StandardMaterial(`enemyTankMat_${this.id}`, this.scene);
         mat.diffuseColor = new Color3(0.5, 0.15, 0.1); // Dark red/brown
@@ -399,7 +422,7 @@ export class EnemyTank {
         plane.isVisible = false;
         plane.renderingGroupId = 3; // В группе рендеринга для видимости через стены
         
-        const tex = AdvancedDynamicTexture.CreateForMesh(plane, 240, 32); // Увеличен размер текстуры
+        const tex = AdvancedDynamicTexture.CreateForMesh(plane, 240, 48); // Увеличен размер текстуры для размещения расстояния
         
         const container = new Rectangle();
         container.width = "220px"; // Увеличена ширина
@@ -430,10 +453,24 @@ export class EnemyTank {
         container.addControl(healthText);
         (this as any).hpText = healthText; // Сохраняем ссылку для обновления
         
+        // Добавляем текстовое отображение расстояния (ниже HP bar)
+        const distanceText = new TextBlock("distanceText");
+        distanceText.text = "0m";
+        distanceText.color = "#0ff";
+        distanceText.fontSize = 8;
+        distanceText.fontFamily = "'Press Start 2P', monospace";
+        distanceText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        distanceText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        distanceText.top = "22px"; // Располагаем ниже HP bar
+        container.addControl(distanceText);
+        (this as any).distanceText = distanceText; // Сохраняем ссылку для обновления
+        
+        // Увеличиваем высоту контейнера для размещения текста расстояния
+        container.height = "40px";
         this.hpBillboard = plane;
     }
 
-    setHpVisible(visible: boolean) {
+    setHpVisible(visible: boolean, playerPosition?: Vector3) {
         if (!this.hpBillboard || !this.hpBarFill) return;
         this.hpBillboard.isVisible = visible;
         if (visible) {
@@ -458,6 +495,14 @@ export class EnemyTank {
                 const maxHp = Math.round(this.maxHealth);
                 hpText.text = `${currentHp}/${maxHp}`;
                 hpText.color = healthColor; // Цвет текста соответствует цвету здоровья
+            }
+            
+            // Обновляем отображение расстояния до игрока
+            const distanceText = (this as any).distanceText;
+            if (distanceText && playerPosition && this.chassis && !this.chassis.isDisposed()) {
+                const enemyPos = this.chassis.absolutePosition;
+                const distance = Vector3.Distance(enemyPos, playerPosition);
+                distanceText.text = `${Math.round(distance)}m`;
             }
         }
     }
@@ -541,6 +586,13 @@ export class EnemyTank {
         });
         this.physicsBody.setLinearDamping(0.5);
         this.physicsBody.setAngularDamping(3.0);
+        
+        // КРИТИЧНО: Сбрасываем скорости и ориентацию сразу после создания физического тела
+        this.physicsBody.setLinearVelocity(Vector3.Zero());
+        this.physicsBody.setAngularVelocity(Vector3.Zero());
+        if (this.chassis && !this.chassis.isDisposed()) {
+            this.chassis.rotationQuaternion = Quaternion.Identity();
+        }
     }
     
     // === MAIN UPDATE ===
@@ -794,7 +846,7 @@ export class EnemyTank {
         // Проверка 1: Высота выше нормы (застряли на крыше гаража ~3м высота)
         // Снижаем порог до 2.5 - нормальный hover height = 1.0
         if (pos.y > 2.5) {
-            console.log(`[EnemyTank ${this.id}] Too high (y=${pos.y.toFixed(2)}), resetting to ground`);
+            logger.debug(`[EnemyTank ${this.id}] Too high (y=${pos.y.toFixed(2)}), resetting to ground`);
             this.forceResetToGround();
             this.consecutiveStuckCount = 0;
             this.stuckTimer = now;
@@ -803,7 +855,7 @@ export class EnemyTank {
         
         // Проверка 2: Летим вверх слишком быстро (анти-полёт)
         if (vel && vel.y > 8) {
-            console.log(`[EnemyTank ${this.id}] Flying up too fast (velY=${vel.y.toFixed(2)}), clamping`);
+            logger.debug(`[EnemyTank ${this.id}] Flying up too fast (velY=${vel.y.toFixed(2)}), clamping`);
             // Сбрасываем вертикальную скорость
             this.physicsBody.setLinearVelocity(new Vector3(vel.x, Math.min(vel.y, 2), vel.z));
             this.stuckTimer = now;
@@ -815,7 +867,7 @@ export class EnemyTank {
         if (moved < this.STUCK_THRESHOLD && Math.abs(this.throttleTarget) > 0.1) {
             this.consecutiveStuckCount++;
             if (this.consecutiveStuckCount >= 3) {
-                console.log(`[EnemyTank ${this.id}] Stuck in place (moved ${moved.toFixed(2)}), forcing unstuck`);
+                logger.debug(`[EnemyTank ${this.id}] Stuck in place (moved ${moved.toFixed(2)}), forcing unstuck`);
                 this.forceUnstuck();
                 this.consecutiveStuckCount = 0;
                 this.stuckTimer = now;
@@ -1033,7 +1085,7 @@ export class EnemyTank {
         
         // Начинаем патруль сразу!
         this.state = "patrol";
-        console.log(`[EnemyTank ${this.id}] Generated ${this.patrolPoints.length} patrol points, radius: ${patrolRadius.toFixed(0)}`);
+        logger.debug(`[EnemyTank ${this.id}] Generated ${this.patrolPoints.length} patrol points, radius: ${patrolRadius.toFixed(0)}`);
     }
     
     setTarget(target: { chassis: Mesh, isAlive: boolean, currentHealth?: number }): void {
@@ -1593,7 +1645,7 @@ export class EnemyTank {
     private fire(): void {
         if (!this.isAlive) return;
         
-        console.log(`[EnemyTank ${this.id}] FIRE!`);
+        logger.debug(`[EnemyTank ${this.id}] FIRE!`);
         
         // === GET MUZZLE POSITION AND DIRECTION FROM BARREL ===
         const barrelDir = this.barrel.getDirection(Vector3.Forward()).normalize();
@@ -1602,7 +1654,7 @@ export class EnemyTank {
         // === ПРОВЕРКА ПРЕПЯТСТВИЙ ПЕРЕД СТВОЛОМ ===
         // Проверяем, не упирается ли ствол в препятствие (стена, здание и т.д.)
         if (this.checkBarrelObstacle(muzzlePos, barrelDir, 1.5)) {
-            console.log(`[EnemyTank ${this.id}] Shot blocked by obstacle!`);
+                logger.debug(`[EnemyTank ${this.id}] Shot blocked by obstacle!`);
             // НЕ начисляем кулдаун - враг может попробовать снова сразу
             // НЕ вызываем this.isReloading = true
             return; // Не создаём снаряд - выстрел заблокирован
@@ -1710,7 +1762,7 @@ export class EnemyTank {
                         wallMeta.tankController.damageWall(wall, bulletDamage);
                     }
                     
-                    console.log(`[EnemyTank ${this.id}] Bullet hit protective wall! Damage: ${bulletDamage}`);
+                    logger.debug(`[EnemyTank ${this.id}] Bullet hit protective wall! Damage: ${bulletDamage}`);
                     if (this.effectsManager) this.effectsManager.createHitSpark(bulletPos);
                     if (this.soundManager) this.soundManager.playHit("armor", bulletPos);
                     ball.dispose();
@@ -1725,7 +1777,7 @@ export class EnemyTank {
             
                 if (dist < 3.5) {
                     hasHit = true;
-                    console.log(`[EnemyTank ${this.id}] HIT PLAYER! Damage: ${damage}`);
+                    logger.debug(`[EnemyTank ${this.id}] HIT PLAYER! Damage: ${damage}`);
                     // Передаём позицию атакующего для индикатора направления урона
                     (target as any).takeDamage(damage, this.chassis.absolutePosition.clone());
                     this.effectsManager.createExplosion(bulletPos, 0.8);

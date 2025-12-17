@@ -40,8 +40,8 @@ export class EffectsManager {
     
     // Улучшенный эффект использования припаса - свечение вокруг танка
     createConsumableEffect(position: Vector3, color: Color3, type: string): void {
-        // Основное светящееся кольцо (расширяется)
-        const ring = MeshBuilder.CreateCylinder("consumableRing", { diameter: 5, height: 0.3, tessellation: 32 }, this.scene);
+        // Основное светящееся кольцо (расширяется) - replaced cylinder with box
+        const ring = MeshBuilder.CreateBox("consumableRing", { width: 5, height: 0.3, depth: 5 }, this.scene);
         ring.position = position.clone();
         ring.position.y = 1;
         ring.rotation.x = Math.PI / 2;
@@ -52,8 +52,8 @@ export class EffectsManager {
         ringMat.disableLighting = true;
         ring.material = ringMat;
         
-        // Второе кольцо (меньше, для глубины)
-        const ring2 = MeshBuilder.CreateCylinder("consumableRing2", { diameter: 3, height: 0.2, tessellation: 32 }, this.scene);
+        // Второе кольцо (меньше, для глубины) - replaced cylinder with box
+        const ring2 = MeshBuilder.CreateBox("consumableRing2", { width: 3, height: 0.2, depth: 3 }, this.scene);
         ring2.position = position.clone();
         ring2.position.y = 1.1;
         ring2.rotation.x = Math.PI / 2;
@@ -166,8 +166,8 @@ export class EffectsManager {
         };
         flashAnimate();
         
-        // Кольцо энергии
-        const energyRing = MeshBuilder.CreateCylinder("energyRing", { diameter: 2, height: 0.2, tessellation: 32 }, this.scene);
+        // Кольцо энергии (replaced cylinder with box)
+        const energyRing = MeshBuilder.CreateBox("energyRing", { width: 2, height: 0.2, depth: 2 }, this.scene);
         energyRing.position = position.clone();
         energyRing.position.y = 1;
         energyRing.rotation.x = Math.PI / 2;
@@ -285,8 +285,8 @@ export class EffectsManager {
     
     // УЛУЧШЕНО: Enhanced explosion - более эффектные взрывы
     createExplosion(position: Vector3, scale: number = 1.0): void {
-        // Main explosion sphere (expanding) - УВЕЛИЧЕН начальный размер
-        const explosion = MeshBuilder.CreateSphere("explosion", { diameter: 0.7 * scale, segments: 8 }, this.scene); // УВЕЛИЧЕНО с 0.5 до 0.7
+        // Main explosion box (expanding) - replaced sphere with box
+        const explosion = MeshBuilder.CreateBox("explosion", { width: 0.7 * scale, height: 0.7 * scale, depth: 0.7 * scale }, this.scene);
         explosion.position = position.clone();
         explosion.material = this.explosionMat;
         
@@ -316,10 +316,10 @@ export class EffectsManager {
         // Secondary explosion rings
         for (let ring = 0; ring < 2; ring++) {
             setTimeout(() => {
-                const ringMesh = MeshBuilder.CreateTorus("explosionRing", {
-                    diameter: 0.3 * scale,
-                    thickness: 0.1 * scale,
-                    tessellation: 16
+                const ringMesh = MeshBuilder.CreateBox("explosionRing", {
+                    width: 0.3 * scale,
+                    height: 0.1 * scale,
+                    depth: 0.3 * scale
                 }, this.scene);
                 ringMesh.position = position.clone();
                 ringMesh.position.y += ring * 0.5;
@@ -377,8 +377,8 @@ export class EffectsManager {
             moveDebris();
         }
         
-        // Flash effect
-        const flash = MeshBuilder.CreateSphere("flash", { diameter: 0.3 * scale, segments: 8 }, this.scene);
+        // Flash effect (replaced sphere with box)
+        const flash = MeshBuilder.CreateBox("flash", { width: 0.3 * scale, height: 0.3 * scale, depth: 0.3 * scale }, this.scene);
         flash.position = position.clone();
         const flashMat = new StandardMaterial("flashMat", this.scene);
         flashMat.diffuseColor = new Color3(1, 1, 0.8); // Bright yellow-white
@@ -430,11 +430,11 @@ export class EffectsManager {
     
     // Эффект респавна - светящееся кольцо и частицы
     createRespawnEffect(position: Vector3): void {
-        // Основное светящееся кольцо
-        const ring = MeshBuilder.CreateCylinder("respawnRing", { 
-            diameter: 6, 
+        // Основное светящееся кольцо (replaced cylinder with box)
+        const ring = MeshBuilder.CreateBox("respawnRing", { 
+            width: 6, 
             height: 0.4, 
-            tessellation: 32 
+            depth: 6 
         }, this.scene);
         ring.position = position.clone();
         ring.position.y = 1;
@@ -526,11 +526,11 @@ export class EffectsManager {
         const length = Vector3.Distance(start, end);
         const direction = end.subtract(start).normalize();
         
-        // Main tracer line - brighter and thicker
-        const tracer = MeshBuilder.CreateCylinder("tracer", {
+        // Main tracer line - brighter and thicker (replaced cylinder with box)
+        const tracer = MeshBuilder.CreateBox("tracer", {
+            width: 0.15,
             height: length,
-            diameter: 0.15,
-            tessellation: 8
+            depth: 0.15
         }, this.scene);
         
         const mid = start.add(end).scale(0.5);
@@ -561,8 +561,8 @@ export class EffectsManager {
         };
         fade();
         
-        // Glow effect at start
-        const glow = MeshBuilder.CreateSphere("tracerGlow", { diameter: 0.3, segments: 8 }, this.scene);
+        // Glow effect at start (replaced sphere with box)
+        const glow = MeshBuilder.CreateBox("tracerGlow", { width: 0.3, height: 0.3, depth: 0.3 }, this.scene);
         glow.position = start.clone();
         const glowMat = new StandardMaterial("tracerGlowMat", this.scene);
         glowMat.diffuseColor = new Color3(1, 1, 0.5);
@@ -779,8 +779,8 @@ export class EffectsManager {
     // ============ UNIQUE HIT EFFECTS ============
     
     createPlasmaBurst(position: Vector3): void {
-        // Plasma burst - expanding magenta sphere
-        const burst = MeshBuilder.CreateSphere("plasmaBurst", { diameter: 0.3, segments: 12 }, this.scene);
+        // Plasma burst - expanding magenta box (replaced sphere with box)
+        const burst = MeshBuilder.CreateBox("plasmaBurst", { width: 0.3, height: 0.3, depth: 0.3 }, this.scene);
         burst.position = position.clone();
         
         const mat = new StandardMaterial("plasmaBurstMat", this.scene);
@@ -843,8 +843,8 @@ export class EffectsManager {
     }
     
     createPoisonCloud(position: Vector3): void {
-        // Poison cloud - expanding green cloud
-        const cloud = MeshBuilder.CreateSphere("poisonCloud", { diameter: 0.5, segments: 8 }, this.scene);
+        // Poison cloud - expanding green cloud (replaced sphere with box)
+        const cloud = MeshBuilder.CreateBox("poisonCloud", { width: 0.5, height: 0.5, depth: 0.5 }, this.scene);
         cloud.position = position.clone();
         cloud.position.y += 0.5;
         

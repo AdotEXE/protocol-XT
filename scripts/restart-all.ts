@@ -30,7 +30,8 @@ async function closeOldTerminals(): Promise<void> {
         const titles = [
             'Protocol TX - Monitoring',
             'Protocol TX - Server (port 8080)',
-            'Protocol TX - Client (Vite, port 3000)'
+            'Protocol TX - Client (Vite, port 3000)',
+            'Protocol TX - System Logs'
         ];
         
         for (const title of titles) {
@@ -57,7 +58,7 @@ public class Win32 {
         }
         
         console.log('  Waiting for terminals to close...');
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 10));
         console.log('[OK] Old terminals closed!\n');
     }
 }
@@ -87,7 +88,7 @@ async function killAllProcesses(): Promise<void> {
         
         // Wait for processes to terminate
         console.log('  Waiting for processes to terminate...');
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 10));
         
         console.log('[OK] All processes stopped!\n');
     } else {
@@ -106,7 +107,7 @@ async function killAllProcesses(): Promise<void> {
             });
         });
         
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 10));
         console.log('[OK] All processes stopped!\n');
     }
 }
@@ -148,7 +149,7 @@ public class Win32 {
 Add-Type -TypeDefinition $code -ErrorAction Stop;
 $positioned = $false;
 for ($i = 0; $i -lt 100; $i++) {
-    Start-Sleep -Milliseconds 20;
+    Start-Sleep -Milliseconds 10;
     if ($positioned) { 
         Write-Host "POSITIONED"
         exit 0
@@ -160,7 +161,7 @@ for ($i = 0; $i -lt 100; $i++) {
                 $handle = $proc.MainWindowHandle;
                 if (-not [Win32]::IsWindowVisible($handle)) {
                     [Win32]::ShowWindow($handle, [Win32]::SW_RESTORE) | Out-Null;
-                    Start-Sleep -Milliseconds 10;
+                    Start-Sleep -Milliseconds 5;
                 }
                 $result = [Win32]::SetWindowPos($handle, [Win32]::HWND_TOP, $x, $y, 0, 0, [Win32]::SWP_NOSIZE -bor [Win32]::SWP_SHOWWINDOW);
                 if ($result) { 
@@ -247,7 +248,7 @@ ${command}
             
             // Use PowerShell Start-Process directly with cmd, avoiding start command escaping issues
             const escapedBatPath = batFilePath.replace(/\\/g, '\\\\').replace(/'/g, "''");
-            const psScript = `$proc = Start-Process cmd -ArgumentList '/k', '${escapedBatPath}' -PassThru -WindowStyle Normal; [Microsoft.VisualBasic.Interaction]::AppActivate($proc.Id) | Out-Null; $proc.MainWindowTitle = '${title.replace(/'/g, "''")}'; Start-Sleep -Milliseconds 50; $allCmds = Get-Process -Name cmd -ErrorAction SilentlyContinue | Where-Object { $_.Id -ge $proc.Id } | Sort-Object Id; if ($allCmds) { $procId = $allCmds[0].Id; Write-Host $procId } else { Write-Host $proc.Id }`;
+            const psScript = `$proc = Start-Process cmd -ArgumentList '/k', '${escapedBatPath}' -PassThru -WindowStyle Normal; [Microsoft.VisualBasic.Interaction]::AppActivate($proc.Id) | Out-Null; $proc.MainWindowTitle = '${title.replace(/'/g, "''")}'; Start-Sleep -Milliseconds 10; $allCmds = Get-Process -Name cmd -ErrorAction SilentlyContinue | Where-Object { $_.Id -ge $proc.Id } | Sort-Object Id; if ($allCmds) { $procId = $allCmds[0].Id; Write-Host $procId } else { Write-Host $proc.Id }`;
             
             exec(`powershell -NoProfile -Command "${psScript}"`, async (error, stdout) => {
                 // Clean up bat file after a delay
@@ -408,14 +409,15 @@ async function main() {
             }
         }
         
-        const windowWidth = 800;
-        const windowHeight = 600;
+        // Calculate window dimensions for 2x2 grid (4 windows)
+        const windowWidth = Math.floor(monitorWidth / 2);
+        const windowHeight = Math.floor(monitorHeight / 2);
         
         const positions = {
-            topLeft: { x: 0, y: 0 },
-            topRight: { x: monitorWidth - windowWidth, y: 0 },
-            bottomRight: { x: monitorWidth - windowWidth, y: monitorHeight - windowHeight },
-            bottomLeft: { x: 0, y: monitorHeight - windowHeight }
+            topLeft: { x: 0, y: 0 },                                    // Мониторинг
+            topRight: { x: windowWidth, y: 0 },                        // Сервер
+            bottomLeft: { x: 0, y: windowHeight },                     // Клиент
+            bottomRight: { x: windowWidth, y: windowHeight }           // Системные логи
         };
         
         // 1. Start monitoring FIRST (top left corner)
@@ -428,7 +430,7 @@ async function main() {
         );
 
         // Minimal delay for monitoring
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await new Promise(resolve => setTimeout(resolve, 10));
 
         // 2. Start server (top right corner)
         console.log('Starting server...');
@@ -449,11 +451,20 @@ async function main() {
             console.log('Server did not respond in time, but continuing...\n');
         }
 
-        // 3. Start client last (bottom right corner)
+        // 3. Start client (bottom left corner)
         console.log('Starting client...');
         await startInNewWindow(
             'Protocol TX - Client (Vite, port 3000)',
             `${npmCmd} run dev`,
+            workingDir,
+            positions.bottomLeft
+        );
+
+        // 4. Start system logs (bottom right corner)
+        console.log('Starting system logs...');
+        await startInNewWindow(
+            'Protocol TX - System Logs',
+            `${npmCmd} run system:logs`,
             workingDir,
             positions.bottomRight
         );
@@ -461,12 +472,13 @@ async function main() {
         console.log('\n[OK] All systems restarted in separate windows!');
         console.log('Monitoring: top left corner');
         console.log('Server: top right corner (http://localhost:8080)');
-        console.log('Client: bottom right corner (http://localhost:3000)');
+        console.log('Client: bottom left corner (http://localhost:3000)');
+        console.log('System Logs: bottom right corner');
         console.log('\nClose terminal windows to stop systems\n');
         
         // Завершаем главный процесс - все остальное в отдельных окнах
         // Минимальная задержка для вывода сообщений
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await new Promise(resolve => setTimeout(resolve, 10));
         
         // Корректно завершаем процесс
         if (process.stdout.isTTY) {

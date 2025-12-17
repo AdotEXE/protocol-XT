@@ -138,11 +138,11 @@ const LANG = {
         admin: "Админ",
         adminTools: "Админ-инструменты",
         adminCheatPanel: "Окно контроля читов",
-        adminF2: "Телепорт / дебаг (F2)",
-        adminF3: "Dev Dashboard (F3)",
-        adminF4: "Dev Console (F4)",
-        adminF6: "Настройки физики (F6)",
-        adminF7: "Меню читов (F7)",
+        adminF2: "Телепорт / дебаг (Ctrl+2)",
+        adminF3: "Dev Dashboard (Ctrl+3)",
+        adminF4: "Dev Console (Ctrl+4)",
+        adminF6: "Настройки физики (Ctrl+6)",
+        adminF7: "Меню читов (Ctrl+7)",
         openCheatMenu: "Открыть меню читов",
         garageKey: "Гараж",
         map: "Карта",
@@ -239,11 +239,11 @@ const LANG = {
         admin: "Admin",
         adminTools: "Admin tools",
         adminCheatPanel: "Cheat control window",
-        adminF2: "Teleport / debug (F2)",
-        adminF3: "Dev Dashboard (F3)",
-        adminF4: "Dev Console (F4)",
-        adminF6: "Physics settings (F6)",
-        adminF7: "Cheat menu (F7)",
+        adminF2: "Teleport / debug (Ctrl+2)",
+        adminF3: "Dev Dashboard (Ctrl+3)",
+        adminF4: "Dev Console (Ctrl+4)",
+        adminF6: "Physics settings (Ctrl+6)",
+        adminF7: "Cheat menu (Ctrl+7)",
         openCheatMenu: "Open cheat menu",
         garageKey: "Garage",
         map: "Map",
@@ -380,7 +380,7 @@ export class MainMenu {
     private setupGlobalEventBlocking(): void {
         // ГЛОБАЛЬНАЯ БЛОКИРОВКА: Перехватываем все события мыши на уровне document
         // и блокируем их если они идут на canvas, а меню видимо
-        const globalHandler = (e: MouseEvent) => {
+        const globalHandler = (e: MouseEvent): void => {
             const target = e.target as HTMLElement;
             
             // Если меню не видимо - пропускаем все события
@@ -395,13 +395,13 @@ export class MainMenu {
                 e.stopPropagation();
                 e.stopImmediatePropagation();
                 debugLog("[Menu] Blocked click on canvas");
-                return false;
+                return;
             }
             
             // Если клик по элементу меню - разрешаем
             if (this.container.contains(target)) {
-                // Разрешаем событие
-                return true;
+                // Разрешаем событие (не блокируем)
+                return;
             }
         };
         
@@ -711,11 +711,11 @@ export class MainMenu {
                         </button>
                     </div>
                     <div class="auth-buttons" id="auth-buttons">
-                        <button class="menu-btn auth-btn" id="btn-login">
+                        <button class="menu-btn" id="btn-login">
                             <span class="btn-icon">🔐</span>
                             <span class="btn-label">ВОЙТИ</span>
                         </button>
-                        <button class="menu-btn auth-btn secondary" id="btn-register">
+                        <button class="menu-btn secondary" id="btn-register">
                             <span class="btn-icon">📝</span>
                             <span class="btn-label">РЕГИСТРАЦИЯ</span>
                         </button>
@@ -890,23 +890,23 @@ export class MainMenu {
                             <div class="control-category">
                                 <div class="category-header">🛠 ${L.admin}</div>
                                 <div class="control-item">
-                                    <span class="key">F2</span>
+                                    <span class="key">Ctrl+2</span>
                                     <span class="control-desc">${L.adminF2}</span>
                                 </div>
                                 <div class="control-item">
-                                    <span class="key">F3</span>
+                                    <span class="key">Ctrl+3</span>
                                     <span class="control-desc">${L.adminF3}</span>
                                 </div>
                                 <div class="control-item">
-                                    <span class="key">F4</span>
+                                    <span class="key">Ctrl+4</span>
                                     <span class="control-desc">${L.adminF4}</span>
                                 </div>
                                 <div class="control-item">
-                                    <span class="key">F6</span>
+                                    <span class="key">Ctrl+6</span>
                                     <span class="control-desc">${L.adminF6}</span>
                                 </div>
                                 <div class="control-item">
-                                    <span class="key">F7</span>
+                                    <span class="key">Ctrl+7</span>
                                     <span class="control-desc">${L.adminF7}</span>
                                 </div>
                             </div>
@@ -1150,19 +1150,14 @@ export class MainMenu {
                 box-shadow: none !important;
             }
 
+            .auth-buttons {
+                display: flex;
+                gap: 10px;
+            }
+            
             .auth-buttons .menu-btn {
                 flex: 1;
                 min-width: 0;
-            }
-            
-            .auth-buttons .menu-btn,
-            .auth-buttons .menu-btn.auth-btn {
-                font-size: clamp(10px, 1.2vw, 12px) !important;
-            }
-            
-            .auth-buttons .menu-btn .btn-label,
-            .auth-buttons .menu-btn.auth-btn .btn-label {
-                font-size: clamp(10px, 1.2vw, 12px) !important;
             }
             
             .player-level-row {
@@ -3171,7 +3166,7 @@ export class MainMenu {
                         <div class="setting-row">
                             <span class="setting-label">${L.openCheatMenu}</span>
                             <div class="setting-value">
-                                <button class="panel-btn secondary" id="open-cheat-menu">F7</button>
+                                <button class="panel-btn secondary" id="open-cheat-menu">Ctrl+7</button>
                             </div>
                         </div>
                     </div>
@@ -3337,11 +3332,11 @@ export class MainMenu {
             this.handleFullscreenCheckbox(!!target?.checked);
         });
 
-        // Open cheat menu button (simulates F7 press)
+        // Open cheat menu button (simulates Ctrl+7 press)
         const cheatBtn = document.getElementById("open-cheat-menu");
         if (cheatBtn) {
             cheatBtn.addEventListener("click", () => {
-                window.dispatchEvent(new KeyboardEvent("keydown", { key: "F7", code: "F7" }));
+                window.dispatchEvent(new KeyboardEvent("keydown", { key: "7", code: "Digit7", ctrlKey: true }));
             });
         }
         
@@ -4616,10 +4611,10 @@ export class MainMenu {
         const ownedChassis = Array.from(this.ownedChassisIds);
         const ownedCannon = Array.from(this.ownedCannonIds);
         if (!this.ownedChassisIds.has(chassisId) && ownedChassis.length > 0) {
-            chassisId = ownedChassis[0];
+            chassisId = ownedChassis[0] || chassisId; // Fallback to original if undefined
         }
         if (!this.ownedCannonIds.has(cannonId) && ownedCannon.length > 0) {
-            cannonId = ownedCannon[0];
+            cannonId = ownedCannon[0] || cannonId; // Fallback to original if undefined
         }
         
         this.selectChassis(chassisId);
@@ -4768,7 +4763,9 @@ export class MainMenu {
         const clamped = Math.max(0, Math.min(targetStep, steps.length - 1));
         this.hideAllPlayWindows();
         const id = steps[clamped];
-        this.showPlayWindow(id, clamped, clamped);
+        if (id) {
+            this.showPlayWindow(id, clamped, clamped);
+        }
     }
     
     private startSelectedGame(): void {
@@ -5186,9 +5183,11 @@ export class MainMenu {
     }
     
     // Deprecated: Garage is now loaded lazily via loadGarageInMenu()
+    // This method is kept for compatibility but does nothing
+    // Garage is now loaded lazily when showGarage() is called
+    // @ts-expect-error - deprecated method, kept for compatibility
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private initializeGarageInMenu(): void {
-        // This method is kept for compatibility but does nothing
-        // Garage is now loaded lazily when showGarage() is called
         debugLog("[Menu] initializeGarageInMenu() called (deprecated - garage is lazy loaded)");
     }
     

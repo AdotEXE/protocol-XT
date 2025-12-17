@@ -40,6 +40,9 @@ export enum ClientMessageType {
     
     // Monitoring
     CLIENT_METRICS = "client_metrics",
+    
+    // Network quality
+    PING = "ping",
 }
 
 // Server -> Client messages
@@ -113,6 +116,9 @@ export enum ServerMessageType {
     
     // Monitoring
     MONITORING_STATS = "monitoring_stats",
+    
+    // Network quality
+    PONG = "pong",
 }
 
 // Specific message data types
@@ -218,5 +224,24 @@ export interface ClientMetricsData {
     
     // FPS
     fps?: number;
+}
+
+// PlayerStates data with server sequence for reconciliation
+export interface PlayerStatesData {
+    players: PlayerData[];
+    gameTime: number;
+    serverSequence?: number; // Sequence number of last processed input (for reconciliation)
+}
+
+// Ping/Pong data types
+export interface PingData {
+    timestamp: number;
+    sequence: number;
+}
+
+export interface PongData {
+    timestamp: number; // Original ping timestamp
+    sequence: number; // Original ping sequence
+    serverTime: number; // Server timestamp when pong was sent
 }
 

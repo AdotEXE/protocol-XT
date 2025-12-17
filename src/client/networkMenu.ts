@@ -92,7 +92,7 @@ export class NetworkMenu {
         const html = `
             <div class="panel">
                 <div class="panel-header">
-                    <div class="panel-title">NETWORK MENU [F8]</div>
+                    <div class="panel-title">NETWORK MENU [Ctrl+8]</div>
                     <button class="panel-close" id="network-close">×</button>
                 </div>
                 <div class="panel-content">
@@ -674,13 +674,8 @@ export class NetworkMenu {
     }
     
     private setupToggle(): void {
-        window.addEventListener("keydown", (e) => {
-            if (e.code === "F8") {
-                e.preventDefault();
-                e.stopPropagation();
-                this.toggle();
-            }
-        });
+        // F8 обработчик управляется в game.ts для консистентности
+        // Этот метод оставлен для возможного будущего использования
     }
     
     toggle(): void {

@@ -44,6 +44,9 @@ export class ServerPlayer {
     lastPing: number = Date.now();
     ping: number = 0;
     
+    // Sequence tracking for client-side prediction reconciliation
+    lastProcessedSequence: number = -1;
+    
     constructor(socket: WebSocket, playerId?: string, playerName?: string) {
         this.id = playerId || nanoid();
         this.socket = socket;
@@ -72,6 +75,60 @@ export class ServerPlayer {
         this.lastInput = input;
         this.lastInputTime = Date.now();
         // Position and rotation will be updated by game logic in room.update()
+    }
+    
+    /**
+     * Add position snapshot to history for lag compensation
+     */
+    addPositionSnapshot(position: Vector3): void {
+        const now = Date.now();
+        this.positionHistory.push({
+            time: now,
+            position: position.clone()
+        });
+        
+        // Keep only last 60 entries (1 second at 60Hz)
+        const maxHistoryTime = 1000; // 1 second
+        this.positionHistory = this.positionHistory.filter(
+            entry => now - entry.time <= maxHistoryTime
+        );
+    }
+    
+    /**
+     * Get position at a specific time for lag compensation
+     */
+    getPositionAtTime(targetTime: number): Vector3 | null {
+        if (this.positionHistory.length === 0) {
+            return this.position.clone(); // Fallback to current position
+        }
+        
+        // Find closest snapshots
+        let before: { time: number; position: Vector3 } | null = null;
+        let after: { time: number; position: Vector3 } | null = null;
+        
+        for (const entry of this.positionHistory) {
+            if (entry.time <= targetTime) {
+                before = entry;
+            }
+            if (entry.time >= targetTime && !after) {
+                after = entry;
+                break;
+            }
+        }
+        
+        if (!before && !after) {
+            return this.position.clone(); // Fallback to current position
+        }
+        
+        if (!before) return after!.position.clone();
+        if (!after) return before.position.clone();
+        
+        // Interpolate between before and after
+        const timeDelta = after.time - before.time;
+        if (timeDelta === 0) return before.position.clone();
+        
+        const t = (targetTime - before.time) / timeDelta;
+        return Vector3.Lerp(before.position, after.position, t);
     }
     
     takeDamage(damage: number): boolean {

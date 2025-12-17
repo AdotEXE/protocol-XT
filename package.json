@@ -12,7 +12,7 @@
   },
   "name": "tx",
   "version": "0.3.0",
-  "description": "",
+  "description": "Protocol TX - Advanced tank combat simulator with procedural world generation, multiplayer support, and extensive customization",
   "main": "index.js",
   "directories": {
     "doc": "docs"
@@ -36,6 +36,7 @@
     "firebase-admin": "^13.6.0",
     "meshoptimizer": "^0.22.0",
     "nanoid": "^3.3.11",
+    "@msgpack/msgpack": "^3.0.3",
     "picocolors": "^1.1.1",
     "picomatch": "^4.0.3",
     "postcss": "^8.5.6",
@@ -56,6 +57,7 @@
     "monitor": "tsx scripts/start-all.ts",
     "monitor:only": "tsx scripts/monitor.ts",
     "monitor:config": "tsx scripts/monitor.ts --config",
+    "system:logs": "tsx scripts/system-logs.ts",
     "start:all": "tsx scripts/start-all.ts",
     "restart:all": "tsx scripts/restart-all.ts",
     "chrome:debug": "node scripts/chrome-debug.js",

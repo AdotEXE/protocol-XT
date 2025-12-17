@@ -813,7 +813,7 @@ export class AuthUI {
             btn.innerHTML = '<span class="btn-icon">👑</span> ВХОД...';
 
             // Быстрый вход админом - используем стандартные учетные данные
-            const adminEmail = "admin";
+            const adminEmail = "admin@admin.com";
             const adminPassword = "admin";
 
             const result = await firebaseService.signInWithEmail(adminEmail, adminPassword);

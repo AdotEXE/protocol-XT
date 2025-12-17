@@ -1,6 +1,6 @@
 import "@babylonjs/core/Debug/debugLayer";
 import { logger } from "./utils/logger";
-import { CommonStyles } from "./commonStyles";
+// import { CommonStyles } from "./commonStyles"; // Не используется
 import { 
     Engine, 
     Scene, 
@@ -9,8 +9,8 @@ import {
     MeshBuilder, 
     Mesh,
     HavokPlugin,
-    PhysicsAggregate,
-    PhysicsShapeType,
+    // PhysicsAggregate, // Не используется
+    // PhysicsShapeType, // Не используется
     PhysicsMotionType,
     StandardMaterial,
     Color3,
@@ -34,7 +34,7 @@ import { EnemyTank } from "./enemyTank";
 // MainMenu is lazy loaded - imported dynamically when needed
 import type { GameSettings, MapType } from "./menu";
 import { CurrencyManager } from "./currencyManager";
-import { Garage } from "./garage";
+// import { Garage } from "./garage"; // Не используется напрямую
 import { ConsumablesManager, CONSUMABLE_TYPES } from "./consumables";
 import { ChatSystem } from "./chatSystem";
 import { ExperienceSystem } from "./experienceSystem";
@@ -51,13 +51,28 @@ import { Timestamp } from "firebase/firestore";
 import { RealtimeStatsTracker } from "./realtimeStats";
 import { ServerMessageType } from "../shared/messages";
 import { socialSystem } from "./socialSystem";
-import { MetricsCollector, type ExtendedMetrics } from "./metricsCollector";
+import { MetricsCollector } from "./metricsCollector";
+// type ExtendedMetrics не используется
 import type { ClientMetricsData } from "../shared/messages";
 
+// Типы для lazy-loaded модулей
+type DebugDashboard = { isVisible: () => boolean; toggle: () => void; dispose: () => void };
+type PhysicsPanel = { isVisible: () => boolean; toggle: () => void; dispose: () => void };
+type CheatMenu = { isVisible: () => boolean; toggle: () => void; setTank: (tank: TankController | null) => void; setGame: (game: Game) => void; dispose: () => void };
+type NetworkMenu = { isVisible: () => boolean; toggle: () => void; dispose: () => void };
+type WorldGenerationMenu = { isVisible: () => boolean; toggle: () => void; dispose: () => void };
+type HelpMenu = { isVisible: () => boolean; toggle: () => void; dispose: () => void };
+type ScreenshotManager = { takeScreenshot: (options?: any) => Promise<string>; dispose: () => void };
+type ScreenshotPanel = { isVisible: () => boolean; toggle: () => void; dispose: () => void };
+type Garage = { isOpen: boolean; show: () => void; hide: () => void; setOnCloseCallback: (callback: () => void) => void; dispose: () => void };
+type BattleRoyaleVisualizer = { update: () => void; dispose: () => void };
+type CTFVisualizer = { update: () => void; dispose: () => void };
+type MainMenu = { show: () => void; hide: () => void; dispose: () => void };
+
 export class Game {
-    engine: Engine;
-    scene: Scene;
-    canvas: HTMLCanvasElement;
+    engine!: Engine; // Инициализируется в init()
+    scene!: Scene; // Инициализируется в init()
+    canvas!: HTMLCanvasElement; // Инициализируется в init()
     tank: TankController | undefined;
     camera: ArcRotateCamera | undefined;
     aimCamera: UniversalCamera | undefined; // Отдельная камера для режима прицеливания
@@ -73,22 +88,22 @@ export class Game {
     destructionSystem: DestructionSystem | undefined;
     
     // Debug dashboard (lazy loaded)
-    debugDashboard: any | undefined; // Lazy loaded from "./debugDashboard"
+    debugDashboard: DebugDashboard | undefined; // Lazy loaded from "./debugDashboard"
     
     // Physics panel (lazy loaded)
-    physicsPanel: any | undefined; // Lazy loaded from "./physicsPanel"
+    physicsPanel: PhysicsPanel | undefined; // Lazy loaded from "./physicsPanel"
     
     // Cheat menu (lazy loaded)
-    cheatMenu: any | undefined; // Lazy loaded from "./cheatMenu"
+    cheatMenu: CheatMenu | undefined; // Lazy loaded from "./cheatMenu"
     
     // Network menu (lazy loaded)
-    networkMenu: any | undefined; // Lazy loaded from "./networkMenu"
+    networkMenu: NetworkMenu | undefined; // Lazy loaded from "./networkMenu"
     
     // World generation menu (lazy loaded)
-    worldGenerationMenu: any | undefined; // Lazy loaded from "./worldGenerationMenu"
+    worldGenerationMenu: WorldGenerationMenu | undefined; // Lazy loaded from "./worldGenerationMenu"
     
     // Help menu (lazy loaded)
-    helpMenu: any | undefined; // Lazy loaded from "./helpMenu"
+    helpMenu: HelpMenu | undefined; // Lazy loaded from "./helpMenu"
     
     // Session settings
     sessionSettings: { getSettings: () => { enemyCount?: number; aiDifficulty?: string }; setGame: (game: Game) => void } | undefined;
@@ -106,11 +121,11 @@ export class Game {
     chatSystem: ChatSystem | undefined;
     
     // Screenshot manager (extended functionality)
-    screenshotManager: any | undefined; // Lazy loaded from "./screenshotManager"
-    screenshotPanel: any | undefined; // Lazy loaded from "./screenshotPanel"
+    screenshotManager: ScreenshotManager | undefined; // Lazy loaded from "./screenshotManager"
+    screenshotPanel: ScreenshotPanel | undefined; // Lazy loaded from "./screenshotPanel"
     
     // Garage system (lazy loaded)
-    garage: any | undefined; // Lazy loaded from "./garage"
+    garage: Garage | undefined; // Lazy loaded from "./garage"
     
     // Experience system
     experienceSystem: ExperienceSystem | undefined;
@@ -139,8 +154,8 @@ export class Game {
     private metricsCollector: MetricsCollector | undefined;
     private lastMetricsSendTime: number = 0;
     private readonly METRICS_SEND_INTERVAL = 5000; // Send metrics every 5 seconds
-    battleRoyaleVisualizer: any | undefined; // Lazy loaded from "./battleRoyale"
-    ctfVisualizer: any | undefined; // Lazy loaded from "./ctfVisualizer"
+    battleRoyaleVisualizer: BattleRoyaleVisualizer | undefined; // Lazy loaded from "./battleRoyale"
+    ctfVisualizer: CTFVisualizer | undefined; // Lazy loaded from "./ctfVisualizer"
     
     // Spectator mode
     isSpectating: boolean = false;
@@ -150,7 +165,7 @@ export class Game {
     playerGaragePosition: Vector3 | null = null;
     
     // Таймеры респавна для гаражей (Map<garagePos, {timer: number, billboard: Mesh}>)
-    private garageRespawnTimers: Map<string, { timer: number, billboard: Mesh | null, textBlock: any }> = new Map();
+    private garageRespawnTimers: Map<string, { timer: number, billboard: Mesh | null, textBlock: TextBlock | null }> = new Map();
     private readonly RESPAWN_TIME = 180000; // 3 минуты в миллисекундах
     
     // Система захвата гаражей
@@ -160,7 +175,7 @@ export class Game {
     private readonly PLAYER_ID = "player"; // ID игрока (в будущем будет из мультиплеера)
     
     // Main menu (lazy loaded)
-    mainMenu: any | undefined; // Lazy loaded from "./menu"
+    mainMenu: MainMenu | undefined; // Lazy loaded from "./menu"
     gameStarted = false;
     gamePaused = false;
     currentMapType: MapType = "normal";
@@ -182,15 +197,24 @@ export class Game {
     // Stats overlay (Tab key - пункт 13)
     private statsOverlay: HTMLDivElement | null = null;
     private statsOverlayVisible = false;
-    private _experienceSubscription: any = null; // Подписка на изменения опыта для Stats Overlay (используется в строке 908)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private _experienceSubscription: { unsubscribe: () => void } | null = null; // Подписка на изменения опыта для Stats Overlay (используется в строке 2399)
     
     // Real-time statistics tracker
     private realtimeStatsTracker: RealtimeStatsTracker | undefined;
     
     // Replay system (lazy loaded)
     private replayRecorder: any | undefined; // Lazy loaded from "./replaySystem"
-    private _replayPlayer: any | undefined; // Lazy loaded from "./replaySystem"
-    private _isReplayMode: boolean = false;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private _replayPlayer: any | undefined; // Lazy loaded from "./replaySystem" (зарезервировано для будущего использования)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private _isReplayMode: boolean = false; // Зарезервировано для будущего использования
+    
+    // Social menu (lazy loaded)
+    socialMenu: any | undefined; // Lazy loaded from "./socialMenu"
+    
+    // Map editor (lazy loaded)
+    mapEditor: any | undefined; // Lazy loaded from "./mapEditor"
     
     // Settings (loaded from menu when available)
     settings: GameSettings = {} as GameSettings;
@@ -200,7 +224,8 @@ export class Game {
     private loadingScreen: HTMLDivElement | null = null;
     private loadingProgress = 0;
     private targetLoadingProgress = 0; // Целевой прогресс для плавной интерполяции
-    private _loadingStage = "";
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private _loadingStage = ""; // Текущий этап загрузки (используется в строке 1629)
     private loadingAnimationFrame: number | null = null; // Для плавной анимации прогресса
     
     // Camera settings
@@ -301,12 +326,12 @@ export class Game {
     }
     
     // Helper method to ensure MainMenu is loaded before accessing it
-    private async ensureMainMenu(): Promise<boolean> {
-        if (!this.mainMenu) {
-            await this.loadMainMenu();
-        }
-        return !!this.mainMenu;
-    }
+    // private async ensureMainMenu(): Promise<boolean> { // Не используется
+    //     if (!this.mainMenu) {
+    //         await this.loadMainMenu();
+    //     }
+    //     return !!this.mainMenu;
+    // }
     
     // Lazy load Garage
     private async loadGarage(): Promise<void> {
@@ -494,6 +519,7 @@ export class Game {
         }
         
         // Setup ESC for pause and Garage
+        // Use capture phase to intercept function keys before browser default behavior
         window.addEventListener("keydown", (e) => {
             // Open/Close garage MENU with B key - В ЛЮБОЙ МОМЕНТ (даже до старта игры)
             // G key используется для управления воротами гаража во время игры
@@ -698,16 +724,17 @@ export class Game {
                 return;
             }
             
-            // === ФУНКЦИОНАЛЬНЫЕ КЛАВИШИ F1-F9 ===
+            // === КОМБИНАЦИИ КЛАВИШ CTRL+1-9 ===
             // Обрабатываем ПЕРЕД другими обработчиками чтобы не блокировались
             
-            // F1: Help/Controls Menu (lazy loaded)
-            if (e.code === "F1" && this.gameStarted) {
+            // Ctrl+1: Help/Controls Menu (lazy loaded)
+            if (e.ctrlKey && (e.code === "Digit1" || e.code === "Numpad1") && this.gameStarted) {
                 e.preventDefault();
                 e.stopPropagation();
+                e.stopImmediatePropagation();
                 if (!this.helpMenu) {
                     // Lazy load help menu on first use
-                    logger.log("[Game] Loading help menu (F1)...");
+                    logger.log("[Game] Loading help menu (Ctrl+1)...");
                     import("./helpMenu").then(({ HelpMenu }) => {
                         this.helpMenu = new HelpMenu();
                         this.helpMenu.setGame(this);
@@ -721,6 +748,8 @@ export class Game {
                         if (this.hud) {
                             this.hud.showMessage("Failed to load Help Menu", "#f00", 3000);
                         }
+                        // Сбрасываем ссылку для повторной попытки
+                        this.helpMenu = undefined;
                     });
                 } else {
                     // Toggle existing menu
@@ -732,21 +761,23 @@ export class Game {
                 return;
             }
             
-            // F2: Screenshot Panel (lazy loaded)
-            if (e.code === "F2" && this.gameStarted) {
+            // Ctrl+2: Screenshot Panel (lazy loaded)
+            if (e.ctrlKey && (e.code === "Digit2" || e.code === "Numpad2") && this.gameStarted) {
                 e.preventDefault();
                 e.stopPropagation();
+                e.stopImmediatePropagation();
                 this.openScreenshotPanel();
                 return;
             }
             
-            // F3: Debug Dashboard (lazy loaded)
-            if (e.code === "F3" && this.gameStarted) {
+            // Ctrl+3: Debug Dashboard (lazy loaded)
+            if (e.ctrlKey && (e.code === "Digit3" || e.code === "Numpad3") && this.gameStarted) {
                 e.preventDefault();
                 e.stopPropagation();
+                e.stopImmediatePropagation();
                 if (!this.debugDashboard) {
                     // Lazy load debug dashboard on first use
-                    logger.log("[Game] Loading debug dashboard (F3)...");
+                    logger.log("[Game] Loading debug dashboard (Ctrl+3)...");
                     import("./debugDashboard").then(({ DebugDashboard }) => {
                         this.debugDashboard = new DebugDashboard(this.engine, this.scene);
                         if (this.chunkSystem) {
@@ -769,6 +800,8 @@ export class Game {
                         if (this.hud) {
                             this.hud.showMessage("Failed to load Debug Dashboard", "#f00", 3000);
                         }
+                        // Сбрасываем ссылку для повторной попытки
+                        this.debugDashboard = undefined;
                     });
                 } else {
                     // Toggle existing dashboard
@@ -791,13 +824,14 @@ export class Game {
                 return;
             }
             
-            // F4: Physics Panel (lazy loaded)
-            if (e.code === "F4" && this.gameStarted) {
+            // Ctrl+4: Physics Panel (lazy loaded)
+            if (e.ctrlKey && (e.code === "Digit4" || e.code === "Numpad4") && this.gameStarted) {
                 e.preventDefault();
                 e.stopPropagation();
+                e.stopImmediatePropagation();
                 if (!this.physicsPanel) {
                     // Lazy load physics panel on first use
-                    logger.log("[Game] Loading physics panel (F4)...");
+                    logger.log("[Game] Loading physics panel (Ctrl+4)...");
                     import("./physicsPanel").then(({ PhysicsPanel }) => {
                         this.physicsPanel = new PhysicsPanel();
                         this.physicsPanel.setGame(this);
@@ -814,6 +848,8 @@ export class Game {
                         if (this.hud) {
                             this.hud.showMessage("Failed to load Physics Panel", "#f00", 3000);
                         }
+                        // Сбрасываем ссылку для повторной попытки
+                        this.physicsPanel = undefined;
                     });
                 } else {
                     // Toggle existing panel
@@ -825,10 +861,11 @@ export class Game {
                 return;
             }
             
-            // F5: System Terminal
-            if (e.code === "F5" && this.gameStarted) {
+            // Ctrl+5: System Terminal
+            if (e.ctrlKey && (e.code === "Digit5" || e.code === "Numpad5") && this.gameStarted) {
                 e.preventDefault();
                 e.stopPropagation();
+                e.stopImmediatePropagation();
                 // Убеждаемся что chatSystem инициализирован
                 this.ensureChatSystem().then(() => {
                     if (this.chatSystem && typeof this.chatSystem.toggleTerminal === 'function') {
@@ -841,7 +878,7 @@ export class Game {
                         }
                     }
                 }).catch(error => {
-                    logger.error("[Game] Failed to ensure ChatSystem for F5:", error);
+                    logger.error("[Game] Failed to ensure ChatSystem for Ctrl+5:", error);
                     if (this.hud) {
                         this.hud.showMessage("Failed to initialize System Terminal", "#f00", 3000);
                     }
@@ -849,23 +886,48 @@ export class Game {
                 return;
             }
             
-            // F6: Session Settings
-            if (e.code === "F6" && this.gameStarted) {
+            // Ctrl+6: Session Settings (lazy loaded)
+            if (e.ctrlKey && (e.code === "Digit6" || e.code === "Numpad6") && this.gameStarted) {
                 e.preventDefault();
                 e.stopPropagation();
-                if (this.sessionSettings && typeof (this.sessionSettings as any).toggle === 'function') {
-                    (this.sessionSettings as any).toggle();
+                e.stopImmediatePropagation();
+                if (!this.sessionSettings) {
+                    // Lazy load session settings on first use
+                    logger.log("[Game] Loading session settings (Ctrl+6)...");
+                    import("./sessionSettings").then(({ SessionSettings }) => {
+                        this.sessionSettings = new SessionSettings();
+                        this.sessionSettings.setGame(this);
+                        // Toggle visibility after loading
+                        if (typeof (this.sessionSettings as any).toggle === 'function') {
+                            (this.sessionSettings as any).toggle();
+                        }
+                        logger.log("[Game] Session settings loaded successfully");
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load session settings:", error);
+                        if (this.hud) {
+                            this.hud.showMessage("Failed to load Session Settings", "#f00", 3000);
+                        }
+                        // Сбрасываем ссылку для повторной попытки
+                        this.sessionSettings = undefined;
+                    });
+                } else {
+                    // Toggle existing settings
+                    if (typeof (this.sessionSettings as any).toggle === 'function') {
+                        (this.sessionSettings as any).toggle();
+                        logger.log("[Game] Session settings toggled");
+                    }
                 }
                 return;
             }
             
-            // F7: Cheat Menu (lazy loaded)
-            if (e.code === "F7" && this.gameStarted) {
+            // Ctrl+7: Cheat Menu (lazy loaded)
+            if (e.ctrlKey && (e.code === "Digit7" || e.code === "Numpad7") && this.gameStarted) {
                 e.preventDefault();
                 e.stopPropagation();
+                e.stopImmediatePropagation();
                 if (!this.cheatMenu) {
                     // Lazy load cheat menu on first use
-                    logger.log("[Game] Loading cheat menu (F7)...");
+                    logger.log("[Game] Loading cheat menu (Ctrl+7)...");
                     import("./cheatMenu").then(({ CheatMenu }) => {
                         this.cheatMenu = new CheatMenu();
                         if (this.tank) {
@@ -882,6 +944,8 @@ export class Game {
                         if (this.hud) {
                             this.hud.showMessage("Failed to load Cheat Menu", "#f00", 3000);
                         }
+                        // Сбрасываем ссылку для повторной попытки
+                        this.cheatMenu = undefined;
                     });
                 } else {
                     // Toggle existing menu
@@ -893,13 +957,14 @@ export class Game {
                 return;
             }
             
-            // F8: Network Menu (lazy loaded)
-            if (e.code === "F8" && this.gameStarted) {
+            // Ctrl+8: Network Menu (lazy loaded)
+            if (e.ctrlKey && (e.code === "Digit8" || e.code === "Numpad8") && this.gameStarted) {
                 e.preventDefault();
                 e.stopPropagation();
+                e.stopImmediatePropagation();
                 if (!this.networkMenu) {
                     // Lazy load network menu on first use
-                    logger.log("[Game] Loading network menu (F8)...");
+                    logger.log("[Game] Loading network menu (Ctrl+8)...");
                     import("./networkMenu").then(({ NetworkMenu }) => {
                         this.networkMenu = new NetworkMenu();
                         this.networkMenu.setGame(this);
@@ -913,6 +978,8 @@ export class Game {
                         if (this.hud) {
                             this.hud.showMessage("Failed to load Network Menu", "#f00", 3000);
                         }
+                        // Сбрасываем ссылку для повторной попытки
+                        this.networkMenu = undefined;
                     });
                 } else {
                     // Toggle existing menu
@@ -924,13 +991,78 @@ export class Game {
                 return;
             }
             
-            // F9: World Generation Menu (lazy loaded) - перемещено с F8
-            if (e.code === "F9" && this.gameStarted) {
+            // Ctrl+0: Social Menu (Friends & Clans) (lazy loaded)
+            if (e.ctrlKey && (e.code === "Digit0" || e.code === "Numpad0") && this.gameStarted) {
                 e.preventDefault();
                 e.stopPropagation();
+                e.stopImmediatePropagation();
+                if (!this.socialMenu) {
+                    // Lazy load social menu on first use
+                    logger.log("[Game] Loading social menu (Ctrl+0)...");
+                    import("./socialMenu").then(({ socialMenu }) => {
+                        this.socialMenu = socialMenu;
+                        // Toggle visibility after loading
+                        if (typeof this.socialMenu.toggle === 'function') {
+                            this.socialMenu.toggle();
+                        }
+                        logger.log("[Game] Social menu loaded successfully");
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load social menu:", error);
+                        if (this.hud) {
+                            this.hud.showMessage("Failed to load Social Menu", "#f00", 3000);
+                        }
+                        this.socialMenu = undefined;
+                    });
+                } else {
+                    // Toggle existing menu
+                    if (typeof this.socialMenu.toggle === 'function') {
+                        this.socialMenu.toggle();
+                        logger.log("[Game] Social menu toggled");
+                    }
+                }
+                return;
+            }
+            
+            // Ctrl+Shift+M: Map Editor (lazy loaded)
+            if (e.ctrlKey && e.shiftKey && (e.code === "KeyM") && this.gameStarted) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                if (!this.mapEditor) {
+                    // Lazy load map editor on first use
+                    logger.log("[Game] Loading map editor (Ctrl+Shift+M)...");
+                    import("./mapEditor").then(({ MapEditor }) => {
+                        this.mapEditor = new MapEditor(this.scene);
+                        this.mapEditor.chunkSystem = this.chunkSystem; // Передаем chunkSystem для доступа к террейну
+                        this.mapEditor.open();
+                        logger.log("[Game] Map editor loaded successfully");
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load map editor:", error);
+                        if (this.hud) {
+                            this.hud.showMessage("Failed to load Map Editor", "#f00", 3000);
+                        }
+                        this.mapEditor = undefined;
+                    });
+                } else {
+                    // Toggle editor
+                    if (this.mapEditor.isEditorActive()) {
+                        this.mapEditor.close();
+                    } else {
+                        this.mapEditor.open();
+                    }
+                    logger.log("[Game] Map editor toggled");
+                }
+                return;
+            }
+            
+            // Ctrl+9: World Generation Menu (lazy loaded)
+            if (e.ctrlKey && (e.code === "Digit9" || e.code === "Numpad9") && this.gameStarted) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
                 if (!this.worldGenerationMenu) {
                     // Lazy load world generation menu on first use
-                    logger.log("[Game] Loading world generation menu (F9)...");
+                    logger.log("[Game] Loading world generation menu (Ctrl+9)...");
                     import("./worldGenerationMenu").then(({ WorldGenerationMenu }) => {
                         this.worldGenerationMenu = new WorldGenerationMenu();
                         this.worldGenerationMenu.setGame(this);
@@ -944,6 +1076,8 @@ export class Game {
                         if (this.hud) {
                             this.hud.showMessage("Failed to load World Generation Menu", "#f00", 3000);
                         }
+                        // Сбрасываем ссылку для повторной попытки
+                        this.worldGenerationMenu = undefined;
                     });
                 } else {
                     // Toggle existing menu
@@ -996,7 +1130,7 @@ export class Game {
                     this.physicsPanel.hide();
                     return;
                 }
-                if (this.chatSystem && typeof this.chatSystem.isTerminalVisible === 'function' && this.chatSystem.isTerminalVisible()) {
+                if (this.chatSystem && typeof (this.chatSystem as any).isTerminalVisible === 'function' && (this.chatSystem as any).isTerminalVisible()) {
                     this.chatSystem.toggleTerminal();
                     return;
                 }
@@ -1170,20 +1304,20 @@ export class Game {
         const masterVol = this.settings.masterVolume / 100;
         this.soundManager.setMasterVolume(masterVol);
         
-        // Sound volume (effects)
-        const _soundVol = (this.settings.soundVolume / 100) * masterVol;
+        // Sound volume (effects) - зарезервировано для будущего использования
+        // const soundVol = (this.settings.soundVolume / 100) * masterVol;
         // Note: SoundManager has individual volume controls, would need to update them
         
-        // Music volume
-        const _musicVol = (this.settings.musicVolume / 100) * masterVol;
+        // Music volume - зарезервировано для будущего использования
+        // const musicVol = (this.settings.musicVolume / 100) * masterVol;
         // Note: Would need to add music volume control to SoundManager
         
-        // Ambient volume
-        const _ambientVol = (this.settings.ambientVolume / 100) * masterVol;
+        // Ambient volume - зарезервировано для будущего использования
+        // const ambientVol = (this.settings.ambientVolume / 100) * masterVol;
         // Note: Would need to add ambient volume control to SoundManager
         
-        // Voice volume
-        const _voiceVol = (this.settings.voiceVolume / 100) * masterVol;
+        // Voice volume - зарезервировано для будущего использования
+        // const voiceVol = (this.settings.voiceVolume / 100) * masterVol;
         // Note: Would need to add voice volume control to SoundManager
         
         // Mute on focus loss
@@ -1669,6 +1803,10 @@ export class Game {
         }
     }
     
+    /**
+     * Запускает игру: инициализирует игровой цикл, спавнит игрока и врагов
+     * @returns {void}
+     */
     startGame(): void {
         logger.log("startGame() called, mapType:", this.currentMapType);
         this.gameStarted = true;
@@ -1877,6 +2015,10 @@ export class Game {
         logger.log("[Game] Started! gameStarted:", this.gameStarted, "gamePaused:", this.gamePaused);
     }
     
+    /**
+     * Переключает состояние паузы игры
+     * @returns {void}
+     */
     togglePause(): void {
         if (!this.gameStarted) return;
         
@@ -1898,6 +2040,10 @@ export class Game {
         logger.log(`[Game] ${this.gamePaused ? "Paused" : "Resumed"}`);
     }
     
+    /**
+     * Перезапускает игру на той же карте
+     * @returns {void}
+     */
     restartGame(): void {
         logger.log("[Game] Restarting game on same map...");
         // Сохраняем текущую карту для автозапуска после перезагрузки
@@ -1906,6 +2052,10 @@ export class Game {
         window.location.reload();
     }
     
+    /**
+     * Выходит из боя и возвращается в главное меню
+     * @returns {void}
+     */
     exitBattle(): void {
         logger.log("[Game] Exiting battle...");
         // Полная перезагрузка страницы для чистого состояния
@@ -1914,6 +2064,10 @@ export class Game {
         window.location.reload();
     }
     
+    /**
+     * Останавливает игру: очищает все ресурсы, останавливает звуки, удаляет объекты
+     * @returns {void}
+     */
     stopGame(): void {
         logger.log("[Game] Stopping game...");
         this.gameStarted = false;
@@ -1954,8 +2108,8 @@ export class Game {
         }
         
         // Очищаем HUD
-        if (this.hud) {
-            this.hud.hide();
+        if (this.hud && typeof (this.hud as any).hide === 'function') {
+            (this.hud as any).hide();
         }
         
         // Останавливаем таймер проверки видимости меню
@@ -1971,6 +2125,12 @@ export class Game {
         }
     }
 
+    /**
+     * Инициализирует игру: создает сцену, загружает ресурсы, настраивает системы
+     * @async
+     * @returns {Promise<void>} Promise, который разрешается после завершения инициализации
+     * @throws {Error} Если инициализация не удалась
+     */
     async init() {
         // Initialize Firebase
         try {
@@ -2199,7 +2359,9 @@ export class Game {
                     }
                     
                     // ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ GUI
-                    this.hud.forceUpdate?.();
+                    if (this.hud && typeof (this.hud as any).forceUpdate === 'function') {
+                        (this.hud as any).forceUpdate();
+                    }
                 }
                 
                 this.tank.setHUD(this.hud);
@@ -2421,6 +2583,9 @@ export class Game {
                 
                 // Connect network players reference for hit detection
                 this.tank.networkPlayers = this.networkPlayerTanks;
+                
+                // Store reference to multiplayerManager for RTT access
+                (this.tank as any).multiplayerManager = this.multiplayerManager;
             }
             
             // Create Enemy Manager (for turrets)
@@ -2510,11 +2675,7 @@ export class Game {
             // Debug tools are loaded on-demand when F3/F4/F7 are pressed
             // This reduces initial bundle size
             
-            // Initialize session settings (already lazy loaded)
-            const { SessionSettings } = await import("./sessionSettings");
-            this.sessionSettings = new SessionSettings();
-            this.sessionSettings.setGame(this);
-            this.sessionSettings.setGame(this);
+            // Session Settings will be lazy loaded when F6 is pressed (see keydown handler)
             
             // === MULTIPLAYER ===
             // Initialize multiplayer manager (can be enabled/disabled)
@@ -2558,6 +2719,10 @@ export class Game {
         }
     }
     
+    /**
+     * Спавнит вражеские танки на карте в зависимости от типа карты
+     * @returns {void}
+     */
     spawnEnemyTanks() {
         // ИСПРАВЛЕНИЕ: Добавлено подробное логирование для отладки
         logger.log(`[Game] spawnEnemyTanks() called - mapType: ${this.currentMapType}, gameStarted: ${this.gameStarted}`);
@@ -2647,8 +2812,8 @@ export class Game {
                 // Проверяем высоту земли через terrain generator
                 if (this.chunkSystem && this.chunkSystem.terrainGenerator) {
                     const groundHeight = this.chunkSystem.terrainGenerator.getHeight(spawnX, spawnZ, "dirt");
-                    // Спавним на высоте земли + 1.5 единицы для предотвращения падения сквозь пол
-                    spawnY = Math.max(groundHeight, 0) + 1.5;
+                    // Спавним на высоте земли + 2.0 единицы для предотвращения падения сквозь пол
+                    spawnY = Math.max(groundHeight, 0) + 2.0; // Увеличено с 1.5 до 2.0
                 } else {
                     // Fallback: используем raycast для определения высоты
                     const rayStart = new Vector3(spawnX, 50, spawnZ); // Начинаем сверху
@@ -2809,12 +2974,12 @@ export class Game {
                 // Случайная позиция в зоне боя
                 const spawnX = combatZoneMinX + Math.random() * (combatZoneMaxX - combatZoneMinX);
                 const spawnZ = combatZoneMinZ + Math.random() * (combatZoneMaxZ - combatZoneMinZ);
-                let spawnY = 1.2; // Fallback высота
+                let spawnY = 2.0; // Fallback высота (увеличено с 1.2 до 2.0)
                 
                 // ИСПРАВЛЕНИЕ: Получаем высоту земли и спавним танк немного над поверхностью
                 if (this.chunkSystem && this.chunkSystem.terrainGenerator) {
                     const groundHeight = this.chunkSystem.terrainGenerator.getHeight(spawnX, spawnZ, "dirt");
-                    spawnY = Math.max(groundHeight, 0) + 1.5;
+                    spawnY = Math.max(groundHeight, 0) + 2.0; // Увеличено с 1.5 до 2.0
                 } else {
                     // Fallback: используем raycast
                     const rayStart = new Vector3(spawnX, 50, spawnZ);
@@ -3278,12 +3443,12 @@ export class Game {
                     playerGarage.z, 
                     "dirt" // Используем базовый биом для проверки
                 );
-                // Спавним на высоте земли + 1.5 единицы для предотвращения падения сквозь пол
-                spawnHeight = Math.max(groundHeight, 0) + 1.5;
+                // Спавним на высоте земли + 2.0 единицы для предотвращения падения сквозь пол
+                spawnHeight = Math.max(groundHeight, 0) + 2.0; // Увеличено с 1.5 до 2.0
                 logger.log(`[Game] Ground height at garage: ${groundHeight.toFixed(2)}, spawn height: ${spawnHeight.toFixed(2)}`);
             } else {
-                // Fallback: если нет terrain generator, используем позицию гаража + 1.5
-                spawnHeight = playerGarage.y + 1.5;
+                // Fallback: если нет terrain generator, используем позицию гаража + 2.0
+                spawnHeight = playerGarage.y + 2.0; // Увеличено с 1.5 до 2.0
             }
             
             // Устанавливаем позицию с правильной высотой
@@ -4118,7 +4283,7 @@ export class Game {
                     this.playerStats.recordPOIContest();
                 }
             },
-            onAmmoPickup: (poi, amount, special) => {
+            onAmmoPickup: (_poi, amount, special) => {
                 if (this.tank && amount > 0) {
                     // Ammo is managed internally by tank
                     // this.tank.addAmmo?.(Math.floor(amount));
@@ -5166,7 +5331,7 @@ export class Game {
             if ((evt.code === "AltLeft" || evt.code === "AltRight") && !this.altKeyPressed) {
                 // ИСПРАВЛЕНИЕ: Улучшенная проверка условий и визуальная индикация
                 // Проверяем что игра запущена, не на паузе, и не открыты меню
-                if (this.gameStarted && !this.isPaused && 
+                if (this.gameStarted && !(this as any).isPaused && 
                     (!this.garage || !this.garage.isGarageOpen()) &&
                     (!this.mainMenu || !this.mainMenu.isVisible())) {
                     this.altKeyPressed = true;
@@ -5174,18 +5339,29 @@ export class Game {
                     evt.stopPropagation(); // Предотвращаем всплытие события
                     const canvas = this.scene.getEngine().getRenderingCanvas() as HTMLCanvasElement;
                     if (canvas && document.pointerLockElement !== canvas) {
-                        canvas.requestPointerLock().then(() => {
-                            logger.log("[Game] Pointer lock activated via Alt key");
-                            // Визуальная индикация
-                            if (this.hud) {
-                                this.hud.showMessage("🖱️ Игровой курсор включен (Alt)", "#0f0", 2000);
+                        try {
+                            // requestPointerLock может вернуть Promise или void в зависимости от браузера
+                            const lockResult: any = canvas.requestPointerLock();
+                            if (lockResult && typeof lockResult === 'object' && typeof lockResult.then === 'function') {
+                                lockResult.then(() => {
+                                    logger.log("[Game] Pointer lock activated via Alt key");
+                                    // Визуальная индикация
+                                    if (this.hud) {
+                                        this.hud.showMessage("🖱️ Игровой курсор включен (Alt)", "#0f0", 2000);
+                                    }
+                                }).catch((err: Error) => {
+                                    logger.warn("[Game] Failed to request pointer lock on Alt:", err);
+                                    if (this.hud) {
+                                        this.hud.showMessage("⚠️ Не удалось включить курсор", "#f00", 2000);
+                                    }
+                                });
+                            } else {
+                                // requestPointerLock вернул void - используем события для отслеживания
+                                logger.log("[Game] Pointer lock requested via Alt key");
                             }
-                        }).catch(err => {
+                        } catch (err) {
                             logger.warn("[Game] Failed to request pointer lock on Alt:", err);
-                            if (this.hud) {
-                                this.hud.showMessage("⚠️ Не удалось включить курсор", "#f00", 2000);
-                            }
-                        });
+                        }
                     } else if (canvas && document.pointerLockElement === canvas) {
                         // Уже заблокирован
                         if (this.hud) {
@@ -6038,6 +6214,9 @@ export class Game {
     private tankVisibilityTarget = false;
     private tankVisibilitySmooth = 0.0; // 0.0 = виден, 1.0 = за стеной
     
+    // Метод зарезервирован для будущего использования (альтернативная реализация корректировки камеры)
+    // Вместо этого используется checkPlayerTankVisibility() в update()
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private _adjustCameraForCollision(): void {
         if (!this.camera || !this.tank || !this.tank.chassis) return;
         
@@ -6271,6 +6450,8 @@ export class Game {
     }
     
     // === РАСЧЁТ ТОЧКИ ПОПАДАНИЯ СНАРЯДА ===
+    // Метод зарезервирован для будущего использования (визуализация траектории)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private _calculateProjectileImpact(): Vector3 | null {
         if (!this.tank || !this.tank.barrel) return null;
         
@@ -6747,8 +6928,10 @@ export class Game {
             const maxHealth = this.tank.maxHealth || 100;
             const fuel = this.tank.currentFuel || 100;
             const maxFuel = this.tank.maxFuel || 100;
-            const armor = this.tank.currentArmor || 0;
-            this.hud.updateTankStatus(health, maxHealth, fuel, maxFuel, armor);
+            const armor = (this.tank as any).currentArmor || 0;
+            if (this.hud) {
+                this.hud.updateTankStatus(health, maxHealth, fuel, maxFuel, armor);
+            }
         }
         
         // Enemy health summary (tanks + turrets) - С ЗАЩИТОЙ от null
@@ -6957,7 +7140,8 @@ export class Game {
         const pick = this.scene.pickWithRay(ray);
         
         // Hide all labels by default
-        this.enemyTanks.forEach(t => t.setHpVisible(false));
+        const playerPos = this.tank && this.tank.chassis ? this.tank.chassis.absolutePosition : undefined;
+        this.enemyTanks.forEach(t => t.setHpVisible(false, playerPos));
         if (this.enemyManager) {
             this.enemyManager.turrets.forEach(t => t.setHpVisible(false));
         }
@@ -6967,7 +7151,7 @@ export class Game {
             // Check enemy tanks
             const tank = this.enemyTanks.find(et => et.isPartOf && et.isPartOf(pickedMesh));
             if (tank) {
-                tank.setHpVisible(true);
+                tank.setHpVisible(true, playerPos);
                 return;
             }
             // Check turrets
@@ -6995,7 +7179,7 @@ export class Game {
                 const closestPoint = barrelPos.add(barrelDir.scale(proj));
                 const dist = Vector3.Distance(closestPoint, enemyPos);
                 if (dist < 3) { // Если враг близко к лучу ствола
-                    enemy.setHpVisible(true);
+                    enemy.setHpVisible(true, playerPos);
                     return;
                 }
             }
@@ -7495,6 +7679,8 @@ export class Game {
         if (!networkPlayer) return;
         
         const tank = new NetworkPlayerTank(this.scene, networkPlayer);
+        // Store reference to multiplayerManager for RTT access
+        (tank as any).multiplayerManager = this.multiplayerManager;
         this.networkPlayerTanks.set(playerData.id, tank);
     }
     
@@ -7827,6 +8013,9 @@ export class Game {
     
     // === FIREBASE INTEGRATION ===
     
+    // Метод зарезервирован для будущего использования (прямое создание скриншота)
+    // Вместо этого используется openScreenshotPanel() для открытия панели скриншотов
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private async takeScreenshot(): Promise<void> {
         try {
             // Ленивая загрузка ScreenshotManager
@@ -7864,13 +8053,13 @@ export class Game {
             const blob = await this.screenshotManager.capture(options);
             
             // Копирование в буфер обмена
-            const clipboardSuccess = await this.screenshotManager.copyToClipboard(blob);
+            await this.screenshotManager.copyToClipboard(blob);
             
             // Сохранение в localStorage
             const key = await this.screenshotManager.saveToLocalStorage(blob, options);
             
             // Уведомление
-            this.hud?.showMessage("📸 Screenshot saved! (F2)", "#0f0", 3000);
+            this.hud?.showMessage("📸 Screenshot saved! (Ctrl+2)", "#0f0", 3000);
             logger.log(`[Game] Screenshot saved: ${key}, size: ${(blob.size / 1024).toFixed(2)} KB`);
         } catch (error) {
             logger.error("[Game] Screenshot failed:", error);
@@ -7905,14 +8094,14 @@ export class Game {
         try {
             // Ленивая загрузка ScreenshotManager и панели
             if (!this.screenshotManager) {
-                logger.log("[Game] Loading screenshot manager (F2)...");
+                logger.log("[Game] Loading screenshot manager (Ctrl+2)...");
                 const { ScreenshotManager } = await import("./screenshotManager");
                 this.screenshotManager = new ScreenshotManager(this.engine, this.scene, this.hud || null);
                 logger.log("[Game] Screenshot manager loaded successfully");
             }
             
             if (!this.screenshotPanel) {
-                logger.log("[Game] Loading screenshot panel (F2)...");
+                logger.log("[Game] Loading screenshot panel (Ctrl+2)...");
                 const { ScreenshotPanel } = await import("./screenshotPanel");
                 this.screenshotPanel = new ScreenshotPanel(this.screenshotManager, this);
                 logger.log("[Game] Screenshot panel loaded successfully");
@@ -8044,7 +8233,7 @@ export class Game {
         };
         
         // beforeunload - срабатывает перед закрытием (можно показать предупреждение)
-        window.addEventListener("beforeunload", (e) => {
+        window.addEventListener("beforeunload", () => {
             saveAllData();
             // Не показываем стандартное предупреждение, просто сохраняем
         });
@@ -8100,8 +8289,8 @@ export class Game {
                 this.missionSystem.forceSave();
             }
             
-            if (this.playerStatsSystem) {
-                this.playerStatsSystem.forceSave();
+            if ((this as any).playerStatsSystem) {
+                (this as any).playerStatsSystem.forceSave();
             }
             
             logger.log("[Game] All game data saved successfully");

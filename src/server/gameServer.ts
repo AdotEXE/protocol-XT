@@ -6,7 +6,7 @@ import { GameRoom } from "./room";
 import { ServerProjectile } from "./projectile";
 import { MatchmakingSystem } from "./matchmaking";
 import { createServerMessage, deserializeMessage, serializeMessage } from "../shared/protocol";
-import type { ClientMessage, ServerMessage } from "../shared/messages";
+import type { ClientMessage, ServerMessage, PongData } from "../shared/messages";
 import { ClientMessageType, ServerMessageType } from "../shared/messages";
 import type { GameMode } from "../shared/types";
 import { InputValidator } from "./validation";
@@ -162,6 +162,10 @@ export class GameServer {
             case ClientMessageType.VOICE_ICE_CANDIDATE:
                 // Voice signaling handled elsewhere
                 // if (player) this._handleVoiceSignaling(player, message);
+                break;
+                
+            case ClientMessageType.PING:
+                if (player) this.handlePing(player, message.data);
                 break;
                 
             default:
@@ -385,6 +389,11 @@ export class GameServer {
         // Update last valid position
         player.lastValidPosition = player.position.clone();
         
+        // Track sequence number for reconciliation
+        if (data.sequence !== undefined && typeof data.sequence === 'number') {
+            player.lastProcessedSequence = data.sequence;
+        }
+        
         player.updateFromInput(data);
         
         // Check CTF flag pickup
@@ -430,6 +439,10 @@ export class GameServer {
         const projId = nanoid();
         const projPos = new Vector3(data.position.x, data.position.y, data.position.z);
         const projVel = new Vector3(data.direction.x, data.direction.y, data.direction.z).scale(100); // Projectile speed
+        const shootTime = data.timestamp || Date.now();
+        
+        // Store shooter's RTT for lag compensation (use ping if available, estimate otherwise)
+        const shooterRTT = player.ping > 0 ? player.ping : 100; // Use measured ping or default
         
         const projectile = new ServerProjectile({
             id: projId,
@@ -438,7 +451,8 @@ export class GameServer {
             velocity: projVel,
             damage: data.damage || 20,
             cannonType: data.cannonType || "standard",
-            spawnTime: Date.now()
+            spawnTime: shootTime,
+            shooterRTT: shooterRTT // Store RTT for lag compensation
         });
         
         room.projectiles.set(projId, projectile);
@@ -506,6 +520,26 @@ export class GameServer {
     private handleClientMetrics(player: ServerPlayer, data: any): void {
         // Store client metrics in monitoring API
         this.monitoringAPI.storeClientMetrics(player.id, data);
+    }
+    
+    private handlePing(player: ServerPlayer, data: any): void {
+        // Respond to ping with pong
+        const pingData = data as { timestamp: number; sequence: number };
+        const currentTime = Date.now();
+        const rtt = currentTime - pingData.timestamp;
+        
+        // Update player's ping (use EWMA for smoothing)
+        const alpha = 0.125; // Weight for new measurement
+        player.ping = (1 - alpha) * player.ping + alpha * rtt;
+        player.lastPing = currentTime;
+        
+        const pongData: PongData = {
+            timestamp: pingData.timestamp,
+            sequence: pingData.sequence,
+            serverTime: currentTime
+        };
+        
+        this.send(player.socket, createServerMessage(ServerMessageType.PONG, pongData));
     }
     
     private handleCancelQueue(player: ServerPlayer, data: any): void {
@@ -661,10 +695,36 @@ export class GameServer {
                 }
                 
                 // Broadcast game state to all players in room (60 Hz)
-                this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_STATES, {
-                    players: room.getPlayerData(),
-                    gameTime: room.gameTime
-                }));
+                // Send individual messages with serverSequence for each player
+                // Use delta compression and prioritization
+                const allPlayerData = room.getPlayerData();
+                
+                // Get or create delta compressor for this room
+                let compressor = this.deltaCompressor.get(room.id);
+                if (!compressor) {
+                    compressor = new DeltaCompressor();
+                    this.deltaCompressor.set(room.id, compressor);
+                }
+                
+                for (const player of room.getAllPlayers()) {
+                    // Prioritize players based on distance
+                    const playerPos = player.position;
+                    const prioritizedPlayers = this.prioritizedBroadcaster.prioritizePlayers(
+                        allPlayerData,
+                        playerPos,
+                        20 // Max 20 prioritized players
+                    );
+                    
+                    // Use prioritization to limit players sent (delta compression is internal optimization)
+                    // For now, send full prioritized list (quantization happens in compression, but we use full data for compatibility)
+                    // TODO: In the future, implement full delta compression with client-side delta application
+                    const statesData = {
+                        players: prioritizedPlayers, // Send prioritized players (full data with quantization in serialization)
+                        gameTime: room.gameTime,
+                        serverSequence: player.lastProcessedSequence
+                    };
+                    this.send(player.socket, createServerMessage(ServerMessageType.PLAYER_STATES, statesData));
+                }
                 
                 // Broadcast projectile updates
                 const projectileUpdates = Array.from(room.projectiles.values()).map(p => p.toProjectileData());
@@ -729,7 +789,9 @@ export class GameServer {
     
     private send(ws: WebSocket, message: ServerMessage): void {
         if (ws.readyState === WebSocket.OPEN) {
-            ws.send(serializeMessage(message));
+            const serialized = serializeMessage(message);
+            // WebSocket.send() accepts both string and ArrayBuffer
+            ws.send(serialized);
         }
     }
     

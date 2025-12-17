@@ -16,7 +16,10 @@ export class NetworkPlayerTank {
     
     // Interpolation
     private interpolationAlpha: number = 0;
-    private readonly INTERPOLATION_SPEED = 0.2; // How fast to interpolate
+    private readonly INTERPOLATION_SPEED = 0.2; // How fast to interpolate (adaptive based on RTT)
+    private lastUpdateTime: number = 0;
+    private estimatedVelocity: Vector3 = new Vector3(0, 0, 0);
+    private lastNetworkUpdateTime: number = 0;
     
     // Lag compensation - store history for rewind
     private positionHistory: Array<{ time: number; position: Vector3; rotation: number }> = [];
@@ -109,24 +112,62 @@ export class NetworkPlayerTank {
     }
     
     update(deltaTime: number): void {
-        // Store position history for lag compensation
         const currentTime = Date.now();
-        this.positionHistory.push({
-            time: currentTime,
-            position: this.networkPlayer.position.clone(),
-            rotation: this.networkPlayer.rotation
-        });
+        
+        // Calculate time since last network update
+        const timeSinceUpdate = currentTime - this.lastNetworkUpdateTime;
+        const needsExtrapolation = timeSinceUpdate > 50; // More than 50ms since last update
+        
+        // Store position history for lag compensation
+        if (this.lastNetworkUpdateTime > 0) {
+            this.positionHistory.push({
+                time: currentTime,
+                position: this.networkPlayer.position.clone(),
+                rotation: this.networkPlayer.rotation
+            });
+        }
         
         // Remove old history
         this.positionHistory = this.positionHistory.filter(
             entry => currentTime - entry.time < this.MAX_HISTORY_TIME
         );
         
+        // Calculate estimated velocity for dead reckoning
+        if (this.positionHistory.length >= 2) {
+            const last = this.positionHistory[this.positionHistory.length - 1];
+            const prev = this.positionHistory[this.positionHistory.length - 2];
+            const timeDelta = (last.time - prev.time) / 1000; // Convert to seconds
+            if (timeDelta > 0) {
+                // Clone before scaling to avoid mutating
+                this.estimatedVelocity = last.position.subtract(prev.position).clone().scaleInPlace(1 / timeDelta);
+            }
+        }
+        
+        // Adaptive interpolation speed based on network conditions
+        // Get RTT from multiplayer manager if available
+        const multiplayerManager = (this as any).multiplayerManager;
+        const rtt = multiplayerManager?.getRTT?.() || 100;
+        let adaptiveSpeed = this.INTERPOLATION_SPEED;
+        
+        // Adjust interpolation speed based on RTT
+        if (rtt < 50) {
+            adaptiveSpeed = 0.3; // Fast interpolation for low ping
+        } else if (rtt < 150) {
+            adaptiveSpeed = 0.2; // Normal speed
+        } else {
+            adaptiveSpeed = 0.1; // Slower for high ping to smooth jitter
+        }
+        
         // Interpolate position
-        this.interpolationAlpha = Math.min(1, this.interpolationAlpha + this.INTERPOLATION_SPEED * deltaTime * 60);
+        if (!needsExtrapolation) {
+            this.interpolationAlpha = Math.min(1, this.interpolationAlpha + adaptiveSpeed * deltaTime * 60);
+        } else {
+            // Use dead reckoning when updates are delayed
+            this.interpolationAlpha = 1; // Full extrapolation
+        }
         
         // Update visuals based on network player state
-        this.updateVisuals();
+        this.updateVisuals(needsExtrapolation, deltaTime);
     }
     
     // Get position at a specific time (for lag compensation)
@@ -157,26 +198,39 @@ export class NetworkPlayerTank {
         return Vector3.Lerp(before.position, after.position, t);
     }
     
-    private updateVisuals(): void {
+    private updateVisuals(extrapolate: boolean = false, deltaTime: number = 0): void {
         if (!this.networkPlayer) return;
         
         // Interpolate position
         const targetPos = this.networkPlayer.position;
         const currentPos = this.chassis.position;
         
-        if (this.interpolationAlpha < 1) {
-            // Smooth interpolation
+        if (extrapolate && this.estimatedVelocity.length() > 0.1) {
+            // Dead reckoning: extrapolate based on estimated velocity
+            const extrapolationTime = deltaTime; // Extrapolate forward by deltaTime
+            // Clone velocity before scaling to avoid mutation
+            const extrapolatedPos = targetPos.add(this.estimatedVelocity.clone().scale(extrapolationTime));
+            // Smoothly move towards extrapolated position
+            Vector3.LerpToRef(
+                currentPos,
+                extrapolatedPos,
+                0.3, // Fast movement towards extrapolated position
+                currentPos
+            );
+        } else if (this.interpolationAlpha < 1) {
+            // Cubic interpolation (smoothstep) for smoother movement
+            const t = this.smoothstep(0, 1, this.interpolationAlpha);
             Vector3.LerpToRef(
                 this.networkPlayer.lastPosition,
                 targetPos,
-                this.interpolationAlpha,
+                t,
                 currentPos
             );
         } else {
             currentPos.copyFrom(targetPos);
         }
         
-        // Interpolate rotation
+        // Interpolate rotation with smoothstep
         let targetRotation = this.networkPlayer.rotation;
         let currentRotation = this.chassis.rotation.y;
         
@@ -184,15 +238,17 @@ export class NetworkPlayerTank {
         while (targetRotation - currentRotation > Math.PI) targetRotation -= Math.PI * 2;
         while (targetRotation - currentRotation < -Math.PI) targetRotation += Math.PI * 2;
         
-        if (this.interpolationAlpha < 1) {
-            currentRotation = currentRotation + (targetRotation - currentRotation) * this.interpolationAlpha;
+        if (this.interpolationAlpha < 1 && !extrapolate) {
+            // Use smoothstep for smoother rotation
+            const t = this.smoothstep(0, 1, this.interpolationAlpha);
+            currentRotation = currentRotation + (targetRotation - currentRotation) * t;
         } else {
             currentRotation = targetRotation;
         }
         
         this.chassis.rotation.y = currentRotation;
         
-        // Update turret rotation
+        // Update turret rotation with smoothstep
         let targetTurretRotation = this.networkPlayer.turretRotation;
         let currentTurretRotation = this.turret.rotation.y;
         
@@ -200,8 +256,10 @@ export class NetworkPlayerTank {
         while (targetTurretRotation - currentTurretRotation > Math.PI) targetTurretRotation -= Math.PI * 2;
         while (targetTurretRotation - currentTurretRotation < -Math.PI) targetTurretRotation += Math.PI * 2;
         
-        if (this.interpolationAlpha < 1) {
-            currentTurretRotation = currentTurretRotation + (targetTurretRotation - currentTurretRotation) * this.interpolationAlpha;
+        if (this.interpolationAlpha < 1 && !extrapolate) {
+            // Use smoothstep for smoother turret rotation
+            const t = this.smoothstep(0, 1, this.interpolationAlpha);
+            currentTurretRotation = currentTurretRotation + (targetTurretRotation - currentTurretRotation) * t;
         } else {
             currentTurretRotation = targetTurretRotation;
         }
@@ -218,9 +276,18 @@ export class NetworkPlayerTank {
         this.barrel.setEnabled(isVisible);
     }
     
+    /**
+     * Smoothstep function for smooth interpolation (cubic)
+     */
+    private smoothstep(edge0: number, edge1: number, x: number): number {
+        const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+        return t * t * (3 - 2 * t); // Cubic smoothstep
+    }
+    
     setNetworkPlayer(networkPlayer: NetworkPlayer): void {
         // Reset interpolation when player data changes
         this.interpolationAlpha = 0;
+        this.lastNetworkUpdateTime = Date.now();
         this.networkPlayer = networkPlayer;
     }
     

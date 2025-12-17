@@ -11,6 +11,87 @@ import { Scene, Mesh, MeshBuilder, StandardMaterial, Color3, Vector3 } from "@ba
 import { ChassisType } from "../tankTypes";
 import { addZFightingOffset } from "./zFightingFix";
 
+/**
+ * Создает скос (bevel) на углу корпуса для более реалистичного вида
+ * Использует несколько маленьких элементов под углом для имитации скоса
+ */
+/**
+ * Создает скос (bevel) на углу корпуса для более реалистичного вида
+ * Использует несколько маленьких элементов под углом для имитации скоса
+ */
+function addBeveledCorner(
+    scene: Scene,
+    chassis: Mesh,
+    position: Vector3,
+    width: number,
+    height: number,
+    depth: number,
+    material: StandardMaterial,
+    cornerType: "front-top" | "front-bottom" | "back-top" | "back-bottom" | "side-top" | "side-bottom",
+    prefix: string = ""
+): void {
+    const bevelSize = Math.min(Math.abs(width), Math.abs(height), Math.abs(depth)) * 0.08; // Размер скоса 8% от минимального размера
+    
+    switch (cornerType) {
+        case "front-top":
+            // Скос на переднем верхнем углу
+            const frontTopBevel = MeshBuilder.CreateBox(`${prefix}frontTopBevel`, {
+                width: bevelSize,
+                height: bevelSize * 0.7,
+                depth: bevelSize
+            }, scene);
+            frontTopBevel.position = addZFightingOffset(position, "forward");
+            frontTopBevel.rotation.x = -Math.PI / 4; // 45 градусов
+            frontTopBevel.parent = chassis;
+            frontTopBevel.material = material;
+            break;
+            
+        case "front-bottom":
+            // Скос на переднем нижнем углу
+            const frontBottomBevel = MeshBuilder.CreateBox(`${prefix}frontBottomBevel`, {
+                width: bevelSize,
+                height: bevelSize * 0.7,
+                depth: bevelSize
+            }, scene);
+            frontBottomBevel.position = addZFightingOffset(position, "forward");
+            frontBottomBevel.rotation.x = Math.PI / 4;
+            frontBottomBevel.parent = chassis;
+            frontBottomBevel.material = material;
+            break;
+    }
+}
+
+/**
+ * Добавляет заклёпки (rivets) на поверхность корпуса
+ */
+function addRivets(
+    scene: Scene,
+    chassis: Mesh,
+    count: number,
+    basePosition: Vector3,
+    spacing: number,
+    material: StandardMaterial,
+    prefix: string = ""
+): void {
+    for (let i = 0; i < count; i++) {
+        const rivet = MeshBuilder.CreateBox(`${prefix}rivet${i}`, {
+            width: 0.04,
+            height: 0.04,
+            depth: 0.02
+        }, scene);
+        rivet.position = addZFightingOffset(
+            new Vector3(
+                basePosition.x + (i - count / 2) * spacing,
+                basePosition.y,
+                basePosition.z
+            ),
+            "forward"
+        );
+        rivet.parent = chassis;
+        rivet.material = material;
+    }
+}
+
 export interface ChassisAnimationElements {
     stealthActive?: boolean;
     stealthMesh?: Mesh;
@@ -389,16 +470,32 @@ export function addChassisDetails(
                 lens.material = lensMat;
             }
             
-            // Дополнительные броневые накладки на лобовой части
+            // Дополнительные броневые накладки на лобовой части с улучшенными деталями
             for (let i = 0; i < 3; i++) {
+                const plateX = (i - 1) * w * 0.25;
+                const plateY = h * 0.05;
+                const plateZ = d * 0.48;
+                const plateWidth = w * 0.25;
+                const plateHeight = h * 0.15;
+                const plateDepth = 0.08;
+                
                 const armorPlate = MeshBuilder.CreateBox(`lightArmorPlate${i}`, {
-                    width: w * 0.25,
-                    height: h * 0.15,
-                    depth: 0.08
+                    width: plateWidth,
+                    height: plateHeight,
+                    depth: plateDepth
                 }, scene);
-                armorPlate.position = addZFightingOffset(new Vector3((i - 1) * w * 0.25, h * 0.05, d * 0.48), "forward");
+                armorPlate.position = addZFightingOffset(new Vector3(plateX, plateY, plateZ), "forward");
                 armorPlate.parent = chassis;
                 armorPlate.material = armorMat;
+                
+                // Добавляем скосы на углах бронепластины
+                addBeveledCorner(scene, chassis, new Vector3(plateX, plateY + plateHeight * 0.4, plateZ + plateDepth * 0.5), 
+                    plateWidth, plateHeight, plateDepth, armorMat, "front-top", `lightArmorPlate${i}_`);
+                addBeveledCorner(scene, chassis, new Vector3(plateX, plateY - plateHeight * 0.4, plateZ + plateDepth * 0.5), 
+                    plateWidth, plateHeight, plateDepth, armorMat, "front-bottom", `lightArmorPlate${i}_`);
+                
+                // Добавляем заклёпки на бронепластине
+                addRivets(scene, chassis, 4, new Vector3(plateX, plateY, plateZ + plateDepth * 0.5), plateWidth * 0.25, armorMat, `lightArmorPlate${i}_`);
             }
             
             // Верхние вентиляционные решетки на крыше (улучшенные)
@@ -3787,20 +3884,32 @@ export function addChassisDetails(
         siegeLensMat.emissiveColor = new Color3(0.05, 0.1, 0.15);
         siegeSightLens.material = siegeLensMat;
         
-        // Дополнительные броневые накладки на лобовой части (огромные)
+        // Дополнительные броневые накладки на лобовой части (огромные) с улучшенными деталями
         for (let i = 0; i < 3; i++) {
+            const plateX = (i - 1) * w * 0.32;
+            const plateY = h * 0.1;
+            const plateZ = d * 0.5;
+            const plateWidth = w * 0.35;
+            const plateHeight = h * 0.25;
+            const plateDepth = 0.15;
+            
             const frontArmor = MeshBuilder.CreateBox(`siegeFrontArmor${i}`, {
-                width: w * 0.35,
-                height: h * 0.25,
-                depth: 0.15
+                width: plateWidth,
+                height: plateHeight,
+                depth: plateDepth
             }, scene);
-            frontArmor.position = addZFightingOffset(new Vector3(
-                    (i - 1) * w * 0.32,
-                    h * 0.1,
-                    d * 0.5
-                ), "forward");
+            frontArmor.position = addZFightingOffset(new Vector3(plateX, plateY, plateZ), "forward");
             frontArmor.parent = chassis;
             frontArmor.material = armorMat;
+            
+            // Добавляем скосы на углах для более реалистичного вида
+            addBeveledCorner(scene, chassis, new Vector3(plateX, plateY + plateHeight * 0.4, plateZ + plateDepth * 0.5), 
+                plateWidth, plateHeight, plateDepth, armorMat, "front-top", `siegeArmor${i}_`);
+            addBeveledCorner(scene, chassis, new Vector3(plateX, plateY - plateHeight * 0.4, plateZ + plateDepth * 0.5), 
+                plateWidth, plateHeight, plateDepth, armorMat, "front-bottom", `siegeArmor${i}_`);
+            
+            // Добавляем заклёпки для детализации
+            addRivets(scene, chassis, 6, new Vector3(plateX, plateY, plateZ + plateDepth * 0.5), plateWidth * 0.22, armorMat, `siegeArmor${i}_`);
         }
         
         // Задние огни (стоп-сигналы, большие)
@@ -4824,20 +4933,32 @@ export function addChassisDetails(
         destroyerLensMat.emissiveColor = new Color3(0.05, 0.1, 0.15);
         destroyerSightLens.material = destroyerLensMat;
         
-        // Дополнительные броневые накладки на лобовой части
+        // Дополнительные броневые накладки на лобовой части с улучшенными деталями
         for (let i = 0; i < 3; i++) {
+            const plateX = (i - 1) * w * 0.28;
+            const plateY = h * 0.05;
+            const plateZ = d * 0.48;
+            const plateWidth = w * 0.28;
+            const plateHeight = h * 0.18;
+            const plateDepth = 0.1;
+            
             const frontArmor = MeshBuilder.CreateBox(`destroyerFrontArmor${i}`, {
-                width: w * 0.28,
-                height: h * 0.18,
-                depth: 0.1
+                width: plateWidth,
+                height: plateHeight,
+                depth: plateDepth
             }, scene);
-            frontArmor.position = addZFightingOffset(new Vector3(
-                    (i - 1) * w * 0.28,
-                    h * 0.05,
-                    d * 0.48
-                ), "forward");
+            frontArmor.position = addZFightingOffset(new Vector3(plateX, plateY, plateZ), "forward");
             frontArmor.parent = chassis;
             frontArmor.material = armorMat;
+            
+            // Добавляем скосы на углах
+            addBeveledCorner(scene, chassis, new Vector3(plateX, plateY + plateHeight * 0.4, plateZ + plateDepth * 0.5), 
+                plateWidth, plateHeight, plateDepth, armorMat, "front-top", `destroyerArmor${i}_`);
+            addBeveledCorner(scene, chassis, new Vector3(plateX, plateY - plateHeight * 0.4, plateZ + plateDepth * 0.5), 
+                plateWidth, plateHeight, plateDepth, armorMat, "front-bottom", `destroyerArmor${i}_`);
+            
+            // Добавляем заклёпки
+            addRivets(scene, chassis, 5, new Vector3(plateX, plateY, plateZ + plateDepth * 0.5), plateWidth * 0.2, armorMat, `destroyerArmor${i}_`);
         }
         
         // Верхние вентиляционные решетки на крыше

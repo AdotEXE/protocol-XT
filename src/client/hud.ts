@@ -198,6 +198,12 @@ export class HUD {
     private gameStartTime = Date.now();
     
     // Enemy distance indicator
+    
+    // Map performance optimization
+    private lastMinimapUpdate = 0;
+    private readonly MINIMAP_UPDATE_INTERVAL = 100; // Обновлять раз в 100мс (10 FPS)
+    private cachedEnemyPositions: Map<string, { x: number, z: number, lastUpdate: number }> = new Map();
+    private readonly POSITION_CACHE_TIME = 500; // Кэш на 500мс
     private enemyDistanceText: TextBlock | null = null;
     
     // Animation tracking
@@ -2567,7 +2573,17 @@ export class HUD {
             container.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
             container.left = `${-startX + i * (slotWidth + slotGap)}px`;
             container.top = "0px";
-            container.isVisible = true;
+            
+            // Градиент прозрачности: слот 1 = 100%, 2 = 75%, 3 = 50%, 4 = 25%, 5 = 0%
+            if (i < 5) {
+                container.alpha = 1.0 - (i * 0.25); // 1.0, 0.75, 0.5, 0.25, 0.0
+                container.isVisible = true;
+            } else {
+                // Слоты 6-8 скрыты по умолчанию
+                container.alpha = 0;
+                container.isVisible = false;
+            }
+            
             this.activeEffectsContainer.addControl(container);
             
             // Иконка эффекта
@@ -2630,7 +2646,6 @@ export class HUD {
     // Обновить прозрачность всех слотов эффектов на основе количества активных эффектов
     private updateActiveEffectsOpacity(): void {
         const activeCount = this.activeEffects.size;
-        const visibleSlots = Math.min(5, activeCount); // Первые 5 всегда видны
         
         // Обновляем прозрачность каждого слота
         for (let i = 0; i < this.activeEffectsSlots.length; i++) {
@@ -2639,38 +2654,43 @@ export class HUD {
             
             if (isActive) {
                 if (i < 5) {
-                    // Первые 5 слотов: плавный градиент 100% → 20%
-                    const alpha = 1.0 - (i / 5.0) * 0.8; // 1.0, 0.84, 0.68, 0.52, 0.36
+                    // Градиент прозрачности: слот 1 = 100%, 2 = 75%, 3 = 50%, 4 = 25%, 5 = 0%
+                    const alpha = 1.0 - (i * 0.25); // 1.0, 0.75, 0.5, 0.25, 0.0
                     slot.container.alpha = alpha;
+                    slot.container.isVisible = true;
                     slot.icon.alpha = alpha;
                     slot.nameText.alpha = alpha;
                     slot.timerText.alpha = alpha;
                     slot.progressBar.alpha = alpha * 0.7; // Прогресс-бар немного прозрачнее
                 } else {
-                    // Слоты 6-8: появляются только при наличии эффектов, с прозрачностью от 15% до 0%
-                    const extraSlots = activeCount - 5;
-                    if (extraSlots > 0) {
-                        const alpha = Math.max(0, 0.15 - ((i - 5) / extraSlots) * 0.15);
-                        slot.container.alpha = alpha;
-                        slot.icon.alpha = alpha;
-                        slot.nameText.alpha = alpha;
-                        slot.timerText.alpha = alpha;
-                        slot.progressBar.alpha = alpha * 0.7;
-                    } else {
-                        slot.container.alpha = 0;
-                        slot.icon.alpha = 0;
-                        slot.nameText.alpha = 0;
-                        slot.timerText.alpha = 0;
-                        slot.progressBar.alpha = 0;
-                    }
+                    // Слоты 6-8: появляются только при наличии эффектов
+                    slot.container.alpha = 1.0;
+                    slot.container.isVisible = true;
+                    slot.icon.alpha = 1.0;
+                    slot.nameText.alpha = 1.0;
+                    slot.timerText.alpha = 1.0;
+                    slot.progressBar.alpha = 0.7;
                 }
             } else {
-                // Неактивные слоты полностью прозрачны
-                slot.container.alpha = 0;
-                slot.icon.alpha = 0;
-                slot.nameText.alpha = 0;
-                slot.timerText.alpha = 0;
-                slot.progressBar.alpha = 0;
+                // Неактивные слоты скрыты
+                if (i < 5) {
+                    // Первые 5 слотов всегда видны, но прозрачны
+                    const alpha = 1.0 - (i * 0.25);
+                    slot.container.alpha = alpha;
+                    slot.container.isVisible = true;
+                    slot.icon.alpha = 0;
+                    slot.nameText.alpha = 0;
+                    slot.timerText.alpha = 0;
+                    slot.progressBar.alpha = 0;
+                } else {
+                    // Слоты 6-8 скрыты по умолчанию
+                    slot.container.alpha = 0;
+                    slot.container.isVisible = false;
+                    slot.icon.alpha = 0;
+                    slot.nameText.alpha = 0;
+                    slot.timerText.alpha = 0;
+                    slot.progressBar.alpha = 0;
+                }
             }
         }
     }
@@ -3792,7 +3812,26 @@ export class HUD {
         return diff < scanWidth;
     }
     
+    // Кэш для позиций врагов на мини-карте (обновляется реже для оптимизации)
+    private _enemyPositionsCache: {x: number, z: number, alive: boolean, turretRotation?: number}[] = [];
+    
+    /**
+     * Обновляет мини-карту с позициями врагов и игрока
+     * @param enemies - Массив позиций врагов или Vector3
+     * @param playerPos - Позиция игрока
+     * @param tankRotationY - Угол поворота танка
+     * @param turretRotationY - Угол поворота башни
+     * @param isAiming - Режим прицеливания
+     */
     updateMinimap(enemies: {x: number, z: number, alive: boolean, turretRotation?: number}[] | Vector3[], playerPos?: Vector3, tankRotationY?: number, turretRotationY?: number, isAiming?: boolean) {
+        // Оптимизация: обновляем мини-карту реже для лучшей производительности
+        const now = Date.now();
+        if (now - this.lastMinimapUpdate < this.MINIMAP_UPDATE_INTERVAL) {
+            // Используем кэшированные данные
+            return;
+        }
+        this.lastMinimapUpdate = now;
+        
         // ОПТИМИЗАЦИЯ: Скрываем старые маркеры вместо удаления (переиспользование)
         // Возвращаем в пул
         for (let i = 0; i < this.minimapEnemies.length; i++) {
@@ -4486,10 +4525,6 @@ export class HUD {
         this.centralXpBar.isVisible = true;
         
         // Central XP bar created
-            container: !!this.centralXpContainer,
-            bar: !!this.centralXpBar,
-            text: !!this.centralXpText
-        });
     }
     
     // Создать прогресс-бар захвата гаража
@@ -4613,10 +4648,6 @@ export class HUD {
             }
             if (!this.centralXpBar || !this.centralXpText) {
                 // Central XP bar elements not found
-                    bar: !!this.centralXpBar,
-                    text: !!this.centralXpText,
-                    container: !!this.centralXpContainer
-                });
                 return;
             }
         }
@@ -4855,6 +4886,23 @@ export class HUD {
     updateFullMap(playerPos: Vector3, playerRotation: number, enemies: {x: number, z: number, alive: boolean}[]): void {
         if (!this.fullMapContainer || !this.fullMapVisible) return;
         
+        const now = Date.now();
+        
+        // Обновляем кэш позиций врагов
+        enemies.forEach(enemy => {
+            if (!enemy.alive) return;
+            const enemyId = `${enemy.x}_${enemy.z}`;
+            const cached = this.cachedEnemyPositions.get(enemyId);
+            
+            if (!cached || now - cached.lastUpdate > this.POSITION_CACHE_TIME) {
+                this.cachedEnemyPositions.set(enemyId, {
+                    x: enemy.x,
+                    z: enemy.z,
+                    lastUpdate: now
+                });
+            }
+        });
+        
         // Записываем текущую позицию как исследованную
         const chunkX = Math.floor(playerPos.x / 50);
         const chunkZ = Math.floor(playerPos.z / 50);
@@ -4887,13 +4935,18 @@ export class HUD {
         this.fullMapEnemies.forEach(e => e.dispose());
         this.fullMapEnemies = [];
         
-        // Добавляем врагов на карту (улучшенные маркеры)
+        // Добавляем врагов на карту (улучшенные маркеры) - используем кэшированные позиции
         enemies.forEach((enemy, i) => {
             if (!enemy.alive) return;
             
+            const enemyId = `${enemy.x}_${enemy.z}`;
+            const cached = this.cachedEnemyPositions.get(enemyId);
+            const enemyX = cached ? cached.x : enemy.x;
+            const enemyZ = cached ? cached.z : enemy.z;
+            
             const scale = 0.6;
-            const ex = enemy.x * scale;
-            const ez = -enemy.z * scale;
+            const ex = enemyX * scale;
+            const ez = -enemyZ * scale;
             
             const maxDist = 320;
             if (Math.abs(ex) > maxDist || Math.abs(ez) > 240) return;
@@ -5311,7 +5364,7 @@ export class HUD {
         const radarLeft = -15;
         const radarWidth = scalePixels(175);
         const blockWidthNum = scalePixels(150);
-        const calculatedLeft = radarLeft - radarWidth - blockWidthNum; // БЕЗ gap - ВПЛОТНУЮ к радару
+        const calculatedLeft = radarLeft - radarWidth - blockWidthNum - 5; // Gap 5px вместо 0 (уменьшен gap)
         this.tankStatusContainer.left = `${calculatedLeft}px`;
         this.tankStatusContainer.top = this.scalePx(-45); // Выровнено с радаром (тот же top)
         this.tankStatusContainer.isVisible = true;
@@ -5371,7 +5424,7 @@ export class HUD {
         this.tankStatusContainer.addControl(this.tankStatusArmorText);
     }
     
-    private updateTankStatus(health: number, maxHealth: number, fuel: number, maxFuel: number, armor: number): void {
+    updateTankStatus(health: number, maxHealth: number, fuel: number, maxFuel: number, armor: number): void {
         if (!this.tankStatusContainer) return;
         
         // Обновляем здоровье
@@ -6908,6 +6961,59 @@ export class HUD {
                 checkmark.left = "210px";
                 checkmark.top = "10px";
                 item.addControl(checkmark);
+            }
+            
+            // КНОПКА CLAIM для завершённых миссий
+            if (mission.completed && !mission.claimed) {
+                const claimButton = new Rectangle(`missionClaim_${mission.id}`);
+                claimButton.width = "60px";
+                claimButton.height = "20px";
+                claimButton.cornerRadius = 2;
+                claimButton.thickness = 2;
+                claimButton.color = "#0f0";
+                claimButton.background = "rgba(0, 50, 0, 0.8)";
+                claimButton.left = "190px";
+                claimButton.top = "25px";
+                claimButton.isPointerBlocker = true;
+                item.addControl(claimButton);
+                
+                const claimText = new TextBlock(`missionClaimText_${mission.id}`);
+                claimText.text = "CLAIM";
+                claimText.color = "#0f0";
+                claimText.fontSize = "9px";
+                claimText.fontWeight = "bold";
+                claimText.fontFamily = "monospace";
+                claimText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                claimText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+                claimButton.addControl(claimText);
+                
+                // ОБРАБОТЧИК КЛИКА
+                claimButton.onPointerClickObservable.add(() => {
+                    if (this.game && this.game.missionSystem) {
+                        const reward = this.game.missionSystem.claimReward(mission.id);
+                        if (reward) {
+                            this.showMessage(
+                                `+${reward.amount} ${reward.type === "experience" ? "XP" : "кредитов"}`,
+                                "#0f0",
+                                2000
+                            );
+                            // Обновляем миссии
+                            const activeMissions = this.game.missionSystem.getActiveMissions();
+                            const missionData = activeMissions.map(m => ({
+                                id: m.mission.id,
+                                name: this.game.missionSystem!.getName(m.mission),
+                                description: this.game.missionSystem!.getDescription(m.mission),
+                                icon: m.mission.icon,
+                                current: m.progress.current,
+                                requirement: m.mission.requirement,
+                                completed: m.progress.completed,
+                                claimed: m.progress.claimed,
+                                type: m.mission.type
+                            }));
+                            this.updateMissions(missionData);
+                        }
+                    }
+                });
             }
         });
     }

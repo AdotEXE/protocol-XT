@@ -372,21 +372,47 @@ export function createUniqueCannon(
             
         // === ENERGY WEAPONS ===
         case "plasma":
-            // Plasma - Прототип: Футуристическая плазменная пушка (советский стиль)
+            // Plasma - УЛУЧШЕННЫЙ РЕАЛИСТИЧНЫЙ ДИЗАЙН: Плазменная пушка с детализированной геометрией
+            // Основной ствол - более реалистичная форма с коническим расширением
             barrel = MeshBuilder.CreateBox("barrel", { 
-                width: barrelWidth * 1.0,
-                height: barrelWidth * 1.0,
-                depth: barrelLength * 1.2
+                width: barrelWidth * 1.1,
+                height: barrelWidth * 1.1,
+                depth: barrelLength * 1.3
             }, scene);
             
+            const barrelMat = new StandardMaterial("plasmaBarrelMat", scene);
+            barrelMat.diffuseColor = cannonColor.scale(0.85);
+            barrelMat.specularColor = Color3.Black();
+            barrel.material = barrelMat;
+            
+            // Улучшенные расширяющиеся секции - более плавный переход
             for (let i = 0; i < 3; i++) {
-                CannonDetailsGenerator.createPlate(
+                const expansionPlate = CannonDetailsGenerator.createPlate(
                     scene, barrel,
                     new Vector3(0, 0, barrelLength * 0.2 + i * barrelLength * 0.4),
                     0,
-                    barrelWidth * (1.0 + i * 0.25), barrelWidth * (1.0 + i * 0.25), barrelLength * 0.4,
-                    barrel.material as StandardMaterial, `plasmaExpansion${i}`
+                    barrelWidth * (1.0 + i * 0.22), barrelWidth * (1.0 + i * 0.22), barrelLength * 0.35,
+                    barrelMat, `plasmaExpansion${i}`
                 );
+                // Добавляем детали к секциям
+                const detailMat = new StandardMaterial(`plasmaDetailMat${i}`, scene);
+                detailMat.diffuseColor = cannonColor.scale(0.7);
+                // Ребристые детали для охлаждения
+                for (let j = 0; j < 8; j++) {
+                    const angle = (j * Math.PI * 2) / 8;
+                    const rib = MeshBuilder.CreateBox(`plasmaRib${i}_${j}`, {
+                        width: barrelWidth * 0.06,
+                        height: barrelWidth * 0.08,
+                        depth: barrelLength * 0.3
+                    }, scene);
+                    rib.position = addZFightingOffset(new Vector3(
+                        Math.cos(angle) * barrelWidth * (0.6 + i * 0.15),
+                        Math.sin(angle) * barrelWidth * (0.6 + i * 0.15),
+                        barrelLength * 0.2 + i * barrelLength * 0.4
+                    ), "forward");
+                    rib.parent = barrel;
+                    rib.material = detailMat;
+                }
             }
             
             const coreMat = new StandardMaterial("plasmaCoreMat", scene);
@@ -704,67 +730,153 @@ export function createUniqueCannon(
             
         // === EXPLOSIVE WEAPONS ===
         case "rocket":
-            // Rocket - Прототип: РПГ / РПГ-7 - Ракетная установка
+            // Rocket - УЛУЧШЕННЫЙ РЕАЛИСТИЧНЫЙ ДИЗАЙН: РПГ-7 / РПГ-29
+            // Основной ствол - более реалистичная форма с цилиндрическим профилем
             barrel = MeshBuilder.CreateBox("barrel", { 
-                width: barrelWidth * 1.7, 
-                height: barrelWidth * 1.7, 
-                depth: barrelLength * 1.1 
+                width: barrelWidth * 1.6, 
+                height: barrelWidth * 1.6, 
+                depth: barrelLength * 1.2 
             }, scene);
             
             const tubeMat = new StandardMaterial("rocketTubeMat", scene);
-            tubeMat.diffuseColor = cannonColor.scale(0.8);
+            tubeMat.diffuseColor = cannonColor.scale(0.75);
+            tubeMat.specularColor = Color3.Black();
+            
+            // Улучшенная труба с более реалистичными пропорциями
             const tube = CannonDetailsGenerator.createRocketTube(
                 scene, barrel,
                 new Vector3(0, 0, 0),
-                barrelLength * 1.0, barrelWidth * 1.5,
+                barrelLength * 1.1, barrelWidth * 1.4,
                 cannonColor,
                 ""
             );
             tube.material = tubeMat;
             animationElements.rocketTube = tube;
             
-            // Направляющие ракет - короткие детали вместо длинных вертикальных
+            // Улучшенные направляющие ракет - более детализированные, как в реальном РПГ
             animationElements.rocketGuides = [];
-            for (let i = 0; i < 8; i++) {
-                const angle = (i * Math.PI * 2) / 8;
-                const zOffset = (i % 4) * barrelWidth * 0.25;
-                const guide = CannonDetailsGenerator.createGuide(
-                    scene, barrel,
-                    new Vector3(
-                        Math.cos(angle) * barrelWidth * 0.65,
-                        Math.sin(angle) * barrelWidth * 0.65,
-                        zOffset
-                    ),
-                    barrelWidth * 0.12, barrelWidth * 0.12, barrelWidth * 0.3,
-                    tubeMat, `guide${i}`
-                );
-                animationElements.rocketGuides.push(guide);
+            const guideMat = new StandardMaterial("rocketGuideMat", scene);
+            guideMat.diffuseColor = cannonColor.scale(0.6);
+            
+            // Внутренние направляющие (4 основных)
+            for (let i = 0; i < 4; i++) {
+                const angle = (i * Math.PI * 2) / 4 + Math.PI / 4; // Смещение на 45 градусов
+                for (let j = 0; j < 3; j++) {
+                    const guide = CannonDetailsGenerator.createGuide(
+                        scene, barrel,
+                        new Vector3(
+                            Math.cos(angle) * barrelWidth * 0.55,
+                            Math.sin(angle) * barrelWidth * 0.55,
+                            (j - 1) * barrelLength * 0.3
+                        ),
+                        barrelWidth * 0.08, barrelWidth * 0.08, barrelLength * 0.15,
+                        guideMat, `guide${i}_${j}`
+                    );
+                    animationElements.rocketGuides.push(guide);
+                }
             }
             
+            // Прицельная планка сверху (реалистичная деталь РПГ)
+            const sightRail = MeshBuilder.CreateBox("rocketSightRail", {
+                width: barrelWidth * 0.4,
+                height: barrelWidth * 0.12,
+                depth: barrelLength * 0.8
+            }, scene);
+            sightRail.position = addZFightingOffset(new Vector3(0, barrelWidth * 0.85, barrelLength * 0.1), "up");
+            sightRail.parent = barrel;
+            sightRail.material = tubeMat;
+            
+            // Прицельный мушка спереди
+            const frontSight = MeshBuilder.CreateBox("rocketFrontSight", {
+                width: barrelWidth * 0.06,
+                height: barrelWidth * 0.2,
+                depth: barrelWidth * 0.08
+            }, scene);
+            frontSight.position = addZFightingOffset(new Vector3(0, barrelWidth * 0.9, barrelLength * 0.5), "up");
+            frontSight.parent = barrel;
+            frontSight.material = guideMat;
+            
+            // Задний прицел
+            const rearSight = MeshBuilder.CreateBox("rocketRearSight", {
+                width: barrelWidth * 0.08,
+                height: barrelWidth * 0.15,
+                depth: barrelWidth * 0.1
+            }, scene);
+            rearSight.position = addZFightingOffset(new Vector3(0, barrelWidth * 0.85, -barrelLength * 0.35), "up");
+            rearSight.parent = barrel;
+            rearSight.material = guideMat;
+            
+            // Улучшенные стабилизаторы ракеты - более реалистичная форма
+            const finMat = new StandardMaterial("rocketFinMat", scene);
+            finMat.diffuseColor = cannonColor.scale(0.7);
             for (let i = 0; i < 4; i++) {
                 const angle = (i * Math.PI * 2) / 4;
-                CannonDetailsGenerator.createRocketFin(
+                const fin = CannonDetailsGenerator.createRocketFin(
                     scene, barrel,
                     new Vector3(
-                        Math.cos(angle) * barrelWidth * 0.75,
-                        Math.sin(angle) * barrelWidth * 0.75,
-                        barrelLength * 0.4
+                        Math.cos(angle) * barrelWidth * 0.7,
+                        Math.sin(angle) * barrelWidth * 0.7,
+                        barrelLength * 0.45
                     ),
                     angle,
-                    barrelWidth * 0.12, barrelWidth * 0.25, barrelWidth * 0.08,
-                    tubeMat, `rocketFin${i}`
+                    barrelWidth * 0.1, barrelWidth * 0.3, barrelWidth * 0.06,
+                    finMat, `rocketFin${i}`
                 );
+                // Добавляем скосы к стабилизаторам для реалистичности
+                fin.rotation.y = Math.PI / 12 * (i % 2 === 0 ? 1 : -1);
             }
             
+            // Защитный экран спереди (характерная деталь РПГ-7)
+            const blastShield = MeshBuilder.CreateBox("rocketBlastShield", {
+                width: barrelWidth * 1.8,
+                height: barrelWidth * 1.8,
+                depth: barrelWidth * 0.15
+            }, scene);
+            blastShield.position = addZFightingOffset(new Vector3(0, 0, barrelLength * 0.55), "forward");
+            blastShield.parent = barrel;
+            const shieldMat = new StandardMaterial("rocketShieldMat", scene);
+            shieldMat.diffuseColor = cannonColor.scale(0.65);
+            blastShield.material = shieldMat;
+            
+            // Система наведения (более детализированная)
             const guidanceMat = new StandardMaterial("rocketGuidanceMat", scene);
-            guidanceMat.diffuseColor = new Color3(0.15, 0.7, 0.15);
-            guidanceMat.emissiveColor = new Color3(0.05, 0.3, 0.05);
-            CannonDetailsGenerator.createRocketGuidance(
+            guidanceMat.diffuseColor = new Color3(0.2, 0.8, 0.2);
+            guidanceMat.emissiveColor = new Color3(0.05, 0.4, 0.05);
+            const guidance = CannonDetailsGenerator.createRocketGuidance(
                 scene, barrel,
-                new Vector3(0, barrelWidth * 0.65, -barrelLength * 0.2),
-                barrelWidth * 0.45, barrelWidth * 0.25, barrelWidth * 0.45,
+                new Vector3(0, barrelWidth * 0.6, -barrelLength * 0.25),
+                barrelWidth * 0.4, barrelWidth * 0.22, barrelWidth * 0.4,
                 guidanceMat, ""
             );
+            
+            // Индикаторы наведения (светодиоды)
+            for (let i = 0; i < 3; i++) {
+                const indicator = MeshBuilder.CreateBox(`rocketIndicator${i}`, {
+                    width: barrelWidth * 0.08,
+                    height: barrelWidth * 0.08,
+                    depth: barrelWidth * 0.05
+                }, scene);
+                indicator.position = addZFightingOffset(new Vector3(
+                    (i - 1) * barrelWidth * 0.15,
+                    barrelWidth * 0.65,
+                    -barrelLength * 0.25
+                ), "forward");
+                indicator.parent = barrel;
+                const indicatorMat = new StandardMaterial(`rocketIndicatorMat${i}`, scene);
+                indicatorMat.diffuseColor = new Color3(0.8, 0.2, 0.2);
+                indicatorMat.emissiveColor = new Color3(0.4, 0.1, 0.1);
+                indicator.material = indicatorMat;
+            }
+            
+            // Ручка для переноски (характерная деталь)
+            const handle = MeshBuilder.CreateBox("rocketHandle", {
+                width: barrelWidth * 0.15,
+                height: barrelWidth * 0.1,
+                depth: barrelLength * 0.3
+            }, scene);
+            handle.position = addZFightingOffset(new Vector3(0, -barrelWidth * 0.75, barrelLength * 0.05), "down");
+            handle.parent = barrel;
+            handle.material = tubeMat;
             break;
             
         case "mortar":
@@ -981,23 +1093,65 @@ export function createUniqueCannon(
             break;
             
         case "acid":
-            // Acid - Прототип: Химический распылитель
+            // Acid - УЛУЧШЕННЫЙ РЕАЛИСТИЧНЫЙ ДИЗАЙН: Химический распылитель с детализированной геометрией
+            // Основной ствол - более реалистичная форма
             barrel = MeshBuilder.CreateBox("barrel", { 
-                width: barrelWidth * 1.2,
-                height: barrelWidth * 1.2,
-                depth: barrelLength * 1.0
+                width: barrelWidth * 1.3,
+                height: barrelWidth * 1.3,
+                depth: barrelLength * 1.1
             }, scene);
             
+            const acidBarrelMat = new StandardMaterial("acidBarrelMat", scene);
+            acidBarrelMat.diffuseColor = cannonColor.scale(0.85);
+            acidBarrelMat.specularColor = Color3.Black();
+            barrel.material = acidBarrelMat;
+            
+            // Улучшенный резервуар с кислотой - более детализированный
             const acidTankMat = new StandardMaterial("acidTankMat", scene);
-            acidTankMat.diffuseColor = new Color3(0.15, 0.7, 0.15);
-            acidTankMat.emissiveColor = new Color3(0.05, 0.3, 0.05);
+            acidTankMat.diffuseColor = new Color3(0.2, 0.8, 0.2);
+            acidTankMat.emissiveColor = new Color3(0.08, 0.4, 0.08);
             const acidTank = CannonDetailsGenerator.createAcidTank(
                 scene, barrel,
-                new Vector3(0, barrelWidth * 0.6, -barrelLength * 0.3),
-                barrelWidth * 1.0, barrelWidth * 1.8, barrelWidth * 1.0,
+                new Vector3(0, barrelWidth * 0.65, -barrelLength * 0.35),
+                barrelWidth * 1.1, barrelWidth * 2.0, barrelWidth * 1.1,
                 acidTankMat, ""
             );
             animationElements.acidTank = acidTank;
+            
+            // Датчики уровня кислоты на резервуаре (реалистичная деталь)
+            for (let i = 0; i < 3; i++) {
+                const sensor = MeshBuilder.CreateBox(`acidSensor${i}`, {
+                    width: barrelWidth * 0.08,
+                    height: barrelWidth * 0.15,
+                    depth: barrelWidth * 0.05
+                }, scene);
+                sensor.position = addZFightingOffset(new Vector3(
+                    (i - 1) * barrelWidth * 0.35,
+                    barrelWidth * 0.5 + i * barrelWidth * 0.3,
+                    -barrelLength * 0.35
+                ), "forward");
+                sensor.parent = barrel;
+                const sensorMat = new StandardMaterial(`acidSensorMat${i}`, scene);
+                sensorMat.diffuseColor = new Color3(0.3, 0.9, 0.3);
+                sensorMat.emissiveColor = new Color3(0.1, 0.5, 0.1);
+                sensor.material = sensorMat;
+            }
+            
+            // Клапаны безопасности на резервуаре
+            for (let i = 0; i < 2; i++) {
+                const valve = MeshBuilder.CreateBox(`acidValve${i}`, {
+                    width: barrelWidth * 0.12,
+                    height: barrelWidth * 0.12,
+                    depth: barrelWidth * 0.1
+                }, scene);
+                valve.position = addZFightingOffset(new Vector3(
+                    (i === 0 ? -1 : 1) * barrelWidth * 0.5,
+                    barrelWidth * 0.75,
+                    -barrelLength * 0.3
+                ), "forward");
+                valve.parent = barrel;
+                valve.material = acidBarrelMat;
+            }
             
             CannonDetailsGenerator.createAcidVent(
                 scene, barrel,
@@ -1326,12 +1480,18 @@ export function createUniqueCannon(
             
         // === ADVANCED WEAPONS ===
         case "homing":
-            // Homing - Прототип: ПТУР / Конкурс
+            // Homing - УЛУЧШЕННЫЙ РЕАЛИСТИЧНЫЙ ДИЗАЙН: ПТУР с детализированной системой наведения
+            // Основной ствол - более реалистичная форма
             barrel = MeshBuilder.CreateBox("barrel", { 
-                width: barrelWidth * 1.3,
-                height: barrelWidth * 1.3,
-                depth: barrelLength * 1.0
+                width: barrelWidth * 1.4,
+                height: barrelWidth * 1.4,
+                depth: barrelLength * 1.1
             }, scene);
+            
+            const homingBarrelMat = new StandardMaterial("homingBarrelMat", scene);
+            homingBarrelMat.diffuseColor = cannonColor.scale(0.8);
+            homingBarrelMat.specularColor = Color3.Black();
+            barrel.material = homingBarrelMat;
             
             const homingGuidanceMat = new StandardMaterial("homingGuidanceMat", scene);
             homingGuidanceMat.diffuseColor = new Color3(0.08, 0.8, 0.08);

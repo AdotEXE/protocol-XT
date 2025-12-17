@@ -321,7 +321,7 @@ export class SessionSettings {
         
         this.container.innerHTML = `
             <div class="session-header">
-                <div class="session-title">НАСТРОЙКИ СЕССИИ [F6]</div>
+                <div class="session-title">НАСТРОЙКИ СЕССИИ [Ctrl+6]</div>
                 <button class="session-close" id="session-close">✕</button>
             </div>
             <div class="session-content">
@@ -551,13 +551,8 @@ export class SessionSettings {
     }
     
     private setupToggle(): void {
-        window.addEventListener("keydown", (e) => {
-            if (e.code === "F6") {
-                e.preventDefault();
-                e.stopPropagation();
-                this.toggle();
-            }
-        });
+        // F6 обработчик управляется в game.ts для консистентности
+        // Этот метод оставлен для возможного будущего использования
     }
     
     toggle(): void {

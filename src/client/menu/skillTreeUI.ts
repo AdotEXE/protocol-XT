@@ -149,6 +149,41 @@ export function updateSkillTreeDisplay(
         });
     });
     
+    // ПРОВЕРКА НА ПЕРЕСЕЧЕНИЯ
+    const minNodeDistance = 250;
+    const nodeSize = { width: 220, height: 130 };
+    
+    const nodeIds = Array.from(nodePositions.keys());
+    for (let i = 0; i < nodeIds.length; i++) {
+        for (let j = i + 1; j < nodeIds.length; j++) {
+            const pos1 = nodePositions.get(nodeIds[i]);
+            const pos2 = nodePositions.get(nodeIds[j]);
+            if (!pos1 || !pos2) continue;
+            
+            const dx = pos1.centerX - pos2.centerX;
+            const dy = pos1.centerY - pos2.centerY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance < minNodeDistance) {
+                const angle = Math.atan2(dy, dx);
+                const pushDistance = (minNodeDistance - distance) / 2;
+                
+                pos1.left += Math.cos(angle + Math.PI) * pushDistance;
+                pos1.top += Math.sin(angle + Math.PI) * pushDistance;
+                pos1.centerX = pos1.left + nodeSize.width / 2;
+                pos1.centerY = pos1.top + nodeSize.height / 2;
+                
+                pos2.left += Math.cos(angle) * pushDistance;
+                pos2.top += Math.sin(angle) * pushDistance;
+                pos2.centerX = pos2.left + nodeSize.width / 2;
+                pos2.centerY = pos2.top + nodeSize.height / 2;
+                
+                nodePositions.set(nodeIds[i], pos1);
+                nodePositions.set(nodeIds[j], pos2);
+            }
+        }
+    }
+    
     skillTree.style.minWidth = `${treeWidth}px`;
     skillTree.style.minHeight = `${treeHeight}px`;
     

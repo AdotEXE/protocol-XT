@@ -30,11 +30,11 @@ export class BattleRoyaleVisualizer {
     }
 
     private createVisuals(): void {
-        // Current safe zone - green cylinder with border
-        this.safeZoneMesh = MeshBuilder.CreateCylinder("safeZone", {
+        // Current safe zone - green box with border (replaced cylinder with box)
+        this.safeZoneMesh = MeshBuilder.CreateBox("safeZone", {
+            width: 400,
             height: 0.1,
-            diameter: 400,
-            tessellation: 64
+            depth: 400
         }, this.scene);
         this.safeZoneMesh.rotation.x = Math.PI / 2;
         this.safeZoneMesh.position.y = 0.05;
@@ -50,11 +50,11 @@ export class BattleRoyaleVisualizer {
         // Safe zone border (green circle on ground)
         this.createZoneBorder(true);
 
-        // Next safe zone - yellow cylinder (shows where zone will move)
-        this.nextZoneMesh = MeshBuilder.CreateCylinder("nextSafeZone", {
+        // Next safe zone - yellow box (shows where zone will move) (replaced cylinder with box)
+        this.nextZoneMesh = MeshBuilder.CreateBox("nextSafeZone", {
+            width: 200,
             height: 0.1,
-            diameter: 200,
-            tessellation: 64
+            depth: 200
         }, this.scene);
         this.nextZoneMesh.rotation.x = Math.PI / 2;
         this.nextZoneMesh.position.y = 0.1;
@@ -71,11 +71,11 @@ export class BattleRoyaleVisualizer {
         // Next zone border
         this.createZoneBorder(false);
 
-        // Warning zone - red ring (area outside safe zone)
-        this.warningZoneMesh = MeshBuilder.CreateTorus("warningZone", {
-            diameter: 500,
-            thickness: 8,
-            tessellation: 64
+        // Warning zone - red box (area outside safe zone) (replaced torus with box)
+        this.warningZoneMesh = MeshBuilder.CreateBox("warningZone", {
+            width: 500,
+            height: 8,
+            depth: 500
         }, this.scene);
         this.warningZoneMesh.rotation.x = Math.PI / 2;
         this.warningZoneMesh.position.y = 0.2;

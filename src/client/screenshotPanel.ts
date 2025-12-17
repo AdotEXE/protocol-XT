@@ -10,7 +10,7 @@ import { CommonStyles } from "./commonStyles";
 
 export class ScreenshotPanel {
     private container: HTMLDivElement | null = null;
-    private isVisible: boolean = false;
+    private _isVisible: boolean = false;
     private screenshotManager: ScreenshotManager;
     private autoScreenshotManager: AutoScreenshotManager | null = null;
     private gallery: ScreenshotGallery;
@@ -38,7 +38,7 @@ export class ScreenshotPanel {
         this.container.innerHTML = `
             <div class="panel" style="width: min(600px, 90vw); max-height: min(800px, 90vh);">
                 <div class="panel-header">
-                    <div class="panel-title">НАСТРОЙКИ СКРИНШОТА [F2]</div>
+                    <div class="panel-title">НАСТРОЙКИ СКРИНШОТА [Ctrl+2]</div>
                     <button class="panel-close" id="screenshot-panel-close">×</button>
                 </div>
                 <div class="panel-content">
@@ -402,7 +402,7 @@ export class ScreenshotPanel {
      * Показать панель
      */
     show(): void {
-        this.isVisible = true;
+        this._isVisible = true;
         if (this.container) {
             this.container.style.display = 'flex';
             this.loadSettings();
@@ -413,7 +413,7 @@ export class ScreenshotPanel {
      * Скрыть панель
      */
     hide(): void {
-        this.isVisible = false;
+        this._isVisible = false;
         if (this.container) {
             this.container.style.display = 'none';
         }
@@ -423,7 +423,7 @@ export class ScreenshotPanel {
      * Переключить видимость
      */
     toggle(): void {
-        if (this.isVisible) {
+        if (this._isVisible) {
             this.hide();
         } else {
             this.show();
@@ -431,7 +431,7 @@ export class ScreenshotPanel {
     }
     
     isVisible(): boolean {
-        return this.isVisible;
+        return this._isVisible;
     }
 }
 

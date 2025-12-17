@@ -10,6 +10,7 @@ export class ServerProjectile {
     cannonType: string;
     spawnTime: number;
     lifetime: number = 6000; // 6 seconds
+    shooterRTT: number = 100; // RTT of shooter for lag compensation
     
     constructor(data: {
         id: string;
@@ -19,6 +20,7 @@ export class ServerProjectile {
         damage: number;
         cannonType: string;
         spawnTime: number;
+        shooterRTT?: number;
     }) {
         this.id = data.id;
         this.ownerId = data.ownerId;
@@ -27,6 +29,7 @@ export class ServerProjectile {
         this.damage = data.damage;
         this.cannonType = data.cannonType;
         this.spawnTime = data.spawnTime;
+        this.shooterRTT = data.shooterRTT || 100;
     }
     
     update(deltaTime: number): void {
@@ -48,6 +51,13 @@ export class ServerProjectile {
     checkHit(targetPos: Vector3, hitRadius: number = 3.0): boolean {
         const dist = Vector3.Distance(this.position, targetPos);
         return dist < hitRadius;
+    }
+    
+    /**
+     * Get shooter RTT for lag compensation
+     */
+    getShooterRTT(): number {
+        return this.shooterRTT;
     }
     
     isExpired(currentTime: number): boolean {

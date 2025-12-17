@@ -295,7 +295,11 @@ export class GameRoom {
                 if (player.id === projectile.ownerId) continue; // Can't hit self
                 if (player.status !== "alive") continue;
                 
-                if (projectile.checkHit(player.position)) {
+                // Use lag compensation: check hit at position when shot was fired
+                const rewindTime = projectile.spawnTime - (projectile.shooterRTT / 2); // Half RTT for compensation
+                const targetPos = player.getPositionAtTime(rewindTime) || player.position;
+                
+                if (projectile.checkHit(targetPos)) {
                     // Hit!
                     const died = player.takeDamage(projectile.damage);
                     
@@ -363,11 +367,11 @@ export class GameRoom {
     }
     
     private updatePlayerPosition(player: ServerPlayer, input: any, deltaTime: number): void {
+        // Store old position before update
+        const oldPosition = player.position.clone();
         // Simple movement simulation
         const moveSpeed = 20; // Same as client
         const turnSpeed = 2.2; // Same as client
-        
-        const oldPosition = player.position.clone();
         
         // Update rotation
         if (input.steer !== 0) {
@@ -395,16 +399,8 @@ export class GameRoom {
                 player.violationCount++;
                 player.lastViolationTime = Date.now();
             } else {
-                // Update position history for anti-cheat
-                player.positionHistory.push({
-                    time: Date.now(),
-                    position: player.position.clone()
-                });
-                
-                // Keep only last 60 entries (1 second at 60 Hz)
-                if (player.positionHistory.length > 60) {
-                    player.positionHistory.shift();
-                }
+                // Update position history for lag compensation and anti-cheat
+                player.addPositionSnapshot(player.position);
                 
                 // Check for suspicious movement
                 const suspiciousCheck = InputValidator.checkSuspiciousMovement(player.positionHistory);

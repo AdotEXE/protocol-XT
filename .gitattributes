@@ -3,11 +3,26 @@
 
 # Source files
 *.ts text eol=lf
+*.tsx text eol=lf
 *.js text eol=lf
+*.jsx text eol=lf
 *.json text eol=lf
+*.jsonc text eol=lf
 *.html text eol=lf
 *.css text eol=lf
+*.scss text eol=lf
+*.sass text eol=lf
+*.less text eol=lf
 *.md text eol=lf
+*.txt text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.xml text eol=lf
+*.sh text eol=lf
+*.bat text eol=lf
+*.ps1 text eol=lf
+*.config.* text eol=lf
 
 # Binary files
 *.wasm binary
@@ -17,3 +32,19 @@
 *.gif binary
 *.ico binary
 *.svg binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+*.zip binary
+*.tar binary
+*.gz binary
+*.7z binary
+*.rar binary
+*.pdf binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary

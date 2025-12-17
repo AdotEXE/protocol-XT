@@ -133,19 +133,19 @@ function calculateNodePositionRecursive(
     const finalAngle = (baseAngle + angleVariation) * Math.PI / 180;
     
     // Базовое расстояние
-    const baseDistance = 180;
+    const baseDistance = 220; // Увеличено с 180 до 220
     
-    // Расстояние с вариацией ±20-30% (0.7 - 1.3)
-    const distanceVariation = 0.7 + ((seed2 % 60) / 100); // 0.7 - 1.3
+    // Расстояние с вариацией ±15% (0.85 - 1.15)
+    const distanceVariation = 0.85 + ((seed2 % 30) / 100); // 0.85 - 1.15 (вместо 0.7 - 1.3)
     const distance = baseDistance * distanceVariation;
     
     // Вычисляем базовую позицию
     let x = parentPos.x + Math.cos(finalAngle) * distance;
     let y = parentPos.y + Math.sin(finalAngle) * distance;
     
-    // Случайное смещение 40-80px
-    const offsetX = ((seed % 80) - 40);
-    const offsetY = (((seed * 7) % 80) - 40);
+    // Случайное смещение ±16px (уменьшено с ±40px)
+    const offsetX = ((seed % 40) - 20) * 0.8; // ±16px вместо ±40px
+    const offsetY = (((seed * 7) % 40) - 20) * 0.8; // ±16px вместо ±40px
     
     return { 
         x: x + offsetX, 

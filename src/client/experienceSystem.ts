@@ -154,11 +154,15 @@ export const CANNON_ACHIEVEMENTS: Achievement[] = [
 export class ExperienceSystem {
     private chassisExperience: Map<string, PartExperience> = new Map();
     private cannonExperience: Map<string, PartExperience> = new Map();
-    private chatSystem: any = null;
-    private hud: any = null; // HUD для визуальных эффектов
-    private effectsManager: any = null; // EffectsManager для эффектов повышения уровня
-    private soundManager: any = null; // SoundManager для звуков опыта
-    private playerProgression: any = null; // PlayerProgressionSystem для передачи опыта игроку
+    private chatSystem: { success: (message: string, duration?: number) => void } | null = null;
+    private hud: { showMessage: (message: string, color: string, duration: number) => void } | null = null; // HUD для визуальных эффектов
+    private effectsManager: { createLevelUpEffect: (position: Vector3) => void } | null = null; // EffectsManager для эффектов повышения уровня
+    private soundManager: { play: (sound: string, volume?: number) => void } | null = null; // SoundManager для звуков опыта
+    private playerProgression: { addExperience: (amount: number) => void } | null = null; // PlayerProgressionSystem для передачи опыта игроку
+    
+    // Защита от дублирования начисления опыта
+    private lastXpTransfer: { time: number, amount: number, reason: string } | null = null;
+    private readonly XP_TRANSFER_COOLDOWN = 100; // 100мс между передачами
     private lastUpdateTime: number = Date.now();
     private lastMinuteCheck: number = Date.now();
     private pendingXP: { chassis: number; cannon: number } = { chassis: 0, cannon: 0 };
@@ -890,7 +894,18 @@ export class ExperienceSystem {
             const totalPlayerXP = this.pendingXP.chassis + this.pendingXP.cannon;
             if (totalPlayerXP >= 0.1) { // Уменьшили порог до 0.1 для более частого обновления
                 const roundedXP = Math.round(totalPlayerXP * 10) / 10; // Округляем до 0.1
-                this.playerProgression.addExperience(roundedXP, "batch");
+                const reason = "batch";
+                
+                // ПЕРЕД вызовом playerProgression.addExperience(): Проверяем что не передаём тот же опыт дважды
+                const now = Date.now();
+                if (!this.lastXpTransfer || 
+                    now - this.lastXpTransfer.time > this.XP_TRANSFER_COOLDOWN || 
+                    this.lastXpTransfer.amount !== roundedXP ||
+                    this.lastXpTransfer.reason !== reason) {
+                    
+                    this.playerProgression.addExperience(roundedXP, reason);
+                    this.lastXpTransfer = { time: now, amount: roundedXP, reason };
+                }
             }
         } else {
             if (this.pendingXP.chassis > 0 || this.pendingXP.cannon > 0) {

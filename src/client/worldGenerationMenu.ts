@@ -1,5 +1,5 @@
 /**
- * World Generation Menu - Улучшенное меню настройки генерации мира (F8)
+ * World Generation Menu - Улучшенное меню настройки генерации мира (Ctrl+9)
  */
 
 import { Game } from "./game";
@@ -210,7 +210,7 @@ export class WorldGenerationMenu {
         titleGroup.style.cssText = `display: flex; flex-direction: column; gap: 5px;`;
         
         const title = document.createElement("h2");
-        title.textContent = "⚙️ Настройки генерации мира";
+        title.textContent = "⚙️ Настройки генерации мира [Ctrl+9]";
         title.style.cssText = `
             margin: 0;
             font-size: 24px;
@@ -1346,18 +1346,8 @@ export class WorldGenerationMenu {
     }
     
     private setupToggle(): void {
-        window.addEventListener("keydown", (e) => {
-            // ИСПРАВЛЕНИЕ: F9 вместо F8 (F8 теперь для Network Menu)
-            if (e.code === "F9") {
-                e.preventDefault();
-                e.stopPropagation();
-                if (!this.container) {
-                    console.warn("[WorldGenerationMenu] Container not initialized!");
-                    return;
-                }
-                this.toggle();
-            }
-        });
+        // Ctrl+9 обработчик управляется в game.ts для консистентности
+        // Этот метод оставлен для возможного будущего использования
     }
     
     toggle(): void {

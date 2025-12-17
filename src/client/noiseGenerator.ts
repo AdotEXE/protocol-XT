@@ -294,7 +294,7 @@ export class TerrainGenerator {
     getHeight(worldX: number, worldZ: number, biome: string): number {
         // ИСПРАВЛЕНИЕ: Проверка гаража ПЕРЕД вычислением высоты
         // Если точка в гараже, возвращаем высоту 0 (уровень пола гаража)
-        if (this.isPositionInGarageArea && this.isPositionInGarageArea(worldX, worldZ, 15)) {
+        if (this.isPositionInGarageArea && this.isPositionInGarageArea(worldX, worldZ, 25)) {
             return 0; // Уровень пола гаража
         }
         

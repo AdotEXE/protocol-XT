@@ -162,12 +162,17 @@ export default defineConfig({
     // Оптимизация бандла
     // Примечание: babylon-core (5.9 MB) и havok (2.1 MB) - это нормальные размеры для этих библиотек
     chunkSizeWarningLimit: 2000,
+    // Улучшенная оптимизация для production
+    assetsInlineLimit: 4096, // Инлайнить маленькие ассеты (<4KB) в base64
+    cssCodeSplit: true, // Разделение CSS для лучшей загрузки
     rollupOptions: {
       // Внешние зависимости, которые не должны быть включены в бандл
       external: (id) => {
         // Опциональные зависимости, загружаются динамически
         if (id === 'jszip' || id.includes('jszip')) return true;
         if (id === 'chart.js/auto' || id.includes('chart.js')) return true;
+        // @msgpack/msgpack используется только на сервере, не нужен в клиенте
+        if (id === '@msgpack/msgpack' || id.includes('@msgpack/msgpack')) return true;
         return false;
       },
       output: {
