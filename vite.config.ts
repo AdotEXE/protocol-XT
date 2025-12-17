@@ -123,15 +123,19 @@ export default defineConfig({
     versionPlugin(), 
     resourceHintsPlugin(),
     // Compression plugin (gzip and brotli)
+    // Note: Vercel automatically handles compression, so these are optional
+    // They create pre-compressed files that Vercel can use if available
     viteCompression({
       algorithm: 'gzip',
       ext: '.gz',
       threshold: 1024, // Only compress files larger than 1KB
+      deleteOriginFile: false, // Keep original files for Vercel to serve
     }),
     viteCompression({
       algorithm: 'brotliCompress',
       ext: '.br',
       threshold: 1024,
+      deleteOriginFile: false, // Keep original files for Vercel to serve
     }),
     // Bundle visualizer (only in analyze mode)
     process.env.ANALYZE === 'true' && visualizer({
