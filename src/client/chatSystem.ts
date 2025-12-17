@@ -1,6 +1,7 @@
 // Enhanced Chat System - система логов и оповещений в стиле терминала
 import { Scene } from "@babylonjs/core";
 import { AdvancedDynamicTexture, Rectangle, TextBlock, Control, ScrollViewer } from "@babylonjs/gui";
+import { CommandSystem } from "./commandSystem";
 
 export type MessageType = "system" | "info" | "warning" | "error" | "success" | "log" | "combat" | "economy";
 
@@ -46,11 +47,62 @@ export class ChatSystem {
     private searchText: string = "";
     private searchActive = false;
     
+    // Command system
+    private commandSystem: CommandSystem | null = null;
+    private scriptEngine: any = null; // Lazy loaded from "./scriptEngine"
+    private themeManager: any = null; // Lazy loaded from "./terminalTheme"
+    private automation: any = null; // Lazy loaded from "./terminalAutomation"
+    private commandInput: HTMLInputElement | null = null;
+    private commandHistory: string[] = [];
+    private commandHistoryIndex: number = -1;
+    
     constructor(scene: Scene) {
         this.guiTexture = AdvancedDynamicTexture.CreateFullscreenUI("ChatUI", false, scene);
         this.guiTexture.isForeground = true;
+        this.commandSystem = new CommandSystem();
+        this.initThemeManager();
         this.createChatUI();
         this.startCleanupTimer();
+    }
+    
+    /**
+     * Инициализация ThemeManager (ленивая загрузка)
+     */
+    private async initThemeManager(): Promise<void> {
+        if (!this.themeManager) {
+            const { TerminalThemeManager } = await import("./terminalTheme");
+            this.themeManager = new TerminalThemeManager();
+        }
+    }
+    
+    setGame(game: any): void {
+        if (this.commandSystem) {
+            this.commandSystem.setGame(game);
+        }
+        this.initAutomation();
+    }
+    
+    /**
+     * Инициализация Automation (ленивая загрузка)
+     */
+    private async initAutomation(): Promise<void> {
+        if (!this.automation && this.commandSystem) {
+            const { TerminalAutomation } = await import("./terminalAutomation");
+            this.automation = new TerminalAutomation(this.commandSystem);
+            if (this.game) {
+                this.automation.setGame(this.game);
+            }
+        }
+    }
+    
+    /**
+     * Инициализация ScriptEngine (ленивая загрузка)
+     */
+    private async initScriptEngine(): Promise<void> {
+        if (!this.scriptEngine && this.commandSystem) {
+            const { ScriptEngine } = await import("./scriptEngine");
+            this.scriptEngine = new ScriptEngine(this.commandSystem);
+        }
     }
     
     setSoundManager(soundManager: any) {
@@ -240,6 +292,64 @@ export class ChatSystem {
         htmlContainer.appendChild(messagesDiv);
         (htmlContainer as any)._messagesDiv = messagesDiv;
         
+        // Поле ввода команд
+        const commandInput = document.createElement("input");
+        commandInput.type = "text";
+        commandInput.id = "terminal-command-input";
+        commandInput.placeholder = "Enter command... (type 'help' for commands)";
+        commandInput.style.cssText = `
+            width: 100%;
+            height: ${30 * scaleFactor}px;
+            padding: ${4 * scaleFactor}px ${8 * scaleFactor}px;
+            background: rgba(0, 5, 0, 0.8);
+            border: ${1 * scaleFactor}px solid rgba(0, 255, 4, 0.4);
+            border-top: ${2 * scaleFactor}px solid rgba(0, 255, 4, 0.6);
+            color: #0f0;
+            font-family: Consolas, Monaco, 'Courier New', monospace;
+            font-size: clamp(10px, 1.1vw, 12px);
+            outline: none;
+            display: ${isCollapsed ? 'none' : 'block'};
+        `;
+        htmlContainer.appendChild(commandInput);
+        this.commandInput = commandInput;
+        
+        // Обработка ввода команд
+        commandInput.addEventListener("keydown", async (e) => {
+            if (e.key === "Enter") {
+                const command = commandInput.value.trim();
+                if (command) {
+                    commandInput.value = "";
+                    await this.executeCommand(command);
+                }
+            } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                const history = this.commandSystem?.getHistory('up');
+                if (history) {
+                    commandInput.value = history;
+                }
+            } else if (e.key === "ArrowDown") {
+                e.preventDefault();
+                const history = this.commandSystem?.getHistory('down');
+                if (history !== null) {
+                    commandInput.value = history || "";
+                }
+            } else if (e.key === "Tab") {
+                e.preventDefault();
+                const current = commandInput.value;
+                const matches = this.commandSystem?.autocomplete(current) || [];
+                if (matches.length === 1) {
+                    commandInput.value = matches[0] + " ";
+                } else if (matches.length > 1) {
+                    // Показываем подсказки
+                    this.addMessage(`Available: ${matches.join(", ")}`, "info");
+                }
+            } else if (e.ctrlKey && e.key === "r") {
+                // Ctrl+R - начать/остановить запись макроса
+                e.preventDefault();
+                await this.toggleMacroRecording();
+            }
+        });
+        
         // Область для расходников (внизу терминала)
         const consumablesArea = document.createElement("div");
         consumablesArea.id = "terminal-consumables";
@@ -393,6 +503,7 @@ export class ChatSystem {
             if (isCollapsed) {
                 messagesDiv.style.display = "none";
                 consumablesArea.style.display = "none";
+                if (this.commandInput) this.commandInput.style.display = "none";
                 htmlContainer.style.height = "30px";
                 collapseBtn.textContent = "▼";
                 headerText.textContent = "> SYSTEM TERMINAL [COLLAPSED]";
@@ -405,6 +516,7 @@ export class ChatSystem {
                 htmlContainer.style.height = `${savedHeight}px`;
                 messagesDiv.style.display = "block";
                 consumablesArea.style.display = "flex";
+                if (commandInput) commandInput.style.display = "block";
                 collapseBtn.textContent = "▲";
                 headerText.textContent = "> SYSTEM TERMINAL [ACTIVE]";
                 // Показываем элементы изменения размера при разворачивании
@@ -826,6 +938,214 @@ export class ChatSystem {
         else if (color === "#0ff") type = "info";
         
         this.addMessage(text, type, 0);
+    }
+    
+    /**
+     * Выполнение команды
+     */
+    private async executeCommand(command: string): Promise<void> {
+        if (!this.commandSystem) return;
+        
+        // Показываем введённую команду
+        this.addMessage(`> ${command}`, "system");
+        
+        // Запись в макрос (если запись активна)
+        if (this.scriptEngine && (this.scriptEngine as any).isRecording) {
+            (this.scriptEngine as any).recordCommand(command);
+        }
+        
+        try {
+            // Проверка на специальные команды скриптов
+            if (command.startsWith('script ')) {
+                await this.handleScriptCommand(command);
+                return;
+            }
+            
+            if (command.startsWith('macro ')) {
+                await this.handleMacroCommand(command);
+                return;
+            }
+            
+            const result = await this.commandSystem.execute(command);
+            
+            // Обработка специальных команд
+            if (result === 'CLEAR') {
+                this.clearMessages();
+                return;
+            }
+            
+            // Показываем результат
+            if (result) {
+                // Разбиваем многострочный результат
+                const lines = result.split('\n');
+                lines.forEach(line => {
+                    if (line.trim()) {
+                        this.addMessage(line, "info");
+                    }
+                });
+            }
+        } catch (error: any) {
+            this.addMessage(`Error: ${error.message || String(error)}`, "error");
+        }
+    }
+    
+    /**
+     * Обработка команд скриптов
+     */
+    private async handleScriptCommand(command: string): Promise<void> {
+        await this.initScriptEngine();
+        if (!this.scriptEngine) return;
+        
+        const args = command.split(' ').slice(1);
+        const action = args[0];
+        
+        switch (action) {
+            case 'list':
+                const scripts = (this.scriptEngine as any).getScripts();
+                if (scripts.length === 0) {
+                    this.addMessage("No scripts found", "info");
+                } else {
+                    this.addMessage(`Scripts: ${scripts.join(", ")}`, "info");
+                }
+                break;
+                
+            case 'run':
+                if (args.length < 2) {
+                    this.addMessage("Usage: script run <name>", "error");
+                    return;
+                }
+                try {
+                    const results = await (this.scriptEngine as any).runScript(args[1]);
+                    results.forEach((r: string) => this.addMessage(r, "info"));
+                } catch (error: any) {
+                    this.addMessage(`Error: ${error.message}`, "error");
+                }
+                break;
+                
+            case 'save':
+                if (args.length < 3) {
+                    this.addMessage("Usage: script save <name> <script>", "error");
+                    return;
+                }
+                const scriptName = args[1];
+                const scriptContent = args.slice(2).join(' ');
+                (this.scriptEngine as any).saveScript(scriptName, scriptContent);
+                this.addMessage(`Script "${scriptName}" saved`, "success");
+                break;
+                
+            default:
+                this.addMessage("Usage: script [list|run|save]", "error");
+        }
+    }
+    
+    /**
+     * Обработка команд макросов
+     */
+    private async handleMacroCommand(command: string): Promise<void> {
+        await this.initScriptEngine();
+        if (!this.scriptEngine) return;
+        
+        const args = command.split(' ').slice(1);
+        const action = args[0];
+        
+        switch (action) {
+            case 'list':
+                const macros = (this.scriptEngine as any).getMacros();
+                if (macros.length === 0) {
+                    this.addMessage("No macros found", "info");
+                } else {
+                    this.addMessage(`Macros: ${macros.join(", ")}`, "info");
+                }
+                break;
+                
+            case 'run':
+                if (args.length < 2) {
+                    this.addMessage("Usage: macro run <name>", "error");
+                    return;
+                }
+                try {
+                    const results = await (this.scriptEngine as any).runMacro(args[1]);
+                    results.forEach((r: string) => this.addMessage(r, "info"));
+                } catch (error: any) {
+                    this.addMessage(`Error: ${error.message}`, "error");
+                }
+                break;
+                
+            default:
+                this.addMessage("Usage: macro [list|run]", "error");
+        }
+    }
+    
+    /**
+     * Обработка команд тем
+     */
+    private async handleThemeCommand(command: string): Promise<void> {
+        await this.initThemeManager();
+        if (!this.themeManager) return;
+        
+        const args = command.split(' ').slice(1);
+        const action = args[0];
+        
+        switch (action) {
+            case 'list':
+                const themes = (this.themeManager as any).getThemes();
+                const themeNames = themes.map((t: any) => t.name).join(', ');
+                this.addMessage(`Available themes: ${themeNames}`, "info");
+                break;
+                
+            case 'set':
+                if (args.length < 2) {
+                    this.addMessage("Usage: theme set <name>", "error");
+                    return;
+                }
+                const themeName = args[1];
+                const theme = (this.themeManager as any).getTheme(themeName);
+                if (theme) {
+                    (this.themeManager as any).applyTheme(theme);
+                    this.addMessage(`Theme "${theme.name}" applied`, "success");
+                } else {
+                    this.addMessage(`Theme "${themeName}" not found`, "error");
+                }
+                break;
+                
+            default:
+                this.addMessage("Usage: theme [list|set <name>]", "error");
+        }
+    }
+    
+    /**
+     * Переключение записи макроса
+     */
+    private async toggleMacroRecording(): Promise<void> {
+        await this.initScriptEngine();
+        if (!this.scriptEngine) return;
+        
+        const isRecording = (this.scriptEngine as any).isRecording;
+        
+        if (isRecording) {
+            const macro = (this.scriptEngine as any).stopRecording();
+            if (macro) {
+                const name = prompt("Macro name:", `macro_${Date.now()}`);
+                if (name) {
+                    (this.scriptEngine as any).saveMacro(name, macro.split('\n'));
+                    this.addMessage(`Macro "${name}" saved`, "success");
+                }
+            }
+            this.addMessage("Macro recording stopped", "info");
+        } else {
+            (this.scriptEngine as any).startRecording();
+            this.addMessage("Macro recording started (Ctrl+R to stop)", "info");
+        }
+    }
+    
+    /**
+     * Очистка сообщений
+     */
+    private clearMessages(): void {
+        this.messages = [];
+        this.messageElements.forEach(el => el.dispose());
+        this.messageElements.clear();
+        this.updateMessages();
     }
     
     private getColorForType(type: MessageType): string {

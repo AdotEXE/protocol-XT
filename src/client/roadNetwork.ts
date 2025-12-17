@@ -62,7 +62,7 @@ export class RoadNetwork {
             worldSeed: Date.now(),
             chunkSize: 80,
             highwaySpacing: 200,
-            streetSpacing: 40,
+            streetSpacing: 30, // Уменьшено с 40 до 30 для сложной дорожной сети
             terrainGenerator: null,
             ...config
         };

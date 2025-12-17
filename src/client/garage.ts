@@ -85,44 +85,118 @@ export class Garage {
     
     // ============ DATA ============
     private chassisParts: TankPart[] = CHASSIS_TYPES.map(chassis => {
-        // Pricing: original 5 + new 10
-        const costs: Record<string, number> = {
-            // Original
-            light: 400, medium: 0, heavy: 600, scout: 500, assault: 800,
-            // New chassis types
-            stealth: 800, hover: 750, siege: 1200, racer: 650, amphibious: 700,
-            shield: 900, drone: 950, artillery: 1100, destroyer: 850, command: 1000
+        // Balanced pricing based on stats and abilities
+        // Formula: baseCost + (HP * 3) + (speed * 10) + (abilityBonus)
+        const baseCost = 0;
+        const hpMultiplier = 3;
+        const speedMultiplier = 10;
+        
+        // Ability bonuses (special abilities add value)
+        const abilityBonuses: Record<string, number> = {
+            stealth: 150,    // Stealth is very useful
+            hover: 100,      // Hover is useful for mobility
+            siege: 200,      // Siege mode is powerful
+            racer: 50,       // Speed boost is nice
+            amphibious: 80,  // Water movement is situational
+            shield: 120,     // Shield is defensive
+            drone: 140,      // Drones are offensive support
+            artillery: 100,  // Range boost is useful
+            destroyer: 80,   // Damage boost is good
+            command: 150    // Team buff is powerful
         };
+        
+        let cost = baseCost + (chassis.maxHealth * hpMultiplier) + (chassis.moveSpeed * speedMultiplier);
+        if (chassis.specialAbility && abilityBonuses[chassis.specialAbility]) {
+            cost += abilityBonuses[chassis.specialAbility];
+        }
+        
+        // Round to nearest 50 for cleaner prices
+        cost = Math.round(cost / 50) * 50;
+        
+        // Special cases for starter chassis
+        if (chassis.id === "medium") {
+            cost = 0; // Free starter
+        } else if (chassis.id === "light") {
+            cost = Math.min(cost, 400); // Cap at 400 for early game
+        } else if (chassis.id === "scout") {
+            cost = Math.min(cost, 500); // Cap at 500 for early game
+        }
+        
         const abilityText = chassis.specialAbility ? ` [Ability: ${chassis.specialAbility}]` : "";
         return {
             id: chassis.id, name: chassis.name, description: chassis.description + abilityText,
-            cost: costs[chassis.id] || 500, unlocked: chassis.id === "medium",
+            cost: cost, unlocked: chassis.id === "medium",
             type: "chassis" as const,
             stats: { health: chassis.maxHealth, speed: chassis.moveSpeed, armor: chassis.maxHealth / 50 }
         };
     });
     
     private cannonParts: TankPart[] = CANNON_TYPES.map(cannon => {
-        // Pricing: original 5 + new 20
-        const costs: Record<string, number> = {
-            // Original
-            standard: 0, rapid: 450, heavy: 600, sniper: 800, gatling: 550,
-            // Energy weapons (expensive)
-            plasma: 1200, laser: 1100, tesla: 1300, railgun: 2000,
-            // Explosive weapons (medium-high)
-            rocket: 1000, mortar: 1400, cluster: 950, explosive: 1050,
-            // Special effect (medium)
-            flamethrower: 700, acid: 750, freeze: 800, poison: 720, emp: 1500,
-            // Multi-shot (medium)
-            shotgun: 600, multishot: 650,
-            // Advanced (expensive)
-            homing: 1600, piercing: 1250, shockwave: 1150, beam: 1180, vortex: 1350,
+        // Balanced pricing based on DPS and special effects
+        // Formula: baseCost + (damage * 8) + (dps * 50) + (specialBonus)
+        const baseCost = 0;
+        const damageMultiplier = 8;
+        const dpsMultiplier = 50;
+        
+        // Calculate DPS (damage per second)
+        const dps = (cannon.damage / (cannon.cooldown / 1000));
+        
+        // Special effect bonuses
+        const specialBonuses: Record<string, number> = {
+            // Energy weapons (high tech)
+            plasma: 200,
+            laser: 150,  // Instant hit is valuable
+            tesla: 180,  // Chain lightning is powerful
+            railgun: 400, // Highest single shot damage
+            
+            // Explosive weapons (AoE)
+            rocket: 150,
+            mortar: 250,  // High AoE damage
+            cluster: 100,  // Multi-hit
+            explosive: 120,
+            
+            // Special effects (utility)
+            flamethrower: 80,   // High DPS but close range
+            acid: 100,          // Armor reduction
+            freeze: 120,        // Slow is powerful
+            poison: 90,          // DoT
+            emp: 200,           // Ability disable is tactical
+            
+            // Multi-shot
+            shotgun: 60,        // Close range
+            multishot: 80,      // Good DPS
+            
+            // Advanced
+            homing: 250,        // Auto-aim is valuable
+            piercing: 150,       // Multi-hit
+            shockwave: 120,     // Knockback
+            beam: 140,          // Continuous damage
+            vortex: 180,        // Pull effect
+            
             // Support
-            support: 1100
+            support: 160         // Healing is valuable
         };
+        
+        let cost = baseCost + (cannon.damage * damageMultiplier) + (dps * dpsMultiplier);
+        if (specialBonuses[cannon.id]) {
+            cost += specialBonuses[cannon.id];
+        }
+        
+        // Round to nearest 50 for cleaner prices
+        cost = Math.round(cost / 50) * 50;
+        
+        // Special cases
+        if (cannon.id === "standard") {
+            cost = 0; // Free starter
+        } else if (cannon.id === "rapid") {
+            cost = Math.min(cost, 450); // Cap for early game
+        } else if (cannon.id === "gatling") {
+            cost = Math.min(cost, 550); // Cap for early game
+        }
+        
         return {
             id: cannon.id, name: cannon.name, description: cannon.description,
-            cost: costs[cannon.id] || 500, unlocked: cannon.id === "standard",
+            cost: cost, unlocked: cannon.id === "standard",
             type: "barrel" as const,
             stats: { damage: cannon.damage, reload: cannon.cooldown }
         };
@@ -599,22 +673,54 @@ export class Garage {
         
         this.isOpen = false;
         
+        try {
             // Cleanup 3D preview
             this.cleanup3DPreview();
-            
-            if (this.overlay) {
+        } catch (error) {
+            console.error("[Garage] Error cleaning up 3D preview:", error);
+        }
+        
+        try {
+            // ИСПРАВЛЕНИЕ: Безопасное удаление overlay с проверками
+            if (this.overlay && this.overlay.parentNode) {
                 this.overlay.remove();
+            }
+            this.overlay = null;
+        } catch (error) {
+            console.error("[Garage] Error removing overlay:", error);
+            // Пытаемся удалить через другой способ если первый не сработал
+            if (this.overlay) {
+                try {
+                    this.overlay.parentElement?.removeChild(this.overlay);
+                } catch (e) {
+                    console.error("[Garage] Error removing overlay (fallback):", e);
+                }
                 this.overlay = null;
             }
-            
-        // Hide cursor (will be shown again when user clicks on canvas)
+        }
+        
+        try {
+            // Hide cursor (will be shown again when user clicks on canvas)
             this.hideCursor();
-            
-            if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
-            
-            // Call close callback if set
+        } catch (error) {
+            console.error("[Garage] Error hiding cursor:", error);
+        }
+        
+        try {
+            if (this.soundManager?.playGarageOpen) {
+                this.soundManager.playGarageOpen();
+            }
+        } catch (error) {
+            console.error("[Garage] Error playing sound:", error);
+        }
+        
+        // ИСПРАВЛЕНИЕ: Безопасный вызов callback с проверкой
+        try {
             if (this.onCloseCallback) {
                 this.onCloseCallback();
+            }
+        } catch (error) {
+            console.error("[Garage] Error in close callback:", error);
         }
         
         console.log("[Garage] Closed");

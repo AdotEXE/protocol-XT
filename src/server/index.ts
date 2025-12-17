@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { GameServer } from "./gameServer";
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 8080;

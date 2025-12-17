@@ -2600,40 +2600,35 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
                 );
             }
             // Утолщение у основания ствола
-            const baseThickening = MeshBuilder.CreateBox("previewSniperBaseThickening", {
-                width: barrelWidth * 0.9,
-                height: barrelWidth * 0.9,
-                depth: barrelWidth * 0.4
-            }, scene);
-            baseThickening.position = addZFightingOffset(new Vector3(0, 0, -barrelLength * 0.3), "forward");
-            baseThickening.parent = barrel;
-            baseThickening.material = sniperScopeMat;
+            CannonDetailsGenerator.createBaseThickening(
+                scene, barrel,
+                new Vector3(0, 0, -barrelLength * 0.3),
+                barrelWidth * 0.9, barrelWidth * 0.9, barrelWidth * 0.4,
+                sniperScopeMat, "preview"
+            );
             
             // Глушитель на конце ствола (средний размер)
-            const suppressor = MeshBuilder.CreateBox("previewSniperSuppressor", {
-                width: barrelWidth * 1.125,
-                height: barrelWidth * 1.125,
-                depth: barrelLength * 0.3
-            }, scene);
-            suppressor.position = addZFightingOffset(new Vector3(0, 0, barrelLength * 1.0), "forward");
-            suppressor.parent = barrel;
-            suppressor.material = sniperScopeMat;
+            CannonDetailsGenerator.createSuppressor(
+                scene, barrel,
+                new Vector3(0, 0, barrelLength * 1.0),
+                barrelWidth * 1.125, barrelWidth * 1.125, barrelLength * 0.3,
+                sniperScopeMat, "preview"
+            );
             
             // Детали глушителя (вентиляционные отверстия) - 8 маленьких Box
             for (let i = 0; i < 8; i++) {
-                const ventHole = MeshBuilder.CreateBox(`previewSuppressorVent${i}`, {
-                    width: barrelWidth * 0.06,
-                    height: barrelWidth * 0.06,
-                    depth: barrelLength * 0.25
-                }, scene);
                 const angle = (i * Math.PI * 2) / 8;
-                ventHole.position = addZFightingOffset(new Vector3(
-                    Math.cos(angle) * barrelWidth * 0.4,
-                    Math.sin(angle) * barrelWidth * 0.4,
-                    barrelLength * 1.0
-                ), "up");
-                ventHole.parent = barrel;
-                ventHole.material = sniperScopeMat;
+                CannonDetailsGenerator.createSuppressorVent(
+                    scene, barrel,
+                    new Vector3(
+                        Math.cos(angle) * barrelWidth * 0.4,
+                        Math.sin(angle) * barrelWidth * 0.4,
+                        barrelLength * 1.0
+                    ),
+                    angle,
+                    barrelWidth * 0.06, barrelWidth * 0.06, barrelLength * 0.25,
+                    sniperScopeMat, `previewSuppressorVent${i}`
+                );
             }
             break;
         case "gatling":
@@ -2759,36 +2754,19 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
             
             // Короткие горизонтальные детали вокруг ствола (без вертикальных полосок)
             // Маленькие кольца вокруг ствола (6 штук, короткие)
+            const laserRingMat = new StandardMaterial("laserRingMat", scene);
+            laserRingMat.diffuseColor = new Color3(0.7, 0, 0);
+            laserRingMat.emissiveColor = new Color3(0.25, 0, 0);
             for (let i = 0; i < 6; i++) {
                 const ringZ = -barrelLength * 0.1 + i * barrelLength * 0.35;
                 const ringSize = barrelWidth * 0.95;
                 const ringThickness = barrelWidth * 0.05;
-                const ringParts: Mesh[] = [];
-                
-                const top = MeshBuilder.CreateBox(`laserRingTop${i}`, { width: ringSize, height: ringThickness, depth: ringThickness }, scene);
-                top.position = addZFightingOffset(new Vector3(0, ringSize / 2, ringZ), "forward");
-                top.parent = barrel;
-                ringParts.push(top);
-                
-                const bottom = MeshBuilder.CreateBox(`laserRingBottom${i}`, { width: ringSize, height: ringThickness, depth: ringThickness }, scene);
-                bottom.position = addZFightingOffset(new Vector3(0, -ringSize / 2, ringZ), "forward");
-                bottom.parent = barrel;
-                ringParts.push(bottom);
-                
-                const left = MeshBuilder.CreateBox(`laserRingLeft${i}`, { width: ringThickness, height: ringSize, depth: ringThickness }, scene);
-                left.position = addZFightingOffset(new Vector3(-ringSize / 2, 0, ringZ), "forward");
-                left.parent = barrel;
-                ringParts.push(left);
-                
-                const right = MeshBuilder.CreateBox(`laserRingRight${i}`, { width: ringThickness, height: ringSize, depth: ringThickness }, scene);
-                right.position = addZFightingOffset(new Vector3(ringSize / 2, 0, ringZ), "forward");
-                right.parent = barrel;
-                ringParts.push(right);
-                
-                const ringMat = new StandardMaterial(`laserRingMat${i}`, scene);
-                ringMat.diffuseColor = new Color3(0.7, 0, 0);
-                ringMat.emissiveColor = new Color3(0.25, 0, 0);
-                ringParts.forEach(part => part.material = ringMat);
+                CannonDetailsGenerator.createRing(
+                    scene, barrel,
+                    new Vector3(0, 0, ringZ),
+                    ringSize, ringThickness,
+                    laserRingMat, `previewLaserRing${i}`
+                );
             }
             
             CannonDetailsGenerator.createLaserHousing(
@@ -2813,66 +2791,46 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
                 const ringZ = -barrelLength * 0.3 + i * barrelLength * 0.4;
                 const ringSize = barrelWidth * 0.75;
                 const ringThickness = barrelWidth * 0.06;
-                const ringParts: Mesh[] = [];
-                
-                const top = MeshBuilder.CreateBox(`railgunRingTop${i}`, { width: ringSize, height: ringThickness, depth: ringThickness }, scene);
-                top.position = addZFightingOffset(new Vector3(0, ringSize / 2, ringZ), "forward");
-                top.parent = barrel;
-                ringParts.push(top);
-                
-                const bottom = MeshBuilder.CreateBox(`railgunRingBottom${i}`, { width: ringSize, height: ringThickness, depth: ringThickness }, scene);
-                bottom.position = addZFightingOffset(new Vector3(0, -ringSize / 2, ringZ), "forward");
-                bottom.parent = barrel;
-                ringParts.push(bottom);
-                
-                const left = MeshBuilder.CreateBox(`railgunRingLeft${i}`, { width: ringThickness, height: ringSize, depth: ringThickness }, scene);
-                left.position = addZFightingOffset(new Vector3(-ringSize / 2, 0, ringZ), "forward");
-                left.parent = barrel;
-                ringParts.push(left);
-                
-                const right = MeshBuilder.CreateBox(`railgunRingRight${i}`, { width: ringThickness, height: ringSize, depth: ringThickness }, scene);
-                right.position = addZFightingOffset(new Vector3(ringSize / 2, 0, ringZ), "forward");
-                right.parent = barrel;
-                ringParts.push(right);
-                
-                ringParts.forEach(part => part.material = railMat);
+                CannonDetailsGenerator.createRing(
+                    scene, barrel,
+                    new Vector3(0, 0, ringZ),
+                    ringSize, ringThickness,
+                    railMat, `previewRailgunRing${i}`
+                );
             }
             
             // Маленькие пластины/ребра жесткости вокруг ствола (12 штук)
             for (let i = 0; i < 12; i++) {
                 const plateAngle = (i * Math.PI * 2) / 12;
                 const plateZ = -barrelLength * 0.25 + (i % 6) * barrelLength * 0.4;
-                const plate = MeshBuilder.CreateBox(`railgunPlate${i}`, {
-                    width: barrelWidth * 0.12,
-                    height: barrelWidth * 0.08,
-                    depth: barrelWidth * 0.12
-                }, scene);
-                plate.position = addZFightingOffset(new Vector3(
-                    Math.cos(plateAngle) * barrelWidth * 0.42,
-                    Math.sin(plateAngle) * barrelWidth * 0.42,
-                    plateZ
-                ), "up");
-                plate.parent = barrel;
-                plate.material = railMat;
+                CannonDetailsGenerator.createPlate(
+                    scene, barrel,
+                    new Vector3(
+                        Math.cos(plateAngle) * barrelWidth * 0.42,
+                        Math.sin(plateAngle) * barrelWidth * 0.42,
+                        plateZ
+                    ),
+                    plateAngle,
+                    barrelWidth * 0.12, barrelWidth * 0.08, barrelWidth * 0.12,
+                    railMat, `previewRailgunPlate${i}`
+                );
             }
             
             // Ребра охлаждения (10 штук, короткие, перпендикулярно стволу)
             for (let i = 0; i < 10; i++) {
                 const finAngle = (i * Math.PI * 2) / 10;
                 const finZ = -barrelLength * 0.2 + (i % 5) * barrelLength * 0.4;
-                const fin = MeshBuilder.CreateBox(`railgunFin${i}`, {
-                    width: barrelWidth * 0.14,
-                    height: barrelWidth * 0.1,
-                    depth: barrelWidth * 0.05
-                }, scene);
-                fin.position = addZFightingOffset(new Vector3(
-                    Math.cos(finAngle) * barrelWidth * 0.4,
-                    Math.sin(finAngle) * barrelWidth * 0.4,
-                    finZ
-                ), "up");
-                fin.rotation.z = finAngle;
-                fin.parent = barrel;
-                fin.material = railMat;
+                CannonDetailsGenerator.createCoolingFin(
+                    scene, barrel,
+                    new Vector3(
+                        Math.cos(finAngle) * barrelWidth * 0.4,
+                        Math.sin(finAngle) * barrelWidth * 0.4,
+                        finZ
+                    ),
+                    finAngle,
+                    barrelWidth * 0.14, barrelWidth * 0.1, barrelWidth * 0.05,
+                    railMat, `previewRailgunFin${i}`
+                );
             }
             
             for (let i = 0; i < 4; i++) {
@@ -3033,7 +2991,9 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
             break;
         case "standard":
             // Standard - СБАЛАНСИРОВАННАЯ, КЛАССИЧЕСКАЯ - УНИКАЛЬНЫЙ ДИЗАЙН
-            barrel = MeshBuilder.CreateBox("previewBarrel", { width: barrelWidth * 1.0, height: barrelLength * 1.0, depth: barrelWidth * 1.0 }, scene);
+            // ИСПРАВЛЕНИЕ: height должен быть barrelWidth, а не barrelLength (иначе ствол вертикальный!)
+            barrel = MeshBuilder.CreateBox("previewBarrel", { width: barrelWidth * 1.0, height: barrelWidth * 1.0, depth: barrelLength * 1.0 }, scene);
+            const standardBreechMat = MaterialFactory.createBasicMaterial(scene, cannonColor.scale(0.7), "previewStandardBreech");
             CannonDetailsGenerator.createBreech(
                 scene, barrel,
                 new Vector3(0, 0, -barrelLength * 0.4),
@@ -3041,6 +3001,32 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
                 cannonColor.scale(0.7),
                 "preview"
             );
+            // Дульный тормоз (2 слоя)
+            for (let i = 0; i < 2; i++) {
+                CannonDetailsGenerator.createStandardMuzzle(
+                    scene, barrel,
+                    new Vector3(0, 0, barrelLength * 0.5),
+                    i, barrelWidth * 1.1, barrelWidth * 0.1,
+                    barrelWidth * 0.15,
+                    standardBreechMat, "preview"
+                );
+            }
+            // Защитный кожух ствола
+            CannonDetailsGenerator.createStandardShield(
+                scene, barrel,
+                new Vector3(0, barrelWidth * 0.4, barrelLength * 0.1),
+                barrelWidth * 1.1, barrelWidth * 0.3, barrelLength * 0.6,
+                standardBreechMat, "preview"
+            );
+            // Стабилизаторы (4 штуки)
+            for (let i = 0; i < 4; i++) {
+                CannonDetailsGenerator.createStabilizer(
+                    scene, barrel,
+                    new Vector3((i === 0 || i === 2 ? -1 : 1) * barrelWidth * 0.5, 0, barrelLength * 0.1),
+                    barrelWidth * 0.12, barrelWidth * 0.12, barrelWidth * 0.25,
+                    standardBreechMat, `previewStandardStabilizer${i}`
+                );
+            }
             break;
         case "mortar":
         // Mortar - Прототип: Миномет / 2Б9 Василек
@@ -3050,52 +3036,42 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
             depth: barrelLength * 0.6
         }, scene);
         
-        const mortarBaseMat = new StandardMaterial("mortarBaseMat", scene);
-        mortarBaseMat.diffuseColor = cannonColor.scale(0.6);
+        const mortarBaseMat = MaterialFactory.createBasicMaterial(scene, cannonColor.scale(0.6), "previewMortarBase");
         for (let i = 0; i < 3; i++) {
-            const baseLayer = MeshBuilder.CreateBox(`mortarBase${i}`, {
-                width: barrelWidth * (2.4 - i * 0.2),
-                height: barrelWidth * 0.2,
-                depth: barrelWidth * (2.4 - i * 0.2)
-            }, scene);
-            baseLayer.position = addZFightingOffset(new Vector3(0, -barrelWidth * 0.7 - i * barrelWidth * 0.2, 0), "up");
-            baseLayer.parent = barrel;
-            baseLayer.material = mortarBaseMat;
+            CannonDetailsGenerator.createMortarBaseLayer(
+                scene, barrel,
+                new Vector3(0, -barrelWidth * 0.7, 0),
+                i, barrelWidth * 2.4, barrelWidth * 0.2,
+                mortarBaseMat, "preview"
+            );
         }
         
         for (let i = 0; i < 3; i++) {
-            const leg = MeshBuilder.CreateBox(`mortarLeg${i}`, {
-                width: barrelWidth * 0.18,
-                height: barrelWidth * 0.45,
-                depth: barrelWidth * 0.18
-            }, scene);
             const angle = (i * Math.PI * 2) / 3;
-            leg.position = addZFightingOffset(new Vector3(
+            CannonDetailsGenerator.createMortarLeg(
+                scene, barrel,
+                new Vector3(
                     Math.cos(angle) * barrelWidth * 0.95,
                     -barrelWidth * 0.95,
                     Math.sin(angle) * barrelWidth * 0.25
-                ), "up");
-            leg.rotation.y = angle;
-            leg.parent = barrel;
-            leg.material = mortarBaseMat;
+                ),
+                angle,
+                barrelWidth * 0.18, barrelWidth * 0.45, barrelWidth * 0.18,
+                mortarBaseMat, `previewMortarLeg${i}`
+            );
         }
         
         for (let i = 0; i < 2; i++) {
             // Усилители миномета - короткие детали вместо длинных вертикальных
             for (let j = 0; j < 4; j++) {
-                const reinforcement = MeshBuilder.CreateBox(`mortarReinforcement${i}_${j}`, {
-                    width: barrelWidth * 0.3,
-                    height: barrelWidth * 0.3,
-                    depth: barrelWidth * 0.3  // Короткие детали
-                }, scene);
                 const zOffset = (j % 2) * barrelWidth * 0.4;
-                reinforcement.position = addZFightingOffset(new Vector3(
-                    (i === 0 ? -1 : 1) * barrelWidth * 1.05,
-                    0,
-                    zOffset
-                ), "forward");
-                reinforcement.parent = barrel;
-                reinforcement.material = mortarBaseMat;
+                CannonDetailsGenerator.createMortarReinforcement(
+                    scene, barrel,
+                    new Vector3(barrelWidth * 1.05, 0, 0),
+                    (i === 0 ? -1 : 1), zOffset,
+                    barrelWidth * 0.3, barrelWidth * 0.3, barrelWidth * 0.3,
+                    mortarBaseMat, `previewMortarReinforcement${i}_${j}`
+                );
             }
         }
         break;
@@ -3107,49 +3083,43 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
             depth: barrelLength * 1.1 
         }, scene);
         
+        const clusterTubeMat = MaterialFactory.createBasicMaterial(scene, cannonColor.scale(0.9), "previewClusterTube");
         for (let i = 0; i < 6; i++) {
-            const clusterTube = MeshBuilder.CreateBox(`cluster${i}`, {
-                width: barrelWidth * 0.35,
-                height: barrelWidth * 0.35,
-                depth: barrelLength * 0.9
-            }, scene);
             const angle = (i * Math.PI * 2 / 6);
-            clusterTube.position = addZFightingOffset(new Vector3(
+            CannonDetailsGenerator.createClusterTube(
+                scene, barrel,
+                new Vector3(
                     Math.cos(angle) * barrelWidth * 0.5,
                     Math.sin(angle) * barrelWidth * 0.5,
                     0
-                ), "up");
-            clusterTube.parent = barrel;
-            const tubeMat = new StandardMaterial(`clusterTubeMat${i}`, scene);
-            tubeMat.diffuseColor = cannonColor.scale(0.9);
-            clusterTube.material = tubeMat;
+                ),
+                angle,
+                barrelWidth * 0.35, barrelWidth * 0.35, barrelLength * 0.9,
+                clusterTubeMat, `previewClusterTube${i}`
+            );
         }
         
-        const centerTube = MeshBuilder.CreateBox("clusterCenter", {
-            width: barrelWidth * 0.4,
-            height: barrelWidth * 0.4,
-            depth: barrelLength * 0.95
-        }, scene);
-        centerTube.position = addZFightingOffset(new Vector3(0, 0, 0), "forward");
-        centerTube.parent = barrel;
-        centerTube.material = barrel.material;
+        CannonDetailsGenerator.createClusterCenterTube(
+            scene, barrel,
+            new Vector3(0, 0, 0),
+            barrelWidth * 0.4, barrelWidth * 0.4, barrelLength * 0.95,
+            barrel.material as StandardMaterial, "preview"
+        );
         
         // Стабилизаторы кластера - короткие детали вместо длинных вертикальных
         for (let i = 0; i < 8; i++) {
-            const stabilizer = MeshBuilder.CreateBox(`clusterStabilizer${i}`, {
-                width: barrelWidth * 0.12,
-                height: barrelWidth * 0.12,
-                depth: barrelWidth * 0.25  // Короткие детали
-            }, scene);
             const angle = (i * Math.PI * 2 / 8) + Math.PI / 8;
             const zOffset = (i % 4) * barrelWidth * 0.3;
-            stabilizer.position = addZFightingOffset(new Vector3(
-                Math.cos(angle) * barrelWidth * 0.75,
-                Math.sin(angle) * barrelWidth * 0.75,
-                barrelLength * 0.1 + zOffset
-            ), "forward");
-            stabilizer.parent = barrel;
-            stabilizer.material = barrel.material;
+            CannonDetailsGenerator.createStabilizer(
+                scene, barrel,
+                new Vector3(
+                    Math.cos(angle) * barrelWidth * 0.75,
+                    Math.sin(angle) * barrelWidth * 0.75,
+                    barrelLength * 0.1 + zOffset
+                ),
+                barrelWidth * 0.12, barrelWidth * 0.12, barrelWidth * 0.25,
+                barrel.material as StandardMaterial, `previewClusterStabilizer${i}`
+            );
         }
         break;
         case "explosive":
@@ -3160,41 +3130,36 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
             depth: barrelLength * 1.0
         }, scene);
         
-        const explosiveBreech = MeshBuilder.CreateBox("explosiveBreech", {
-            width: barrelWidth * 1.9,
-            height: barrelWidth * 1.9,
-            depth: barrelWidth * 1.3
-        }, scene);
-        explosiveBreech.position = addZFightingOffset(new Vector3(0, 0, -barrelLength * 0.5), "forward");
-        explosiveBreech.parent = barrel;
-        const explosiveBreechMat = new StandardMaterial("explosiveBreechMat", scene);
-        explosiveBreechMat.diffuseColor = cannonColor.scale(0.7);
-        explosiveBreech.material = explosiveBreechMat;
+        const explosiveBreechMat = MaterialFactory.createBasicMaterial(scene, cannonColor.scale(0.7), "previewExplosiveBreech");
+        CannonDetailsGenerator.createBreech(
+            scene, barrel,
+            new Vector3(0, 0, -barrelLength * 0.5),
+            barrelWidth * 1.9, barrelWidth * 1.9, barrelWidth * 1.3,
+            cannonColor.scale(0.7),
+            "preview"
+        );
         
-        const explosiveMuzzle = MeshBuilder.CreateBox("explosiveMuzzle", {
-            width: barrelWidth * 1.6,
-            height: barrelWidth * 0.5,
-            depth: barrelWidth * 1.6
-        }, scene);
-        explosiveMuzzle.position = addZFightingOffset(new Vector3(0, 0, barrelLength * 0.5), "forward");
-        explosiveMuzzle.parent = barrel;
-        explosiveMuzzle.material = explosiveBreechMat;
+        CannonDetailsGenerator.createExplosiveMuzzle(
+            scene, barrel,
+            new Vector3(0, 0, barrelLength * 0.5),
+            barrelWidth * 1.6, barrelWidth * 0.5, barrelWidth * 1.6,
+            explosiveBreechMat, "preview"
+        );
         
         for (let i = 0; i < 4; i++) {
             // Каналы взрывной пушки - короткие детали вместо длинных вертикальных
-            const channel = MeshBuilder.CreateBox(`explosiveChannel${i}`, {
-                width: barrelWidth * 0.12,
-                height: barrelWidth * 0.12,
-                depth: barrelWidth * 0.3  // Короткие детали
-            }, scene);
             const angle = (i * Math.PI * 2) / 4;
-            channel.position = addZFightingOffset(new Vector3(
+            CannonDetailsGenerator.createExplosiveChannel(
+                scene, barrel,
+                new Vector3(
                     Math.cos(angle) * barrelWidth * 0.65,
                     Math.sin(angle) * barrelWidth * 0.65,
                     barrelLength * 0.05
-                ), "up");
-            channel.parent = barrel;
-            channel.material = explosiveBreechMat;
+                ),
+                angle,
+                barrelWidth * 0.12, barrelWidth * 0.12, barrelWidth * 0.3,
+                explosiveBreechMat, `previewExplosiveChannel${i}`
+            );
         }
         break;
         
@@ -3211,60 +3176,43 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
         nozzleMat.diffuseColor = new Color3(0.7, 0.25, 0);
         nozzleMat.emissiveColor = new Color3(0.25, 0.08, 0);
         for (let j = 0; j < 4; j++) {
-            const nozzlePart = MeshBuilder.CreateBox(`flamethrowerNozzle${j}`, {
-                width: barrelWidth * (1.0 - j * 0.1),
-                height: barrelWidth * (1.0 - j * 0.1),
-                depth: barrelLength * 0.1
-            }, scene);
-            nozzlePart.position = addZFightingOffset(new Vector3(0, 0, barrelLength * 0.45 + j * barrelLength * 0.1), "forward");
-            nozzlePart.parent = barrel;
-            nozzlePart.material = nozzleMat;
+            CannonDetailsGenerator.createFlamethrowerNozzle(
+                scene, barrel,
+                new Vector3(0, 0, barrelLength * 0.45),
+                j, barrelWidth * 1.0, barrelWidth * 0.1,
+                barrelLength * 0.1,
+                nozzleMat, "preview"
+            );
         }
         
+        const flamethrowerTankMat = MaterialFactory.createBasicMaterial(scene, cannonColor.scale(0.8), "previewFlamethrowerTank");
         for (let i = 0; i < 2; i++) {
-            const tank = MeshBuilder.CreateBox(`flamethrowerTank${i}`, {
-                width: barrelWidth * 0.4,
-                height: barrelWidth * 0.4,
-                depth: barrelLength * 0.7
-            }, scene);
-            tank.position = addZFightingOffset(new Vector3(
-                    (i === 0 ? -1 : 1) * barrelWidth * 0.6,
-                    0,
-                    -barrelLength * 0.1
-                ), "forward");
-            tank.parent = barrel;
-            const tankMat = new StandardMaterial(`flamethrowerTankMat${i}`, scene);
-            tankMat.diffuseColor = cannonColor.scale(0.8);
-            tank.material = tankMat;
+            CannonDetailsGenerator.createFlamethrowerTank(
+                scene, barrel,
+                new Vector3(barrelWidth * 0.6, 0, -barrelLength * 0.1),
+                (i === 0 ? -1 : 1),
+                barrelWidth * 0.4, barrelWidth * 0.4, barrelLength * 0.7,
+                flamethrowerTankMat, `previewFlamethrowerTank${i}`
+            );
             
-            const vent = MeshBuilder.CreateBox(`flamethrowerVent${i}`, {
-                width: barrelWidth * 0.08,
-                height: barrelWidth * 0.08,
-                depth: barrelWidth * 0.08
-            }, scene);
-            vent.position = addZFightingOffset(new Vector3(
-                    (i === 0 ? -1 : 1) * barrelWidth * 0.6,
-                    barrelWidth * 0.25,
-                    -barrelLength * 0.15
-                ), "forward");
-            vent.parent = barrel;
-            vent.material = tankMat;
+            CannonDetailsGenerator.createFlamethrowerVent(
+                scene, barrel,
+                new Vector3(barrelWidth * 0.6, barrelWidth * 0.25, -barrelLength * 0.15),
+                (i === 0 ? -1 : 1),
+                barrelWidth * 0.08, barrelWidth * 0.08, barrelWidth * 0.08,
+                flamethrowerTankMat, `previewFlamethrowerVent${i}`
+            );
         }
         
         for (let i = 0; i < 2; i++) {
-            const hose = MeshBuilder.CreateBox(`flamethrowerHose${i}`, {
-                width: barrelWidth * 0.1,
-                height: barrelWidth * 0.5,
-                depth: barrelWidth * 0.1
-            }, scene);
-            hose.position = addZFightingOffset(new Vector3(
-                    (i === 0 ? -1 : 1) * barrelWidth * 0.35,
-                    barrelWidth * 0.25,
-                    barrelLength * 0.1
-                ), "forward");
-            hose.rotation.z = (i === 0 ? 1 : -1) * Math.PI / 8;
-            hose.parent = barrel;
-            hose.material = nozzleMat;
+            CannonDetailsGenerator.createFlamethrowerHose(
+                scene, barrel,
+                new Vector3(barrelWidth * 0.35, barrelWidth * 0.25, barrelLength * 0.1),
+                (i === 0 ? -1 : 1),
+                barrelWidth * 0.1, barrelWidth * 0.5, barrelWidth * 0.1,
+                (i === 0 ? 1 : -1) * Math.PI / 8,
+                nozzleMat, `previewFlamethrowerHose${i}`
+            );
         }
         break;
         case "acid":
@@ -3278,60 +3226,51 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
         const acidTankMat = new StandardMaterial("acidTankMat", scene);
         acidTankMat.diffuseColor = new Color3(0.15, 0.7, 0.15);
         acidTankMat.emissiveColor = new Color3(0.05, 0.3, 0.05);
-        const acidTank = MeshBuilder.CreateBox("acidTank", {
-            width: barrelWidth * 1.0,
-            height: barrelWidth * 1.8,
-            depth: barrelWidth * 1.0
-        }, scene);
-        acidTank.position = addZFightingOffset(new Vector3(0, barrelWidth * 0.6, -barrelLength * 0.3), "up");
-        acidTank.parent = barrel;
-        acidTank.material = acidTankMat;
+        CannonDetailsGenerator.createAcidTank(
+            scene, barrel,
+            new Vector3(0, barrelWidth * 0.6, -barrelLength * 0.3),
+            barrelWidth * 1.0, barrelWidth * 1.8, barrelWidth * 1.0,
+            acidTankMat, "preview"
+        );
         
-        const acidVent = MeshBuilder.CreateBox("acidVent", {
-            width: barrelWidth * 0.1,
-            height: barrelWidth * 0.1,
-            depth: barrelWidth * 0.1
-        }, scene);
-        acidVent.position = addZFightingOffset(new Vector3(0, barrelWidth * 1.0, -barrelLength * 0.3), "up");
-        acidVent.parent = barrel;
-        acidVent.material = acidTankMat;
+        CannonDetailsGenerator.createAcidVent(
+            scene, barrel,
+            new Vector3(0, barrelWidth * 1.0, -barrelLength * 0.3),
+            barrelWidth * 0.1, barrelWidth * 0.1, barrelWidth * 0.1,
+            acidTankMat, "preview"
+        );
         
-        const indicator = MeshBuilder.CreateBox("acidIndicator", {
-            width: barrelWidth * 0.08,
-            height: barrelWidth * 0.08,
-            depth: barrelWidth * 0.05
-        }, scene);
-        indicator.position = addZFightingOffset(new Vector3(barrelWidth * 0.5, barrelWidth * 0.4, -barrelLength * 0.3), "forward");
-        indicator.parent = barrel;
         const indicatorMat = new StandardMaterial("acidIndicatorMat", scene);
         indicatorMat.diffuseColor = new Color3(0, 1, 0);
         indicatorMat.emissiveColor = new Color3(0, 0.5, 0);
-        indicator.material = indicatorMat;
+        CannonDetailsGenerator.createAcidIndicator(
+            scene, barrel,
+            new Vector3(barrelWidth * 0.5, barrelWidth * 0.4, -barrelLength * 0.3),
+            barrelWidth * 0.08, barrelWidth * 0.08, barrelWidth * 0.05,
+            indicatorMat, "preview"
+        );
         
         for (let i = 0; i < 3; i++) {
-            const channel = MeshBuilder.CreateBox(`acidChannel${i}`, {
-                width: barrelWidth * 0.15,
-                height: barrelWidth * 0.15,
-                depth: barrelLength * 0.6
-            }, scene);
-            channel.position = addZFightingOffset(new Vector3(
+            CannonDetailsGenerator.createAcidChannel(
+                scene, barrel,
+                new Vector3(
                     (i - 1) * barrelWidth * 0.25,
                     barrelWidth * 0.15,
                     barrelLength * 0.1
-                ), "forward");
-            channel.parent = barrel;
-            channel.material = acidTankMat;
+                ),
+                barrelWidth * 0.15, barrelWidth * 0.15, barrelLength * 0.6,
+                acidTankMat, `previewAcidChannel${i}`
+            );
         }
         
         for (let j = 0; j < 3; j++) {
-            const sprayerPart = MeshBuilder.CreateBox(`acidSprayer${j}`, {
-                width: barrelWidth * (1.3 - j * 0.1),
-                height: barrelWidth * 0.1,
-                depth: barrelWidth * (1.3 - j * 0.1)
-            }, scene);
-            sprayerPart.position = addZFightingOffset(new Vector3(0, 0, barrelLength * 0.5 + j * barrelWidth * 0.1), "forward");
-            sprayerPart.parent = barrel;
-            sprayerPart.material = acidTankMat;
+            CannonDetailsGenerator.createAcidSprayer(
+                scene, barrel,
+                new Vector3(0, 0, barrelLength * 0.5),
+                j, barrelWidth * 1.3, barrelWidth * 0.1,
+                barrelWidth * 0.1,
+                acidTankMat, "preview"
+            );
         }
         break;
         case "freeze":
@@ -3343,56 +3282,50 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
         }, scene);
         
         // Ребра замораживателя - короткие детали вместо длинных вертикальных
+        const freezeFinMat = new StandardMaterial("freezeFinMat", scene);
+        freezeFinMat.diffuseColor = new Color3(0.4, 0.6, 0.9);
+        freezeFinMat.emissiveColor = new Color3(0.08, 0.15, 0.25);
         for (let i = 0; i < 8; i++) {
-            const fin = MeshBuilder.CreateBox(`freezeFin${i}`, {
-                width: barrelWidth * 0.15,
-                height: barrelWidth * 0.15,
-                depth: barrelWidth * 0.4  // Короткие детали
-            }, scene);
             const angle = (i * Math.PI * 2 / 8);
             const zOffset = (i % 4) * barrelWidth * 0.3;
-            fin.position = addZFightingOffset(new Vector3(
-                Math.cos(angle) * barrelWidth * 0.55,
-                Math.sin(angle) * barrelWidth * 0.55,
-                -barrelLength * 0.2 + zOffset
-            ), "forward");
-            fin.parent = barrel;
-            const finMat = new StandardMaterial(`freezeFinMat${i}`, scene);
-            finMat.diffuseColor = new Color3(0.4, 0.6, 0.9);
-            finMat.emissiveColor = new Color3(0.08, 0.15, 0.25);
-            fin.material = finMat;
+            CannonDetailsGenerator.createCoolingFin(
+                scene, barrel,
+                new Vector3(
+                    Math.cos(angle) * barrelWidth * 0.55,
+                    Math.sin(angle) * barrelWidth * 0.55,
+                    -barrelLength * 0.2 + zOffset
+                ),
+                angle,
+                barrelWidth * 0.15, barrelWidth * 0.15, barrelWidth * 0.4,
+                freezeFinMat, `previewFreezeFin${i}`
+            );
         }
         
         const cryoMat = new StandardMaterial("cryoTankMat", scene);
         cryoMat.diffuseColor = new Color3(0.25, 0.5, 0.9);
         cryoMat.emissiveColor = new Color3(0.08, 0.15, 0.3);
-        const cryoTank = MeshBuilder.CreateBox("cryoTank", {
-            width: barrelWidth * 0.7,
-            height: barrelWidth * 0.6,
-            depth: barrelWidth * 0.7
-        }, scene);
-        cryoTank.position = addZFightingOffset(new Vector3(0, barrelWidth * 0.45, -barrelLength * 0.3), "up");
-        cryoTank.parent = barrel;
-        cryoTank.material = cryoMat;
+        CannonDetailsGenerator.createCryoTank(
+            scene, barrel,
+            new Vector3(0, barrelWidth * 0.45, -barrelLength * 0.3),
+            barrelWidth * 0.7, barrelWidth * 0.6, barrelWidth * 0.7,
+            cryoMat, "preview"
+        );
         
-        const cryoVent = MeshBuilder.CreateBox("cryoVent", {
-            width: barrelWidth * 0.08,
-            height: barrelWidth * 0.08,
-            depth: barrelWidth * 0.08
-        }, scene);
-        cryoVent.position = addZFightingOffset(new Vector3(0, barrelWidth * 0.75, -barrelLength * 0.3), "up");
-        cryoVent.parent = barrel;
-        cryoVent.material = cryoMat;
+        CannonDetailsGenerator.createCryoVent(
+            scene, barrel,
+            new Vector3(0, barrelWidth * 0.75, -barrelLength * 0.3),
+            barrelWidth * 0.08, barrelWidth * 0.08, barrelWidth * 0.08,
+            cryoMat, "preview"
+        );
         
         for (let j = 0; j < 3; j++) {
-            const emitterPart = MeshBuilder.CreateBox(`freezeEmitter${j}`, {
-                width: barrelWidth * (1.3 - j * 0.1),
-                height: barrelWidth * 0.13,
-                depth: barrelWidth * (1.3 - j * 0.1)
-            }, scene);
-            emitterPart.position = addZFightingOffset(new Vector3(0, 0, barrelLength * 0.5 + j * barrelWidth * 0.13), "forward");
-            emitterPart.parent = barrel;
-            emitterPart.material = cryoMat;
+            CannonDetailsGenerator.createFreezeEmitter(
+                scene, barrel,
+                new Vector3(0, 0, barrelLength * 0.5),
+                j, barrelWidth * 1.3, barrelWidth * 0.1,
+                barrelWidth * 0.13,
+                cryoMat, "preview"
+            );
         }
         break;
         case "poison":
@@ -3406,67 +3339,56 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
         const poisonTankMat = new StandardMaterial("poisonTankMat", scene);
         poisonTankMat.diffuseColor = new Color3(0.3, 0.7, 0.15);
         poisonTankMat.emissiveColor = new Color3(0.15, 0.35, 0.08);
-        const poisonTank = MeshBuilder.CreateBox("poisonTank", {
-            width: barrelWidth * 0.6,
-            height: barrelWidth * 1.2,
-            depth: barrelWidth * 0.6
-        }, scene);
-        poisonTank.position = addZFightingOffset(new Vector3(0, barrelWidth * 0.4, -barrelLength * 0.25), "forward");
-        poisonTank.parent = barrel;
-        poisonTank.material = poisonTankMat;
+        CannonDetailsGenerator.createPoisonTank(
+            scene, barrel,
+            new Vector3(0, barrelWidth * 0.4, -barrelLength * 0.25),
+            barrelWidth * 0.6, barrelWidth * 1.2, barrelWidth * 0.6,
+            poisonTankMat, "preview"
+        );
         
-        const poisonVent = MeshBuilder.CreateBox("poisonVent", {
-            width: barrelWidth * 0.08,
-            height: barrelWidth * 0.08,
-            depth: barrelWidth * 0.08
-        }, scene);
-        poisonVent.position = addZFightingOffset(new Vector3(0, barrelWidth * 0.7, -barrelLength * 0.25), "up");
-        poisonVent.parent = barrel;
-        poisonVent.material = poisonTankMat;
+        CannonDetailsGenerator.createPoisonVent(
+            scene, barrel,
+            new Vector3(0, barrelWidth * 0.7, -barrelLength * 0.25),
+            barrelWidth * 0.08, barrelWidth * 0.08, barrelWidth * 0.08,
+            poisonTankMat, "preview"
+        );
         
         for (let j = 0; j < 3; j++) {
-            const injectorPart = MeshBuilder.CreateBox(`poisonInjector${j}`, {
-                width: barrelWidth * (0.5 - j * 0.05),
-                height: barrelWidth * 0.2,
-                depth: barrelWidth * (0.5 - j * 0.05)
-            }, scene);
-            injectorPart.position = addZFightingOffset(new Vector3(0, 0, barrelLength * 0.45 + j * barrelWidth * 0.2), "forward");
-            injectorPart.parent = barrel;
-            injectorPart.material = poisonTankMat;
+            CannonDetailsGenerator.createPoisonInjector(
+                scene, barrel,
+                new Vector3(0, 0, barrelLength * 0.45),
+                j, barrelWidth * 0.5, barrelWidth * 0.05,
+                barrelWidth * 0.2,
+                poisonTankMat, "preview"
+            );
         }
         
         for (let i = 0; i < 4; i++) {
-            const needle = MeshBuilder.CreateBox(`poisonNeedle${i}`, {
-                width: barrelWidth * 0.06,
-                height: barrelWidth * 0.3,
-                depth: barrelWidth * 0.06
-            }, scene);
             const angle = (i * Math.PI * 2) / 4;
-            needle.position = addZFightingOffset(new Vector3(
+            CannonDetailsGenerator.createPoisonNeedle(
+                scene, barrel,
+                new Vector3(
                     Math.cos(angle) * barrelWidth * 0.25,
                     Math.sin(angle) * barrelWidth * 0.25,
                     barrelLength * 0.5
-                ), "forward");
-            needle.parent = barrel;
-            needle.material = poisonTankMat;
+                ),
+                angle,
+                barrelWidth * 0.06, barrelWidth * 0.3, barrelWidth * 0.06,
+                poisonTankMat, `previewPoisonNeedle${i}`
+            );
         }
         
         // Каналы яда - короткие детали вместо длинных вертикальных
         for (let i = 0; i < 4; i++) {
-            const channel = MeshBuilder.CreateBox(`poisonChannel${i}`, {
-                width: barrelWidth * 0.12,
-                height: barrelWidth * 0.12,
-                depth: barrelWidth * 0.3  // Короткие детали
-            }, scene);
             const side = i < 2 ? -1 : 1;
             const zOffset = (i % 2) * barrelWidth * 0.35;
-            channel.position = addZFightingOffset(new Vector3(
-                side * barrelWidth * 0.3,
-                barrelWidth * 0.15,
-                barrelLength * 0.1 + zOffset
-            ), "forward");
-            channel.parent = barrel;
-            channel.material = poisonTankMat;
+            CannonDetailsGenerator.createPoisonChannel(
+                scene, barrel,
+                new Vector3(barrelWidth * 0.3, barrelWidth * 0.15, barrelLength * 0.1),
+                side, zOffset,
+                barrelWidth * 0.12, barrelWidth * 0.12, barrelWidth * 0.3,
+                poisonTankMat, `previewPoisonChannel${i}`
+            );
         }
         break;
         case "emp":
@@ -3477,56 +3399,38 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
             depth: barrelLength * 1.0
         }, scene);
         
-        const empDish = MeshBuilder.CreateBox("empDish", {
-            width: barrelWidth * 1.8,
-            height: barrelWidth * 0.3,
-            depth: barrelWidth * 1.8
-        }, scene);
-        empDish.position = addZFightingOffset(new Vector3(0, 0, barrelLength * 0.5), "forward");
-        empDish.parent = barrel;
         const empDishMat = new StandardMaterial("empDishMat", scene);
         empDishMat.diffuseColor = new Color3(0.7, 0.7, 0.15);
         empDishMat.emissiveColor = new Color3(0.3, 0.3, 0.08);
-        empDish.material = empDishMat;
+        CannonDetailsGenerator.createEMPDish(
+            scene, barrel,
+            new Vector3(0, 0, barrelLength * 0.5),
+            barrelWidth * 1.8, barrelWidth * 0.3, barrelWidth * 1.8,
+            empDishMat, "preview"
+        );
         
         for (let i = 0; i < 3; i++) {
             const ringSize = barrelWidth * 1.3;
             const ringThickness = barrelWidth * 0.1;
             const ringZ = -barrelLength * 0.25 + i * barrelLength * 0.2;
-            const ringParts: Mesh[] = [];
-            const top = MeshBuilder.CreateBox(`empCoilTop${i}`, { width: ringSize, height: ringThickness, depth: ringThickness }, scene);
-            top.position = addZFightingOffset(new Vector3(0, ringSize / 2, ringZ), "forward");
-            top.parent = barrel;
-            ringParts.push(top);
-            const bottom = MeshBuilder.CreateBox(`empCoilBottom${i}`, { width: ringSize, height: ringThickness, depth: ringThickness }, scene);
-            bottom.position = addZFightingOffset(new Vector3(0, -ringSize / 2, ringZ), "forward");
-            bottom.parent = barrel;
-            ringParts.push(bottom);
-            const left = MeshBuilder.CreateBox(`empCoilLeft${i}`, { width: ringThickness, height: ringSize, depth: ringThickness }, scene);
-            left.position = addZFightingOffset(new Vector3(-ringSize / 2, 0, ringZ), "forward");
-            left.parent = barrel;
-            ringParts.push(left);
-            const right = MeshBuilder.CreateBox(`empCoilRight${i}`, { width: ringThickness, height: ringSize, depth: ringThickness }, scene);
-            right.position = addZFightingOffset(new Vector3(ringSize / 2, 0, ringZ), "forward");
-            right.parent = barrel;
-            ringParts.push(right);
-            ringParts.forEach(part => part.material = empDishMat);
+            CannonDetailsGenerator.createRing(
+                scene, barrel,
+                new Vector3(0, 0, ringZ),
+                ringSize, ringThickness,
+                empDishMat, `previewEMPRing${i}`
+            );
         }
         
         const empGenMat = new StandardMaterial("empGenMat", scene);
         empGenMat.diffuseColor = new Color3(0.9, 0.9, 0.25);
         empGenMat.emissiveColor = new Color3(0.4, 0.4, 0.12);
         empGenMat.disableLighting = true;
-        for (let i = 0; i < 3; i++) {
-            const genLayer = MeshBuilder.CreateBox(`empGen${i}`, {
-                width: barrelWidth * (0.7 - i * 0.05),
-                height: barrelWidth * (0.7 - i * 0.05),
-                depth: barrelWidth * (0.7 - i * 0.05)
-            }, scene);
-            genLayer.position = addZFightingOffset(new Vector3(0, 0, -barrelLength * 0.4 - i * barrelWidth * 0.1), "forward");
-            genLayer.parent = barrel;
-            genLayer.material = empGenMat;
-        }
+        CannonDetailsGenerator.createGenerator(
+            scene, barrel,
+            new Vector3(0, 0, -barrelLength * 0.4),
+            barrelWidth * 0.7, 3, barrelWidth * 0.05,
+            empGenMat, "previewEMPGen"
+        );
         break;
         
         // === MULTI-SHOT WEAPONS ===            break;
@@ -3538,48 +3442,33 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
             depth: barrelLength * 1.0 
         }, scene);
         
+        const multishotBarrelMat = MaterialFactory.createBasicMaterial(scene, cannonColor.scale(0.9), "previewMultishotBarrel");
         for (let i = 0; i < 3; i++) {
-            const multiBarrel = MeshBuilder.CreateBox(`multi${i}`, {
-                width: barrelWidth * 0.5,
-                height: barrelWidth * 0.5,
-                depth: barrelLength * 1.05
-            }, scene);
-            multiBarrel.position = addZFightingOffset(new Vector3(
-                    (i - 1) * barrelWidth * 0.55,
-                    0,
-                    0
-                ), "forward");
-            multiBarrel.parent = barrel;
-            const barrelMat = new StandardMaterial(`multishotBarrelMat${i}`, scene);
-            barrelMat.diffuseColor = cannonColor.scale(0.9);
-            multiBarrel.material = barrelMat;
+            CannonDetailsGenerator.createMultishotBarrel(
+                scene, barrel,
+                new Vector3((i - 1) * barrelWidth * 0.55, 0, 0),
+                barrelWidth * 0.5, barrelWidth * 0.5, barrelLength * 1.05,
+                multishotBarrelMat, `previewMultishotBarrel${i}`
+            );
         }
         
-        const connector = MeshBuilder.CreateBox("multishotConnector", {
-            width: barrelWidth * 1.9,
-            height: barrelWidth * 0.9,
-            depth: barrelWidth * 0.7
-        }, scene);
-        connector.position = addZFightingOffset(new Vector3(0, 0, -barrelLength * 0.4), "forward");
-        connector.parent = barrel;
-        connector.material = barrel.material;
+        CannonDetailsGenerator.createMultishotConnector(
+            scene, barrel,
+            new Vector3(0, 0, -barrelLength * 0.4),
+            barrelWidth * 1.9, barrelWidth * 0.9, barrelWidth * 0.7,
+            barrel.material as StandardMaterial, "preview"
+        );
         
         // Стабилизаторы мульти-выстрела - короткие детали вместо длинных вертикальных
         for (let i = 0; i < 4; i++) {
-            const stabilizer = MeshBuilder.CreateBox(`multishotStabilizer${i}`, {
-                width: barrelWidth * 0.15,
-                height: barrelWidth * 0.15,
-                depth: barrelWidth * 0.3  // Короткие детали
-            }, scene);
             const side = i < 2 ? -1 : 1;
             const zOffset = (i % 2) * barrelWidth * 0.4;
-            stabilizer.position = addZFightingOffset(new Vector3(
-                side * barrelWidth * 0.25,
-                0,
-                barrelLength * 0.1 + zOffset
-            ), "forward");
-            stabilizer.parent = barrel;
-            stabilizer.material = barrel.material;
+            CannonDetailsGenerator.createStabilizer(
+                scene, barrel,
+                new Vector3(side * barrelWidth * 0.25, 0, barrelLength * 0.1 + zOffset),
+                barrelWidth * 0.15, barrelWidth * 0.15, barrelWidth * 0.3,
+                barrel.material as StandardMaterial, `previewMultishotStabilizer${i}`
+            );
         }
         break;
         
@@ -3596,55 +3485,40 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
         homingGuidanceMat.diffuseColor = new Color3(0.08, 0.8, 0.08);
         homingGuidanceMat.emissiveColor = new Color3(0.03, 0.35, 0.03);
         
-        const homingGuidance = MeshBuilder.CreateBox("homingGuidance", {
-            width: barrelWidth * 0.75,
-            height: barrelWidth * 0.55,
-            depth: barrelWidth * 0.75
-        }, scene);
-        homingGuidance.position = addZFightingOffset(new Vector3(0, barrelWidth * 0.55, -barrelLength * 0.2), "up");
-        homingGuidance.parent = barrel;
-        homingGuidance.material = homingGuidanceMat;
+        CannonDetailsGenerator.createHomingGuidance(
+            scene, barrel,
+            new Vector3(0, barrelWidth * 0.55, -barrelLength * 0.2),
+            barrelWidth * 0.75, barrelWidth * 0.55, barrelWidth * 0.75,
+            homingGuidanceMat, "preview"
+        );
         
-        const controlBlock = MeshBuilder.CreateBox("homingControl", {
-            width: barrelWidth * 0.5,
-            height: barrelWidth * 0.3,
-            depth: barrelWidth * 0.5
-        }, scene);
-        controlBlock.position = addZFightingOffset(new Vector3(0, barrelWidth * 0.85, -barrelLength * 0.2), "up");
-        controlBlock.parent = barrel;
-        controlBlock.material = homingGuidanceMat;
+        CannonDetailsGenerator.createHomingControl(
+            scene, barrel,
+            new Vector3(0, barrelWidth * 0.85, -barrelLength * 0.2),
+            barrelWidth * 0.5, barrelWidth * 0.3, barrelWidth * 0.5,
+            homingGuidanceMat, "preview"
+        );
         
         for (let i = 0; i < 2; i++) {
-            const antenna = MeshBuilder.CreateBox(`homingAntenna${i}`, {
-                width: barrelWidth * 0.08,
-                height: barrelWidth * 0.35,
-                depth: barrelWidth * 0.08
-            }, scene);
-            antenna.position = addZFightingOffset(new Vector3(
-                    (i === 0 ? -1 : 1) * barrelWidth * 0.45,
-                    barrelWidth * 0.75,
-                    -barrelLength * 0.15
-                ), "up");
-            antenna.parent = barrel;
-            antenna.material = homingGuidanceMat;
+            CannonDetailsGenerator.createHomingAntenna(
+                scene, barrel,
+                new Vector3(barrelWidth * 0.45, barrelWidth * 0.75, -barrelLength * 0.15),
+                (i === 0 ? -1 : 1),
+                barrelWidth * 0.08, barrelWidth * 0.35, barrelWidth * 0.08,
+                homingGuidanceMat, `previewHomingAntenna${i}`
+            );
         }
         
         // Стабилизаторы самонаведения - короткие детали вместо длинных вертикальных
         for (let i = 0; i < 4; i++) {
-            const stabilizer = MeshBuilder.CreateBox(`homingStabilizer${i}`, {
-                width: barrelWidth * 0.15,
-                height: barrelWidth * 0.15,
-                depth: barrelWidth * 0.3  // Короткие детали
-            }, scene);
             const side = i < 2 ? -1 : 1;
             const zOffset = (i % 2) * barrelWidth * 0.35;
-            stabilizer.position = addZFightingOffset(new Vector3(
-                side * barrelWidth * 0.55,
-                0,
-                barrelLength * 0.1 + zOffset
-            ), "forward");
-            stabilizer.parent = barrel;
-            stabilizer.material = homingGuidanceMat;
+            CannonDetailsGenerator.createStabilizer(
+                scene, barrel,
+                new Vector3(side * barrelWidth * 0.55, 0, barrelLength * 0.1 + zOffset),
+                barrelWidth * 0.15, barrelWidth * 0.15, barrelWidth * 0.3,
+                homingGuidanceMat, `previewHomingStabilizer${i}`
+            );
         }
         break;
         case "piercing":
@@ -3659,15 +3533,13 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
         piercingTipMat.diffuseColor = new Color3(0.85, 0.85, 0.85);
         piercingTipMat.emissiveColor = new Color3(0.15, 0.15, 0.15);
         for (let j = 0; j < 4; j++) {
-            const tipPart = MeshBuilder.CreateBox(`piercingTip${j}`, {
-                width: barrelWidth * (0.3 - j * 0.05),
-                height: barrelWidth * (0.3 - j * 0.05),
-                depth: barrelLength * 0.075
-            }, scene);
-            tipPart.position = addZFightingOffset(new Vector3(0, 0, barrelLength * 0.7 + j * barrelLength * 0.075), "forward");
-            tipPart.rotation.y = (j % 2 === 0 ? 1 : -1) * Math.PI / 8;
-            tipPart.parent = barrel;
-            tipPart.material = piercingTipMat;
+            CannonDetailsGenerator.createPiercingTip(
+                scene, barrel,
+                new Vector3(0, 0, barrelLength * 0.7),
+                j, barrelWidth * 0.3, barrelWidth * 0.05,
+                barrelLength * 0.075,
+                piercingTipMat, "preview"
+            );
         }
         
         // Короткие детали вокруг ствола вместо вертикальных кондуитов
@@ -3676,88 +3548,58 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
             const ringZ = -barrelLength * 0.25 + i * barrelLength * 0.4;
             const ringSize = barrelWidth * 0.7;
             const ringThickness = barrelWidth * 0.05;
-            const ringParts: Mesh[] = [];
-            
-            const top = MeshBuilder.CreateBox(`piercingRingTop${i}`, { width: ringSize, height: ringThickness, depth: ringThickness }, scene);
-            top.position = addZFightingOffset(new Vector3(0, ringSize / 2, ringZ), "forward");
-            top.parent = barrel;
-            ringParts.push(top);
-            
-            const bottom = MeshBuilder.CreateBox(`piercingRingBottom${i}`, { width: ringSize, height: ringThickness, depth: ringThickness }, scene);
-            bottom.position = addZFightingOffset(new Vector3(0, -ringSize / 2, ringZ), "forward");
-            bottom.parent = barrel;
-            ringParts.push(bottom);
-            
-            const left = MeshBuilder.CreateBox(`piercingRingLeft${i}`, { width: ringThickness, height: ringSize, depth: ringThickness }, scene);
-            left.position = addZFightingOffset(new Vector3(-ringSize / 2, 0, ringZ), "forward");
-            left.parent = barrel;
-            ringParts.push(left);
-            
-            const right = MeshBuilder.CreateBox(`piercingRingRight${i}`, { width: ringThickness, height: ringSize, depth: ringThickness }, scene);
-            right.position = addZFightingOffset(new Vector3(ringSize / 2, 0, ringZ), "forward");
-            right.parent = barrel;
-            ringParts.push(right);
-            
-            ringParts.forEach(part => part.material = barrel.material);
+            CannonDetailsGenerator.createRing(
+                scene, barrel,
+                new Vector3(0, 0, ringZ),
+                ringSize, ringThickness,
+                barrel.material as StandardMaterial, `previewPiercingRing${i}`
+            );
         }
         
         // Маленькие пластины/ребра жесткости вокруг ствола (10 штук)
         for (let i = 0; i < 10; i++) {
             const plateAngle = (i * Math.PI * 2) / 10;
             const plateZ = -barrelLength * 0.2 + (i % 5) * barrelLength * 0.4;
-            const plate = MeshBuilder.CreateBox(`piercingPlate${i}`, {
-                width: barrelWidth * 0.1,
-                height: barrelWidth * 0.07,
-                depth: barrelWidth * 0.1
-            }, scene);
-            plate.position = addZFightingOffset(new Vector3(
+            CannonDetailsGenerator.createPlate(
+                scene, barrel,
+                new Vector3(
                     Math.cos(plateAngle) * barrelWidth * 0.38,
                     Math.sin(plateAngle) * barrelWidth * 0.38,
                     plateZ
-                ), "up");
-            plate.parent = barrel;
-            plate.material = barrel.material;
+                ),
+                plateAngle,
+                barrelWidth * 0.1, barrelWidth * 0.07, barrelWidth * 0.1,
+                barrel.material as StandardMaterial, `previewPiercingPlate${i}`
+            );
         }
         
         // Ребра охлаждения (8 штук, короткие, перпендикулярно стволу)
         for (let i = 0; i < 8; i++) {
             const finAngle = (i * Math.PI * 2) / 8;
             const finZ = -barrelLength * 0.15 + (i % 4) * barrelLength * 0.5;
-            const fin = MeshBuilder.CreateBox(`piercingFin${i}`, {
-                width: barrelWidth * 0.13,
-                height: barrelWidth * 0.09,
-                depth: barrelWidth * 0.04
-            }, scene);
-            fin.position = addZFightingOffset(new Vector3(
+            CannonDetailsGenerator.createCoolingFin(
+                scene, barrel,
+                new Vector3(
                     Math.cos(finAngle) * barrelWidth * 0.36,
                     Math.sin(finAngle) * barrelWidth * 0.36,
                     finZ
-                ), "up");
-            fin.rotation.z = finAngle;
-            fin.parent = barrel;
-            fin.material = barrel.material;
+                ),
+                finAngle,
+                barrelWidth * 0.13, barrelWidth * 0.09, barrelWidth * 0.04,
+                barrel.material as StandardMaterial, `previewPiercingFin${i}`
+            );
         }
         
         for (let i = 0; i < 3; i++) {
             const ringSize = barrelWidth * 0.75;
             const ringThickness = barrelWidth * 0.06;
             const ringZ = -barrelLength * 0.25 + i * barrelLength * 0.2;
-            const top = MeshBuilder.CreateBox(`piercingStabilizerTop${i}`, { width: ringSize, height: ringThickness, depth: ringThickness }, scene);
-            top.position = addZFightingOffset(new Vector3(0, ringSize / 2, ringZ), "forward");
-            top.parent = barrel;
-            top.material = barrel.material;
-            const bottom = MeshBuilder.CreateBox(`piercingStabilizerBottom${i}`, { width: ringSize, height: ringThickness, depth: ringThickness }, scene);
-            bottom.position = addZFightingOffset(new Vector3(0, -ringSize / 2, ringZ), "forward");
-            bottom.parent = barrel;
-            bottom.material = barrel.material;
-            const left = MeshBuilder.CreateBox(`piercingStabilizerLeft${i}`, { width: ringThickness, height: ringSize, depth: ringThickness }, scene);
-            left.position = addZFightingOffset(new Vector3(-ringSize / 2, 0, ringZ), "forward");
-            left.parent = barrel;
-            left.material = barrel.material;
-            const right = MeshBuilder.CreateBox(`piercingStabilizerRight${i}`, { width: ringThickness, height: ringSize, depth: ringThickness }, scene);
-            right.position = addZFightingOffset(new Vector3(ringSize / 2, 0, ringZ), "forward");
-            right.parent = barrel;
-            right.material = barrel.material;
+            CannonDetailsGenerator.createRing(
+                scene, barrel,
+                new Vector3(0, 0, ringZ),
+                ringSize, ringThickness,
+                barrel.material as StandardMaterial, `previewPiercingRing${i}`
+            );
         }
         break;
         case "shockwave":
@@ -3772,43 +3614,34 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
         shockwaveAmpMat.diffuseColor = cannonColor.scale(0.8);
         shockwaveAmpMat.emissiveColor = new Color3(0.05, 0.05, 0.05);
         for (let j = 0; j < 3; j++) {
-            const ampPart = MeshBuilder.CreateBox(`shockwaveAmp${j}`, {
-                width: barrelWidth * (2.2 - j * 0.1),
-                height: barrelWidth * 0.2,
-                depth: barrelWidth * (2.2 - j * 0.1)
-            }, scene);
-            ampPart.position = addZFightingOffset(new Vector3(0, 0, barrelLength * 0.45 + j * barrelWidth * 0.2), "forward");
-            ampPart.parent = barrel;
-            ampPart.material = shockwaveAmpMat;
+            CannonDetailsGenerator.createShockwaveAmplifier(
+                scene, barrel,
+                new Vector3(0, 0, barrelLength * 0.45),
+                j, barrelWidth * 2.2, barrelWidth * 0.1,
+                barrelWidth * 0.2,
+                shockwaveAmpMat, "preview"
+            );
         }
         
         // УБРАНЫ длинные вертикальные эмиттеры - заменены на короткие горизонтальные детали
         for (let i = 0; i < 6; i++) {
-            const emitter = MeshBuilder.CreateBox(`shockwaveEmitter${i}`, {
-                width: barrelWidth * 0.15,
-                height: barrelWidth * 0.15,
-                depth: barrelWidth * 0.3  // Короткие детали вместо длинных вертикальных
-            }, scene);
             const angle = (i * Math.PI * 2) / 6;
-            emitter.position = addZFightingOffset(new Vector3(
-                Math.cos(angle) * barrelWidth * 0.85,
-                Math.sin(angle) * barrelWidth * 0.85,
-                barrelLength * 0.1 + (i % 3) * barrelWidth * 0.15
-            ), "forward");
-            emitter.parent = barrel;
-            emitter.material = shockwaveAmpMat;
+            const zOffset = (i % 3) * barrelWidth * 0.15;
+            CannonDetailsGenerator.createShockwaveEmitter(
+                scene, barrel,
+                new Vector3(barrelWidth * 0.85, barrelWidth * 0.85, barrelLength * 0.1),
+                angle, zOffset,
+                barrelWidth * 0.15, barrelWidth * 0.15, barrelWidth * 0.3,
+                shockwaveAmpMat, `previewShockwaveEmitter${i}`
+            );
         }
         
-        for (let i = 0; i < 2; i++) {
-            const genLayer = MeshBuilder.CreateBox(`shockwaveGen${i}`, {
-                width: barrelWidth * (0.8 - i * 0.1),
-                height: barrelWidth * (0.8 - i * 0.1),
-                depth: barrelWidth * (0.8 - i * 0.1)
-            }, scene);
-            genLayer.position = addZFightingOffset(new Vector3(0, 0, -barrelLength * 0.35 - i * barrelWidth * 0.1), "forward");
-            genLayer.parent = barrel;
-            genLayer.material = shockwaveAmpMat;
-        }
+        CannonDetailsGenerator.createGenerator(
+            scene, barrel,
+            new Vector3(0, 0, -barrelLength * 0.35),
+            barrelWidth * 0.8, 2, barrelWidth * 0.1,
+            shockwaveAmpMat, "previewShockwaveGen"
+        );
         break;
         case "beam":
         // Beam - Прототип: Лучовая пушка
@@ -3823,25 +3656,22 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
         beamFocuserMat.emissiveColor = new Color3(0.35, 0.15, 0);
         beamFocuserMat.disableLighting = true;
         for (let j = 0; j < 4; j++) {
-            const focuserPart = MeshBuilder.CreateBox(`beamFocuser${j}`, {
-                width: barrelWidth * (0.9 - j * 0.05),
-                height: barrelWidth * 0.125,
-                depth: barrelWidth * (0.9 - j * 0.05)
-            }, scene);
-            focuserPart.position = addZFightingOffset(new Vector3(0, 0, barrelLength * 0.65 + j * barrelWidth * 0.125), "forward");
-            focuserPart.parent = barrel;
-            focuserPart.material = beamFocuserMat;
+            CannonDetailsGenerator.createBeamFocuser(
+                scene, barrel,
+                new Vector3(0, 0, barrelLength * 0.65),
+                j, barrelWidth * 0.9, barrelWidth * 0.05,
+                barrelWidth * 0.125,
+                beamFocuserMat, "preview"
+            );
         }
         
         for (let i = 0; i < 3; i++) {
-            const lens = MeshBuilder.CreateBox(`beamLens${i}`, {
-                width: barrelWidth * 0.85,
-                height: barrelWidth * 0.2,
-                depth: barrelWidth * 0.85
-            }, scene);
-            lens.position = addZFightingOffset(new Vector3(0, 0, barrelLength * 0.25 + i * barrelLength * 0.15), "forward");
-            lens.parent = barrel;
-            lens.material = beamFocuserMat;
+            CannonDetailsGenerator.createBeamLens(
+                scene, barrel,
+                new Vector3(0, 0, barrelLength * 0.25 + i * barrelLength * 0.15),
+                barrelWidth * 0.85, barrelWidth * 0.2, barrelWidth * 0.85,
+                beamFocuserMat, `previewBeamLens${i}`
+            );
         }
         
         // Короткие детали вокруг ствола вместо вертикальных каналов
@@ -3850,66 +3680,46 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
             const ringZ = -barrelLength * 0.2 + i * barrelLength * 0.35;
             const ringSize = barrelWidth * 1.05;
             const ringThickness = barrelWidth * 0.06;
-            const ringParts: Mesh[] = [];
-            
-            const top = MeshBuilder.CreateBox(`beamRingTop${i}`, { width: ringSize, height: ringThickness, depth: ringThickness }, scene);
-            top.position = addZFightingOffset(new Vector3(0, ringSize / 2, ringZ), "forward");
-            top.parent = barrel;
-            ringParts.push(top);
-            
-            const bottom = MeshBuilder.CreateBox(`beamRingBottom${i}`, { width: ringSize, height: ringThickness, depth: ringThickness }, scene);
-            bottom.position = addZFightingOffset(new Vector3(0, -ringSize / 2, ringZ), "forward");
-            bottom.parent = barrel;
-            ringParts.push(bottom);
-            
-            const left = MeshBuilder.CreateBox(`beamRingLeft${i}`, { width: ringThickness, height: ringSize, depth: ringThickness }, scene);
-            left.position = addZFightingOffset(new Vector3(-ringSize / 2, 0, ringZ), "forward");
-            left.parent = barrel;
-            ringParts.push(left);
-            
-            const right = MeshBuilder.CreateBox(`beamRingRight${i}`, { width: ringThickness, height: ringSize, depth: ringThickness }, scene);
-            right.position = addZFightingOffset(new Vector3(ringSize / 2, 0, ringZ), "forward");
-            right.parent = barrel;
-            ringParts.push(right);
-            
-            ringParts.forEach(part => part.material = beamFocuserMat);
+            CannonDetailsGenerator.createRing(
+                scene, barrel,
+                new Vector3(0, 0, ringZ),
+                ringSize, ringThickness,
+                beamFocuserMat, `previewBeamRing${i}`
+            );
         }
         
         // Маленькие пластины/ребра жесткости вокруг ствола (10 штук)
         for (let i = 0; i < 10; i++) {
             const plateAngle = (i * Math.PI * 2) / 10;
             const plateZ = -barrelLength * 0.15 + (i % 5) * barrelLength * 0.3;
-            const plate = MeshBuilder.CreateBox(`beamPlate${i}`, {
-                width: barrelWidth * 0.12,
-                height: barrelWidth * 0.08,
-                depth: barrelWidth * 0.12
-            }, scene);
-            plate.position = addZFightingOffset(new Vector3(
+            CannonDetailsGenerator.createPlate(
+                scene, barrel,
+                new Vector3(
                     Math.cos(plateAngle) * barrelWidth * 0.5,
                     Math.sin(plateAngle) * barrelWidth * 0.5,
                     plateZ
-                ), "up");
-            plate.parent = barrel;
-            plate.material = beamFocuserMat;
+                ),
+                plateAngle,
+                barrelWidth * 0.12, barrelWidth * 0.08, barrelWidth * 0.12,
+                beamFocuserMat, `previewBeamPlate${i}`
+            );
         }
         
         // Ребра охлаждения (8 штук, короткие, перпендикулярно стволу)
         for (let i = 0; i < 8; i++) {
             const finAngle = (i * Math.PI * 2) / 8;
             const finZ = -barrelLength * 0.1 + (i % 4) * barrelLength * 0.4;
-            const fin = MeshBuilder.CreateBox(`beamFin${i}`, {
-                width: barrelWidth * 0.15,
-                height: barrelWidth * 0.1,
-                depth: barrelWidth * 0.05
-            }, scene);
-            fin.position = addZFightingOffset(new Vector3(
+            CannonDetailsGenerator.createCoolingFin(
+                scene, barrel,
+                new Vector3(
                     Math.cos(finAngle) * barrelWidth * 0.48,
                     Math.sin(finAngle) * barrelWidth * 0.48,
                     finZ
-                ), "up");
-            fin.rotation.z = finAngle;
-            fin.parent = barrel;
-            fin.material = beamFocuserMat;
+                ),
+                finAngle,
+                barrelWidth * 0.15, barrelWidth * 0.1, barrelWidth * 0.05,
+                beamFocuserMat, `previewBeamFin${i}`
+            );
         }
         break;
         case "vortex":
@@ -3920,47 +3730,31 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
             depth: barrelLength * 1.0
         }, scene);
         
+        const vortexRingMat = new StandardMaterial("vortexRingMat", scene);
+        vortexRingMat.diffuseColor = new Color3(0.4, 0.15, 0.7);
+        vortexRingMat.emissiveColor = new Color3(0.15, 0.08, 0.3);
         for (let i = 0; i < 5; i++) {
             const ringSize = barrelWidth * (1.2 + i * 0.15);
             const ringThickness = barrelWidth * 0.12;
             const ringZ = -barrelLength * 0.25 + i * barrelLength * 0.15;
-            const ringParts: Mesh[] = [];
-            const top = MeshBuilder.CreateBox(`vortexRingTop${i}`, { width: ringSize, height: ringThickness, depth: ringThickness }, scene);
-            top.position = addZFightingOffset(new Vector3(0, ringSize / 2, ringZ), "forward");
-            top.parent = barrel;
-            ringParts.push(top);
-            const bottom = MeshBuilder.CreateBox(`vortexRingBottom${i}`, { width: ringSize, height: ringThickness, depth: ringThickness }, scene);
-            bottom.position = addZFightingOffset(new Vector3(0, -ringSize / 2, ringZ), "forward");
-            bottom.parent = barrel;
-            ringParts.push(bottom);
-            const left = MeshBuilder.CreateBox(`vortexRingLeft${i}`, { width: ringThickness, height: ringSize, depth: ringThickness }, scene);
-            left.position = addZFightingOffset(new Vector3(-ringSize / 2, 0, ringZ), "forward");
-            left.parent = barrel;
-            ringParts.push(left);
-            const right = MeshBuilder.CreateBox(`vortexRingRight${i}`, { width: ringThickness, height: ringSize, depth: ringThickness }, scene);
-            right.position = addZFightingOffset(new Vector3(ringSize / 2, 0, ringZ), "forward");
-            right.parent = barrel;
-            ringParts.push(right);
-            const ringMat = new StandardMaterial(`vortexRingMat${i}`, scene);
-            ringMat.diffuseColor = new Color3(0.4, 0.15, 0.7);
-            ringMat.emissiveColor = new Color3(0.15, 0.08, 0.3);
-            ringParts.forEach(part => part.material = ringMat);
+            CannonDetailsGenerator.createRing(
+                scene, barrel,
+                new Vector3(0, 0, ringZ),
+                ringSize, ringThickness,
+                vortexRingMat, `previewVortexRing${i}`
+            );
         }
         
         const vortexGenMat = new StandardMaterial("vortexGenMat", scene);
         vortexGenMat.diffuseColor = new Color3(0.5, 0.25, 0.9);
         vortexGenMat.emissiveColor = new Color3(0.25, 0.12, 0.4);
         vortexGenMat.disableLighting = true;
-        for (let i = 0; i < 3; i++) {
-            const genLayer = MeshBuilder.CreateBox(`vortexGen${i}`, {
-                width: barrelWidth * (0.7 - i * 0.05),
-                height: barrelWidth * (0.7 - i * 0.05),
-                depth: barrelWidth * (0.7 - i * 0.05)
-            }, scene);
-            genLayer.position = addZFightingOffset(new Vector3(0, 0, -barrelLength * 0.4 - i * barrelWidth * 0.1), "forward");
-            genLayer.parent = barrel;
-            genLayer.material = vortexGenMat;
-        }
+        CannonDetailsGenerator.createGenerator(
+            scene, barrel,
+            new Vector3(0, 0, -barrelLength * 0.4),
+            barrelWidth * 0.7, 3, barrelWidth * 0.05,
+            vortexGenMat, "previewVortexGen"
+        );
         break;
         case "support":
         // Support - Прототип: Ремонтный луч
@@ -3975,50 +3769,33 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
         supportEmitterMat.emissiveColor = new Color3(0, 0.35, 0.18);
         supportEmitterMat.disableLighting = true;
         for (let j = 0; j < 4; j++) {
-            const emitterPart = MeshBuilder.CreateBox(`supportEmitter${j}`, {
-                width: barrelWidth * (0.9 - j * 0.05),
-                height: barrelWidth * 0.15,
-                depth: barrelWidth * (0.9 - j * 0.05)
-            }, scene);
-            emitterPart.position = addZFightingOffset(new Vector3(0, 0, barrelLength * 0.5 + j * barrelWidth * 0.15), "forward");
-            emitterPart.parent = barrel;
-            emitterPart.material = supportEmitterMat;
+            CannonDetailsGenerator.createSupportEmitter(
+                scene, barrel,
+                new Vector3(0, 0, barrelLength * 0.5 + j * barrelWidth * 0.15),
+                j, barrelWidth * 0.9, barrelWidth * 0.05,
+                barrelWidth * 0.15,
+                supportEmitterMat, "preview"
+            );
         }
         
         for (let i = 0; i < 3; i++) {
             const ringSize = barrelWidth * (0.9 + i * 0.15);
             const ringThickness = barrelWidth * 0.1;
             const ringZ = -barrelLength * 0.15 + i * barrelLength * 0.15;
-            const ringParts: Mesh[] = [];
-            const top = MeshBuilder.CreateBox(`supportRingTop${i}`, { width: ringSize, height: ringThickness, depth: ringThickness }, scene);
-            top.position = addZFightingOffset(new Vector3(0, ringSize / 2, ringZ), "forward");
-            top.parent = barrel;
-            ringParts.push(top);
-            const bottom = MeshBuilder.CreateBox(`supportRingBottom${i}`, { width: ringSize, height: ringThickness, depth: ringThickness }, scene);
-            bottom.position = addZFightingOffset(new Vector3(0, -ringSize / 2, ringZ), "forward");
-            bottom.parent = barrel;
-            ringParts.push(bottom);
-            const left = MeshBuilder.CreateBox(`supportRingLeft${i}`, { width: ringThickness, height: ringSize, depth: ringThickness }, scene);
-            left.position = addZFightingOffset(new Vector3(-ringSize / 2, 0, ringZ), "forward");
-            left.parent = barrel;
-            ringParts.push(left);
-            const right = MeshBuilder.CreateBox(`supportRingRight${i}`, { width: ringThickness, height: ringSize, depth: ringThickness }, scene);
-            right.position = addZFightingOffset(new Vector3(ringSize / 2, 0, ringZ), "forward");
-            right.parent = barrel;
-            ringParts.push(right);
-            ringParts.forEach(part => part.material = supportEmitterMat);
+            CannonDetailsGenerator.createRing(
+                scene, barrel,
+                new Vector3(0, 0, ringZ),
+                ringSize, ringThickness,
+                supportEmitterMat, `previewSupportRing${i}`
+            );
         }
         
-        for (let i = 0; i < 2; i++) {
-            const genLayer = MeshBuilder.CreateBox(`repairGen${i}`, {
-                width: barrelWidth * (0.6 - i * 0.05),
-                height: barrelWidth * (0.6 - i * 0.05),
-                depth: barrelWidth * (0.6 - i * 0.05)
-            }, scene);
-            genLayer.position = addZFightingOffset(new Vector3(0, 0, -barrelLength * 0.35 - i * barrelWidth * 0.1), "forward");
-            genLayer.parent = barrel;
-            genLayer.material = supportEmitterMat;
-        }
+        CannonDetailsGenerator.createGenerator(
+            scene, barrel,
+            new Vector3(0, 0, -barrelLength * 0.35),
+            barrelWidth * 0.6, 2, barrelWidth * 0.05,
+            supportEmitterMat, "previewRepairGen"
+        );
         break;
 
         default:

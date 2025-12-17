@@ -1252,31 +1252,31 @@ export class POISystem {
         let maxPOIs = 1;
         switch (biome) {
             case "military": 
-                poiChance = 0.85; // Военные базы - почти всегда есть POI
+                poiChance = 0.95; // Увеличено с 0.85 для много POI
                 maxPOIs = 3;
                 break;
             case "industrial": 
-                poiChance = 0.7; // Индустриальные зоны - много складов
+                poiChance = 0.9; // Увеличено с 0.7 для много POI
                 maxPOIs = 2;
                 break;
             case "city": 
-                poiChance = 0.5; // Городские районы - средняя плотность
+                poiChance = 0.85; // Увеличено с 0.5 для много POI
                 maxPOIs = 2;
                 break;
             case "wasteland": 
-                poiChance = 0.6; // Пустоши - много точек захвата
+                poiChance = 0.8; // Увеличено с 0.6 для много POI
                 maxPOIs = 2;
                 break;
             case "residential":
-                poiChance = 0.4; // Жилые районы - ремонтные станции
+                poiChance = 0.7; // Увеличено с 0.4 для много POI
                 maxPOIs = 1;
                 break;
             case "park":
-                poiChance = 0.3; // Парки - редко
+                poiChance = 0.6; // Увеличено с 0.3 для много POI
                 maxPOIs = 1;
                 break;
             default: 
-                poiChance = 0.35;
+                poiChance = 0.65; // Увеличено с 0.35 для много POI
                 maxPOIs = 1;
         }
         

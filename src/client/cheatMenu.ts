@@ -5,6 +5,7 @@
 import { TankController } from "./tankController";
 import { Game } from "./game";
 import { Vector3 } from "@babylonjs/core";
+import { EnemyTank } from "./enemyTank";
 
 export interface Cheat {
     id: string;
@@ -12,7 +13,7 @@ export interface Cheat {
     description: string;
     enabled: boolean;
     toggle: () => void;
-    category: "combat" | "movement" | "resources" | "debug" | "other";
+    category: "combat" | "movement" | "resources" | "debug" | "world" | "time" | "visual" | "other";
 }
 
 export class CheatMenu {
@@ -283,9 +284,6 @@ export class CheatMenu {
                     return;
                 }
                 
-                const { Vector3 } = await import("@babylonjs/core");
-                const { EnemyTank } = await import("./enemyTank");
-                
                 const pos = this.tank.chassis.absolutePosition;
                 const offset = new Vector3(
                     (Math.random() - 0.5) * 20,
@@ -407,6 +405,142 @@ export class CheatMenu {
                 this.updateCheatUI("infiniteResources");
             }
         });
+        
+        // === МИР ===
+        this.addCheat({
+            id: "teleport",
+            name: "Телепортация",
+            description: "Телепортироваться к координатам",
+            enabled: false,
+            category: "world",
+            toggle: () => {
+                const x = prompt("X:");
+                const y = prompt("Y:");
+                const z = prompt("Z:");
+                if (x && y && z && this.tank && this.tank.chassis) {
+                    const posX = parseFloat(x);
+                    const posY = parseFloat(y);
+                    const posZ = parseFloat(z);
+                    if (!isNaN(posX) && !isNaN(posY) && !isNaN(posZ)) {
+                        this.tank.chassis.position = new Vector3(posX, posY, posZ);
+                        if (this.tank.physicsBody) {
+                            this.tank.physicsBody.setTargetTransform(
+                                this.tank.chassis.position,
+                                this.tank.chassis.rotationQuaternion!
+                            );
+                        }
+                        if (this.game?.hud) {
+                            this.game.hud.showMessage(`Телепорт: (${posX.toFixed(1)}, ${posY.toFixed(1)}, ${posZ.toFixed(1)})`, "#0f0", 2000);
+                        }
+                    }
+                }
+            }
+        });
+        
+        // === ВРЕМЯ ===
+        this.addCheat({
+            id: "slowMotion",
+            name: "Замедление времени",
+            description: "Замедлить время в 2 раза",
+            enabled: false,
+            category: "time",
+            toggle: () => {
+                const cheat = this.cheats.get("slowMotion")!;
+                cheat.enabled = !cheat.enabled;
+                if (this.game && this.game.scene) {
+                    const timeScale = cheat.enabled ? 0.5 : 1.0;
+                    (this.game.scene as any).timeScale = timeScale;
+                    if (this.game.hud) {
+                        this.game.hud.showMessage(cheat.enabled ? "Замедление времени: ВКЛ" : "Замедление времени: ВЫКЛ", cheat.enabled ? "#0f0" : "#f00", 2000);
+                    }
+                }
+                this.updateCheatUI("slowMotion");
+            }
+        });
+        
+        this.addCheat({
+            id: "fastForward",
+            name: "Ускорение времени",
+            description: "Ускорить время в 2 раза",
+            enabled: false,
+            category: "time",
+            toggle: () => {
+                const cheat = this.cheats.get("fastForward")!;
+                cheat.enabled = !cheat.enabled;
+                if (this.game && this.game.scene) {
+                    const timeScale = cheat.enabled ? 2.0 : 1.0;
+                    (this.game.scene as any).timeScale = timeScale;
+                    if (this.game.hud) {
+                        this.game.hud.showMessage(cheat.enabled ? "Ускорение времени: ВКЛ" : "Ускорение времени: ВЫКЛ", cheat.enabled ? "#0f0" : "#f00", 2000);
+                    }
+                }
+                this.updateCheatUI("fastForward");
+            }
+        });
+        
+        // === ВИЗУАЛЬНЫЕ ===
+        this.addCheat({
+            id: "wireframe",
+            name: "Каркасный режим",
+            description: "Показать каркас всех объектов",
+            enabled: false,
+            category: "visual",
+            toggle: () => {
+                const cheat = this.cheats.get("wireframe")!;
+                cheat.enabled = !cheat.enabled;
+                if (this.game && this.game.scene) {
+                    this.game.scene.meshes.forEach(mesh => {
+                        if (mesh.material) {
+                            (mesh.material as any).wireframe = cheat.enabled;
+                        }
+                    });
+                    if (this.game.hud) {
+                        this.game.hud.showMessage(cheat.enabled ? "Каркасный режим: ВКЛ" : "Каркасный режим: ВЫКЛ", cheat.enabled ? "#0f0" : "#f00", 2000);
+                    }
+                }
+                this.updateCheatUI("wireframe");
+            }
+        });
+        
+        this.addCheat({
+            id: "noFog",
+            name: "Без тумана",
+            description: "Отключить туман",
+            enabled: false,
+            category: "visual",
+            toggle: () => {
+                const cheat = this.cheats.get("noFog")!;
+                cheat.enabled = !cheat.enabled;
+                if (this.game && this.game.scene) {
+                    this.game.scene.fogEnabled = !cheat.enabled;
+                    if (this.game.hud) {
+                        this.game.hud.showMessage(cheat.enabled ? "Туман: ВЫКЛ" : "Туман: ВКЛ", cheat.enabled ? "#0f0" : "#f00", 2000);
+                    }
+                }
+                this.updateCheatUI("noFog");
+            }
+        });
+        
+        this.addCheat({
+            id: "showBounds",
+            name: "Показать границы",
+            description: "Показать границы объектов",
+            enabled: false,
+            category: "visual",
+            toggle: () => {
+                const cheat = this.cheats.get("showBounds")!;
+                cheat.enabled = !cheat.enabled;
+                if (this.game && this.game.scene) {
+                    this.game.scene.meshes.forEach(mesh => {
+                        mesh.showBoundingBox = cheat.enabled;
+                    });
+                    if (this.game.hud) {
+                        this.game.hud.showMessage(cheat.enabled ? "Границы: ВКЛ" : "Границы: ВЫКЛ", cheat.enabled ? "#0f0" : "#f00", 2000);
+                    }
+                }
+                this.updateCheatUI("showBounds");
+            }
+        });
     }
     
     private addCheat(cheat: Cheat): void {
@@ -418,12 +552,15 @@ export class CheatMenu {
         this.container.id = "cheat-menu";
         this.container.className = "panel-overlay";
         
-        const categories = ["combat", "movement", "resources", "debug", "other"];
+        const categories = ["combat", "movement", "resources", "debug", "world", "time", "visual", "other"];
         const categoryNames: { [key: string]: string } = {
             combat: "⚔ БОЕВЫЕ",
             movement: "🏃 ДВИЖЕНИЕ",
             resources: "💰 РЕСУРСЫ",
             debug: "🐛 ОТЛАДКА",
+            world: "🌍 МИР",
+            time: "⏰ ВРЕМЯ",
+            visual: "👁 ВИЗУАЛЬНЫЕ",
             other: "🔧 ПРОЧЕЕ"
         };
         
@@ -434,6 +571,18 @@ export class CheatMenu {
                     <button class="panel-close" id="cheat-menu-close">✕</button>
                 </div>
                 <div class="panel-content">
+                    <div class="cheat-profiles" style="margin-bottom: 15px; padding: 10px; background: rgba(0, 20, 0, 0.3); border: 1px solid rgba(0, 255, 4, 0.3); border-radius: 4px;">
+                        <div style="color: #ff0; font-weight: bold; margin-bottom: 8px;">ПРОФИЛИ ЧИТОВ</div>
+                        <div style="display: flex; gap: 5px; margin-bottom: 8px;">
+                            <button id="cheat-save-profile" style="padding: 4px 8px; background: rgba(0, 255, 4, 0.2); border: 1px solid rgba(0, 255, 4, 0.6); color: #0f0; cursor: pointer; font-size: 11px;">Сохранить</button>
+                            <button id="cheat-load-profile" style="padding: 4px 8px; background: rgba(0, 255, 4, 0.2); border: 1px solid rgba(0, 255, 4, 0.6); color: #0f0; cursor: pointer; font-size: 11px;">Загрузить</button>
+                            <button id="cheat-export-profile" style="padding: 4px 8px; background: rgba(0, 255, 4, 0.2); border: 1px solid rgba(0, 255, 4, 0.6); color: #0f0; cursor: pointer; font-size: 11px;">Экспорт</button>
+                            <button id="cheat-import-profile" style="padding: 4px 8px; background: rgba(0, 255, 4, 0.2); border: 1px solid rgba(0, 255, 4, 0.6); color: #0f0; cursor: pointer; font-size: 11px;">Импорт</button>
+                        </div>
+                        <select id="cheat-profiles-list" style="width: 100%; padding: 4px; background: rgba(0, 5, 0, 0.5); border: 1px solid rgba(0, 255, 4, 0.4); color: #0f0; font-size: 11px;">
+                            <option value="">Выберите профиль...</option>
+                        </select>
+                    </div>
         `;
         
         categories.forEach(category => {
@@ -599,17 +748,26 @@ export class CheatMenu {
         document.getElementById("cheat-menu-close")?.addEventListener("click", () => {
             this.hide();
         });
+        
+        // Обработчики профилей
+        document.getElementById("cheat-save-profile")?.addEventListener("click", () => this.saveProfile());
+        document.getElementById("cheat-load-profile")?.addEventListener("click", () => this.loadProfile());
+        document.getElementById("cheat-export-profile")?.addEventListener("click", () => this.exportProfile());
+        document.getElementById("cheat-import-profile")?.addEventListener("click", () => this.importProfile());
+        
+        // Загрузка списка профилей
+        this.updateProfilesList();
+        
+        // Обработчики профилей
+        document.getElementById("cheat-save-profile")?.addEventListener("click", () => this.saveProfile());
+        document.getElementById("cheat-load-profile")?.addEventListener("click", () => this.loadProfile());
+        document.getElementById("cheat-export-profile")?.addEventListener("click", () => this.exportProfile());
+        document.getElementById("cheat-import-profile")?.addEventListener("click", () => this.importProfile());
+        
+        // Загрузка списка профилей
+        this.updateProfilesList();
     }
     
-    private updateCheatUI(cheatId: string): void {
-        const cheat = this.cheats.get(cheatId);
-        if (!cheat) return;
-        
-        const checkbox = document.getElementById(`cheat-${cheatId}`) as HTMLInputElement;
-        if (checkbox) {
-            checkbox.checked = cheat.enabled;
-        }
-    }
     
     private setupToggle(): void {
         window.addEventListener("keydown", (e) => {
@@ -651,6 +809,377 @@ export class CheatMenu {
         this.visible = false;
         this.container.classList.add("hidden");
         this.container.style.display = "none";
+    }
+    
+    /**
+     * Сохранение профиля читов
+     */
+    private saveProfile(): void {
+        const name = prompt("Имя профиля:", `Profile_${Date.now()}`);
+        if (!name || name.trim() === "") return;
+        
+        const profile: { [key: string]: boolean } = {};
+        this.cheats.forEach((cheat, id) => {
+            profile[id] = cheat.enabled;
+        });
+        
+        const profiles = this.loadProfiles();
+        profiles[name.trim()] = profile;
+        this.saveProfiles(profiles);
+        
+        this.updateProfilesList();
+        if (this.game?.hud) {
+            this.game.hud.showMessage(`Профиль "${name}" сохранён`, "#0f0", 2000);
+        }
+    }
+    
+    /**
+     * Загрузка профиля читов
+     */
+    private loadProfile(): void {
+        const select = document.getElementById("cheat-profiles-list") as HTMLSelectElement;
+        if (!select || !select.value) {
+            alert("Выберите профиль из списка");
+            return;
+        }
+        
+        const profileName = select.value;
+        const profiles = this.loadProfiles();
+        const profile = profiles[profileName];
+        
+        if (!profile) {
+            alert("Профиль не найден");
+            return;
+        }
+        
+        // Применяем профиль
+        Object.entries(profile).forEach(([cheatId, enabled]) => {
+            const cheat = this.cheats.get(cheatId);
+            if (cheat && cheat.enabled !== enabled) {
+                cheat.toggle();
+            }
+        });
+        
+        this.updateCheatUI();
+        if (this.game?.hud) {
+            this.game.hud.showMessage(`Профиль "${profileName}" загружен`, "#0f0", 2000);
+        }
+    }
+    
+    /**
+     * Экспорт профиля
+     */
+    private exportProfile(): void {
+        const select = document.getElementById("cheat-profiles-list") as HTMLSelectElement;
+        if (!select || !select.value) {
+            alert("Выберите профиль для экспорта");
+            return;
+        }
+        
+        const profileName = select.value;
+        const profiles = this.loadProfiles();
+        const profile = profiles[profileName];
+        
+        if (!profile) {
+            alert("Профиль не найден");
+            return;
+        }
+        
+        const data = {
+            name: profileName,
+            cheats: profile,
+            version: "1.0",
+            timestamp: Date.now()
+        };
+        
+        const json = JSON.stringify(data, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `cheat_profile_${profileName}_${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+    
+    /**
+     * Импорт профиля
+     */
+    private importProfile(): void {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const data = JSON.parse(event.target?.result as string);
+                    if (!data.name || !data.cheats) {
+                        alert('Неверный формат файла');
+                        return;
+                    }
+                    
+                    const profiles = this.loadProfiles();
+                    profiles[data.name] = data.cheats;
+                    this.saveProfiles(profiles);
+                    
+                    this.updateProfilesList();
+                    if (this.game?.hud) {
+                        this.game.hud.showMessage(`Профиль "${data.name}" импортирован`, "#0f0", 2000);
+                    }
+                } catch (error) {
+                    alert('Ошибка при импорте: ' + error);
+                }
+            };
+            reader.readAsText(file);
+        };
+        input.click();
+    }
+    
+    /**
+     * Загрузка профилей из localStorage
+     */
+    private loadProfiles(): { [key: string]: { [key: string]: boolean } } {
+        try {
+            const saved = localStorage.getItem('ptx_cheat_profiles');
+            if (saved) {
+                return JSON.parse(saved);
+            }
+        } catch (error) {
+            console.warn("[CheatMenu] Failed to load profiles:", error);
+        }
+        return {};
+    }
+    
+    /**
+     * Сохранение профилей в localStorage
+     */
+    private saveProfiles(profiles: { [key: string]: { [key: string]: boolean } }): void {
+        try {
+            localStorage.setItem('ptx_cheat_profiles', JSON.stringify(profiles));
+        } catch (error) {
+            console.warn("[CheatMenu] Failed to save profiles:", error);
+        }
+    }
+    
+    /**
+     * Обновление списка профилей
+     */
+    private updateProfilesList(): void {
+        const select = document.getElementById("cheat-profiles-list") as HTMLSelectElement;
+        if (!select) return;
+        
+        const profiles = this.loadProfiles();
+        select.innerHTML = '<option value="">Выберите профиль...</option>';
+        
+        Object.keys(profiles).forEach(name => {
+            const option = document.createElement('option');
+            option.value = name;
+            option.textContent = name;
+            select.appendChild(option);
+        });
+    }
+    
+    /**
+     * Обновление UI всех читов
+     */
+    private updateCheatUI(cheatId?: string): void {
+        if (cheatId) {
+            const cheat = this.cheats.get(cheatId);
+            if (!cheat) return;
+            
+            const checkbox = document.getElementById(`cheat-${cheatId}`) as HTMLInputElement;
+            if (checkbox) {
+                checkbox.checked = cheat.enabled;
+            }
+        } else {
+            // Обновляем все читы
+            this.cheats.forEach((cheat, id) => {
+                const checkbox = document.getElementById(`cheat-${id}`) as HTMLInputElement;
+                if (checkbox) {
+                    checkbox.checked = cheat.enabled;
+                }
+            });
+        }
+    }
+    
+    /**
+     * Сохранение профиля читов
+     */
+    private saveProfile(): void {
+        const name = prompt("Имя профиля:", `Profile_${Date.now()}`);
+        if (!name || name.trim() === "") return;
+        
+        const profile: { [key: string]: boolean } = {};
+        this.cheats.forEach((cheat, id) => {
+            profile[id] = cheat.enabled;
+        });
+        
+        const profiles = this.loadProfiles();
+        profiles[name.trim()] = profile;
+        this.saveProfiles(profiles);
+        
+        this.updateProfilesList();
+        if (this.game?.hud) {
+            this.game.hud.showMessage(`Профиль "${name}" сохранён`, "#0f0", 2000);
+        }
+    }
+    
+    /**
+     * Загрузка профиля читов
+     */
+    private loadProfile(): void {
+        const select = document.getElementById("cheat-profiles-list") as HTMLSelectElement;
+        if (!select || !select.value) {
+            alert("Выберите профиль из списка");
+            return;
+        }
+        
+        const profileName = select.value;
+        const profiles = this.loadProfiles();
+        const profile = profiles[profileName];
+        
+        if (!profile) {
+            alert("Профиль не найден");
+            return;
+        }
+        
+        // Применяем профиль
+        Object.entries(profile).forEach(([cheatId, enabled]) => {
+            const cheat = this.cheats.get(cheatId);
+            if (cheat && cheat.enabled !== enabled) {
+                cheat.toggle();
+            }
+        });
+        
+        this.updateCheatUI();
+        if (this.game?.hud) {
+            this.game.hud.showMessage(`Профиль "${profileName}" загружен`, "#0f0", 2000);
+        }
+    }
+    
+    /**
+     * Экспорт профиля
+     */
+    private exportProfile(): void {
+        const select = document.getElementById("cheat-profiles-list") as HTMLSelectElement;
+        if (!select || !select.value) {
+            alert("Выберите профиль для экспорта");
+            return;
+        }
+        
+        const profileName = select.value;
+        const profiles = this.loadProfiles();
+        const profile = profiles[profileName];
+        
+        if (!profile) {
+            alert("Профиль не найден");
+            return;
+        }
+        
+        const data = {
+            name: profileName,
+            cheats: profile,
+            version: "1.0",
+            timestamp: Date.now()
+        };
+        
+        const json = JSON.stringify(data, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `cheat_profile_${profileName}_${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+    
+    /**
+     * Импорт профиля
+     */
+    private importProfile(): void {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const data = JSON.parse(event.target?.result as string);
+                    if (!data.name || !data.cheats) {
+                        alert('Неверный формат файла');
+                        return;
+                    }
+                    
+                    const profiles = this.loadProfiles();
+                    profiles[data.name] = data.cheats;
+                    this.saveProfiles(profiles);
+                    
+                    this.updateProfilesList();
+                    if (this.game?.hud) {
+                        this.game.hud.showMessage(`Профиль "${data.name}" импортирован`, "#0f0", 2000);
+                    }
+                } catch (error) {
+                    alert('Ошибка при импорте: ' + error);
+                }
+            };
+            reader.readAsText(file);
+        };
+        input.click();
+    }
+    
+    /**
+     * Загрузка профилей из localStorage
+     */
+    private loadProfiles(): { [key: string]: { [key: string]: boolean } } {
+        try {
+            const saved = localStorage.getItem('ptx_cheat_profiles');
+            if (saved) {
+                return JSON.parse(saved);
+            }
+        } catch (error) {
+            console.warn("[CheatMenu] Failed to load profiles:", error);
+        }
+        return {};
+    }
+    
+    /**
+     * Сохранение профилей в localStorage
+     */
+    private saveProfiles(profiles: { [key: string]: { [key: string]: boolean } }): void {
+        try {
+            localStorage.setItem('ptx_cheat_profiles', JSON.stringify(profiles));
+        } catch (error) {
+            console.warn("[CheatMenu] Failed to save profiles:", error);
+        }
+    }
+    
+    /**
+     * Обновление списка профилей
+     */
+    private updateProfilesList(): void {
+        const select = document.getElementById("cheat-profiles-list") as HTMLSelectElement;
+        if (!select) return;
+        
+        const profiles = this.loadProfiles();
+        select.innerHTML = '<option value="">Выберите профиль...</option>';
+        
+        Object.keys(profiles).forEach(name => {
+            const option = document.createElement('option');
+            option.value = name;
+            option.textContent = name;
+            select.appendChild(option);
+        });
+    }
+    
+    isVisible(): boolean {
+        return this.visible;
     }
     
     dispose(): void {

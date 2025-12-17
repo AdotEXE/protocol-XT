@@ -342,6 +342,7 @@ TX/
 - [docs/VERCEL_SETUP.md](docs/VERCEL_SETUP.md) - Настройка автоматического деплоя на Vercel
 - [docs/PERFORMANCE.md](docs/PERFORMANCE.md) - Оптимизация производительности
 - [docs/SECURITY.md](docs/SECURITY.md) - Безопасность и защита API ключей
+- [docs/DEVTOOLS_MCP_SETUP.md](docs/DEVTOOLS_MCP_SETUP.md) - Настройка DevTools MCP Server для Cursor
 
 ### Техническая документация
 
@@ -356,6 +357,7 @@ TX/
 | 🔌 [docs/API.md](docs/API.md) | API документация |
 | 💻 [docs/EXAMPLES.md](docs/EXAMPLES.md) | Примеры кода |
 | 🛠️ [docs/SETUP.md](docs/SETUP.md) | Руководство по настройке окружения |
+| 🔧 [docs/DEVTOOLS_MCP_SETUP.md](docs/DEVTOOLS_MCP_SETUP.md) | Настройка DevTools MCP Server |
 | 📊 [docs/DIAGRAMS.md](docs/DIAGRAMS.md) | Диаграммы архитектуры |
 | ⭐ [docs/BEST_PRACTICES.md](docs/BEST_PRACTICES.md) | Лучшие практики разработки |
 | 🚀 [QUICKSTART.md](QUICKSTART.md) | Быстрый старт (5 минут) |

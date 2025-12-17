@@ -37,6 +37,9 @@ export enum ClientMessageType {
     VOICE_ICE_CANDIDATE = "voice_ice_candidate",
     VOICE_JOIN = "voice_join",
     VOICE_LEAVE = "voice_leave",
+    
+    // Monitoring
+    CLIENT_METRICS = "client_metrics",
 }
 
 // Server -> Client messages
@@ -107,6 +110,9 @@ export enum ServerMessageType {
     CTF_FLAG_PICKUP = "ctf_flag_pickup",
     CTF_FLAG_CAPTURE = "ctf_flag_capture",
     CTF_FLAG_RETURN = "ctf_flag_return",
+    
+    // Monitoring
+    MONITORING_STATS = "monitoring_stats",
 }
 
 // Specific message data types
@@ -168,5 +174,49 @@ export interface GameStateData {
 export interface ErrorData {
     code: string;
     message: string;
+}
+
+export interface ClientMetricsData {
+    // GPU
+    gpuUsage?: number;
+    gpuMemory?: number;
+    gpuRenderer?: string;
+    gpuVendor?: string;
+    
+    // CPU
+    cpuUsage?: number;
+    cpuCores?: number;
+    
+    // Network
+    networkIn?: number;  // bytes/s
+    networkOut?: number; // bytes/s
+    networkLatency?: number;
+    networkPackets?: number;
+    
+    // Physics
+    physicsObjects?: number;
+    physicsCollisions?: number;
+    physicsTime?: number;
+    physicsBodies?: number;
+    
+    // Audio
+    audioSources?: number;
+    audioMemory?: number;
+    audioPlaying?: number;
+    
+    // Effects
+    particles?: number;
+    effectSystems?: number;
+    activeEffects?: number;
+    
+    // Scene
+    meshes?: number;
+    lights?: number;
+    cameras?: number;
+    materials?: number;
+    textures?: number;
+    
+    // FPS
+    fps?: number;
 }
 

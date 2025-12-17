@@ -1,7 +1,6 @@
-import { inject } from '@vercel/analytics';
 import { Game } from './game';
 import './styles/responsive.css';
-import { injectSpeedInsights } from '@vercel/speed-insights';
+import { registerServiceWorker } from './serviceWorker';
 
 console.log('Protocol TX Client Starting...');
 
@@ -38,11 +37,6 @@ window.fetch = function(...args: Parameters<typeof fetch>) {
     return originalFetch.apply(this, args);
 };
 
-// Initialize Vercel Web Analytics
-inject();
-// Initialize Vercel Speed Insights (client-side only)
-injectSpeedInsights();
-
 // Global resize handler for UI scaling
 let resizeTimeout: number | null = null;
 window.addEventListener('resize', () => {
@@ -53,4 +47,25 @@ window.addEventListener('resize', () => {
     }, 100);
 });
 
-new Game();
+// Register Service Worker for caching and offline support
+registerServiceWorker();
+
+// Initialize game
+const game = new Game();
+
+// Lazy load analytics after game initialization to reduce initial bundle size
+(async () => {
+    try {
+        const [{ inject }, { injectSpeedInsights }] = await Promise.all([
+            import('@vercel/analytics'),
+            import('@vercel/speed-insights')
+        ]);
+        
+        // Initialize Vercel Web Analytics
+        inject();
+        // Initialize Vercel Speed Insights (client-side only)
+        injectSpeedInsights();
+    } catch (error) {
+        console.warn('Failed to load analytics:', error);
+    }
+})();

@@ -1,5 +1,8 @@
 import { TankController } from "./tankController";
-import { Vector3 } from "@babylonjs/core";
+import { Vector3, Scene } from "@babylonjs/core";
+import { Game } from "./game";
+import { PhysicsVisualizer } from "./physicsVisualizer";
+import { PhysicsSimulator } from "./physicsSimulator";
 
 interface Preset {
     name: string;
@@ -9,7 +12,11 @@ interface Preset {
 export class PhysicsPanel {
     private container!: HTMLDivElement;
     private tank: TankController | null = null;
+    private game: Game | null = null;
+    private scene: Scene | null = null;
     private visible = false;
+    private physicsVisualizer: PhysicsVisualizer | null = null;
+    private physicsSimulator: PhysicsSimulator | null = null;
     
     // Input elements
     private inputs: Map<string, HTMLInputElement> = new Map();
@@ -17,7 +24,7 @@ export class PhysicsPanel {
     
     // Presets
     private presets: Preset[] = [];
-    private maxPresets = 5;
+    private maxPresets = 10; // Расширено с 5 до 10
     
     constructor() {
         this.loadPresets();
@@ -28,9 +35,33 @@ export class PhysicsPanel {
         this.container.style.display = "none";
     }
     
+    setGame(game: Game | null): void {
+        this.game = game;
+        if (game && game.scene) {
+            this.scene = game.scene;
+            this.physicsVisualizer = new PhysicsVisualizer(game.scene);
+            this.physicsSimulator = new PhysicsSimulator(game.scene);
+            // Обновляем список сценариев если UI уже создан
+            const simScenario = document.getElementById("physics-sim-scenario") as HTMLSelectElement;
+            if (simScenario && this.physicsSimulator) {
+                simScenario.innerHTML = '<option value="">Выберите сценарий...</option>';
+                const scenarios = this.physicsSimulator.getScenarios();
+                scenarios.forEach(scenario => {
+                    const option = document.createElement('option');
+                    option.value = scenario.id;
+                    option.textContent = scenario.name;
+                    simScenario.appendChild(option);
+                });
+            }
+        }
+    }
+    
     setTank(tank: TankController): void {
         this.tank = tank;
         this.updateFromTank();
+        if (this.physicsVisualizer && tank.chassis && tank.physicsBody) {
+            this.physicsVisualizer.setTarget(tank.chassis, tank.physicsBody);
+        }
     }
     
     private createUI(): void {
@@ -113,11 +144,51 @@ export class PhysicsPanel {
                     <button class="panel-close" id="physics-close">✕</button>
                 </div>
                 <div class="panel-content">
-                    <div class="physics-controls">
-                        <button id="physics-reset" class="panel-btn secondary">Сброс</button>
-                        <button id="physics-save-preset" class="panel-btn primary">Сохранить</button>
+                            <div class="physics-controls">
+                                <button id="physics-reset" class="panel-btn secondary">Сброс</button>
+                                <button id="physics-save-preset" class="panel-btn primary">Сохранить</button>
+                                <button id="physics-export-presets" class="panel-btn secondary">Экспорт</button>
+                                <button id="physics-import-presets" class="panel-btn secondary">Импорт</button>
+                            </div>
+                            <div class="physics-visualization" style="margin-top: 15px; padding: 10px; background: rgba(0, 20, 0, 0.3); border: 1px solid rgba(0, 255, 4, 0.3); border-radius: 4px;">
+                                <div style="color: #ff0; font-weight: bold; margin-bottom: 8px;">ВИЗУАЛИЗАЦИЯ</div>
+                                <label style="display: flex; align-items: center; margin-bottom: 5px; color: #aaa; font-size: 11px;">
+                                    <input type="checkbox" id="physics-viz-enabled" style="margin-right: 8px;">
+                                    Включить визуализацию
+                                </label>
+                                <label style="display: flex; align-items: center; margin-bottom: 5px; color: #aaa; font-size: 11px;">
+                                    <input type="checkbox" id="physics-viz-vectors" style="margin-right: 8px;">
+                                    Векторы сил
+                                </label>
+                                <label style="display: flex; align-items: center; margin-bottom: 5px; color: #aaa; font-size: 11px;">
+                                    <input type="checkbox" id="physics-viz-velocity" style="margin-right: 8px;">
+                                    Скорость
+                                </label>
+                                <label style="display: flex; align-items: center; margin-bottom: 5px; color: #aaa; font-size: 11px;">
+                                    <input type="checkbox" id="physics-viz-com" style="margin-right: 8px;">
+                                    Центр масс
+                                </label>
+                                <label style="display: flex; align-items: center; margin-bottom: 5px; color: #aaa; font-size: 11px;">
+                                    <input type="checkbox" id="physics-viz-collisions" style="margin-right: 8px;">
+                                    Коллизии
+                                </label>
+                                <div style="margin-top: 8px;">
+                                    <label style="color: #aaa; font-size: 11px;">Масштаб векторов:</label>
+                                    <input type="range" id="physics-viz-scale" min="0.1" max="5" step="0.1" value="1" style="width: 100%;">
+                                    <span id="physics-viz-scale-value" style="color: #0f0; font-size: 11px;">1.0</span>
+                            </div>
                     </div>
                     <div class="physics-presets" id="physics-presets-list"></div>
+                    <div class="physics-simulation" style="margin-top: 15px; padding: 10px; background: rgba(0, 20, 0, 0.3); border: 1px solid rgba(0, 255, 4, 0.3); border-radius: 4px;">
+                        <div style="color: #ff0; font-weight: bold; margin-bottom: 8px;">СИМУЛЯЦИЯ</div>
+                        <select id="physics-sim-scenario" style="width: 100%; padding: 4px; background: rgba(0, 5, 0, 0.5); border: 1px solid rgba(0, 255, 4, 0.4); color: #0f0; font-size: 11px; margin-bottom: 8px;">
+                            <option value="">Выберите сценарий...</option>
+                        </select>
+                        <div style="display: flex; gap: 5px;">
+                            <button id="physics-sim-start" class="panel-btn secondary" style="flex: 1;">Запустить</button>
+                            <button id="physics-sim-stop" class="panel-btn secondary" style="flex: 1;">Остановить</button>
+                        </div>
+                    </div>
         `;
         
         sections.forEach(section => {
@@ -368,7 +439,37 @@ export class PhysicsPanel {
         this.setupInputs();
         this.setupButtons();
         this.setupCloseButton();
+        this.setupSimulation();
         this.updatePresetsList();
+    }
+    
+    private setupSimulation(): void {
+        const simScenario = document.getElementById("physics-sim-scenario") as HTMLSelectElement;
+        const simStart = document.getElementById("physics-sim-start");
+        const simStop = document.getElementById("physics-sim-stop");
+        
+        // Заполняем список сценариев
+        if (this.physicsSimulator && simScenario) {
+            const scenarios = this.physicsSimulator.getScenarios();
+            scenarios.forEach(scenario => {
+                const option = document.createElement('option');
+                option.value = scenario.id;
+                option.textContent = scenario.name;
+                simScenario.appendChild(option);
+            });
+        }
+        
+        simStart?.addEventListener("click", async () => {
+            if (this.physicsSimulator && simScenario?.value) {
+                await this.physicsSimulator.runScenario(simScenario.value);
+            }
+        });
+        
+        simStop?.addEventListener("click", () => {
+            if (this.physicsSimulator) {
+                this.physicsSimulator.stopSimulation();
+            }
+        });
     }
     
     private setupInputs(): void {
@@ -392,12 +493,20 @@ export class PhysicsPanel {
     private setupButtons(): void {
         const resetBtn = document.getElementById("physics-reset");
         const savePresetBtn = document.getElementById("physics-save-preset");
+        const exportPresetsBtn = document.getElementById("physics-export-presets");
+        const importPresetsBtn = document.getElementById("physics-import-presets");
         
         if (resetBtn) {
             resetBtn.addEventListener("click", () => this.resetToDefaults());
         }
         if (savePresetBtn) {
             savePresetBtn.addEventListener("click", () => this.showSavePresetDialog());
+        }
+        if (exportPresetsBtn) {
+            exportPresetsBtn.addEventListener("click", () => this.exportPresets());
+        }
+        if (importPresetsBtn) {
+            importPresetsBtn.addEventListener("click", () => this.importPresets());
         }
     }
     
@@ -440,6 +549,10 @@ export class PhysicsPanel {
         this.visible = false;
         this.container.classList.add("hidden");
         this.container.style.display = "none";
+        // Очистка визуализации при скрытии
+        if (this.physicsVisualizer) {
+            this.physicsVisualizer.clearVisualizations();
+        }
     }
     
     private updateFromTank(): void {
@@ -784,6 +897,69 @@ export class PhysicsPanel {
         localStorage.setItem("tankPhysicsPresets", JSON.stringify(this.presets));
     }
     
+    /**
+     * Экспорт пресетов в JSON файл
+     */
+    exportPresets(): void {
+        const json = JSON.stringify(this.presets, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `physics_presets_${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+    
+    /**
+     * Импорт пресетов из JSON файла
+     */
+    importPresets(): void {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const imported = JSON.parse(event.target?.result as string) as Preset[];
+                    if (!Array.isArray(imported)) {
+                        alert('Неверный формат файла');
+                        return;
+                    }
+                    
+                    // Объединяем с существующими пресетами
+                    imported.forEach(preset => {
+                        const existing = this.presets.findIndex(p => p.name === preset.name);
+                        if (existing >= 0) {
+                            this.presets[existing] = preset;
+                        } else {
+                            if (this.presets.length < this.maxPresets) {
+                                this.presets.push(preset);
+                            }
+                        }
+                    });
+                    
+                    // Ограничиваем количество
+                    if (this.presets.length > this.maxPresets) {
+                        this.presets = this.presets.slice(0, this.maxPresets);
+                    }
+                    
+                    this.savePresets();
+                    this.updatePresetsList();
+                    alert(`Импортировано ${imported.length} пресетов`);
+                } catch (error) {
+                    alert('Ошибка при импорте: ' + error);
+                }
+            };
+            reader.readAsText(file);
+        };
+        input.click();
+    }
+    
     private setupCloseButton(): void {
         const closeBtn = document.getElementById("physics-close");
         if (closeBtn) {
@@ -798,6 +974,10 @@ export class PhysicsPanel {
                 this.hide();
             }
         });
+    }
+    
+    isVisible(): boolean {
+        return this.visible;
     }
     
     dispose(): void {

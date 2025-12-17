@@ -1,5 +1,6 @@
 import "@babylonjs/core/Debug/debugLayer";
 import { logger } from "./utils/logger";
+import { CommonStyles } from "./commonStyles";
 import { 
     Engine, 
     Scene, 
@@ -28,11 +29,10 @@ import { SoundManager } from "./soundManager";
 import { EffectsManager } from "./effects";
 import { EnemyManager } from "./enemy";
 import { ChunkSystem } from "./chunkSystem";
-import { DebugDashboard } from "./debugDashboard";
-import { PhysicsPanel } from "./physicsPanel";
-import { CheatMenu } from "./cheatMenu";
+// Debug tools are lazy loaded (only loaded when F3/F4/F7 are pressed)
 import { EnemyTank } from "./enemyTank";
-import { MainMenu, GameSettings, MapType } from "./menu";
+// MainMenu is lazy loaded - imported dynamically when needed
+import type { GameSettings, MapType } from "./menu";
 import { CurrencyManager } from "./currencyManager";
 import { Garage } from "./garage";
 import { ConsumablesManager, CONSUMABLE_TYPES } from "./consumables";
@@ -47,13 +47,12 @@ import { PlayerStatsSystem } from "./playerStats";
 import { MultiplayerManager } from "./multiplayer";
 import { NetworkPlayerTank } from "./networkPlayerTank";
 import { firebaseService, type MatchHistory } from "./firebaseService";
-import { BattleRoyaleVisualizer } from "./battleRoyale";
-import { CTFVisualizer } from "./ctfVisualizer";
+import { Timestamp } from "firebase/firestore";
 import { RealtimeStatsTracker } from "./realtimeStats";
-import { ReplayRecorder, ReplayPlayer } from "./replaySystem";
 import { ServerMessageType } from "../shared/messages";
 import { socialSystem } from "./socialSystem";
-import { voiceChatManager } from "./voiceChat";
+import { MetricsCollector, type ExtendedMetrics } from "./metricsCollector";
+import type { ClientMetricsData } from "../shared/messages";
 
 export class Game {
     engine: Engine;
@@ -73,14 +72,23 @@ export class Game {
     // Destruction system for destructible objects
     destructionSystem: DestructionSystem | undefined;
     
-    // Debug dashboard
-    debugDashboard: DebugDashboard | undefined;
+    // Debug dashboard (lazy loaded)
+    debugDashboard: any | undefined; // Lazy loaded from "./debugDashboard"
     
-    // Physics panel
-    physicsPanel: PhysicsPanel | undefined;
+    // Physics panel (lazy loaded)
+    physicsPanel: any | undefined; // Lazy loaded from "./physicsPanel"
     
-    // Cheat menu
-    cheatMenu: CheatMenu | undefined;
+    // Cheat menu (lazy loaded)
+    cheatMenu: any | undefined; // Lazy loaded from "./cheatMenu"
+    
+    // Network menu (lazy loaded)
+    networkMenu: any | undefined; // Lazy loaded from "./networkMenu"
+    
+    // World generation menu (lazy loaded)
+    worldGenerationMenu: any | undefined; // Lazy loaded from "./worldGenerationMenu"
+    
+    // Help menu (lazy loaded)
+    helpMenu: any | undefined; // Lazy loaded from "./helpMenu"
     
     // Session settings
     sessionSettings: { getSettings: () => { enemyCount?: number; aiDifficulty?: string }; setGame: (game: Game) => void } | undefined;
@@ -97,8 +105,12 @@ export class Game {
     // Chat system
     chatSystem: ChatSystem | undefined;
     
-    // Garage system
-    garage: Garage | undefined;
+    // Screenshot manager (extended functionality)
+    screenshotManager: any | undefined; // Lazy loaded from "./screenshotManager"
+    screenshotPanel: any | undefined; // Lazy loaded from "./screenshotPanel"
+    
+    // Garage system (lazy loaded)
+    garage: any | undefined; // Lazy loaded from "./garage"
     
     // Experience system
     experienceSystem: ExperienceSystem | undefined;
@@ -122,8 +134,13 @@ export class Game {
     multiplayerManager: MultiplayerManager | undefined;
     networkPlayerTanks: Map<string, NetworkPlayerTank> = new Map();
     isMultiplayer: boolean = false;
-    battleRoyaleVisualizer: BattleRoyaleVisualizer | undefined;
-    ctfVisualizer: CTFVisualizer | undefined;
+    
+    // Metrics collector for server monitoring
+    private metricsCollector: MetricsCollector | undefined;
+    private lastMetricsSendTime: number = 0;
+    private readonly METRICS_SEND_INTERVAL = 5000; // Send metrics every 5 seconds
+    battleRoyaleVisualizer: any | undefined; // Lazy loaded from "./battleRoyale"
+    ctfVisualizer: any | undefined; // Lazy loaded from "./ctfVisualizer"
     
     // Spectator mode
     isSpectating: boolean = false;
@@ -142,8 +159,8 @@ export class Game {
     private readonly CAPTURE_RADIUS = 3.0; // Радиус захвата в единицах
     private readonly PLAYER_ID = "player"; // ID игрока (в будущем будет из мультиплеера)
     
-    // Main menu
-    mainMenu: MainMenu;
+    // Main menu (lazy loaded)
+    mainMenu: any | undefined; // Lazy loaded from "./menu"
     gameStarted = false;
     gamePaused = false;
     currentMapType: MapType = "normal";
@@ -170,13 +187,13 @@ export class Game {
     // Real-time statistics tracker
     private realtimeStatsTracker: RealtimeStatsTracker | undefined;
     
-    // Replay system
-    private replayRecorder: ReplayRecorder | undefined;
-    private _replayPlayer: ReplayPlayer | undefined;
+    // Replay system (lazy loaded)
+    private replayRecorder: any | undefined; // Lazy loaded from "./replaySystem"
+    private _replayPlayer: any | undefined; // Lazy loaded from "./replaySystem"
     private _isReplayMode: boolean = false;
     
-    // Settings
-    settings: GameSettings;
+    // Settings (loaded from menu when available)
+    settings: GameSettings = {} as GameSettings;
     private muteOnFocusLossHandler: (() => void) | null = null;
     
     // Loading screen
@@ -227,34 +244,32 @@ export class Game {
     private readonly _colorEmissiveEnemy = new Color3(0.5, 0.1, 0.1);
 
     constructor() {
-        // Create main menu first
-        this.mainMenu = new MainMenu();
-        this.settings = this.mainMenu.getSettings();
-        
-        // Проверяем, есть ли автозапуск (после рестарта)
+        // MainMenu will be loaded lazily when needed
+        // Check for auto-start first
         const autoStartMap = localStorage.getItem("autoStartMap");
         if (autoStartMap) {
-            // Удаляем флаг автозапуска
-            localStorage.removeItem("autoStartMap");
-            // Устанавливаем карту и запускаем игру автоматически
+            // Auto-start: load menu immediately but don't show it
             this.currentMapType = autoStartMap as MapType;
             logger.log(`[Game] Auto-starting on map: ${autoStartMap}`);
-            // Скрываем меню и запускаем игру после небольшой задержки
-            setTimeout(() => {
-                this.mainMenu.triggerStartGame(this.currentMapType);
-            }, 100);
+            this.loadMainMenu().then(() => {
+                if (this.mainMenu) {
+                    localStorage.removeItem("autoStartMap");
+                    setTimeout(() => {
+                        this.mainMenu.triggerStartGame(this.currentMapType);
+                    }, 100);
+                }
+            });
         } else {
-            // Показываем меню по умолчанию
-            this.mainMenu.show();
+            // Normal start: load and show menu
+            this.loadMainMenu().then(() => {
+                if (this.mainMenu) {
+                    this.mainMenu.show();
+                }
+            });
         }
         
-        this.mainMenu.setOnRestartGame(() => {
-            this.restartGame();
-        });
-        
-        this.mainMenu.setOnExitBattle(() => {
-            this.exitBattle();
-        });
+        // Setup menu callbacks after loading
+        this.setupMenuCallbacks();
         
         // Обработчик для возобновления игры
         window.addEventListener("resumeGame", () => {
@@ -263,6 +278,71 @@ export class Game {
         
         // Обработчики для сохранения при закрытии страницы
         this.setupAutoSaveOnUnload();
+        
+        // Сохраняем экземпляр Game в window для доступа из Menu
+        (window as any).gameInstance = this;
+    }
+    
+    // Lazy load MainMenu
+    private async loadMainMenu(): Promise<void> {
+        if (this.mainMenu) return; // Already loaded
+        
+        try {
+            const { MainMenu } = await import("./menu");
+            this.mainMenu = new MainMenu();
+            if (this.mainMenu) {
+                this.settings = this.mainMenu.getSettings();
+                this.setupMenuCallbacks();
+                logger.log("[Game] MainMenu loaded");
+            }
+        } catch (error) {
+            logger.error("[Game] Failed to load MainMenu:", error);
+        }
+    }
+    
+    // Helper method to ensure MainMenu is loaded before accessing it
+    private async ensureMainMenu(): Promise<boolean> {
+        if (!this.mainMenu) {
+            await this.loadMainMenu();
+        }
+        return !!this.mainMenu;
+    }
+    
+    // Lazy load Garage
+    private async loadGarage(): Promise<void> {
+        if (this.garage) return; // Already loaded
+        
+        if (!this.scene || !this.currencyManager) {
+            logger.error("[Game] Cannot load Garage: scene or currencyManager not initialized");
+            return;
+        }
+        
+        try {
+            const { Garage } = await import("./garage");
+            this.garage = new Garage(this.scene, this.currencyManager);
+            
+            // Connect garage to main menu if available
+            if (this.mainMenu) {
+                this.mainMenu.setGarage(this.garage);
+            }
+            
+            logger.log("[Game] Garage loaded");
+        } catch (error) {
+            logger.error("[Game] Failed to load Garage:", error);
+        }
+    }
+    
+    // Setup menu callbacks after menu is loaded
+    private setupMenuCallbacks(): void {
+        if (!this.mainMenu) return;
+        
+        this.mainMenu.setOnRestartGame(() => {
+            this.restartGame();
+        });
+        
+        this.mainMenu.setOnExitBattle(() => {
+            this.exitBattle();
+        });
         
         this.mainMenu.setOnStartGame(async (mapType?: MapType) => {
             if (mapType) {
@@ -481,23 +561,21 @@ export class Game {
                 if (this.garage) {
                     toggleGarage();
                 } else {
-                    // Если гараж еще не создан, открываем через меню (которое покажет старую панель или подождет)
-                    logger.debug("[Game] Garage not initialized yet, opening via mainMenu...");
-                    if (this.mainMenu) {
-                        this.mainMenu.showGarage();
-                    } else {
-                        // Если меню тоже нет, ждем немного и пробуем снова
-                        setTimeout(() => {
-                            if (this.garage) {
-                                logger.debug("Garage now available, toggling...");
-                                toggleGarage();
-                            } else if (this.mainMenu) {
-                                this.mainMenu.showGarage();
-                            } else {
-                                logger.error("Garage and mainMenu still not available after timeout!");
-                            }
-                        }, 300);
-                    }
+                    // Lazy load Garage on first use
+                    logger.debug("[Game] Garage not loaded yet, loading now...");
+                    this.loadGarage().then(() => {
+                        if (this.garage) {
+                            toggleGarage();
+                        } else if (this.mainMenu) {
+                            // Fallback: try via menu
+                            this.mainMenu.showGarage();
+                        }
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load Garage:", error);
+                        if (this.mainMenu) {
+                            this.mainMenu.showGarage();
+                        }
+                    });
                 }
                 return;
             }
@@ -620,23 +698,80 @@ export class Game {
                 return;
             }
             
-            // === ФУНКЦИОНАЛЬНЫЕ КЛАВИШИ F1-F7 ===
+            // === ФУНКЦИОНАЛЬНЫЕ КЛАВИШИ F1-F9 ===
             // Обрабатываем ПЕРЕД другими обработчиками чтобы не блокировались
             
-            // F2: Скриншот
-            if (e.code === "F2" && this.gameStarted) {
+            // F1: Help/Controls Menu (lazy loaded)
+            if (e.code === "F1" && this.gameStarted) {
                 e.preventDefault();
                 e.stopPropagation();
-                this.takeScreenshot();
+                if (!this.helpMenu) {
+                    // Lazy load help menu on first use
+                    logger.log("[Game] Loading help menu (F1)...");
+                    import("./helpMenu").then(({ HelpMenu }) => {
+                        this.helpMenu = new HelpMenu();
+                        this.helpMenu.setGame(this);
+                        // Toggle visibility after loading
+                        if (typeof this.helpMenu.toggle === 'function') {
+                            this.helpMenu.toggle();
+                        }
+                        logger.log("[Game] Help menu loaded successfully");
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load help menu:", error);
+                        if (this.hud) {
+                            this.hud.showMessage("Failed to load Help Menu", "#f00", 3000);
+                        }
+                    });
+                } else {
+                    // Toggle existing menu
+                    if (typeof this.helpMenu.toggle === 'function') {
+                        this.helpMenu.toggle();
+                        logger.log("[Game] Help menu toggled");
+                    }
+                }
                 return;
             }
             
-            // F3: Debug Dashboard
+            // F2: Screenshot Panel (lazy loaded)
+            if (e.code === "F2" && this.gameStarted) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.openScreenshotPanel();
+                return;
+            }
+            
+            // F3: Debug Dashboard (lazy loaded)
             if (e.code === "F3" && this.gameStarted) {
                 e.preventDefault();
                 e.stopPropagation();
-                if (this.debugDashboard) {
-                    // DebugDashboard использует свой собственный обработчик, но можем переключить напрямую
+                if (!this.debugDashboard) {
+                    // Lazy load debug dashboard on first use
+                    logger.log("[Game] Loading debug dashboard (F3)...");
+                    import("./debugDashboard").then(({ DebugDashboard }) => {
+                        this.debugDashboard = new DebugDashboard(this.engine, this.scene);
+                        if (this.chunkSystem) {
+                            this.debugDashboard.setChunkSystem(this.chunkSystem);
+                        }
+                        this.debugDashboard.setGame(this);
+                        if (this.tank) {
+                            this.debugDashboard.setTank(this.tank);
+                        }
+                        // Toggle visibility after loading
+                        const container = (this.debugDashboard as any).container;
+                        if (container) {
+                            container.classList.remove("hidden");
+                            container.style.display = "";
+                            (this.debugDashboard as any).visible = true;
+                        }
+                        logger.log("[Game] Debug dashboard loaded successfully");
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load debug dashboard:", error);
+                        if (this.hud) {
+                            this.hud.showMessage("Failed to load Debug Dashboard", "#f00", 3000);
+                        }
+                    });
+                } else {
+                    // Toggle existing dashboard
                     const container = (this.debugDashboard as any).container;
                     if (container) {
                         const isVisible = !container.classList.contains("hidden") && container.style.display !== "none";
@@ -644,31 +779,73 @@ export class Game {
                             container.classList.add("hidden");
                             container.style.display = "none";
                             (this.debugDashboard as any).visible = false;
+                            logger.log("[Game] Debug dashboard closed");
                         } else {
                             container.classList.remove("hidden");
                             container.style.display = "";
                             (this.debugDashboard as any).visible = true;
+                            logger.log("[Game] Debug dashboard opened");
                         }
                     }
                 }
                 return;
             }
             
-            // F4: Physics Panel
+            // F4: Physics Panel (lazy loaded)
             if (e.code === "F4" && this.gameStarted) {
                 e.preventDefault();
                 e.stopPropagation();
-                if (this.physicsPanel && typeof this.physicsPanel.toggle === 'function') {
-                    this.physicsPanel.toggle();
+                if (!this.physicsPanel) {
+                    // Lazy load physics panel on first use
+                    logger.log("[Game] Loading physics panel (F4)...");
+                    import("./physicsPanel").then(({ PhysicsPanel }) => {
+                        this.physicsPanel = new PhysicsPanel();
+                        this.physicsPanel.setGame(this);
+                        if (this.tank) {
+                            this.physicsPanel.setTank(this.tank);
+                        }
+                        // Toggle visibility after loading
+                        if (typeof this.physicsPanel.toggle === 'function') {
+                            this.physicsPanel.toggle();
+                        }
+                        logger.log("[Game] Physics panel loaded successfully");
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load physics panel:", error);
+                        if (this.hud) {
+                            this.hud.showMessage("Failed to load Physics Panel", "#f00", 3000);
+                        }
+                    });
+                } else {
+                    // Toggle existing panel
+                    if (typeof this.physicsPanel.toggle === 'function') {
+                        this.physicsPanel.toggle();
+                        logger.log("[Game] Physics panel toggled");
+                    }
                 }
                 return;
             }
             
             // F5: System Terminal
-            if (e.code === "F5" && this.chatSystem) {
+            if (e.code === "F5" && this.gameStarted) {
                 e.preventDefault();
                 e.stopPropagation();
-                this.chatSystem.toggleTerminal();
+                // Убеждаемся что chatSystem инициализирован
+                this.ensureChatSystem().then(() => {
+                    if (this.chatSystem && typeof this.chatSystem.toggleTerminal === 'function') {
+                        this.chatSystem.toggleTerminal();
+                        logger.log("[Game] System terminal toggled");
+                    } else {
+                        logger.error("[Game] ChatSystem.toggleTerminal is not available");
+                        if (this.hud) {
+                            this.hud.showMessage("System Terminal not available", "#f00", 3000);
+                        }
+                    }
+                }).catch(error => {
+                    logger.error("[Game] Failed to ensure ChatSystem for F5:", error);
+                    if (this.hud) {
+                        this.hud.showMessage("Failed to initialize System Terminal", "#f00", 3000);
+                    }
+                });
                 return;
             }
             
@@ -682,12 +859,98 @@ export class Game {
                 return;
             }
             
-            // F7: Cheat Menu
+            // F7: Cheat Menu (lazy loaded)
             if (e.code === "F7" && this.gameStarted) {
                 e.preventDefault();
                 e.stopPropagation();
-                if (this.cheatMenu && typeof this.cheatMenu.toggle === 'function') {
-                    this.cheatMenu.toggle();
+                if (!this.cheatMenu) {
+                    // Lazy load cheat menu on first use
+                    logger.log("[Game] Loading cheat menu (F7)...");
+                    import("./cheatMenu").then(({ CheatMenu }) => {
+                        this.cheatMenu = new CheatMenu();
+                        if (this.tank) {
+                            this.cheatMenu.setTank(this.tank);
+                        }
+                        this.cheatMenu.setGame(this);
+                        // Toggle visibility after loading
+                        if (typeof this.cheatMenu.toggle === 'function') {
+                            this.cheatMenu.toggle();
+                        }
+                        logger.log("[Game] Cheat menu loaded successfully");
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load cheat menu:", error);
+                        if (this.hud) {
+                            this.hud.showMessage("Failed to load Cheat Menu", "#f00", 3000);
+                        }
+                    });
+                } else {
+                    // Toggle existing menu
+                    if (typeof this.cheatMenu.toggle === 'function') {
+                        this.cheatMenu.toggle();
+                        logger.log("[Game] Cheat menu toggled");
+                    }
+                }
+                return;
+            }
+            
+            // F8: Network Menu (lazy loaded)
+            if (e.code === "F8" && this.gameStarted) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!this.networkMenu) {
+                    // Lazy load network menu on first use
+                    logger.log("[Game] Loading network menu (F8)...");
+                    import("./networkMenu").then(({ NetworkMenu }) => {
+                        this.networkMenu = new NetworkMenu();
+                        this.networkMenu.setGame(this);
+                        // Toggle visibility after loading
+                        if (typeof this.networkMenu.toggle === 'function') {
+                            this.networkMenu.toggle();
+                        }
+                        logger.log("[Game] Network menu loaded successfully");
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load network menu:", error);
+                        if (this.hud) {
+                            this.hud.showMessage("Failed to load Network Menu", "#f00", 3000);
+                        }
+                    });
+                } else {
+                    // Toggle existing menu
+                    if (typeof this.networkMenu.toggle === 'function') {
+                        this.networkMenu.toggle();
+                        logger.log("[Game] Network menu toggled");
+                    }
+                }
+                return;
+            }
+            
+            // F9: World Generation Menu (lazy loaded) - перемещено с F8
+            if (e.code === "F9" && this.gameStarted) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!this.worldGenerationMenu) {
+                    // Lazy load world generation menu on first use
+                    logger.log("[Game] Loading world generation menu (F9)...");
+                    import("./worldGenerationMenu").then(({ WorldGenerationMenu }) => {
+                        this.worldGenerationMenu = new WorldGenerationMenu();
+                        this.worldGenerationMenu.setGame(this);
+                        // Toggle visibility after loading
+                        if (typeof this.worldGenerationMenu.toggle === 'function') {
+                            this.worldGenerationMenu.toggle();
+                        }
+                        logger.log("[Game] World generation menu loaded successfully");
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load world generation menu:", error);
+                        if (this.hud) {
+                            this.hud.showMessage("Failed to load World Generation Menu", "#f00", 3000);
+                        }
+                    });
+                } else {
+                    // Toggle existing menu
+                    if (typeof this.worldGenerationMenu.toggle === 'function') {
+                        this.worldGenerationMenu.toggle();
+                        logger.log("[Game] World generation menu toggled");
+                    }
                 }
                 return;
             }
@@ -711,6 +974,48 @@ export class Game {
             
             
             if (e.code === "Escape" && this.gameStarted) {
+                // Закрываем все открытые меню перед паузой
+                if (this.helpMenu && typeof this.helpMenu.isVisible === 'function' && this.helpMenu.isVisible()) {
+                    this.helpMenu.hide();
+                    return;
+                }
+                if (this.screenshotPanel && typeof this.screenshotPanel.isVisible === 'function' && this.screenshotPanel.isVisible()) {
+                    this.screenshotPanel.hide();
+                    return;
+                }
+                if (this.debugDashboard && (this.debugDashboard as any).visible) {
+                    const container = (this.debugDashboard as any).container;
+                    if (container && !container.classList.contains("hidden")) {
+                        container.classList.add("hidden");
+                        container.style.display = "none";
+                        (this.debugDashboard as any).visible = false;
+                        return;
+                    }
+                }
+                if (this.physicsPanel && typeof this.physicsPanel.isVisible === 'function' && this.physicsPanel.isVisible()) {
+                    this.physicsPanel.hide();
+                    return;
+                }
+                if (this.chatSystem && typeof this.chatSystem.isTerminalVisible === 'function' && this.chatSystem.isTerminalVisible()) {
+                    this.chatSystem.toggleTerminal();
+                    return;
+                }
+                if (this.sessionSettings && typeof (this.sessionSettings as any).isVisible === 'function' && (this.sessionSettings as any).isVisible()) {
+                    (this.sessionSettings as any).hide();
+                    return;
+                }
+                if (this.cheatMenu && typeof this.cheatMenu.isVisible === 'function' && this.cheatMenu.isVisible()) {
+                    this.cheatMenu.hide();
+                    return;
+                }
+                if (this.networkMenu && typeof this.networkMenu.isVisible === 'function' && this.networkMenu.isVisible()) {
+                    this.networkMenu.hide();
+                    return;
+                }
+                if (this.worldGenerationMenu && typeof this.worldGenerationMenu.isVisible === 'function' && this.worldGenerationMenu.isVisible()) {
+                    this.worldGenerationMenu.hide();
+                    return;
+                }
                 this.togglePause();
             }
             
@@ -1307,8 +1612,13 @@ export class Game {
     private onAchievementUnlocked(achievement: Achievement): void {
         logger.log(`[Game] Achievement unlocked: ${achievement.name}`);
         
-        // Show notification
-        if (this.hud) {
+        // Show beautiful achievement notification
+        if (this.hud && this.hud.showAchievementNotification) {
+            const name = this.achievementsSystem?.getAchievementName(achievement) || achievement.name;
+            const description = this.achievementsSystem?.getAchievementDescription(achievement) || achievement.description;
+            this.hud.showAchievementNotification(name, description, achievement.icon, achievement.reward);
+        } else if (this.hud) {
+            // Fallback to regular notification
             const name = this.achievementsSystem?.getAchievementName(achievement) || achievement.name;
             this.hud.showNotification?.(`🏆 ${name}`, "success");
         }
@@ -1363,7 +1673,10 @@ export class Game {
         logger.log("startGame() called, mapType:", this.currentMapType);
         this.gameStarted = true;
         this.gamePaused = false;
-        this.settings = this.mainMenu.getSettings();
+        // Settings will be loaded from menu when available
+        if (this.mainMenu) {
+            this.settings = this.mainMenu.getSettings();
+        }
         
         // Инициализируем массив врагов
         if (!this.enemyTanks) {
@@ -1933,20 +2246,16 @@ export class Game {
             // Create Currency Manager
             this.currencyManager = new CurrencyManager();
             
-            // Create Garage System EARLY (so it's available in menu before game starts)
-            this.updateLoadingProgress(52, "Инициализация гаража...");
-            this.garage = new Garage(this.scene, this.currencyManager);
-            // Connect garage to main menu immediately
-            if (this.mainMenu) {
-                this.mainMenu.setGarage(this.garage);
-                logger.log("[Game] Garage created and connected to menu");
-            }
+            // Garage will be loaded lazily when needed (on B key press or menu access)
+            // This reduces initial bundle size
+            this.updateLoadingProgress(52, "Подготовка систем...");
             
             // Create Consumables Manager
             this.consumablesManager = new ConsumablesManager();
             
             // Create Chat System
             this.chatSystem = new ChatSystem(this.scene);
+            this.chatSystem.setGame(this);
             // Подключаем звуковой менеджер к чату
             if (this.soundManager) {
                 this.chatSystem.setSoundManager(this.soundManager);
@@ -1995,6 +2304,9 @@ export class Game {
             this.playerProgression = new PlayerProgressionSystem();
             this.playerProgression.setChatSystem(this.chatSystem);
             this.playerProgression.setSoundManager(this.soundManager);
+            if (this.hud) {
+                this.playerProgression.setHUD(this.hud);
+            }
             
             // СВЯЗЫВАЕМ ExperienceSystem с PlayerProgressionSystem для передачи опыта
             if (this.experienceSystem) {
@@ -2074,11 +2386,8 @@ export class Game {
                 }
                 logger.log("[Game] Garage systems connected");
             } else {
-                logger.warn("[Game] Garage not found! Creating it now...");
-                this.garage = new Garage(this.scene, this.currencyManager);
-                if (this.mainMenu) {
-                    this.mainMenu.setGarage(this.garage);
-                }
+                logger.warn("[Game] Garage not found! Loading it now...");
+                await this.loadGarage();
             }
             
             // Connect chat system to tank
@@ -2197,36 +2506,26 @@ export class Game {
             const initialPos = new Vector3(0, 2, 0);
             this.chunkSystem.update(initialPos);
             
-            // === DEBUG DASHBOARD ===
-            this.debugDashboard = new DebugDashboard(this.engine, this.scene);
-            this.debugDashboard.setChunkSystem(this.chunkSystem);
-            this.debugDashboard.setGame(this);
-            logger.log("Debug dashboard created (F3 to toggle)");
+            // === DEBUG TOOLS (Lazy loaded) ===
+            // Debug tools are loaded on-demand when F3/F4/F7 are pressed
+            // This reduces initial bundle size
             
-            // === PHYSICS PANEL ===
-            this.physicsPanel = new PhysicsPanel();
-            if (this.tank) {
-                this.physicsPanel.setTank(this.tank);
-            }
-            
-            // Initialize cheat menu
-            this.cheatMenu = new CheatMenu();
-            
-            // Initialize session settings
+            // Initialize session settings (already lazy loaded)
             const { SessionSettings } = await import("./sessionSettings");
             this.sessionSettings = new SessionSettings();
             this.sessionSettings.setGame(this);
-            if (this.tank) {
-                this.cheatMenu.setTank(this.tank);
-            }
-            this.cheatMenu.setGame(this);
-            // Physics panel created (F4 to toggle)
+            this.sessionSettings.setGame(this);
             
             // === MULTIPLAYER ===
             // Initialize multiplayer manager (can be enabled/disabled)
             const serverUrl = (import.meta as any).env?.VITE_WS_SERVER_URL || "ws://localhost:8080";
             this.multiplayerManager = new MultiplayerManager(serverUrl);
             this.setupMultiplayerCallbacks();
+            
+            // === METRICS COLLECTOR ===
+            // Initialize metrics collector for server monitoring
+            this.metricsCollector = new MetricsCollector(this.engine, this.scene);
+            this.lastMetricsSendTime = Date.now();
             
             // Камера уже создана выше, обновляем только позицию после спавна
 
@@ -2260,9 +2559,18 @@ export class Game {
     }
     
     spawnEnemyTanks() {
+        // ИСПРАВЛЕНИЕ: Добавлено подробное логирование для отладки
+        logger.log(`[Game] spawnEnemyTanks() called - mapType: ${this.currentMapType}, gameStarted: ${this.gameStarted}`);
+        
         // Не спавним врагов в режиме песочницы
         if (this.currentMapType === "sandbox") {
             logger.log("[Game] Sandbox mode: Enemy tanks disabled");
+            return;
+        }
+        
+        // ИСПРАВЛЕНИЕ: Проверка что игра запущена
+        if (!this.gameStarted) {
+            logger.warn("[Game] Cannot spawn enemies: game not started yet");
             return;
         }
         
@@ -2311,6 +2619,14 @@ export class Game {
             aiDifficulty = sessionSettings.aiDifficulty || aiDifficulty;
         }
         
+        // ИСПРАВЛЕНИЕ: Проверка что enemyCount > 0
+        if (enemyCount <= 0) {
+            logger.warn(`[Game] Cannot spawn enemies: enemyCount is ${enemyCount}`);
+            return;
+        }
+        
+        logger.log(`[Game] Enemy spawn settings: count=${enemyCount}, difficulty=${aiDifficulty}`);
+        
         const spawnPositions: Vector3[] = [];
         
         // Генерируем случайные позиции
@@ -2323,11 +2639,31 @@ export class Game {
                 const angle = Math.random() * Math.PI * 2;
                 const distance = minDistance + Math.random() * (maxDistance - minDistance);
                 
-                pos = new Vector3(
-                    Math.cos(angle) * distance,
-                    0.6,  // Spawn close to ground for stability
-                    Math.sin(angle) * distance
-                );
+                // ИСПРАВЛЕНИЕ: Получаем высоту земли и спавним танк немного над поверхностью
+                const spawnX = Math.cos(angle) * distance;
+                const spawnZ = Math.sin(angle) * distance;
+                let spawnY = 0.6; // Fallback высота
+                
+                // Проверяем высоту земли через terrain generator
+                if (this.chunkSystem && this.chunkSystem.terrainGenerator) {
+                    const groundHeight = this.chunkSystem.terrainGenerator.getHeight(spawnX, spawnZ, "dirt");
+                    // Спавним на высоте земли + 1.5 единицы для предотвращения падения сквозь пол
+                    spawnY = Math.max(groundHeight, 0) + 1.5;
+                } else {
+                    // Fallback: используем raycast для определения высоты
+                    const rayStart = new Vector3(spawnX, 50, spawnZ); // Начинаем сверху
+                    const rayDir = Vector3.Down();
+                    const ray = new Ray(rayStart, rayDir, 100);
+                    const hit = this.scene.pickWithRay(ray, (mesh) => {
+                        return mesh && mesh.isEnabled() && mesh.isPickable && 
+                               mesh.name.includes("ground");
+                    });
+                    if (hit && hit.pickedPoint) {
+                        spawnY = hit.pickedPoint.y + 1.5;
+                    }
+                }
+                
+                pos = new Vector3(spawnX, spawnY, spawnZ);
                 
                 // Проверяем что позиция не слишком близко к другим
                 let tooClose = false;
@@ -2345,13 +2681,17 @@ export class Game {
             spawnPositions.push(pos);
         }
         
-        spawnPositions.forEach((pos) => {
-            // Используем сложность из sessionSettings или настроек меню
-            const difficulty = aiDifficulty;
-            const enemyTank = new EnemyTank(this.scene, pos, this.soundManager!, this.effectsManager!, difficulty);
-            if (this.tank) {
-                enemyTank.setTarget(this.tank);
-            }
+        logger.log(`[Game] Generated ${spawnPositions.length} spawn positions, attempting to spawn ${enemyCount} enemies`);
+        
+        spawnPositions.forEach((pos, index) => {
+            try {
+                // Используем сложность из sessionSettings или настроек меню
+                const difficulty = aiDifficulty;
+                logger.log(`[Game] Spawning enemy ${index + 1}/${spawnPositions.length} at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`);
+                const enemyTank = new EnemyTank(this.scene, pos, this.soundManager!, this.effectsManager!, difficulty);
+                if (this.tank) {
+                    enemyTank.setTarget(this.tank);
+                }
             
             // On death
             enemyTank.onDeathObservable.add(() => {
@@ -2387,7 +2727,8 @@ export class Game {
                         this.hud.showMessage(`+${reward} кредитов!`, "#ffaa00", 2000);
                     }
                 }
-                // Добавляем опыт за убийство танка
+                // ИСПРАВЛЕНИЕ: Добавляем опыт за убийство танка
+                // ExperienceSystem обрабатывает опыт для деталей (chassis/cannon)
                 if (this.experienceSystem && this.tank) {
                     this.experienceSystem.recordKill(
                         this.tank.chassisType.id,
@@ -2395,10 +2736,13 @@ export class Game {
                         false
                     );
                 }
-                // Записываем в прогресс игрока
+                // PlayerProgression обрабатывает общий прогресс игрока (уровень, статистика)
+                // НЕ добавляем опыт дважды - recordKill() только обновляет статистику, не добавляет XP
                 if (this.playerProgression) {
                     this.playerProgression.recordKill();
                     this.playerProgression.addCredits(reward);
+                    // ИСПРАВЛЕНИЕ: Добавляем опыт игроку только один раз через ExperienceSystem
+                    // PlayerProgression получает опыт через ExperienceSystem.flushXpBatch()
                 }
                 // Remove from array
                 const idx = this.enemyTanks.indexOf(enemyTank);
@@ -2425,11 +2769,20 @@ export class Game {
                 }
             });
             
-            this.enemyTanks.push(enemyTank);
+                this.enemyTanks.push(enemyTank);
+                logger.log(`[Game] Successfully spawned enemy ${index + 1}`);
+            } catch (error) {
+                logger.error(`[Game] Failed to spawn enemy ${index + 1}:`, error);
+            }
         });
         
         logger.log(`[Game] Spawned ${this.enemyTanks.length} enemy tanks for map: ${this.currentMapType}`);
-        logger.log(`[Game] Enemy count: ${enemyCount}, Positions generated: ${spawnPositions.length}`);
+        logger.log(`[Game] Enemy count requested: ${enemyCount}, Positions generated: ${spawnPositions.length}, Actually spawned: ${this.enemyTanks.length}`);
+        
+        // ИСПРАВЛЕНИЕ: Предупреждение если не все враги заспавнились
+        if (this.enemyTanks.length < enemyCount) {
+            logger.warn(`[Game] WARNING: Only ${this.enemyTanks.length} out of ${enemyCount} enemies spawned!`);
+        }
     }
     
     // Спавн тренировочных ботов для режима полигона
@@ -2454,11 +2807,29 @@ export class Game {
             
             do {
                 // Случайная позиция в зоне боя
-                pos = new Vector3(
-                    combatZoneMinX + Math.random() * (combatZoneMaxX - combatZoneMinX),
-                    1.2,
-                    combatZoneMinZ + Math.random() * (combatZoneMaxZ - combatZoneMinZ)
-                );
+                const spawnX = combatZoneMinX + Math.random() * (combatZoneMaxX - combatZoneMinX);
+                const spawnZ = combatZoneMinZ + Math.random() * (combatZoneMaxZ - combatZoneMinZ);
+                let spawnY = 1.2; // Fallback высота
+                
+                // ИСПРАВЛЕНИЕ: Получаем высоту земли и спавним танк немного над поверхностью
+                if (this.chunkSystem && this.chunkSystem.terrainGenerator) {
+                    const groundHeight = this.chunkSystem.terrainGenerator.getHeight(spawnX, spawnZ, "dirt");
+                    spawnY = Math.max(groundHeight, 0) + 1.5;
+                } else {
+                    // Fallback: используем raycast
+                    const rayStart = new Vector3(spawnX, 50, spawnZ);
+                    const rayDir = Vector3.Down();
+                    const ray = new Ray(rayStart, rayDir, 100);
+                    const hit = this.scene.pickWithRay(ray, (mesh) => {
+                        return mesh && mesh.isEnabled() && mesh.isPickable && 
+                               mesh.name.includes("ground");
+                    });
+                    if (hit && hit.pickedPoint) {
+                        spawnY = hit.pickedPoint.y + 1.5;
+                    }
+                }
+                
+                pos = new Vector3(spawnX, spawnY, spawnZ);
                 
                 // Проверяем минимальное расстояние между ботами
                 let tooClose = false;
@@ -2898,8 +3269,26 @@ export class Game {
                 this.tank.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
             }
             
-            // Устанавливаем позицию
-            this.tank.chassis.position.copyFrom(playerGarage);
+            // ИСПРАВЛЕНИЕ: Получаем высоту земли и спавним танк немного над поверхностью
+            let spawnHeight = playerGarage.y;
+            if (this.chunkSystem && this.chunkSystem.terrainGenerator) {
+                // Получаем высоту земли в позиции гаража
+                const groundHeight = this.chunkSystem.terrainGenerator.getHeight(
+                    playerGarage.x, 
+                    playerGarage.z, 
+                    "dirt" // Используем базовый биом для проверки
+                );
+                // Спавним на высоте земли + 1.5 единицы для предотвращения падения сквозь пол
+                spawnHeight = Math.max(groundHeight, 0) + 1.5;
+                logger.log(`[Game] Ground height at garage: ${groundHeight.toFixed(2)}, spawn height: ${spawnHeight.toFixed(2)}`);
+            } else {
+                // Fallback: если нет terrain generator, используем позицию гаража + 1.5
+                spawnHeight = playerGarage.y + 1.5;
+            }
+            
+            // Устанавливаем позицию с правильной высотой
+            const spawnPos = new Vector3(playerGarage.x, spawnHeight, playerGarage.z);
+            this.tank.chassis.position.copyFrom(spawnPos);
             
             // КРИТИЧЕСКИ ВАЖНО: Сбрасываем вращение корпуса (чтобы танк не был наклонён!)
             this.tank.chassis.rotationQuaternion = Quaternion.Identity();
@@ -4775,18 +5164,37 @@ export class Game {
             
             // === ALT = ВКЛЮЧЕНИЕ POINTER LOCK (игровой курсор) ===
             if ((evt.code === "AltLeft" || evt.code === "AltRight") && !this.altKeyPressed) {
+                // ИСПРАВЛЕНИЕ: Улучшенная проверка условий и визуальная индикация
                 // Проверяем что игра запущена, не на паузе, и не открыты меню
                 if (this.gameStarted && !this.isPaused && 
                     (!this.garage || !this.garage.isGarageOpen()) &&
                     (!this.mainMenu || !this.mainMenu.isVisible())) {
                     this.altKeyPressed = true;
                     evt.preventDefault(); // Предотвращаем контекстное меню браузера
+                    evt.stopPropagation(); // Предотвращаем всплытие события
                     const canvas = this.scene.getEngine().getRenderingCanvas() as HTMLCanvasElement;
                     if (canvas && document.pointerLockElement !== canvas) {
-                        canvas.requestPointerLock().catch(err => {
+                        canvas.requestPointerLock().then(() => {
+                            logger.log("[Game] Pointer lock activated via Alt key");
+                            // Визуальная индикация
+                            if (this.hud) {
+                                this.hud.showMessage("🖱️ Игровой курсор включен (Alt)", "#0f0", 2000);
+                            }
+                        }).catch(err => {
                             logger.warn("[Game] Failed to request pointer lock on Alt:", err);
+                            if (this.hud) {
+                                this.hud.showMessage("⚠️ Не удалось включить курсор", "#f00", 2000);
+                            }
                         });
+                    } else if (canvas && document.pointerLockElement === canvas) {
+                        // Уже заблокирован
+                        if (this.hud) {
+                            this.hud.showMessage("🖱️ Курсор уже активен", "#0ff", 1500);
+                        }
                     }
+                } else {
+                    // Игра не запущена или меню открыто
+                    logger.debug("[Game] Alt pressed but game not ready for pointer lock");
                 }
             }
             
@@ -4813,6 +5221,11 @@ export class Game {
                 const canvas = this.scene.getEngine().getRenderingCanvas() as HTMLCanvasElement;
                 if (document.pointerLockElement === canvas) {
                     document.exitPointerLock();
+                    logger.log("[Game] Pointer lock deactivated via Alt key release");
+                    // Визуальная индикация
+                    if (this.hud) {
+                        this.hud.showMessage("🖱️ Игровой курсор выключен", "#888", 1500);
+                    }
                 }
             }
         });
@@ -4967,6 +5380,13 @@ export class Game {
                         
                         // Также применяем стандартные ограничения угла к целевому углу
                         this.targetAimPitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 6, newPitch));
+                    }
+                    
+                    // ИСПРАВЛЕНИЕ: Плавная интерполяция aimPitch и передача в TankController
+                    this.aimPitch += (this.targetAimPitch - this.aimPitch) * this.aimPitchSmoothing;
+                    // Передаем aimPitch в танк для применения к стволу
+                    if (this.tank) {
+                        this.tank.aimPitch = this.aimPitch;
                     }
                 } else if (!this.isFreeLook && this.tank && this.tank.turret && this.tank.chassis) {
                     // НЕ в режиме прицеливания и НЕ freelook
@@ -6321,6 +6741,16 @@ export class Game {
             this.hud.updateFullMap(playerPos, absoluteTurretRotation, allEnemies);
         }
 
+        // ИСПРАВЛЕНИЕ: Обновляем блок состояния танка (здоровье, топливо, броня)
+        if (this.hud && this.tank) {
+            const health = this.tank.currentHealth || 0;
+            const maxHealth = this.tank.maxHealth || 100;
+            const fuel = this.tank.currentFuel || 100;
+            const maxFuel = this.tank.maxFuel || 100;
+            const armor = this.tank.currentArmor || 0;
+            this.hud.updateTankStatus(health, maxHealth, fuel, maxFuel, armor);
+        }
+        
         // Enemy health summary (tanks + turrets) - С ЗАЩИТОЙ от null
         let enemyHp = 0;
         let enemyCount = 0;
@@ -6597,6 +7027,10 @@ export class Game {
         
         this.multiplayerManager.onConnected(() => {
             logger.log("[Game] Connected to multiplayer server");
+            // Обновляем статус в меню если оно открыто
+            if (this.mainMenu && typeof this.mainMenu.updateMultiplayerStatus === "function") {
+                this.mainMenu.updateMultiplayerStatus();
+            }
         });
         
         this.multiplayerManager.onDisconnected(() => {
@@ -6609,6 +7043,10 @@ export class Game {
             // Clean up network players
             this.networkPlayerTanks.forEach(tank => tank.dispose());
             this.networkPlayerTanks.clear();
+            // Обновляем статус в меню если оно открыто
+            if (this.mainMenu && typeof this.mainMenu.updateMultiplayerStatus === "function") {
+                this.mainMenu.updateMultiplayerStatus();
+            }
         });
         
         this.multiplayerManager.onPlayerJoined((playerData) => {
@@ -6625,6 +7063,34 @@ export class Game {
             }
         });
         
+        this.multiplayerManager.onQueueUpdate((data) => {
+            logger.log(`[Game] Queue update: ${data.queueSize} players, estimated wait: ${data.estimatedWait}s`);
+            // Обновляем UI меню, если оно открыто
+            if (this.mainMenu && typeof this.mainMenu.updateQueueInfo === "function") {
+                this.mainMenu.updateQueueInfo(
+                    data.queueSize || 0,
+                    data.estimatedWait || 0,
+                    data.mode || "unknown"
+                );
+            }
+        });
+        
+        this.multiplayerManager.onMatchFound((data) => {
+            logger.log(`[Game] Match found: ${data.roomId}`);
+            // Скрываем очередь в меню, так как матч найден
+            if (this.mainMenu && typeof this.mainMenu.updateQueueInfo === "function") {
+                this.mainMenu.updateQueueInfo(0, 0, null);
+            }
+        });
+        
+        this.multiplayerManager.onRoomCreated((data) => {
+            logger.log(`[Game] Room created: ${data.roomId}`);
+            // Обновляем статус в меню
+            if (this.mainMenu && typeof this.mainMenu.updateMultiplayerStatus === "function") {
+                this.mainMenu.updateMultiplayerStatus();
+            }
+        });
+        
         this.multiplayerManager.onGameStart((data) => {
             logger.log("[Game] Multiplayer game started");
             this.isMultiplayer = true;
@@ -6635,15 +7101,19 @@ export class Game {
             const playerId = this.multiplayerManager?.getPlayerId();
             
             if (roomId && playerId) {
-                // Make voice chat manager accessible globally for signaling
-                (window as any).voiceChatManager = voiceChatManager;
-                
-                voiceChatManager.initialize(serverUrl, roomId, playerId).then(success => {
-                    if (success) {
-                        logger.log("[Game] Voice chat initialized");
-                    } else {
-                        logger.warn("[Game] Voice chat initialization failed (microphone permission?)");
-                    }
+                // Make voice chat manager accessible globally for signaling (lazy loaded)
+                import("./voiceChat").then(({ voiceChatManager }) => {
+                    (window as any).voiceChatManager = voiceChatManager;
+                    
+                    voiceChatManager.initialize(serverUrl, roomId, playerId).then(success => {
+                        if (success) {
+                            logger.log("[Game] Voice chat initialized");
+                        } else {
+                            logger.warn("[Game] Voice chat initialization failed (microphone permission?)");
+                        }
+                    });
+                }).catch(error => {
+                    logger.error("[Game] Failed to load voice chat:", error);
                 });
             }
             
@@ -6665,17 +7135,25 @@ export class Game {
                 }
             }
             
-            // Initialize Battle Royale visualizer
+            // Initialize Battle Royale visualizer (lazy loaded)
             if (data.mode === "battle_royale") {
                 if (!this.battleRoyaleVisualizer) {
-                    this.battleRoyaleVisualizer = new BattleRoyaleVisualizer(this.scene);
+                    import("./battleRoyale").then(({ BattleRoyaleVisualizer }) => {
+                        this.battleRoyaleVisualizer = new BattleRoyaleVisualizer(this.scene);
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load Battle Royale visualizer:", error);
+                    });
                 }
             }
             
-            // Initialize CTF visualizer
+            // Initialize CTF visualizer (lazy loaded)
             if (data.mode === "ctf") {
                 if (!this.ctfVisualizer) {
-                    this.ctfVisualizer = new CTFVisualizer(this.scene);
+                    import("./ctfVisualizer").then(({ CTFVisualizer }) => {
+                        this.ctfVisualizer = new CTFVisualizer(this.scene);
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load CTF visualizer:", error);
+                    });
                 }
             }
             
@@ -6687,21 +7165,37 @@ export class Game {
                 this.realtimeStatsTracker.startMatch(playerId);
             }
             
-            // Start replay recording
+            // Start replay recording (lazy loaded)
             if (!this.replayRecorder) {
-                this.replayRecorder = new ReplayRecorder();
+                import("./replaySystem").then(({ ReplayRecorder }) => {
+                    this.replayRecorder = new ReplayRecorder();
+                    const worldSeed = data.worldSeed || 0;
+                    const initialPlayers = data.players || [];
+                    this.replayRecorder.startRecording(
+                        data.roomId || `match_${Date.now()}`,
+                        data.mode || "ffa",
+                        worldSeed,
+                        initialPlayers,
+                        {
+                            maxPlayers: data.maxPlayers || 32
+                        }
+                    );
+                }).catch(error => {
+                    logger.error("[Game] Failed to load replay system:", error);
+                });
+            } else {
+                const worldSeed = data.worldSeed || 0;
+                const initialPlayers = data.players || [];
+                this.replayRecorder.startRecording(
+                    data.roomId || `match_${Date.now()}`,
+                    data.mode || "ffa",
+                    worldSeed,
+                    initialPlayers,
+                    {
+                        maxPlayers: data.maxPlayers || 32
+                    }
+                );
             }
-            const worldSeed = data.worldSeed || 0;
-            const initialPlayers = data.players || [];
-            this.replayRecorder.startRecording(
-                data.roomId || `match_${Date.now()}`,
-                data.mode || "ffa",
-                worldSeed,
-                initialPlayers,
-                {
-                    maxPlayers: data.maxPlayers || 32
-                }
-            );
         });
         
         this.multiplayerManager.onSafeZoneUpdate((data: any) => {
@@ -7129,6 +7623,27 @@ export class Game {
             this.hud.updateMatchTimer?.(gameTime);
         }
         
+        // Send client metrics to server periodically (every 5 seconds)
+        const now = Date.now();
+        if (this.metricsCollector && now - this.lastMetricsSendTime >= this.METRICS_SEND_INTERVAL) {
+            try {
+                const metrics = this.metricsCollector.collect();
+                // Add FPS to metrics
+                const fps = Math.round(this.engine.getFps());
+                
+                // Convert ExtendedMetrics to ClientMetricsData
+                const clientMetrics: ClientMetricsData = {
+                    ...metrics,
+                    fps
+                };
+                
+                this.multiplayerManager.sendClientMetrics(clientMetrics);
+                this.lastMetricsSendTime = now;
+            } catch (error) {
+                logger.warn("[Game] Failed to send client metrics:", error);
+            }
+        }
+        
         // Handle Tab key for stats (toggle player list)
         if (this._updateTick % 5 === 0) { // Check every 5 frames
             // Tab key handling would be in input system
@@ -7175,6 +7690,27 @@ export class Game {
     
     quickPlayMultiplayer(mode: string, region?: string): void {
         if (this.multiplayerManager) {
+            // Ensure connection before quick play
+            if (!this.multiplayerManager.isConnected()) {
+                const serverUrl = (import.meta as any).env?.VITE_WS_SERVER_URL || "ws://localhost:8080";
+                this.multiplayerManager.connect(serverUrl);
+                // Retry after connection is established (with timeout)
+                const retryTimeout = setTimeout(() => {
+                    if (this.multiplayerManager && this.multiplayerManager.isConnected()) {
+                        this.multiplayerManager.quickPlay(mode as any, region);
+                    } else {
+                        logger.warn("[Game] Failed to connect to multiplayer server for quick play");
+                    }
+                }, 1000);
+                // Also try immediately after a short delay (in case already connecting)
+                setTimeout(() => {
+                    if (this.multiplayerManager && this.multiplayerManager.isConnected()) {
+                        clearTimeout(retryTimeout);
+                        this.multiplayerManager.quickPlay(mode as any, region);
+                    }
+                }, 100);
+                return;
+            }
             this.multiplayerManager.quickPlay(mode as any, region);
         }
     }
@@ -7293,39 +7829,45 @@ export class Game {
     
     private async takeScreenshot(): Promise<void> {
         try {
-            // Используем Babylon.js API для создания скриншота
-            const dataUrl = await this.engine.createScreenshot();
+            // Ленивая загрузка ScreenshotManager
+            if (!this.screenshotManager) {
+                const { ScreenshotManager } = await import("./screenshotManager");
+                this.screenshotManager = new ScreenshotManager(this.engine, this.scene, this.hud || null);
+            }
             
-            // Конвертируем data URL в blob
-            const response = await fetch(dataUrl);
-            const blob = await response.blob();
+            // Получаем настройки из localStorage или используем значения по умолчанию
+            const defaultFormat = (localStorage.getItem('ptx_screenshot_format') || 'png') as any;
+            const defaultMode = (localStorage.getItem('ptx_screenshot_mode') || 'full') as any;
+            const defaultQuality = parseFloat(localStorage.getItem('ptx_screenshot_quality') || '0.92');
+            
+            // Создаём опции для скриншота
+            const { ScreenshotFormat, ScreenshotMode } = await import("./screenshotManager");
+            const formatMap: { [key: string]: any } = {
+                'png': ScreenshotFormat.PNG,
+                'jpeg': ScreenshotFormat.JPEG,
+                'webp': ScreenshotFormat.WEBP
+            };
+            const modeMap: { [key: string]: any } = {
+                'full': ScreenshotMode.FULL_SCREEN,
+                'game': ScreenshotMode.GAME_ONLY,
+                'ui': ScreenshotMode.UI_ONLY,
+                'region': ScreenshotMode.REGION
+            };
+            
+            const options = {
+                format: formatMap[defaultFormat] || ScreenshotFormat.PNG,
+                quality: defaultQuality,
+                mode: modeMap[defaultMode] || ScreenshotMode.FULL_SCREEN
+            };
+            
+            // Создаём скриншот
+            const blob = await this.screenshotManager.capture(options);
             
             // Копирование в буфер обмена
-            if (navigator.clipboard && navigator.clipboard.write) {
-                try {
-                    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-                } catch (clipboardError) {
-                    logger.warn("[Game] Clipboard write failed, continuing with localStorage save:", clipboardError);
-                }
-            }
+            const clipboardSuccess = await this.screenshotManager.copyToClipboard(blob);
             
             // Сохранение в localStorage
-            const timestamp = Date.now();
-            const key = `ptx_screenshot_${timestamp}`;
-            
-            // Сохраняем base64 строку (ограничение ~5MB на ключ)
-            localStorage.setItem(key, dataUrl);
-            
-            // Обновление метаданных
-            const metaKey = "ptx_screenshots_meta";
-            const meta = JSON.parse(localStorage.getItem(metaKey) || "[]");
-            meta.push({ timestamp, size: blob.size });
-            // Ограничиваем количество сохраненных скриншотов (последние 50)
-            if (meta.length > 50) {
-                const oldest = meta.shift();
-                localStorage.removeItem(`ptx_screenshot_${oldest.timestamp}`);
-            }
-            localStorage.setItem(metaKey, JSON.stringify(meta));
+            const key = await this.screenshotManager.saveToLocalStorage(blob, options);
             
             // Уведомление
             this.hud?.showMessage("📸 Screenshot saved! (F2)", "#0f0", 3000);
@@ -7333,6 +7875,56 @@ export class Game {
         } catch (error) {
             logger.error("[Game] Screenshot failed:", error);
             this.hud?.showMessage("Screenshot failed", "#f00", 2000);
+        }
+    }
+    
+    /**
+     * Открыть панель настроек скриншотов
+     */
+    private async ensureChatSystem(): Promise<void> {
+        if (this.chatSystem) {
+            return; // Already initialized
+        }
+        
+        logger.warn("[Game] ChatSystem not initialized, attempting to initialize...");
+        try {
+            // ChatSystem is already imported, but we need to create it
+            this.chatSystem = new ChatSystem(this.scene);
+            this.chatSystem.setGame(this);
+            if (this.soundManager) {
+                this.chatSystem.setSoundManager(this.soundManager);
+            }
+            logger.log("[Game] ChatSystem initialized successfully");
+        } catch (error) {
+            logger.error("[Game] Failed to initialize ChatSystem:", error);
+            throw error;
+        }
+    }
+    
+    private async openScreenshotPanel(): Promise<void> {
+        try {
+            // Ленивая загрузка ScreenshotManager и панели
+            if (!this.screenshotManager) {
+                logger.log("[Game] Loading screenshot manager (F2)...");
+                const { ScreenshotManager } = await import("./screenshotManager");
+                this.screenshotManager = new ScreenshotManager(this.engine, this.scene, this.hud || null);
+                logger.log("[Game] Screenshot manager loaded successfully");
+            }
+            
+            if (!this.screenshotPanel) {
+                logger.log("[Game] Loading screenshot panel (F2)...");
+                const { ScreenshotPanel } = await import("./screenshotPanel");
+                this.screenshotPanel = new ScreenshotPanel(this.screenshotManager, this);
+                logger.log("[Game] Screenshot panel loaded successfully");
+            }
+            
+            this.screenshotPanel.toggle();
+            logger.log("[Game] Screenshot panel toggled");
+        } catch (error) {
+            logger.error("[Game] Failed to open screenshot panel:", error);
+            if (this.hud) {
+                this.hud.showMessage("Failed to load Screenshot Panel", "#f00", 3000);
+            }
         }
     }
     
@@ -7418,7 +8010,6 @@ export class Game {
             await firebaseService.updatePlayerStats(statsUpdates);
             
             // Save match history
-            const { Timestamp } = await import("firebase/firestore");
             const matchHistory: MatchHistory = {
                 matchId: matchData.matchId || `match_${Date.now()}`,
                 mode: matchData.mode || "ffa",

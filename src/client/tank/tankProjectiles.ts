@@ -30,11 +30,14 @@ export class TankProjectilesModule {
         const casingDiameter = bulletSize * TANK_CONSTANTS.SHELL_CASING_DIAMETER_MULTIPLIER;
         const casingLength = bulletSize * TANK_CONSTANTS.SHELL_CASING_LENGTH_MULTIPLIER;
         
-        // Создаем гильзу как цилиндр
-        const casing = MeshBuilder.CreateCylinder("shellCasing", {
+        // Создаем гильзу как прямоугольную коробку (не цилиндр)
+        const casing = MeshBuilder.CreateBox("shellCasing", {
+            width: casingDiameter,
             height: casingLength,
-            diameter: casingDiameter
+            depth: casingDiameter
         }, this.tank.scene);
+        // Повернуть на 90° по X для горизонтального положения
+        casing.rotation.x = Math.PI / 2;
         
         // Позиция гильзы - немного сбоку от ствола
         const right = Vector3.Cross(barrelDir, Vector3.Up()).normalize();

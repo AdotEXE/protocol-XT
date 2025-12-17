@@ -73,7 +73,7 @@ export interface PlayerAchievement {
     condition: (stats: PlayerStats) => boolean;
 }
 
-// Опыт для каждого уровня игрока
+// Опыт для каждого уровня игрока (расширено до 50 уровней)
 const PLAYER_LEVEL_EXP = [
     0,       // 1
     500,     // 2
@@ -95,21 +95,72 @@ const PLAYER_LEVEL_EXP = [
     67000,   // 18
     77800,   // 19
     90000,   // 20
-    105000,  // 21
-    122000,  // 22
-    141000,  // 23
-    163000,  // 24
-    188000,  // 25
-    216000,  // 26
-    248000,  // 27
-    284000,  // 28
-    325000,  // 29
-    370000,  // 30 MAX
+    103500,  // 21
+    118500,  // 22
+    135000,  // 23
+    153000,  // 24
+    172500,  // 25
+    193500,  // 26
+    216000,  // 27
+    240000,  // 28
+    265500,  // 29
+    292500,  // 30
+    321000,  // 31
+    351000,  // 32
+    382500,  // 33
+    415500,  // 34
+    450000,  // 35
+    486000,  // 36
+    523500,  // 37
+    562500,  // 38
+    603000,  // 39
+    645000,  // 40
+    688500,  // 41
+    733500,  // 42
+    780000,  // 43
+    828000,  // 44
+    877500,  // 45
+    928500,  // 46
+    981000,  // 47
+    1035000, // 48
+    1090500, // 49
+    1147500, // 50 MAX
 ];
 
 const MAX_PLAYER_LEVEL = PLAYER_LEVEL_EXP.length;
-const MAX_SKILL_LEVEL = 10;
+const MAX_SKILL_LEVEL = 15; // Увеличено с 10 до 15
 const PRESTIGE_BONUS = 0.1; // 10% бонус за каждый престиж
+
+// Титулы/ранги за уровни
+const PLAYER_TITLES: Record<number, { title: string; icon: string; color: string }> = {
+    1: { title: "Новобранец", icon: "🪖", color: "#888888" },
+    5: { title: "Солдат", icon: "🎖️", color: "#cccccc" },
+    10: { title: "Сержант", icon: "⭐", color: "#ffd700" },
+    15: { title: "Лейтенант", icon: "🎖️", color: "#00ff00" },
+    20: { title: "Капитан", icon: "🏅", color: "#00aaff" },
+    25: { title: "Майор", icon: "🎖️", color: "#ff8800" },
+    30: { title: "Полковник", icon: "👑", color: "#ff00ff" },
+    35: { title: "Генерал", icon: "🌟", color: "#ff0000" },
+    40: { title: "Маршал", icon: "💎", color: "#00ffff" },
+    45: { title: "Легенда", icon: "⚡", color: "#ffff00" },
+    50: { title: "Миф", icon: "🔥", color: "#ff00ff" }
+};
+
+// Пассивные бонусы за уровни игрока
+function getLevelBonuses(level: number): {
+    healthBonus: number;
+    damageBonus: number;
+    speedBonus: number;
+    creditBonus: number;
+} {
+    // Линейное увеличение бонусов
+    return {
+        healthBonus: Math.floor(level * 2),        // +2 HP за уровень
+        damageBonus: Math.floor(level * 0.5),     // +0.5 урона за уровень
+        speedBonus: level * 0.1,                   // +0.1 скорости за уровень
+        creditBonus: 1 + (level * 0.01)           // +1% кредитов за уровень
+    };
+}
 
 // Достижения игрока
 const PLAYER_ACHIEVEMENTS: PlayerAchievement[] = [
@@ -198,6 +249,7 @@ export class PlayerProgressionSystem {
     private chatSystem: any = null;
     private soundManager: any = null;
     private menu: any = null;
+    private hud: any = null;
     private lastSaveTime: number = 0;
     
     // Observable для уведомления об изменениях опыта
@@ -225,6 +277,10 @@ export class PlayerProgressionSystem {
     
     setMenu(menu: any): void {
         this.menu = menu;
+    }
+    
+    setHUD(hud: any): void {
+        this.hud = hud;
     }
     
     // ─────────────────────────────────────────────────────────────────────
@@ -331,18 +387,66 @@ export class PlayerProgressionSystem {
     }
     
     private onLevelUp(): void {
+        const level = this.stats.level;
+        const title = this.getTitle();
+        
+        // Проверяем веху уровня
+        const isMilestone = level === 10 || level === 20 || level === 30 || level === 40 || level === 50;
+        
+        // Бонусные кредиты за уровень (увеличено)
+        const levelBonus = level * 75; // Было 50
+        this.stats.credits += levelBonus;
+        
+        // Особые награды за ключевые уровни
+        let milestoneBonus = 0;
+        let milestoneSkillPoints = 0;
+        if (isMilestone) {
+            milestoneBonus = level * 100;
+            milestoneSkillPoints = 1; // Дополнительное очко навыков
+            this.stats.credits += milestoneBonus;
+            this.stats.skillPoints += milestoneSkillPoints;
+        }
+        
+        // Пассивные бонусы за уровень
+        const bonuses = getLevelBonuses(level);
+        
+        // Показываем красивый визуальный эффект
+        if (this.hud && this.hud.showPlayerLevelUp) {
+            this.hud.showPlayerLevelUp(
+                level,
+                title,
+                bonuses,
+                levelBonus + milestoneBonus,
+                1 + milestoneSkillPoints, // Базовое очко + дополнительное за веху
+                isMilestone
+            );
+        }
+        
+        // Сообщение в чат
+        let message = `🎉 УРОВЕНЬ ${level}! +1 очко навыков`;
+        if (title && PLAYER_TITLES[level]) {
+            message += ` | ${title.icon} ${title.title}`;
+        }
+        
         if (this.chatSystem) {
-            this.chatSystem.success(`🎉 УРОВЕНЬ ${this.stats.level}! +1 очко навыков`, 1);
+            this.chatSystem.success(message, 1);
         }
         if (this.soundManager) {
             this.soundManager.playUpgrade?.();
         }
         
-        // Бонусные кредиты за уровень
-        const levelBonus = this.stats.level * 50;
-        this.stats.credits += levelBonus;
         if (this.chatSystem) {
-            this.chatSystem.economy(`+${levelBonus} кредитов за уровень`);
+            this.chatSystem.economy(`+${levelBonus + milestoneBonus} кредитов за уровень`);
+        }
+        
+        if (this.chatSystem && level > 1) {
+            this.chatSystem.info(
+                `📈 Пассивные бонусы: +${bonuses.healthBonus} HP, +${bonuses.damageBonus.toFixed(1)} урона, +${bonuses.speedBonus.toFixed(1)} скорости`
+            );
+        }
+        
+        if (isMilestone && this.chatSystem) {
+            this.chatSystem.success(`🌟 Веха уровня ${level}! +${milestoneBonus} кредитов, +${milestoneSkillPoints} очко навыков`, 1);
         }
         
         // Обновляем меню при повышении уровня
@@ -388,16 +492,46 @@ export class PlayerProgressionSystem {
         expBonus: number;
         creditBonus: number;
         turretSpeedBonus: number;
+        armorBonus: number;
     } {
+        // Улучшенные бонусы навыков (более значимые)
         return {
-            damageBonus: this.stats.skills.combatExpert * 3,
-            healthBonus: this.stats.skills.survivalInstinct * 10,
-            speedBonus: this.stats.skills.tankMastery * 0.3,
-            reloadBonus: this.stats.skills.tacticalGenius * 50,
-            expBonus: this.stats.skills.resourcefulness * 0.05,
-            creditBonus: this.stats.skills.resourcefulness * 0.05,
-            turretSpeedBonus: this.stats.skills.tacticalGenius * 0.1
+            damageBonus: this.stats.skills.combatExpert * 4,           // +4 урона за уровень (было 3)
+            healthBonus: this.stats.skills.survivalInstinct * 15,      // +15 HP за уровень (было 10)
+            speedBonus: this.stats.skills.tankMastery * 0.5,           // +0.5 скорости за уровень (было 0.3)
+            reloadBonus: this.stats.skills.tacticalGenius * 75,         // +75 мс перезарядки за уровень (было 50)
+            expBonus: this.stats.skills.resourcefulness * 0.08,        // +8% опыта за уровень (было 5%)
+            creditBonus: this.stats.skills.resourcefulness * 0.08,     // +8% кредитов за уровень (было 5%)
+            turretSpeedBonus: this.stats.skills.tacticalGenius * 0.15, // +15% скорости башни за уровень (было 10%)
+            armorBonus: this.stats.skills.survivalInstinct * 0.02      // +2% брони за уровень
         };
+    }
+    
+    // Получить пассивные бонусы за уровень игрока
+    getLevelBonuses(): {
+        healthBonus: number;
+        damageBonus: number;
+        speedBonus: number;
+        creditBonus: number;
+    } {
+        return getLevelBonuses(this.stats.level);
+    }
+    
+    // Получить титул игрока
+    getTitle(): { title: string; icon: string; color: string } | null {
+        // Находим самый высокий титул для текущего уровня
+        let bestTitle: { title: string; icon: string; color: string } | null = null;
+        let bestLevel = 0;
+        
+        for (const [level, title] of Object.entries(PLAYER_TITLES)) {
+            const levelNum = parseInt(level);
+            if (this.stats.level >= levelNum && levelNum > bestLevel) {
+                bestTitle = title;
+                bestLevel = levelNum;
+            }
+        }
+        
+        return bestTitle;
     }
     
     // ─────────────────────────────────────────────────────────────────────
@@ -439,10 +573,10 @@ export class PlayerProgressionSystem {
             this.stats.bestKillStreak = this.stats.currentKillStreak;
         }
         
-        // Опыт за убийство
-        const baseExp = 25;
-        const streakBonus = Math.min(this.stats.currentKillStreak * 5, 50);
-        this.addExperience(baseExp + streakBonus, "kill");
+        // ИСПРАВЛЕНИЕ: НЕ добавляем опыт здесь - он уже добавляется через ExperienceSystem.flushXpBatch()
+        // Это предотвращает дублирование опыта между ExperienceSystem и PlayerProgression
+        // Опыт за убийство обрабатывается в ExperienceSystem.recordKill(), который затем
+        // передает часть опыта в PlayerProgression через flushXpBatch()
         
         // Обновляем ежедневные квесты
         this.updateDailyQuest("kills", 1);
@@ -730,5 +864,5 @@ export class PlayerProgressionSystem {
     }
 }
 
-export { PLAYER_ACHIEVEMENTS, MAX_PLAYER_LEVEL, PLAYER_LEVEL_EXP };
+export { PLAYER_ACHIEVEMENTS, MAX_PLAYER_LEVEL, PLAYER_LEVEL_EXP, PLAYER_TITLES, getLevelBonuses };
 

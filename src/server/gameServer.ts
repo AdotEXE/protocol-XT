@@ -11,6 +11,8 @@ import { ClientMessageType, ServerMessageType } from "../shared/messages";
 import type { GameMode } from "../shared/types";
 import { InputValidator } from "./validation";
 import { DeltaCompressor, PrioritizedBroadcaster } from "./deltaCompression";
+import { initializeFirebaseAdmin, verifyIdToken } from "./auth";
+import { MonitoringAPI } from "./monitoring";
 
 const TICK_RATE = 60; // 60 Hz
 const TICK_INTERVAL = 1000 / TICK_RATE; // ~16.67ms
@@ -25,13 +27,22 @@ export class GameServer {
     private tickCount: number = 0;
     private deltaCompressor: Map<string, DeltaCompressor> = new Map(); // Per-room compressors
     private prioritizedBroadcaster: PrioritizedBroadcaster = new PrioritizedBroadcaster();
+    private monitoringAPI: MonitoringAPI;
+    private monitoringClients: Set<WebSocket> = new Set();
     
     constructor(port: number = 8080) {
         this.wss = new WebSocketServer({ port });
         console.log(`[Server] WebSocket server started on port ${port}`);
         
+        // Инициализация Firebase Admin для валидации токенов
+        initializeFirebaseAdmin();
+        
+        // Инициализация Monitoring API
+        this.monitoringAPI = new MonitoringAPI(this);
+        
         this.setupWebSocket();
         this.startGameLoop();
+        this.startMonitoringBroadcast();
     }
     
     private setupWebSocket(): void {
@@ -40,11 +51,30 @@ export class GameServer {
             
             ws.on("message", (data: Buffer) => {
                 try {
-                    const message = deserializeMessage<ClientMessage>(data.toString());
+                    const dataStr = data.toString();
+                    
+                    // Try to parse as JSON first (for monitoring messages)
+                    let message: any;
+                    try {
+                        message = JSON.parse(dataStr);
+                        // Check if it's a monitoring message
+                        if (message.type === "monitoring_connect" || message.type === "monitoring_disconnect") {
+                            this.handleMessage(ws, message);
+                            return;
+                        }
+                    } catch (e) {
+                        // Not JSON, continue with deserialize
+                    }
+                    
+                    // Try to deserialize as ClientMessage
+                    message = deserializeMessage<ClientMessage>(dataStr);
                     this.handleMessage(ws, message);
                 } catch (error) {
-                    console.error("[Server] Error parsing message:", error);
-                    this.sendError(ws, "INVALID_MESSAGE", "Failed to parse message");
+                    // Only send error for game clients, not monitoring clients
+                    if (!this.monitoringClients.has(ws)) {
+                        console.error("[Server] Error parsing message:", error);
+                        this.sendError(ws, "INVALID_MESSAGE", "Failed to parse message");
+                    }
                 }
             });
             
@@ -58,7 +88,28 @@ export class GameServer {
         });
     }
     
-    private handleMessage(ws: WebSocket, message: ClientMessage): void {
+    private handleMessage(ws: WebSocket, message: ClientMessage | any): void {
+        // Check for monitoring messages first (before parsing as ClientMessage)
+        if (message && typeof message === 'object' && message.type) {
+            if (message.type === "monitoring_connect") {
+                // Monitoring client connecting
+                this.monitoringClients.add(ws);
+                // Send initial stats
+                this.sendMonitoringStats(ws);
+                return;
+            } else if (message.type === "monitoring_disconnect") {
+                // Monitoring client disconnecting
+                this.monitoringClients.delete(ws);
+                return;
+            }
+        }
+        
+        // Skip game message handling for monitoring clients
+        if (this.monitoringClients.has(ws)) {
+            return;
+        }
+        
+        // Handle regular game messages
         const player = this.getPlayerBySocket(ws);
         
         switch (message.type) {
@@ -102,6 +153,10 @@ export class GameServer {
                 if (player) this.handleConsumablePickup(player, message.data);
                 break;
                 
+            case ClientMessageType.CLIENT_METRICS:
+                if (player) this.handleClientMetrics(player, message.data);
+                break;
+                
             case ClientMessageType.VOICE_OFFER:
             case ClientMessageType.VOICE_ANSWER:
             case ClientMessageType.VOICE_ICE_CANDIDATE:
@@ -114,26 +169,50 @@ export class GameServer {
         }
     }
     
-    private handleConnect(ws: WebSocket, data: any): void {
+    private async handleConnect(ws: WebSocket, data: any): Promise<void> {
         const playerId = data.playerId;
         const playerName = data.playerName || `Player_${playerId?.substring(0, 6) || "Unknown"}`;
+        const idToken = data.idToken; // Firebase ID токен
         
-        let player = this.players.get(playerId);
+        // Валидация токена, если предоставлен
+        let verifiedUserId: string | null = null;
+        if (idToken) {
+            const decodedToken = await verifyIdToken(idToken);
+            if (decodedToken) {
+                verifiedUserId = decodedToken.uid;
+                console.log(`[Server] Token verified for user: ${verifiedUserId}`);
+                
+                // Используем UID из токена вместо переданного playerId для безопасности
+                if (verifiedUserId !== playerId) {
+                    console.warn(`[Server] Player ID mismatch: provided ${playerId}, token UID ${verifiedUserId}`);
+                }
+            } else {
+                console.warn(`[Server] Invalid token provided, connection may be rejected`);
+                // Можно отклонить подключение или разрешить как гостя
+                // Для гибкости разрешаем подключение без валидации
+            }
+        }
+        
+        // Используем verifiedUserId если токен валиден, иначе используем переданный playerId
+        const finalPlayerId = verifiedUserId || playerId;
+        
+        let player = this.players.get(finalPlayerId);
         
         if (!player) {
-            player = new ServerPlayer(ws, playerId, playerName);
+            player = new ServerPlayer(ws, finalPlayerId, playerName);
             this.players.set(player.id, player);
-            console.log(`[Server] Player connected: ${player.id} (${player.name})`);
+            console.log(`[Server] Player connected: ${player.id} (${player.name})${verifiedUserId ? ' [AUTHENTICATED]' : ' [GUEST]'}`);
         } else {
             // Reconnection
             player.socket = ws;
             player.connected = true;
-            console.log(`[Server] Player reconnected: ${player.id}`);
+            console.log(`[Server] Player reconnected: ${player.id}${verifiedUserId ? ' [AUTHENTICATED]' : ' [GUEST]'}`);
         }
         
         this.send(ws, createServerMessage(ServerMessageType.CONNECTED, {
             playerId: player.id,
-            playerName: player.name
+            playerName: player.name,
+            authenticated: !!verifiedUserId
         }));
     }
     
@@ -424,6 +503,11 @@ export class GameServer {
         }));
     }
     
+    private handleClientMetrics(player: ServerPlayer, data: any): void {
+        // Store client metrics in monitoring API
+        this.monitoringAPI.storeClientMetrics(player.id, data);
+    }
+    
     private handleCancelQueue(player: ServerPlayer, data: any): void {
         const { mode, region } = data;
         this.matchmaking.removeFromQueue(player, mode, region);
@@ -431,6 +515,12 @@ export class GameServer {
     }
     
     private handleDisconnect(ws: WebSocket): void {
+        // Check if it's a monitoring client
+        if (this.monitoringClients.has(ws)) {
+            this.monitoringClients.delete(ws);
+            return;
+        }
+        
         const player = this.getPlayerBySocket(ws);
         if (player) {
             console.log(`[Server] Player disconnected: ${player.id}`);
@@ -447,11 +537,80 @@ export class GameServer {
     private startGameLoop(): void {
         this.tickInterval = setInterval(() => {
             const now = Date.now();
+            const tickStartTime = now;
             const deltaTime = (now - this.lastTick) / 1000; // Convert to seconds
             this.lastTick = now;
             
             this.update(deltaTime);
+            
+            // Record tick time for monitoring
+            const tickEndTime = Date.now();
+            const tickTime = tickEndTime - tickStartTime;
+            this.monitoringAPI.recordTickTime(tickTime);
+            this.tickCount++;
         }, TICK_INTERVAL);
+    }
+    
+    private startMonitoringBroadcast(): void {
+        // Broadcast monitoring stats every second to monitoring clients
+        setInterval(() => {
+            this.broadcastMonitoringStats();
+        }, 1000);
+    }
+    
+    private broadcastMonitoringStats(): void {
+        if (this.monitoringClients.size === 0) return;
+        
+        const stats = this.monitoringAPI.getStats();
+        
+        // Add detailed room info to stats
+        const detailedRooms = this.monitoringAPI.getDetailedRoomStats();
+        const roomsList = detailedRooms.map(room => ({
+            id: room.id,
+            mode: room.mode,
+            players: room.currentPlayers,
+            maxPlayers: room.maxPlayers,
+            status: room.isActive ? 'ACTIVE' : 'WAITING',
+            gameTime: room.gameTime
+        }));
+        
+        const enhancedStats = {
+            ...stats,
+            roomsList
+        };
+        
+        const message = createServerMessage(ServerMessageType.MONITORING_STATS, enhancedStats);
+        const serialized = serializeMessage(message);
+        
+        for (const client of this.monitoringClients) {
+            if (client.readyState === WebSocket.OPEN) {
+                client.send(serialized);
+            } else {
+                this.monitoringClients.delete(client);
+            }
+        }
+    }
+    
+    private sendMonitoringStats(ws: WebSocket): void {
+        const stats = this.monitoringAPI.getStats();
+        
+        // Add detailed room info to stats
+        const detailedRooms = this.monitoringAPI.getDetailedRoomStats();
+        const roomsList = detailedRooms.map(room => ({
+            id: room.id,
+            mode: room.mode,
+            players: room.currentPlayers,
+            maxPlayers: room.maxPlayers,
+            status: room.isActive ? 'ACTIVE' : 'WAITING',
+            gameTime: room.gameTime
+        }));
+        
+        const enhancedStats = {
+            ...stats,
+            roomsList
+        };
+        
+        this.send(ws, createServerMessage(ServerMessageType.MONITORING_STATS, enhancedStats));
     }
     
     private update(deltaTime: number): void {
@@ -585,6 +744,34 @@ export class GameServer {
             }
         }
         return undefined;
+    }
+    
+    /**
+     * Получить статистику сервера (для мониторинга)
+     */
+    getStats() {
+        return this.monitoringAPI.getStats();
+    }
+    
+    /**
+     * Получить детальную статистику всех комнат
+     */
+    getDetailedRoomStats() {
+        return this.monitoringAPI.getDetailedRoomStats();
+    }
+    
+    /**
+     * Получить детальную статистику всех игроков
+     */
+    getDetailedPlayerStats() {
+        return this.monitoringAPI.getDetailedPlayerStats();
+    }
+    
+    /**
+     * Получить Monitoring API (для расширенного доступа)
+     */
+    getMonitoringAPI(): MonitoringAPI {
+        return this.monitoringAPI;
     }
     
     shutdown(): void {

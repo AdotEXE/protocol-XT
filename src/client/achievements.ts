@@ -278,6 +278,541 @@ export const ACHIEVEMENTS: Achievement[] = [
         requirement: 10,
         reward: { type: "experience", amount: 250 },
         category: "special"
+    },
+    
+    // === CHASSIS MASTERY ACHIEVEMENTS ===
+    {
+        id: "chassis_light_master",
+        name: "Мастер легких танков",
+        nameEn: "Light Tank Master",
+        description: "Уничтожить 50 врагов на Light корпусе",
+        descriptionEn: "Destroy 50 enemies with Light chassis",
+        icon: "⚡",
+        requirement: 50,
+        reward: { type: "currency", amount: 500 },
+        category: "combat"
+    },
+    {
+        id: "chassis_heavy_master",
+        name: "Мастер тяжелых танков",
+        nameEn: "Heavy Tank Master",
+        description: "Уничтожить 50 врагов на Heavy корпусе",
+        descriptionEn: "Destroy 50 enemies with Heavy chassis",
+        icon: "🛡️",
+        requirement: 50,
+        reward: { type: "currency", amount: 500 },
+        category: "combat"
+    },
+    {
+        id: "chassis_stealth_master",
+        name: "Мастер стелса",
+        nameEn: "Stealth Master",
+        description: "Использовать способность Stealth 100 раз",
+        descriptionEn: "Use Stealth ability 100 times",
+        icon: "👻",
+        requirement: 100,
+        reward: { type: "currency", amount: 600 },
+        category: "special"
+    },
+    {
+        id: "chassis_hover_master",
+        name: "Мастер ховера",
+        nameEn: "Hover Master",
+        description: "Проехать 10 км на Hover корпусе",
+        descriptionEn: "Travel 10 km with Hover chassis",
+        icon: "🚁",
+        requirement: 10000,
+        reward: { type: "currency", amount: 550 },
+        category: "exploration"
+    },
+    {
+        id: "chassis_siege_master",
+        name: "Мастер осады",
+        nameEn: "Siege Master",
+        description: "Выжить 30 минут на Siege корпусе",
+        descriptionEn: "Survive 30 minutes with Siege chassis",
+        icon: "🏰",
+        requirement: 1800,
+        reward: { type: "currency", amount: 700 },
+        category: "survival"
+    },
+    {
+        id: "chassis_racer_master",
+        name: "Гонщик",
+        nameEn: "Racer",
+        description: "Достичь максимальной скорости на Racer корпусе",
+        descriptionEn: "Reach max speed with Racer chassis",
+        icon: "🏎️",
+        requirement: 1,
+        reward: { type: "currency", amount: 450 },
+        category: "special"
+    },
+    {
+        id: "chassis_shield_master",
+        name: "Мастер щита",
+        nameEn: "Shield Master",
+        description: "Заблокировать 1000 урона щитом",
+        descriptionEn: "Block 1000 damage with Shield",
+        icon: "🛡️",
+        requirement: 1000,
+        reward: { type: "currency", amount: 650 },
+        category: "survival"
+    },
+    {
+        id: "chassis_drone_master",
+        name: "Мастер дронов",
+        nameEn: "Drone Master",
+        description: "Выпустить 200 дронов",
+        descriptionEn: "Deploy 200 drones",
+        icon: "🤖",
+        requirement: 200,
+        reward: { type: "currency", amount: 600 },
+        category: "combat"
+    },
+    {
+        id: "chassis_command_master",
+        name: "Командир",
+        nameEn: "Commander",
+        description: "Использовать способность Command 50 раз",
+        descriptionEn: "Use Command ability 50 times",
+        icon: "🎖️",
+        requirement: 50,
+        reward: { type: "currency", amount: 750 },
+        category: "multiplayer"
+    },
+    {
+        id: "chassis_collector",
+        name: "Коллекционер корпусов",
+        nameEn: "Chassis Collector",
+        description: "Разблокировать все 15 типов корпусов",
+        descriptionEn: "Unlock all 15 chassis types",
+        icon: "📦",
+        requirement: 15,
+        reward: { type: "currency", amount: 2000 },
+        category: "special"
+    },
+    
+    // === CANNON MASTERY ACHIEVEMENTS ===
+    {
+        id: "cannon_sniper_master",
+        name: "Снайпер-мастер",
+        nameEn: "Sniper Master",
+        description: "Убить 100 врагов с Sniper пушкой",
+        descriptionEn: "Kill 100 enemies with Sniper cannon",
+        icon: "🎯",
+        requirement: 100,
+        reward: { type: "currency", amount: 800 },
+        category: "combat"
+    },
+    {
+        id: "cannon_gatling_master",
+        name: "Мастер гатлинга",
+        nameEn: "Gatling Master",
+        description: "Сделать 10000 выстрелов из Gatling",
+        descriptionEn: "Fire 10000 shots with Gatling",
+        icon: "⚙️",
+        requirement: 10000,
+        reward: { type: "currency", amount: 600 },
+        category: "combat"
+    },
+    {
+        id: "cannon_railgun_master",
+        name: "Мастер рельсотрона",
+        nameEn: "Railgun Master",
+        description: "Убить 50 врагов с Railgun",
+        descriptionEn: "Kill 50 enemies with Railgun",
+        icon: "⚡",
+        requirement: 50,
+        reward: { type: "currency", amount: 1000 },
+        category: "combat"
+    },
+    {
+        id: "cannon_plasma_master",
+        name: "Мастер плазмы",
+        nameEn: "Plasma Master",
+        description: "Нанести 50000 урона плазмой",
+        descriptionEn: "Deal 50000 damage with Plasma",
+        icon: "💜",
+        requirement: 50000,
+        reward: { type: "currency", amount: 700 },
+        category: "combat"
+    },
+    {
+        id: "cannon_laser_master",
+        name: "Мастер лазера",
+        nameEn: "Laser Master",
+        description: "Попасть 500 раз лазером",
+        descriptionEn: "Hit 500 times with Laser",
+        icon: "🔴",
+        requirement: 500,
+        reward: { type: "currency", amount: 650 },
+        category: "combat"
+    },
+    {
+        id: "cannon_tesla_master",
+        name: "Мастер Теслы",
+        nameEn: "Tesla Master",
+        description: "Поразить 200 врагов цепной молнией",
+        descriptionEn: "Hit 200 enemies with chain lightning",
+        icon: "⚡",
+        requirement: 200,
+        reward: { type: "currency", amount: 600 },
+        category: "combat"
+    },
+    {
+        id: "cannon_mortar_master",
+        name: "Мастер миномета",
+        nameEn: "Mortar Master",
+        description: "Убить 75 врагов минометом",
+        descriptionEn: "Kill 75 enemies with Mortar",
+        icon: "💣",
+        requirement: 75,
+        reward: { type: "currency", amount: 750 },
+        category: "combat"
+    },
+    {
+        id: "cannon_cluster_master",
+        name: "Мастер кластера",
+        nameEn: "Cluster Master",
+        description: "Поразить 300 врагов кластерными снарядами",
+        descriptionEn: "Hit 300 enemies with cluster shells",
+        icon: "💥",
+        requirement: 300,
+        reward: { type: "currency", amount: 550 },
+        category: "combat"
+    },
+    {
+        id: "cannon_flamethrower_master",
+        name: "Мастер огнемета",
+        nameEn: "Flamethrower Master",
+        description: "Сжечь 100 врагов",
+        descriptionEn: "Burn 100 enemies",
+        icon: "🔥",
+        requirement: 100,
+        reward: { type: "currency", amount: 500 },
+        category: "combat"
+    },
+    {
+        id: "cannon_acid_master",
+        name: "Мастер кислоты",
+        nameEn: "Acid Master",
+        description: "Отравить 150 врагов кислотой",
+        descriptionEn: "Corrode 150 enemies with acid",
+        icon: "🧪",
+        requirement: 150,
+        reward: { type: "currency", amount: 550 },
+        category: "combat"
+    },
+    {
+        id: "cannon_freeze_master",
+        name: "Мастер заморозки",
+        nameEn: "Freeze Master",
+        description: "Заморозить 200 врагов",
+        descriptionEn: "Freeze 200 enemies",
+        icon: "❄️",
+        requirement: 200,
+        reward: { type: "currency", amount: 550 },
+        category: "combat"
+    },
+    {
+        id: "cannon_emp_master",
+        name: "Мастер ЭМИ",
+        nameEn: "EMP Master",
+        description: "Отключить способности 100 врагов",
+        descriptionEn: "Disable 100 enemy abilities",
+        icon: "📡",
+        requirement: 100,
+        reward: { type: "currency", amount: 800 },
+        category: "combat"
+    },
+    {
+        id: "cannon_homing_master",
+        name: "Мастер самонаведения",
+        nameEn: "Homing Master",
+        description: "Убить 80 врагов самонаводящимися ракетами",
+        descriptionEn: "Kill 80 enemies with homing missiles",
+        icon: "🎯",
+        requirement: 80,
+        reward: { type: "currency", amount: 700 },
+        category: "combat"
+    },
+    {
+        id: "cannon_piercing_master",
+        name: "Мастер пробития",
+        nameEn: "Piercing Master",
+        description: "Пронзить 150 врагов одним выстрелом",
+        descriptionEn: "Pierce 150 enemies with one shot",
+        icon: "⚔️",
+        requirement: 150,
+        reward: { type: "currency", amount: 650 },
+        category: "combat"
+    },
+    {
+        id: "cannon_support_master",
+        name: "Мастер поддержки",
+        nameEn: "Support Master",
+        description: "Вылечить 5000 HP союзников",
+        descriptionEn: "Heal 5000 HP of allies",
+        icon: "💚",
+        requirement: 5000,
+        reward: { type: "currency", amount: 600 },
+        category: "multiplayer"
+    },
+    {
+        id: "cannon_collector",
+        name: "Коллекционер пушек",
+        nameEn: "Cannon Collector",
+        description: "Разблокировать все 26 типов пушек",
+        descriptionEn: "Unlock all 26 cannon types",
+        icon: "🔫",
+        requirement: 26,
+        reward: { type: "currency", amount: 3000 },
+        category: "special"
+    },
+    
+    // === ADVANCED COMBAT ACHIEVEMENTS ===
+    {
+        id: "kill_streak_20",
+        name: "Неудержимый",
+        nameEn: "Unstoppable",
+        description: "Убить 20 врагов подряд без смерти",
+        descriptionEn: "Kill 20 enemies in a row",
+        icon: "🔥",
+        requirement: 20,
+        reward: { type: "currency", amount: 1000 },
+        category: "combat"
+    },
+    {
+        id: "kill_streak_50",
+        name: "Легенда",
+        nameEn: "Legend",
+        description: "Убить 50 врагов подряд без смерти",
+        descriptionEn: "Kill 50 enemies in a row",
+        icon: "👑",
+        requirement: 50,
+        reward: { type: "currency", amount: 5000 },
+        category: "combat",
+        hidden: true
+    },
+    {
+        id: "damage_100k",
+        name: "Разрушитель",
+        nameEn: "Destroyer",
+        description: "Нанести 100000 урона",
+        descriptionEn: "Deal 100,000 damage",
+        icon: "💀",
+        requirement: 100000,
+        reward: { type: "currency", amount: 1500 },
+        category: "combat"
+    },
+    {
+        id: "damage_1m",
+        name: "Апокалипсис",
+        nameEn: "Apocalypse",
+        description: "Нанести 1000000 урона",
+        descriptionEn: "Deal 1,000,000 damage",
+        icon: "☠️",
+        requirement: 1000000,
+        reward: { type: "currency", amount: 10000 },
+        category: "combat",
+        hidden: true
+    },
+    {
+        id: "kills_1000",
+        name: "Ветеран",
+        nameEn: "Veteran",
+        description: "Уничтожить 1000 врагов",
+        descriptionEn: "Destroy 1000 enemies",
+        icon: "🎖️",
+        requirement: 1000,
+        reward: { type: "currency", amount: 5000 },
+        category: "combat"
+    },
+    {
+        id: "kills_5000",
+        name: "Элита",
+        nameEn: "Elite",
+        description: "Уничтожить 5000 врагов",
+        descriptionEn: "Destroy 5000 enemies",
+        icon: "⭐",
+        requirement: 5000,
+        reward: { type: "currency", amount: 25000 },
+        category: "combat",
+        hidden: true
+    },
+    {
+        id: "accuracy_80",
+        name: "Снайпер-ас",
+        nameEn: "Sniper Ace",
+        description: "Достичь точности 80%",
+        descriptionEn: "Achieve 80% accuracy",
+        icon: "🎯",
+        requirement: 80,
+        reward: { type: "currency", amount: 2000 },
+        category: "combat"
+    },
+    {
+        id: "headshot_master",
+        name: "Мастер выстрелов в голову",
+        nameEn: "Headshot Master",
+        description: "Сделать 100 критических попаданий",
+        descriptionEn: "Land 100 critical hits",
+        icon: "💀",
+        requirement: 100,
+        reward: { type: "currency", amount: 1500 },
+        category: "combat"
+    },
+    
+    // === SURVIVAL ACHIEVEMENTS ===
+    {
+        id: "survive_30min",
+        name: "Выживший-мастер",
+        nameEn: "Survival Master",
+        description: "Выжить 30 минут без смерти",
+        descriptionEn: "Survive 30 minutes",
+        icon: "⏱️",
+        requirement: 1800,
+        reward: { type: "currency", amount: 1000 },
+        category: "survival"
+    },
+    {
+        id: "survive_1hour",
+        name: "Несокрушимый",
+        nameEn: "Indestructible",
+        description: "Выжить 1 час без смерти",
+        descriptionEn: "Survive 1 hour",
+        icon: "🛡️",
+        requirement: 3600,
+        reward: { type: "currency", amount: 3000 },
+        category: "survival"
+    },
+    {
+        id: "low_hp_survivor",
+        name: "Живучий",
+        nameEn: "Tough",
+        description: "Выжить с HP ниже 5%",
+        descriptionEn: "Survive with HP below 5%",
+        icon: "❤️",
+        requirement: 1,
+        reward: { type: "currency", amount: 500 },
+        category: "survival"
+    },
+    {
+        id: "comeback_king",
+        name: "Король камбэков",
+        nameEn: "Comeback King",
+        description: "Убить 10 врагов с HP ниже 20%",
+        descriptionEn: "Kill 10 enemies with HP below 20%",
+        icon: "👑",
+        requirement: 10,
+        reward: { type: "currency", amount: 1200 },
+        category: "survival"
+    },
+    
+    // === EXPLORATION ACHIEVEMENTS ===
+    {
+        id: "garage_king",
+        name: "Король гаражей",
+        nameEn: "Garage King",
+        description: "Захватить 20 гаражей",
+        descriptionEn: "Capture 20 garages",
+        icon: "🔧",
+        requirement: 20,
+        reward: { type: "currency", amount: 1500 },
+        category: "exploration"
+    },
+    {
+        id: "poi_emperor",
+        name: "Император",
+        nameEn: "Emperor",
+        description: "Захватить 100 точек интереса",
+        descriptionEn: "Capture 100 POIs",
+        icon: "👑",
+        requirement: 100,
+        reward: { type: "currency", amount: 5000 },
+        category: "exploration"
+    },
+    {
+        id: "explorer_master",
+        name: "Мастер-исследователь",
+        nameEn: "Master Explorer",
+        description: "Посетить все типы локаций",
+        descriptionEn: "Visit all location types",
+        icon: "🗺️",
+        requirement: 8,
+        reward: { type: "currency", amount: 2000 },
+        category: "exploration"
+    },
+    {
+        id: "distance_traveler",
+        name: "Путешественник",
+        nameEn: "Traveler",
+        description: "Проехать 100 км",
+        descriptionEn: "Travel 100 km",
+        icon: "🚗",
+        requirement: 100000,
+        reward: { type: "currency", amount: 1500 },
+        category: "exploration"
+    },
+    
+    // === MULTIPLAYER ACHIEVEMENTS ===
+    {
+        id: "team_player",
+        name: "Командный игрок",
+        nameEn: "Team Player",
+        description: "Вылечить 10000 HP союзников",
+        descriptionEn: "Heal 10000 HP of allies",
+        icon: "🤝",
+        requirement: 10000,
+        reward: { type: "currency", amount: 2000 },
+        category: "multiplayer"
+    },
+    {
+        id: "support_legend",
+        name: "Легенда поддержки",
+        nameEn: "Support Legend",
+        description: "Использовать способность Command 100 раз",
+        descriptionEn: "Use Command ability 100 times",
+        icon: "🎖️",
+        requirement: 100,
+        reward: { type: "currency", amount: 3000 },
+        category: "multiplayer"
+    },
+    
+    // === SPECIAL ACHIEVEMENTS ===
+    {
+        id: "perfectionist",
+        name: "Перфекционист",
+        nameEn: "Perfectionist",
+        description: "Разблокировать все достижения",
+        descriptionEn: "Unlock all achievements",
+        icon: "🌟",
+        requirement: 1,
+        reward: { type: "currency", amount: 50000 },
+        category: "special",
+        hidden: true
+    },
+    {
+        id: "veteran_player",
+        name: "Ветеран игры",
+        nameEn: "Veteran Player",
+        description: "Играть 100 сессий",
+        descriptionEn: "Play 100 sessions",
+        icon: "⭐",
+        requirement: 100,
+        reward: { type: "currency", amount: 5000 },
+        category: "special"
+    },
+    {
+        id: "playtime_master",
+        name: "Мастер времени",
+        nameEn: "Time Master",
+        description: "Играть 100 часов",
+        descriptionEn: "Play 100 hours",
+        icon: "⏰",
+        requirement: 360000,
+        reward: { type: "currency", amount: 10000 },
+        category: "special"
     }
 ];
 

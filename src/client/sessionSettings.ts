@@ -5,11 +5,45 @@
 import { Game } from "./game";
 import { logger } from "./utils/logger";
 
+export interface SpawnZone {
+    id: string;
+    name: string;
+    center: { x: number; y: number; z: number };
+    radius: number;
+    enabled: boolean;
+}
+
+export interface SpawnPattern {
+    id: string;
+    name: string;
+    type: "random" | "circle" | "line" | "grid" | "custom";
+    params?: { [key: string]: any };
+}
+
+export interface EnemyTypeConfig {
+    id: string;
+    name: string;
+    enabled: boolean;
+    weight: number; // Вероятность появления (1-10)
+    minLevel: number;
+    maxLevel: number;
+}
+
+export type GameMode = "normal" | "survival" | "capture" | "raid" | "sandbox";
+
 export interface SessionSettingsData {
+    gameMode: GameMode;            // Режим игры
     enemyCount: number;           // 0-50
     spawnInterval: number;         // 1-60 секунд
     aiDifficulty: "easy" | "medium" | "hard";
-    enemyTypes: string[];          // ID типов врагов
+    enemyTypes: EnemyTypeConfig[]; // Расширенная конфигурация типов
+    spawnZones: SpawnZone[];       // Зоны спавна
+    spawnPattern: SpawnPattern;    // Паттерн спавна
+    enemyLevels: {
+        min: number;
+        max: number;
+        scaling: boolean; // Масштабирование по времени
+    };
     waveSystem: {
         enabled: boolean;
         waveSize: number;
@@ -19,6 +53,19 @@ export interface SessionSettingsData {
         seed?: number;
         mapSize?: number;
     };
+    // Настройки режимов игры
+    survivalSettings?: {
+        timeLimit?: number; // Лимит времени в секундах
+        maxWaves?: number;  // Максимум волн
+    };
+    captureSettings?: {
+        capturePoints?: number; // Количество точек захвата
+        captureTime?: number;   // Время захвата в секундах
+    };
+    raidSettings?: {
+        objectiveCount?: number; // Количество целей
+        difficulty?: number;     // Сложность рейда (1-10)
+    };
 }
 
 export class SessionSettings {
@@ -26,6 +73,8 @@ export class SessionSettings {
     private visible: boolean = false;
     private settings: SessionSettingsData;
     private game: Game | null = null;
+    private worldManager: WorldManager | null = null;
+    private waveEditor: WaveEditor | null = null;
     
     constructor() {
         this.settings = this.getDefaultSettings();
@@ -38,6 +87,10 @@ export class SessionSettings {
     
     setGame(game: Game | null): void {
         this.game = game;
+        if (game && game.scene) {
+            this.worldManager = new WorldManager(game.scene);
+        }
+        this.waveEditor = new WaveEditor();
     }
     
     getSettings(): SessionSettingsData {
@@ -46,10 +99,26 @@ export class SessionSettings {
     
     private getDefaultSettings(): SessionSettingsData {
         return {
+            gameMode: "normal",
             enemyCount: 7,
             spawnInterval: 30,
             aiDifficulty: "medium",
-            enemyTypes: [],
+            enemyTypes: [
+                { id: "basic", name: "Базовый", enabled: true, weight: 5, minLevel: 1, maxLevel: 3 },
+                { id: "heavy", name: "Тяжёлый", enabled: true, weight: 3, minLevel: 2, maxLevel: 5 },
+                { id: "fast", name: "Быстрый", enabled: true, weight: 4, minLevel: 1, maxLevel: 4 }
+            ],
+            spawnZones: [],
+            spawnPattern: {
+                id: "random",
+                name: "Случайный",
+                type: "random"
+            },
+            enemyLevels: {
+                min: 1,
+                max: 5,
+                scaling: false
+            },
             waveSystem: {
                 enabled: false,
                 waveSize: 5,
@@ -58,6 +127,18 @@ export class SessionSettings {
             worldSettings: {
                 seed: undefined,
                 mapSize: undefined
+            },
+            survivalSettings: {
+                timeLimit: 600, // 10 минут
+                maxWaves: 20
+            },
+            captureSettings: {
+                capturePoints: 3,
+                captureTime: 30
+            },
+            raidSettings: {
+                objectiveCount: 5,
+                difficulty: 5
             }
         };
     }
@@ -255,6 +336,33 @@ export class SessionSettings {
                         <input type="range" class="session-slider" id="spawn-interval" min="1" max="60" value="${this.settings.spawnInterval}">
                     </div>
                     <div class="session-control">
+                        <label class="session-label">Мин. уровень врагов: <span class="session-value" id="enemy-level-min-value">${this.settings.enemyLevels.min}</span></label>
+                        <input type="range" class="session-slider" id="enemy-level-min" min="1" max="10" value="${this.settings.enemyLevels.min}">
+                    </div>
+                    <div class="session-control">
+                        <label class="session-label">Макс. уровень врагов: <span class="session-value" id="enemy-level-max-value">${this.settings.enemyLevels.max}</span></label>
+                        <input type="range" class="session-slider" id="enemy-level-max" min="1" max="10" value="${this.settings.enemyLevels.max}">
+                    </div>
+                    <div class="session-control">
+                        <label class="session-label">
+                            <input type="checkbox" class="session-checkbox" id="enemy-level-scaling" ${this.settings.enemyLevels.scaling ? 'checked' : ''}>
+                            Масштабирование уровней по времени
+                        </label>
+                    </div>
+                    <div class="session-control">
+                        <label class="session-label">Паттерн спавна:</label>
+                        <select class="session-select" id="spawn-pattern">
+                            <option value="random" ${this.settings.spawnPattern.type === 'random' ? 'selected' : ''}>Случайный</option>
+                            <option value="circle" ${this.settings.spawnPattern.type === 'circle' ? 'selected' : ''}>По кругу</option>
+                            <option value="line" ${this.settings.spawnPattern.type === 'line' ? 'selected' : ''}>По линии</option>
+                            <option value="grid" ${this.settings.spawnPattern.type === 'grid' ? 'selected' : ''}>Сетка</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="session-section">
+                    <div class="session-section-title">ТИПЫ ВРАГОВ</div>
+                    <div id="enemy-types-list"></div>
+                    <div class="session-control">
                         <label class="session-label">Сложность AI:</label>
                         <select class="session-select" id="ai-difficulty">
                             <option value="easy" ${this.settings.aiDifficulty === "easy" ? "selected" : ""}>Легкая</option>
@@ -271,6 +379,9 @@ export class SessionSettings {
                             <input type="checkbox" class="session-checkbox" id="wave-enabled" ${this.settings.waveSystem.enabled ? "checked" : ""}>
                             Включить систему волн
                         </label>
+                    </div>
+                    <div class="session-control">
+                        <button class="session-btn" id="wave-editor-open" style="width: 100%; margin-top: 8px;">📝 Открыть редактор волн</button>
                     </div>
                     <div class="session-control" id="wave-controls" style="display: ${this.settings.waveSystem.enabled ? "block" : "none"}">
                         <label class="session-label">Размер волны: <span class="session-value" id="wave-size-value">${this.settings.waveSystem.waveSize}</span></label>
@@ -356,6 +467,13 @@ export class SessionSettings {
         worldSeedInput?.addEventListener("change", (e) => {
             const value = (e.target as HTMLInputElement).value;
             this.settings.worldSettings.seed = value ? parseInt(value) : undefined;
+        });
+        
+        // Редактор волн
+        document.getElementById("wave-editor-open")?.addEventListener("click", () => {
+            if (this.waveEditor) {
+                this.waveEditor.show();
+            }
         });
         
         // Buttons
@@ -464,8 +582,14 @@ export class SessionSettings {
         this.container.style.display = "none";
     }
     
+    isVisible(): boolean {
+        return this.visible;
+    }
+    
     dispose(): void {
         this.container.remove();
     }
 }
+
+
 

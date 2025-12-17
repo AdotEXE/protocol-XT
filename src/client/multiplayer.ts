@@ -1,10 +1,11 @@
 import { Vector3 } from "@babylonjs/core";
 import { createClientMessage, deserializeMessage, serializeMessage } from "../shared/protocol";
-import type { ClientMessage, ServerMessage } from "../shared/messages";
+import type { ClientMessage, ServerMessage, ClientMetricsData } from "../shared/messages";
 import { ClientMessageType, ServerMessageType } from "../shared/messages";
 import type { PlayerData, PlayerInput, GameMode } from "../shared/types";
 import { nanoid } from "nanoid";
 import { logger } from "./utils/logger";
+import { firebaseService } from "./firebaseService";
 
 export interface NetworkPlayer {
     id: string;
@@ -66,10 +67,14 @@ export class MultiplayerManager {
     private onPlayerDamagedCallback: ((data: any) => void) | null = null;
     private onCTFFlagPickupCallback: ((data: any) => void) | null = null;
     private onCTFFlagCaptureCallback: ((data: any) => void) | null = null;
+    private onQueueUpdateCallback: ((data: any) => void) | null = null;
+    private onMatchFoundCallback: ((data: any) => void) | null = null;
     
-    constructor(serverUrl: string = "ws://localhost:8080") {
+    constructor(serverUrl: string = "ws://localhost:8080", autoConnect: boolean = false) {
         this.serverUrl = serverUrl;
-        this.connect(serverUrl);
+        if (autoConnect) {
+            this.connect(serverUrl);
+        }
     }
     
     connect(serverUrl: string): void {
@@ -83,7 +88,7 @@ export class MultiplayerManager {
         try {
             this.ws = new WebSocket(serverUrl);
             
-            this.ws.onopen = () => {
+            this.ws.onopen = async () => {
                 console.log("[Multiplayer] Connected to server");
                 this.connected = true;
                 this.reconnectAttempts = 0;
@@ -92,7 +97,7 @@ export class MultiplayerManager {
                     clearTimeout(this.reconnectTimer);
                     this.reconnectTimer = null;
                 }
-                this.sendConnect();
+                await this.sendConnect();
             };
             
             this.ws.onmessage = (event) => {
@@ -135,10 +140,21 @@ export class MultiplayerManager {
         this.networkPlayers.clear();
     }
     
-    private sendConnect(): void {
+    private async sendConnect(): Promise<void> {
+        // Получаем токен авторизации, если пользователь авторизован
+        let idToken: string | null = null;
+        try {
+            if (firebaseService.isAuthenticated()) {
+                idToken = await firebaseService.getAuthToken();
+            }
+        } catch (error) {
+            console.warn("[Multiplayer] Failed to get auth token:", error);
+        }
+
         this.send(createClientMessage(ClientMessageType.CONNECT, {
             playerId: this.playerId,
-            playerName: this.playerName
+            playerName: this.playerName,
+            idToken: idToken || undefined // Отправляем только если есть
         }));
     }
     
@@ -169,6 +185,10 @@ export class MultiplayerManager {
                     
                 case ServerMessageType.MATCH_FOUND:
                     this.handleMatchFound(message.data);
+                    break;
+                    
+                case ServerMessageType.QUEUE_UPDATE:
+                    this.handleQueueUpdate(message.data);
                     break;
                     
                 case ServerMessageType.GAME_START:
@@ -219,10 +239,6 @@ export class MultiplayerManager {
                     this.handleCTFFlagUpdate(message.data);
                     break;
                     
-                case ServerMessageType.CTF_FLAG_UPDATE:
-                    this.handleCTFFlagUpdate(message.data);
-                    break;
-                    
                 case ServerMessageType.PLAYER_KILLED:
                     this.handlePlayerKilled(message.data);
                     break;
@@ -245,6 +261,7 @@ export class MultiplayerManager {
                     
                 case ServerMessageType.ERROR:
                     logger.error("[Multiplayer] Server error:", message.data);
+                    this.handleError(message.data);
                     break;
                     
                 default:
@@ -268,6 +285,9 @@ export class MultiplayerManager {
         this.roomId = data.roomId;
         this.gameMode = data.mode;
         console.log(`[Multiplayer] Room created: ${this.roomId}`);
+        if (this.onRoomCreatedCallback) {
+            this.onRoomCreatedCallback(data);
+        }
     }
     
     private handleRoomJoined(data: any): void {
@@ -313,6 +333,21 @@ export class MultiplayerManager {
         this.roomId = data.roomId;
         this.gameMode = data.mode;
         console.log(`[Multiplayer] Match found: ${this.roomId}`);
+        if (this.onMatchFoundCallback) {
+            this.onMatchFoundCallback(data);
+        }
+    }
+    
+    private handleQueueUpdate(data: any): void {
+        if (this.onQueueUpdateCallback) {
+            this.onQueueUpdateCallback(data);
+        }
+    }
+    
+    private handleError(data: any): void {
+        if (this.onErrorCallback) {
+            this.onErrorCallback(data);
+        }
     }
     
     private handleGameStart(data: any): void {
@@ -547,6 +582,12 @@ export class MultiplayerManager {
         this.send(createClientMessage(ClientMessageType.QUICK_PLAY, { mode, region }));
     }
     
+    sendClientMetrics(metrics: ClientMetricsData): void {
+        if (!this.connected) return;
+        
+        this.send(createClientMessage(ClientMessageType.CLIENT_METRICS, metrics));
+    }
+    
     // Getters
     isConnected(): boolean {
         return this.connected && this.ws !== null && this.ws.readyState === WebSocket.OPEN;
@@ -659,6 +700,22 @@ export class MultiplayerManager {
     
     onCTFFlagCapture(callback: (data: any) => void): void {
         this.onCTFFlagCaptureCallback = callback;
+    }
+    
+    onQueueUpdate(callback: (data: any) => void): void {
+        this.onQueueUpdateCallback = callback;
+    }
+    
+    onMatchFound(callback: (data: any) => void): void {
+        this.onMatchFoundCallback = callback;
+    }
+    
+    onRoomCreated(callback: (data: any) => void): void {
+        this.onRoomCreatedCallback = callback;
+    }
+    
+    onError(callback: (data: any) => void): void {
+        this.onErrorCallback = callback;
     }
     
     private send(message: ClientMessage): void {

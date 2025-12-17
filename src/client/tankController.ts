@@ -839,6 +839,28 @@ export class TankController {
                 logger.log(`[Tank] Experience bonuses applied: Chassis Lv.${chassisLevel}, Cannon Lv.${cannonLevel}`);
             }
             
+            // === 3. БОНУСЫ ОТ НАВЫКОВ ИГРОКА ===
+            if (this.playerProgression) {
+                const skillBonuses = this.playerProgression.getSkillBonuses();
+                this.maxHealth += skillBonuses.healthBonus;
+                this.damage += skillBonuses.damageBonus;
+                this.moveSpeed += skillBonuses.speedBonus;
+                this.cooldown = Math.max(300, this.cooldown - skillBonuses.reloadBonus);
+                this.turnSpeed += skillBonuses.turretSpeedBonus;
+                
+                logger.log(`[Tank] Skill bonuses applied: +${skillBonuses.healthBonus} HP, +${skillBonuses.damageBonus} dmg, +${skillBonuses.speedBonus.toFixed(1)} speed`);
+            }
+            
+            // === 4. ПАССИВНЫЕ БОНУСЫ ОТ УРОВНЯ ИГРОКА ===
+            if (this.playerProgression) {
+                const levelBonuses = this.playerProgression.getLevelBonuses();
+                this.maxHealth += levelBonuses.healthBonus;
+                this.damage += levelBonuses.damageBonus;
+                this.moveSpeed += levelBonuses.speedBonus;
+                
+                logger.log(`[Tank] Level bonuses applied: +${levelBonuses.healthBonus} HP, +${levelBonuses.damageBonus.toFixed(1)} dmg, +${levelBonuses.speedBonus.toFixed(1)} speed`);
+            }
+            
             // Обновляем текущее здоровье
             this.currentHealth = this.maxHealth;
             
@@ -3146,6 +3168,14 @@ export class TankController {
             // Вертикальный откат (подъем при выстреле, затем возврат в исходное положение)
             this._barrelRecoilY += (this._barrelRecoilYTarget - this._barrelRecoilY) * this.barrelRecoilSpeed;
             
+            // ИСПРАВЛЕНИЕ: Применяем вертикальное движение ствола при прицеливании (aimPitch)
+            if (this.barrel && !this.barrel.isDisposed()) {
+                // Применяем aimPitch к rotation.x ствола (вертикальный поворот)
+                // Ограничиваем угол от -Math.PI/3 (вниз) до Math.PI/6 (вверх)
+                const clampedPitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 6, this.aimPitch));
+                this.barrel.rotation.x = clampedPitch;
+            }
+            
             // Применяем откат к позиции пушки (относительно башни)
             if (this.barrel && !this.barrel.isDisposed() && this._baseBarrelZ > 0) {
                 if (isFinite(this.barrelRecoilOffset) && isFinite(this._barrelRecoilY)) {
@@ -3932,11 +3962,14 @@ export class TankController {
         const casingDiameter = bulletSize; // Диаметр гильзы = размер снаряда
         const casingLength = bulletSize * 3; // Длина гильзы = длина снаряда
         
-        // Создаем гильзу как цилиндр того же размера, что и снаряд
-        const casing = MeshBuilder.CreateCylinder("shellCasing", {
+        // Создаем гильзу как прямоугольную коробку (не цилиндр)
+        const casing = MeshBuilder.CreateBox("shellCasing", {
+            width: casingDiameter,
             height: casingLength,
-            diameter: casingDiameter
+            depth: casingDiameter
         }, this.scene);
+        // Повернуть на 90° по X для горизонтального положения
+        casing.rotation.x = Math.PI / 2;
         
         // Позиция гильзы - немного сбоку от ствола
         const right = Vector3.Cross(barrelDir, Vector3.Up()).normalize();

@@ -7,8 +7,8 @@ export interface SkillNode {
     title: string;
     desc: string;
     icon: string;
-    row: number;
-    col: number;
+    row: number; // Оставляем для обратной совместимости, но не используем
+    col: number; // Оставляем для обратной совместимости, но не используем
     type: "hub" | "skill" | "module" | "meta";
     badge?: string;
     skillId?: keyof {
@@ -24,6 +24,10 @@ export interface SkillNode {
     cost?: number; // Стоимость в очках (если не указано, используется растущая)
     maxLevel?: number; // Максимальный уровень (по умолчанию 5)
     effects?: string[]; // Описание эффектов
+    // Новые поля для полярного позиционирования
+    calculatedX?: number; // Вычисленная X позиция
+    calculatedY?: number; // Вычисленная Y позиция
+    branchIndex?: number; // Индекс ветки от родителя (для угла)
 }
 
 export interface SkillEdge {
@@ -55,6 +59,147 @@ export const SKILL_BRANCHES: SkillBranch[] = [
 // Функция для расчёта стоимости (растущая: 1, 2, 3, 4, 5)
 export function getSkillCost(level: number, baseCost: number = 1): number {
     return baseCost + (level - 1);
+}
+
+// Функция для генерации детерминированного случайного числа из строки
+function hashString(str: string): number {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32bit integer
+    }
+    return Math.abs(hash);
+}
+
+// Вычисление позиции узла в полярной системе с углом 135° от родителя
+function calculateNodePositionRecursive(
+    node: SkillNode,
+    parentNode: SkillNode | null,
+    branchIndex: number,
+    positions: Map<string, { x: number; y: number }>
+): { x: number; y: number } {
+    // Центральный узел в позиции (0, 0)
+    if (!parentNode || node.id === "commandCore") {
+        return { x: 0, y: 0 };
+    }
+    
+    // Получаем позицию родителя (рекурсивно вычисляем если нужно)
+    let parentPos = positions.get(parentNode.id);
+    if (!parentPos) {
+        // Рекурсивно вычисляем позицию родителя
+        const grandParent = parentNode.parentId 
+            ? SKILL_TREE_NODES.find(n => n.id === parentNode.parentId) || null
+            : null;
+        const parentSiblings = SKILL_TREE_NODES.filter(n => n.parentId === parentNode.parentId);
+        const parentBranchIndex = parentSiblings.findIndex(n => n.id === parentNode.id);
+        parentPos = calculateNodePositionRecursive(parentNode, grandParent, parentBranchIndex, positions);
+        positions.set(parentNode.id, parentPos);
+    }
+    
+    // Генерируем детерминированный seed из ID узла
+    const seed = hashString(node.id);
+    const seed2 = hashString(node.id + (node.parentId || ""));
+    
+    // Базовый угол: 135° от родителя
+    // Вычисляем угол родителя относительно его родителя
+    let parentAngle = 0;
+    if (parentNode.id !== "commandCore" && parentNode.parentId) {
+        const grandParent = SKILL_TREE_NODES.find(n => n.id === parentNode.parentId);
+        if (grandParent && grandParent.id !== "commandCore") {
+            const grandParentPos = positions.get(grandParent.id);
+            if (grandParentPos) {
+                const dx = parentPos.x - grandParentPos.x;
+                const dy = parentPos.y - grandParentPos.y;
+                parentAngle = Math.atan2(dy, dx) * 180 / Math.PI;
+            }
+        } else {
+            // Если родитель от центрального узла, используем начальный угол
+            const dx = parentPos.x;
+            const dy = parentPos.y;
+            parentAngle = Math.atan2(dy, dx) * 180 / Math.PI;
+        }
+    } else if (parentNode.id === "commandCore") {
+        // Если родитель - центральный узел, начинаем с угла основанного на branchIndex
+        parentAngle = (branchIndex * 45) % 360; // Распределяем ветки по кругу
+    }
+    
+    // Определяем направление ветки: чередуем +135° и -135°
+    const angleDirection = branchIndex % 2 === 0 ? 135 : -135;
+    const baseAngle = parentAngle + angleDirection;
+    
+    // Добавляем случайное смещение угла: ±10-15°
+    const angleVariation = ((seed % 30) - 15); // ±15°
+    const finalAngle = (baseAngle + angleVariation) * Math.PI / 180;
+    
+    // Базовое расстояние
+    const baseDistance = 180;
+    
+    // Расстояние с вариацией ±20-30% (0.7 - 1.3)
+    const distanceVariation = 0.7 + ((seed2 % 60) / 100); // 0.7 - 1.3
+    const distance = baseDistance * distanceVariation;
+    
+    // Вычисляем базовую позицию
+    let x = parentPos.x + Math.cos(finalAngle) * distance;
+    let y = parentPos.y + Math.sin(finalAngle) * distance;
+    
+    // Случайное смещение 40-80px
+    const offsetX = ((seed % 80) - 40);
+    const offsetY = (((seed * 7) % 80) - 40);
+    
+    return { 
+        x: x + offsetX, 
+        y: y + offsetY 
+    };
+}
+
+// Вычисление всех позиций узлов дерева
+export function calculateAllNodePositions(): Map<string, { x: number; y: number }> {
+    const positions = new Map<string, { x: number; y: number }>();
+    
+    // Находим центральный узел
+    const coreNode = SKILL_TREE_NODES.find(n => n.id === "commandCore");
+    if (!coreNode) return positions;
+    
+    // Позиция центрального узла
+    positions.set(coreNode.id, { x: 0, y: 0 });
+    
+    // Рекурсивно вычисляем позиции всех узлов
+    const processNode = (node: SkillNode) => {
+        if (positions.has(node.id)) return; // Уже обработан
+        
+        const parentNode = node.parentId 
+            ? SKILL_TREE_NODES.find(n => n.id === node.parentId) || null
+            : null;
+        
+        // Находим индекс ветки среди братьев
+        const siblings = SKILL_TREE_NODES.filter(n => n.parentId === node.parentId);
+        const branchIndex = siblings.findIndex(n => n.id === node.id);
+        
+        const pos = calculateNodePositionRecursive(node, parentNode, branchIndex, positions);
+        positions.set(node.id, pos);
+        
+        // Обрабатываем дочерние узлы
+        const children = SKILL_TREE_NODES.filter(n => n.parentId === node.id);
+        children.forEach((child) => {
+            processNode(child);
+        });
+    };
+    
+    // Обрабатываем все узлы, начиная с прямых детей центрального узла
+    const coreChildren = SKILL_TREE_NODES.filter(n => n.parentId === "commandCore");
+    coreChildren.forEach((child) => {
+        processNode(child);
+    });
+    
+    // Обрабатываем остальные узлы (на случай если есть узлы без прямого родителя)
+    SKILL_TREE_NODES.forEach(node => {
+        if (!positions.has(node.id) && node.id !== "commandCore") {
+            processNode(node);
+        }
+    });
+    
+    return positions;
 }
 
 // Центральный узел

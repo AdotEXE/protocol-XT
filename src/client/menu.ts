@@ -5,9 +5,12 @@
 // Импорты для скил-дерева перенесены в menu/skillTreeUI.ts
 import { createSkillsPanelHTML, updateSkillTreeDisplay, type PlayerStats, type SkillTreeCallbacks } from "./menu/skillTreeUI";
 import { Scene, Engine } from "@babylonjs/core";
-import { Garage } from "./garage";
+// Garage is lazy loaded - imported dynamically when needed
 import { CurrencyManager } from "./currencyManager";
 import { logger } from "./utils/logger";
+import { CHASSIS_TYPES, CANNON_TYPES } from "./tankTypes";
+import { authUI } from "./menu/authUI";
+import { firebaseService } from "./firebaseService";
 
 // Version tracking
 // Версия генерируется во время сборки и одинакова для всех пользователей
@@ -333,7 +336,7 @@ export class MainMenu {
     private playerProgression: any = null;
     private experienceSubscription: any = null;
     private introSoundPlayed = false;
-    private garage: Garage | null = null; // Garage instance (created in constructor or set by game.ts)
+    private garage: any | null = null; // Garage instance (lazy loaded when needed)
     private garageScene: Scene | null = null; // Minimal scene for garage (if created in menu)
     private garageCurrencyManager: CurrencyManager | null = null; // Currency manager for garage
     private returnToPlayMenuAfterGarage = false;
@@ -343,6 +346,7 @@ export class MainMenu {
     private _lastPointerEventsState: string | null = null; // Кэш последнего состояния для предотвращения бесконечных циклов
     private _enforceInProgress = false; // Флаг для предотвращения рекурсивных вызовов
     private _enableDetailedLogging = false; // Детальное логирование отключено по умолчанию
+    private buttonHandlersAttached = false; // Флаг для предотвращения множественной привязки обработчиков
     
     constructor() {
         this.settings = this.loadSettings();
@@ -350,8 +354,8 @@ export class MainMenu {
         this.ownedChassisIds = this.loadOwnedIds("ownedChassis", ["medium"]);
         this.ownedCannonIds = this.loadOwnedIds("ownedCannons", ["standard"]);
         
-        // Create garage immediately so it's always available
-        this.initializeGarageInMenu();
+        // Garage will be loaded lazily when needed (when user opens garage from menu)
+        // This reduces initial bundle size
         
         this.createMenuUI();
         this.createSettingsUI();
@@ -641,7 +645,7 @@ export class MainMenu {
         }
     }
     
-    setGarage(garage: Garage): void {
+    setGarage(garage: any): void {
         // Replace menu garage with game garage (which has proper scene and systems)
         if (this.garage && this.garageScene) {
             // Cleanup old garage scene
@@ -684,12 +688,37 @@ export class MainMenu {
                                 <div class="xp-bar-fill" id="xp-bar"></div>
                             </div>
                             <div class="xp-text" id="xp-text">0 / 500 XP</div>
+                            <div class="player-callsign" id="player-callsign">[anon_id: 0001]</div>
                         </div>
                     </div>
                     <div class="player-stats-row">
                         <div class="stat-item"><span class="stat-icon">$</span><span id="credits-display">500</span></div>
                         <div class="stat-item"><span class="stat-icon">☠</span><span id="kills-display">0</span></div>
                         <div class="stat-item"><span class="stat-icon">◷</span><span id="playtime-display">0ч</span></div>
+                    </div>
+                </div>
+                
+                <!-- Auth section -->
+                <div class="auth-section" id="auth-section">
+                    <div class="auth-info" id="auth-info" style="display: none;">
+                        <div class="auth-user-info">
+                            <span class="auth-username" id="auth-username">Гость</span>
+                            <span class="auth-status" id="auth-status"></span>
+                        </div>
+                        <button class="menu-btn auth-btn" id="btn-profile">
+                            <span class="btn-icon">👤</span>
+                            <span class="btn-label">ПРОФИЛЬ</span>
+                        </button>
+                    </div>
+                    <div class="auth-buttons" id="auth-buttons">
+                        <button class="menu-btn auth-btn" id="btn-login">
+                            <span class="btn-icon">🔐</span>
+                            <span class="btn-label">ВОЙТИ</span>
+                        </button>
+                        <button class="menu-btn auth-btn secondary" id="btn-register">
+                            <span class="btn-icon">📝</span>
+                            <span class="btn-label">РЕГИСТРАЦИЯ</span>
+                        </button>
                     </div>
                 </div>
                 
@@ -1071,6 +1100,70 @@ export class MainMenu {
                 padding: clamp(10px, 1.5vh, 15px);
                 margin-bottom: clamp(5px, 1vh, 10px);
             }
+
+            .auth-section {
+                background: none;
+                border: none;
+                padding: 0;
+                margin-bottom: clamp(5px, 1vh, 10px);
+                display: flex;
+                flex-direction: column;
+                align-items: stretch;
+                box-shadow: none;
+            }
+
+            .auth-info {
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                width: 100%;
+            }
+
+            .auth-user-info {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                color: #0f0;
+                font-size: clamp(11px, 1.3vw, 13px);
+                width: 100%;
+            }
+
+            .auth-username {
+                font-weight: bold;
+            }
+
+            .auth-status {
+                font-size: clamp(14px, 1.5vw, 16px);
+                margin-left: 8px;
+            }
+
+            .auth-buttons {
+                display: flex;
+                gap: 12px;
+                width: 100%;
+                align-items: stretch;
+                background: none !important;
+                border: none !important;
+                outline: none !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                box-shadow: none !important;
+            }
+
+            .auth-buttons .menu-btn {
+                flex: 1;
+                min-width: 0;
+            }
+            
+            .auth-buttons .menu-btn,
+            .auth-buttons .menu-btn.auth-btn {
+                font-size: clamp(10px, 1.2vw, 12px) !important;
+            }
+            
+            .auth-buttons .menu-btn .btn-label,
+            .auth-buttons .menu-btn.auth-btn .btn-label {
+                font-size: clamp(10px, 1.2vw, 12px) !important;
+            }
             
             .player-level-row {
                 display: flex;
@@ -1092,7 +1185,11 @@ export class MainMenu {
                 text-shadow: 0 0 5px #0f0;
             }
             
-            .xp-section { flex: 1; }
+            .xp-section { 
+                flex: 1; 
+                display: flex;
+                flex-direction: column;
+            }
             
             .xp-bar-bg {
                 height: 12px;
@@ -1120,6 +1217,20 @@ export class MainMenu {
                     1px -1px 0 #000,
                     -1px 1px 0 #000;
                 font-weight: bold;
+            }
+            
+            .player-callsign {
+                font-size: 10px;
+                color: #0ff;
+                text-shadow: 0 0 4px rgba(0, 255, 255, 0.6);
+                font-weight: bold;
+                white-space: nowrap;
+                padding: 0;
+                background: none;
+                border: none;
+                text-align: left;
+                margin-top: 4px;
+                align-self: flex-start;
             }
             
             .player-stats-row {
@@ -1211,7 +1322,17 @@ export class MainMenu {
                 border-color: #0f0;
             }
             
-            .btn-icon { font-size: 16px; }
+            .btn-icon { 
+                font-size: 16px; 
+                flex-shrink: 0;
+            }
+            
+            .btn-label {
+                font-size: clamp(10px, 1.2vw, 12px) !important;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
             
             .btn-badge {
                 position: absolute;
@@ -2117,6 +2238,26 @@ export class MainMenu {
         document.head.appendChild(style);
         document.body.appendChild(this.container);
         
+        // Инициализация auth UI
+        const authContainer = authUI.createContainer();
+        if (authContainer && !document.body.contains(authContainer)) {
+            document.body.appendChild(authContainer);
+        }
+        
+        // Обновление UI авторизации
+        this.updateAuthUI();
+        
+        // Слушаем изменения состояния авторизации
+        if (firebaseService.isInitialized()) {
+            const auth = (firebaseService as any).auth;
+            if (auth) {
+                const { onAuthStateChanged } = require("firebase/auth");
+                onAuthStateChanged(auth, () => {
+                    this.updateAuthUI();
+                });
+            }
+        }
+        
         // КРИТИЧЕСКИ ВАЖНО: Блокируем canvas сразу после создания меню
         const blockCanvas = () => {
             const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
@@ -2141,19 +2282,19 @@ export class MainMenu {
         this.setupMenuEventHandlers();
         
         // ДОПОЛНИТЕЛЬНО: Добавляем обработчики напрямую на кнопки для надежности
-        // Используем несколько попыток для надежности
+        // Используем одну попытку с небольшой задержкой для надежности
         setTimeout(() => {
             this.attachDirectButtonHandlers();
-        }, 50);
-        setTimeout(() => {
-            this.attachDirectButtonHandlers();
-        }, 200);
-        setTimeout(() => {
-            this.attachDirectButtonHandlers();
-        }, 500);
+        }, 100);
     }
     
     private attachDirectButtonHandlers(): void {
+        // Предотвращаем множественную привязку обработчиков
+        if (this.buttonHandlersAttached) {
+            console.log("[Menu] Button handlers already attached, skipping...");
+            return;
+        }
+        
         try {
             // Добавляем обработчики напрямую на каждую кнопку для максимальной надежности
             const buttons = [
@@ -2166,26 +2307,35 @@ export class MainMenu {
                 { id: "btn-fullscreen", handler: () => this.toggleFullscreen() },
                 { id: "btn-resume", handler: () => this.resumeGame() },
                 { id: "btn-restart", handler: () => this.restartGame() },
-                { id: "btn-exit-battle", handler: () => this.exitBattle() }
+                { id: "btn-exit-battle", handler: () => this.exitBattle() },
+                { id: "btn-login", handler: () => this.showLogin() },
+                { id: "btn-register", handler: () => this.showRegister() },
+                { id: "btn-profile", handler: () => this.showProfile() }
             ];
             
             buttons.forEach(({ id, handler }) => {
                 try {
                     const btn = document.getElementById(id) as HTMLButtonElement;
                     if (!btn) {
-                        debugWarn(`[Menu] Button ${id} not found!`);
+                        console.warn(`[Menu] Button ${id} not found!`);
                         return;
                     }
+                    console.log(`[Menu] Attaching handler to button: ${id}`, btn);
                     
                     // Удаляем все старые обработчики через клонирование
                     const parent = btn.parentNode;
                     if (!parent) {
-                        debugWarn(`[Menu] Button ${id} has no parent node`);
+                        console.warn(`[Menu] Button ${id} has no parent node`);
                         return;
                     }
                     
                     const newBtn = btn.cloneNode(true) as HTMLButtonElement;
                     parent.replaceChild(newBtn, btn);
+                    
+                    // Убеждаемся, что кнопка видима и доступна для клика
+                    newBtn.style.pointerEvents = "auto";
+                    newBtn.style.zIndex = "10000";
+                    newBtn.style.position = "relative";
                     
                     // Блокируем canvas перед добавлением обработчика
                     const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
@@ -2194,49 +2344,110 @@ export class MainMenu {
                         canvas.style.setProperty("z-index", "0", "important");
                     }
                     
-                    // Единый обработчик click в фазе захвата
-                    newBtn.addEventListener("click", (e) => {
-                        try {
-                            debugLog(`[Menu] Button ${id} clicked`);
+                    // Для кнопок авторизации используем и mousedown, и click для максимальной надежности
+                    if (id === "btn-login" || id === "btn-register") {
+                        // Обработчик mousedown - срабатывает первым
+                        newBtn.addEventListener("mousedown", (e) => {
+                            console.log(`[Menu] Button ${id} mousedown`, e);
                             
-                            // Блокируем canvas
-                            const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
-                            if (canvas) {
-                                canvas.style.setProperty("pointer-events", "none", "important");
+                            try {
+                                // Блокируем canvas
+                                const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
+                                if (canvas) {
+                                    canvas.style.setProperty("pointer-events", "none", "important");
+                                }
+                                
+                                e.preventDefault();
+                                e.stopPropagation();
+                                e.stopImmediatePropagation();
+                                
+                                // Вызываем handler сразу
+                                console.log(`[Menu] Calling handler for ${id} from mousedown`);
+                                handler();
+                                console.log(`[Menu] Handler for ${id} completed from mousedown`);
+                            } catch (error) {
+                                console.error(`[Menu] Error in mousedown handler for ${id}:`, error);
+                                debugError(`[Menu] Error in mousedown handler for ${id}:`, error);
                             }
+                        }, true);
+                        
+                        // Обработчик click - резервный, на случай если mousedown не сработал
+                        newBtn.addEventListener("click", (e) => {
+                            console.log(`[Menu] Button ${id} click (backup)`, e);
                             
-                            e.preventDefault();
-                            e.stopPropagation();
-                            e.stopImmediatePropagation();
-                            
-                            handler();
-                        } catch (error) {
-                            debugError(`[Menu] Error in button handler for ${id}:`, error);
-                        }
-                    }, true);
-                    
-                    // Блокируем canvas при нажатии мыши
-                    newBtn.addEventListener("mousedown", (e) => {
-                        try {
-                            const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
-                            if (canvas) {
-                                canvas.style.setProperty("pointer-events", "none", "important");
+                            try {
+                                // Блокируем canvas
+                                const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
+                                if (canvas) {
+                                    canvas.style.setProperty("pointer-events", "none", "important");
+                                }
+                                
+                                e.preventDefault();
+                                e.stopPropagation();
+                                e.stopImmediatePropagation();
+                                
+                                // Вызываем handler
+                                console.log(`[Menu] Calling handler for ${id} from click (backup)`);
+                                handler();
+                                console.log(`[Menu] Handler for ${id} completed from click (backup)`);
+                            } catch (error) {
+                                console.error(`[Menu] Error in click handler for ${id}:`, error);
+                                debugError(`[Menu] Error in click handler for ${id}:`, error);
                             }
-                            e.stopPropagation();
-                        } catch (error) {
-                            debugError(`[Menu] Error in mousedown handler for ${id}:`, error);
-                        }
-                    }, true);
+                        }, true);
+                    } else {
+                        // Для остальных кнопок используем стандартный обработчик mousedown
+                        newBtn.addEventListener("mousedown", (e) => {
+                            try {
+                                const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
+                                if (canvas) {
+                                    canvas.style.setProperty("pointer-events", "none", "important");
+                                }
+                                e.stopPropagation();
+                            } catch (error) {
+                                debugError(`[Menu] Error in mousedown handler for ${id}:`, error);
+                            }
+                        }, true);
+                        
+                        // Обработчик click для остальных кнопок
+                        newBtn.addEventListener("click", (e) => {
+                            try {
+                                console.log(`[Menu] Button ${id} clicked!`, e);
+                                
+                                // Блокируем canvas
+                                const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
+                                if (canvas) {
+                                    canvas.style.setProperty("pointer-events", "none", "important");
+                                }
+                                
+                                e.preventDefault();
+                                e.stopPropagation();
+                                e.stopImmediatePropagation();
+                                
+                                console.log(`[Menu] Calling handler for ${id}`);
+                                handler();
+                                console.log(`[Menu] Handler for ${id} completed`);
+                            } catch (error) {
+                                console.error(`[Menu] Error in button handler for ${id}:`, error);
+                                debugError(`[Menu] Error in button handler for ${id}:`, error);
+                            }
+                        }, true);
+                    }
                     
                     debugLog(`[Menu] Direct handler attached to ${id}`);
                 } catch (error) {
                     debugError(`[Menu] Error setting up button handler for ${id}:`, error);
                 }
             });
+            
+            // Устанавливаем флаг после успешной привязки всех обработчиков
+            this.buttonHandlersAttached = true;
+            console.log("[Menu] All button handlers attached successfully");
         } catch (error) {
             debugError("[Menu] Error in attachDirectButtonHandlers:", error);
         }
     }
+    
     
     private setupCloseButton(id: string, handler: () => void): void {
         try {
@@ -2519,6 +2730,9 @@ export class MainMenu {
                 skillPointsHint.classList.remove("visible");
             }
         }
+        
+        // Обновляем позывной
+        this.updatePlayerCallsign();
     }
     
     private startAnimations(): void {
@@ -3396,6 +3610,214 @@ export class MainMenu {
                     </div>
                 </div>
                 
+                <!-- 1.5. Мультиплеер меню -->
+                <div class="play-window" id="play-window-multiplayer" data-order="0.5" data-step="0.5" style="display: none;">
+                    <div class="play-window-header">
+                        <div class="play-window-title">/[user_id]/multiplayer</div>
+                        <div class="window-actions">
+                            <button class="window-btn" data-nav="back" data-step="0.5">⟵</button>
+                            <button class="window-btn" data-nav="close" data-step="0.5">✕</button>
+                        </div>
+                    </div>
+                    <div class="section-title">🌐 МУЛЬТИПЛЕЕР</div>
+                    
+                    <!-- Статус подключения -->
+                    <div id="mp-status-container" style="margin: 15px 0; padding: 15px; background: linear-gradient(135deg, rgba(0, 0, 0, 0.4) 0%, rgba(20, 20, 30, 0.4) 100%); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span id="mp-connection-indicator" style="width: 10px; height: 10px; border-radius: 50%; background: #888; display: inline-block;"></span>
+                                <span id="mp-connection-status" style="font-size: 13px; font-weight: 500; color: #aaa;">Не подключен</span>
+                            </div>
+                            <span id="mp-ping" style="font-size: 11px; color: #666; font-family: monospace; display: none;">---ms</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div id="mp-server-info" style="font-size: 11px; color: #666; font-family: monospace;">
+                                ws://localhost:8080
+                            </div>
+                            <button id="mp-btn-reconnect" class="panel-btn" style="padding: 4px 12px; font-size: 11px; display: none;">
+                                🔄 Переподключиться
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Выбор режима игры -->
+                    <div style="margin: 20px 0;">
+                        <div style="font-weight: bold; margin-bottom: 12px; font-size: 14px; color: #fff;">Выберите режим:</div>
+                        <div class="mp-mode-buttons" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
+                            <button class="menu-btn secondary mp-mode-btn" id="mp-btn-ffa" data-mp-mode="ffa" data-mp-desc="Каждый сам за себя. Побеждает игрок с наибольшим количеством убийств.">
+                                <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span class="btn-icon">⚔️</span>
+                                        <span class="btn-label" style="font-weight: 600;">Free-for-All</span>
+                                    </div>
+                                    <span style="font-size: 10px; opacity: 0.7; text-align: left; line-height: 1.2;">PvP до последнего</span>
+                                </div>
+                            </button>
+                            <button class="menu-btn secondary mp-mode-btn" id="mp-btn-tdm" data-mp-mode="tdm" data-mp-desc="Командная битва. Две команды сражаются за победу.">
+                                <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span class="btn-icon">👥</span>
+                                        <span class="btn-label" style="font-weight: 600;">Team Deathmatch</span>
+                                    </div>
+                                    <span style="font-size: 10px; opacity: 0.7; text-align: left; line-height: 1.2;">Командная битва</span>
+                                </div>
+                            </button>
+                            <button class="menu-btn secondary mp-mode-btn" id="mp-btn-coop" data-mp-mode="coop" data-mp-desc="Кооператив против ИИ. Сражайтесь вместе с друзьями.">
+                                <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span class="btn-icon">🤝</span>
+                                        <span class="btn-label" style="font-weight: 600;">Co-op PvE</span>
+                                    </div>
+                                    <span style="font-size: 10px; opacity: 0.7; text-align: left; line-height: 1.2;">Против ИИ</span>
+                                </div>
+                            </button>
+                            <button class="menu-btn secondary mp-mode-btn" id="mp-btn-br" data-mp-mode="battle_royale" data-mp-desc="Королевская битва. Безопасная зона сужается. Последний выживший побеждает.">
+                                <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span class="btn-icon">👑</span>
+                                        <span class="btn-label" style="font-weight: 600;">Battle Royale</span>
+                                    </div>
+                                    <span style="font-size: 10px; opacity: 0.7; text-align: left; line-height: 1.2;">Последний выживший</span>
+                                </div>
+                            </button>
+                            <button class="menu-btn secondary mp-mode-btn" id="mp-btn-ctf" data-mp-mode="ctf" data-mp-desc="Захват флага. Захватите флаг противника и доставьте на свою базу." style="grid-column: 1 / -1;">
+                                <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span class="btn-icon">🚩</span>
+                                        <span class="btn-label" style="font-weight: 600;">Capture the Flag</span>
+                                    </div>
+                                    <span style="font-size: 10px; opacity: 0.7; text-align: left; line-height: 1.2;">Захват флага противника</span>
+                                </div>
+                            </button>
+                        </div>
+                        <!-- Описание выбранного режима -->
+                        <div id="mp-mode-description" style="margin-top: 12px; padding: 10px; background: rgba(102, 126, 234, 0.1); border-radius: 5px; border-left: 3px solid #667eea; font-size: 12px; color: #aaa; line-height: 1.4; display: none;">
+                            <span id="mp-mode-desc-text"></span>
+                        </div>
+                    </div>
+                    
+                    <!-- Кнопки действий -->
+                    <div style="margin: 20px 0;">
+                        <div style="display: flex; gap: 10px; flex-direction: column;">
+                            <button class="panel-btn primary" id="mp-btn-quick-play" style="width: 100%; padding: 14px; font-size: 16px; font-weight: bold; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4); transition: all 0.2s;">
+                                🔍 БЫСТРЫЙ ПОИСК
+                            </button>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                <button class="panel-btn" id="mp-btn-create-room" style="padding: 12px; transition: all 0.2s;">
+                                    ➕ Создать комнату
+                                </button>
+                                <button class="panel-btn" id="mp-btn-join-room" style="padding: 12px; transition: all 0.2s;">
+                                    🔗 Присоединиться
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Модальное окно для присоединения к комнате -->
+                    <div id="mp-join-room-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.8); z-index: 10000; align-items: center; justify-content: center;">
+                        <div style="background: linear-gradient(135deg, rgba(20, 20, 30, 0.95) 0%, rgba(30, 30, 40, 0.95) 100%); border: 2px solid #667eea; border-radius: 12px; padding: 30px; max-width: 400px; width: 90%; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);">
+                            <div style="font-size: 18px; font-weight: bold; margin-bottom: 20px; color: #fff;">Присоединиться к комнате</div>
+                            <div style="margin-bottom: 20px;">
+                                <label style="display: block; font-size: 12px; color: #aaa; margin-bottom: 8px;">ID комнаты:</label>
+                                <input type="text" id="mp-room-id-input" placeholder="Введите ID комнаты" style="width: 100%; padding: 12px; background: rgba(0, 0, 0, 0.4); border: 1px solid #444; border-radius: 6px; color: #fff; font-family: monospace; font-size: 14px; outline: none; transition: border-color 0.2s;" />
+                                <div id="mp-room-id-error" style="display: none; color: #ef4444; font-size: 11px; margin-top: 6px;"></div>
+                            </div>
+                            <div style="display: flex; gap: 10px;">
+                                <button id="mp-modal-join-btn" class="panel-btn primary" style="flex: 1; padding: 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none;">
+                                    Присоединиться
+                                </button>
+                                <button id="mp-modal-cancel-btn" class="panel-btn" style="flex: 1; padding: 12px; background: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #ef4444;">
+                                    Отмена
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Информация о поиске матча -->
+                    <div id="mp-queue-info" style="display: none; margin: 15px 0; padding: 15px; background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%); border-radius: 8px; border: 1px solid #667eea; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <div id="mp-queue-pulse" style="width: 12px; height: 12px; border-radius: 50%; background: #667eea; animation: pulse 2s infinite; box-shadow: 0 0 8px rgba(102, 126, 234, 0.6);"></div>
+                                <span style="font-weight: bold; color: #667eea; font-size: 14px;">Поиск матча...</span>
+                            </div>
+                            <span id="mp-queue-timer" style="font-size: 12px; color: #aaa; font-family: monospace;">00:00</span>
+                        </div>
+                        <div id="mp-queue-details" style="font-size: 12px; color: #aaa; margin-bottom: 10px; line-height: 1.6;">
+                            <div>Режим: <span id="mp-queue-mode" style="color: #fff; font-weight: 600;">-</span></div>
+                            <div>Игроков в очереди: <span id="mp-queue-size" style="color: #4ade80; font-weight: 600;">-</span></div>
+                            <div id="mp-queue-estimated" style="margin-top: 5px; opacity: 0.8;">Примерное время ожидания: <span id="mp-queue-estimated-time">-</span></div>
+                        </div>
+                        <button class="panel-btn" id="mp-btn-cancel-queue" style="width: 100%; padding: 10px; font-size: 14px; background: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #ef4444;">
+                            ❌ Отменить поиск
+                        </button>
+                    </div>
+                    
+                    <!-- Информация о текущей комнате -->
+                    <div id="mp-room-info" style="display: none; margin: 15px 0; padding: 15px; background: linear-gradient(135deg, rgba(118, 75, 162, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%); border-radius: 8px; border: 1px solid #764ba2; box-shadow: 0 2px 8px rgba(118, 75, 162, 0.3);">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                            <div style="font-weight: bold; color: #764ba2; font-size: 14px;">🏠 Текущая комната</div>
+                            <span id="mp-room-players-count" style="font-size: 11px; color: #aaa; background: rgba(0, 0, 0, 0.3); padding: 4px 8px; border-radius: 4px;">0/32</span>
+                        </div>
+                        <div id="mp-room-details" style="font-size: 12px; color: #aaa; margin-bottom: 12px; line-height: 1.6;">
+                            <div>Режим: <span id="mp-room-mode" style="color: #fff; font-weight: 600;">-</span></div>
+                            <div style="display: flex; align-items: center; gap: 8px; margin-top: 5px;">
+                                <span>ID комнаты:</span>
+                                <span id="mp-room-id" style="color: #a78bfa; font-family: monospace; font-weight: 600; flex: 1;">-</span>
+                                <button id="mp-btn-copy-room-id" style="padding: 4px 8px; font-size: 10px; background: rgba(118, 75, 162, 0.3); border: 1px solid #764ba2; border-radius: 4px; color: #a78bfa; cursor: pointer; transition: all 0.2s;" title="Копировать ID">
+                                    📋
+                                </button>
+                            </div>
+                            <div id="mp-room-status" style="margin-top: 8px; padding: 6px; background: rgba(0, 0, 0, 0.2); border-radius: 4px;">
+                                <span id="mp-room-status-text" style="color: #4ade80;">Ожидание игроков...</span>
+                            </div>
+                        </div>
+                        <button class="panel-btn" id="mp-btn-leave-room" style="width: 100%; padding: 10px; font-size: 14px; background: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #ef4444;">
+                            🚪 Покинуть комнату
+                        </button>
+                    </div>
+                    
+                    <!-- Сообщения об ошибках -->
+                    <div id="mp-error-message" style="display: none; margin: 15px 0; padding: 12px; background: rgba(239, 68, 68, 0.2); border-radius: 8px; border: 1px solid #ef4444; animation: fadeIn 0.3s ease;">
+                        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                            <span style="font-size: 18px;">⚠️</span>
+                            <span style="font-weight: bold; color: #ef4444;">Ошибка</span>
+                        </div>
+                        <div id="mp-error-text" style="font-size: 12px; color: #ffaaaa; line-height: 1.4;">
+                        </div>
+                    </div>
+                    
+                    <style>
+                        @keyframes pulse {
+                            0%, 100% { opacity: 1; transform: scale(1); }
+                            50% { opacity: 0.7; transform: scale(1.1); }
+                        }
+                        @keyframes fadeIn {
+                            from { opacity: 0; transform: translateY(-10px); }
+                            to { opacity: 1; transform: translateY(0); }
+                        }
+                        .mp-mode-btn {
+                            transition: all 0.2s ease;
+                            text-align: left;
+                        }
+                        .mp-mode-btn:hover {
+                            transform: translateY(-2px);
+                            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+                        }
+                        .mp-mode-btn.active {
+                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            border-color: #667eea;
+                            box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+                        }
+                        #mp-join-room-modal {
+                            animation: fadeIn 0.2s ease;
+                        }
+                        #mp-join-room-modal input:focus {
+                            border-color: #667eea;
+                            box-shadow: 0 0 8px rgba(102, 126, 234, 0.4);
+                        }
+                    </style>
+                </div>
+                
                 <!-- 2. Выбор карты -->
                 <div class="play-window" id="play-window-map" data-order="1" data-step="1">
                     <div class="play-window-header">
@@ -3520,6 +3942,7 @@ export class MainMenu {
         
         // Обработчики выбора режима
         document.getElementById("btn-mode-single")?.addEventListener("click", () => this.selectGameMode("single"));
+        document.getElementById("btn-mode-multiplayer")?.addEventListener("click", () => this.selectGameMode("multiplayer"));
         document.getElementById("btn-mode-ffa")?.addEventListener("click", () => this.selectGameMode("ffa"));
         document.getElementById("btn-mode-tdm")?.addEventListener("click", () => this.selectGameMode("tdm"));
         document.getElementById("btn-mode-coop")?.addEventListener("click", () => this.selectGameMode("coop"));
@@ -3537,10 +3960,17 @@ export class MainMenu {
             btn.addEventListener("click", (e) => {
                 const target = e.currentTarget as HTMLElement;
                 const action = target.dataset.nav;
-                const step = parseInt(target.dataset.step || "0", 10);
-                if (action === "back") this.navigatePlayStep(step - 1);
-                if (action === "forward") this.navigatePlayStep(step + 1);
-                if (action === "close") this.hidePlayMenu();
+                const step = parseFloat(target.dataset.step || "0");
+                // Специальная обработка для мультиплеер окна
+                if (step === 0.5 && action === "back") {
+                    this.showPlayWindow("play-window-mode", 0, 0);
+                } else if (action === "back") {
+                    this.navigatePlayStep(Math.floor(step) - 1);
+                } else if (action === "forward") {
+                    this.navigatePlayStep(Math.floor(step) + 1);
+                } else if (action === "close") {
+                    this.hidePlayMenu();
+                }
             });
         });
 
@@ -3560,50 +3990,48 @@ export class MainMenu {
         // Обработчик запуска игры
         document.getElementById("btn-start-game")?.addEventListener("click", () => this.startSelectedGame());
         
+        // Мультиплеер меню обработчики будут установлены в initMultiplayerMenu
+        
         this.setupCloseButton("play-menu-back", () => this.hidePlayMenu());
         this.setupPanelCloseOnBackground(this.playMenuPanel, () => this.hidePlayMenu());
     }
     
     private populateTankOptions(): void {
-        // Импортируем типы танков динамически
-        import("./tankTypes").then(({ CHASSIS_TYPES, CANNON_TYPES }) => {
-            const chassisContainer = document.getElementById("chassis-options");
-            const cannonContainer = document.getElementById("cannon-options");
-            
-            if (chassisContainer) {
-                chassisContainer.innerHTML = ""; // Очищаем перед заполнением
-                CHASSIS_TYPES.filter(chassis => this.ownedChassisIds.has(chassis.id)).forEach(chassis => {
-                    const btn = document.createElement("button");
-                    btn.className = `menu-btn ${this.selectedChassis === chassis.id ? "play-btn" : ""}`;
-                    btn.innerHTML = `
-                        <span class="btn-label">${chassis.name}</span>
-                        <span style="font-size:10px; opacity:0.8;">
-                            ${Math.round(chassis.maxHealth)} HP • ${Math.round(chassis.moveSpeed)} SPD
-                        </span>`;
-                    btn.dataset.chassis = chassis.id;
-                    btn.addEventListener("click", () => this.selectChassis(chassis.id));
-                    chassisContainer.appendChild(btn);
-                });
-            }
-            
-            if (cannonContainer) {
-                cannonContainer.innerHTML = ""; // Очищаем перед заполнением
-                CANNON_TYPES.filter(cannon => this.ownedCannonIds.has(cannon.id)).forEach(cannon => {
-                    const btn = document.createElement("button");
-                    btn.className = `menu-btn ${this.selectedCannon === cannon.id ? "play-btn" : ""}`;
-                    btn.innerHTML = `
-                        <span class="btn-label">${cannon.name}</span>
-                        <span style="font-size:10px; opacity:0.8;">
-                            ${Math.round(cannon.damage)} DMG • ${(cannon.cooldown / 1000).toFixed(1)}s CD
-                        </span>`;
-                    btn.dataset.cannon = cannon.id;
-                    btn.addEventListener("click", () => this.selectCannon(cannon.id));
-                    cannonContainer.appendChild(btn);
-                });
-            }
-        }).catch(error => {
-            debugError("[Menu] Error loading tank types:", error);
-        });
+        // Используем статически импортированные типы танков
+        const chassisContainer = document.getElementById("chassis-options");
+        const cannonContainer = document.getElementById("cannon-options");
+        
+        if (chassisContainer) {
+            chassisContainer.innerHTML = ""; // Очищаем перед заполнением
+            CHASSIS_TYPES.filter(chassis => this.ownedChassisIds.has(chassis.id)).forEach(chassis => {
+                const btn = document.createElement("button");
+                btn.className = `menu-btn ${this.selectedChassis === chassis.id ? "play-btn" : ""}`;
+                btn.innerHTML = `
+                    <span class="btn-label">${chassis.name}</span>
+                    <span style="font-size:10px; opacity:0.8;">
+                        ${Math.round(chassis.maxHealth)} HP • ${Math.round(chassis.moveSpeed)} SPD
+                    </span>`;
+                btn.dataset.chassis = chassis.id;
+                btn.addEventListener("click", () => this.selectChassis(chassis.id));
+                chassisContainer.appendChild(btn);
+            });
+        }
+        
+        if (cannonContainer) {
+            cannonContainer.innerHTML = ""; // Очищаем перед заполнением
+            CANNON_TYPES.filter(cannon => this.ownedCannonIds.has(cannon.id)).forEach(cannon => {
+                const btn = document.createElement("button");
+                btn.className = `menu-btn ${this.selectedCannon === cannon.id ? "play-btn" : ""}`;
+                btn.innerHTML = `
+                    <span class="btn-label">${cannon.name}</span>
+                    <span style="font-size:10px; opacity:0.8;">
+                        ${Math.round(cannon.damage)} DMG • ${(cannon.cooldown / 1000).toFixed(1)}s CD
+                    </span>`;
+                btn.dataset.cannon = cannon.id;
+                btn.addEventListener("click", () => this.selectCannon(cannon.id));
+                cannonContainer.appendChild(btn);
+            });
+        }
     }
     
     private selectGameMode(mode: string): void {
@@ -3623,8 +4051,456 @@ export class MainMenu {
         // Update terminal titles
         this.updateTerminalTitles();
         
-        // Показываем следующий шаг - выбор карты
-        this.showPlayWindow("play-window-map", 1, 1);
+        // Для мультиплеера показываем специальное меню
+        if (mode === "multiplayer") {
+            this.showPlayWindow("play-window-multiplayer", 0.5, 0.5);
+            this.initMultiplayerMenu();
+        } else {
+            // Показываем следующий шаг - выбор карты
+            this.showPlayWindow("play-window-map", 1, 1);
+        }
+    }
+    
+    private queueTimer: number = 0;
+    private queueTimerInterval: NodeJS.Timeout | null = null;
+    
+    private initMultiplayerMenu(): void {
+        // Выбранный режим мультиплеера (по умолчанию FFA)
+        let selectedMpMode = "ffa";
+        
+        // Обработчики выбора режима мультиплеера
+        document.querySelectorAll(".mp-mode-btn").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                const target = e.currentTarget as HTMLElement;
+                const mode = target.dataset.mpMode;
+                const desc = target.dataset.mpDesc;
+                if (mode) {
+                    selectedMpMode = mode;
+                    // Обновляем визуал
+                    document.querySelectorAll(".mp-mode-btn").forEach(b => {
+                        b.classList.remove("active");
+                    });
+                    target.classList.add("active");
+                    
+                    // Показываем описание режима
+                    const descEl = document.getElementById("mp-mode-description");
+                    const descTextEl = document.getElementById("mp-mode-desc-text");
+                    if (descEl && descTextEl && desc) {
+                        descTextEl.textContent = desc;
+                        descEl.style.display = "block";
+                        descEl.style.animation = "fadeIn 0.3s ease";
+                    }
+                }
+            });
+        });
+        
+        // Устанавливаем FFA как активный по умолчанию
+        const ffaBtn = document.getElementById("mp-btn-ffa");
+        if (ffaBtn) {
+            ffaBtn.classList.add("active");
+            const desc = ffaBtn.dataset.mpDesc;
+            const descEl = document.getElementById("mp-mode-description");
+            const descTextEl = document.getElementById("mp-mode-desc-text");
+            if (descEl && descTextEl && desc) {
+                descTextEl.textContent = desc;
+                descEl.style.display = "block";
+            }
+        }
+        
+        // Quick Play
+        document.getElementById("mp-btn-quick-play")?.addEventListener("click", () => {
+            const activeBtn = document.querySelector(".mp-mode-btn.active") as HTMLElement;
+            const mode = activeBtn?.dataset.mpMode || selectedMpMode;
+            this.startMultiplayerQuickPlay(mode);
+        });
+        
+        // Create Room
+        document.getElementById("mp-btn-create-room")?.addEventListener("click", () => {
+            const activeBtn = document.querySelector(".mp-mode-btn.active") as HTMLElement;
+            const mode = activeBtn?.dataset.mpMode || selectedMpMode;
+            this.createMultiplayerRoom(mode);
+        });
+        
+        // Join Room - показываем модальное окно
+        document.getElementById("mp-btn-join-room")?.addEventListener("click", () => {
+            const modal = document.getElementById("mp-join-room-modal");
+            const input = document.getElementById("mp-room-id-input") as HTMLInputElement;
+            const errorEl = document.getElementById("mp-room-id-error");
+            if (modal && input) {
+                modal.style.display = "flex";
+                input.value = "";
+                input.focus();
+                if (errorEl) errorEl.style.display = "none";
+                
+                // Обработчик Enter в поле ввода
+                const handleEnter = (e: KeyboardEvent) => {
+                    if (e.key === "Enter") {
+                        document.getElementById("mp-modal-join-btn")?.click();
+                    }
+                };
+                input.addEventListener("keydown", handleEnter);
+                
+                // Обработчик кнопки "Присоединиться" в модальном окне
+                const joinBtn = document.getElementById("mp-modal-join-btn");
+                if (joinBtn) {
+                    joinBtn.onclick = () => {
+                        const roomId = input.value.trim();
+                        if (roomId.length < 6) {
+                            if (errorEl) {
+                                errorEl.textContent = "ID комнаты должен быть не менее 6 символов";
+                                errorEl.style.display = "block";
+                            }
+                            return;
+                        }
+                        modal.style.display = "none";
+                        input.removeEventListener("keydown", handleEnter);
+                        this.joinMultiplayerRoom(roomId);
+                    };
+                }
+                
+                // Обработчик кнопки "Отмена" в модальном окне
+                document.getElementById("mp-modal-cancel-btn")?.addEventListener("click", () => {
+                    modal.style.display = "none";
+                    input.removeEventListener("keydown", handleEnter);
+                });
+            }
+        });
+        
+        // Cancel Queue
+        document.getElementById("mp-btn-cancel-queue")?.addEventListener("click", () => {
+            this.cancelMultiplayerQueue();
+        });
+        
+        // Reconnect button
+        document.getElementById("mp-btn-reconnect")?.addEventListener("click", () => {
+            const game = (window as any).gameInstance as any;
+            const multiplayerManager = game?.multiplayerManager;
+            if (multiplayerManager) {
+                const serverUrl = multiplayerManager.getServerUrl();
+                multiplayerManager.connect(serverUrl);
+            }
+        });
+        
+        // Leave Room
+        document.getElementById("mp-btn-leave-room")?.addEventListener("click", () => {
+            this.leaveMultiplayerRoom();
+        });
+        
+        // Copy Room ID
+        document.getElementById("mp-btn-copy-room-id")?.addEventListener("click", () => {
+            const game = (window as any).gameInstance as any;
+            const multiplayerManager = game?.multiplayerManager;
+            if (multiplayerManager) {
+                const roomId = multiplayerManager.getRoomId();
+                if (roomId) {
+                    navigator.clipboard.writeText(roomId).then(() => {
+                        const btn = document.getElementById("mp-btn-copy-room-id");
+                        if (btn) {
+                            const originalText = btn.textContent;
+                            btn.textContent = "✓";
+                            btn.style.color = "#4ade80";
+                            setTimeout(() => {
+                                btn.textContent = originalText;
+                                btn.style.color = "#a78bfa";
+                            }, 2000);
+                        }
+                    }).catch(err => {
+                        debugError("[Menu] Failed to copy room ID:", err);
+                    });
+                }
+            }
+        });
+        
+        // Обновляем статус подключения
+        this._updateMultiplayerStatus();
+        
+        // Обновляем статус каждые 2 секунды
+        const statusUpdateInterval = setInterval(() => {
+            if (document.getElementById("play-window-multiplayer")?.style.display !== "none") {
+                this._updateMultiplayerStatus();
+            } else {
+                clearInterval(statusUpdateInterval);
+            }
+        }, 2000);
+    }
+    
+    private startQueueTimer(): void {
+        if (this.queueTimerInterval) clearInterval(this.queueTimerInterval);
+        this.queueTimer = 0;
+        this.queueTimerInterval = setInterval(() => {
+            this.queueTimer++;
+            const minutes = Math.floor(this.queueTimer / 60);
+            const seconds = this.queueTimer % 60;
+            const timerEl = document.getElementById("mp-queue-timer");
+            if (timerEl) {
+                timerEl.textContent = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+            }
+        }, 1000);
+    }
+    
+    // Публичный метод для обновления статуса (вызывается из game.ts)
+    updateMultiplayerStatus(): void {
+        this._updateMultiplayerStatus();
+    }
+    
+    private _updateMultiplayerStatus(): void {
+        const game = (window as any).gameInstance as any;
+        const multiplayerManager = game?.multiplayerManager;
+        
+        const statusEl = document.getElementById("mp-connection-status");
+        const indicatorEl = document.getElementById("mp-connection-indicator");
+        const pingEl = document.getElementById("mp-ping");
+        const reconnectBtn = document.getElementById("mp-btn-reconnect");
+        const queueInfoEl = document.getElementById("mp-queue-info");
+        const roomInfoEl = document.getElementById("mp-room-info");
+        const serverInfoEl = document.getElementById("mp-server-info");
+        
+        if (!statusEl || !indicatorEl) return;
+        
+        // ИСПРАВЛЕНИЕ: Проверка статуса WebSocket и Firebase отдельно
+        const isWebSocketConnected = multiplayerManager && multiplayerManager.isConnected();
+        
+        // Проверка статуса Firebase
+        let isFirebaseConnected = false;
+        try {
+            const firebaseService = (window as any).firebaseService;
+            if (firebaseService) {
+                // Проверяем что Firebase инициализирован
+                isFirebaseConnected = firebaseService.isInitialized?.() || false;
+            }
+        } catch (error) {
+            console.warn("[Menu] Error checking Firebase status:", error);
+        }
+        
+        if (isWebSocketConnected) {
+            // ИСПРАВЛЕНИЕ: Показываем статус WebSocket и Firebase отдельно
+            let statusText = "WebSocket [Online]";
+            if (isFirebaseConnected) {
+                statusText += " / Firebase [Online]";
+            } else {
+                statusText += " / Firebase [Offline]";
+            }
+            
+            statusEl.textContent = statusText;
+            statusEl.style.color = isFirebaseConnected ? "#4ade80" : "#fa0"; // Оранжевый если Firebase офлайн
+            indicatorEl.style.background = isFirebaseConnected ? "#4ade80" : "#fa0";
+            indicatorEl.style.boxShadow = isFirebaseConnected ? "0 0 8px rgba(74, 222, 128, 0.6)" : "0 0 8px rgba(255, 170, 0, 0.6)";
+            
+            // Показываем пинг (TODO: реализовать измерение пинга)
+            if (pingEl) {
+                pingEl.style.display = "inline-block";
+                // pingEl.textContent = `${ping}ms`; // Когда будет реализовано измерение пинга
+            }
+            
+            if (reconnectBtn) reconnectBtn.style.display = "none";
+            
+            // Обновляем адрес сервера
+            if (serverInfoEl) {
+                const serverUrl = multiplayerManager.getServerUrl();
+                serverInfoEl.textContent = serverUrl.replace("ws://", "").replace("wss://", "");
+            }
+            
+            // Показываем информацию о комнате если есть
+            const roomId = multiplayerManager.getRoomId();
+            if (roomId && roomInfoEl) {
+                roomInfoEl.style.display = "block";
+                roomInfoEl.style.animation = "fadeIn 0.3s ease";
+                document.getElementById("mp-room-id")!.textContent = roomId.substring(0, 12);
+                const mode = multiplayerManager.getGameMode() || "unknown";
+                document.getElementById("mp-room-mode")!.textContent = mode.toUpperCase();
+                if (queueInfoEl) queueInfoEl.style.display = "none";
+                
+                // Обновляем количество игроков (если доступно)
+                const networkPlayers = multiplayerManager.getNetworkPlayers();
+                const playersCount = networkPlayers ? networkPlayers.size + 1 : 1; // +1 для локального игрока
+                const playersCountEl = document.getElementById("mp-room-players-count");
+                if (playersCountEl) {
+                    playersCountEl.textContent = `${playersCount}/32`;
+                }
+            } else {
+                if (roomInfoEl) roomInfoEl.style.display = "none";
+            }
+        } else {
+            // ИСПРАВЛЕНИЕ: Показываем статус WebSocket и Firebase отдельно
+            let statusText = "WebSocket [Offline]";
+            if (isFirebaseConnected) {
+                statusText += " / Firebase [Online]";
+            } else {
+                statusText += " / Firebase [Offline]";
+            }
+            
+            statusEl.textContent = statusText;
+            statusEl.style.color = "#f00"; // Красный если WebSocket офлайн
+            indicatorEl.style.background = "#f00";
+            indicatorEl.style.boxShadow = "none";
+            
+            if (pingEl) pingEl.style.display = "none";
+            if (reconnectBtn) reconnectBtn.style.display = "inline-block";
+            if (queueInfoEl) queueInfoEl.style.display = "none";
+            if (roomInfoEl) roomInfoEl.style.display = "none";
+        }
+    }
+    
+    private startMultiplayerQuickPlay(mode: string): void {
+        debugLog("[Menu] Starting quick play for mode:", mode);
+        
+        // Сохраняем режим и запускаем игру
+        this.selectedGameMode = "multiplayer";
+        localStorage.setItem("selectedGameMode", "multiplayer");
+        
+        // Используем карту по умолчанию если не выбрана
+        if (!this.selectedMapType) {
+            this.selectedMapType = "normal";
+        }
+        
+        // Показываем информацию о поиске
+        const queueInfoEl = document.getElementById("mp-queue-info");
+        if (queueInfoEl) {
+            queueInfoEl.style.display = "block";
+            queueInfoEl.style.animation = "fadeIn 0.3s ease";
+            document.getElementById("mp-queue-mode")!.textContent = mode.toUpperCase();
+            // Запускаем таймер очереди
+            this.startQueueTimer();
+        }
+        
+        // Закрываем меню и запускаем игру
+        this.hide();
+        this.hidePlayMenu();
+        this.onStartGame(this.selectedMapType);
+        
+        // После запуска игры подключаемся к мультиплееру
+        setTimeout(() => {
+            const game = (window as any).gameInstance as any;
+            if (game && game.quickPlayMultiplayer) {
+                game.quickPlayMultiplayer(mode);
+                debugLog("[Menu] Quick play multiplayer:", mode);
+            } else {
+                debugError("[Menu] Game instance not found or quickPlayMultiplayer not available");
+                setTimeout(() => {
+                    const game2 = (window as any).gameInstance as any;
+                    if (game2 && game2.quickPlayMultiplayer) {
+                        game2.quickPlayMultiplayer(mode);
+                        debugLog("[Menu] Quick play multiplayer:", mode, "(retry)");
+                    }
+                }, 2000);
+            }
+        }, 3000);
+    }
+    
+    private createMultiplayerRoom(mode: string): void {
+        debugLog("[Menu] Creating multiplayer room for mode:", mode);
+        const game = (window as any).gameInstance as any;
+        if (game && game.createMultiplayerRoom) {
+            game.createMultiplayerRoom(mode);
+            alert(`Комната создана для режима ${mode.toUpperCase()}. ID комнаты будет показан после подключения.`);
+        } else {
+            alert("Игра еще не инициализирована. Запустите игру сначала.");
+        }
+    }
+    
+    private joinMultiplayerRoom(roomId: string): void {
+        debugLog("[Menu] Joining multiplayer room:", roomId);
+        const game = (window as any).gameInstance as any;
+        if (game && game.joinMultiplayerRoom) {
+            game.joinMultiplayerRoom(roomId);
+            alert(`Присоединение к комнате ${roomId}...`);
+        } else {
+            alert("Игра еще не инициализирована. Запустите игру сначала.");
+        }
+    }
+    
+    private cancelMultiplayerQueue(): void {
+        debugLog("[Menu] Cancelling multiplayer queue");
+        const game = (window as any).gameInstance as any;
+        const multiplayerManager = game?.multiplayerManager;
+        if (multiplayerManager) {
+            // TODO: Реализовать cancel queue в MultiplayerManager
+            const queueInfoEl = document.getElementById("mp-queue-info");
+            if (queueInfoEl) {
+                queueInfoEl.style.display = "none";
+            }
+            // Останавливаем таймер
+            if (this.queueTimerInterval) {
+                clearInterval(this.queueTimerInterval);
+                this.queueTimerInterval = null;
+            }
+            this.queueTimer = 0;
+            const timerEl = document.getElementById("mp-queue-timer");
+            if (timerEl) timerEl.textContent = "00:00";
+        }
+    }
+    
+    // Метод для обновления информации об очереди (вызывается из game.ts через callback)
+    updateQueueInfo(queueSize: number, estimatedWait: number, mode: string | null): void {
+        const queueInfoEl = document.getElementById("mp-queue-info");
+        
+        // Если mode === null, скрываем очередь (матч найден)
+        if (!mode || mode === "null") {
+            if (queueInfoEl) {
+                queueInfoEl.style.display = "none";
+            }
+            // Останавливаем таймер
+            if (this.queueTimerInterval) {
+                clearInterval(this.queueTimerInterval);
+                this.queueTimerInterval = null;
+                this.queueTimer = 0;
+            }
+            return;
+        }
+        
+        // Показываем очередь и обновляем информацию
+        if (queueInfoEl) {
+            queueInfoEl.style.display = "block";
+            queueInfoEl.style.animation = "fadeIn 0.3s ease";
+        }
+        
+        const queueSizeEl = document.getElementById("mp-queue-size");
+        const estimatedTimeEl = document.getElementById("mp-queue-estimated-time");
+        const queueModeEl = document.getElementById("mp-queue-mode");
+        
+        if (queueSizeEl) queueSizeEl.textContent = String(queueSize);
+        if (queueModeEl) queueModeEl.textContent = mode.toUpperCase();
+        if (estimatedTimeEl) {
+            const minutes = Math.floor(estimatedWait / 60);
+            const seconds = estimatedWait % 60;
+            estimatedTimeEl.textContent = `${minutes > 0 ? `${minutes} мин ` : ""}${seconds} сек`;
+        }
+        
+        // Запускаем таймер если еще не запущен
+        if (!this.queueTimerInterval) {
+            this.startQueueTimer();
+        }
+    }
+    
+    private leaveMultiplayerRoom(): void {
+        debugLog("[Menu] Leaving multiplayer room");
+        const game = (window as any).gameInstance as any;
+        const multiplayerManager = game?.multiplayerManager;
+        if (multiplayerManager) {
+            multiplayerManager.leaveRoom();
+            const roomInfoEl = document.getElementById("mp-room-info");
+            if (roomInfoEl) {
+                roomInfoEl.style.display = "none";
+            }
+            // Обновляем статус
+            this._updateMultiplayerStatus();
+        }
+    }
+    
+    // Метод для отображения ошибок в меню
+    showMultiplayerError(message: string): void {
+        const errorEl = document.getElementById("mp-error-message");
+        const errorTextEl = document.getElementById("mp-error-text");
+        if (errorEl && errorTextEl) {
+            errorTextEl.textContent = message;
+            errorEl.style.display = "block";
+            errorEl.style.animation = "fadeIn 0.3s ease";
+            
+            // Автоматически скрываем через 5 секунд
+            setTimeout(() => {
+                errorEl.style.display = "none";
+            }, 5000);
+        }
     }
     
     private selectMap(map: MapType): void {
@@ -3713,45 +4589,41 @@ export class MainMenu {
             }
         });
         
-        // Применяем пресет
-        import("./tankTypes").then(() => {
-            let chassisId = "medium";
-            let cannonId = "standard";
-            
-            switch (preset) {
-                case "balanced":
-                    chassisId = "medium";
-                    cannonId = "standard";
-                    break;
-                case "speed":
-                    chassisId = "light";
-                    cannonId = "rapid";
-                    break;
-                case "defense":
-                    chassisId = "heavy";
-                    cannonId = "heavy";
-                    break;
-                case "damage":
-                    chassisId = "assault";
-                    cannonId = "sniper";
-                    break;
-            }
+        // Применяем пресет (tankTypes уже импортирован статически)
+        let chassisId = "medium";
+        let cannonId = "standard";
+        
+        switch (preset) {
+            case "balanced":
+                chassisId = "medium";
+                cannonId = "standard";
+                break;
+            case "speed":
+                chassisId = "light";
+                cannonId = "rapid";
+                break;
+            case "defense":
+                chassisId = "heavy";
+                cannonId = "heavy";
+                break;
+            case "damage":
+                chassisId = "assault";
+                cannonId = "sniper";
+                break;
+        }
 
-            // Если нет владения — берем первый доступный из owned
-            const ownedChassis = Array.from(this.ownedChassisIds);
-            const ownedCannon = Array.from(this.ownedCannonIds);
-            if (!this.ownedChassisIds.has(chassisId) && ownedChassis.length > 0) {
-                chassisId = ownedChassis[0];
-            }
-            if (!this.ownedCannonIds.has(cannonId) && ownedCannon.length > 0) {
-                cannonId = ownedCannon[0];
-            }
-            
-            this.selectChassis(chassisId);
-            this.selectCannon(cannonId);
-        }).catch(error => {
-            debugError("[Menu] Error loading tank types for preset:", error);
-        });
+        // Если нет владения — берем первый доступный из owned
+        const ownedChassis = Array.from(this.ownedChassisIds);
+        const ownedCannon = Array.from(this.ownedCannonIds);
+        if (!this.ownedChassisIds.has(chassisId) && ownedChassis.length > 0) {
+            chassisId = ownedChassis[0];
+        }
+        if (!this.ownedCannonIds.has(cannonId) && ownedCannon.length > 0) {
+            cannonId = ownedCannon[0];
+        }
+        
+        this.selectChassis(chassisId);
+        this.selectCannon(cannonId);
     }
     
     private checkCanStartGame(): void {
@@ -3908,10 +4780,39 @@ export class MainMenu {
         if (this.selectedChassis) localStorage.setItem("selectedChassis", this.selectedChassis);
         if (this.selectedCannon) localStorage.setItem("selectedCannon", this.selectedCannon);
         
-        // Закрываем меню и запускаем игру
+        // Закрываем меню
         this.hide();
         this.hidePlayMenu();
-        this.onStartGame(this.selectedMapType);
+        
+        // Если выбран мультиплеер, запускаем игру и подключаемся к матчмейкингу
+        if (this.selectedGameMode === "multiplayer") {
+            // Запускаем игру в одиночном режиме (карта нужна для генерации мира)
+            this.onStartGame(this.selectedMapType);
+            
+            // После запуска игры подключаемся к мультиплееру
+            // Используем задержку чтобы игра успела инициализироваться и MultiplayerManager создался
+            setTimeout(() => {
+                const game = (window as any).gameInstance as any;
+                if (game && game.quickPlayMultiplayer) {
+                    // Используем FFA как режим по умолчанию для мультиплеера
+                    game.quickPlayMultiplayer("ffa");
+                    debugLog("[Menu] Quick play multiplayer: FFA");
+                } else {
+                    debugError("[Menu] Game instance not found or quickPlayMultiplayer not available");
+                    // Пробуем еще раз через 2 секунды
+                    setTimeout(() => {
+                        const game2 = (window as any).gameInstance as any;
+                        if (game2 && game2.quickPlayMultiplayer) {
+                            game2.quickPlayMultiplayer("ffa");
+                            debugLog("[Menu] Quick play multiplayer: FFA (retry)");
+                        }
+                    }, 2000);
+                }
+            }, 3000);
+        } else {
+            // Обычный старт для одиночной игры
+            this.onStartGame(this.selectedMapType);
+        }
     }
     
     private quickStart(): void {
@@ -4173,18 +5074,20 @@ export class MainMenu {
         updateSkillTreeDisplay(stats, callbacks);
     }
     
-    public showGarage(): void {
+    public async showGarage(): Promise<void> {
         debugLog("[Menu] showGarage() called");
         
         const wantsPlayMenuBack = this.returnToPlayMenuAfterGarage;
         const wasPlayVisible = this.playMenuPanel?.classList.contains("visible");
         
-        // Garage is initialized by game.ts via setGarage() when game starts
-        // If not available, fallback to simple panel
-        
-        // Garage should always be available (created in constructor)
+        // Lazy load Garage if not already loaded
         if (!this.garage) {
-            logger.error("[Menu] Garage is null! This should not happen.");
+            debugLog("[Menu] Garage not loaded, loading now...");
+            await this.loadGarageInMenu();
+        }
+        
+        if (!this.garage) {
+            logger.error("[Menu] Garage still not available after loading attempt!");
             return;
         }
         
@@ -4194,26 +5097,76 @@ export class MainMenu {
             this.hide();
         }
         this.garage.setOnCloseCallback(() => {
-            const shouldReturnToPlay = this.returnToPlayMenuAfterGarage || wantsPlayMenuBack || wasPlayVisible;
-            this.returnToPlayMenuAfterGarage = false;
-            const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
-            if (canvas && canvas.style.display !== "none") {
-                debugLog("[Menu] Game is running, not showing menu after garage close");
-                return;
-            }
-            if (shouldReturnToPlay) {
-                debugLog("[Menu] Returning to play menu after garage close");
-                this.showPlayMenu();
-            } else if (wasVisible) {
-                debugLog("[Menu] Showing menu after garage close");
-                this.show();
+            try {
+                const shouldReturnToPlay = this.returnToPlayMenuAfterGarage || wantsPlayMenuBack || wasPlayVisible;
+                this.returnToPlayMenuAfterGarage = false;
+                
+                // ИСПРАВЛЕНИЕ: Безопасная проверка canvas с дополнительными проверками
+                const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
+                if (canvas) {
+                    // Проверяем что canvas существует и не скрыт
+                    const canvasDisplay = canvas.style.display;
+                    const canvasComputed = window.getComputedStyle(canvas).display;
+                    const isCanvasVisible = canvasDisplay !== "none" && canvasComputed !== "none";
+                    
+                    if (isCanvasVisible) {
+                        debugLog("[Menu] Game is running, not showing menu after garage close");
+                        // Восстанавливаем pointer-events для canvas
+                        try {
+                            this.enforceCanvasPointerEvents();
+                        } catch (error) {
+                            console.error("[Menu] Error enforcing canvas pointer events:", error);
+                        }
+                        return;
+                    }
+                }
+                
+                if (shouldReturnToPlay) {
+                    debugLog("[Menu] Returning to play menu after garage close");
+                    try {
+                        this.showPlayMenu();
+                    } catch (error) {
+                        console.error("[Menu] Error showing play menu:", error);
+                    }
+                } else if (wasVisible) {
+                    debugLog("[Menu] Showing menu after garage close");
+                    try {
+                        this.show();
+                    } catch (error) {
+                        console.error("[Menu] Error showing menu:", error);
+                    }
+                }
+                
+                // Восстанавливаем pointer-events для canvas после закрытия гаража
+                setTimeout(() => {
+                    try {
+                        this.enforceCanvasPointerEvents();
+                    } catch (error) {
+                        console.error("[Menu] Error enforcing canvas pointer events (delayed):", error);
+                    }
+                }, 100);
+            } catch (error) {
+                console.error("[Menu] Error in garage close callback:", error);
+                // Пытаемся показать меню в случае ошибки
+                try {
+                    if (wasVisible) {
+                        this.show();
+                    }
+                } catch (e) {
+                    console.error("[Menu] Error in fallback menu show:", e);
+                }
             }
         });
         this.garage.open();
     }
     
-    private initializeGarageInMenu(): void {
+    // Lazy load Garage in menu
+    private async loadGarageInMenu(): Promise<void> {
+        if (this.garage) return; // Already loaded
+        
         try {
+            const { Garage } = await import("./garage");
+            
             // Create minimal scene and currency manager for garage
             this.garageCurrencyManager = new CurrencyManager();
             
@@ -4226,11 +5179,17 @@ export class MainMenu {
             
             // Create garage with minimal scene
             this.garage = new Garage(this.garageScene, this.garageCurrencyManager);
-            debugLog("[Menu] Garage created in menu constructor");
+            debugLog("[Menu] Garage loaded lazily");
         } catch (error) {
-            logger.error("[Menu] Failed to create garage in menu:", error);
-            // Garage will be created later by game.ts
+            logger.error("[Menu] Failed to load Garage:", error);
         }
+    }
+    
+    // Deprecated: Garage is now loaded lazily via loadGarageInMenu()
+    private initializeGarageInMenu(): void {
+        // This method is kept for compatibility but does nothing
+        // Garage is now loaded lazily when showGarage() is called
+        debugLog("[Menu] initializeGarageInMenu() called (deprecated - garage is lazy loaded)");
     }
     
     // @ts-expect-error - deprecated метод для совместимости
@@ -4314,6 +5273,178 @@ export class MainMenu {
             this.settingsPanel.style.setProperty("display", "none", "important");
             this.settingsPanel.style.setProperty("visibility", "hidden", "important");
             this.enforceCanvasPointerEvents(); // Обновляем состояние canvas
+        }
+    }
+
+    // === AUTH METHODS ===
+
+    private showLogin(): void {
+        console.log("[Menu] showLogin() called - START");
+        
+        // Проверяем, что мы в главном меню, а не на паузе
+        const pauseButtons = document.getElementById("pause-buttons");
+        const mainButtons = document.getElementById("main-buttons");
+        const isPaused = pauseButtons && pauseButtons.style.display !== "none";
+        const isMainMenu = mainButtons && mainButtons.style.display !== "none";
+        
+        if (isPaused || !isMainMenu) {
+            console.warn("[Menu] Login form can only be opened from main menu, not during pause");
+            return;
+        }
+        
+        // СРАЗУ открываем окно, без задержек!
+        console.log("[Menu] Opening login form IMMEDIATELY");
+        authUI.showLoginForm({
+            onAuthSuccess: () => {
+                console.log("[Menu] Auth success callback called");
+                this.updateAuthUI();
+            },
+            onClose: () => {
+                console.log("[Menu] Auth close callback called");
+                this.enforceCanvasPointerEvents();
+            }
+        });
+        
+        // Инициализируем Firebase в фоне (не блокируем открытие окна)
+        if (!firebaseService.isInitialized()) {
+            console.log("[Menu] Firebase not initialized, initializing in background...");
+            firebaseService.initialize().catch(err => {
+                console.error("[Menu] Failed to initialize Firebase:", err);
+            });
+        }
+        
+        this.enforceCanvasPointerEvents();
+        console.log("[Menu] showLogin() called - END");
+    }
+
+    private showRegister(): void {
+        console.log("[Menu] showRegister() called - START");
+        
+        // Проверяем, что мы в главном меню, а не на паузе
+        const pauseButtons = document.getElementById("pause-buttons");
+        const mainButtons = document.getElementById("main-buttons");
+        const isPaused = pauseButtons && pauseButtons.style.display !== "none";
+        const isMainMenu = mainButtons && mainButtons.style.display !== "none";
+        
+        if (isPaused || !isMainMenu) {
+            console.warn("[Menu] Register form can only be opened from main menu, not during pause");
+            return;
+        }
+        
+        // СРАЗУ открываем окно, без задержек!
+        console.log("[Menu] Opening register form IMMEDIATELY");
+        authUI.showRegisterForm({
+            onAuthSuccess: () => {
+                console.log("[Menu] Auth success callback called");
+                this.updateAuthUI();
+            },
+            onClose: () => {
+                console.log("[Menu] Auth close callback called");
+                this.enforceCanvasPointerEvents();
+            }
+        });
+        
+        // Инициализируем Firebase в фоне (не блокируем открытие окна)
+        if (!firebaseService.isInitialized()) {
+            console.log("[Menu] Firebase not initialized, initializing in background...");
+            firebaseService.initialize().catch(err => {
+                console.error("[Menu] Failed to initialize Firebase:", err);
+            });
+        }
+        
+        this.enforceCanvasPointerEvents();
+        console.log("[Menu] showRegister() called - END");
+    }
+
+    private showProfile(): void {
+        authUI.showUserProfile({
+            onAuthSuccess: () => {
+                this.updateAuthUI();
+            },
+            onClose: () => {
+                this.enforceCanvasPointerEvents();
+            }
+        });
+        this.enforceCanvasPointerEvents();
+    }
+
+    private async updateAuthUI(): Promise<void> {
+        const authInfo = document.getElementById("auth-info");
+        const authButtons = document.getElementById("auth-buttons");
+        const authUsername = document.getElementById("auth-username");
+        const authStatus = document.getElementById("auth-status");
+
+        if (!authInfo || !authButtons) return;
+
+        const isAuthenticated = firebaseService.isAuthenticated();
+        
+        if (isAuthenticated) {
+            // Показываем информацию о пользователе
+            authInfo.style.display = "block";
+            authButtons.style.display = "none";
+
+            // Получаем username
+            const username = await firebaseService.getUsername();
+            if (authUsername) {
+                authUsername.textContent = username || "Пользователь";
+            }
+
+            // Показываем статус верификации
+            if (authStatus) {
+                const emailVerified = firebaseService.checkEmailVerified();
+                if (emailVerified) {
+                    authStatus.textContent = "✓";
+                    authStatus.style.color = "#0f0";
+                    authStatus.title = "Email верифицирован";
+                } else {
+                    authStatus.textContent = "⚠";
+                    authStatus.style.color = "#ff0";
+                    authStatus.title = "Email не верифицирован";
+                }
+            }
+        } else {
+            // Показываем кнопки входа/регистрации
+            authInfo.style.display = "none";
+            authButtons.style.display = "flex";
+        }
+        
+        // Обновляем позывной
+        await this.updatePlayerCallsign();
+    }
+    
+    private async updatePlayerCallsign(): Promise<void> {
+        const callsignElement = document.getElementById("player-callsign");
+        if (!callsignElement) return;
+
+        const isAuthenticated = firebaseService.isAuthenticated();
+        
+        if (isAuthenticated) {
+            // Проверяем, является ли пользователь админом
+            const isAdmin = await firebaseService.isAdmin();
+            
+            if (isAdmin) {
+                callsignElement.textContent = "[admin]";
+                callsignElement.style.color = "#ff0";
+                callsignElement.style.textShadow = "0 0 5px #ff0";
+                callsignElement.style.borderColor = "rgba(255, 255, 0, 0.5)";
+                callsignElement.style.background = "rgba(255, 255, 0, 0.15)";
+            } else {
+                // Получаем username
+                const username = await firebaseService.getUsername();
+                callsignElement.textContent = `[${username || "user"}]`;
+                callsignElement.style.color = "#0ff";
+                callsignElement.style.textShadow = "0 0 5px #0ff";
+                callsignElement.style.borderColor = "rgba(0, 255, 255, 0.3)";
+                callsignElement.style.background = "rgba(0, 255, 255, 0.1)";
+            }
+        } else {
+            // Анонимный пользователь - показываем anon_id
+            const anonId = firebaseService.getShortAnonId() || "0001";
+            callsignElement.textContent = `[anon_id: ${anonId}]`;
+            callsignElement.style.color = "#0ff";
+            callsignElement.style.textShadow = "0 0 5px #0ff";
+            callsignElement.style.borderColor = "rgba(0, 255, 255, 0.3)";
+            callsignElement.style.background = "rgba(0, 255, 255, 0.1)";
         }
     }
     
@@ -4443,13 +5574,24 @@ export class MainMenu {
         this.setupCanvasPointerEventsProtection();
         
         // Переустанавливаем прямые обработчики на кнопки
-        setTimeout(() => {
+        // Для кнопок авторизации важно привязать обработчики сразу, без задержки
+        if (!this.buttonHandlersAttached) {
+            // Привязываем обработчики сразу, без задержки для кнопок авторизации
             this.attachDirectButtonHandlers();
             // Если на паузе - дополнительно прикрепляем обработчики к кнопкам паузы
             if (isPaused) {
-                this.attachPauseButtonHandlers();
+                setTimeout(() => {
+                    this.attachPauseButtonHandlers();
+                }, 50);
             }
-        }, 50);
+        } else if (isPaused) {
+            // Если обработчики уже привязаны, но игра на паузе - привязываем только паузу
+            setTimeout(() => {
+                this.attachPauseButtonHandlers();
+            }, 50);
+        } else {
+            // Если обработчики уже привязаны и мы в главном меню, убеждаемся что кнопки авторизации работают
+        }
         
         // Принудительно блокируем pointer-events на canvas МНОЖЕСТВЕННО
         this.enforceCanvasPointerEvents();
@@ -4468,12 +5610,18 @@ export class MainMenu {
     private updatePauseButtons(isPaused: boolean): void {
         const pauseButtons = document.getElementById("pause-buttons");
         const mainButtons = document.getElementById("main-buttons");
+        const authSection = document.getElementById("auth-section");
         
         if (pauseButtons) {
             pauseButtons.style.display = isPaused ? "block" : "none";
         }
         if (mainButtons) {
             mainButtons.style.display = isPaused ? "none" : "block";
+        }
+        
+        // Скрываем секцию авторизации во время паузы
+        if (authSection) {
+            authSection.style.display = isPaused ? "none" : "block";
         }
         
         // Если показываем кнопки паузы, нужно перепривязать обработчики

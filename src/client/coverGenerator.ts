@@ -431,27 +431,27 @@ export class CoverGenerator {
         const worldX = chunkX * chunkSize;
         const worldZ = chunkZ * chunkSize;
         
-        // Number of covers based on biome
+        // Number of covers based on biome - много укрытий (увеличено в 1.5-2 раза)
         let coverCount = 0;
         switch (biome) {
             case "city":
             case "industrial":
-                coverCount = random.int(3, 6);
+                coverCount = random.int(5, 9); // Увеличено с 3-6
                 break;
             case "military":
-                coverCount = random.int(4, 8);
+                coverCount = random.int(6, 12); // Увеличено с 4-8
                 break;
             case "wasteland":
-                coverCount = random.int(2, 5);
+                coverCount = random.int(3, 8); // Увеличено с 2-5
                 break;
             case "park":
-                coverCount = random.int(2, 4);
+                coverCount = random.int(3, 6); // Увеличено с 2-4
                 break;
             case "residential":
-                coverCount = random.int(1, 3);
+                coverCount = random.int(2, 5); // Увеличено с 1-3
                 break;
             default:
-                coverCount = random.int(1, 3);
+                coverCount = random.int(2, 5); // Увеличено с 1-3
         }
         
         for (let i = 0; i < coverCount; i++) {

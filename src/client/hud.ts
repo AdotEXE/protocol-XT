@@ -320,7 +320,7 @@ export class HUD {
         this.setupMapKeyListener(); // Обработка клавиши M
         this.setupResizeHandler(); // Обработка изменения размера окна
         
-        console.log("HUD initialized (MINIMAL MODE)");
+        // HUD initialized
     }
     
     // === UI SCALING HELPERS ===
@@ -377,18 +377,18 @@ export class HUD {
         
         // Подписываемся на изменения опыта
         if (playerProgression && playerProgression.onExperienceChanged) {
-            console.log("[HUD] Subscribing to experience changes");
+            // Subscribing to experience changes
             this.experienceSubscription = playerProgression.onExperienceChanged.add((data: {
                 current: number;
                 required: number;
                 percent: number;
                 level: number;
             }) => {
-                console.log("[HUD] Experience changed event received:", data);
+                // Experience changed event received
                 this.updateCentralXp(data.current, data.required, data.level);
             });
         } else {
-            console.warn("[HUD] Cannot subscribe to experience changes - playerProgression or onExperienceChanged is null");
+            // Cannot subscribe to experience changes - playerProgression or onExperienceChanged is null
         }
     }
     
@@ -471,6 +471,127 @@ export class HUD {
     
     private activeXpGainTexts = 0; // Счётчик активных текстов опыта
     
+    // Показать эффект повышения уровня игрока
+    showPlayerLevelUp(
+        level: number, 
+        title: { title: string; icon: string; color: string } | null,
+        bonuses: { healthBonus: number; damageBonus: number; speedBonus: number; creditBonus: number },
+        credits: number,
+        skillPoints: number,
+        isMilestone: boolean = false
+    ): void {
+        const container = new Rectangle(`playerLevelUp_${Date.now()}`);
+        container.width = this.scalePx(500);
+        container.height = this.scalePx(200);
+        container.cornerRadius = 8;
+        container.thickness = 4;
+        container.color = isMilestone ? "#ffd700" : "#0f0";
+        container.background = "rgba(0, 20, 0, 0.95)";
+        container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        container.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        container.top = this.scalePx(-300);
+        this.guiTexture.addControl(container);
+        
+        // Главный заголовок
+        const mainTitle = new TextBlock("playerLevelUpMainTitle");
+        mainTitle.text = isMilestone ? "🌟 ВЕХА УРОВНЯ! 🌟" : "🎉 УРОВЕНЬ ПОВЫШЕН! 🎉";
+        mainTitle.color = isMilestone ? "#ffd700" : "#0f0";
+        mainTitle.fontSize = this.scaleFontSize(32, 24, 40);
+        mainTitle.fontWeight = "bold";
+        mainTitle.fontFamily = "'Press Start 2P', monospace";
+        mainTitle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        mainTitle.top = this.scalePx(-60);
+        container.addControl(mainTitle);
+        
+        // Уровень и титул
+        const levelText = new TextBlock("playerLevelUpLevel");
+        let levelDisplay = `УРОВЕНЬ ${level}`;
+        if (title) {
+            levelDisplay += ` | ${title.icon} ${title.title}`;
+        }
+        levelText.text = levelDisplay;
+        levelText.color = title?.color || "#0ff";
+        levelText.fontSize = this.scaleFontSize(24, 18, 30);
+        levelText.fontWeight = "bold";
+        levelText.fontFamily = "'Press Start 2P', monospace";
+        levelText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        levelText.top = this.scalePx(-20);
+        container.addControl(levelText);
+        
+        // Награды
+        const rewardsText = new TextBlock("playerLevelUpRewards");
+        rewardsText.text = `+${credits} 💰 | +${skillPoints} очко навыков`;
+        rewardsText.color = "#ff0";
+        rewardsText.fontSize = this.scaleFontSize(18, 14, 22);
+        rewardsText.fontWeight = "bold";
+        rewardsText.fontFamily = "'Press Start 2P', monospace";
+        rewardsText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        rewardsText.top = this.scalePx(20);
+        container.addControl(rewardsText);
+        
+        // Пассивные бонусы
+        const bonusesText = new TextBlock("playerLevelUpBonuses");
+        bonusesText.text = `📈 Бонусы: +${bonuses.healthBonus} HP, +${bonuses.damageBonus.toFixed(1)} урон, +${bonuses.speedBonus.toFixed(1)} скорость`;
+        bonusesText.color = "#0af";
+        bonusesText.fontSize = this.scaleFontSize(14, 12, 18);
+        bonusesText.fontFamily = "'Press Start 2P', monospace";
+        bonusesText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        bonusesText.top = this.scalePx(60);
+        container.addControl(bonusesText);
+        
+        // Анимация появления и исчезновения
+        let y = -300;
+        let alpha = 0;
+        let scale = 0.3;
+        let phase = 0; // 0 = появление, 1 = показ, 2 = исчезновение
+        let startTime = Date.now();
+        
+        const animate = () => {
+            const elapsed = Date.now() - startTime;
+            
+            if (phase === 0) {
+                // Появление (0.5 секунды)
+                const progress = Math.min(elapsed / 500, 1);
+                alpha = progress;
+                scale = 0.3 + (progress * 0.7); // От 0.3 до 1.0
+                y = -300 + (progress * 100); // От -300 до -200
+                
+                if (progress >= 1) {
+                    alpha = 1;
+                    scale = 1;
+                    y = -200;
+                    phase = 1;
+                    startTime = Date.now();
+                }
+            } else if (phase === 1) {
+                // Показ (3 секунды для вех, 2 секунды для обычных)
+                const showDuration = isMilestone ? 3000 : 2000;
+                if (elapsed >= showDuration) {
+                    phase = 2;
+                    startTime = Date.now();
+                }
+            } else {
+                // Исчезновение (0.5 секунды)
+                const progress = Math.min(elapsed / 500, 1);
+                alpha = 1 - progress;
+                y = -200 - (progress * 50);
+                
+                if (progress >= 1) {
+                    container.dispose();
+                    return;
+                }
+            }
+            
+            container.top = `${y}px`;
+            container.alpha = alpha;
+            container.scaleX = scale;
+            container.scaleY = scale;
+            
+            requestAnimationFrame(animate);
+        };
+        animate();
+    }
+    
     // Показать эффект повышения уровня
     showLevelUp(level: number, title: string, type: "chassis" | "cannon"): void {
         const container = new Rectangle(`levelUp_${Date.now()}`);
@@ -510,27 +631,38 @@ export class HUD {
         let alpha = 0;
         let scale = 0.5;
         let phase = 0; // 0 = появление, 1 = показ, 2 = исчезновение
+        let startTime = Date.now();
         
         const animate = () => {
+            const elapsed = Date.now() - startTime;
+            
             if (phase === 0) {
-                // Появление
-                alpha += 0.1;
-                scale += 0.05;
-                if (alpha >= 1) {
+                // Появление (0.5 секунды)
+                const progress = Math.min(elapsed / 500, 1);
+                alpha = progress;
+                scale = 0.5 + (progress * 0.5); // От 0.5 до 1.0
+                y = -200 + (progress * 50); // От -200 до -150
+                
+                if (progress >= 1) {
                     alpha = 1;
                     scale = 1;
+                    y = -150;
                     phase = 1;
+                    startTime = Date.now();
                 }
             } else if (phase === 1) {
                 // Показ (2 секунды)
-                if (Date.now() % 2000 < 100) {
+                if (elapsed >= 2000) {
                     phase = 2;
+                    startTime = Date.now();
                 }
             } else {
-                // Исчезновение
-                alpha -= 0.05;
-                y -= 1;
-                if (alpha <= 0) {
+                // Исчезновение (0.5 секунды)
+                const progress = Math.min(elapsed / 500, 1);
+                alpha = 1 - progress;
+                y = -150 - (progress * 50);
+                
+                if (progress >= 1) {
                     container.dispose();
                     return;
                 }
@@ -541,7 +673,7 @@ export class HUD {
             container.scaleX = scale;
             container.scaleY = scale;
             
-            setTimeout(animate, 16);
+            requestAnimationFrame(animate);
         };
         animate();
     }
@@ -2415,7 +2547,12 @@ export class HUD {
         this.activeEffectsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         this.activeEffectsContainer.left = `${effectsCenterOffset}px`;
         this.activeEffectsContainer.top = this.scalePx(-25); // На той же высоте что и припасы/модули
+        // ИСПРАВЛЕНИЕ: Убеждаемся что контейнер видим
+        this.activeEffectsContainer.isVisible = true;
         this.guiTexture.addControl(this.activeEffectsContainer);
+        
+        // Логирование для отладки
+        // Active effects container created
         
         // Создаем 8 слотов для эффектов
         for (let i = 0; i < this.maxActiveEffectsSlots; i++) {
@@ -2493,25 +2630,40 @@ export class HUD {
     // Обновить прозрачность всех слотов эффектов на основе количества активных эффектов
     private updateActiveEffectsOpacity(): void {
         const activeCount = this.activeEffects.size;
-        const maxSlots = this.maxActiveEffectsSlots;
-        
-        // Вычисляем минимальную прозрачность (динамическое снижение нижнего порога)
-        const minAlpha = Math.max(0, 1.0 - (activeCount / maxSlots));
+        const visibleSlots = Math.min(5, activeCount); // Первые 5 всегда видны
         
         // Обновляем прозрачность каждого слота
         for (let i = 0; i < this.activeEffectsSlots.length; i++) {
             const slot = this.activeEffectsSlots[i];
             const isActive = i < activeCount;
             
-            if (isActive && activeCount > 0) {
-                // Формула: alpha = 1.0 - (index / activeCount) * (1.0 - minAlpha)
-                // Первый слот всегда 100%, последний видимый - minAlpha
-                const alpha = 1.0 - (i / activeCount) * (1.0 - minAlpha);
-                slot.container.alpha = alpha;
-                slot.icon.alpha = alpha;
-                slot.nameText.alpha = alpha;
-                slot.timerText.alpha = alpha;
-                slot.progressBar.alpha = alpha * 0.7; // Прогресс-бар немного прозрачнее
+            if (isActive) {
+                if (i < 5) {
+                    // Первые 5 слотов: плавный градиент 100% → 20%
+                    const alpha = 1.0 - (i / 5.0) * 0.8; // 1.0, 0.84, 0.68, 0.52, 0.36
+                    slot.container.alpha = alpha;
+                    slot.icon.alpha = alpha;
+                    slot.nameText.alpha = alpha;
+                    slot.timerText.alpha = alpha;
+                    slot.progressBar.alpha = alpha * 0.7; // Прогресс-бар немного прозрачнее
+                } else {
+                    // Слоты 6-8: появляются только при наличии эффектов, с прозрачностью от 15% до 0%
+                    const extraSlots = activeCount - 5;
+                    if (extraSlots > 0) {
+                        const alpha = Math.max(0, 0.15 - ((i - 5) / extraSlots) * 0.15);
+                        slot.container.alpha = alpha;
+                        slot.icon.alpha = alpha;
+                        slot.nameText.alpha = alpha;
+                        slot.timerText.alpha = alpha;
+                        slot.progressBar.alpha = alpha * 0.7;
+                    } else {
+                        slot.container.alpha = 0;
+                        slot.icon.alpha = 0;
+                        slot.nameText.alpha = 0;
+                        slot.timerText.alpha = 0;
+                        slot.progressBar.alpha = 0;
+                    }
+                }
             } else {
                 // Неактивные слоты полностью прозрачны
                 slot.container.alpha = 0;
@@ -3102,7 +3254,7 @@ export class HUD {
     addKill() {
         this.killsCount++;
         this.sessionKills++; // Обновляем статистику сессии
-        console.log(`[HUD] Kill added! Total: ${this.killsCount}`);
+        // Kill added
         
         if (this.killsText) {
             this.killsText.text = `${this.killsCount}`;
@@ -4333,7 +4485,7 @@ export class HUD {
         this.centralXpContainer.isVisible = true;
         this.centralXpBar.isVisible = true;
         
-        console.log("[HUD] Central XP bar created:", {
+        // Central XP bar created
             container: !!this.centralXpContainer,
             bar: !!this.centralXpBar,
             text: !!this.centralXpText
@@ -4415,7 +4567,7 @@ export class HUD {
     // Установить прогресс захвата гаража
     setGarageCaptureProgress(garageKey: string | null, progress: number, remainingTime: number): void {
         if (!this.garageCaptureContainer || !this.garageCaptureFill || !this.garageCaptureText || !this.garageCaptureTimeText) {
-            console.warn("[HUD] Garage capture UI elements not initialized!");
+            // Garage capture UI elements not initialized
             return;
         }
         
@@ -4456,11 +4608,11 @@ export class HUD {
         if (!this.centralXpBar || !this.centralXpText || !this.centralXpContainer) {
             // Если элементы не созданы, пытаемся создать их заново
             if (!this.centralXpContainer) {
-                console.warn("[HUD] Central XP container not found, recreating...");
+                // Central XP container not found, recreating
                 this.createCentralXpBar();
             }
             if (!this.centralXpBar || !this.centralXpText) {
-                console.warn("[HUD] Central XP bar elements not found!", {
+                // Central XP bar elements not found
                     bar: !!this.centralXpBar,
                     text: !!this.centralXpText,
                     container: !!this.centralXpContainer
@@ -4522,7 +4674,7 @@ export class HUD {
             const updateKey = `${validLevel}_${validCurrentXp}_${validXpToNext}`;
             if (this._lastXpUpdateKey !== updateKey) {
                 this._lastXpUpdateKey = updateKey;
-                console.log(`[HUD] XP updated: Level ${validLevel}, XP ${validCurrentXp}/${validXpToNext} (${percent.toFixed(1)}%)`);
+                // XP updated
             }
         } catch (e) {
             console.error("[HUD] Error updating XP bar:", e, {
@@ -4579,12 +4731,12 @@ export class HUD {
     // === ПОЛНОЦЕННАЯ КАРТА (открывается по M) ===
     private createFullMap(): void {
         this.fullMapContainer = new Rectangle("fullMapContainer");
-        this.fullMapContainer.width = "600px";
-        this.fullMapContainer.height = "500px";
-        this.fullMapContainer.cornerRadius = 0;
-        this.fullMapContainer.thickness = 2;
+        this.fullMapContainer.width = "700px";
+        this.fullMapContainer.height = "600px";
+        this.fullMapContainer.cornerRadius = 5;
+        this.fullMapContainer.thickness = 3;
         this.fullMapContainer.color = "#0f0";
-        this.fullMapContainer.background = "#000000ee";
+        this.fullMapContainer.background = "rgba(0, 10, 0, 0.95)";
         this.fullMapContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.fullMapContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.fullMapContainer.isVisible = false;
@@ -4593,95 +4745,97 @@ export class HUD {
         // Заголовок
         const title = new TextBlock("mapTitle");
         title.text = "🗺️ TACTICAL MAP [M]";
-        title.color = "#0f0";
-        title.fontSize = 16;
+        title.color = "#0ff";
+        title.fontSize = 18;
         title.fontWeight = "bold";
-        title.fontFamily = "'Press Start 2P', monospace";
+        title.fontFamily = "Consolas, Monaco, 'Courier New', monospace";
         title.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        title.top = "10px";
+        title.top = "12px";
+        title.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.fullMapContainer.addControl(title);
         
         // Область карты
         const mapArea = new Rectangle("mapArea");
-        mapArea.width = "560px";
-        mapArea.height = "420px";
-        mapArea.cornerRadius = 0;
-        mapArea.thickness = 1;
+        mapArea.width = "660px";
+        mapArea.height = "520px";
+        mapArea.cornerRadius = 3;
+        mapArea.thickness = 2;
         mapArea.color = "#0f04";
         mapArea.background = "#001100";
-        mapArea.top = "40px";
+        mapArea.top = "50px";
         this.fullMapContainer.addControl(mapArea);
         
-        // Сетка карты (мелкая)
-        for (let i = 0; i < 14; i++) {
+        // Сетка карты (улучшенная)
+        for (let i = 0; i < 18; i++) {
             const hLine = new Rectangle(`mapHLine${i}`);
-            hLine.width = "558px";
+            hLine.width = "658px";
             hLine.height = "1px";
-            hLine.background = "#0f02";
-            hLine.top = `${-195 + i * 30}px`;
+            hLine.background = "#0f03";
+            hLine.top = `${-250 + i * 30}px`;
             mapArea.addControl(hLine);
             
             const vLine = new Rectangle(`mapVLine${i}`);
             vLine.width = "1px";
-            vLine.height = "418px";
-            vLine.background = "#0f02";
-            vLine.left = `${-265 + i * 40}px`;
+            vLine.height = "518px";
+            vLine.background = "#0f03";
+            vLine.left = `${-315 + i * 37}px`;
             mapArea.addControl(vLine);
         }
         
-        // Центральный крест
+        // Центральный крест (более заметный)
         const centerH = new Rectangle("mapCenterH");
-        centerH.width = "558px";
-        centerH.height = "1px";
-        centerH.background = "#0f04";
+        centerH.width = "658px";
+        centerH.height = "2px";
+        centerH.background = "#0f06";
         mapArea.addControl(centerH);
         
         const centerV = new Rectangle("mapCenterV");
-        centerV.width = "1px";
-        centerV.height = "418px";
-        centerV.background = "#0f04";
+        centerV.width = "2px";
+        centerV.height = "518px";
+        centerV.background = "#0f06";
         mapArea.addControl(centerV);
         
-        // Маркер игрока на карте
+        // Маркер игрока на карте (улучшенный)
         const playerMarker = new Rectangle("fullMapPlayer");
-        playerMarker.width = "12px";
-        playerMarker.height = "12px";
+        playerMarker.width = "14px";
+        playerMarker.height = "14px";
         playerMarker.thickness = 2;
-        playerMarker.color = "#0f0";
+        playerMarker.color = "#0ff";
         playerMarker.background = "#0f0";
-        playerMarker.cornerRadius = 6;
+        playerMarker.cornerRadius = 7;
         mapArea.addControl(playerMarker);
         (this.fullMapContainer as any)._playerMarker = playerMarker;
         
-        // Направление игрока
+        // Направление игрока (улучшенное)
         const playerDir = new Rectangle("fullMapPlayerDir");
-        playerDir.width = "3px";
-        playerDir.height = "20px";
-        playerDir.background = "#0f0";
-        playerDir.top = "-16px";
+        playerDir.width = "4px";
+        playerDir.height = "24px";
+        playerDir.background = "#0ff";
+        playerDir.top = "-20px";
         mapArea.addControl(playerDir);
         (this.fullMapContainer as any)._playerDir = playerDir;
         
-        // Подсказка
+        // Подсказка (улучшенная)
         const hint = new TextBlock("mapHint");
-        hint.text = "Press M to close • Explored areas shown";
-        hint.color = "#0a0";
-        hint.fontSize = 10;
-        hint.fontFamily = "'Press Start 2P', monospace";
+        hint.text = "Press [M] to close • Zoom: Mouse Wheel";
+        hint.color = "#0f0";
+        hint.fontSize = 11;
+        hint.fontFamily = "Consolas, Monaco, 'Courier New', monospace";
         hint.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        hint.top = "-10px";
+        hint.top = "-12px";
+        hint.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.fullMapContainer.addControl(hint);
         
-        // Легенда
+        // Легенда (улучшенная)
         const legend = new TextBlock("mapLegend");
-        legend.text = "● You  ● Enemies  ▢ Explored";
-        legend.color = "#888";
-        legend.fontSize = 9;
-        legend.fontFamily = "'Press Start 2P', monospace";
+        legend.text = "● You  ● Enemies  ▢ Explored Areas";
+        legend.color = "#0aa";
+        legend.fontSize = 10;
+        legend.fontFamily = "Consolas, Monaco, 'Courier New', monospace";
         legend.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         legend.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         legend.left = "20px";
-        legend.top = "-10px";
+        legend.top = "-12px";
         this.fullMapContainer.addControl(legend);
     }
     
@@ -4733,22 +4887,24 @@ export class HUD {
         this.fullMapEnemies.forEach(e => e.dispose());
         this.fullMapEnemies = [];
         
-        // Добавляем врагов на карту
+        // Добавляем врагов на карту (улучшенные маркеры)
         enemies.forEach((enemy, i) => {
             if (!enemy.alive) return;
             
-            const scale = 0.5;
+            const scale = 0.6;
             const ex = enemy.x * scale;
             const ez = -enemy.z * scale;
             
-            const maxDist = 270;
-            if (Math.abs(ex) > maxDist || Math.abs(ez) > 200) return;
+            const maxDist = 320;
+            if (Math.abs(ex) > maxDist || Math.abs(ez) > 240) return;
             
             const marker = new Rectangle(`fullMapEnemy${i}`);
-            marker.width = "8px";
-            marker.height = "8px";
+            marker.width = "10px";
+            marker.height = "10px";
+            marker.thickness = 1;
+            marker.color = "#f00";
             marker.background = "#f00";
-            marker.cornerRadius = 4;
+            marker.cornerRadius = 5;
             marker.left = `${ex}px`;
             marker.top = `${ez}px`;
             
@@ -5066,65 +5222,17 @@ export class HUD {
     // === FUEL INDICATOR ===
     
     private createFuelIndicator(): void {
-        // Fuel bar container (below health bar)
-        this.fuelBar = new Rectangle("fuelBar");
-        this.fuelBar.width = "120px";
-        this.fuelBar.height = "8px";
-        this.fuelBar.cornerRadius = 2;
-        this.fuelBar.color = "#444";
-        this.fuelBar.thickness = 1;
-        this.fuelBar.background = "#222";
-        this.fuelBar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.fuelBar.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.fuelBar.left = "10px";
-        this.fuelBar.top = "65px";
-        this.guiTexture.addControl(this.fuelBar);
-        
-        // Fuel fill
-        this.fuelFill = new Rectangle("fuelFill");
-        this.fuelFill.width = "100%";
-        this.fuelFill.height = "100%";
-        this.fuelFill.background = "#f90";
-        this.fuelFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.fuelBar.addControl(this.fuelFill);
-        
-        // Fuel text
-        this.fuelText = new TextBlock("fuelText");
-        this.fuelText.text = "⛽ 100%";
-        this.fuelText.color = "#f90";
-        this.fuelText.fontSize = "10px";
-        this.fuelText.fontFamily = "monospace";
-        this.fuelText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.fuelText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.fuelText.left = "135px";
-        this.fuelText.top = "63px";
-        this.guiTexture.addControl(this.fuelText);
+        // ИНДИКАТОР ТОПЛИВА УДАЛЁН
+        // Топливо теперь отображается только в блоке состояния танка (tankStatusContainer)
+        // Это устраняет дублирование и улучшает компактность HUD
     }
     
     updateFuel(current: number, max: number): void {
-        if (!this.fuelFill || !this.fuelText) return;
-        
         // Сохраняем значения для блока состояния
         this.currentFuel = current;
         this.maxFuel = max;
         
-        const percent = Math.max(0, Math.min(100, (current / max) * 100));
-        this.fuelFill.width = `${percent}%`;
-        this.fuelText.text = `⛽ ${Math.round(percent)}%`;
-        
-        // Color based on fuel level
-        if (percent > 50) {
-            this.fuelFill.background = "#f90";
-            this.fuelText.color = "#f90";
-        } else if (percent > 20) {
-            this.fuelFill.background = "#fa0";
-            this.fuelText.color = "#fa0";
-        } else {
-            this.fuelFill.background = "#f30";
-            this.fuelText.color = "#f30";
-        }
-        
-        // Обновляем блок состояния танка
+        // Обновляем блок состояния танка (топливо отображается там)
         if (this.tankStatusContainer) {
             this.updateTankStatus(this.currentHealth, this.maxHealth, current, max, this.currentArmor);
         }
@@ -5184,82 +5292,82 @@ export class HUD {
     // === TANK STATUS BLOCK ===
     
     private createTankStatusBlock(): void {
-        // === БЛОК СОСТОЯНИЯ ТАНКА - СЛЕВА ОТ РАДАРА ===
+        // === БЛОК СОСТОЯНИЯ ТАНКА - СЛЕВА ОТ РАДАРА, ЭЛЕМЕНТЫ ПО ВЕРТИКАЛИ ===
         // Радар находится: horizontalAlignment: RIGHT, left: -15px, top: -45px
-        // Блок состояния должен быть слева от радара
-        const blockWidth = this.scalePx(140);
-        const blockHeight = this.scalePx(80);
+        // Блок состояния должен быть слева от радара, элементы расположены вертикально вдоль радара
+        const blockWidth = this.scalePx(150);
+        const blockHeight = this.scalePx(120); // Увеличена высота для вертикального расположения
         
         this.tankStatusContainer = new Rectangle("tankStatusContainer");
         this.tankStatusContainer.width = blockWidth;
         this.tankStatusContainer.height = blockHeight;
-        this.tankStatusContainer.cornerRadius = 3;
+        this.tankStatusContainer.cornerRadius = 4;
         this.tankStatusContainer.thickness = 2;
         this.tankStatusContainer.color = "#0f0";
-        this.tankStatusContainer.background = "#0a1520";
+        this.tankStatusContainer.background = "rgba(10, 21, 32, 0.9)";
         this.tankStatusContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         this.tankStatusContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        // Позиционируем слева от радара: радар на -15px, блок на -15px - blockWidth - gap
-        // Радар: left = -15px (от правого края), ширина радара = 175px (RADAR_SIZE)
-        // Блок: left = -15 - 175 - 10 - 140 = -340px (от правого края)
+        // Позиционируем ВПЛОТНУЮ слева от радара: радар на -15px, блок на -15px - radarWidth - blockWidth (БЕЗ gap)
         const radarLeft = -15;
-        const radarWidth = scalePixels(175); // Используем scalePixels для правильного масштабирования
-        const gap = scalePixels(10);
-        const blockWidthNum = scalePixels(140);
-        this.tankStatusContainer.left = `${radarLeft - radarWidth - gap - blockWidthNum}px`;
-        this.tankStatusContainer.top = this.scalePx(-45); // На той же высоте что и радар
+        const radarWidth = scalePixels(175);
+        const blockWidthNum = scalePixels(150);
+        const calculatedLeft = radarLeft - radarWidth - blockWidthNum; // БЕЗ gap - ВПЛОТНУЮ к радару
+        this.tankStatusContainer.left = `${calculatedLeft}px`;
+        this.tankStatusContainer.top = this.scalePx(-45); // Выровнено с радаром (тот же top)
+        this.tankStatusContainer.isVisible = true;
+        
         this.guiTexture.addControl(this.tankStatusContainer);
         
         // Заголовок
         const title = new TextBlock("tankStatusTitle");
         title.text = "ТАНК";
-        title.color = "#0f0";
-        title.fontSize = this.scaleFontSize(10, 8, 14);
+        title.color = "#0ff";
+        title.fontSize = this.scaleFontSize(11, 9, 15);
         title.fontWeight = "bold";
         title.fontFamily = "Consolas, monospace";
         title.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         title.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        title.left = this.scalePx(5);
-        title.top = this.scalePx(5);
+        title.left = this.scalePx(8);
+        title.top = this.scalePx(6);
         this.tankStatusContainer.addControl(title);
         
-        // Здоровье
+        // Здоровье (первый элемент по вертикали)
         this.tankStatusHealthText = new TextBlock("tankStatusHealth");
         this.tankStatusHealthText.text = "❤ 100%";
         this.tankStatusHealthText.color = "#0f0";
-        this.tankStatusHealthText.fontSize = this.scaleFontSize(11, 9, 16);
+        this.tankStatusHealthText.fontSize = this.scaleFontSize(12, 10, 17);
         this.tankStatusHealthText.fontWeight = "bold";
         this.tankStatusHealthText.fontFamily = "Consolas, monospace";
         this.tankStatusHealthText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.tankStatusHealthText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.tankStatusHealthText.left = this.scalePx(5);
-        this.tankStatusHealthText.top = this.scalePx(25);
+        this.tankStatusHealthText.left = this.scalePx(8);
+        this.tankStatusHealthText.top = this.scalePx(28);
         this.tankStatusContainer.addControl(this.tankStatusHealthText);
         
-        // Топливо
+        // Топливо (второй элемент по вертикали)
         this.tankStatusFuelText = new TextBlock("tankStatusFuel");
         this.tankStatusFuelText.text = "⛽ 100%";
         this.tankStatusFuelText.color = "#f90";
-        this.tankStatusFuelText.fontSize = this.scaleFontSize(11, 9, 16);
+        this.tankStatusFuelText.fontSize = this.scaleFontSize(12, 10, 17);
         this.tankStatusFuelText.fontWeight = "bold";
         this.tankStatusFuelText.fontFamily = "Consolas, monospace";
         this.tankStatusFuelText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.tankStatusFuelText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.tankStatusFuelText.left = this.scalePx(5);
-        this.tankStatusFuelText.top = this.scalePx(45);
+        this.tankStatusFuelText.left = this.scalePx(8);
+        this.tankStatusFuelText.top = this.scalePx(52);
         this.tankStatusContainer.addControl(this.tankStatusFuelText);
         
-        // Броня
+        // Броня (третий элемент по вертикали)
         this.tankStatusArmorText = new TextBlock("tankStatusArmor");
         this.tankStatusArmorText.text = "🛡 0%";
         this.tankStatusArmorText.color = "#0ff";
-        this.tankStatusArmorText.fontSize = this.scaleFontSize(11, 9, 16);
+        this.tankStatusArmorText.fontSize = this.scaleFontSize(12, 10, 17);
         this.tankStatusArmorText.fontWeight = "bold";
         this.tankStatusArmorText.fontFamily = "Consolas, monospace";
         this.tankStatusArmorText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.tankStatusArmorText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.tankStatusArmorText.left = this.scalePx(5);
-        this.tankStatusArmorText.top = this.scalePx(65);
+        this.tankStatusArmorText.left = this.scalePx(8);
+        this.tankStatusArmorText.top = this.scalePx(76);
         this.tankStatusContainer.addControl(this.tankStatusArmorText);
     }
     
@@ -5640,6 +5748,129 @@ export class HUD {
         }, 3000);
     }
     
+    /**
+     * Показать красивое уведомление о достижении
+     * @param achievementName Название достижения
+     * @param description Описание достижения
+     * @param icon Иконка достижения
+     * @param reward Награда (опционально)
+     */
+    showAchievementNotification(
+        achievementName: string,
+        description: string,
+        icon: string,
+        reward?: { type: "experience" | "currency" | "unlock"; amount?: number; unlockId?: string }
+    ): void {
+        if (!this.notificationContainer) return;
+        
+        const notification = new Rectangle("achievement_" + Date.now());
+        notification.width = "350px";
+        notification.height = "80px";
+        notification.cornerRadius = 8;
+        notification.thickness = 3;
+        notification.color = "#ffd700"; // Золотой цвет для достижений
+        notification.background = "rgba(20, 20, 0, 0.95)";
+        notification.paddingTop = "8px";
+        notification.paddingLeft = "10px";
+        notification.paddingRight = "10px";
+        notification.paddingBottom = "8px";
+        
+        // Иконка достижения
+        const iconText = new TextBlock();
+        iconText.text = icon;
+        iconText.fontSize = "32px";
+        iconText.width = "50px";
+        iconText.height = "50px";
+        iconText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        iconText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        iconText.left = "5px";
+        iconText.top = "5px";
+        notification.addControl(iconText);
+        
+        // Название достижения
+        const nameText = new TextBlock();
+        nameText.text = `🏆 ${achievementName}`;
+        nameText.color = "#ffd700";
+        nameText.fontSize = "14px";
+        nameText.fontWeight = "bold";
+        nameText.fontFamily = "monospace";
+        nameText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        nameText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        nameText.left = "60px";
+        nameText.top = "5px";
+        nameText.width = "280px";
+        nameText.textWrapping = true;
+        notification.addControl(nameText);
+        
+        // Описание
+        const descText = new TextBlock();
+        descText.text = description;
+        descText.color = "#fff";
+        descText.fontSize = "11px";
+        descText.fontFamily = "monospace";
+        descText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        descText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        descText.left = "60px";
+        descText.top = "25px";
+        descText.width = "280px";
+        descText.textWrapping = true;
+        notification.addControl(descText);
+        
+        // Награда
+        if (reward) {
+            const rewardText = new TextBlock();
+            let rewardStr = "";
+            if (reward.type === "experience" && reward.amount) {
+                rewardStr = `+${reward.amount} XP`;
+            } else if (reward.type === "currency" && reward.amount) {
+                rewardStr = `+${reward.amount} 💰`;
+            } else if (reward.type === "unlock" && reward.unlockId) {
+                rewardStr = `🔓 Разблокировано: ${reward.unlockId}`;
+            }
+            rewardText.text = rewardStr;
+            rewardText.color = "#0f0";
+            rewardText.fontSize = "12px";
+            rewardText.fontWeight = "bold";
+            rewardText.fontFamily = "monospace";
+            rewardText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            rewardText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            rewardText.left = "60px";
+            rewardText.top = "50px";
+            rewardText.width = "280px";
+            notification.addControl(rewardText);
+        }
+        
+        // Позиция (вверху справа)
+        notification.top = "20px";
+        notification.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        notification.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        notification.right = "20px";
+        
+        this.notificationContainer.addControl(notification);
+        
+        // Анимация появления
+        notification.alpha = 0;
+        const fadeIn = setInterval(() => {
+            if (notification.alpha < 1) {
+                notification.alpha += 0.1;
+            } else {
+                clearInterval(fadeIn);
+            }
+        }, 20);
+        
+        // Удаление через 5 секунд с анимацией
+        setTimeout(() => {
+            const fadeOut = setInterval(() => {
+                if (notification.alpha > 0) {
+                    notification.alpha -= 0.1;
+                } else {
+                    clearInterval(fadeOut);
+                    notification.dispose();
+                }
+            }, 20);
+        }, 5000);
+    }
+    
     private removeNotification(notification: Rectangle): void {
         const index = this.notifications.findIndex(n => n.element === notification);
         if (index !== -1) {
@@ -5699,7 +5930,7 @@ export class HUD {
         skipHint.top = "-5px";
         this.tutorialContainer.addControl(skipHint);
         
-        console.log("[HUD] Tutorial system created");
+        // Tutorial system created
     }
     
     // Start tutorial when game begins
@@ -5721,7 +5952,7 @@ export class HUD {
         };
         window.addEventListener("keydown", skipHandler);
         
-        console.log("[HUD] Tutorial started");
+        // Tutorial started
     }
     
     private showTutorialStep(step: number): void {
@@ -5791,7 +6022,7 @@ export class HUD {
             this.onTutorialCompleteCallback();
         }
         
-        console.log("[HUD] Tutorial completed");
+        // Tutorial completed
     }
     
     // Set callback for tutorial completion
@@ -5810,7 +6041,7 @@ export class HUD {
             localStorage.removeItem('tutorialCompleted');
         } catch (e) {}
         
-        console.log("[HUD] Tutorial reset");
+        // Tutorial reset
     }
     
     // === POI MINIMAP MARKERS ===
@@ -6549,12 +6780,12 @@ export class HUD {
     private createMissionPanel(): void {
         // Mission panel (top right, below compass)
         this.missionPanel = new Rectangle("missionPanel");
-        this.missionPanel.width = "250px";
-        this.missionPanel.height = "200px";
+        this.missionPanel.width = "280px";
+        this.missionPanel.height = "220px";
         this.missionPanel.cornerRadius = 5;
         this.missionPanel.thickness = 2;
-        this.missionPanel.color = "#666";
-        this.missionPanel.background = "rgba(0, 0, 0, 0.7)";
+        this.missionPanel.color = "#0f0";
+        this.missionPanel.background = "rgba(0, 10, 0, 0.85)";
         this.missionPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         this.missionPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.missionPanel.left = "-10px";
@@ -6564,11 +6795,12 @@ export class HUD {
         
         // Title
         const title = new TextBlock("missionTitle");
-        title.text = "📋 МИССИИ";
-        title.color = "#fff";
-        title.fontSize = "12px";
-        title.fontFamily = "monospace";
-        title.top = "5px";
+        title.text = "📋 МИССИИ [N]";
+        title.color = "#0ff";
+        title.fontSize = "13px";
+        title.fontWeight = "bold";
+        title.fontFamily = "Consolas, monospace";
+        title.top = "8px";
         title.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.missionPanel.addControl(title);
     }
@@ -6577,6 +6809,10 @@ export class HUD {
         if (this.missionPanel) {
             this.missionPanelVisible = !this.missionPanelVisible;
             this.missionPanel.isVisible = this.missionPanelVisible;
+            // Если панель открывается, обновляем миссии
+            if (this.missionPanelVisible && this.game) {
+                // Обновление будет вызвано из game.ts в update()
+            }
         }
     }
     
@@ -6604,13 +6840,13 @@ export class HUD {
         
         visibleMissions.forEach((mission, index) => {
             const item = new Rectangle(`mission_${mission.id}`);
-            item.width = "230px";
-            item.height = "45px";
+            item.width = "260px";
+            item.height = "50px";
             item.cornerRadius = 3;
-            item.thickness = 1;
+            item.thickness = 2;
             item.color = mission.completed ? "#0f0" : "#666";
-            item.background = mission.completed ? "rgba(0, 50, 0, 0.5)" : "rgba(20, 20, 20, 0.5)";
-            item.top = `${30 + index * 50}px`;
+            item.background = mission.completed ? "rgba(0, 50, 0, 0.6)" : "rgba(20, 20, 20, 0.6)";
+            item.top = `${35 + index * 55}px`;
             item.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             this.missionPanel!.addControl(item);
             this.missionItems.set(mission.id, item);

@@ -1,0 +1,37 @@
+{
+  "server": {
+    "host": "localhost",
+    "port": 8080,
+    "reconnectInterval": 5000
+  },
+  "client": {
+    "viteUrl": "http://localhost:3000",
+    "checkInterval": 1000
+  },
+  "updateInterval": 16,
+  "history": {
+    "enabled": true,
+    "duration": 1800,
+    "interval": 1000
+  },
+  "alerts": {
+    "enabled": true,
+    "sound": false,
+    "rules": {
+      "cpuThreshold": 90,
+      "ramThreshold": 95,
+      "fpsThreshold": 55,
+      "latencyThreshold": 100
+    }
+  },
+  "ui": {
+    "theme": "terminal-green",
+    "refreshRate": 60
+  },
+  "export": {
+    "defaultFormat": "json",
+    "defaultPath": "./monitor-exports"
+  }
+}
+
+

@@ -2,6 +2,11 @@ import { Scene, Engine } from "@babylonjs/core";
 import { ChunkSystem } from "./chunkSystem";
 import { Game } from "./game";
 import { TankController } from "./tankController";
+import { MetricsCollector } from "./metricsCollector";
+import { MetricsExporter } from "./metricsExporter";
+import { MetricsAutomation } from "./metricsAutomation";
+import { performanceOptimizer } from "./performanceOptimizer";
+import { MetricsCharts } from "./metricsCharts";
 
 export class DebugDashboard {
     private container!: HTMLDivElement;
@@ -11,6 +16,10 @@ export class DebugDashboard {
     private chunkSystem: ChunkSystem | null = null;
     private game: Game | null = null;
     private tank: TankController | null = null;
+    private metricsCollector: MetricsCollector | null = null;
+    private metricsExporter: MetricsExporter | null = null;
+    private metricsAutomation: MetricsAutomation | null = null;
+    private metricsCharts: MetricsCharts | null = null;
     
     private fpsHistory: number[] = [];
     private maxHistoryLength = 60;
@@ -22,6 +31,14 @@ export class DebugDashboard {
     constructor(engine: Engine, scene: Scene) {
         this.engine = engine;
         this.scene = scene;
+        this.metricsCollector = new MetricsCollector(engine, scene);
+        this.metricsExporter = new MetricsExporter();
+        this.metricsAutomation = new MetricsAutomation();
+        this.metricsCharts = new MetricsCharts();
+        this.metricsAutomation.setHandlers(
+            (msg) => { if (this.game?.hud) this.game.hud.showMessage(`⚠ ${msg}`, "#ff0", 3000); },
+            (msg) => { if (this.game?.hud) this.game.hud.showMessage(`🚨 ${msg}`, "#f00", 5000); }
+        );
         this.createUI();
         this.setupToggle();
         // Hide dashboard by default, show only FPS
@@ -92,6 +109,28 @@ export class DebugDashboard {
                 <div class="debug-row"><span>Used:</span><span id="dbg-memory-used">-</span></div>
                 <div class="debug-row"><span>Peak:</span><span id="dbg-memory-peak">-</span></div>
                 <div class="debug-row"><span>Limit:</span><span id="dbg-memory-limit">-</span></div>
+                <div class="debug-row"><span>GPU Memory:</span><span id="dbg-gpu-memory">-</span></div>
+            </div>
+            <div class="debug-section">
+                <div class="debug-label">PHYSICS</div>
+                <div class="debug-row"><span>Objects:</span><span id="dbg-physics-objects">-</span></div>
+                <div class="debug-row"><span>Bodies:</span><span id="dbg-physics-bodies">-</span></div>
+                <div class="debug-row"><span>Time:</span><span id="dbg-physics-time">-</span></div>
+            </div>
+            <div class="debug-section">
+                <div class="debug-label">AUDIO</div>
+                <div class="debug-row"><span>Sources:</span><span id="dbg-audio-sources">-</span></div>
+                <div class="debug-row"><span>Playing:</span><span id="dbg-audio-playing">-</span></div>
+            </div>
+            <div class="debug-section">
+                <div class="debug-label">EFFECTS</div>
+                <div class="debug-row"><span>Particles:</span><span id="dbg-particles">-</span></div>
+                <div class="debug-row"><span>Systems:</span><span id="dbg-effect-systems">-</span></div>
+            </div>
+            <div class="debug-section">
+                <div class="debug-label">GPU</div>
+                <div class="debug-row"><span>Renderer:</span><span id="dbg-gpu-renderer">-</span></div>
+                <div class="debug-row"><span>Vendor:</span><span id="dbg-gpu-vendor">-</span></div>
             </div>
             <div class="debug-section">
                 <div class="debug-label">POSITION</div>
@@ -99,6 +138,43 @@ export class DebugDashboard {
                 <div class="debug-row"><span>Y:</span><span id="dbg-pos-y">-</span></div>
                 <div class="debug-row"><span>Z:</span><span id="dbg-pos-z">-</span></div>
             </div>
+            <div class="debug-section">
+                <div class="debug-label">EXPORT</div>
+                <button id="dbg-export-csv" style="
+                    width: 100%;
+                    padding: 4px;
+                    margin: 2px 0;
+                    background: rgba(0, 255, 4, 0.2);
+                    border: 1px solid rgba(0, 255, 4, 0.6);
+                    color: #0f0;
+                    cursor: pointer;
+                    font-size: 9px;
+                    font-family: Consolas, monospace;
+                ">Export CSV</button>
+                <button id="dbg-export-json" style="
+                    width: 100%;
+                    padding: 4px;
+                    margin: 2px 0;
+                    background: rgba(0, 255, 4, 0.2);
+                    border: 1px solid rgba(0, 255, 4, 0.6);
+                    color: #0f0;
+                    cursor: pointer;
+                    font-size: 9px;
+                    font-family: Consolas, monospace;
+                ">Export JSON</button>
+                <button id="dbg-toggle-charts" style="
+                    width: 100%;
+                    padding: 4px;
+                    margin: 2px 0;
+                    background: rgba(0, 255, 4, 0.2);
+                    border: 1px solid rgba(0, 255, 4, 0.6);
+                    color: #0f0;
+                    cursor: pointer;
+                    font-size: 9px;
+                    font-family: Consolas, monospace;
+                ">📊 Графики</button>
+            </div>
+            <div id="metrics-charts-container"></div>
         `;
         
         const style = document.createElement("style");
@@ -157,25 +233,41 @@ export class DebugDashboard {
         document.head.appendChild(style);
         document.body.appendChild(this.container);
         
-        // FPS indicator removed - using HUD FPS only
+        // Добавляем контейнер графиков
+        if (this.metricsCharts) {
+            const chartsContainer = this.metricsCharts.createChartsContainer();
+            this.container.appendChild(chartsContainer);
+            this.metricsCharts.setVisible(false); // Скрыты по умолчанию
+        }
+        
+        this.setupEventListeners();
+    }
+    
+    private setupEventListeners(): void {
+        document.getElementById("dbg-export-csv")?.addEventListener("click", () => {
+            this.metricsExporter?.exportToCSV();
+        });
+        
+        document.getElementById("dbg-export-json")?.addEventListener("click", () => {
+            this.metricsExporter?.exportToJSON();
+        });
+        
+        let chartsVisible = false;
+        document.getElementById("dbg-toggle-charts")?.addEventListener("click", () => {
+            chartsVisible = !chartsVisible;
+            this.metricsCharts?.setVisible(chartsVisible);
+            const btn = document.getElementById("dbg-toggle-charts");
+            if (btn) {
+                btn.textContent = chartsVisible ? "📊 Скрыть графики" : "📊 Графики";
+            }
+        });
     }
     
     // FPS indicator removed - using HUD FPS only
     
     private setupToggle(): void {
-        window.addEventListener("keydown", (e) => {
-            if (e.code === "F3") {
-                e.preventDefault();
-                this.visible = !this.visible;
-                if (this.visible) {
-                    this.container.classList.remove("hidden");
-                    this.container.style.display = "";
-                } else {
-                    this.container.classList.add("hidden");
-                    this.container.style.display = "none";
-                }
-            }
-        });
+        // F3 обработчик теперь управляется в game.ts для консистентности
+        // Этот метод оставлен для возможного будущего использования
     }
     
     update(playerPos: { x: number, y: number, z: number }): void {
@@ -185,6 +277,14 @@ export class DebugDashboard {
         const now = performance.now();
         if (now - this.lastUpdate < this.updateInterval) return;
         this.lastUpdate = now;
+        
+        // Используем троттлинг для оптимизации
+        const throttledUpdate = performanceOptimizer.throttle(
+            'dashboard-update',
+            () => this.updateDisplay(playerPos),
+            this.updateInterval
+        );
+        throttledUpdate();
         
         const fps = this.engine.getFps();
         this.fpsHistory.push(fps);
@@ -286,6 +386,82 @@ export class DebugDashboard {
         set("dbg-memory-used", `${memoryUsed.toFixed(1)} MB`);
         set("dbg-memory-peak", `${memoryPeak.toFixed(1)} MB`);
         set("dbg-memory-limit", `${memoryLimit.toFixed(1)} MB`);
+        
+        // Extended metrics from MetricsCollector
+        if (this.metricsCollector) {
+            const metrics = this.metricsCollector.collect();
+            
+            // GPU
+            if (metrics.gpuMemory !== undefined) {
+                set("dbg-gpu-memory", `${(metrics.gpuMemory / 1048576).toFixed(1)} MB`);
+            } else {
+                set("dbg-gpu-memory", "N/A");
+            }
+            set("dbg-gpu-renderer", metrics.gpuRenderer || "N/A");
+            set("dbg-gpu-vendor", metrics.gpuVendor || "N/A");
+            
+            // Physics
+            set("dbg-physics-objects", (metrics.physicsObjects || 0).toString());
+            set("dbg-physics-bodies", (metrics.physicsBodies || 0).toString());
+            set("dbg-physics-time", metrics.physicsTime ? `${metrics.physicsTime.toFixed(2)} ms` : "N/A");
+            
+            // Audio
+            set("dbg-audio-sources", (metrics.audioSources || 0).toString());
+            set("dbg-audio-playing", (metrics.audioPlaying || 0).toString());
+            
+            // Effects
+            set("dbg-particles", (metrics.particles || 0).toString());
+            set("dbg-effect-systems", (metrics.effectSystems || 0).toString());
+            
+            // Сохранение метрик для экспорта
+            if (this.metricsExporter) {
+                const perf = (this.scene.getEngine() as any).getInfo?.() || { triangles: 0, drawCalls: 0 };
+                const perfMem = (performance as any).memory;
+                const memoryUsed = perfMem ? perfMem.usedJSHeapSize / 1048576 : 0;
+                
+                const metricsData = {
+                    fps,
+                    frameTime: deltaTime,
+                    drawCalls: perf.renderer?.drawCalls || 0,
+                    meshes: this.scene.meshes.length,
+                    vertices: this.scene.getTotalVertices(),
+                    triangles: Math.floor(this.scene.getTotalVertices() / 3),
+                    memoryUsed,
+                    ...metrics
+                };
+                
+                this.metricsExporter.addMetrics(metrics, {
+                    fps,
+                    frameTime: deltaTime,
+                    drawCalls: perf.renderer?.drawCalls || 0,
+                    meshes: this.scene.meshes.length,
+                    vertices: this.scene.getTotalVertices(),
+                    triangles: Math.floor(this.scene.getTotalVertices() / 3),
+                    memoryUsed
+                });
+                
+                // Проверка триггеров автоматизации
+                if (this.metricsAutomation) {
+                    this.metricsAutomation.checkMetrics(metricsData as any);
+                }
+                
+                // Обновление графиков
+                if (this.metricsCharts) {
+                    this.metricsCharts.updateCharts(metrics as any);
+                }
+            }
+        } else {
+            set("dbg-gpu-memory", "N/A");
+            set("dbg-gpu-renderer", "N/A");
+            set("dbg-gpu-vendor", "N/A");
+            set("dbg-physics-objects", "0");
+            set("dbg-physics-bodies", "0");
+            set("dbg-physics-time", "N/A");
+            set("dbg-audio-sources", "0");
+            set("dbg-audio-playing", "0");
+            set("dbg-particles", "0");
+            set("dbg-effect-systems", "0");
+        }
         
         set("dbg-pos-x", playerPos.x.toFixed(1));
         set("dbg-pos-y", playerPos.y.toFixed(1));

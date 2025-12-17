@@ -42,6 +42,17 @@ export class NoiseGenerator {
         }
     }
     
+    // Smoothstep function for smooth interpolation
+    smoothstep(edge0: number, edge1: number, x: number): number {
+        const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+        return t * t * (3 - 2 * t);
+    }
+    
+    // Clamp function to limit values within range
+    clamp(value: number, min: number, max: number): number {
+        return Math.max(min, Math.min(max, value));
+    }
+    
     // 2D Simplex noise
     noise2D(x: number, y: number): number {
         const F2 = 0.5 * (Math.sqrt(3.0) - 1.0);
@@ -167,10 +178,12 @@ export class TerrainGenerator {
     private seed: number;
     private heightCache: Map<string, number> = new Map();
     private static readonly MAX_CACHE_SIZE = 200000;
+    private isPositionInGarageArea?: (x: number, z: number, margin: number) => boolean;
     
-    constructor(seed: number) {
+    constructor(seed: number, isPositionInGarageArea?: (x: number, z: number, margin: number) => boolean) {
         this.seed = seed;
         this.noise = new NoiseGenerator(seed);
+        this.isPositionInGarageArea = isPositionInGarageArea;
     }
     
     // Apply advanced thermal erosion simulation for more natural terrain
@@ -279,6 +292,12 @@ export class TerrainGenerator {
     
     // Get terrain height at world coordinates with dramatic variations and erosion
     getHeight(worldX: number, worldZ: number, biome: string): number {
+        // ИСПРАВЛЕНИЕ: Проверка гаража ПЕРЕД вычислением высоты
+        // Если точка в гараже, возвращаем высоту 0 (уровень пола гаража)
+        if (this.isPositionInGarageArea && this.isPositionInGarageArea(worldX, worldZ, 15)) {
+            return 0; // Уровень пола гаража
+        }
+        
         // Check cache
         const cacheKey = `${Math.floor(worldX)}_${Math.floor(worldZ)}_${biome}`;
         if (this.heightCache.has(cacheKey)) {
@@ -434,8 +453,106 @@ export class TerrainGenerator {
             stepSize = 2.0; // Large steps for mountains
         }
         
+        // ИСПРАВЛЕНИЕ: Clamp для предотвращения экстремальных значений ПЕРЕД квантованием
+        height = this.noise.clamp(height, -25, 35); // Ограничиваем диапазон высот
+        
         // Quantize to create stepped/blocky terrain
         height = Math.round(height / stepSize) * stepSize;
+        
+        // УЛУЧШЕННАЯ ПРОВЕРКА: Многоуровневое сглаживание для предотвращения дыр
+        // Используем getBaseHeight вместо getHeight для избежания рекурсии
+        const neighborCheckDist1 = 1.0;  // Близкие соседи
+        const neighborCheckDist2 = 2.0;  // Средние соседи
+        const neighborCheckDist3 = 3.0;  // Дальние соседи для контекста
+        
+        const neighborHeights: number[] = [];
+        
+        // Получаем базовые высоты соседей на трёх уровнях (без рекурсии)
+        const neighbors = [
+            // Близкие соседи (4 направления)
+            { x: worldX + neighborCheckDist1, z: worldZ },
+            { x: worldX - neighborCheckDist1, z: worldZ },
+            { x: worldX, z: worldZ + neighborCheckDist1 },
+            { x: worldX, z: worldZ - neighborCheckDist1 },
+            // Диагональные близкие соседи
+            { x: worldX + neighborCheckDist1 * 0.707, z: worldZ + neighborCheckDist1 * 0.707 },
+            { x: worldX - neighborCheckDist1 * 0.707, z: worldZ - neighborCheckDist1 * 0.707 },
+            { x: worldX + neighborCheckDist1 * 0.707, z: worldZ - neighborCheckDist1 * 0.707 },
+            { x: worldX - neighborCheckDist1 * 0.707, z: worldZ + neighborCheckDist1 * 0.707 },
+            // Средние соседи (4 направления)
+            { x: worldX + neighborCheckDist2, z: worldZ },
+            { x: worldX - neighborCheckDist2, z: worldZ },
+            { x: worldX, z: worldZ + neighborCheckDist2 },
+            { x: worldX, z: worldZ - neighborCheckDist2 },
+            // Дальние соседи для контекста (4 направления)
+            { x: worldX + neighborCheckDist3, z: worldZ },
+            { x: worldX - neighborCheckDist3, z: worldZ },
+            { x: worldX, z: worldZ + neighborCheckDist3 },
+            { x: worldX, z: worldZ - neighborCheckDist3 }
+        ];
+        
+        for (const neighbor of neighbors) {
+            // Используем getBaseHeight напрямую для избежания рекурсии
+            const baseHeight = this.getBaseHeight(neighbor.x, neighbor.z, biome);
+            if (isFinite(baseHeight)) {
+                neighborHeights.push(baseHeight);
+            }
+        }
+        
+        // Вычисляем среднюю высоту соседей с весами (близкие важнее)
+        if (neighborHeights.length > 0) {
+            // Разделяем на группы по расстоянию
+            const closeNeighbors = neighborHeights.slice(0, 8);
+            const midNeighbors = neighborHeights.slice(8, 12);
+            const farNeighbors = neighborHeights.slice(12, 16);
+            
+            const avgClose = closeNeighbors.length > 0 ? closeNeighbors.reduce((a, b) => a + b, 0) / closeNeighbors.length : height;
+            const avgMid = midNeighbors.length > 0 ? midNeighbors.reduce((a, b) => a + b, 0) / midNeighbors.length : height;
+            const avgFar = farNeighbors.length > 0 ? farNeighbors.reduce((a, b) => a + b, 0) / farNeighbors.length : height;
+            
+            // Взвешенное среднее (близкие соседи важнее)
+            const avgNeighborHeight = avgClose * 0.5 + avgMid * 0.3 + avgFar * 0.2;
+            const heightDiff = Math.abs(height - avgNeighborHeight);
+            
+            // Если разница слишком большая (более 3 единиц), сглаживаем более агрессивно
+            if (heightDiff > 3.0) {
+                // Используем smoothstep для плавного сглаживания
+                const normalizedDiff = (heightDiff - 3.0) / 5.0; // Нормализуем в [0, 1] для разницы от 3 до 8
+                const smoothingFactor = this.noise.smoothstep(0, 1, normalizedDiff);
+                // Более агрессивное сглаживание для больших разниц
+                const smoothingStrength = Math.min(0.7, smoothingFactor * 0.6);
+                height = height * (1 - smoothingStrength) + avgNeighborHeight * smoothingStrength;
+                // Повторно квантуем после сглаживания
+                height = Math.round(height / stepSize) * stepSize;
+            }
+            
+            // УЛУЧШЕННАЯ ПРОВЕРКА: Дополнительная проверка на аномально низкие значения (дыры)
+            // Если высота слишком низкая относительно соседей, поднимаем её
+            if (height < avgNeighborHeight - 5.0) {
+                const holeDepth = avgNeighborHeight - height;
+                const maxAllowedDepth = 5.0; // Уменьшено с 6 до 5 для более строгого контроля
+                if (holeDepth > maxAllowedDepth) {
+                    height = avgNeighborHeight - maxAllowedDepth;
+                    height = Math.round(height / stepSize) * stepSize;
+                }
+            }
+            
+            // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Если высота слишком высокая относительно соседей, понижаем её
+            if (height > avgNeighborHeight + 8.0) {
+                const peakHeight = height - avgNeighborHeight;
+                const maxAllowedPeak = 8.0;
+                if (peakHeight > maxAllowedPeak) {
+                    height = avgNeighborHeight + maxAllowedPeak;
+                    height = Math.round(height / stepSize) * stepSize;
+                }
+            }
+        }
+        
+        // ИСПРАВЛЕНИЕ: Минимальная высота для предотвращения глубоких дыр
+        const minHeight = -2.0;
+        if (height < minHeight) {
+            height = minHeight;
+        }
         
         // Cache result with cap to avoid unbounded growth
         this.heightCache.set(cacheKey, height);

@@ -58,6 +58,14 @@ coverage/
 # Outputs folder
 outputs/
 
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Monitor exports
+monitor-exports/
+
 # Temporary scripts
 *.ps1
 

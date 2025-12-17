@@ -11,6 +11,7 @@ import {
     orderBy, 
     limit, 
     getDocs,
+    where,
     Timestamp,
     increment,
     serverTimestamp
@@ -21,7 +22,14 @@ import {
     signInAnonymously, 
     onAuthStateChanged, 
     User,
-    signOut as firebaseSignOut
+    signOut as firebaseSignOut,
+    createUserWithEmailAndPassword,
+    signInWithEmailAndPassword,
+    sendEmailVerification,
+    sendPasswordResetEmail,
+    GoogleAuthProvider,
+    signInWithPopup,
+    getIdToken
 } from "firebase/auth";
 
 // Firebase configuration (should be in .env or config file)
@@ -33,6 +41,25 @@ const firebaseConfig = {
     messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "123456789",
     appId: import.meta.env.VITE_FIREBASE_APP_ID || "demo-app-id"
 };
+
+// Validate configuration
+const hasRealConfig = firebaseConfig.apiKey !== "demo-key" && 
+                     firebaseConfig.projectId !== "demo-project" &&
+                     firebaseConfig.apiKey.length > 20; // Basic validation
+
+if (!hasRealConfig) {
+    console.warn("[Firebase] ⚠️ Invalid or missing Firebase configuration!");
+    console.warn("[Firebase] Please set the following environment variables:");
+    console.warn("[Firebase]   - VITE_FIREBASE_API_KEY");
+    console.warn("[Firebase]   - VITE_FIREBASE_AUTH_DOMAIN");
+    console.warn("[Firebase]   - VITE_FIREBASE_PROJECT_ID");
+    console.warn("[Firebase]   - VITE_FIREBASE_STORAGE_BUCKET");
+    console.warn("[Firebase]   - VITE_FIREBASE_MESSAGING_SENDER_ID");
+    console.warn("[Firebase]   - VITE_FIREBASE_APP_ID");
+    console.warn("[Firebase] See docs/FIREBASE_KEYS_EXPLAINED.md for details");
+} else if (import.meta.env.DEV) {
+    console.log("[Firebase] ✅ Configuration loaded from environment variables");
+}
 
 export interface PlayerStats {
     // Basic stats
@@ -99,6 +126,14 @@ export interface MatchHistory {
     team?: string;
 }
 
+export interface UserData {
+    username: string;
+    email: string;
+    emailVerified: boolean;
+    createdAt: Timestamp;
+    lastLogin: Timestamp;
+}
+
 export class FirebaseService {
     private app: FirebaseApp | null = null;
     private db: Firestore | null = null;
@@ -107,42 +142,145 @@ export class FirebaseService {
     private initialized: boolean = false;
 
     async initialize(): Promise<boolean> {
+        // Check if configuration is valid before attempting initialization
+        if (!hasRealConfig) {
+            console.warn("[Firebase] ⚠️ Skipping initialization - invalid configuration");
+            console.warn("[Firebase] Firebase features will be disabled. Please configure Firebase to enable cloud features.");
+            this.initialized = false;
+            return false;
+        }
+
         try {
+            console.log("[Firebase] Initializing...", {
+                hasApiKey: !!firebaseConfig.apiKey,
+                hasProjectId: !!firebaseConfig.projectId,
+                apiKeyPrefix: firebaseConfig.apiKey?.substring(0, 10) + "..."
+            });
+            
             this.app = initializeApp(firebaseConfig);
             this.db = getFirestore(this.app);
             this.auth = getAuth(this.app);
 
+            console.log("[Firebase] Firebase app initialized, waiting for auth state...");
+
             // Wait for auth state
+            let resolved = false;
             return new Promise((resolve) => {
-                onAuthStateChanged(this.auth!, (user) => {
+                const unsubscribe = onAuthStateChanged(this.auth!, async (user) => {
                     this.currentUser = user;
                     if (user) {
-                        console.log("[Firebase] Authenticated as:", user.uid);
+                        console.log("[Firebase] Authenticated as:", user.uid, user.isAnonymous ? "(anonymous)" : "");
+                        // Update last login (only for non-anonymous users or if user doc exists)
+                        if (!user.isAnonymous) {
+                            await this.updateLastLogin();
+                        }
                         this.initialized = true;
-                        resolve(true);
-                    } else {
-                        // Try anonymous sign in
-                        this.signInAnonymously().then(() => {
-                            this.initialized = true;
+                        if (!resolved) {
+                            resolved = true;
+                            unsubscribe(); // Stop listening after first resolution
                             resolve(true);
-                        }).catch((error) => {
-                            console.error("[Firebase] Failed to sign in:", error);
-                            resolve(false);
-                        });
+                        }
+                    } else {
+                        console.log("[Firebase] No user authenticated, signing in anonymously...");
+                        // Auto sign in anonymously for basic functionality
+                        try {
+                            const result = await this.signInAnonymously();
+                            if (result.success) {
+                                this.initialized = true;
+                                if (!resolved) {
+                                    resolved = true;
+                                    unsubscribe(); // Stop listening after first resolution
+                                    resolve(true);
+                                }
+                            } else {
+                                console.error("[Firebase] Failed to sign in anonymously:", result.error);
+                                // Continue anyway - some features may not work
+                                this.initialized = true;
+                                if (!resolved) {
+                                    resolved = true;
+                                    unsubscribe();
+                                    resolve(true);
+                                }
+                            }
+                        } catch (error: any) {
+                            const errorCode = error?.code || 'unknown';
+                            const errorMessage = error?.message || 'Unknown error';
+                            
+                            if (errorCode === 'auth/api-key-not-valid' || errorCode.includes('api-key')) {
+                                console.error("[Firebase] ❌ Invalid API key!");
+                                console.error("[Firebase] Please check your VITE_FIREBASE_API_KEY in .env file");
+                                console.error("[Firebase] See docs/FIREBASE_KEYS_EXPLAINED.md for setup instructions");
+                            } else if (errorCode === 'auth/operation-not-allowed') {
+                                console.error("[Firebase] ❌ Anonymous authentication is not enabled!");
+                                console.error("[Firebase] Please enable it in Firebase Console:");
+                                console.error("[Firebase]   Authentication → Sign-in method → Anonymous → Enable");
+                            } else {
+                                console.error("[Firebase] Failed to sign in anonymously:", errorMessage);
+                            }
+                            
+                            // Continue anyway - some features may not work
+                            this.initialized = true;
+                            if (!resolved) {
+                                resolved = true;
+                                unsubscribe();
+                                resolve(true);
+                            }
+                        }
                     }
                 });
             });
-        } catch (error) {
-            console.error("[Firebase] Initialization error:", error);
+        } catch (error: any) {
+            const errorCode = error?.code || 'unknown';
+            const errorMessage = error?.message || 'Unknown error';
+            
+            console.error("[Firebase] ❌ Initialization error:", errorMessage);
+            
+            if (errorCode.includes('api-key') || errorMessage.includes('api-key')) {
+                console.error("[Firebase] Invalid API key. Please check your Firebase configuration.");
+                console.error("[Firebase] See docs/FIREBASE_KEYS_EXPLAINED.md for setup instructions");
+            }
+            
+            this.initialized = false;
             return false;
         }
     }
 
-    private async signInAnonymously(): Promise<void> {
-        if (!this.auth) throw new Error("Auth not initialized");
-        const userCredential = await signInAnonymously(this.auth);
-        this.currentUser = userCredential.user;
-        console.log("[Firebase] Signed in anonymously:", userCredential.user.uid);
+    /**
+     * Анонимный вход в Firebase
+     * Используется автоматически при инициализации, если пользователь не авторизован
+     */
+    async signInAnonymously(): Promise<{ success: boolean; error?: string }> {
+        if (!this.auth) {
+            return { success: false, error: "Auth not initialized" };
+        }
+        
+        // Check if configuration is valid
+        if (!hasRealConfig) {
+            return { success: false, error: "Invalid Firebase configuration. Please check your API key." };
+        }
+        
+        try {
+            const userCredential = await signInAnonymously(this.auth);
+            this.currentUser = userCredential.user;
+            console.log("[Firebase] ✅ Signed in anonymously:", userCredential.user.uid);
+            return { success: true };
+        } catch (error: any) {
+            const errorCode = error?.code || 'unknown';
+            const errorMessage = error?.message || 'Unknown error';
+            
+            let userFriendlyError = errorMessage;
+            
+            if (errorCode === 'auth/api-key-not-valid' || errorCode.includes('api-key')) {
+                userFriendlyError = "Invalid API key. Please check your VITE_FIREBASE_API_KEY in .env file. See docs/FIREBASE_KEYS_EXPLAINED.md";
+            } else if (errorCode === 'auth/operation-not-allowed') {
+                userFriendlyError = "Anonymous authentication is not enabled. Enable it in Firebase Console: Authentication → Sign-in method → Anonymous";
+            } else if (errorCode === 'auth/network-request-failed') {
+                userFriendlyError = "Network error. Please check your internet connection.";
+            }
+            
+            console.error("[Firebase] ❌ Anonymous sign in error:", userFriendlyError);
+            return { success: false, error: userFriendlyError };
+        }
     }
 
     async signOut(): Promise<void> {
@@ -157,7 +295,7 @@ export class FirebaseService {
     }
 
     isInitialized(): boolean {
-        return this.initialized && this.db !== null && this.currentUser !== null;
+        return this.initialized && this.auth !== null && this.db !== null;
     }
 
     // === PLAYER STATS ===
@@ -458,6 +596,380 @@ export class FirebaseService {
     
     getCurrentUserId(): string | null {
         return this.auth?.currentUser?.uid || null;
+    }
+
+    // === AUTHENTICATION METHODS ===
+
+    /**
+     * Регистрация с email и паролем
+     */
+    async signUpWithEmail(email: string, password: string, username: string): Promise<{ success: boolean; error?: string }> {
+        if (!this.auth) {
+            return { success: false, error: "Auth not initialized" };
+        }
+
+        try {
+            // Проверка доступности username
+            const isAvailable = await this.checkUsernameAvailability(username);
+            if (!isAvailable) {
+                return { success: false, error: "Username already taken" };
+            }
+
+            // Создание пользователя
+            const userCredential = await createUserWithEmailAndPassword(this.auth, email, password);
+            this.currentUser = userCredential.user;
+
+            // Сохранение username в Firestore
+            await this.setUsername(username);
+
+            // Отправка письма для верификации
+            await sendEmailVerification(userCredential.user);
+
+            // Создание записи пользователя в Firestore
+            const userData: UserData = {
+                username,
+                email,
+                emailVerified: false,
+                createdAt: Timestamp.now(),
+                lastLogin: Timestamp.now()
+            };
+
+            const userDocRef = doc(this.db!, "users", userCredential.user.uid);
+            await setDoc(userDocRef, userData);
+
+            console.log("[Firebase] User registered:", userCredential.user.uid);
+            return { success: true };
+        } catch (error: any) {
+            console.error("[Firebase] Sign up error:", error);
+            return { success: false, error: error.message || "Registration failed" };
+        }
+    }
+
+    /**
+     * Вход по email и паролю
+     */
+    async signInWithEmail(email: string, password: string): Promise<{ success: boolean; error?: string }> {
+        if (!this.auth) {
+            return { success: false, error: "Auth not initialized" };
+        }
+
+        try {
+            const userCredential = await signInWithEmailAndPassword(this.auth, email, password);
+            this.currentUser = userCredential.user;
+
+            // Обновление lastLogin
+            await this.updateLastLogin();
+
+            console.log("[Firebase] User signed in:", userCredential.user.uid);
+            return { success: true };
+        } catch (error: any) {
+            console.error("[Firebase] Sign in error:", error);
+            return { success: false, error: error.message || "Sign in failed" };
+        }
+    }
+
+    /**
+     * Вход через Google
+     */
+    async signInWithGoogle(): Promise<{ success: boolean; error?: string; username?: string }> {
+        if (!this.auth) {
+            return { success: false, error: "Auth not initialized" };
+        }
+
+        try {
+            const provider = new GoogleAuthProvider();
+            const userCredential = await signInWithPopup(this.auth, provider);
+            this.currentUser = userCredential.user;
+
+            // Проверяем, есть ли уже username
+            const username = await this.getUsername();
+            
+            // Если username нет, создаем из email или displayName
+            if (!username) {
+                const newUsername = userCredential.user.displayName?.replace(/\s+/g, '_').toLowerCase() || 
+                                   userCredential.user.email?.split('@')[0] || 
+                                   `user_${userCredential.user.uid.substring(0, 8)}`;
+                
+                // Проверяем доступность и добавляем суффикс если нужно
+                let finalUsername = newUsername;
+                let counter = 1;
+                while (!(await this.checkUsernameAvailability(finalUsername))) {
+                    finalUsername = `${newUsername}_${counter}`;
+                    counter++;
+                }
+
+                await this.setUsername(finalUsername);
+            }
+
+            // Создаем или обновляем запись пользователя
+            const userDocRef = doc(this.db!, "users", userCredential.user.uid);
+            const userDoc = await getDoc(userDocRef);
+            
+            if (!userDoc.exists()) {
+                const userData: UserData = {
+                    username: username || userCredential.user.displayName?.replace(/\s+/g, '_').toLowerCase() || "user",
+                    email: userCredential.user.email || "",
+                    emailVerified: userCredential.user.emailVerified,
+                    createdAt: Timestamp.now(),
+                    lastLogin: Timestamp.now()
+                };
+                await setDoc(userDocRef, userData);
+            } else {
+                await updateDoc(userDocRef, {
+                    lastLogin: serverTimestamp(),
+                    emailVerified: userCredential.user.emailVerified
+                });
+            }
+
+            await this.updateLastLogin();
+
+            console.log("[Firebase] User signed in with Google:", userCredential.user.uid);
+            return { success: true, username: await this.getUsername() || undefined };
+        } catch (error: any) {
+            console.error("[Firebase] Google sign in error:", error);
+            return { success: false, error: error.message || "Google sign in failed" };
+        }
+    }
+
+    /**
+     * Отправка письма для верификации email
+     */
+    async sendEmailVerification(): Promise<{ success: boolean; error?: string }> {
+        if (!this.auth?.currentUser) {
+            return { success: false, error: "No user signed in" };
+        }
+
+        try {
+            await sendEmailVerification(this.auth.currentUser);
+            console.log("[Firebase] Verification email sent");
+            return { success: true };
+        } catch (error: any) {
+            console.error("[Firebase] Send verification email error:", error);
+            return { success: false, error: error.message || "Failed to send verification email" };
+        }
+    }
+
+    /**
+     * Отправка письма для сброса пароля
+     */
+    async sendPasswordResetEmail(email: string): Promise<{ success: boolean; error?: string }> {
+        if (!this.auth) {
+            return { success: false, error: "Auth not initialized" };
+        }
+
+        try {
+            await sendPasswordResetEmail(this.auth, email);
+            console.log("[Firebase] Password reset email sent");
+            return { success: true };
+        } catch (error: any) {
+            console.error("[Firebase] Send password reset email error:", error);
+            return { success: false, error: error.message || "Failed to send password reset email" };
+        }
+    }
+
+    /**
+     * Проверка верификации email
+     */
+    checkEmailVerified(): boolean {
+        return this.auth?.currentUser?.emailVerified || false;
+    }
+
+    /**
+     * Установка уникального username
+     */
+    async setUsername(username: string): Promise<boolean> {
+        if (!this.db) return false;
+        const userId = this.getUserId();
+        if (!userId) return false;
+
+        try {
+            // Проверка доступности
+            const isAvailable = await this.checkUsernameAvailability(username);
+            if (!isAvailable) {
+                throw new Error("Username already taken");
+            }
+
+            const userDocRef = doc(this.db, "users", userId);
+            const userDoc = await getDoc(userDocRef);
+
+            if (userDoc.exists()) {
+                await updateDoc(userDocRef, { username });
+            } else {
+                await setDoc(userDocRef, {
+                    username,
+                    email: this.auth?.currentUser?.email || "",
+                    emailVerified: this.auth?.currentUser?.emailVerified || false,
+                    createdAt: Timestamp.now(),
+                    lastLogin: serverTimestamp()
+                });
+            }
+
+            return true;
+        } catch (error) {
+            console.error("[Firebase] Error setting username:", error);
+            return false;
+        }
+    }
+
+    /**
+     * Получение username пользователя
+     */
+    async getUsername(): Promise<string | null> {
+        if (!this.db) return null;
+        const userId = this.getUserId();
+        if (!userId) return null;
+
+        try {
+            const userDocRef = doc(this.db, "users", userId);
+            const userDoc = await getDoc(userDocRef);
+            
+            if (userDoc.exists()) {
+                const data = userDoc.data() as UserData;
+                return data.username || null;
+            }
+            
+            return null;
+        } catch (error) {
+            console.error("[Firebase] Error getting username:", error);
+            return null;
+        }
+    }
+
+    /**
+     * Проверка доступности username
+     */
+    async checkUsernameAvailability(username: string): Promise<boolean> {
+        if (!this.db) return false;
+
+        // Валидация username
+        if (!username || username.length < 3 || username.length > 20) {
+            return false;
+        }
+
+        // Разрешенные символы: буквы, цифры, подчеркивания
+        if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+            return false;
+        }
+
+        try {
+            const usersRef = collection(this.db, "users");
+            const q = query(usersRef, where("username", "==", username));
+            const querySnapshot = await getDocs(q);
+            
+            // Если username уже занят другим пользователем
+            if (!querySnapshot.empty) {
+                const userId = this.getUserId();
+                // Проверяем, не занят ли он текущим пользователем
+                const docs = querySnapshot.docs;
+                if (docs.length === 1 && docs[0].id === userId) {
+                    return true; // Это наш username
+                }
+                return false; // Занят другим пользователем
+            }
+            
+            return true; // Доступен
+        } catch (error) {
+            console.error("[Firebase] Error checking username availability:", error);
+            return false;
+        }
+    }
+
+    /**
+     * Получение токена для аутентификации на сервере
+     */
+    async getAuthToken(): Promise<string | null> {
+        if (!this.auth?.currentUser) {
+            return null;
+        }
+
+        try {
+            const token = await getIdToken(this.auth.currentUser);
+            return token;
+        } catch (error) {
+            console.error("[Firebase] Error getting auth token:", error);
+            return null;
+        }
+    }
+
+    /**
+     * Обновление времени последнего входа
+     */
+    private async updateLastLogin(): Promise<void> {
+        if (!this.db) return;
+        const userId = this.getUserId();
+        if (!userId) return;
+
+        try {
+            const userDocRef = doc(this.db, "users", userId);
+            const userDoc = await getDoc(userDocRef);
+            
+            if (userDoc.exists()) {
+                await updateDoc(userDocRef, {
+                    lastLogin: serverTimestamp()
+                });
+            }
+        } catch (error) {
+            console.error("[Firebase] Error updating last login:", error);
+        }
+    }
+
+    /**
+     * Проверка, авторизован ли пользователь (не анонимно)
+     * Возвращает true только для полностью авторизованных пользователей (email/Google)
+     */
+    isAuthenticated(): boolean {
+        if (!this.auth || !this.initialized) {
+            return false;
+        }
+        const user = this.auth.currentUser;
+        return user !== null && user !== undefined && !user.isAnonymous;
+    }
+
+    /**
+     * Проверка, является ли пользователь анонимным
+     */
+    isAnonymous(): boolean {
+        return this.auth?.currentUser?.isAnonymous || false;
+    }
+
+    /**
+     * Проверка, есть ли какой-либо пользователь (анонимный или нет)
+     */
+    hasUser(): boolean {
+        return this.auth?.currentUser !== null && this.auth?.currentUser !== undefined;
+    }
+
+    /**
+     * Получение email пользователя
+     */
+    getEmail(): string | null {
+        return this.auth?.currentUser?.email || null;
+    }
+
+    /**
+     * Проверка, является ли пользователь админом
+     * Проверяет custom claims из ID token
+     */
+    async isAdmin(): Promise<boolean> {
+        if (!this.auth?.currentUser) return false;
+        
+        try {
+            const idToken = await getIdToken(this.auth.currentUser, true);
+            const decodedToken = JSON.parse(atob(idToken.split('.')[1]));
+            return decodedToken.admin === true || decodedToken.role === 'admin';
+        } catch (error) {
+            console.error("[Firebase] Error checking admin status:", error);
+            return false;
+        }
+    }
+
+    /**
+     * Получение короткого ID для анонимного пользователя (последние 4 символа UID)
+     */
+    getShortAnonId(): string | null {
+        const userId = this.getUserId();
+        if (!userId) return null;
+        return userId.slice(-4).padStart(4, '0');
     }
 }
 

@@ -9,6 +9,7 @@ import {
     SKILL_BRANCHES, 
     isNodeUnlocked, 
     getSkillCost,
+    calculateAllNodePositions,
     type SkillNode 
 } from "../skillTreeConfig";
 
@@ -112,36 +113,47 @@ export function updateSkillTreeDisplay(
 
     const layout = {
         width: 220,
-        height: 130,
-        colGap: 80,
-        rowGap: 90
+        height: 130
     };
 
-    const toPosition = (node: { col: number; row: number }) => {
-        const left = node.col * (layout.width + layout.colGap);
-        const top = node.row * (layout.height + layout.rowGap);
-        return {
+    // Вычисляем позиции всех узлов используя новую полярную систему
+    const calculatedPositions = calculateAllNodePositions();
+    
+    // Находим границы дерева для определения размера
+    let minX = 0, maxX = 0, minY = 0, maxY = 0;
+    calculatedPositions.forEach((pos) => {
+        minX = Math.min(minX, pos.x);
+        maxX = Math.max(maxX, pos.x);
+        minY = Math.min(minY, pos.y);
+        maxY = Math.max(maxY, pos.y);
+    });
+    
+    // Добавляем отступы
+    const padding = 300;
+    const treeWidth = Math.max(2000, (maxX - minX) + padding * 2);
+    const treeHeight = Math.max(1500, (maxY - minY) + padding * 2);
+    
+    // Смещаем все позиции так, чтобы центральный узел был в центре
+    const offsetX = treeWidth / 2;
+    const offsetY = treeHeight / 2;
+    
+    const nodePositions = new Map<string, { left: number; top: number; centerX: number; centerY: number }>();
+    calculatedPositions.forEach((pos, nodeId) => {
+        const left = pos.x + offsetX;
+        const top = pos.y + offsetY;
+        nodePositions.set(nodeId, {
             left,
             top,
             centerX: left + layout.width / 2,
             centerY: top + layout.height / 2
-        };
-    };
-
-    const maxCol = nodes.length > 0 ? Math.max(...nodes.map((n) => n.col)) : 0;
-    const maxRow = nodes.length > 0 ? Math.max(...nodes.map((n) => n.row)) : 0;
-
-    const treeWidth = (maxCol + 1) * (layout.width + layout.colGap);
-    const treeHeight = (maxRow + 1) * (layout.height + layout.rowGap) + layout.height;
+        });
+    });
     
     skillTree.style.minWidth = `${treeWidth}px`;
     skillTree.style.minHeight = `${treeHeight}px`;
     
-    console.log(`[Skills] Tree size: ${treeWidth}x${treeHeight}, maxCol: ${maxCol}, maxRow: ${maxRow}`);
+    console.log(`[Skills] Tree size: ${treeWidth}x${treeHeight}, calculated positions: ${calculatedPositions.size}`);
     skillTree.innerHTML = "";
-
-    const nodePositions = new Map<string, ReturnType<typeof toPosition>>();
-    nodes.forEach((node) => nodePositions.set(node.id, toPosition(node)));
 
     if (wrapper) {
         const core = nodePositions.get("commandCore");
@@ -172,20 +184,25 @@ export function updateSkillTreeDisplay(
         const dy = to.centerY - from.centerY;
         const distance = Math.sqrt(dx * dx + dy * dy);
         
+        // Для веток под углом 135° делаем более плавные кривые
+        // Вычисляем перпендикулярный вектор для изгиба
+        const perpX = -dy / distance;
+        const perpY = dx / distance;
+        
         // Создаем извилистую кривую с несколькими контрольными точками
-        const controlOffset = Math.min(distance * 0.3, 60);
+        const controlOffset = Math.min(distance * 0.25, 50);
         const randomOffset1 = (Math.sin(edge.from.charCodeAt(0) + edge.to.charCodeAt(0)) * controlOffset);
         const randomOffset2 = (Math.cos(edge.from.charCodeAt(0) + edge.to.charCodeAt(0)) * controlOffset);
         
         // Первая контрольная точка (смещение перпендикулярно направлению)
-        const cp1x = from.centerX + dx * 0.3 + randomOffset1;
-        const cp1y = from.centerY + dy * 0.3 - randomOffset2;
+        const cp1x = from.centerX + dx * 0.35 + perpX * controlOffset * 0.5 + randomOffset1 * 0.3;
+        const cp1y = from.centerY + dy * 0.35 + perpY * controlOffset * 0.5 - randomOffset2 * 0.3;
         
         // Вторая контрольная точка
-        const cp2x = from.centerX + dx * 0.7 - randomOffset1;
-        const cp2y = from.centerY + dy * 0.7 + randomOffset2;
+        const cp2x = from.centerX + dx * 0.65 - perpX * controlOffset * 0.5 - randomOffset1 * 0.3;
+        const cp2y = from.centerY + dy * 0.65 - perpY * controlOffset * 0.5 + randomOffset2 * 0.3;
         
-        // Создаем кривую Безье (кубическую)
+        // Создаем кривую Безье (кубическую) для более органичного вида
         const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
         path.setAttribute("d", `M ${from.centerX} ${from.centerY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${to.centerX} ${to.centerY}`);
         path.setAttribute("stroke", "#0f0");
@@ -322,22 +339,19 @@ export function setupSkillTreeNavigation(wrapper: HTMLElement | null): void {
     const skillTree = document.getElementById("skill-tree");
     if (!skillTree) return;
 
-    // === УЛУЧШЕННЫЙ ЗУМ С НАКОПЛЕНИЕМ И ОПТИМИЗАЦИЕЙ ===
+    // === ПЛАВНЫЙ ЗУМ БЕЗ ЗАДЕРЖЕК ===
     let currentZoom = 1.0;
-    const MIN_ZOOM = 0.3;
-    const MAX_ZOOM = 2.5;
+    let targetZoom = 1.0;
+    const MIN_ZOOM = 0.25;
+    const MAX_ZOOM = 4.0;
     const ZOOM_STEP = 0.1;
-    const ZOOM_ANIMATION_DURATION = 200;
-
-    // Накопление изменений зума для wheel событий
-    let accumulatedZoomDelta = 0;
-    let wheelThrottleTimeout: number | null = null;
-    const WHEEL_THROTTLE_MS = 16;
+    const ZOOM_SPEED = 0.075; // 7.5% за прокрутку (средняя скорость)
 
     // Функция зума к точке с плавной анимацией
-    let zoomAnimationFrame: number | null = null;
-    let pendingZoom: { clientX: number; clientY: number; targetZoom: number } | null = null;
+    let zoomAnimationId: number | null = null;
     let zoomLevelDisplayUpdateFrame: number | null = null;
+    let lastZoomMouseX = 0;
+    let lastZoomMouseY = 0;
     
     const updateZoomDisplay = () => {
         const zoomLevel = wrapper.parentElement?.querySelector(".skill-zoom-level") as HTMLElement;
@@ -346,99 +360,69 @@ export function setupSkillTreeNavigation(wrapper: HTMLElement | null): void {
         }
     };
     
-    const zoomAtPoint = (clientX: number, clientY: number, targetZoom: number, immediate: boolean = false) => {
+    const applyZoom = (zoom: number, mouseX: number, mouseY: number) => {
         if (!wrapper || !skillTree) return;
         
-        if (zoomAnimationFrame !== null && !immediate) {
-            pendingZoom = { clientX, clientY, targetZoom };
-            return;
-        }
-        
-        const oldZoom = currentZoom;
-        const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, targetZoom));
-        if (Math.abs(newZoom - oldZoom) < 0.001) {
-            if (pendingZoom) {
-                const pending = pendingZoom;
-                pendingZoom = null;
-                zoomAtPoint(pending.clientX, pending.clientY, pending.targetZoom, true);
-            }
-            return;
-        }
-        
-        if (zoomAnimationFrame !== null) {
-            cancelAnimationFrame(zoomAnimationFrame);
-            zoomAnimationFrame = null;
-        }
-        
         const wrapperRect = wrapper.getBoundingClientRect();
-        const mouseX = clientX - wrapperRect.left;
-        const mouseY = clientY - wrapperRect.top;
+        const relativeMouseX = mouseX - wrapperRect.left;
+        const relativeMouseY = mouseY - wrapperRect.top;
         
         const scrollX = wrapper.scrollLeft;
         const scrollY = wrapper.scrollTop;
         
-        const contentX = (scrollX + mouseX) / oldZoom;
-        const contentY = (scrollY + mouseY) / oldZoom;
+        // Вычисляем позицию контента под курсором до зума
+        const contentX = (scrollX + relativeMouseX) / currentZoom;
+        const contentY = (scrollY + relativeMouseY) / currentZoom;
         
-        const startZoom = oldZoom;
-        const endZoom = newZoom;
-        const startTime = performance.now();
-        const duration = immediate ? 100 : ZOOM_ANIMATION_DURATION;
+        // Применяем новый зум
+        currentZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
+        skillTree.style.transform = `scale(${currentZoom})`;
+        skillTree.style.transformOrigin = "top left";
         
-        const animate = (currentTime: number) => {
-            const elapsed = currentTime - startTime;
-            const progress = Math.min(elapsed / duration, 1);
-            
-            const easeOutCubic = 1 - Math.pow(1 - progress, 3);
-            const interpolatedZoom = startZoom + (endZoom - startZoom) * easeOutCubic;
-            
-            currentZoom = interpolatedZoom;
-            skillTree.style.transform = `scale(${currentZoom})`;
-            skillTree.style.transformOrigin = "top left";
-            
-            const newScrollX = contentX * currentZoom - mouseX;
-            const newScrollY = contentY * currentZoom - mouseY;
-            
-            const maxScrollX = Math.max(0, skillTree.scrollWidth * currentZoom - wrapper.clientWidth);
-            const maxScrollY = Math.max(0, skillTree.scrollHeight * currentZoom - wrapper.clientHeight);
-            
-            wrapper.scrollLeft = Math.max(0, Math.min(maxScrollX, newScrollX));
-            wrapper.scrollTop = Math.max(0, Math.min(maxScrollY, newScrollY));
-            
-            if (zoomLevelDisplayUpdateFrame === null) {
-                zoomLevelDisplayUpdateFrame = requestAnimationFrame(() => {
-                    updateZoomDisplay();
-                    zoomLevelDisplayUpdateFrame = null;
-                });
-            }
-            
-            if (progress < 1) {
-                zoomAnimationFrame = requestAnimationFrame(animate);
-            } else {
-                zoomAnimationFrame = null;
-                currentZoom = endZoom;
-                skillTree.style.transform = `scale(${currentZoom})`;
-                skillTree.style.transformOrigin = "top left";
-                
-                const finalMaxScrollX = Math.max(0, skillTree.scrollWidth * currentZoom - wrapper.clientWidth);
-                const finalMaxScrollY = Math.max(0, skillTree.scrollHeight * currentZoom - wrapper.clientHeight);
-                
-                const finalScrollX = contentX * currentZoom - mouseX;
-                const finalScrollY = contentY * currentZoom - mouseY;
-                wrapper.scrollLeft = Math.max(0, Math.min(finalMaxScrollX, finalScrollX));
-                wrapper.scrollTop = Math.max(0, Math.min(finalMaxScrollY, finalScrollY));
-                
-                updateZoomDisplay();
-                
-                if (pendingZoom) {
-                    const pending = pendingZoom;
-                    pendingZoom = null;
-                    zoomAtPoint(pending.clientX, pending.clientY, pending.targetZoom, true);
-                }
-            }
-        };
+        // Вычисляем новую позицию скролла чтобы точка под курсором осталась на месте
+        const newScrollX = contentX * currentZoom - relativeMouseX;
+        const newScrollY = contentY * currentZoom - relativeMouseY;
         
-        zoomAnimationFrame = requestAnimationFrame(animate);
+        const maxScrollX = Math.max(0, skillTree.scrollWidth * currentZoom - wrapper.clientWidth);
+        const maxScrollY = Math.max(0, skillTree.scrollHeight * currentZoom - wrapper.clientHeight);
+        
+        wrapper.scrollLeft = Math.max(0, Math.min(maxScrollX, newScrollX));
+        wrapper.scrollTop = Math.max(0, Math.min(maxScrollY, newScrollY));
+        
+        updateZoomDisplay();
+    };
+    
+    // Плавная анимация зума
+    const animateZoom = () => {
+        const diff = targetZoom - currentZoom;
+        if (Math.abs(diff) > 0.001) {
+            // Плавная интерполяция
+            currentZoom += diff * 0.2;
+            applyZoom(currentZoom, lastZoomMouseX, lastZoomMouseY);
+            zoomAnimationId = requestAnimationFrame(animateZoom);
+        } else {
+            currentZoom = targetZoom;
+            applyZoom(currentZoom, lastZoomMouseX, lastZoomMouseY);
+            zoomAnimationId = null;
+        }
+    };
+    
+    const zoomAtPoint = (clientX: number, clientY: number, newTargetZoom: number) => {
+        if (!wrapper || !skillTree) return;
+        
+        // Сохраняем позицию курсора для анимации
+        lastZoomMouseX = clientX;
+        lastZoomMouseY = clientY;
+        
+        targetZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newTargetZoom));
+        
+        // Немедленно обновляем зум относительно курсора
+        applyZoom(targetZoom, clientX, clientY);
+        
+        // Запускаем плавную анимацию если нужно
+        if (zoomAnimationId === null && Math.abs(targetZoom - currentZoom) > 0.001) {
+            zoomAnimationId = requestAnimationFrame(animateZoom);
+        }
     };
 
     // Кнопки зума
@@ -454,30 +438,38 @@ export function setupSkillTreeNavigation(wrapper: HTMLElement | null): void {
         wrapper.parentElement?.appendChild(zoomControls);
         
         zoomControls.querySelector("#zoom-in")?.addEventListener("click", () => {
-            zoomAtPoint(wrapper.clientWidth / 2, wrapper.clientHeight / 2, currentZoom + ZOOM_STEP);
+            const wrapperRect = wrapper.getBoundingClientRect();
+            zoomAtPoint(wrapperRect.left + wrapperRect.width / 2, wrapperRect.top + wrapperRect.height / 2, targetZoom + ZOOM_STEP);
         });
         
         zoomControls.querySelector("#zoom-out")?.addEventListener("click", () => {
-            zoomAtPoint(wrapper.clientWidth / 2, wrapper.clientHeight / 2, currentZoom - ZOOM_STEP);
+            const wrapperRect = wrapper.getBoundingClientRect();
+            zoomAtPoint(wrapperRect.left + wrapperRect.width / 2, wrapperRect.top + wrapperRect.height / 2, targetZoom - ZOOM_STEP);
         });
     }
 
-    // Wheel zoom
-    wrapper.addEventListener("wheel", (e) => {
-        if (!e.ctrlKey && !e.metaKey) return;
+    // Wheel zoom - плавный без задержек
+    wrapper.addEventListener("wheel", (e: WheelEvent) => {
+        // Зум работает всегда (не только с Ctrl)
         e.preventDefault();
         
-        accumulatedZoomDelta += e.deltaY;
+        // Вычисляем изменение зума (5-10% за прокрутку)
+        const delta = e.deltaY > 0 ? -ZOOM_SPEED : ZOOM_SPEED;
+        const newTargetZoom = targetZoom + delta;
         
-        if (wheelThrottleTimeout === null) {
-            wheelThrottleTimeout = window.setTimeout(() => {
-                const zoomDelta = -accumulatedZoomDelta * 0.001;
-                const rect = wrapper.getBoundingClientRect();
-                zoomAtPoint(e.clientX - rect.left, e.clientY - rect.top, currentZoom + zoomDelta);
-                
-                accumulatedZoomDelta = 0;
-                wheelThrottleTimeout = null;
-            }, WHEEL_THROTTLE_MS);
+        // Обновляем targetZoom и применяем зум относительно курсора
+        targetZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newTargetZoom));
+        
+        // Немедленно применяем зум без throttle
+        const wrapperRect = wrapper.getBoundingClientRect();
+        const mouseX = e.clientX;
+        const mouseY = e.clientY;
+        
+        applyZoom(targetZoom, mouseX, mouseY);
+        
+        // Запускаем плавную анимацию если нужно
+        if (zoomAnimationId === null && Math.abs(targetZoom - currentZoom) > 0.001) {
+            zoomAnimationId = requestAnimationFrame(animateZoom);
         }
     }, { passive: false });
 

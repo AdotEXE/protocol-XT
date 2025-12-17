@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "devtools": {
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-devtools@0.11.0",
+        "--browser-url=http://localhost:9222"
+      ],
+      "env": {
+        "CHROME_DEBUG_PORT": "9222"
+      }
+    }
+  }
+}
+
