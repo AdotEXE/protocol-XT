@@ -587,11 +587,13 @@ export const CANNON_TYPES: CannonType[] = [
 
 // Получить корпус по ID
 export function getChassisById(id: string): ChassisType {
-    return CHASSIS_TYPES.find(c => c.id === id) || CHASSIS_TYPES[1]; // По умолчанию средний
+    const result = CHASSIS_TYPES.find(c => c.id === id) ?? CHASSIS_TYPES[1]!;
+    return result;
 }
 
 // Получить пушку по ID
 export function getCannonById(id: string): CannonType {
-    return CANNON_TYPES.find(c => c.id === id) || CANNON_TYPES[1]; // По умолчанию стандартная
+    const result = CANNON_TYPES.find(c => c.id === id) ?? CANNON_TYPES[1]!;
+    return result;
 }
 

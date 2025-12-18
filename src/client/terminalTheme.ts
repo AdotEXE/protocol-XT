@@ -206,6 +206,7 @@ export class TerminalThemeManager {
         
         // Подсветка функций (следующее слово после команды)
         highlighted = highlighted.replace(/\b(script|macro)\s+(\w+)/g, (match, cmd, func) => {
+            void match; // помечаем как использованный для TS
             return `<span style="color: ${theme.syntax.keyword};">${cmd}</span> <span style="color: ${theme.syntax.function};">${func}</span>`;
         });
         

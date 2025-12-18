@@ -293,13 +293,20 @@ export class CheatMenu {
                 const spawnPos = pos.add(offset);
                 
                 if (this.game.scene && this.game.soundManager && this.game.effectsManager) {
-                    const difficulty = (this.game.mainMenu as any)?.getSettings()?.enemyDifficulty || "medium";
+                    // При спавне через читы используем текущую сложность врагов из игры (если есть)
+                    const difficulty = (this.game as any).getCurrentEnemyDifficulty
+                        ? (this.game as any).getCurrentEnemyDifficulty()
+                        : ((this.game.mainMenu as any)?.getSettings()?.enemyDifficulty || "medium");
+                    const difficultyScale = (this.game as any).getAdaptiveEnemyDifficultyScale
+                        ? (this.game as any).getAdaptiveEnemyDifficultyScale()
+                        : 1;
                     const enemyTank = new EnemyTank(
                         this.game.scene,
                         spawnPos,
                         this.game.soundManager,
                         this.game.effectsManager,
-                        difficulty
+                        difficulty,
+                        difficultyScale
                     );
                     
                     if (this.tank) {

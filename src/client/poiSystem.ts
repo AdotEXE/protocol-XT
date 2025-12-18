@@ -138,6 +138,9 @@ export class POISystem {
     private readonly CREDITS_PER_SECOND = 0.5;
     private readonly BONUS_INTERVAL = 1000; // ms
     
+    // Множитель плотности POI (управляется из WorldGenerationMenu через applySettings)
+    public poiDensityMultiplier = 1.0;
+    
     constructor(scene: Scene, config?: Partial<POISystemConfig>, isPositionInGarageArea?: (x: number, z: number, margin: number) => boolean) {
         this.scene = scene;
         this.config = {
@@ -861,7 +864,7 @@ export class POISystem {
             
             // Apply effects based on ownership and proximity
             if (poi.ownerId === "player") {
-                this.applyPOIEffects(poi, playerPosition, playerDist, deltaTime, now);
+                this.applyPOIEffects(poi, playerDist, deltaTime, now);
                 this.giveBonuses(poi, now);
             }
             
@@ -962,7 +965,6 @@ export class POISystem {
     
     private applyPOIEffects(
         poi: POI,
-        playerPosition: Vector3,
         playerDist: number,
         deltaTime: number,
         now: number
@@ -1244,7 +1246,7 @@ export class POISystem {
         const worldX = chunkX * chunkSize;
         const worldZ = chunkZ * chunkSize;
         
-        // POI probability and count based on biome - УВЕЛИЧЕННЫЕ ШАНСЫ
+        // POI probability and count based on biome
         let poiChance = 0;
         let maxPOIs = 1;
         switch (biome) {
@@ -1285,6 +1287,24 @@ export class POISystem {
             poiChance *= 0.5; // Постепенное увеличение
         }
         
+        // Применяем множитель плотности (0.5–2.0 из WorldGenerationMenu)
+        poiChance = Math.min(1, poiChance * this.poiDensityMultiplier);
+        
+        // Собираем POI из соседних чанков для глобального ограничения плотности
+        const nearbyPOIs: POI[] = [];
+        for (let dz = -1; dz <= 1; dz++) {
+            for (let dx = -1; dx <= 1; dx++) {
+                if (dx === 0 && dz === 0) continue;
+                const neighborKey = `${chunkX + dx}_${chunkZ + dz}`;
+                const neighborIds = this.chunkPOIs.get(neighborKey);
+                if (!neighborIds) continue;
+                for (const id of neighborIds) {
+                    const p = this.pois.get(id);
+                    if (p) nearbyPOIs.push(p);
+                }
+            }
+        }
+        
         // Generate POIs
         const numPOIs = random.chance(poiChance) ? random.int(1, maxPOIs) : 0;
         
@@ -1299,16 +1319,29 @@ export class POISystem {
                 continue; // Пропускаем этот POI
             }
             
-            // Проверяем расстояние до других POI в этом чанке
+            // Проверяем расстояние до других POI (в этом и соседних чанках)
+            const candidatePos = new Vector3(x, 0, z);
+            const minSpacing = this.config.poiSpacing;
             let tooClose = false;
             for (const existingPoi of createdPOIs) {
-                const dist = Vector3.Distance(new Vector3(x, 0, z), existingPoi.worldPosition);
-                if (dist < 30) { // Минимум 30м между POI
+                const dist = Vector3.Distance(candidatePos, existingPoi.worldPosition);
+                if (dist < minSpacing) {
                     tooClose = true;
                     break;
                 }
             }
-            if (tooClose) continue;
+            if (!tooClose) {
+                for (const existingPoi of nearbyPOIs) {
+                    const dist = Vector3.Distance(candidatePos, existingPoi.worldPosition);
+                    if (dist < minSpacing) {
+                        tooClose = true;
+                        break;
+                    }
+                }
+            }
+            if (tooClose) {
+                continue;
+            }
             
             const localPos = new Vector3(x - worldX, 0, z - worldZ);
             const worldPos = new Vector3(x, 0, z);
@@ -1352,11 +1385,12 @@ export class POISystem {
                 else if (type === 1) poi = this.createFuelDepot(localPos, id, parent, worldPos);
                 else poi = this.createCapturePoint(localPos, id, parent, worldPos);
             } else {
-                // Парки и другие биомы - в основном точки захвата
-                const type = random.int(0, 2);
+                // Парки и другие биомы - в основном точки захвата, иногда радары/топливо
+                const type = random.int(0, 3);
                 if (type === 0) poi = this.createCapturePoint(localPos, id, parent, worldPos);
                 else if (type === 1) poi = this.createRepairStation(localPos, id, parent, worldPos);
-                else poi = this.createAmmoDepot(localPos, id, parent, worldPos);
+                else if (type === 2) poi = this.createAmmoDepot(localPos, id, parent, worldPos);
+                else poi = this.createRadarStation(localPos, id, parent, worldPos);
             }
             
             this.pois.set(id, poi);
@@ -1422,3 +1456,4 @@ export class POISystem {
         }
     }
 }
+

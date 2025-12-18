@@ -2,7 +2,7 @@
  * Physics Visualizer - Визуализация физики (векторы, коллизии, центр масс)
  */
 
-import { Scene, Vector3, MeshBuilder, StandardMaterial, Color3, LinesMesh, Mesh } from "@babylonjs/core";
+import { Scene, Vector3, MeshBuilder, StandardMaterial, Color3, Mesh } from "@babylonjs/core";
 import { logger } from "./utils/logger";
 
 export interface PhysicsVisualizationOptions {

@@ -73,6 +73,7 @@ export class TerminalAutomation {
             if (condition.startsWith('command:')) {
                 const cmd = condition.replace('command:', '').trim();
                 // Можно выполнить команду и проверить результат
+                void cmd;
                 return true; // Упрощённая версия
             }
             

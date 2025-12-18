@@ -25,12 +25,7 @@ export class SoundManager {
     private engineGain: GainNode | null = null;
     private engineFilter: BiquadFilterNode | null = null;
     private engineRunning = false;
-    private currentEngineSpeed = 0;
     private enginePanner: PannerNode | null = null;
-    
-    // Diesel engine oscillators (для реалистичного дизельного звука)
-    private dieselOscillators: OscillatorNode[] = [];
-    private dieselGains: GainNode[] = [];
     
     // Enhanced Reverb (multi-tap delay for realistic reverb)
     private reverbGain: GainNode | null = null;
@@ -38,29 +33,26 @@ export class SoundManager {
     private reverbGains: GainNode[] = [];
     private reverbFilters: BiquadFilterNode[] = [];
     
-    // Volume settings - УЛУЧШЕНО: Оптимизированы уровни громкости для лучшего баланса
-    public masterVolume = 1.0; // МАКСИМАЛЬНАЯ общая громкость
-    public engineVolume = 0.9; // УМЕНЬШЕНО с 1.0 до 0.9 для лучшего баланса
-    public shootVolume = 0.8; // УВЕЛИЧЕНО с 0.75 до 0.8 для лучшей слышимости
-    public explosionVolume = 0.9; // УВЕЛИЧЕНО с 0.85 до 0.9 для более эффектных взрывов
-    public hitVolume = 0.6; // УВЕЛИЧЕНО с 0.55 до 0.6
-    public reloadVolume = 0.5; // УВЕЛИЧЕНО с 0.45 до 0.5
-    public movementVolume = 0.4; // УВЕЛИЧЕНО с 0.35 до 0.4
-    public pickupVolume = 0.65; // УВЕЛИЧЕНО с 0.6 до 0.65
-    public uiVolume = 0.55; // УВЕЛИЧЕНО с 0.5 до 0.55
-    public ambientVolume = 0.25; // УВЕЛИЧЕНО с 0.2 до 0.25 для более атмосферного звука
+    // Volume settings - сбалансированные уровни громкости
+    public masterVolume = 0.9; // Чуть ниже 1.0, чтобы избежать клиппинга
+    public engineVolume = 0.7; // Менее агрессивный двигатель по умолчанию
+    public shootVolume = 0.8;
+    public explosionVolume = 0.8;
+    public hitVolume = 0.55;
+    public reloadVolume = 0.5;
+    public movementVolume = 0.35;
+    public pickupVolume = 0.6;
+    public uiVolume = 0.5;
+    public ambientVolume = 0.25;
     
     // 3D Audio settings
     private use3DAudio = true;
     private maxDistance = 200; // Максимальная дистанция слышимости
     private dopplerFactor = 1.0; // Эффект допплера
     
-    // Sound variation tracking
-    private soundVariationCounter = 0;
-    
     // Movement sound tracking
     private lastMovementSoundTime = 0;
-    private movementSoundInterval = 150; // ms between movement sounds
+    private movementSoundInterval = 220; // ms between movement sounds (чуть реже для меньшего спама)
     
     // Ambient sound
     private ambientOscillator: OscillatorNode | null = null;
@@ -102,11 +94,14 @@ export class SoundManager {
             const reverbGains = [0.4, 0.3, 0.25, 0.2, 0.15, 0.1]; // Убывающая громкость
             
             for (let i = 0; i < reverbTimes.length; i++) {
+                const time = reverbTimes[i] ?? 0.05;
+                const gainVal = reverbGains[i] ?? 0.2;
+                
                 const delay = this.audioContext.createDelay(0.5);
-                delay.delayTime.value = reverbTimes[i];
+                delay.delayTime.value = time;
                 
                 const gain = this.audioContext.createGain();
-                gain.gain.value = reverbGains[i] * 0.2; // Общая громкость реверберации
+                gain.gain.value = gainVal * 0.2; // Общая громкость реверберации
                 
                 const filter = this.audioContext.createBiquadFilter();
                 filter.type = 'lowpass';
@@ -179,10 +174,12 @@ export class SoundManager {
             }
             
             // Эффект допплера (если есть скорость)
-            if (velocity && (panner as any).velocityX) {
-                const speed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z);
-                const dopplerSpeed = Math.min(speed * this.dopplerFactor, 50); // Ограничиваем эффект
-                (panner as any).velocityX.value = velocity.x * this.dopplerFactor;
+        if (velocity && (panner as any).velocityX) {
+            const speed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z);
+            // Ограничиваем эффект допплера через скорость, но используем только для клампа
+            const clampedSpeed = Math.min(speed * this.dopplerFactor, 50);
+            void clampedSpeed;
+            (panner as any).velocityX.value = velocity.x * this.dopplerFactor;
                 (panner as any).velocityY.value = velocity.y * this.dopplerFactor;
                 (panner as any).velocityZ.value = velocity.z * this.dopplerFactor;
             }
@@ -499,8 +496,7 @@ export class SoundManager {
         }
         
         // Очищаем старые осцилляторы
-        this.dieselOscillators = [];
-        this.dieselGains = [];
+        // (diesel* массивы больше не используются напрямую, оставлены для обратной совместимости)
         
         // Основной басовый осциллятор (низкие частоты дизеля - 12-30 Гц)
         const bassOsc1 = this.audioContext.createOscillator();
@@ -706,12 +702,10 @@ export class SoundManager {
             this.enginePanner = null;
         }
         this.engineRunning = false;
-        this.dieselOscillators = [];
-        this.dieselGains = [];
     }
     
     // Enhanced engine sound with speed zones
-    private engineSpeedZone: 'idle' | 'low' | 'medium' | 'high' | 'max' = 'idle';
+    private _engineSpeedZone: 'idle' | 'low' | 'medium' | 'high' | 'max' = 'idle';
     private engineRumblePhase = 0;
     
     updateEngine(speedRatio: number, throttle: number, position?: Vector3, velocity?: Vector3) {
@@ -751,69 +745,69 @@ export class SoundManager {
         
         switch (newZone) {
             case 'idle':
-                // Холостой ход - БРУТАЛЬНЫЙ глубокий бас, мощные "хлопки"
+                // Холостой ход - глубокий бас, заметное урчание, но без излишней громкости
                 baseFreq = 28 + Math.sin(Date.now() * 0.002) * 3; // Более агрессивная вибрация
                 bassFreq1 = 18; // Более глубокий бас
                 bassFreq2 = 24; // Более мощный второй бас
                 midFreq1 = 55; // Более выраженные средние
                 midFreq2 = 85; // Более выраженные вторые средние
                 highFreq = 140; // Более яркие высокие
-                compressionFreq = 6.0; // Более быстрая компрессия для брутальности
-                volumeMultiplier = 1.2; // ЕЩЕ БОЛЬШЕ увеличена громкость для брутальности
-                filterBase = 350; // Увеличена частота фильтра для более яркого звука
-                rumbleIntensity = 0.5; // МАКСИМАЛЬНАЯ интенсивность урчания для брутальности
+                compressionFreq = 6.0;
+                volumeMultiplier = 0.9;
+                filterBase = 320;
+                rumbleIntensity = 0.4;
                 break;
             case 'low':
-                // Низкие обороты - БРУТАЛЬНОЕ "рычание"
+                // Низкие обороты - выразительное «рычание», но без перегруза
                 baseFreq = 38; // Более агрессивная частота
                 bassFreq1 = 24; // Более глубокий бас
                 bassFreq2 = 32; // Более мощный второй бас
                 midFreq1 = 75; // Более выраженные средние
                 midFreq2 = 110; // Более выраженные вторые средние
                 highFreq = 170; // Более яркие высокие
-                compressionFreq = 7.5; // Более быстрая компрессия
-                volumeMultiplier = 0.85; // Увеличена громкость
-                filterBase = 300; // Увеличена частота фильтра
-                rumbleIntensity = 0.45; // Увеличена интенсивность урчания
+                compressionFreq = 7.5;
+                volumeMultiplier = 0.85;
+                filterBase = 280;
+                rumbleIntensity = 0.4;
                 break;
             case 'medium':
-                // Средние обороты - БРУТАЛЬНЫЙ дизельный рёв
+                // Средние обороты - насыщенный дизельный рёв
                 baseFreq = 52; // Более агрессивная частота
                 bassFreq1 = 35; // Более глубокий бас
                 bassFreq2 = 45; // Более мощный второй бас
                 midFreq1 = 105; // Более выраженные средние
                 midFreq2 = 155; // Более выраженные вторые средние
                 highFreq = 210; // Более яркие высокие
-                compressionFreq = 9.5; // Более быстрая компрессия
-                volumeMultiplier = 1.0; // МАКСИМАЛЬНАЯ громкость
-                filterBase = 450; // Увеличена частота фильтра
-                rumbleIntensity = 0.55; // Увеличена интенсивность урчания
+                compressionFreq = 9.5;
+                volumeMultiplier = 1.0;
+                filterBase = 420;
+                rumbleIntensity = 0.5;
                 break;
             case 'high':
-                // Высокие обороты - БРУТАЛЬНЫЙ мощный рёв
+                // Высокие обороты - мощный рёв без чрезмерной яркости
                 baseFreq = 75; // Более агрессивная частота
                 bassFreq1 = 45; // Более глубокий бас
                 bassFreq2 = 60; // Более мощный второй бас
                 midFreq1 = 150; // Более выраженные средние
                 midFreq2 = 225; // Более выраженные вторые средние
                 highFreq = 280; // Более яркие высокие
-                compressionFreq = 12; // Более быстрая компрессия
-                volumeMultiplier = 1.15; // Увеличена громкость
-                filterBase = 600; // Увеличена частота фильтра
-                rumbleIntensity = 0.4; // Увеличена интенсивность урчания
+                compressionFreq = 12;
+                volumeMultiplier = 1.05;
+                filterBase = 560;
+                rumbleIntensity = 0.35;
                 break;
             case 'max':
-                // Максимальные обороты - МАКСИМАЛЬНО БРУТАЛЬНЫЙ дизельный рёв
+                // Максимальные обороты - максимально агрессивный звук, но в разумных пределах громкости
                 baseFreq = 95; // Более агрессивная частота
                 bassFreq1 = 58; // Более глубокий бас
                 bassFreq2 = 78; // Более мощный второй бас
                 midFreq1 = 190; // Более выраженные средние
                 midFreq2 = 285; // Более выраженные вторые средние
                 highFreq = 350; // Более яркие высокие
-                compressionFreq = 14; // Более быстрая компрессия
-                volumeMultiplier = 1.3; // МАКСИМАЛЬНАЯ громкость
-                filterBase = 700; // Увеличена частота фильтра
-                rumbleIntensity = 0.35; // Увеличена интенсивность урчания
+                compressionFreq = 14;
+                volumeMultiplier = 1.1;
+                filterBase = 650;
+                rumbleIntensity = 0.35;
                 break;
         }
         
@@ -935,15 +929,15 @@ export class SoundManager {
         // Q-фактор фильтра
         this.engineFilter.Q.value = 1.0 + speedRatio * 0.8;
         
-        // Общий объём с учётом зоны и газа (МАКСИМАЛЬНАЯ базовая громкость для брутальности)
-        // На холостом ходу гарантируем максимальную громкость для слышимости
-        const baseVolume = newZone === 'idle' ? 1.2 : 1.0; // Увеличена базовая громкость
+        // Общий объём с учётом зоны и газа
+        const baseVolume = newZone === 'idle' ? 0.9 : 0.85;
         const targetVolume = this.engineVolume * volumeMultiplier * (baseVolume + throttle * 0.2 + speedRatio * 0.2);
         const currentVolume = this.engineGain.gain.value;
         const volumeDiff = targetVolume - currentVolume;
-        this.engineGain.gain.value = Math.min(currentVolume + volumeDiff * 0.12, this.engineVolume * 2.2); // Увеличена максимальная громкость
+        // Ограничиваем максимальную громкость двигателя, чтобы избежать клиппинга и усталости
+        this.engineGain.gain.value = Math.min(currentVolume + volumeDiff * 0.12, this.engineVolume * 1.4);
         
-        this.engineSpeedZone = newZone;
+        this._engineSpeedZone = newZone;
         
         // Обновляем 3D позицию и скорость (для допплера)
         if (this.enginePanner && position) {
@@ -961,7 +955,7 @@ export class SoundManager {
             } catch (e) {}
         }
         
-        this.currentEngineSpeed = speedRatio;
+        // Текущая скорость двигателя может использоваться в будущем для дополнительной визуализации/эффектов
     }
     
     // ═══════════════════════════════════════════════════════════════════════
@@ -1314,7 +1308,7 @@ export class SoundManager {
         }, 70);
     }
     
-    playPickup(pickupType?: string) {
+    playPickup(_pickupType?: string) {
         if (!this.audioContext || !this.masterGain) return;
         this.resume();
         

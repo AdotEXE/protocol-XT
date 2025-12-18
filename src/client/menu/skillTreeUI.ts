@@ -9,8 +9,7 @@ import {
     SKILL_BRANCHES, 
     isNodeUnlocked, 
     getSkillCost,
-    calculateAllNodePositions,
-    type SkillNode 
+    calculateAllNodePositions
 } from "../skillTreeConfig";
 
 export interface PlayerStats {
@@ -153,11 +152,11 @@ export function updateSkillTreeDisplay(
     const minNodeDistance = 250;
     const nodeSize = { width: 220, height: 130 };
     
-    const nodeIds = Array.from(nodePositions.keys());
+    const nodeIds: string[] = Array.from(nodePositions.keys());
     for (let i = 0; i < nodeIds.length; i++) {
         for (let j = i + 1; j < nodeIds.length; j++) {
-            const pos1 = nodePositions.get(nodeIds[i]);
-            const pos2 = nodePositions.get(nodeIds[j]);
+            const pos1 = nodePositions.get(nodeIds[i]!);
+            const pos2 = nodePositions.get(nodeIds[j]!);
             if (!pos1 || !pos2) continue;
             
             const dx = pos1.centerX - pos2.centerX;
@@ -178,8 +177,8 @@ export function updateSkillTreeDisplay(
                 pos2.centerX = pos2.left + nodeSize.width / 2;
                 pos2.centerY = pos2.top + nodeSize.height / 2;
                 
-                nodePositions.set(nodeIds[i], pos1);
-                nodePositions.set(nodeIds[j], pos2);
+                nodePositions.set(nodeIds[i]!, pos1);
+                nodePositions.set(nodeIds[j]!, pos2);
             }
         }
     }

@@ -4,6 +4,7 @@
 
 import { Game } from "./game";
 import { logger } from "./utils/logger";
+import { CommonStyles } from "./commonStyles";
 
 export interface NetworkSettings {
     multiplayerEnabled: boolean;
@@ -517,8 +518,6 @@ export class NetworkMenu {
         if (!this.game || !this.game.multiplayerManager) return;
         
         // Измеряем пинг через отправку ping сообщения
-        const pingStart = performance.now();
-        
         // Если есть метод для отправки ping, используем его
         // Иначе используем время последнего сообщения
         if (this.lastPingTime > 0) {
@@ -609,7 +608,6 @@ export class NetworkMenu {
         playersSection.style.display = "block";
         
         const networkPlayers = this.game.multiplayerManager.getNetworkPlayers();
-        const localPlayerId = this.game.multiplayerManager.getPlayerId();
         const totalPlayers = networkPlayers.size + 1; // +1 для локального игрока
         
         playersCount.textContent = totalPlayers.toString();

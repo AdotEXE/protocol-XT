@@ -364,7 +364,8 @@ export class ReplayPlayer {
         // Find event index for this time
         this.eventIndex = 0;
         for (let i = 0; i < this.replayData.events.length; i++) {
-            if (this.replayData.events[i].timestamp <= this.currentTime) {
+            const ev = this.replayData.events[i]!;
+            if (ev.timestamp <= this.currentTime) {
                 this.eventIndex = i;
             } else {
                 break;
@@ -384,7 +385,7 @@ export class ReplayPlayer {
         
         // Process events up to current time
         while (this.eventIndex < this.replayData.events.length) {
-            const event = this.replayData.events[this.eventIndex];
+            const event = this.replayData.events[this.eventIndex]!;
             if (event.timestamp <= this.currentTime) {
                 if (this.onEventCallback) {
                     this.onEventCallback(event);

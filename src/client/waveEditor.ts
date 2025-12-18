@@ -21,7 +21,7 @@ export interface WaveEnemy {
 }
 
 export class WaveEditor {
-    private container: HTMLDivElement;
+    private container!: HTMLDivElement;
     private visible: boolean = false;
     private waves: Wave[] = [];
     private currentWave: Wave | null = null;
@@ -414,7 +414,7 @@ export class WaveEditor {
             
             const match = target.id?.match(/^enemy-(\d+)-(type|count|level|delay)$/);
             if (match) {
-                const index = parseInt(match[1]);
+                const index = parseInt(match[1]!, 10);
                 const field = match[2];
                 const enemy = this.currentWave.enemies[index];
                 if (enemy) {
@@ -434,26 +434,12 @@ export class WaveEditor {
     }
     
     /**
-     * Экспорт волн
-     */
-    private exportWaves(): void {
-        const data = JSON.stringify(this.waves, null, 2);
-        const blob = new Blob([data], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `waves_${Date.now()}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-    }
-    
-    /**
      * Добавление волны (публичный метод для совместимости с планом)
      */
     addWave(wave: Wave): void {
         this.waves.push(wave);
         this.saveWaves();
-        this.renderWaves();
+        this.updateUI();
     }
     
     /**
@@ -478,7 +464,7 @@ export class WaveEditor {
         if (index !== -1) {
             this.waves.splice(index, 1);
             this.saveWaves();
-            this.renderWaves();
+            this.updateUI();
             return true;
         }
         return false;
@@ -493,7 +479,7 @@ export class WaveEditor {
             if (Array.isArray(imported)) {
                 this.waves = imported;
                 this.saveWaves();
-                this.renderWaves();
+                this.updateUI();
                 logger.log("[WaveEditor] Waves imported successfully");
             } else {
                 throw new Error("Invalid wave data format");
@@ -560,13 +546,6 @@ export class WaveEditor {
         } catch (error) {
             logger.warn("[WaveEditor] Failed to save waves:", error);
         }
-    }
-    
-    /**
-     * Получить волны
-     */
-    getWaves(): Wave[] {
-        return [...this.waves];
     }
     
     /**

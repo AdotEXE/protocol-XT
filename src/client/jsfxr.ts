@@ -112,7 +112,7 @@ export function generateSound(audioContext: AudioContext, params: JSFXRParams): 
     const attackTime = p.p_env_attack;
     const sustainTime = p.p_env_sustain;
     const decayTime = p.p_env_decay;
-    let envelopeStageLength = [
+    let envelopeStageLength: [number, number, number] = [
         Math.floor(attackTime * sampleRate),
         Math.floor(sustainTime * sampleRate),
         Math.floor(decayTime * sampleRate)
@@ -131,7 +131,6 @@ export function generateSound(audioContext: AudioContext, params: JSFXRParams): 
     let lpFilterOn = p.p_lpf_freq < 1.0;
     let lpFilterPos = 0.0;
     let lpFilterDeltaPos = 0.0;
-    let lpFilterDeltaDeltaPos = 0.0;
     let lpFilterCutoff = Math.pow(p.p_lpf_freq, 3.0) * 0.1;
     let lpFilterDeltaCutoff = 1.0 + p.p_lpf_ramp * 0.0001;
     let lpFilterDamping = 5.0 / (1.0 + Math.pow(p.p_lpf_resonance, 2.0) * 20.0) * (0.01 + lpFilterCutoff);
@@ -214,9 +213,9 @@ export function generateSound(audioContext: AudioContext, params: JSFXRParams): 
             sample = Math.sin(phase * Math.PI * 2.0);
         } else if (p.wave_type === 3) {
             // Noise
-            if (noiseBuffer) {
+            if (noiseBuffer && noiseBuffer.length > 0) {
                 const noiseIndex = Math.floor(phase * 32.0) % noiseBuffer.length;
-                sample = noiseBuffer[noiseIndex];
+                sample = noiseBuffer[noiseIndex] ?? 0;
             } else {
                 sample = Math.random() * 2.0 - 1.0;
             }
@@ -265,7 +264,6 @@ export function generateSound(audioContext: AudioContext, params: JSFXRParams): 
         
         // High-pass filter
         if (hpFilterOn) {
-            const oldSample = sample;
             hpFilterPos += (sample - hpFilterPos) * hpFilterCutoff;
             sample -= hpFilterPos;
             

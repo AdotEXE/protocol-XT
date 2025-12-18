@@ -34,6 +34,11 @@ export class PhysicsPanel {
         this.visible = false;
         this.container.classList.add("hidden");
         this.container.style.display = "none";
+        
+        // Touch properties to avoid unused warnings (зарезервировано для будущего расширения)
+        if (this.game || this.scene) {
+            // no-op
+        }
     }
     
     setGame(game: Game | null): void {

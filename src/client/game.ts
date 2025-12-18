@@ -185,6 +185,9 @@ export class Game {
     private lastDeathTime = 0;
     gameInitialized = false;
     
+    // Плавающая сложность врагов (логирование для отладки скейла)
+    private _lastAdaptiveDifficultyLogTime = 0;
+    
     // Система волн для карты "Передовая"
     private frontlineWaveNumber = 0;
     private frontlineWaveTimer: number | null = null;
@@ -1767,8 +1770,10 @@ export class Game {
             const reward = this.achievementsSystem?.claimReward(achievement.id);
             if (reward) {
                 if (reward.type === "experience" && reward.amount) {
-                    this.playerProgression.addExperience(reward.amount, "achievement");
-                    logger.debug(`[Game] Awarded ${reward.amount} XP for achievement`);
+                    const diffMul = this.getDifficultyRewardMultiplier();
+                    const xp = Math.round(reward.amount * diffMul);
+                    this.playerProgression.addExperience(xp, "achievement");
+                    logger.debug(`[Game] Awarded ${xp} XP for achievement (base: ${reward.amount}, diffMul: ${diffMul})`);
                 }
             }
         }
@@ -1793,8 +1798,10 @@ export class Game {
             const reward = this.missionSystem.claimReward(mission.id);
             if (reward) {
                 if (reward.type === "experience" && this.playerProgression) {
-                    this.playerProgression.addExperience(reward.amount, "mission");
-                    logger.debug(`[Game] Awarded ${reward.amount} XP for mission`);
+                    const diffMul = this.getDifficultyRewardMultiplier();
+                    const xp = Math.round(reward.amount * diffMul);
+                    this.playerProgression.addExperience(xp, "mission");
+                    logger.debug(`[Game] Awarded ${xp} XP for mission (base: ${reward.amount}, diffMul: ${diffMul})`);
                 } else if (reward.type === "credits" && this.currencyManager) {
                     this.currencyManager.addCurrency(reward.amount);
                     logger.log(`[Game] Awarded ${reward.amount} credits for mission`);
@@ -2429,6 +2436,8 @@ export class Game {
             if (this.hud) {
                 this.experienceSystem.setHUD(this.hud);
             }
+            // Устанавливаем мультипликатор XP в зависимости от текущей сложности
+            this.experienceSystem.setDifficultyMultiplier(this.getDifficultyRewardMultiplier());
             
             // Initialize achievements system
             this.achievementsSystem = new AchievementsSystem();
@@ -2443,6 +2452,11 @@ export class Game {
             this.missionSystem.setOnMissionComplete((mission: Mission) => {
                 this.onMissionComplete(mission);
             });
+
+            // Связываем HUD с системой миссий для обработки CLAIM напрямую из интерфейса
+            if (this.hud && typeof (this.hud as any).setMissionSystem === "function") {
+                (this.hud as any).setMissionSystem(this.missionSystem);
+            }
             
             // Initialize player stats system
             this.playerStats = new PlayerStatsSystem();
@@ -2606,7 +2620,8 @@ export class Game {
                 }
                 // Начисляем валюту за уничтожение турели
                 if (this.currencyManager) {
-                    const reward = 50;
+                    const baseReward = 50;
+                    const reward = Math.round(baseReward * this.getDifficultyRewardMultiplier());
                     this.currencyManager.addCurrency(reward);
                     if (this.hud) {
                         this.hud.setCurrency(this.currencyManager.getCurrency());
@@ -2720,6 +2735,93 @@ export class Game {
     }
     
     /**
+     * Возвращает текущую сложность врагов с учётом sessionSettings и настроек главного меню
+     */
+    private getCurrentEnemyDifficulty(): "easy" | "medium" | "hard" {
+        // Приоритет: настройки сессии (ин‑игровая панель) > настройки главного меню > medium
+        if (this.sessionSettings) {
+            const sessionSettings = this.sessionSettings.getSettings();
+            if (sessionSettings.aiDifficulty) {
+                return sessionSettings.aiDifficulty;
+            }
+        }
+        
+        const menuSettings = this.mainMenu?.getSettings();
+        if (menuSettings?.enemyDifficulty) {
+            return menuSettings.enemyDifficulty;
+        }
+        
+        return "medium";
+    }
+    
+    /**
+     * Мультипликатор наград (кредиты/прогресс) в зависимости от сложности врагов
+     */
+    private getDifficultyRewardMultiplier(): number {
+        const diff = this.getCurrentEnemyDifficulty();
+        switch (diff) {
+            case "easy":
+                return 0.7;  // Меньше награды на лёгкой сложности
+            case "hard":
+                return 1.4;  // Больше награды на сложной
+            case "medium":
+            default:
+                return 1.0;
+        }
+    }
+    
+    /**
+     * Плавный множитель сложности врагов в зависимости от прогресса игрока и длительности текущей сессии.
+     * Используется для масштабирования параметров EnemyTank и (опционально) количества противников.
+     */
+    private getAdaptiveEnemyDifficultyScale(): number {
+        const diff = this.getCurrentEnemyDifficulty();
+        let base = 1.0;
+        if (diff === "easy") {
+            base = 0.9;
+        } else if (diff === "hard") {
+            base = 1.1;
+        }
+        
+        // Множитель от уровня игрока (1..50). Чем выше уровень, тем выше давление от ИИ.
+        let levelFactor = 1.0;
+        if (this.playerProgression) {
+            try {
+                const level = this.playerProgression.getLevel();
+                const normalized = Math.min(Math.max(level - 1, 0), 49) / 49; // 0..1
+                levelFactor = 1 + normalized * 0.5; // до +50%
+            } catch {
+                // В случае ошибки оставляем 1.0
+            }
+        }
+        
+        // Множитель от длительности выживания в текущей сессии (до 20 минут непрерывной игры)
+        let timeFactor = 1.0;
+        if (this.survivalStartTime > 0) {
+            const survivalSeconds = (Date.now() - this.survivalStartTime) / 1000;
+            const clamped = Math.min(Math.max(survivalSeconds, 0), 20 * 60);
+            const normalized = clamped / (20 * 60); // 0..1
+            timeFactor = 1 + normalized * 0.4; // до +40%
+        }
+        
+        let scale = base * levelFactor * timeFactor;
+        
+        // Кламп чтобы не уходить в экстремальные значения
+        if (scale < 0.7) scale = 0.7;
+        if (scale > 1.8) scale = 1.8;
+        
+        const now = Date.now();
+        if (now - this._lastAdaptiveDifficultyLogTime > 10000) {
+            this._lastAdaptiveDifficultyLogTime = now;
+            logger.debug(
+                `[Game] Adaptive enemy scale=${scale.toFixed(2)} (diff=${diff}, levelFactor=${levelFactor.toFixed(2)}, timeFactor=${timeFactor.toFixed(2)})`
+            );
+        }
+        
+        return scale;
+    }
+    
+    /**
      * Спавнит вражеские танки на карте в зависимости от типа карты
      * @returns {void}
      */
@@ -2796,25 +2898,35 @@ export class Game {
                 defaultEnemyCount = 12;
         }
         
-        // Используем настройки из sessionSettings, если доступны, иначе используем динамическое значение
+        // Используем настройки из sessionSettings/главного меню, если доступны
         let enemyCount = defaultEnemyCount;
-        let aiDifficulty: "easy" | "medium" | "hard" = "medium"; // Все боты medium сложности
+        let aiDifficulty: "easy" | "medium" | "hard" = this.getCurrentEnemyDifficulty();
+        let enemyCountOverridden = false;
         
         if (this.sessionSettings) {
             const sessionSettings = this.sessionSettings.getSettings();
             // Используем настройки из sessionSettings только если они установлены и > 0
             if (sessionSettings.enemyCount && sessionSettings.enemyCount > 0) {
                 enemyCount = sessionSettings.enemyCount;
+                enemyCountOverridden = true;
             }
-            // Сложность всегда medium для одиночного режима
-            aiDifficulty = "medium";
         } else {
             // Если sessionSettings нет, используем настройки из меню или динамическое значение
             const menuSettings = this.mainMenu?.getSettings();
             if (menuSettings?.enemyCount && menuSettings.enemyCount > 0) {
                 enemyCount = menuSettings.enemyCount;
+                enemyCountOverridden = true;
             }
-            aiDifficulty = "medium"; // Все боты medium сложности
+        }
+        
+        // Плавная кривая количества врагов: растёт с прогрессом игрока и длительностью сессии,
+        // но только если игрок не зафиксировал количество врагов вручную.
+        if (!enemyCountOverridden) {
+            const adaptiveScale = this.getAdaptiveEnemyDifficultyScale();
+            const scaledCount = Math.round(enemyCount * adaptiveScale);
+            const minCount = Math.max(4, Math.floor(enemyCount * 0.6));
+            const maxCount = Math.min(enemyCount + 8, Math.round(enemyCount * 1.6));
+            enemyCount = Math.max(minCount, Math.min(scaledCount, maxCount));
         }
         
         // ИСПРАВЛЕНИЕ: Проверка что enemyCount > 0
@@ -2885,8 +2997,9 @@ export class Game {
             try {
                 // Используем сложность из sessionSettings или настроек меню
                 const difficulty = aiDifficulty;
+                const difficultyScale = this.getAdaptiveEnemyDifficultyScale();
                 logger.log(`[Game] Spawning enemy ${index + 1}/${spawnPositions.length} at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`);
-                const enemyTank = new EnemyTank(this.scene, pos, this.soundManager!, this.effectsManager!, difficulty);
+                const enemyTank = new EnemyTank(this.scene, pos, this.soundManager!, this.effectsManager!, difficulty, difficultyScale);
                 if (this.tank) {
                     enemyTank.setTarget(this.tank);
                 }
@@ -2917,7 +3030,8 @@ export class Game {
                     this.playerStats.recordKill();
                 }
                 // Начисляем валюту
-                const reward = 100;
+                const baseReward = 100;
+                const reward = Math.round(baseReward * this.getDifficultyRewardMultiplier());
                 if (this.currencyManager) {
                     this.currencyManager.addCurrency(reward);
                     if (this.hud) {
@@ -3048,7 +3162,8 @@ export class Game {
         spawnPositions.forEach((pos) => {
             // Для полигона используем лёгкую сложность - тренировочные боты
             const difficulty = "easy";
-            const enemyTank = new EnemyTank(this.scene, pos, this.soundManager!, this.effectsManager!, difficulty);
+            // Тренировочные боты всегда без дополнительного скейла сложности
+            const enemyTank = new EnemyTank(this.scene, pos, this.soundManager!, this.effectsManager!, difficulty, 1);
             if (this.tank) {
                 enemyTank.setTarget(this.tank);
             }
@@ -3069,7 +3184,8 @@ export class Game {
                     this.missionSystem.updateProgress("kill", 1);
                 }
                 // Меньше награда за тренировочных ботов
-                const reward = 50;
+                const baseReward = 50;
+                const reward = Math.round(baseReward * this.getDifficultyRewardMultiplier());
                 if (this.currencyManager) {
                     this.currencyManager.addCurrency(reward);
                     if (this.hud) {
@@ -3105,7 +3221,7 @@ export class Game {
                             combatZoneMinZ + Math.random() * (combatZoneMaxZ - combatZoneMinZ)
                         );
                         
-                        const newBot = new EnemyTank(this.scene, newPos, this.soundManager!, this.effectsManager!, "easy");
+                        const newBot = new EnemyTank(this.scene, newPos, this.soundManager!, this.effectsManager!, "easy", 1);
                         if (this.tank) {
                             newBot.setTarget(this.tank);
                         }
@@ -3157,9 +3273,10 @@ export class Game {
         ];
         
         defenderPositions.forEach((pos) => {
-            // Защитники - средняя сложность, держат позиции
-            const difficulty = this.mainMenu?.getSettings().enemyDifficulty || "medium";
-            const defender = new EnemyTank(this.scene, pos, this.soundManager!, this.effectsManager!, difficulty);
+            // Защитники - сложность берём из текущих настроек (sessionSettings/меню)
+            const difficulty = this.getCurrentEnemyDifficulty();
+            const difficultyScale = this.getAdaptiveEnemyDifficultyScale();
+            const defender = new EnemyTank(this.scene, pos, this.soundManager!, this.effectsManager!, difficulty, difficultyScale);
             if (this.tank) {
                 defender.setTarget(this.tank);
             }
@@ -3194,10 +3311,23 @@ export class Game {
         
         this.frontlineWaveNumber++;
         
-        // Количество врагов в волне растёт
+        // Количество врагов в волне растёт с номером волны и плавным множителем сложности
         const baseCount = 3;
         const waveBonus = Math.min(this.frontlineWaveNumber - 1, 4); // +1 за волну, макс +4
-        const waveCount = Math.min(baseCount + waveBonus, this.frontlineMaxEnemies - this.enemyTanks.length);
+        const capacity = this.frontlineMaxEnemies - this.enemyTanks.length;
+        if (capacity <= 0) {
+            logger.log("[Game] Frontline: No capacity for new enemies, skipping wave");
+            return;
+        }
+        const adaptiveScale = this.getAdaptiveEnemyDifficultyScale();
+        const scaledBase = Math.max(1, Math.round(baseCount * (0.8 + (adaptiveScale - 1) * 0.5))); // ~0.8..1.4
+        let waveCount = Math.min(scaledBase + waveBonus, capacity);
+        
+        // Не даём волне быть слишком маленькой на высоких уровнях и слишком большой в начале
+        const minWaveCount = Math.min(capacity, Math.max(1, Math.floor((baseCount + waveBonus) * 0.6)));
+        if (waveCount < minWaveCount) {
+            waveCount = minWaveCount;
+        }
         
         if (waveCount <= 0) return;
         
@@ -3220,7 +3350,7 @@ export class Game {
             if (this.frontlineWaveNumber >= 3) difficulty = "medium";
             if (this.frontlineWaveNumber >= 6) difficulty = "hard";
             
-            const attacker = new EnemyTank(this.scene, pos, this.soundManager!, this.effectsManager!, difficulty);
+            const attacker = new EnemyTank(this.scene, pos, this.soundManager!, this.effectsManager!, difficulty, adaptiveScale);
             if (this.tank) {
                 attacker.setTarget(this.tank);
             }
@@ -3251,8 +3381,9 @@ export class Game {
             }
         }
         
-        // Награда зависит от типа врага
-        const reward = type === "defender" ? 120 : 80; // Защитники ценнее
+        // Награда зависит от типа врага и сложности
+        const baseReward = type === "defender" ? 120 : 80; // Защитники ценнее
+        const reward = Math.round(baseReward * this.getDifficultyRewardMultiplier());
         if (this.currencyManager) {
             this.currencyManager.addCurrency(reward);
             if (this.hud) {
@@ -3289,8 +3420,9 @@ export class Game {
                     const newZ = -150 + Math.random() * 300;
                     const newPos = new Vector3(newX, 0.6, newZ);
                     
-                    const difficulty = this.mainMenu?.getSettings().enemyDifficulty || "medium";
-                    const newDefender = new EnemyTank(this.scene, newPos, this.soundManager!, this.effectsManager!, difficulty);
+                    const difficulty = this.getCurrentEnemyDifficulty();
+                    const difficultyScale = this.getAdaptiveEnemyDifficultyScale();
+                    const newDefender = new EnemyTank(this.scene, newPos, this.soundManager!, this.effectsManager!, difficulty, difficultyScale);
                     if (this.tank) {
                         newDefender.setTarget(this.tank);
                     }
@@ -3662,7 +3794,18 @@ export class Game {
         logger.log(`[Game] Player garage: (${playerGarageX.toFixed(1)}, ${playerGarageZ.toFixed(1)}), Available garages for enemies: ${availableGarages.length}/${this.chunkSystem.garagePositions.length}`);
         
         // Спавним бота в каждом доступном гараже (максимум 8 ботов)
-        const enemyCount = Math.min(8, availableGarages.length);
+        let enemyCount = Math.min(8, availableGarages.length);
+        if (enemyCount <= 0) {
+            logger.log("[Game] No available garages for enemy spawn");
+            return;
+        }
+        
+        // Плавная кривая количества врагов вокруг игрока
+        const adaptiveScale = this.getAdaptiveEnemyDifficultyScale();
+        const scaledCount = Math.round(enemyCount * (0.7 + (adaptiveScale - 1) * 0.6)); // ~0.7..1.4x
+        const minCount = Math.min(enemyCount, Math.max(1, Math.floor(enemyCount * 0.6)));
+        const maxCount = Math.min(availableGarages.length, Math.min(10, enemyCount + 2));
+        enemyCount = Math.max(minCount, Math.min(scaledCount, maxCount));
         
         // Перемешиваем гаражи
         for (let i = availableGarages.length - 1; i > 0; i--) {
@@ -3673,9 +3816,10 @@ export class Game {
         // Спавним врагов в первых N гаражах
         for (let i = 0; i < enemyCount; i++) {
             const garagePos = availableGarages[i];
-            // Используем сложность из настроек меню
-            const difficulty = this.mainMenu?.getSettings().enemyDifficulty || "medium";
-            const enemyTank = new EnemyTank(this.scene, garagePos, this.soundManager, this.effectsManager, difficulty);
+            // Используем сложность из текущих настроек (sessionSettings/меню)
+            const difficulty = this.getCurrentEnemyDifficulty();
+            const difficultyScale = adaptiveScale;
+            const enemyTank = new EnemyTank(this.scene, garagePos, this.soundManager, this.effectsManager, difficulty, difficultyScale);
             if (this.tank) {
                 enemyTank.setTarget(this.tank);
             }
@@ -3689,7 +3833,8 @@ export class Game {
                 if (this.hud) {
                     this.hud.addKill();
                 }
-                    const reward = 100;
+                const baseReward = 100;
+                const reward = Math.round(baseReward * this.getDifficultyRewardMultiplier());
                 if (this.currencyManager) {
                     this.currencyManager.addCurrency(reward);
                     if (this.hud) {
@@ -3743,9 +3888,10 @@ export class Game {
             }
         }
         
-        // Используем сложность из настроек меню
-        const difficulty = this.mainMenu?.getSettings().enemyDifficulty || "medium";
-        const enemyTank = new EnemyTank(this.scene, garagePos, this.soundManager, this.effectsManager, difficulty);
+        // Используем сложность из текущих настроек (sessionSettings/меню)
+        const difficulty = this.getCurrentEnemyDifficulty();
+        const difficultyScale = this.getAdaptiveEnemyDifficultyScale();
+        const enemyTank = new EnemyTank(this.scene, garagePos, this.soundManager, this.effectsManager, difficulty, difficultyScale);
         if (this.tank) {
             enemyTank.setTarget(this.tank);
         }
@@ -3758,7 +3904,8 @@ export class Game {
             if (this.hud) {
                 this.hud.addKill();
             }
-            const reward = 100;
+            const baseReward = 100;
+            const reward = Math.round(baseReward * this.getDifficultyRewardMultiplier());
             if (this.currencyManager) {
                 this.currencyManager.addCurrency(reward);
                 if (this.hud) {
@@ -4438,7 +4585,9 @@ export class Game {
             },
             onBonusXP: (amount) => {
                 if (this.playerProgression) {
-                    this.playerProgression.addExperience(amount, "bonus");
+                    const diffMul = this.getDifficultyRewardMultiplier();
+                    const xp = Math.round(amount * diffMul);
+                    this.playerProgression.addExperience(xp, "bonus");
                 }
             },
             onBonusCredits: (amount) => {

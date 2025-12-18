@@ -2,6 +2,8 @@
 import { Scene, Vector3, Mesh } from "@babylonjs/core";
 import type { ITankController } from "./types";
 import { createUniqueCannon } from "./tankCannon";
+import { createUniqueChassis, type ChassisAnimationElements } from "./tankChassis";
+import type { ChassisType } from "../tankTypes";
 
 export class TankVisualsModule {
     private tank: ITankController;
@@ -14,7 +16,10 @@ export class TankVisualsModule {
      * Создание уникального корпуса танка
      */
     createUniqueChassis(scene: Scene, position: Vector3): Mesh {
-        return (this.tank as any).createUniqueChassis?.(scene, position);
+        const tankAny = this.tank as any;
+        const chassisType = tankAny.chassisType as ChassisType;
+        const animationElements = (tankAny.chassisAnimationElements || {}) as ChassisAnimationElements;
+        return createUniqueChassis(chassisType, scene, position, animationElements);
     }
     
     /**

@@ -32,13 +32,17 @@ export class NoiseGenerator {
         for (let i = 255; i > 0; i--) {
             s = (s * 1103515245 + 12345) & 0x7fffffff;
             const j = s % (i + 1);
-            [p[i], p[j]] = [p[j], p[i]];
+            const pi = p[i]!;
+            const pj = p[j]!;
+            p[i] = pj;
+            p[j] = pi;
         }
         
         // Duplicate for wrapping
         for (let i = 0; i < 512; i++) {
-            this.perm[i] = p[i & 255];
-            this.permMod12[i] = this.perm[i] % 12;
+            const v = p[i & 255] ?? 0;
+            this.perm[i] = v;
+            this.permMod12[i] = v % 12;
         }
     }
     
@@ -85,9 +89,12 @@ export class NoiseGenerator {
         // Hash coordinates
         const ii = i & 255;
         const jj = j & 255;
-        const gi0 = this.permMod12[ii + this.perm[jj]];
-        const gi1 = this.permMod12[ii + i1 + this.perm[jj + j1]];
-        const gi2 = this.permMod12[ii + 1 + this.perm[jj + 1]];
+        const permJJ = this.perm[jj] ?? 0;
+        const permJJ1 = this.perm[jj + j1] ?? 0;
+        const permJJPlus1 = this.perm[jj + 1] ?? 0;
+        const gi0 = this.permMod12[ii + permJJ] ?? 0;
+        const gi1 = this.permMod12[ii + i1 + permJJ1] ?? 0;
+        const gi2 = this.permMod12[ii + 1 + permJJPlus1] ?? 0;
         
         // Calculate contributions
         let n0 = 0, n1 = 0, n2 = 0;
@@ -114,8 +121,11 @@ export class NoiseGenerator {
         return 70.0 * (n0 + n1 + n2);
     }
     
-    private dot2(g: number[], x: number, y: number): number {
-        return g[0] * x + g[1] * y;
+    private dot2(g: number[] | undefined, x: number, y: number): number {
+        if (!g) return 0;
+        const gx = g[0] ?? 0;
+        const gy = g[1] ?? 0;
+        return gx * x + gy * y;
     }
     
     // Fractal Brownian Motion (fBm) - combines multiple octaves of noise
@@ -175,13 +185,11 @@ export class NoiseGenerator {
 // Terrain generator using noise
 export class TerrainGenerator {
     private noise: NoiseGenerator;
-    private seed: number;
     private heightCache: Map<string, number> = new Map();
     private static readonly MAX_CACHE_SIZE = 200000;
     private isPositionInGarageArea?: (x: number, z: number, margin: number) => boolean;
     
     constructor(seed: number, isPositionInGarageArea?: (x: number, z: number, margin: number) => boolean) {
-        this.seed = seed;
         this.noise = new NoiseGenerator(seed);
         this.isPositionInGarageArea = isPositionInGarageArea;
     }
@@ -420,7 +428,11 @@ export class TerrainGenerator {
         }
         
         // NO EROSION - keep sharp edges for blocky/low-poly style
-        // height = this.applyErosion(height, worldX, worldZ, biome); // DISABLED
+        // Если когда-нибудь понадобится включить эрозию, можно переключить этот флаг
+        const APPLY_EROSION = false;
+        if (APPLY_EROSION) {
+            height = this.applyErosion(height, worldX, worldZ, biome);
+        }
         
         // Add dramatic river/valley patterns (negative height features) - BLOCKY
         const riverNoise = this.noise.ridged(worldX * scale * 0.4, worldZ * scale * 0.4, 3, 2, 0.5);

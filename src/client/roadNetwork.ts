@@ -126,7 +126,6 @@ export class RoadNetwork {
         const normalizedDir = direction.normalize();
         
         // Add curvature using noise for organic feel
-        const midPoint = start.add(direction.scale(0.5));
         const perpDir = new Vector3(-normalizedDir.z, 0, normalizedDir.x);
         
         for (let i = 1; i < segments; i++) {
@@ -188,7 +187,6 @@ export class RoadNetwork {
             const targetPos = start.add(direction.scale(t));
             
             // Sample terrain in front and to the sides to find best path
-            const sampleDist = stepSize * 1.5;
             const samples: Array<{ pos: Vector3, cost: number }> = [];
             
             // Sample center and sides
@@ -214,9 +212,14 @@ export class RoadNetwork {
             }
             
             // Choose best sample (lowest cost)
-            samples.sort((a, b) => a.cost - b.cost);
-            currentPos = samples[0].pos;
-            points.push(currentPos.clone());
+            if (samples.length > 0) {
+                samples.sort((a, b) => a.cost - b.cost);
+                const bestSample = samples[0];
+                if (bestSample) {
+                    currentPos = bestSample.pos;
+                    points.push(currentPos.clone());
+                }
+            }
         }
         
         // Ensure we end at the target
@@ -231,9 +234,11 @@ export class RoadNetwork {
         const segments: RoadSegment[] = [];
         
         for (let i = 0; i < points.length - 1; i++) {
+            const startPoint = points[i]!;
+            const endPoint = points[i + 1]!;
             segments.push({
-                start: points[i],
-                end: points[i + 1],
+                start: startPoint,
+                end: endPoint,
                 width: width,
                 type: type
             });
@@ -363,7 +368,7 @@ export class RoadNetwork {
         const meshes: Mesh[] = [];
         
         for (let i = 0; i < roads.length; i++) {
-            const road = roads[i];
+            const road: RoadSegment = roads[i]!;
             const mesh = this.createRoadMesh(road, `road_${chunkX}_${chunkZ}_${i}`);
             if (mesh) {
                 mesh.parent = parentNode;

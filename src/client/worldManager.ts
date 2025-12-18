@@ -2,7 +2,7 @@
  * World Manager - Управление настройками мира (погода, время суток, видимость, ветер)
  */
 
-import { Scene, Vector3, HemisphericLight, DirectionalLight, Color3, FogExp2 } from "@babylonjs/core";
+import { Scene, Vector3, HemisphericLight, DirectionalLight, Color3 } from "@babylonjs/core";
 import { logger } from "./utils/logger";
 
 export enum WeatherType {

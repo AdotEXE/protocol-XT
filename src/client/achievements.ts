@@ -322,7 +322,7 @@ export const ACHIEVEMENTS: Achievement[] = [
         descriptionEn: "Travel 10 km with Hover chassis",
         icon: "🚁",
         requirement: 10000,
-        reward: { type: "currency", amount: 550 },
+        reward: { type: "currency", amount: 800 },
         category: "exploration"
     },
     {
@@ -333,7 +333,7 @@ export const ACHIEVEMENTS: Achievement[] = [
         descriptionEn: "Survive 30 minutes with Siege chassis",
         icon: "🏰",
         requirement: 1800,
-        reward: { type: "currency", amount: 700 },
+        reward: { type: "currency", amount: 1000 },
         category: "survival"
     },
     {
@@ -344,7 +344,7 @@ export const ACHIEVEMENTS: Achievement[] = [
         descriptionEn: "Reach max speed with Racer chassis",
         icon: "🏎️",
         requirement: 1,
-        reward: { type: "currency", amount: 450 },
+        reward: { type: "currency", amount: 250 },
         category: "special"
     },
     {
@@ -412,7 +412,7 @@ export const ACHIEVEMENTS: Achievement[] = [
         descriptionEn: "Fire 10000 shots with Gatling",
         icon: "⚙️",
         requirement: 10000,
-        reward: { type: "currency", amount: 600 },
+        reward: { type: "currency", amount: 900 },
         category: "combat"
     },
     {
@@ -434,7 +434,7 @@ export const ACHIEVEMENTS: Achievement[] = [
         descriptionEn: "Deal 50000 damage with Plasma",
         icon: "💜",
         requirement: 50000,
-        reward: { type: "currency", amount: 700 },
+        reward: { type: "currency", amount: 1000 },
         category: "combat"
     },
     {

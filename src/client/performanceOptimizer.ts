@@ -1,9 +1,3 @@
-/**
- * Performance Optimizer - Оптимизация производительности (дебаунсинг, виртуализация, кэширование)
- */
-
-import { logger } from "./utils/logger";
-
 export class PerformanceOptimizer {
     private debounceTimers: Map<string, number> = new Map();
     private cache: Map<string, { data: any; timestamp: number; ttl: number }> = new Map();
@@ -36,7 +30,7 @@ export class PerformanceOptimizer {
      * Троттлинг функции
      */
     throttle<T extends (...args: any[]) => any>(
-        key: string,
+        _key: string,
         func: T,
         limit: number
     ): (...args: Parameters<T>) => void {
@@ -138,7 +132,7 @@ export class PerformanceOptimizer {
         visibleCount: number = 10
     ): () => void {
         let scrollTop = 0;
-        const containerHeight = container.clientHeight;
+        // const containerHeight = container.clientHeight; // reserved for future optimizations
         
         const update = () => {
             const start = Math.floor(scrollTop / itemHeight);
@@ -181,7 +175,7 @@ export class PerformanceOptimizer {
      * Оптимизация обновлений UI
      */
     createUpdateBatcher<T>(
-        key: string,
+        _key: string,
         updateFn: (items: T[]) => void,
         batchSize: number = 10,
         delay: number = 100

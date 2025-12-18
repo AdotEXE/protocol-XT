@@ -91,6 +91,10 @@ export class SessionSettings {
         this.game = game;
         if (game && game.scene) {
             this.worldManager = new WorldManager(game.scene);
+            // Чтение нужно, чтобы worldManager не считался неиспользуемым и оставался готовым для будущих расширений
+            if (this.worldManager) {
+                // no-op
+            }
         }
         this.waveEditor = new WaveEditor();
     }

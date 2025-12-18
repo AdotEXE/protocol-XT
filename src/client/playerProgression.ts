@@ -754,7 +754,7 @@ export class PlayerProgressionSystem {
         current = Math.max(0, current);
         
         // Требуемый опыт для следующего уровня (разница между уровнями)
-        const required = nextLevelXP - currentLevelXP;
+        const required = (nextLevelXP ?? currentLevelXP) - currentLevelXP;
         
         // Ограничиваем current чтобы не превышал required
         current = Math.min(current, required);

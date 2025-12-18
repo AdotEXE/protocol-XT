@@ -167,7 +167,9 @@ export class WorldGenerationMenu {
                 underground: "Подземная",
                 coastal: "Прибрежная"
             };
-            mapInfoEl.textContent = `Текущая карта: ${mapNames[mapType] || mapType}`;
+            const key = mapType as MapType;
+            const mapName = mapNames[key] ?? mapType;
+            mapInfoEl.textContent = `Текущая карта: ${mapName}`;
         }
     }
     
@@ -895,8 +897,11 @@ export class WorldGenerationMenu {
         if (index < 0 || index >= this.profiles.length) return;
         
         const profile = this.profiles[index];
+        if (!profile) return;
         this.settings = JSON.parse(JSON.stringify(profile.settings)); // Deep copy
         this.currentProfile = profile.name;
+        // Чтение currentProfile, чтобы избежать предупреждений компилятора и оставить поле для будущего UI
+        void this.currentProfile;
         this.updateUI();
         alert(`✅ Профиль "${profile.name}" загружен!`);
     }

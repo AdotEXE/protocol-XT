@@ -8,6 +8,7 @@ import {
     TextBlock,
     Control
 } from "@babylonjs/gui";
+import type { MissionSystem, Mission, MissionProgress } from "./missionSystem";
 import { scalePixels } from "./utils/uiScale";
 
 // ULTRA SIMPLE HUD - NO gradients, NO shadows, NO alpha, NO transparency
@@ -16,6 +17,8 @@ import { scalePixels } from "./utils/uiScale";
 export class HUD {
     private scene: Scene;
     private guiTexture: AdvancedDynamicTexture;
+    // Ссылка на MissionSystem для обработки claim из HUD (инжектируется из Game)
+    private missionSystem: MissionSystem | null = null;
     
     // Health
     private healthBar!: Rectangle;
@@ -136,6 +139,10 @@ export class HUD {
     // Notifications queue
     private notifications: Array<{ text: string, type: string, element: Rectangle }> = [];
     private notificationContainer: Rectangle | null = null;
+    // Анти-спам для уведомлений
+    private lastNotificationKey: string | null = null;
+    private lastNotificationTime = 0;
+    private readonly NOTIFICATION_SPAM_COOLDOWN = 800; // мс между одинаковыми уведомлениями
     
     // Mission panel
     private missionPanel: Rectangle | null = null;
@@ -3402,8 +3409,8 @@ export class HUD {
         
         // Если duration = 0, не скрываем автоматически (для таймера респавна)
         if (duration > 0) {
-        this.messageTimeout = setTimeout(() => {
-            msgBg.isVisible = false;
+            this.messageTimeout = setTimeout(() => {
+                msgBg.isVisible = false;
             }, duration);
         }
     }
@@ -3865,6 +3872,9 @@ export class HUD {
         // Возвращаем в пул
         for (let i = 0; i < this.minimapEnemies.length; i++) {
             const marker = this.minimapEnemies[i];
+            if (!marker) {
+                continue;
+            }
             marker.isVisible = false;
             if (i < this.poolSize) {
                 if (marker.name && marker.name.startsWith('enemy')) {
@@ -3950,7 +3960,9 @@ export class HUD {
             
             // Обновляем заполнение (оптимизация: обычный for)
             for (let i = 0; i < this.minimapFovCone.length; i++) {
-                this.minimapFovCone[i].background = this.isAimingMode ? "#ff02" : "#0f01";
+                const cone = this.minimapFovCone[i];
+                if (!cone) continue;
+                cone.background = this.isAimingMode ? "#ff02" : "#0f01";
             }
         }
         
@@ -4105,7 +4117,8 @@ export class HUD {
         this.updateGameTime();
     }
     
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    // Дополнительная (скрытая) панель статистики танка.
+    // Оставлена для обратной совместимости, на геймплей не влияет.
     private _createTankStatsDisplay() {
         // Контейнер для статистики танка - СКРЫТ (XP теперь по центру)
         this.tankStatsContainer = new Rectangle("tankStatsContainer");
@@ -4771,7 +4784,6 @@ export class HUD {
             if (diff > 0.5) {
                 const pulse = 1 + Math.sin(this.animationTime * 8) * 0.05;
                 if (this.centralXpBar) {
-                    const baseColor = "#0f0";
                     // Легкое изменение яркости
                     this.centralXpBar.alpha = 0.9 + pulse * 0.1;
                 }
@@ -5280,7 +5292,6 @@ export class HUD {
         // Применяем масштаб с плавной интерполяцией
         if (this.comboContainer) {
             const currentScaleX = this.comboContainer.scaleX || 1.0;
-            const _currentScaleY = this.comboContainer.scaleY || 1.0;
             
             // Плавная интерполяция для избежания резких скачков
             const smoothScale = currentScaleX + (this.comboScale - currentScaleX) * 0.2;
@@ -5320,33 +5331,10 @@ export class HUD {
         }
     }
     
-    // === TRACER COUNTER ===
-    
+    // === TRACER COUNTER (deprecated, теперь отображается в блоке АРСЕНАЛ) ===
+    // Метод оставлен для совместимости, но больше не создаёт элементов.
     private createTracerCounter(): void {
-        // DEPRECATED: Счетчик трассеров теперь в блоке АРСЕНАЛ
-        // Оставляем для обратной совместимости, но скрываем
-        this.tracerContainer = new Rectangle("tracerContainer");
-        this.tracerContainer.width = this.scalePx(90);
-        this.tracerContainer.height = this.scalePx(28);
-        this.tracerContainer.cornerRadius = 3;
-        this.tracerContainer.color = "#f60";
-        this.tracerContainer.thickness = 2;
-        this.tracerContainer.background = "rgba(50, 20, 0, 0.8)";
-        this.tracerContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.tracerContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.tracerContainer.left = this.scalePx(15);
-        this.tracerContainer.top = this.scalePx(50);
-        this.tracerContainer.isVisible = false; // Скрыт, так как теперь в арсенале
-        this.guiTexture.addControl(this.tracerContainer);
-        
-        // Tracer icon and count text
-        this.tracerCountText = new TextBlock("tracerCountText");
-        this.tracerCountText.text = "T: 5/5";
-        this.tracerCountText.color = "#f80";
-        this.tracerCountText.fontSize = this.scaleFontSize(13, 10, 18);
-        this.tracerCountText.fontWeight = "bold";
-        this.tracerCountText.fontFamily = "Consolas, monospace";
-        this.tracerContainer.addControl(this.tracerCountText);
+        // no-op
     }
     
     updateTracerCount(current: number, max: number): void {
@@ -5382,7 +5370,6 @@ export class HUD {
         const RADAR_SIZE = 175; // Размер радара
         const HEADER_HEIGHT = 22; // Высота заголовка радара
         const INFO_HEIGHT = 22; // Высота блока информации радара
-        const TOTAL_RADAR_HEIGHT = RADAR_SIZE + HEADER_HEIGHT + INFO_HEIGHT; // Общая высота радара с заголовком и инфо
         
         this.tankStatusContainer = new Rectangle("tankStatusContainer");
         this.tankStatusContainer.width = blockWidth;
@@ -5534,7 +5521,7 @@ export class HUD {
         ];
         
         for (let i = 0; i < 5; i++) {
-            const ammoType = ammoTypes[i];
+            const ammoType = ammoTypes[i]!;
             
             // Контейнер слота (как у припасов)
             const container = new Rectangle(`arsenalSlot${i}`);
@@ -5669,7 +5656,7 @@ export class HUD {
             { type: "apds", color: "#0fa" }
         ];
         
-        const ammoType = ammoTypes[slotIndex];
+        const ammoType = ammoTypes[slotIndex]!;
         if (current === 0) {
             slot.countText.color = "#f00";
             slot.container.color = "#f005";
@@ -5687,7 +5674,7 @@ export class HUD {
         const slotTypes = ["tracer", "ap", "apcr", "he", "apds"];
         
         for (let i = 0; i < slotTypes.length && i < this.arsenalSlots.length; i++) {
-            const type = slotTypes[i];
+            const type = slotTypes[i]!;
             const data = ammoData.get(type);
             if (data) {
                 this.updateArsenalSlot(i, data.current, data.max);
@@ -5787,6 +5774,15 @@ export class HUD {
     
     showNotification(text: string, type: "success" | "warning" | "error" | "info" = "info"): void {
         if (!this.notificationContainer) return;
+        
+        // Анти-спам: подавляем одинаковые уведомления, приходящие слишком часто
+        const now = Date.now();
+        const key = `${type}:${text}`;
+        if (this.lastNotificationKey === key && (now - this.lastNotificationTime) < this.NOTIFICATION_SPAM_COOLDOWN) {
+            return;
+        }
+        this.lastNotificationKey = key;
+        this.lastNotificationTime = now;
         
         const notification = new Rectangle("notification_" + Date.now());
         notification.width = "280px";
@@ -6058,7 +6054,7 @@ export class HUD {
         }
         
         this.tutorialStep = step;
-        this.tutorialText.text = steps[step];
+        this.tutorialText.text = steps[step] ?? "";
         this.tutorialContainer.isVisible = true;
         
         // Auto-advance to next step
@@ -6896,10 +6892,7 @@ export class HUD {
         if (this.missionPanel) {
             this.missionPanelVisible = !this.missionPanelVisible;
             this.missionPanel.isVisible = this.missionPanelVisible;
-            // Если панель открывается, обновляем миссии
-            if (this.missionPanelVisible && this.game) {
-                // Обновление будет вызвано из game.ts в update()
-            }
+            // Если панель открывается, обновление списка миссий выполняется из game.ts (update)
         }
     }
     
@@ -7023,42 +7016,51 @@ export class HUD {
                 
                 // ОБРАБОТЧИК КЛИКА
                 claimButton.onPointerClickObservable.add(() => {
-                    if (this.game && this.game.missionSystem) {
-                        const reward = this.game.missionSystem.claimReward(mission.id);
-                        if (reward) {
-                            this.showMessage(
-                                `+${reward.amount} ${reward.type === "experience" ? "XP" : "кредитов"}`,
-                                "#0f0",
-                                2000
-                            );
-                            // Обновляем миссии
-                            const activeMissions = this.game.missionSystem.getActiveMissions();
-                            const missionData = activeMissions.map(m => ({
-                                id: m.mission.id,
-                                name: this.game.missionSystem!.getName(m.mission),
-                                description: this.game.missionSystem!.getDescription(m.mission),
-                                icon: m.mission.icon,
-                                current: m.progress.current,
-                                requirement: m.mission.requirement,
-                                completed: m.progress.completed,
-                                claimed: m.progress.claimed,
-                                type: m.mission.type
-                            }));
-                            this.updateMissions(missionData);
-                        }
+                    if (!this.missionSystem) {
+                        return;
                     }
+                    const reward = this.missionSystem.claimReward(mission.id);
+                    if (!reward) {
+                        return;
+                    }
+                    
+                    this.showMessage(
+                        `+${reward.amount} ${reward.type === "experience" ? "XP" : "кредитов"}`,
+                        "#0f0",
+                        2000
+                    );
+                    
+                    // Обновляем миссии
+                    const activeMissions = this.missionSystem.getActiveMissions();
+                    const missionData = activeMissions.map((m: { mission: Mission; progress: MissionProgress }) => ({
+                        id: m.mission.id,
+                        name: this.missionSystem!.getName(m.mission),
+                        description: this.missionSystem!.getDescription(m.mission),
+                        icon: m.mission.icon,
+                        current: m.progress.current,
+                        requirement: m.mission.requirement,
+                        completed: m.progress.completed,
+                        claimed: m.progress.claimed,
+                        type: m.mission.type
+                    }));
+                    this.updateMissions(missionData);
                 });
             }
         });
     }
     
-    private _showComboIncrease(currentCombo: number, previousCombo: number): void {
+    setMissionSystem(system: MissionSystem | null): void {
+        this.missionSystem = system;
+    }
+    
+    private _showComboIncrease(_currentCombo: number, _previousCombo: number): void {
         // Placeholder для метода показа увеличения комбо
         // Можно реализовать позже если нужно
     }
     
-    private _createComboParticles(comboCount: number): void {
+    private _createComboParticles(_comboCount: number): void {
         // Placeholder для метода создания частиц комбо
         // Можно реализовать позже если нужно
     }
 }
+

@@ -229,8 +229,10 @@ export class MetricsCharts {
                 return metrics.triangles;
             case 'frameTime':
                 return metrics.frameTime;
-            default:
-                return (metrics as any)[metric];
+            default: {
+                const value = (metrics as any)[metric];
+                return typeof value === "number" ? value : undefined;
+            }
         }
     }
     

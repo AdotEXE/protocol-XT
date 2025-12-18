@@ -159,6 +159,8 @@ export class ExperienceSystem {
     private effectsManager: { createLevelUpEffect: (position: Vector3) => void } | null = null; // EffectsManager для эффектов повышения уровня
     private soundManager: { play: (sound: string, volume?: number) => void } | null = null; // SoundManager для звуков опыта
     private playerProgression: { addExperience: (amount: number) => void } | null = null; // PlayerProgressionSystem для передачи опыта игроку
+    // Мультипликатор XP для игрока в зависимости от сложности
+    private xpDifficultyMultiplier: number = 1.0;
     
     // Защита от дублирования начисления опыта
     private lastXpTransfer: { time: number, amount: number, reason: string } | null = null;
@@ -246,6 +248,11 @@ export class ExperienceSystem {
     
     setPlayerProgression(playerProgression: any): void {
         this.playerProgression = playerProgression;
+    }
+    
+    // Устанавливает мультипликатор XP для игрока (easy/medium/hard)
+    setDifficultyMultiplier(multiplier: number): void {
+        this.xpDifficultyMultiplier = multiplier;
     }
     
     // ─────────────────────────────────────────────────────────────────────
@@ -896,15 +903,18 @@ export class ExperienceSystem {
                 const roundedXP = Math.round(totalPlayerXP * 10) / 10; // Округляем до 0.1
                 const reason = "batch";
                 
+                // Применяем мультипликатор сложности только к глобальному опыту игрока
+                const scaledXP = Math.round(roundedXP * this.xpDifficultyMultiplier * 10) / 10;
+                
                 // ПЕРЕД вызовом playerProgression.addExperience(): Проверяем что не передаём тот же опыт дважды
                 const now = Date.now();
                 if (!this.lastXpTransfer || 
                     now - this.lastXpTransfer.time > this.XP_TRANSFER_COOLDOWN || 
-                    this.lastXpTransfer.amount !== roundedXP ||
+                    this.lastXpTransfer.amount !== scaledXP ||
                     this.lastXpTransfer.reason !== reason) {
                     
-                    this.playerProgression.addExperience(roundedXP, reason);
-                    this.lastXpTransfer = { time: now, amount: roundedXP, reason };
+                    this.playerProgression.addExperience(scaledXP, reason);
+                    this.lastXpTransfer = { time: now, amount: scaledXP, reason };
                 }
             }
         } else {

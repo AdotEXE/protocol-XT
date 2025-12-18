@@ -98,6 +98,8 @@ export class MultiplayerManager {
     private onCTFFlagCaptureCallback: ((data: any) => void) | null = null;
     private onQueueUpdateCallback: ((data: any) => void) | null = null;
     private onMatchFoundCallback: ((data: any) => void) | null = null;
+    private onRoomCreatedCallback: ((data: any) => void) | null = null;
+    private onErrorCallback: ((data: any) => void) | null = null;
     
     constructor(serverUrl: string = "ws://localhost:8080", autoConnect: boolean = false) {
         this.serverUrl = serverUrl;
@@ -395,9 +397,15 @@ export class MultiplayerManager {
         if (this.networkMetrics.pingHistory.length >= 2) {
             const variations: number[] = [];
             for (let i = 1; i < this.networkMetrics.pingHistory.length; i++) {
-                variations.push(Math.abs(this.networkMetrics.pingHistory[i] - this.networkMetrics.pingHistory[i - 1]));
+                const current = this.networkMetrics.pingHistory[i];
+                const previous = this.networkMetrics.pingHistory[i - 1];
+                if (current !== undefined && previous !== undefined) {
+                    variations.push(Math.abs(current - previous));
+                }
             }
-            this.networkMetrics.jitter = variations.reduce((a, b) => a + b, 0) / variations.length;
+            if (variations.length > 0) {
+                this.networkMetrics.jitter = variations.reduce((a, b) => a + b, 0) / variations.length;
+            }
         }
     }
     
@@ -599,7 +607,26 @@ export class MultiplayerManager {
      * Apply player states update (extracted from handlePlayerStates)
      */
     private applyPlayerStates(statesData: PlayerStatesData): void {
-        const players = statesData.players || [];
+        // Фильтрация аномальных/подозрительных состояний игроков (простая защита от мусорных пакетов)
+        const rawPlayers = statesData.players || [];
+        const players = rawPlayers.filter((p) => {
+            if (!p || !p.position) {
+                return false;
+            }
+            const { x, y, z } = p.position;
+            if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+                logger.warn("[Multiplayer] Dropping player state with NaN/Infinity position", p.id);
+                return false;
+            }
+            // Ограничение по радиусу карты (защита от телепортов далеко за пределы мира)
+            const MAX_RADIUS = 10000;
+            const MAX_HEIGHT = 2000;
+            if (Math.abs(x) > MAX_RADIUS || Math.abs(z) > MAX_RADIUS || Math.abs(y) > MAX_HEIGHT) {
+                logger.warn("[Multiplayer] Dropping player state with out-of-bounds position", p.id, p.position);
+                return false;
+            }
+            return true;
+        });
         const gameTime = statesData.gameTime || 0;
         const serverSequence = statesData.serverSequence;
         

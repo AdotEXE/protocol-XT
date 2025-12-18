@@ -62,7 +62,7 @@ const DAILY_MISSIONS: Mission[] = [
         icon: "💥",
         type: "daily",
         requirement: 1000,
-        reward: { type: "credits", amount: 50 },
+        reward: { type: "credits", amount: 100 },
         category: "combat"
     },
     
@@ -88,7 +88,7 @@ const DAILY_MISSIONS: Mission[] = [
         icon: "🔫",
         type: "daily",
         requirement: 50,
-        reward: { type: "credits", amount: 30 },
+        reward: { type: "credits", amount: 70 },
         category: "poi"
     },
     {
@@ -114,7 +114,7 @@ const DAILY_MISSIONS: Mission[] = [
         icon: "⏱️",
         type: "daily",
         requirement: 180,
-        reward: { type: "credits", amount: 40 },
+        reward: { type: "credits", amount: 60 },
         category: "survival"
     },
     
@@ -128,7 +128,7 @@ const DAILY_MISSIONS: Mission[] = [
         icon: "🚗",
         type: "daily",
         requirement: 500,
-        reward: { type: "experience", amount: 50 },
+        reward: { type: "experience", amount: 75 },
         category: "exploration"
     }
 ];
@@ -144,7 +144,7 @@ const WEEKLY_MISSIONS: Mission[] = [
         icon: "🏆",
         type: "weekly",
         requirement: 50,
-        reward: { type: "experience", amount: 500 },
+        reward: { type: "experience", amount: 800 },
         category: "combat"
     },
     {
@@ -156,7 +156,7 @@ const WEEKLY_MISSIONS: Mission[] = [
         icon: "👑",
         type: "weekly",
         requirement: 15,
-        reward: { type: "credits", amount: 200 },
+        reward: { type: "credits", amount: 300 },
         category: "poi"
     },
     {
@@ -168,7 +168,7 @@ const WEEKLY_MISSIONS: Mission[] = [
         icon: "💣",
         type: "weekly",
         requirement: 10000,
-        reward: { type: "experience", amount: 750 },
+        reward: { type: "experience", amount: 900 },
         category: "combat"
     }
 ];
@@ -243,6 +243,7 @@ export class MissionSystem {
         const shuffledDaily = [...DAILY_MISSIONS].sort(() => Math.random() - 0.5);
         for (let i = 0; i < 3 && i < shuffledDaily.length; i++) {
             const mission = shuffledDaily[i];
+            if (!mission) continue;
             if (!this.activeMissions.has(mission.id)) {
                 this.activeMissions.set(mission.id, {
                     id: mission.id,
@@ -262,6 +263,9 @@ export class MissionSystem {
         
         if (!hasWeekly) {
             const weeklyMission = WEEKLY_MISSIONS[Math.floor(Math.random() * WEEKLY_MISSIONS.length)];
+            if (!weeklyMission) {
+                return;
+            }
             this.activeMissions.set(weeklyMission.id, {
                 id: weeklyMission.id,
                 current: 0,

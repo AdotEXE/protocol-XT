@@ -127,6 +127,118 @@ export interface MatchHistory {
     team?: string;
 }
 
+// Агрегированные метрики по списку матчей для баланс/телеметрии
+export interface MatchHistorySummary {
+    matches: number;
+    totalTime: number;          // seconds
+    avgMatchTime: number;       // seconds
+    avgKills: number;
+    avgDeaths: number;
+    avgAssists: number;
+    avgDamageDealt: number;
+    avgDamageTaken: number;
+    avgKDR: number;
+    winRate: number;            // 0-1
+    byMode: Record<string, {
+        matches: number;
+        winRate: number;
+        avgKills: number;
+        avgDamageDealt: number;
+        avgDamageTaken: number;
+    }>;
+}
+
+/**
+ * Подсчёт агрегированных метрик по списку матчей.
+ * Удобно вызывать из дев-консоли или отладочных панелей.
+ */
+export function computeMatchHistorySummary(matches: MatchHistory[]): MatchHistorySummary {
+    const total = matches.length;
+    if (total === 0) {
+        return {
+            matches: 0,
+            totalTime: 0,
+            avgMatchTime: 0,
+            avgKills: 0,
+            avgDeaths: 0,
+            avgAssists: 0,
+            avgDamageDealt: 0,
+            avgDamageTaken: 0,
+            avgKDR: 0,
+            winRate: 0,
+            byMode: {}
+        };
+    }
+    
+    let timeSum = 0;
+    let killsSum = 0;
+    let deathsSum = 0;
+    let assistsSum = 0;
+    let dmgDealtSum = 0;
+    let dmgTakenSum = 0;
+    let wins = 0;
+    
+    const modeStats: Record<string, {
+        matches: number;
+        wins: number;
+        kills: number;
+        damageDealt: number;
+        damageTaken: number;
+    }> = {};
+    
+    for (const m of matches) {
+        timeSum += m.duration;
+        killsSum += m.kills;
+        deathsSum += m.deaths;
+        assistsSum += m.assists;
+        dmgDealtSum += m.damageDealt;
+        dmgTakenSum += m.damageTaken;
+        if (m.result === "win") wins++;
+        
+        const modeKey = m.mode || "unknown";
+        if (!modeStats[modeKey]) {
+            modeStats[modeKey] = { matches: 0, wins: 0, kills: 0, damageDealt: 0, damageTaken: 0 };
+        }
+        const s = modeStats[modeKey];
+        s.matches++;
+        if (m.result === "win") s.wins++;
+        s.kills += m.kills;
+        s.damageDealt += m.damageDealt;
+        s.damageTaken += m.damageTaken;
+    }
+    
+    const avgKills = killsSum / total;
+    const avgDeaths = deathsSum / total;
+    const avgKDR = deathsSum > 0 ? killsSum / deathsSum : killsSum;
+    const avgDamageDealt = dmgDealtSum / total;
+    const avgDamageTaken = dmgTakenSum / total;
+    
+    const byMode: MatchHistorySummary["byMode"] = {};
+    for (const [mode, s] of Object.entries(modeStats)) {
+        byMode[mode] = {
+            matches: s.matches,
+            winRate: s.matches > 0 ? s.wins / s.matches : 0,
+            avgKills: s.matches > 0 ? s.kills / s.matches : 0,
+            avgDamageDealt: s.matches > 0 ? s.damageDealt / s.matches : 0,
+            avgDamageTaken: s.matches > 0 ? s.damageTaken / s.matches : 0
+        };
+    }
+    
+    return {
+        matches: total,
+        totalTime: timeSum,
+        avgMatchTime: timeSum / total,
+        avgKills,
+        avgDeaths,
+        avgAssists: assistsSum / total,
+        avgDamageDealt,
+        avgDamageTaken,
+        avgKDR,
+        winRate: wins / total,
+        byMode
+    };
+}
+
 export interface UserData {
     username: string;
     email: string;

@@ -45,6 +45,13 @@ export interface ExtendedMetrics {
     cameras?: number;
     materials?: number;
     textures?: number;
+
+    // Frame / renderer stats (интеграция с движком/метриками)
+    fps?: number;
+    frameTime?: number;
+    drawCalls?: number;
+    triangles?: number;
+    memoryUsed?: number;
 }
 
 export class MetricsCollector {
@@ -114,7 +121,6 @@ export class MetricsCollector {
             }
             
             // Попытка получить GPU использование через WebGL extensions (если доступно)
-            const gpuInfo = gl.getExtension('WEBGL_lose_context');
             // GPU usage напрямую недоступен в браузере без специальных расширений
         } catch (error) {
             logger.warn("[MetricsCollector] GPU metrics collection failed:", error);
@@ -200,7 +206,8 @@ export class MetricsCollector {
      */
     private collectAudioMetrics(metrics: ExtendedMetrics): void {
         try {
-            const audioEngine = this.scene.getEngine().getAudioEngine();
+            const engine: any = this.scene.getEngine();
+            const audioEngine = engine.getAudioEngine ? engine.getAudioEngine() : undefined;
             if (!audioEngine) return;
             
             // Количество активных источников звука

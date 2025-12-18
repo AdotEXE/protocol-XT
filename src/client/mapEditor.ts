@@ -723,9 +723,9 @@ export class MapEditor {
         
         // Перебираем все вершины меша
         for (let i = 0; i < positions.length; i += 3) {
-            const vx = positions[i];
-            const vy = positions[i + 1];
-            const vz = positions[i + 2];
+            const vx = positions[i] ?? 0;
+            const vy = positions[i + 1] ?? 0;
+            const vz = positions[i + 2] ?? 0;
             
             // Вычисляем расстояние от вершины до центра кисти (только по X и Z)
             const dx = vx - center.x;

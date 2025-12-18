@@ -22,7 +22,7 @@ export interface UITheme {
 }
 
 export class ThemeManager {
-    private currentTheme: UITheme;
+    private currentTheme!: UITheme;
     private themes: Map<string, UITheme> = new Map();
     
     constructor() {

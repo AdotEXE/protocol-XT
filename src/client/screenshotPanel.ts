@@ -384,7 +384,7 @@ export class ScreenshotPanel {
             await this.screenshotManager.saveToLocalStorage(blob, options);
             
             if (this.game?.hud) {
-                this.game.hud.showMessage("📸 Screenshot saved! (F2)", "#0f0", 3000);
+                this.game.hud.showMessage("📸 Screenshot saved! (Ctrl+2)", "#0f0", 3000);
             }
             
             logger.log("[ScreenshotPanel] Screenshot taken with options:", options);

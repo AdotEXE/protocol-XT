@@ -108,7 +108,7 @@ export function getTrackById(id: string): TrackType {
     const track = TRACK_TYPES.find(t => t.id === id);
     if (!track) {
         console.warn(`[TrackTypes] Track type "${id}" not found, using standard`);
-        return TRACK_TYPES[0];
+        return TRACK_TYPES[0]!;
     }
     return track;
 }

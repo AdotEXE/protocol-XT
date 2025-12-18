@@ -102,6 +102,7 @@ export class EnemyTank {
     
     // === Difficulty ===
     private difficulty: "easy" | "medium" | "hard" = "hard"; // По умолчанию сложная сложность
+    private difficultyScale: number = 1; // Плавный множитель сложности по прогрессу игрока и длительности сессии
     
     // Pre-created materials
     private bulletMat: StandardMaterial;
@@ -156,12 +157,14 @@ export class EnemyTank {
         position: Vector3,
         soundManager: SoundManager,
         effectsManager: EffectsManager,
-        difficulty: "easy" | "medium" | "hard" = "hard"
+        difficulty: "easy" | "medium" | "hard" = "hard",
+        difficultyScale = 1
     ) {
         this.scene = scene;
         this.soundManager = soundManager;
         this.effectsManager = effectsManager;
         this.difficulty = difficulty;
+        this.difficultyScale = difficultyScale;
         this.id = EnemyTank.count++;
         
         // Применяем настройки сложности
@@ -242,6 +245,8 @@ export class EnemyTank {
                 this.optimalRange = 28;
                 this.decisionInterval = 800; // Решения каждые 800мс (было 1000)
                 this.moveSpeed = 10; // Медленнее (было 8)
+                // Менее толстые и бьют слабее
+                this.maxHealth = 80;
                 break;
             case "medium":
                 // Средняя сложность: средняя реакция, средняя точность
@@ -252,6 +257,7 @@ export class EnemyTank {
                 this.optimalRange = 32;
                 this.decisionInterval = 500; // Решения каждые 500мс (было 700)
                 this.moveSpeed = 14; // Быстрее (было 10)
+                this.maxHealth = 100;
                 break;
             case "hard":
                 // Сложная сложность: быстрая реакция, высокая точность
@@ -262,8 +268,26 @@ export class EnemyTank {
                 this.optimalRange = 38;
                 this.decisionInterval = 300; // Решения каждые 300мс (было 500)
                 this.moveSpeed = 18; // Значительно быстрее (было 12)
+                // Толще и живучее на сложной
+                this.maxHealth = 130;
                 break;
         }
+        
+        // Плавный множитель сложности на основе прогресса игрока и длительности сессии
+        const scale = Math.min(Math.max(this.difficultyScale, 0.7), 1.8);
+
+        // Живучесть (HP) растёт более заметно, но без экстремумов
+        const healthScale = 1 + (scale - 1) * 0.8; // до ~+64% HP при максимальном скейле
+        this.maxHealth = Math.round(this.maxHealth * healthScale);
+
+        // Агрессия: чем выше скейл, тем быстрее решения и короче перезарядка
+        const aggressionScale = 1 + (scale - 1) * 0.7;
+        this.cooldown = Math.round(this.cooldown / aggressionScale);
+        // Не позволяем ИИ принимать решения слишком редко или слишком часто
+        this.decisionInterval = Math.max(200, Math.round(this.decisionInterval / aggressionScale));
+        
+        // Синхронизируем текущее здоровье с новым максимумом
+        this.currentHealth = this.maxHealth;
     }
     
     // === VISUALS (same as player) ===
@@ -1680,7 +1704,7 @@ export class EnemyTank {
         ball.position.copyFrom(muzzlePos);
         ball.lookAt(ball.position.add(barrelDir));
         ball.material = this.bulletMat;
-        ball.metadata = { type: "enemyBullet", damage: 20, owner: this };
+        ball.metadata = { type: "enemyBullet", owner: this };
         
         const shape = new PhysicsShape({
             type: PhysicsShapeType.BOX,
@@ -1711,7 +1735,19 @@ export class EnemyTank {
         this.applyTorque(recoilTorque);
         
         // === HIT DETECTION ===
-        const damage = 20;
+        // Базовый урон пули
+        let damage = 20;
+        // Масштабируем урон в зависимости от сложности
+        if (this.difficulty === "easy") {
+            damage = 14; // Меньше урон на лёгкой
+        } else if (this.difficulty === "hard") {
+            damage = 26; // Больше урон на сложной
+        }
+        // Дополнительное плавное масштабирование урона от прогресса/длительности сессии
+        const scale = Math.min(Math.max(this.difficultyScale, 0.7), 1.8);
+        const damageScale = 1 + (scale - 1) * 0.5; // до ~+40% урона при максимальном скейле
+        damage = Math.round(damage * damageScale);
+
         let hasHit = false;
         let ricochetCount = 0;
         const maxRicochets = 2;
@@ -1753,8 +1789,8 @@ export class EnemyTank {
                     Math.abs(localZ) < wallHalfDepth) {
                     hasHit = true;
                     
-                    // Получаем урон из metadata пули
-                    const bulletDamage = (ball.metadata && (ball.metadata as any).damage) ? (ball.metadata as any).damage : 20;
+                    // Урон по стенке совпадает с уроном по танку (учитывает скейл сложности)
+                    const bulletDamage = damage;
                     
                     // Наносим урон стенке через metadata
                     const wallMeta = wall.metadata as any;

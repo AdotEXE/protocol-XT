@@ -1,8 +1,6 @@
 // Voice Chat System using WebRTC
 // Peer-to-peer audio communication between players in a room
 
-import { ServerMessageType } from "../shared/messages";
-
 export interface VoiceChatConfig {
     enabled: boolean;
     pushToTalk: boolean;
@@ -158,6 +156,7 @@ export class VoiceChatManager {
         // Handle remote stream
         peerConnection.ontrack = (event) => {
             const remoteStream = event.streams[0];
+            if (!remoteStream) return;
             this.handleRemoteStream(remotePlayerId, remoteStream);
         };
 
@@ -206,6 +205,7 @@ export class VoiceChatManager {
             // Handle remote stream
             peerConnection.ontrack = (event) => {
                 const remoteStream = event.streams[0];
+                if (!remoteStream) return;
                 this.handleRemoteStream(from, remoteStream);
             };
 

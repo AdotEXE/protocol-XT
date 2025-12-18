@@ -1,6 +1,6 @@
-import { Scene, Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Quaternion } from "@babylonjs/core";
+import { Scene, Vector3, Mesh, MeshBuilder, StandardMaterial, Color3 } from "@babylonjs/core";
 import type { NetworkPlayer } from "./multiplayer";
-import { getChassisById, getCannonById } from "./tankTypes";
+import { getChassisById } from "./tankTypes";
 
 export class NetworkPlayerTank {
     scene: Scene;
@@ -17,7 +17,6 @@ export class NetworkPlayerTank {
     // Interpolation
     private interpolationAlpha: number = 0;
     private readonly INTERPOLATION_SPEED = 0.2; // How fast to interpolate (adaptive based on RTT)
-    private lastUpdateTime: number = 0;
     private estimatedVelocity: Vector3 = new Vector3(0, 0, 0);
     private lastNetworkUpdateTime: number = 0;
     
@@ -134,8 +133,8 @@ export class NetworkPlayerTank {
         
         // Calculate estimated velocity for dead reckoning
         if (this.positionHistory.length >= 2) {
-            const last = this.positionHistory[this.positionHistory.length - 1];
-            const prev = this.positionHistory[this.positionHistory.length - 2];
+            const last = this.positionHistory[this.positionHistory.length - 1]!;
+            const prev = this.positionHistory[this.positionHistory.length - 2]!;
             const timeDelta = (last.time - prev.time) / 1000; // Convert to seconds
             if (timeDelta > 0) {
                 // Clone before scaling to avoid mutating
@@ -180,6 +179,7 @@ export class NetworkPlayerTank {
         
         for (let i = 0; i < this.positionHistory.length; i++) {
             const entry = this.positionHistory[i];
+            if (!entry) continue;
             if (entry.time <= time) {
                 before = entry;
             }

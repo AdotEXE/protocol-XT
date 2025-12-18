@@ -261,12 +261,15 @@ export class TankController {
     private readonly MAX_WALLS = 10; // Максимальное количество активных стенок
     private readonly WALL_MAX_HEALTH = 100; // Максимальное HP стенки
     private module6Cooldown = 10000; // Кулдаун модуля 6 (10 секунд)
+    private module6LastUse = 0; // Время последнего использования модуля 6
     private module7Active = false; // Ускоренная стрельба (кнопка 7)
     private module7Timeout: number | null = null; // Используется в setTimeout callback
     private module7Cooldown = 15000; // Кулдаун модуля 7 (15 секунд)
+    private module7LastUse = 0; // Время последнего использования модуля 7
     private module8Active = false; // Автонаводка + автострельба (кнопка 8)
     private module8Timeout: number | null = null; // Используется в setTimeout callback
     private module8Cooldown = 20000; // Кулдаун модуля 8 (20 секунд)
+    private module8LastUse = 0; // Время последнего использования модуля 8
     private module8LastAutoFire = 0; // Время последнего автострельбы
     private module9Active = false; // Маневрирование (кнопка 9)
     private module9Timeout: number | null = null; // Используется в setTimeout callback
@@ -3321,6 +3324,17 @@ export class TankController {
     
     // Модуль 6: Временная защитная стенка цвета поверхности (10 секунд)
     private activateModule6(): void {
+        const now = Date.now();
+        // Проверка кулдауна
+        if (now - this.module6LastUse < this.module6Cooldown) {
+            const remaining = ((this.module6Cooldown - (now - this.module6LastUse)) / 1000).toFixed(1);
+            if (this.chatSystem) {
+                this.chatSystem.log(`Модуль 6 на кулдауне: ${remaining}с`);
+            }
+            return;
+        }
+        this.module6LastUse = now;
+        
         // Если уже есть максимальное количество стенок, удаляем самую старую (первую)
         if (this.module6Walls.length >= this.MAX_WALLS) {
             const oldestWall = this.module6Walls.shift(); // Удаляем первую (самую старую)
@@ -3825,6 +3839,17 @@ export class TankController {
     
     // Модуль 7: Ускоренная стрельба в 2 раза (10 секунд)
     private activateModule7(): void {
+        const now = Date.now();
+        // Проверка кулдауна
+        if (now - this.module7LastUse < this.module7Cooldown) {
+            const remaining = ((this.module7Cooldown - (now - this.module7LastUse)) / 1000).toFixed(1);
+            if (this.chatSystem) {
+                this.chatSystem.log(`Модуль 7 на кулдауне: ${remaining}с`);
+            }
+            return;
+        }
+        this.module7LastUse = now;
+        
         if (this.module7Active) return; // Уже активен
         
         // Очищаем предыдущий timeout если есть
@@ -3869,6 +3894,17 @@ export class TankController {
     
     // Модуль 8: Автоматическая наводка и стрельба на ближайшего врага (10 секунд)
     private activateModule8(): void {
+        const now = Date.now();
+        // Проверка кулдауна
+        if (now - this.module8LastUse < this.module8Cooldown) {
+            const remaining = ((this.module8Cooldown - (now - this.module8LastUse)) / 1000).toFixed(1);
+            if (this.chatSystem) {
+                this.chatSystem.log(`Модуль 8 на кулдауне: ${remaining}с`);
+            }
+            return;
+        }
+        this.module8LastUse = now;
+        
         if (this.module8Active) return;
         
         // Очищаем предыдущий timeout если есть
@@ -4000,216 +4036,6 @@ export class TankController {
         setTimeout(() => {
             this.canJump = true;
         }, this.jumpCooldown);
-    }
-    
-    // Обновление модулей (вызывается из update)
-    // Создание гильзы при выстреле
-    private createShellCasing(muzzlePos: Vector3, barrelDir: Vector3): void {
-        // Размеры гильзы соответствуют размерам снаряда
-        const bulletSize = this.projectileSize;
-        const casingDiameter = bulletSize; // Диаметр гильзы = размер снаряда
-        const casingLength = bulletSize * 3; // Длина гильзы = длина снаряда
-        
-        // Создаем гильзу как прямоугольную коробку (не цилиндр)
-        const casing = MeshBuilder.CreateBox("shellCasing", {
-            width: casingDiameter,
-            height: casingLength,
-            depth: casingDiameter
-        }, this.scene);
-        // Повернуть на 90° по X для горизонтального положения
-        casing.rotation.x = Math.PI / 2;
-        
-        // Позиция гильзы - немного сбоку от ствола
-        const right = Vector3.Cross(barrelDir, Vector3.Up()).normalize();
-        const casingStartPos = muzzlePos.subtract(barrelDir.scale(0.3)).add(right.scale(0.2));
-        casing.position.copyFrom(casingStartPos);
-        
-        // Материал гильзы - латунный цвет
-        const casingMat = new StandardMaterial("shellCasingMat", this.scene);
-        casingMat.diffuseColor = new Color3(0.8, 0.7, 0.4); // Латунный цвет
-        casingMat.specularColor = new Color3(0.5, 0.5, 0.3);
-        casing.material = casingMat;
-        casing.renderingGroupId = 2;
-        
-        // Физика гильзы (используем BOX для простоты, размеры соответствуют снаряду)
-        const shape = new PhysicsShape({
-            type: PhysicsShapeType.BOX,
-            parameters: {
-                center: Vector3.Zero(),
-                rotation: Quaternion.Identity(),
-                extents: new Vector3(bulletSize * 0.75, casingLength * 0.5, bulletSize * 0.75)
-            }
-        }, this.scene);
-        shape.filterMembershipMask = 64; // Shell casing group
-        shape.filterCollideMask = 2; // Только с окружением
-        
-        const body = new PhysicsBody(casing, PhysicsMotionType.DYNAMIC, false, this.scene);
-        body.shape = shape;
-        body.setMassProperties({ mass: 0.1 });
-        body.setLinearDamping(0.5);
-        body.setAngularDamping(0.8);
-        
-        // Выбрасываем гильзу в сторону и назад
-        const ejectDirection = right.add(barrelDir.scale(-0.5)).add(Vector3.Up().scale(0.3)).normalize();
-        const ejectSpeed = 8 + Math.random() * 4; // Случайная скорость выброса
-        body.applyImpulse(ejectDirection.scale(ejectSpeed), casing.position);
-        
-        // Добавляем случайное вращение
-        const randomRotation = new Vector3(
-            (Math.random() - 0.5) * 10,
-            (Math.random() - 0.5) * 10,
-            (Math.random() - 0.5) * 10
-        );
-        body.applyAngularImpulse(randomRotation);
-        
-        // Сохраняем гильзу для обновления
-        this.shellCasings.push({
-            mesh: casing,
-            physics: body,
-            lifetime: 5000 // 5 секунд жизни
-        });
-    }
-    
-    // Обновление видимости ствола - скрываем части, которые пересекаются с башней или корпусом
-    private updateBarrelVisibility(baseZ: number): void {
-        if (!this.barrel || !this.turret || !this.chassis || this.barrel.isDisposed()) return;
-        
-        // Вычисляем мировые матрицы
-        this.chassis.computeWorldMatrix(true);
-        this.turret.computeWorldMatrix(true);
-        this.barrel.computeWorldMatrix(true);
-        
-        // Получаем размеры башни и корпуса
-        const turretWidth = this.chassisType.width * 0.65;
-        const turretHeight = this.chassisType.height * 0.75;
-        const turretDepth = this.chassisType.depth * 0.6;
-        const chassisWidth = this.chassisType.width;
-        const chassisHeight = this.chassisType.height;
-        const chassisDepth = this.chassisType.depth;
-        
-        // Получаем размеры ствола
-        const barrelWidth = this.cannonType.barrelWidth;
-        let barrelLength = this.cannonType.barrelLength;
-        if (this.cannonType.id === "sniper") {
-            barrelLength *= 1.2;
-        } else if (this.cannonType.id === "gatling") {
-            barrelLength *= 0.8;
-        }
-        
-        // Ствол находится в локальных координатах башни
-        const barrelCenterZ = baseZ;
-        const barrelStartZ = barrelCenterZ - barrelLength / 2;
-        const barrelEndZ = barrelCenterZ + barrelLength / 2;
-        
-        // Получаем матрицы для преобразования координат
-        const turretWorldMatrix = this.turret.getWorldMatrix();
-        const turretInvMatrix = turretWorldMatrix.clone();
-        turretInvMatrix.invert();
-        
-        const chassisWorldMatrix = this.chassis.getWorldMatrix();
-        const chassisInvMatrix = chassisWorldMatrix.clone();
-        chassisInvMatrix.invert();
-        
-        // Проверяем множество точек вдоль и поперек ствола
-        const checkPointsZ = 30; // Точки вдоль ствола
-        const checkPointsXY = 5; // Точки по ширине/высоте ствола
-        
-        let maxHiddenZ = barrelStartZ; // Максимальная Z координата скрытой части
-        
-        for (let iz = 0; iz <= checkPointsZ; iz++) {
-            const tz = iz / checkPointsZ;
-            const checkZ = barrelStartZ + (barrelEndZ - barrelStartZ) * tz;
-            
-            // Проверяем несколько точек по ширине и высоте ствола
-            let pointHidden = false;
-            
-            for (let ix = 0; ix <= checkPointsXY; ix++) {
-                for (let iy = 0; iy <= checkPointsXY; iy++) {
-                    const tx = (ix / checkPointsXY - 0.5) * 0.8; // От -0.4 до 0.4
-                    const ty = (iy / checkPointsXY - 0.5) * 0.8;
-                    
-                    // Точка в локальных координатах ствола
-                    const barrelLocalPoint = new Vector3(
-                        tx * barrelWidth,
-                        this.barrel.position.y + ty * barrelWidth,
-                        checkZ
-                    );
-                    
-                    // Преобразуем в мировые координаты
-                    const worldPoint = Vector3.TransformCoordinates(barrelLocalPoint, this.barrel.getWorldMatrix());
-                    
-                    // Преобразуем в локальные координаты башни
-                    const turretLocalPoint = Vector3.TransformCoordinates(worldPoint, turretInvMatrix);
-                    
-                    // Преобразуем в локальные координаты корпуса
-                    const chassisLocalPoint = Vector3.TransformCoordinates(worldPoint, chassisInvMatrix);
-                    
-                    // Проверяем, находится ли точка внутри башни (по всем осям!)
-                    const inTurret = Math.abs(turretLocalPoint.x) < turretWidth / 2 &&
-                                    Math.abs(turretLocalPoint.y - this.turret.position.y) < turretHeight / 2 &&
-                                    Math.abs(turretLocalPoint.z) < turretDepth / 2;
-                    
-                    // Проверяем, находится ли точка внутри корпуса (по всем осям!)
-                    const inChassis = Math.abs(chassisLocalPoint.x) < chassisWidth / 2 &&
-                                    Math.abs(chassisLocalPoint.y) < chassisHeight / 2 &&
-                                    Math.abs(chassisLocalPoint.z) < chassisDepth / 2;
-                    
-                    if (inTurret || inChassis) {
-                        pointHidden = true;
-                        break;
-                    }
-                }
-                if (pointHidden) break;
-            }
-            
-            // Если точка скрыта, обновляем максимальную скрытую Z координату
-            if (pointHidden && checkZ > maxHiddenZ) {
-                maxHiddenZ = checkZ;
-            }
-        }
-        
-        // Видимая часть ствола начинается после скрытой части
-        const visibleStartZ = maxHiddenZ;
-        const visibleLength = barrelEndZ - visibleStartZ;
-        const originalLength = barrelLength;
-        
-        // Вычисляем процент скрытой части
-        const hiddenLength = visibleStartZ - barrelStartZ;
-        const hiddenPercent = hiddenLength / originalLength;
-        
-        if (hiddenPercent > 0.01) {
-            // Есть пересечение - скрываем часть ствола
-            if (hiddenPercent > 0.95) {
-                // Почти весь ствол скрыт - полностью скрываем его
-                this.barrel.setEnabled(false);
-                this.barrel.scaling.z = 1.0;
-                // Ствол всегда по центру башни по X
-                this.barrel.position = new Vector3(0, this.barrel.position.y, baseZ);
-            } else if (visibleLength > 0.01 && visibleStartZ < barrelEndZ) {
-                // Частично скрыт - используем масштабирование
-                const scaleZ = Math.max(visibleLength / originalLength, 0.01); // Минимум 1% длины
-                
-                // Вычисляем смещение центра ствола для правильного масштабирования
-                const newCenterZ = visibleStartZ + visibleLength / 2;
-                const offsetZ = newCenterZ - barrelCenterZ;
-                
-                // Применяем масштабирование и смещение поверх позиции отката
-                this.barrel.setEnabled(true);
-                this.barrel.scaling.z = scaleZ;
-                this.barrel.position.z = baseZ + offsetZ;
-            } else {
-                // Нет видимой части - скрываем полностью
-                this.barrel.setEnabled(false);
-                this.barrel.scaling.z = 1.0;
-                // Ствол всегда по центру башни по X
-                this.barrel.position = new Vector3(0, this.barrel.position.y, baseZ);
-            }
-        } else {
-            // Нет пересечения - возвращаем нормальный размер
-            this.barrel.setEnabled(true);
-            this.barrel.scaling.z = 1.0;
-            this.barrel.position.z = baseZ;
-        }
     }
     
     // Обновление гильз
@@ -4960,30 +4786,6 @@ export class TankController {
         }
         if (this.chatSystem) this.chatSystem.success(`💚 Восстановлено ${regenAmount} HP`);
         setTimeout(() => { if (this.hud) this.hud.removeActiveEffect("Регенерация"); }, 2000);
-    }
-    
-    private updateShellCasings(): void {
-        for (let i = this.shellCasings.length - 1; i >= 0; i--) {
-            const casing = this.shellCasings[i];
-            
-            if (!casing.mesh || casing.mesh.isDisposed()) {
-                this.shellCasings.splice(i, 1);
-                continue;
-            }
-            
-            // Уменьшаем время жизни (используем deltaTime если доступен)
-            const deltaTime = this.scene.getEngine().getDeltaTime();
-            casing.lifetime -= deltaTime;
-            
-            if (casing.lifetime <= 0 || casing.mesh.absolutePosition.y < -1) {
-                // Удаляем гильзу
-                if (casing.physics) {
-                    casing.physics.dispose();
-                }
-                casing.mesh.dispose();
-                this.shellCasings.splice(i, 1);
-            }
-        }
     }
     
     private updateModules(): void {

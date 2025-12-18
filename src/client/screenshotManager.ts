@@ -63,12 +63,12 @@ export interface ScreenshotMetadata {
 
 export class ScreenshotManager {
     private engine: Engine;
-    private scene: Scene;
     private hud: HUD | null;
     
     constructor(engine: Engine, scene: Scene, hud: HUD | null = null) {
         this.engine = engine;
-        this.scene = scene;
+        // scene оставлен в сигнатуре конструктора для совместимости, но сейчас не используется
+        void scene;
         this.hud = hud;
     }
     

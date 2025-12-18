@@ -212,8 +212,10 @@ export const SHOOT_PATTERNS: Record<string, ShootPattern> = {
  * Get pattern by cannon type, with fallback to standard
  */
 export function getShootPattern(cannonType: string): ShootPattern {
-    return SHOOT_PATTERNS[cannonType] || SHOOT_PATTERNS.standard;
+    const pattern = SHOOT_PATTERNS[cannonType] ?? SHOOT_PATTERNS.standard;
+    return pattern;
 }
+
 
 
 
