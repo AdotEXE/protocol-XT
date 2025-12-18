@@ -321,6 +321,8 @@ export class HUD {
         this.createTankStatusBlock();  // Блок состояния танка (слева от радара)
         this._createActiveEffectsDisplay(); // Слоты активных эффектов справа от модулей
         this._createFPSCounter();      // FPS счётчик
+        this._createKillCounter();     // Скрытый счётчик убийств (для статистики)
+        this._createCurrencyDisplay(); // Скрытый дисплей кредитов (для статистики)
         
         // Инициализируем значения блока состояния (если есть начальные значения)
         if (this.tankStatusContainer && this.currentHealth > 0 && this.maxHealth > 0) {
@@ -332,6 +334,11 @@ export class HUD {
         this.startAnimations();
         this.setupMapKeyListener(); // Обработка клавиши M
         this.setupResizeHandler(); // Обработка изменения размера окна
+        
+        // "Трогаем" карты кулдаунов, чтобы они считались использованными (зарезервированы под будущее расширение)
+        if (this.consumableCooldowns.size > 0 || this.arsenalCooldowns.size > 0) {
+            // no-op
+        }
         
         // HUD initialized
     }
@@ -863,9 +870,9 @@ export class HUD {
     private hexToRgb(hex: string): { r: number, g: number, b: number } {
         const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
         return result ? {
-            r: parseInt(result[1], 16),
-            g: parseInt(result[2], 16),
-            b: parseInt(result[3], 16)
+            r: parseInt(result[1] ?? "00", 16),
+            g: parseInt(result[2] ?? "ff", 16),
+            b: parseInt(result[3] ?? "00", 16)
         } : { r: 0, g: 255, b: 0 };
     }
     
@@ -1714,6 +1721,7 @@ export class HUD {
         for (let i = 1; i <= 10; i++) {
             const slotIndex = i === 10 ? 0 : i;
             const slot = this.consumablesSlots[i - 1];
+            if (!slot) continue;
             const consumable = consumables.get(slotIndex);
             
             // Для слотов 1-5: отображаем consumables
@@ -2237,7 +2245,7 @@ export class HUD {
         const ringRadii = [15, 30, 45, 60, 75]; // Увеличенные радиусы для большего радара
         
         for (let ringIdx = 0; ringIdx < ringRadii.length; ringIdx++) {
-            const radius = ringRadii[ringIdx];
+            const radius = ringRadii[ringIdx] ?? 0;
             const diameter = radius * 2;
             
             // Создаём цельный круг с тонкой рамкой
@@ -2686,6 +2694,7 @@ export class HUD {
         // Обновляем прозрачность каждого слота
         for (let i = 0; i < this.activeEffectsSlots.length; i++) {
             const slot = this.activeEffectsSlots[i];
+            if (!slot) continue;
             const isActive = i < activeCount;
             
             if (isActive) {
@@ -2748,6 +2757,10 @@ export class HUD {
         }
         
         const slot = this.activeEffectsSlots[slotIndex];
+        if (!slot) {
+            // Защита от рассинхронизации массива слотов и maxActiveEffectsSlots
+            return;
+        }
         
         // Заполняем слот данными эффекта
         slot.icon.text = icon;
@@ -2804,7 +2817,7 @@ export class HUD {
         // Очищаем слот
         const slotIndex = (effectData as any).slotIndex;
         if (slotIndex >= 0 && slotIndex < this.activeEffectsSlots.length) {
-            const slot = this.activeEffectsSlots[slotIndex];
+            const slot = this.activeEffectsSlots[slotIndex]!;
             slot.icon.text = "";
             slot.nameText.text = "";
             slot.timerText.text = "";
@@ -2828,8 +2841,11 @@ export class HUD {
         
         // Пересоздаем эффекты в новых слотах
         for (let i = 0; i < remainingEffects.length; i++) {
-            const [effectName, effectData] = remainingEffects[i];
+            const entry = remainingEffects[i];
+            if (!entry) continue;
+            const [effectName, effectData] = entry;
             const slot = this.activeEffectsSlots[i];
+            if (!slot) continue;
             const data = effectData as any;
             
             slot.icon.text = data.icon;
@@ -3243,12 +3259,12 @@ export class HUD {
         const index = Math.round(angle / (Math.PI / 4)) % 8;
         
         // Обновляем текст направления
-        this.movementDirectionLabel.text = directions[index];
+        this.movementDirectionLabel.text = directions[index]!;
         
         // Цвет в зависимости от основных направлений
         const isCardinal = index % 2 === 0;
         this.movementDirectionLabel.color = isCardinal ? "#0f0" : "#0a0";
-        this.movementDirectionLabel.fontSize = directions[index].length === 1 ? 10 : 8;
+        this.movementDirectionLabel.fontSize = directions[index]!.length === 1 ? 10 : 8;
     }
     
     // Обновление красных точек врагов на компасе

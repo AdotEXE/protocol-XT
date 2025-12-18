@@ -522,7 +522,7 @@ export class Game {
         }
         
         // Setup ESC for pause and Garage
-        // Use capture phase to intercept function keys before browser default behavior
+        // Use global keydown handler for all high-level hotkeys (garage, panels, admin tools)
         window.addEventListener("keydown", (e) => {
             // Open/Close garage MENU with B key - В ЛЮБОЙ МОМЕНТ (даже до старта игры)
             // G key используется для управления воротами гаража во время игры
@@ -726,8 +726,43 @@ export class Game {
                 this.showStatsOverlay(); // Показываем при нажатии
                 return;
             }
-            
-            // === КОМБИНАЦИИ КЛАВИШ CTRL+1-9 ===
+
+            // === АЛЬТЕРНАТИВНЫЕ F1–F10 ДЛЯ ТЕХ ЖЕ ПАНЕЛЕЙ ===
+            // Если браузер/ОС перехватывает Ctrl+цифры, F-клавиши дублируют те же действия
+            if (this.gameStarted && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                const fKeyToDigit: Record<string, string> = {
+                    F1: "Digit1",
+                    F2: "Digit2",
+                    F3: "Digit3",
+                    F4: "Digit4",
+                    F5: "Digit5",
+                    F6: "Digit6",
+                    F7: "Digit7",
+                    F8: "Digit8",
+                    F9: "Digit9",
+                    F10: "Digit0",
+                };
+                const mapped = fKeyToDigit[e.code as keyof typeof fKeyToDigit];
+                if (mapped) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // Симулируем нажатие Ctrl+цифра, чтобы переиспользовать уже существующую логику
+                    const synthetic = new KeyboardEvent("keydown", {
+                        key: mapped === "Digit0" ? "0" : mapped.replace("Digit", ""),
+                        code: mapped,
+                        ctrlKey: true,
+                        shiftKey: false,
+                        altKey: false,
+                        metaKey: false,
+                        bubbles: true,
+                        cancelable: true,
+                    });
+                    window.dispatchEvent(synthetic);
+                    return;
+                }
+            }
+
+            // === КОМБИНАЦИИ КЛАВИШ CTRL+1-9,0 ===
             // Обрабатываем ПЕРЕД другими обработчиками чтобы не блокировались
             
             // Ctrl+1: Help/Controls Menu (lazy loaded)
