@@ -10,7 +10,6 @@ import { Scene, Mesh, MeshBuilder, StandardMaterial, Color3, Vector3 } from "@ba
 import { addZFightingOffset } from "./zFightingFix";
 import { CannonType } from "../tankTypes";
 import { CannonDetailsGenerator } from "../garage/cannonDetails";
-import { MaterialFactory } from "../garage/materials";
 
 /**
  * Элементы для анимации пушек
@@ -197,8 +196,6 @@ export function createUniqueCannon(
             
             // Вращающиеся стволы - 6 прямоугольных Box в круге (стиль ГШ-6-30) - ANIMATED
             animationElements.gatlingBarrels = [];
-            const gatlingBarrelMat = new StandardMaterial("gatlingBarrelMat", scene);
-            gatlingBarrelMat.diffuseColor = cannonColor.scale(0.8);
             for (let i = 0; i < 6; i++) {
                 const angle = (i * Math.PI * 2 / 6);
                 const miniBarrel = CannonDetailsGenerator.createMiniBarrel(
@@ -208,17 +205,13 @@ export function createUniqueCannon(
                         Math.sin(angle) * barrelWidth * 0.6,
                         0
                     ),
-                    angle,
-                    barrelWidth * 0.35, barrelWidth * 0.35, barrelLength * 1.1,
-                    gatlingBarrelMat, `minibarrel${i}`
+                    barrelWidth * 0.35, barrelWidth * 0.35,
+                    cannonColor, `minibarrel${i}`
                 );
                 animationElements.gatlingBarrels.push(miniBarrel);
             }
             
             // Система охлаждения - 4 прямоугольных вентиляционных коробки (Box) вокруг корпуса
-            const coolingVentMat = new StandardMaterial("coolingVentMat", scene);
-            coolingVentMat.diffuseColor = cannonColor.scale(0.6);
-            coolingVentMat.emissiveColor = new Color3(0.05, 0.05, 0.05);
             for (let i = 0; i < 4; i++) {
                 const angle = (i * Math.PI * 2) / 4;
                 CannonDetailsGenerator.createCoolingRing(
@@ -228,9 +221,8 @@ export function createUniqueCannon(
                         Math.sin(angle) * barrelWidth * 0.95,
                         -barrelLength * 0.35 + (i % 2) * barrelLength * 0.12
                     ),
-                    angle,
-                    barrelWidth * 0.25, barrelWidth * 0.25, barrelLength * 0.12,
-                    coolingVentMat, `coolingVent${i}`
+                    barrelWidth * 0.25, barrelWidth * 0.25,
+                    cannonColor, `coolingVent${i}`
                 );
             }
             
@@ -304,9 +296,9 @@ export function createUniqueCannon(
                 CannonDetailsGenerator.createMuzzleBrake(
                     scene, barrel,
                     new Vector3(0, 0, barrelLength * 0.55),
-                    i, barrelWidth * 1.6, barrelWidth * 0.15,
-                    barrelWidth * 0.17,
-                    heavyBreechMat, ""
+                    barrelWidth * 1.6, barrelWidth * 0.15,
+                    cannonColor,
+                    "heavy"
                 );
             }
             
@@ -349,9 +341,9 @@ export function createUniqueCannon(
             CannonDetailsGenerator.createMuzzleBrake(
                 scene, barrel,
                 new Vector3(0, 0, barrelLength * 0.35),
-                0, barrelWidth * 0.9, 0,
-                barrelWidth * 0.25,
-                barrel.material as StandardMaterial, ""
+                barrelWidth * 0.9, barrelWidth * 0.25,
+                cannonColor,
+                "rapid"
             );
             
             // Стабилизаторы - 2 тонких Box по бокам
@@ -387,7 +379,7 @@ export function createUniqueCannon(
             
             // Улучшенные расширяющиеся секции - более плавный переход
             for (let i = 0; i < 3; i++) {
-                const expansionPlate = CannonDetailsGenerator.createPlate(
+                CannonDetailsGenerator.createPlate(
                     scene, barrel,
                     new Vector3(0, 0, barrelLength * 0.2 + i * barrelLength * 0.4),
                     0,
@@ -419,13 +411,14 @@ export function createUniqueCannon(
             coreMat.diffuseColor = new Color3(0.8, 0.2, 0.8);
             coreMat.emissiveColor = new Color3(0.6, 0, 0.6);
             coreMat.disableLighting = true;
-            const coreLayers = CannonDetailsGenerator.createPlasmaCore(
+            const core = CannonDetailsGenerator.createPlasmaCore(
                 scene, barrel,
                 new Vector3(0, 0, -barrelLength * 0.4),
-                barrelWidth * 1.2, 3, barrelWidth * 0.1,
-                coreMat, ""
+                barrelWidth * 1.2,
+                "plasma"
             );
-            animationElements.plasmaCore = coreLayers[0];
+            core.material = coreMat;
+            animationElements.plasmaCore = core;
             
             animationElements.plasmaCoils = [];
             const plasmaCoilMat = new StandardMaterial("plasmaCoilMat", scene);
@@ -435,13 +428,14 @@ export function createUniqueCannon(
                 const ringSize = barrelWidth * 1.4;
                 const ringThickness = barrelWidth * 0.12;
                 const ringZ = -barrelLength * 0.3 + i * barrelLength * 0.15;
-                const ringParts = CannonDetailsGenerator.createPlasmaCoil(
+                const coil = CannonDetailsGenerator.createPlasmaCoil(
                     scene, barrel,
                     new Vector3(0, 0, ringZ),
                     ringSize, ringThickness,
-                    plasmaCoilMat, `plasmaCoil${i}`
+                    "plasma"
                 );
-                animationElements.plasmaCoils.push(...ringParts);
+                coil.material = plasmaCoilMat;
+                animationElements.plasmaCoils.push(coil);
             }
             
             // Стабилизаторы плазмы - короткие детали вместо длинных вертикальных
@@ -456,7 +450,7 @@ export function createUniqueCannon(
                         barrelLength * 0.1 + zOffset
                     ),
                     barrelWidth * 0.15, barrelWidth * 0.15, barrelWidth * 0.3,
-                    coreMat, `plasmaStabilizer${i}`
+                    `plasmaStabilizer${i}`
                 );
             }
             
@@ -464,9 +458,8 @@ export function createUniqueCannon(
                 CannonDetailsGenerator.createPlasmaEmitter(
                     scene, barrel,
                     new Vector3(0, 0, barrelLength * 0.5),
-                    j, barrelWidth * 0.9, barrelWidth * 0.1,
-                    barrelWidth * 0.1,
-                    coreMat, ""
+                    barrelWidth * 0.9, barrelWidth * 0.1,
+                    "plasma"
                 );
             }
             
@@ -556,13 +549,11 @@ export function createUniqueCannon(
                 );
             }
             
-            const housingMat = new StandardMaterial("laserHousingMat", scene);
-            housingMat.diffuseColor = cannonColor.scale(0.6);
             CannonDetailsGenerator.createLaserHousing(
                 scene, barrel,
                 new Vector3(0, barrelWidth * 0.35, barrelLength * 0.05),
                 barrelWidth * 0.85, barrelWidth * 0.25, barrelLength * 1.2,
-                housingMat, ""
+                cannonColor, ""
             );
             break;
             
@@ -582,13 +573,14 @@ export function createUniqueCannon(
                 const ringSize = barrelWidth * 0.8;
                 const ringThickness = barrelWidth * 0.15;
                 const ringZ = -barrelLength * 0.3 + i * barrelLength * 0.15;
-                const ringParts = CannonDetailsGenerator.createTeslaCoil(
+                const coil = CannonDetailsGenerator.createTeslaCoil(
                     scene, barrel,
                     new Vector3(0, 0, ringZ),
                     ringSize, ringThickness,
-                    teslaCoilMat, `teslaCoil${i}`
+                    `teslaCoil${i}`
                 );
-                animationElements.teslaCoils.push(...ringParts);
+                coil.material = teslaCoilMat;
+                animationElements.teslaCoils.push(coil);
             }
             
             const dischargerMat = new StandardMaterial("teslaDischargerMat", scene);
@@ -603,8 +595,8 @@ export function createUniqueCannon(
                         Math.sin(angle) * barrelWidth * 0.45,
                         barrelLength * 0.2
                     ),
-                    angle,
-                    barrelWidth * 0.2, barrelWidth * 0.4, barrelWidth * 0.2,
+                    barrelWidth * 0.2,
+                    barrelWidth * 0.4,
                     dischargerMat, `teslaDischarger${i}`
                 );
             }
@@ -613,14 +605,14 @@ export function createUniqueCannon(
             genMat.diffuseColor = new Color3(0, 0.9, 1);
             genMat.emissiveColor = new Color3(0, 0.6, 0.8);
             genMat.disableLighting = true;
-            const genLayers = CannonDetailsGenerator.createTeslaGenerator(
+            const genLayer = CannonDetailsGenerator.createTeslaGenerator(
                 scene, barrel,
                 new Vector3(0, 0, -barrelLength * 0.35),
                 barrelWidth * 0.6,
                 ""
             );
-            genLayers[0].material = genMat;
-            animationElements.teslaGen = genLayers[0];
+            genLayer.material = genMat;
+            animationElements.teslaGen = genLayer;
             
             // Дополнительные детали: энергоблоки
             for (let i = 0; i < 6; i++) {
@@ -818,7 +810,6 @@ export function createUniqueCannon(
                         Math.sin(angle) * barrelWidth * 0.7,
                         barrelLength * 0.45
                     ),
-                    angle,
                     barrelWidth * 0.1, barrelWidth * 0.3, barrelWidth * 0.06,
                     finMat, `rocketFin${i}`
                 );
@@ -839,14 +830,11 @@ export function createUniqueCannon(
             blastShield.material = shieldMat;
             
             // Система наведения (более детализированная)
-            const guidanceMat = new StandardMaterial("rocketGuidanceMat", scene);
-            guidanceMat.diffuseColor = new Color3(0.2, 0.8, 0.2);
-            guidanceMat.emissiveColor = new Color3(0.05, 0.4, 0.05);
-            const guidance = CannonDetailsGenerator.createRocketGuidance(
+            CannonDetailsGenerator.createRocketGuidance(
                 scene, barrel,
                 new Vector3(0, barrelWidth * 0.6, -barrelLength * 0.25),
                 barrelWidth * 0.4, barrelWidth * 0.22, barrelWidth * 0.4,
-                guidanceMat, ""
+                "rocket"
             );
             
             // Индикаторы наведения (светодиоды)
@@ -889,7 +877,6 @@ export function createUniqueCannon(
             
             const mortarBaseMat = new StandardMaterial("mortarBaseMat", scene);
             mortarBaseMat.diffuseColor = cannonColor.scale(0.6);
-            animationElements.mortarBase = null;
             for (let i = 0; i < 3; i++) {
                 const baseLayer = CannonDetailsGenerator.createMortarBaseLayer(
                     scene, barrel,
@@ -1054,13 +1041,15 @@ export function createUniqueCannon(
             const tankMat = new StandardMaterial("flamethrowerTankMat", scene);
             tankMat.diffuseColor = cannonColor.scale(0.8);
             for (let i = 0; i < 2; i++) {
+                const side = i === 0 ? -1 : 1;
                 CannonDetailsGenerator.createFlamethrowerTank(
                     scene, barrel,
                     new Vector3(
-                        (i === 0 ? -1 : 1) * barrelWidth * 0.6,
+                        barrelWidth * 0.6,
                         0,
                         -barrelLength * 0.1
                     ),
+                    side,
                     barrelWidth * 0.4, barrelWidth * 0.4, barrelLength * 0.7,
                     tankMat, `flamethrowerTank${i}`
                 );
@@ -1068,25 +1057,28 @@ export function createUniqueCannon(
                 CannonDetailsGenerator.createFlamethrowerVent(
                     scene, barrel,
                     new Vector3(
-                        (i === 0 ? -1 : 1) * barrelWidth * 0.6,
+                        barrelWidth * 0.6,
                         barrelWidth * 0.25,
                         -barrelLength * 0.15
                     ),
+                    side,
                     barrelWidth * 0.08, barrelWidth * 0.08, barrelWidth * 0.08,
                     tankMat, `flamethrowerVent${i}`
                 );
             }
             
             for (let i = 0; i < 2; i++) {
+                const side = i === 0 ? -1 : 1;
                 CannonDetailsGenerator.createFlamethrowerHose(
                     scene, barrel,
                     new Vector3(
-                        (i === 0 ? -1 : 1) * barrelWidth * 0.35,
+                        barrelWidth * 0.35,
                         barrelWidth * 0.25,
                         barrelLength * 0.1
                     ),
-                    (i === 0 ? 1 : -1) * Math.PI / 8,
+                    side,
                     barrelWidth * 0.1, barrelWidth * 0.5, barrelWidth * 0.1,
+                    (i === 0 ? 1 : -1) * Math.PI / 8,
                     nozzleMat, `flamethrowerHose${i}`
                 );
             }
@@ -1253,7 +1245,7 @@ export function createUniqueCannon(
                     cryoMat, ""
                 );
                 if (j === 0) {
-                    animationElements.freezeEmitter = emitterPart;
+                    animationElements.cryoTank = emitterPart;
                 }
             }
             break;
@@ -1313,13 +1305,16 @@ export function createUniqueCannon(
             
             // Каналы яда - короткие детали вместо длинных вертикальных
             for (let i = 0; i < 4; i++) {
+                const side = i === 0 || i === 2 ? -1 : 1;
+                const zOffset = barrelWidth * 0.1;
                 CannonDetailsGenerator.createPoisonChannel(
                     scene, barrel,
                     new Vector3(
-                        (i === 0 || i === 2 ? -1 : 1) * barrelWidth * 0.3,
+                        barrelWidth * 0.3,
                         barrelWidth * 0.15,
-                        barrelLength * 0.1
+                        0
                     ),
+                    side, zOffset,
                     barrelWidth * 0.12, barrelWidth * 0.12, barrelWidth * 0.3,
                     poisonTankMat, `poisonChannel${i}`
                 );
@@ -1388,8 +1383,6 @@ export function createUniqueCannon(
             }, scene);
             
             animationElements.shotgunBarrels = [];
-            const shotgunBarrelMat = new StandardMaterial("shotgunBarrelMat", scene);
-            shotgunBarrelMat.diffuseColor = cannonColor.scale(0.9);
             for (let i = 0; i < 10; i++) {
                 const angle = (i * Math.PI * 2) / 10;
                 const pelletBarrel = CannonDetailsGenerator.createPelletBarrel(
@@ -1399,17 +1392,16 @@ export function createUniqueCannon(
                         Math.sin(angle) * barrelWidth * 0.55,
                         0
                     ),
-                    angle,
-                    barrelWidth * 0.18, barrelWidth * 0.18, barrelLength * 0.7,
-                    shotgunBarrelMat, `pelletBarrel${i}`
+                    barrelWidth * 0.18, barrelWidth * 0.18,
+                    cannonColor, `pelletBarrel${i}`
                 );
                 animationElements.shotgunBarrels.push(pelletBarrel);
             }
             
-            const centerBarrel = CannonDetailsGenerator.createCenterBarrel(
+            CannonDetailsGenerator.createCenterBarrel(
                 scene, barrel,
                 new Vector3(0, 0, 0),
-                barrelWidth * 0.25, barrelWidth * 0.25, barrelLength * 0.75,
+                barrelWidth * 0.25, barrelWidth * 0.25,
                 barrel.material as StandardMaterial, ""
             );
             
@@ -1423,7 +1415,6 @@ export function createUniqueCannon(
                         Math.sin(angle) * barrelWidth * 0.75,
                         barrelLength * 0.1
                     ),
-                    angle,
                     barrelWidth * 0.12, barrelWidth * 0.12, barrelWidth * 0.25,
                     barrel.material as StandardMaterial, `shotgunReinforcement${i}`
                 );
@@ -1514,13 +1505,15 @@ export function createUniqueCannon(
             
             animationElements.homingAntennas = [];
             for (let i = 0; i < 2; i++) {
+                const side = i === 0 ? -1 : 1;
                 const antenna = CannonDetailsGenerator.createHomingAntenna(
                     scene, barrel,
                     new Vector3(
-                        (i === 0 ? -1 : 1) * barrelWidth * 0.45,
+                        barrelWidth * 0.45,
                         barrelWidth * 0.75,
                         -barrelLength * 0.15
                     ),
+                    side,
                     barrelWidth * 0.08, barrelWidth * 0.35, barrelWidth * 0.08,
                     homingGuidanceMat, `homingAntenna${i}`
                 );
@@ -1559,7 +1552,6 @@ export function createUniqueCannon(
                     new Vector3(0, 0, barrelLength * 0.7),
                     j, barrelWidth * 0.3, barrelWidth * 0.05,
                     barrelLength * 0.075,
-                    (j % 2 === 0 ? 1 : -1) * Math.PI / 8,
                     piercingTipMat, ""
                 );
                 if (j === 0) {
@@ -1663,18 +1655,20 @@ export function createUniqueCannon(
                 const emitter = CannonDetailsGenerator.createShockwaveEmitter(
                     scene, barrel,
                     new Vector3(
-                        Math.cos(angle) * barrelWidth * 0.85,
-                        Math.sin(angle) * barrelWidth * 0.85,
+                        barrelWidth * 0.85,
+                        0,
                         barrelLength * 0.1 + (i % 3) * barrelWidth * 0.15
                     ),
                     angle,
+                    0,
                     barrelWidth * 0.15, barrelWidth * 0.15, barrelWidth * 0.3,
                     shockwaveAmpMat, `shockwaveEmitter${i}`
                 );
                 animationElements.shockwaveEmitters.push(emitter);
             }
             
-            const shockGenLayers = CannonDetailsGenerator.createGenerator(
+            // Генератор слоёв для shockwave (создаёт детали, возврат значения не используется)
+            CannonDetailsGenerator.createGenerator(
                 scene, barrel,
                 new Vector3(0, 0, -barrelLength * 0.35),
                 barrelWidth * 0.8, 2, barrelWidth * 0.1,

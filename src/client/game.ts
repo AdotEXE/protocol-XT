@@ -1153,8 +1153,8 @@ export class Game {
                 this.togglePause();
             }
             
-            // Обработка клавиш 1-5 для припасов
-            if (this.gameStarted && this.tank && this.consumablesManager) {
+            // Обработка клавиш 1-5 для припасов (только если НЕ зажат CTRL)
+            if (this.gameStarted && this.tank && this.consumablesManager && !e.ctrlKey) {
                 const keyToSlot: { [key: string]: number } = {
                     "Digit1": 1,
                     "Digit2": 2,
@@ -2774,14 +2774,47 @@ export class Game {
         const minDistance = 60; // Минимальное расстояние от центра
         const maxDistance = 180; // Максимальное расстояние от центра
         
-        // Используем настройки из sessionSettings, если доступны
-        let enemyCount = 7;
-        let aiDifficulty = this.mainMenu?.getSettings().enemyDifficulty || "medium";
+        // Динамическое количество ботов в зависимости от типа карты
+        let defaultEnemyCount = 12; // По умолчанию 12 для normal карты
+        switch (this.currentMapType) {
+            case "normal":
+                defaultEnemyCount = 12;
+                break;
+            case "industrial":
+            case "urban_warfare":
+                defaultEnemyCount = 10;
+                break;
+            case "ruins":
+            case "canyon":
+                defaultEnemyCount = 8;
+                break;
+            case "underground":
+            case "coastal":
+                defaultEnemyCount = 12;
+                break;
+            default:
+                defaultEnemyCount = 12;
+        }
+        
+        // Используем настройки из sessionSettings, если доступны, иначе используем динамическое значение
+        let enemyCount = defaultEnemyCount;
+        let aiDifficulty: "easy" | "medium" | "hard" = "medium"; // Все боты medium сложности
         
         if (this.sessionSettings) {
             const sessionSettings = this.sessionSettings.getSettings();
-            enemyCount = sessionSettings.enemyCount || 7;
-            aiDifficulty = sessionSettings.aiDifficulty || aiDifficulty;
+            // Используем настройки из sessionSettings только если они установлены и > 0
+            if (sessionSettings.enemyCount && sessionSettings.enemyCount > 0) {
+                enemyCount = sessionSettings.enemyCount;
+            }
+            // Сложность всегда medium для одиночного режима
+            aiDifficulty = "medium";
+        } else {
+            // Если sessionSettings нет, используем настройки из меню или динамическое значение
+            const menuSettings = this.mainMenu?.getSettings();
+            if (menuSettings?.enemyCount && menuSettings.enemyCount > 0) {
+                enemyCount = menuSettings.enemyCount;
+            }
+            aiDifficulty = "medium"; // Все боты medium сложности
         }
         
         // ИСПРАВЛЕНИЕ: Проверка что enemyCount > 0

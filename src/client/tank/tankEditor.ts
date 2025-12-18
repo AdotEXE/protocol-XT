@@ -37,9 +37,7 @@ export interface BuiltTank {
  */
 export class TankEditor {
     private scene: Scene;
-    private previewScene: Scene | null = null;
     private currentConfiguration: TankConfiguration;
-    private previewTank: BuiltTank | null = null;
     
     constructor(scene: Scene) {
         this.scene = scene;
@@ -114,7 +112,7 @@ export class TankEditor {
     buildTank(position: Vector3 = Vector3.Zero()): BuiltTank {
         const chassisType = getChassisById(this.currentConfiguration.chassisId);
         const cannonType = getCannonById(this.currentConfiguration.cannonId);
-        const skin = getSkinById(this.currentConfiguration.skinId) || SKIN_PRESETS[0];
+        const skin = (getSkinById(this.currentConfiguration.skinId) || SKIN_PRESETS[0]) as TankSkin;
         
         // Создаем корпус
         const chassis = createUniqueChassis(

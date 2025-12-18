@@ -4,6 +4,8 @@
 
 import { Game } from "./game";
 import { logger } from "./utils/logger";
+import { WorldManager } from "./worldManager";
+import { WaveEditor } from "./waveEditor";
 
 export interface SpawnZone {
     id: string;
@@ -69,7 +71,7 @@ export interface SessionSettingsData {
 }
 
 export class SessionSettings {
-    private container: HTMLDivElement;
+    private container!: HTMLDivElement;
     private visible: boolean = false;
     private settings: SessionSettingsData;
     private game: Game | null = null;

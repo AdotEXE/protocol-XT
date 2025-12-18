@@ -100,11 +100,10 @@ export class RealtimeStatsTracker {
                 const timeSinceStart = currentTime / 1000; // Convert to seconds
                 
                 // Check if we should add a new history point
-                if (timeSinceStart - this.lastHistoryUpdate >= this.HISTORY_UPDATE_INTERVAL / 1000) {
-                    const kd = player.deaths > 0 ? player.kills / player.deaths : player.kills;
-                    this.addKDHistoryPoint(timeSinceStart, player.kills, player.deaths);
-                    this.lastHistoryUpdate = timeSinceStart;
-                }
+                    if (timeSinceStart - this.lastHistoryUpdate >= this.HISTORY_UPDATE_INTERVAL / 1000) {
+                        this.addKDHistoryPoint(timeSinceStart, player.kills, player.deaths);
+                        this.lastHistoryUpdate = timeSinceStart;
+                    }
             }
         });
     }

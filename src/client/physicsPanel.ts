@@ -3,6 +3,7 @@ import { Vector3, Scene } from "@babylonjs/core";
 import { Game } from "./game";
 import { PhysicsVisualizer } from "./physicsVisualizer";
 import { PhysicsSimulator } from "./physicsSimulator";
+import { logger } from "./utils/logger";
 
 interface Preset {
     name: string;

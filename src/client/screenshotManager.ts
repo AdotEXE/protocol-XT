@@ -85,17 +85,17 @@ export class ScreenshotManager {
             
             switch (options.mode) {
                 case ScreenshotMode.FULL_SCREEN:
-                    canvas = await this.engine.createScreenshot();
+                    canvas = await this.captureEngineScreenshot();
                     break;
                     
                 case ScreenshotMode.GAME_ONLY:
                     // Скрыть UI временно
                     const uiVisible = this.hud?.isVisible?.() ?? true;
-                    if (this.hud && typeof this.hud.hide === 'function') {
+                    if (this.hud) {
                         this.hud.hide();
                     }
-                    canvas = await this.engine.createScreenshot();
-                    if (uiVisible && this.hud && typeof this.hud.show === 'function') {
+                    canvas = await this.captureEngineScreenshot();
+                    if (uiVisible && this.hud) {
                         this.hud.show();
                     }
                     break;
@@ -113,7 +113,7 @@ export class ScreenshotManager {
                     break;
                     
                 default:
-                    canvas = await this.engine.createScreenshot();
+                    canvas = await this.captureEngineScreenshot();
             }
             
             // Применение фильтров и обработки
@@ -143,6 +143,33 @@ export class ScreenshotManager {
     }
     
     /**
+     * Унифицированный способ получить canvas рендера из движка
+     * Пытается использовать расширение engine.createScreenshot, если оно есть,
+     * иначе клонирует текущий renderingCanvas.
+     */
+    private async captureEngineScreenshot(): Promise<HTMLCanvasElement> {
+        const anyEngine = this.engine as any;
+        if (typeof anyEngine.createScreenshot === "function") {
+            return await anyEngine.createScreenshot();
+        }
+        
+        const srcCanvas = this.engine.getRenderingCanvas();
+        if (!srcCanvas) {
+            throw new Error("Rendering canvas is not available for screenshot");
+        }
+        
+        const canvas = document.createElement("canvas");
+        canvas.width = srcCanvas.width;
+        canvas.height = srcCanvas.height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+            return srcCanvas;
+        }
+        ctx.drawImage(srcCanvas, 0, 0);
+        return canvas;
+    }
+    
+    /**
      * Применение фильтров к изображению
      */
     private async applyFilters(canvas: HTMLCanvasElement, filters: ImageFilters): Promise<HTMLCanvasElement> {
@@ -157,9 +184,9 @@ export class ScreenshotManager {
         const data = imageData.data;
         
         for (let i = 0; i < data.length; i += 4) {
-            let r = data[i];
-            let g = data[i + 1];
-            let b = data[i + 2];
+            let r = data[i] ?? 0;
+            let g = data[i + 1] ?? 0;
+            let b = data[i + 2] ?? 0;
             
             // Brightness
             if (filters.brightness !== undefined) {
@@ -317,7 +344,7 @@ export class ScreenshotManager {
         // Рисуем только UI элементы (через html2canvas или аналогичную библиотеку)
         // Пока используем простую реализацию - захватываем весь экран
         // В будущем можно интегрировать html2canvas для более точного захвата UI
-        const fullCanvas = await this.engine.createScreenshot();
+        const fullCanvas = await this.captureEngineScreenshot();
         ctx.drawImage(fullCanvas, 0, 0);
         
         return canvas;
@@ -327,7 +354,7 @@ export class ScreenshotManager {
      * Захват области экрана
      */
     private async captureRegion(region: { x: number; y: number; width: number; height: number }): Promise<HTMLCanvasElement> {
-        const fullCanvas = await this.engine.createScreenshot();
+        const fullCanvas = await this.captureEngineScreenshot();
         const canvas = document.createElement('canvas');
         canvas.width = region.width;
         canvas.height = region.height;

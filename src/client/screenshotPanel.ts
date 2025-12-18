@@ -2,8 +2,7 @@
  * Screenshot Panel - Расширенная панель настроек скриншотов
  */
 
-import { ScreenshotManager, ScreenshotFormat, ScreenshotMode, ScreenshotOptions, ImageFilters, WatermarkOptions } from "./screenshotManager";
-import { AutoScreenshotManager, AutoScreenshotTrigger } from "./autoScreenshot";
+import { ScreenshotManager, ScreenshotFormat, ScreenshotMode, ScreenshotOptions } from "./screenshotManager";
 import { ScreenshotGallery } from "./screenshotGallery";
 import { logger } from "./utils/logger";
 import { CommonStyles } from "./commonStyles";
@@ -12,7 +11,6 @@ export class ScreenshotPanel {
     private container: HTMLDivElement | null = null;
     private _isVisible: boolean = false;
     private screenshotManager: ScreenshotManager;
-    private autoScreenshotManager: AutoScreenshotManager | null = null;
     private gallery: ScreenshotGallery;
     private game: any;
     

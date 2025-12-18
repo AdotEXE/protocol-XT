@@ -122,8 +122,8 @@ export class ReplayRecorder {
         
         // Only record every 10th update to save space (6 Hz instead of 60 Hz)
         if (this.events.length > 0) {
-            const lastEvent = this.events[this.events.length - 1];
-            if (lastEvent.type === "player_states" && this.events[this.events.length - 1].timestamp - lastEvent.timestamp < 150) {
+            const lastEvent = this.events[this.events.length - 1]!;
+            if (lastEvent.type === "player_states" && this.events[this.events.length - 1]!.timestamp - lastEvent.timestamp < 150) {
                 // Update last player states instead of creating new event
                 lastEvent.data = players.map(p => ({
                     id: p.id,

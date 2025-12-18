@@ -3,7 +3,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { firebaseService } from "../firebaseService";
-import { logger } from "../utils/logger";
 
 export type AuthFormType = "login" | "register" | "reset" | "profile" | null;
 
@@ -757,7 +756,6 @@ export class AuthUI {
         const showRegister = document.getElementById("auth-show-register");
         const showReset = document.getElementById("auth-show-reset");
         const closeBtn = document.getElementById("auth-close");
-        const errorDiv = document.getElementById("auth-error");
 
         form?.addEventListener("submit", async (e) => {
             e.preventDefault();
@@ -824,9 +822,23 @@ export class AuthUI {
                     this.callbacks.onAuthSuccess();
                 }
             } else {
-                this.showError(result.error || "Ошибка входа админом. Проверьте учетные данные.");
+                // Улучшенная обработка ошибок для админ-входа
+                let errorMessage = "Ошибка входа админом.";
+                if (result.error) {
+                    if (result.error.includes("user-not-found") || result.error.includes("wrong-password")) {
+                        errorMessage = "Пользователь admin@admin.com не найден или неверный пароль. Убедитесь, что пользователь создан в Firebase.";
+                    } else if (result.error.includes("auth/network-request-failed")) {
+                        errorMessage = "Ошибка сети. Проверьте подключение к интернету.";
+                    } else if (result.error.includes("auth/invalid-email")) {
+                        errorMessage = "Неверный формат email.";
+                    } else {
+                        errorMessage = result.error;
+                    }
+                }
+                this.showError(errorMessage);
                 btn.disabled = false;
                 btn.innerHTML = '<span class="btn-icon">👑</span> Быстрый вход (админ)';
+                console.error("[AuthUI] Admin login failed:", result.error);
             }
         });
 

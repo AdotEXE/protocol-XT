@@ -15,9 +15,7 @@ import {
     Animation,
     ParticleSystem,
     Texture,
-    Color4,
-    PointLight,
-    SpotLight
+    Color4
 } from "@babylonjs/core";
 
 // Seeded random

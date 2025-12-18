@@ -303,9 +303,9 @@ export class SocialMenu {
         if (!contentEl) return;
         
         if (this.currentTab === "friends") {
-            await this.loadFriendsContent(contentEl);
+            await this.loadFriendsContent(contentEl as HTMLElement);
         } else {
-            await this.loadClansContent(contentEl);
+            await this.loadClansContent(contentEl as HTMLElement);
         }
         
         // Обновить активную вкладку

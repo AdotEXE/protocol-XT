@@ -1,9 +1,7 @@
 // Модуль управления снарядами и гильзами танка
 import { 
     Vector3, 
-    Mesh, 
     PhysicsBody, 
-    Scene,
     MeshBuilder,
     StandardMaterial,
     Color3,
@@ -12,7 +10,7 @@ import {
     PhysicsMotionType,
     Quaternion
 } from "@babylonjs/core";
-import type { ITankController, ShellCasing } from "./types";
+import type { ITankController } from "./types";
 import { TANK_CONSTANTS } from "./constants";
 
 export class TankProjectilesModule {
@@ -107,7 +105,8 @@ export class TankProjectilesModule {
         for (let i = this.tank.shellCasings.length - 1; i >= 0; i--) {
             const casing = this.tank.shellCasings[i];
             
-            if (!casing.mesh || casing.mesh.isDisposed()) {
+            // Массив может содержать "дырки" из-за внешних модификаций — аккуратно проверяем
+            if (!casing || !casing.mesh || casing.mesh.isDisposed()) {
                 this.tank.shellCasings.splice(i, 1);
                 continue;
             }

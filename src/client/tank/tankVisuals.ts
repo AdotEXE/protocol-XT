@@ -1,7 +1,7 @@
 // Модуль управления визуальными эффектами и анимациями танка
 import { Scene, Vector3, Mesh } from "@babylonjs/core";
 import type { ITankController } from "./types";
-import { createUniqueCannon, type CannonAnimationElements } from "./tankCannon";
+import { createUniqueCannon } from "./tankCannon";
 
 export class TankVisualsModule {
     private tank: ITankController;

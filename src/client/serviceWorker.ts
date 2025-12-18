@@ -4,7 +4,6 @@
  */
 
 const SW_PATH = '/sw.js';
-const SW_VERSION = 'v1';
 
 export function registerServiceWorker(): void {
   if ('serviceWorker' in navigator) {

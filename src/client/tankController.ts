@@ -24,7 +24,7 @@ import { TankHealthModule } from "./tank/tankHealth";
 import { TankMovementModule } from "./tank/tankMovement";
 import { TankProjectilesModule } from "./tank/tankProjectiles";
 import { TankVisualsModule } from "./tank/tankVisuals";
-import { createUniqueChassis, addChassisDetails, type ChassisAnimationElements } from "./tank/tankChassis";
+import type { ChassisAnimationElements } from "./tank/tankChassis";
 import type { ShellCasing } from "./tank/types";
 import { getSkinById, loadSelectedSkin, applySkinToTank } from "./tank/tankSkins";
 
@@ -208,7 +208,6 @@ export class TankController {
     private _tmpVector5 = new Vector3(); // For torque scaling to avoid mutations
     private _tmpVector6 = new Vector3(); // For hoverForceVec (to avoid corrupting up)
     private _tmpVector7 = new Vector3(); // For correctiveTorque (to avoid corrupting forward)
-    private _tmpVector8 = new Vector3(); // For ground clamping raycast
     
     private _resetTimer: number = 0; // Таймер для автоматического сброса при опрокидывания
     private _logFrameCounter = 0; // Счетчик кадров для логирования
@@ -484,7 +483,7 @@ export class TankController {
         // Создаём визуализацию для каждого модуля
         this.createModule6Visual(w, h, d);  // Щит на корпусе (перед)
         this.createModule7Visual();         // Индикатор на пушке
-        this.createModule8Visual(w, h, d);  // Радар на башне
+        this.createModule8Visual(w);        // Радар на башне (использует только ширину)
         this.createModule9Visual(w, h, d);  // Ускорители на корпусе (по бокам)
         this.createModule0Visual(w, h, d);  // Двигатели на корпусе (сзади)
         
@@ -539,7 +538,7 @@ export class TankController {
     }
     
     // Модуль 8 - Автонаводка (радар на башне)
-    private createModule8Visual(w: number, h: number, d: number): void {
+    private createModule8Visual(w: number): void {
         const meshes: Mesh[] = [];
         
         // Радар/сенсор на башне
@@ -1046,19 +1045,6 @@ export class TankController {
         console.log("[TANK] Respawned!");
     }
 
-    // ============ UNIQUE CHASSIS CREATION ============
-    private createUniqueChassis(scene: Scene, position: Vector3): Mesh {
-        return createUniqueChassis(
-            this.chassisType,
-            scene,
-            position,
-            this.chassisAnimationElements
-        );
-    }
-    
-    // NOTE: addChassisDetails has been moved to tank/tankChassis.ts
-    // It is now called from within createUniqueChassis
-    
     // ============ UNIQUE CANNON CREATION ============
     // Moved to tank/tankCannon.ts - функция createUniqueCannon теперь в модуле
 
@@ -1631,16 +1617,17 @@ export class TankController {
                     }
                     
                     // Проверяем стены врагов
-                    const enemyWalls = this.scene.meshes.filter(mesh => 
-                        mesh.metadata && mesh.metadata.type === "enemyWall" && !mesh.isDisposed()
-                    );
-                    for (const wall of enemyWalls) {
-                        const pick = this.scene.pickWithRay(ray, (mesh) => {
-                            return mesh === wall;
-                        });
+                const enemyWalls = this.scene.meshes.filter(mesh => 
+                    mesh.metadata && mesh.metadata.type === "enemyWall" && !mesh.isDisposed()
+                );
+                for (const wall of enemyWalls) {
+                    const wallMesh = wall as Mesh;
+                    const pick = this.scene.pickWithRay(ray, (mesh) => {
+                        return mesh === wallMesh;
+                    });
                         
                         if (pick && pick.hit && pick.pickedPoint) {
-                            if (this.checkPointInWall(pick.pickedPoint, wall, "enemyWall")) {
+                            if (this.checkPointInWall(pick.pickedPoint, wallMesh, "enemyWall")) {
                                 hasHit = true;
                                 const bulletDamage = (ball.metadata && (ball.metadata as any).damage) ? (ball.metadata as any).damage : 25;
                                 const wallMeta = wall.metadata as any;
@@ -1708,7 +1695,8 @@ export class TankController {
                     mesh.metadata && mesh.metadata.type === "enemyWall" && !mesh.isDisposed()
                 );
                 for (const wall of enemyWalls) {
-                    if (this.checkPointInWall(bulletPos, wall, "enemyWall")) {
+                    const wallMesh = wall as Mesh;
+                    if (this.checkPointInWall(bulletPos, wallMesh, "enemyWall")) {
                         hasHit = true;
                         const bulletDamage = (ball.metadata && (ball.metadata as any).damage) ? (ball.metadata as any).damage : 25;
                         const wallMeta = wall.metadata as any;
@@ -2069,7 +2057,8 @@ export class TankController {
                 mesh.metadata && mesh.metadata.type === "enemyWall" && !mesh.isDisposed()
             );
             for (const wall of enemyWalls) {
-                if (this.checkPointInWall(bulletPos, wall, "enemyWall")) {
+                const wallMesh = wall as Mesh;
+                if (this.checkPointInWall(bulletPos, wallMesh, "enemyWall")) {
                     hasHit = true;
                     const bulletDamage = (ball.metadata && (ball.metadata as any).damage) ? (ball.metadata as any).damage : 25;
                     const wallMeta = wall.metadata as any;
@@ -3259,14 +3248,15 @@ export class TankController {
             // Используем кэшированное значение fwdSpeed для оптимизации
             if (isFinite(fwdSpeed)) {
                 const wheelRotationDelta = fwdSpeed * 0.05;
-                if (isFinite(wheelRotationDelta)) {
-                    const wheelCount = this.visualWheels.length;
-                    for (let i = 0; i < wheelCount; i++) {
-                        if (this.visualWheels[i] && !this.visualWheels[i].isDisposed()) {
-                            this.visualWheels[i].rotation.x += wheelRotationDelta;
-                        }
+            if (isFinite(wheelRotationDelta)) {
+                const wheelCount = this.visualWheels.length;
+                for (let i = 0; i < wheelCount; i++) {
+                    const wheel = this.visualWheels[i];
+                    if (wheel && !wheel.isDisposed()) {
+                        wheel.rotation.x += wheelRotationDelta;
                     }
                 }
+            }
             }
 
             // === UPDATE INVULNERABILITY (каждые 2 кадра для оптимизации) ===
@@ -3573,19 +3563,20 @@ export class TankController {
         );
         
         for (const wall of enemyWalls) {
+            const wallMesh = wall as Mesh;
             const pick = this.scene.pickWithRay(ray, (mesh) => {
-                return mesh === wall;
+                return mesh === wallMesh;
             });
             
             if (pick && pick.hit && pick.pickedPoint) {
-                if (this.checkPointInWall(pick.pickedPoint, wall, "enemyWall")) {
-                    return { hit: true, wallMesh: wall, hitPoint: pick.pickedPoint, wallType: "enemyWall" };
+                if (this.checkPointInWall(pick.pickedPoint, wallMesh, "enemyWall")) {
+                    return { hit: true, wallMesh, hitPoint: pick.pickedPoint, wallType: "enemyWall" };
                 }
             }
             
             // Также проверяем, находится ли стартовая позиция внутри стены
-            if (this.checkPointInWall(startPos, wall, "enemyWall")) {
-                return { hit: true, wallMesh: wall, hitPoint: startPos.clone(), wallType: "enemyWall" };
+            if (this.checkPointInWall(startPos, wallMesh, "enemyWall")) {
+                return { hit: true, wallMesh, hitPoint: startPos.clone(), wallType: "enemyWall" };
             }
         }
         
@@ -3785,6 +3776,7 @@ export class TankController {
                 const vel = velocities[i];
                 const startPos = startPositions[i];
                 const startRot = startRotations[i];
+                if (!vel || !startPos || !startRot) return;
                 
                 // Физика падения (гравитация)
                 const gravity = -15; // Ускорение свободного падения

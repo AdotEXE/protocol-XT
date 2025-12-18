@@ -139,7 +139,6 @@ export class PerformanceOptimizer {
     ): () => void {
         let scrollTop = 0;
         const containerHeight = container.clientHeight;
-        const totalHeight = items.length * itemHeight;
         
         const update = () => {
             const start = Math.floor(scrollTop / itemHeight);
@@ -154,7 +153,7 @@ export class PerformanceOptimizer {
             
             // Видимые элементы
             for (let i = start; i < end; i++) {
-                const item = renderItem(items[i], i);
+                const item = renderItem(items[i]!, i);
                 container.appendChild(item);
             }
             

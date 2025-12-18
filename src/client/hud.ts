@@ -329,6 +329,34 @@ export class HUD {
         // HUD initialized
     }
     
+    /**
+     * Флаг видимости HUD для внешних систем (скриншоты и т.п.)
+     */
+    public isVisible(): boolean {
+        const root = (this.guiTexture as any).rootContainer as Rectangle | undefined;
+        return root ? root.isVisible !== false : true;
+    }
+    
+    /**
+     * Скрыть весь HUD
+     */
+    public hide(): void {
+        const root = (this.guiTexture as any).rootContainer as Rectangle | undefined;
+        if (root) {
+            root.isVisible = false;
+        }
+    }
+    
+    /**
+     * Показать весь HUD
+     */
+    public show(): void {
+        const root = (this.guiTexture as any).rootContainer as Rectangle | undefined;
+        if (root) {
+            root.isVisible = true;
+        }
+    }
+    
     // === UI SCALING HELPERS ===
     /**
      * Get scaled pixel value for Babylon.js GUI
@@ -2534,11 +2562,12 @@ export class HUD {
         
         // Вычисляем позицию: модули (слоты 6-0) занимают 5 слотов справа от припасов
         // Припасы: 10 слотов, модули: 5 слотов (6-0), эффекты: 8 слотов справа от модулей
+        // Симметричное расположение относительно центра (как припасы и модули)
         const consumablesTotalWidth = 10 * slotWidth + 9 * slotGap;
         const modulesTotalWidth = 5 * slotWidth + 4 * slotGap;
         const consumablesRightEdge = consumablesTotalWidth / 2;
         const modulesRightEdge = consumablesRightEdge + modulesTotalWidth + slotGap;
-        const effectsLeftEdge = modulesRightEdge + slotGap * 2; // Справа от модулей с отступом
+        const effectsLeftEdge = modulesRightEdge + slotGap; // Справа от модулей с минимальным отступом (симметрично)
         const effectsCenterOffset = effectsLeftEdge + totalWidth / 2;
         
         // Создаем контейнер для всех слотов эффектов
@@ -5345,11 +5374,15 @@ export class HUD {
     // === TANK STATUS BLOCK ===
     
     private createTankStatusBlock(): void {
-        // === БЛОК СОСТОЯНИЯ ТАНКА - СЛЕВА ОТ РАДАРА, ЭЛЕМЕНТЫ ПО ВЕРТИКАЛИ ===
-        // Радар находится: horizontalAlignment: RIGHT, left: -15px, top: -45px
-        // Блок состояния должен быть слева от радара, элементы расположены вертикально вдоль радара
+        // === БЛОК СОСТОЯНИЯ ТАНКА - ВПЛОТНУЮ СЛЕВА ОТ РАДАРА, ВЫСОТА КАК У РАДАРА ===
+        // Радар находится: horizontalAlignment: RIGHT, left: -15px, top: -45px, размер 175px
+        // Блок состояния должен быть вплотную слева от радара, высота такая же как радар (175px)
         const blockWidth = this.scalePx(150);
-        const blockHeight = this.scalePx(120); // Увеличена высота для вертикального расположения
+        const blockHeight = this.scalePx(175); // Такая же высота как радар (175px)
+        const RADAR_SIZE = 175; // Размер радара
+        const HEADER_HEIGHT = 22; // Высота заголовка радара
+        const INFO_HEIGHT = 22; // Высота блока информации радара
+        const TOTAL_RADAR_HEIGHT = RADAR_SIZE + HEADER_HEIGHT + INFO_HEIGHT; // Общая высота радара с заголовком и инфо
         
         this.tankStatusContainer = new Rectangle("tankStatusContainer");
         this.tankStatusContainer.width = blockWidth;
@@ -5360,11 +5393,12 @@ export class HUD {
         this.tankStatusContainer.background = "rgba(10, 21, 32, 0.9)";
         this.tankStatusContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         this.tankStatusContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        // Позиционируем ВПЛОТНУЮ слева от радара: радар на -15px, блок на -15px - radarWidth - blockWidth (БЕЗ gap)
+        // Позиционируем ВПЛОТНУЮ слева от радара: радар на -15px, блок на -15px - radarWidth - blockWidth - минимальный gap
         const radarLeft = -15;
-        const radarWidth = scalePixels(175);
+        const radarWidth = scalePixels(RADAR_SIZE);
         const blockWidthNum = scalePixels(150);
-        const calculatedLeft = radarLeft - radarWidth - blockWidthNum - 5; // Gap 5px вместо 0 (уменьшен gap)
+        const gap = 1; // Минимальный gap (1px) для визуального разделения
+        const calculatedLeft = radarLeft - radarWidth - blockWidthNum - gap;
         this.tankStatusContainer.left = `${calculatedLeft}px`;
         this.tankStatusContainer.top = this.scalePx(-45); // Выровнено с радаром (тот же top)
         this.tankStatusContainer.isVisible = true;

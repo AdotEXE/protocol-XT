@@ -57,7 +57,6 @@ export class SocialSystem {
     private db: any = null;
     private currentUserId: string | null = null;
     private friendsCache: Map<string, Friend> = new Map();
-    private _friendRequestsCache: FriendRequest[] = [];
     private clanCache: Clan | null = null;
 
     async initialize(): Promise<boolean> {

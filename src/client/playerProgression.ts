@@ -342,7 +342,6 @@ export class PlayerProgressionSystem {
         // Проверка повышения уровня
         // ВАЖНО: this.stats.experience содержит остаток опыта после повышения уровня
         // Чтобы проверить повышение, нужно вычислить общий накопленный опыт
-        const oldLevel = this.stats.level;
         while (this.stats.level < MAX_PLAYER_LEVEL) {
             // Вычисляем общий накопленный опыт
             const currentLevelXP = PLAYER_LEVEL_EXP[this.stats.level - 1] || 0;
@@ -350,7 +349,7 @@ export class PlayerProgressionSystem {
             const nextLevelXP = PLAYER_LEVEL_EXP[this.stats.level];
             
             // Проверяем, достигли ли мы порога для следующего уровня
-            if (totalXP >= nextLevelXP) {
+            if (nextLevelXP !== undefined && totalXP >= nextLevelXP) {
                 // Вычитаем опыт, необходимый для достижения следующего уровня
                 this.stats.experience = totalXP - nextLevelXP;
                 this.stats.level++;
@@ -804,10 +803,12 @@ export class PlayerProgressionSystem {
         if (this._xpHistory.length >= 2) {
             const oldest = this._xpHistory[0];
             const newest = this._xpHistory[this._xpHistory.length - 1];
-            const timeDiff = (newest.time - oldest.time) / 1000 / 60; // В минутах
-            const xpDiff = newest.xp - oldest.xp;
-            if (timeDiff > 0) {
-                experiencePerMinute = xpDiff / timeDiff;
+            if (oldest && newest) {
+                const timeDiff = (newest.time - oldest.time) / 1000 / 60; // В минутах
+                const xpDiff = newest.xp - oldest.xp;
+                if (timeDiff > 0) {
+                    experiencePerMinute = xpDiff / timeDiff;
+                }
             }
         }
         

@@ -774,6 +774,16 @@ export class MainMenu {
                             <span class="btn-label">${L.options}</span>
                         </button>
                     </div>
+                    <div class="btn-row">
+                        <button class="menu-btn secondary" id="btn-map-editor">
+                            <span class="btn-icon">🗺</span>
+                            <span class="btn-label">РЕДАКТОР КАРТ</span>
+                        </button>
+                        <button class="menu-btn secondary" id="btn-tank-editor">
+                            <span class="btn-icon">🔧</span>
+                            <span class="btn-label">РЕДАКТОР ТАНКОВ</span>
+                        </button>
+                    </div>
                     <button class="menu-btn fullscreen-btn" id="btn-fullscreen">
                         <span class="btn-icon" id="fullscreen-icon">⛶</span>
                         <span class="btn-label" id="fullscreen-label">${L.fullscreen}</span>
@@ -2298,6 +2308,8 @@ export class MainMenu {
                 { id: "btn-garage", handler: () => this.showGarage() },
                 { id: "btn-skills", handler: () => this.showSkills() },
                 { id: "btn-stats", handler: () => this.showStats() },
+                { id: "btn-map-editor", handler: () => this.openMapEditor() },
+                { id: "btn-tank-editor", handler: () => this.openTankEditor() },
                 { id: "btn-settings", handler: () => this.showSettings() },
                 { id: "btn-fullscreen", handler: () => this.toggleFullscreen() },
                 { id: "btn-resume", handler: () => this.resumeGame() },
@@ -5212,6 +5224,35 @@ export class MainMenu {
             this.returnToPlayMenuAfterGarage = false;
             this.showPlayMenu();
         }
+    }
+    
+    /**
+     * Открыть редактор карт
+     */
+    private openMapEditor(): void {
+        debugLog("[Menu] openMapEditor() called");
+        // Отправляем событие для открытия редактора карт (Ctrl+Shift+M)
+        // Редактор карт работает только когда игра запущена
+        const event = new KeyboardEvent("keydown", {
+            key: "m",
+            code: "KeyM",
+            ctrlKey: true,
+            shiftKey: true,
+            bubbles: true,
+            cancelable: true
+        });
+        window.dispatchEvent(event);
+        debugLog("[Menu] Map editor event dispatched");
+    }
+    
+    /**
+     * Открыть редактор танков
+     */
+    private openTankEditor(): void {
+        debugLog("[Menu] openTankEditor() called");
+        // Редактор танков доступен через гараж
+        // Открываем гараж, где можно редактировать танк
+        this.showGarage();
     }
     
     // @ts-expect-error - используется через обработчики событий
