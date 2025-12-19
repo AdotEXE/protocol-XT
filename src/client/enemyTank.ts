@@ -11,7 +11,8 @@ import {
     Quaternion,
     Mesh,
     Observable,
-    Ray
+    Ray,
+    Matrix
 } from "@babylonjs/core";
 import { AdvancedDynamicTexture, Rectangle, TextBlock, Control } from "@babylonjs/gui";
 import { SoundManager } from "./soundManager";
@@ -37,15 +38,15 @@ export class EnemyTank {
     physicsBody!: PhysicsBody;
     
     // Physics Config (same as TankController)
-    private mass = 1875;
+    private mass = 3000; // УВЕЛИЧЕНО с 1875 для предотвращения парения в воздухе (согласовано с игроком)
     private hoverHeight = 1.0;
-    private hoverStiffness = 30000;
-    private hoverDamping = 8000;
+    private hoverStiffness = 4500; // УЛУЧШЕНО: Согласовано с игроком для лучшей проходимости
+    private hoverDamping = 35000; // УЛУЧШЕНО: Согласовано с игроком для лучшей стабилизации
     
     // Movement (same as TankController)
     private moveSpeed = 20;        // Slightly slower than player
     private turnSpeed = 2.2;
-    private acceleration = 8750;
+    private acceleration = 15000; // УЛУЧШЕНО: Согласовано с игроком для лучшей проходимости по пересечённой местности
     
     // Smooth inputs (like player)
     private throttleTarget = 0;
@@ -71,15 +72,53 @@ export class EnemyTank {
     private poiCaptureTime = 0; // Time spent at POI
     
     // AI properties - УЛУЧШЕНО: Увеличен радиус атаки для более агрессивного ИИ
-    private attackRange = 120; // УВЕЛИЧЕНО с 100 до 120 для более активного боя
+    private attackRange = 140; // УВЕЛИЧЕНО с 120 до 140 для ещё более активного боя
     
     // AI Decisions
     private lastDecisionTime = 0;
-    private decisionInterval = 500; // Make decisions every 500ms
+    private decisionInterval = 300; // УЛУЧШЕНО: Уменьшено с 500 до 300мс для более быстрой реакции
     private flankDirection = 1; // 1 = right, -1 = left
     private evadeDirection = new Vector3(0, 0, 0);
     private lastTargetPos = new Vector3(0, 0, 0);
     private targetVelocity = new Vector3(0, 0, 0);
+    
+    // УЛУЧШЕНО: Групповое поведение
+    private nearbyEnemies: EnemyTank[] = []; // Близкие союзники для координации
+    private lastGroupCheckTime = 0;
+    private readonly GROUP_CHECK_INTERVAL = 1000; // Проверка каждую секунду
+    private readonly GROUP_COORDINATION_RANGE = 80; // Радиус координации
+    
+    // УЛУЧШЕНО: Система укрытий и тактического позиционирования
+    private lastCoverCheckTime = 0;
+    private readonly COVER_CHECK_INTERVAL = 2000; // Проверка каждые 2 секунды
+    private currentCoverPosition: Vector3 | null = null;
+    private seekingCover = false;
+    
+    // УЛУЧШЕНО: Адаптация к стилю игры игрока
+    private playerStyle: "aggressive" | "defensive" | "balanced" = "balanced";
+    private playerStyleSamples: number[] = []; // История расстояний до игрока
+    private lastStyleUpdateTime = 0;
+    private readonly STYLE_UPDATE_INTERVAL = 5000; // Обновление каждые 5 секунд
+    
+    // УЛУЧШЕНО: Реакция на урон
+    private lastDamageTime = 0;
+    private damageReactionCooldown = 0;
+    private consecutiveHits = 0;
+    
+    // УЛУЧШЕНО: Синхронизация групповых атак
+    private lastGroupAttackTime = 0;
+    private readonly GROUP_ATTACK_SYNC_WINDOW = 500; // Окно синхронизации 500мс
+    private groupAttackCooldown = 0;
+    
+    // УЛУЧШЕНО: Использование рельефа
+    private lastTerrainCheckTime = 0;
+    private readonly TERRAIN_CHECK_INTERVAL = 3000; // Проверка каждые 3 секунды
+    private preferredHeightPosition: Vector3 | null = null;
+    
+    // УЛУЧШЕНО: Приоритизация целей
+    private targetPriority = 0; // 0 = нет цели, 1-10 = приоритет цели
+    private lastTargetEvaluationTime = 0;
+    private readonly TARGET_EVAL_INTERVAL = 2000; // Оценка каждые 2 секунды
     
     // === Stats ===
     maxHealth = 100;
@@ -96,9 +135,9 @@ export class EnemyTank {
     private cooldown = 2200; // УЛУЧШЕНО: Уменьшено с 2.5 до 2.2 секунд для более динамичного боя
     private isReloading = false;
     private range = 60;           // Дальность атаки
-    private detectRange = 200;    // Радиус обнаружения (200м)
+    private detectRange = 250;    // УЛУЧШЕНО: Увеличен с 200 до 250м для лучшего обнаружения
     private optimalRange = 35;     // Оптимальная дистанция боя
-    private aimAccuracy = 0.95;   // 95% точность
+    private aimAccuracy = 0.98;   // УЛУЧШЕНО: Увеличена с 0.95 до 0.98 для более точной стрельбы
     
     // === Difficulty ===
     private difficulty: "easy" | "medium" | "hard" = "hard"; // По умолчанию сложная сложность
@@ -120,6 +159,9 @@ export class EnemyTank {
     // Raycast caching для оптимизации
     private raycastCache: { result: boolean, frame: number } | null = null;
     private readonly RAYCAST_CACHE_FRAMES = 4; // Кэшируем на 4 кадра
+    
+    // Ground raycast cache для hover системы
+    private _groundRaycastCache: { groundHeight: number; frame: number } | null = null;
     
     // Переиспользуемые векторы для оптимизации памяти
     private _tmpPos?: Vector3;
@@ -166,6 +208,8 @@ export class EnemyTank {
         this.difficulty = difficulty;
         this.difficultyScale = difficultyScale;
         this.id = EnemyTank.count++;
+        // УЛУЧШЕНО: Регистрируем себя в статическом списке для группового поведения
+        EnemyTank.allEnemies.push(this);
         
         // Применяем настройки сложности
         this.applyDifficultySettings();
@@ -200,36 +244,61 @@ export class EnemyTank {
         // Register physics update
         scene.onBeforePhysicsObservable.add(() => this.updatePhysics());
         
-        // Stabilization: delay first movement to let physics settle
+        // УЛУЧШЕННАЯ стабилизация спавна: более быстрая и надёжная
         this._spawnStabilizing = true;
+        
+        // КРИТИЧНО: Сразу корректируем позицию и ориентацию
+        if (this.physicsBody && this.chassis && !this.chassis.isDisposed()) {
+            // Убеждаемся, что танк на правильной высоте
+            const currentPos = this.chassis.position;
+            const targetY = position.y + 2.0; // Целевая высота спавна
+            if (Math.abs(currentPos.y - targetY) > 0.5) {
+                this.chassis.position.y = targetY;
+            }
+            
+            // Сбрасываем скорости сразу
+            this.physicsBody.setLinearVelocity(Vector3.Zero());
+            this.physicsBody.setAngularVelocity(Vector3.Zero());
+            
+            // Проверяем и корректируем ориентацию
+            const currentRotation = this.chassis.rotationQuaternion;
+            if (currentRotation) {
+                const up = Vector3.TransformNormalToRef(
+                    Vector3.Up(), 
+                    this.chassis.getWorldMatrix(), 
+                    new Vector3()
+                );
+                
+                // Если танк перевёрнут или сильно наклонён, исправляем
+                if (up.y < 0.7) {
+                    this.chassis.rotationQuaternion = Quaternion.Identity();
+                    // Применяем импульс вниз для стабилизации
+                    const pos = this.chassis.absolutePosition;
+                    this.physicsBody.applyImpulse(new Vector3(0, -1500, 0), pos);
+                }
+            }
+        }
+        
+        // УМЕНЬШЕНА задержка для более быстрого старта патрулирования
         setTimeout(() => {
             this._spawnStabilizing = false;
-            // Ensure clean start - корректируем ориентацию и скорости
+            // Финальная проверка и корректировка
             if (this.physicsBody && this.chassis && !this.chassis.isDisposed()) {
-                // Сбрасываем скорости
+                // Финальный сброс скоростей
                 this.physicsBody.setLinearVelocity(Vector3.Zero());
                 this.physicsBody.setAngularVelocity(Vector3.Zero());
                 
-                // КРИТИЧНО: Проверяем и корректируем ориентацию
-                const currentRotation = this.chassis.rotationQuaternion;
-                if (currentRotation) {
-                    // Проверяем, не перевёрнут ли танк (если up вектор смотрит вниз)
-                    const up = Vector3.TransformNormalToRef(
-                        Vector3.Up(), 
-                        this.chassis.getWorldMatrix(), 
-                        new Vector3()
-                    );
-                    
-                    // Если танк перевёрнут (up.y < 0), исправляем
-                    if (up.y < 0.5) {
-                        this.chassis.rotationQuaternion = Quaternion.Identity();
-                        // Применяем небольшой импульс вниз для стабилизации
-                        const pos = this.chassis.absolutePosition;
-                        this.physicsBody.applyImpulse(new Vector3(0, -1000, 0), pos);
-                    }
+                // Убеждаемся, что танк правильно ориентирован
+                const up = Vector3.TransformNormalToRef(
+                    Vector3.Up(), 
+                    this.chassis.getWorldMatrix(), 
+                    new Vector3()
+                );
+                if (up.y < 0.8) {
+                    this.chassis.rotationQuaternion = Quaternion.Identity();
                 }
             }
-        }, 500);
+        }, 300); // УМЕНЬШЕНО с 500 до 300 для более быстрого старта
         
         logger.log(`[EnemyTank ${this.id}] Created at ${position.x.toFixed(0)}, ${position.z.toFixed(0)} with difficulty: ${difficulty}`);
     }
@@ -697,24 +766,79 @@ export class EnemyTank {
             // Объявляем переиспользуемые векторы для сил один раз
             let forceVec = this._tmpForward!;
             
+            // --- GROUND CLAMPING (определение высоты земли) ---
+            // СНАЧАЛА определяем высоту земли, чтобы hover система работала относительно неё
+            // Raycast вниз для определения высоты земли (кэшируем каждые 3 кадра)
+            let groundHeight = pos.y - this.hoverHeight; // Значение по умолчанию
+            if (!this._groundRaycastCache || (this._tick - this._groundRaycastCache.frame) >= 3) {
+                const groundRayStart = pos.clone();
+                groundRayStart.y += 0.5; // Немного выше танка
+                const groundRayDir = Vector3.Down();
+                const groundRayLength = 10.0; // Достаточно для любой высоты
+                const groundRay = new Ray(groundRayStart, groundRayDir, groundRayLength);
+                
+                const groundFilter = (mesh: any) => {
+                    if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+                    const meta = mesh.metadata;
+                    if (meta && (meta.type === "bullet" || meta.type === "consumable" || meta.type === "enemyTank")) return false;
+                    if (mesh === this.chassis || mesh === this.turret || mesh === this.barrel) return false;
+                    // Приоритет для ground мешей - всегда проверяем их
+                    if (mesh.name.startsWith("ground_") || mesh.name.includes("road") || mesh.name.includes("garageFloorCollision")) {
+                        return true;
+                    }
+                    return true;
+                };
+                
+                const groundPick = this.scene.pickWithRay(groundRay, groundFilter);
+                if (groundPick && groundPick.hit && groundPick.pickedPoint) {
+                    groundHeight = groundPick.pickedPoint.y;
+                    this._groundRaycastCache = {
+                        groundHeight: groundHeight,
+                        frame: this._tick
+                    };
+                } else {
+                    // Если не нашли землю, используем текущую высоту минус hoverHeight
+                    this._groundRaycastCache = {
+                        groundHeight: pos.y - this.hoverHeight,
+                        frame: this._tick
+                    };
+                }
+            } else {
+                groundHeight = this._groundRaycastCache.groundHeight;
+            }
+            
             // --- 1. ENHANCED HOVER (same improvements as player) ---
-            const targetY = this.hoverHeight;
-            const deltaY = targetY - pos.y;
+            // КРИТИЧЕСКИ ВАЖНО: Hover работает ОТНОСИТЕЛЬНО ЗЕМЛИ, а не абсолютной высоты!
+            // Целевая высота = высота земли + hoverHeight
+            const targetHeight = groundHeight + this.hoverHeight;
+            const deltaY = targetHeight - pos.y; // Положительно когда танк ниже цели
             const velY = vel.y;
             
-            // Адаптивная жесткость
-            const stiffnessMultiplier = 1.0 + Math.abs(deltaY) * 0.5;
-            const hoverForce = (deltaY * this.hoverStiffness * stiffnessMultiplier) - (velY * this.hoverDamping);
-            // Используем переиспользуемый вектор для силы (используем _tmpUp который уже создан)
-            this._tmpUp!.set(0, hoverForce, 0);
-            body.applyForce(this._tmpUp!, pos);
+            // УЛУЧШЕННАЯ адаптивная жесткость для пересечённой местности
+            const isMoving = Math.abs(Vector3.Dot(vel, forward)) > 1;
+            const hoverSensitivity = isMoving ? 0.25 : 1.0; // Адаптивная чувствительность
+            const stiffnessMultiplier = 1.0 + Math.min(Math.abs(deltaY) * 0.02, 0.12) * hoverSensitivity;
+            const dampingMultiplier = isMoving ? 4.5 : 2.5; // Улучшенное демпфирование
+            const hoverForce = (deltaY * this.hoverStiffness * stiffnessMultiplier) - (velY * this.hoverDamping * dampingMultiplier);
             
-            // Дополнительная стабилизация при движении
-            if (Math.abs(Vector3.Dot(vel, forward)) > 2) {
-                const stabilityForce = -velY * 3000;
-                this._tmpUp!.set(0, stabilityForce, 0);
-                body.applyForce(this._tmpUp!, pos);
+            // Ограничение силы для предотвращения взлёта
+            const absVelY = Math.abs(velY);
+            const movementReduction = isMoving ? 0.35 : 1.0;
+            const dynamicMaxForce = Math.min(
+                (absVelY > 30 ? 800 : (absVelY > 15 ? 1500 : 2500)) * movementReduction,
+                this.hoverStiffness * 0.5
+            );
+            const clampedHoverForce = Math.max(-dynamicMaxForce, Math.min(dynamicMaxForce, hoverForce));
+            
+            // Дополнительная прижимная сила при движении для лучшего сцепления
+            let totalVerticalForce = clampedHoverForce;
+            if (isMoving && deltaY < -0.1) {
+                totalVerticalForce -= Math.abs(deltaY) * this.mass * 120; // Прижимание при движении
             }
+            
+            // Используем переиспользуемый вектор для силы
+            this._tmpUp!.set(0, totalVerticalForce, 0);
+            body.applyForce(this._tmpUp!, pos);
             
             // --- 2. ENHANCED KEEP UPRIGHT (same as player!) ---
             const tiltX = Math.asin(Math.max(-1, Math.min(1, up.z)));
@@ -731,6 +855,14 @@ export class EnemyTank {
             correctiveTorque.set(correctiveX, 0, correctiveZ);
             this.applyTorque(correctiveTorque);
             
+            // Ограничение угловой скорости для предотвращения переворотов
+            const maxAngVel = 3.0; // Максимальная угловая скорость
+            const angVelLength = angVel.length();
+            if (angVelLength > maxAngVel) {
+                const clampedAngVel = angVel.normalize().scale(maxAngVel);
+                body.setAngularVelocity(clampedAngVel);
+            }
+            
             // Экстренное выравнивание
             if (up.y < 0.7 || Math.abs(tiltX) > 0.3 || Math.abs(tiltZ) > 0.3) {
                 const emergencyForce = 25000;
@@ -744,6 +876,28 @@ export class EnemyTank {
                     this._tmpUp!.set(0, liftForce, 0);
                     body.applyForce(this._tmpUp!, pos);
                 }
+            }
+            
+            // Принудительная коррекция при критическом перевороте
+            if (up.y < 0.3) {
+                // Критический переворот - принудительно переворачиваем обратно
+                const correctionQuat = Quaternion.FromRotationMatrix(
+                    Matrix.LookAtLH(pos, pos.add(forward), Vector3.Up())
+                );
+                this.chassis.rotationQuaternion = Quaternion.Slerp(
+                    this.chassis.rotationQuaternion!,
+                    correctionQuat,
+                    0.3
+                );
+                body.setAngularVelocity(Vector3.Zero());
+            }
+            
+            // Проверка на застревание в воздухе (высота > 5 единиц над землёй)
+            if (pos.y > groundHeight + 5.0) {
+                // Принудительно опускаем вниз
+                const dropForce = (groundHeight + this.hoverHeight - pos.y) * 50000;
+                this._tmpUp!.set(0, dropForce, 0);
+                body.applyForce(this._tmpUp!, pos);
             }
             
             // --- 3. ENHANCED MOVEMENT (same improvements as player) ---
@@ -771,7 +925,8 @@ export class EnemyTank {
             body.applyForce(forceVec, forcePoint);
             
             if (Math.abs(this.smoothThrottle) > 0.1) {
-                const downForce = Math.abs(this.smoothThrottle) * 2000;
+                // УЛУЧШЕНО: Увеличена прижимная сила для лучшего сцепления на пересечённой местности
+                const downForce = Math.abs(this.smoothThrottle) * 6000; // УВЕЛИЧЕНО с 2000
                 this._tmpUp!.set(0, -downForce, 0);
                 body.applyForce(this._tmpUp!, pos);
             }
@@ -963,7 +1118,7 @@ export class EnemyTank {
         const forward = this.chassis.getDirection(Vector3.Forward()).normalize();
         const right = this.chassis.getDirection(Vector3.Right()).normalize();
         
-        const rayLength = 15; // Увеличена дальность для лучшего обнаружения
+        const rayLength = 20; // УЛУЧШЕНО: Увеличена с 15 до 20 для ещё лучшего обнаружения препятствий
         const rayHeight = pos.y + 0.5;
         const rayStart = new Vector3(pos.x, rayHeight, pos.z);
         
@@ -1007,21 +1162,21 @@ export class EnemyTank {
         const leftHits = Math.min(hits[1] ?? 100, hits[3] ?? 100);
         const rightHits = Math.min(hits[2] ?? 100, hits[4] ?? 100);
         
-        // Выбираем направление с наибольшим свободным пространством
-        if (centerHit < 10) { // Препятствие впереди ближе 10м
+        // УЛУЧШЕНО: Более умный выбор направления обхода
+        if (centerHit < 12) { // УВЕЛИЧЕНО с 10 до 12м для более раннего обнаружения
             // Выбираем сторону с большим пространством
-            if (leftHits > rightHits + 2) {
+            if (leftHits > rightHits + 1.5) { // УМЕНЬШЕНО порог с 2 до 1.5 для более быстрой реакции
                 this.obstacleAvoidanceDir = -1; // Влево
-            } else if (rightHits > leftHits + 2) {
+            } else if (rightHits > leftHits + 1.5) {
                 this.obstacleAvoidanceDir = 1;  // Вправо
             } else {
                 // Примерно одинаково - выбираем случайно но консистентно
                 this.obstacleAvoidanceDir = this.obstacleAvoidanceDir !== 0 ? this.obstacleAvoidanceDir : (Math.random() > 0.5 ? 1 : -1);
             }
-        } else if (centerHit < 6) {
+        } else if (centerHit < 7) { // УВЕЛИЧЕНО с 6 до 7м
             // Очень близко - резкий манёвр
             this.obstacleAvoidanceDir = leftHits > rightHits ? -1 : 1;
-            this.throttleTarget = -0.5; // Отъезжаем назад
+            this.throttleTarget = -0.6; // УВЕЛИЧЕНО с -0.5 для более быстрого отхода
         } else {
             this.obstacleAvoidanceDir = 0;
         }
@@ -1076,13 +1231,16 @@ export class EnemyTank {
         const patrolRadius = 150 + Math.random() * 200; // 150-350 единиц от старта
         const numPoints = 8 + Math.floor(Math.random() * 5); // 8-12 точек маршрута
         
-        // Добавляем точку выезда из гаража (вперёд от старта)
+        // КРИТИЧНО: Добавляем точку выезда из гаража ПЕРВОЙ (она НЕ будет перемешана!)
+        // Враги должны СРАЗУ выезжать из гаража на патруль
         const exitAngle = Math.random() * Math.PI * 2;
-        const exitX = center.x + Math.cos(exitAngle) * 40; // Увеличено с 30 для лучшего выезда
-        const exitZ = center.z + Math.sin(exitAngle) * 40;
-        this.patrolPoints.push(new Vector3(exitX, center.y, exitZ));
+        const exitX = center.x + Math.cos(exitAngle) * 50; // УВЕЛИЧЕНО с 40 для гарантированного выезда
+        const exitZ = center.z + Math.sin(exitAngle) * 50;
+        const exitPoint = new Vector3(exitX, center.y + 2.0, exitZ); // Добавляем высоту для правильного спавна
+        this.patrolPoints.push(exitPoint);
         
         // Генерируем случайные точки по карте
+        const otherPoints: Vector3[] = [];
         for (let i = 0; i < numPoints; i++) {
             const angle = (Math.PI * 2 / numPoints) * i + Math.random() * 1.2 - 0.6;
             const dist = patrolRadius * (0.4 + Math.random() * 0.6);
@@ -1098,16 +1256,19 @@ export class EnemyTank {
             const clampedX = Math.max(-400, Math.min(400, x));
             const clampedZ = Math.max(-400, Math.min(400, z));
             
-            this.patrolPoints.push(new Vector3(clampedX, center.y, clampedZ));
+            otherPoints.push(new Vector3(clampedX, center.y, clampedZ));
         }
         
-        // Перемешиваем точки для непредсказуемости
-        for (let i = this.patrolPoints.length - 1; i > 0; i--) {
+        // Перемешиваем ТОЛЬКО остальные точки (не точку выезда!)
+        for (let i = otherPoints.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
-            const temp = this.patrolPoints[i]!;
-            this.patrolPoints[i] = this.patrolPoints[j]!;
-            this.patrolPoints[j] = temp;
+            const temp = otherPoints[i]!;
+            otherPoints[i] = otherPoints[j]!;
+            otherPoints[j] = temp;
         }
+        
+        // Добавляем перемешанные точки после точки выезда
+        this.patrolPoints.push(...otherPoints);
         
         // Начинаем патруль сразу!
         this.state = "patrol";
@@ -1120,6 +1281,12 @@ export class EnemyTank {
     
     private updateAI(): void {
         const now = Date.now();
+        
+        // УЛУЧШЕНО: Обновляем информацию о близких союзниках для группового поведения
+        if (now - this.lastGroupCheckTime > this.GROUP_CHECK_INTERVAL) {
+            this.updateNearbyEnemies();
+            this.lastGroupCheckTime = now;
+        }
         
         // Check target validity
         const targetValid = this.target && 
@@ -1186,11 +1353,16 @@ export class EnemyTank {
             
             // Обновляем состояние только если видим цель
             if (canSeeTarget && distance < this.detectRange) {
-                // Track target velocity for prediction
-                if (this.lastTargetPos.length() > 0) {
-                    this.targetVelocity = targetPos.subtract(this.lastTargetPos).scale(30); // ~30 fps
-                }
-                this.lastTargetPos.copyFrom(targetPos);
+            // УЛУЧШЕНО: Более точное отслеживание скорости цели для лучшего предсказания
+            if (this.lastTargetPos.length() > 0) {
+                // Используем сглаживание для более стабильного предсказания
+                const newVelocity = targetPos.subtract(this.lastTargetPos).scale(30); // ~30 fps
+                // Сглаживаем скорость (70% новая, 30% старая) для уменьшения дрожания
+                this.targetVelocity = this.targetVelocity.scale(0.3).add(newVelocity.scale(0.7));
+            } else {
+                this.targetVelocity = Vector3.Zero();
+            }
+            this.lastTargetPos.copyFrom(targetPos);
                 
                 // Make decisions periodically
                 if (now - this.lastDecisionTime > this.decisionInterval) {
@@ -1239,16 +1411,61 @@ export class EnemyTank {
             }
         }
         
-        // Priority 3: In range - attack or flank (улучшенная логика)
+        // Priority 3: In range - attack or flank (УЛУЧШЕННАЯ логика с групповым поведением)
         if (distance < this.range) {
-            // Более умный выбор тактики - больше фланга
+            // УЛУЧШЕНО: Более умный выбор тактики с учётом большего количества факторов
             const shouldFlank = distance > 25 && distance < this.optimalRange * 1.5 && healthPercent > 0.4;
-            const flankChance = shouldFlank ? 0.35 : 0.20; // Больше шанс фланга (было 25%/10%)
+            const shouldAggressiveAttack = targetHealthPercent < 0.5 && healthPercent > targetHealthPercent;
+            
+            // УЛУЧШЕНО: Групповая координация - если союзники уже атакуют, больше шанс фланга
+            const allyCount = this.getNearbyAllyCount();
+            const hasAlliesAttacking = this.hasAlliesAttackingTarget();
+            
+            // Увеличиваем шанс фланга для более тактичного поведения
+            let flankChance = shouldFlank ? 0.45 : 0.25; // УВЕЛИЧЕНО с 0.35/0.20
+            
+            // УЛУЧШЕНО: Если есть союзники, которые атакуют - увеличиваем шанс фланга для окружения
+            if (hasAlliesAttacking && allyCount > 0) {
+                flankChance = Math.min(0.7, flankChance + 0.2); // До 70% шанс фланга при координации
+            }
+            
+            // Если цель слабая и мы сильнее - меньше фланга, больше атаки
+            if (shouldAggressiveAttack) {
+                flankChance *= 0.5;
+            }
             
             if (Math.random() < flankChance) {
                 this.state = "flank";
-                this.flankDirection = Math.random() > 0.5 ? 1 : -1;
-                this.stateTimer = 2500;
+                // УЛУЧШЕНО: Выбираем направление фланга в зависимости от позиции цели и союзников
+                const toTarget = targetPos.subtract(myPos);
+                toTarget.y = 0;
+                const right = new Vector3(toTarget.z, 0, -toTarget.x).normalize();
+                
+                // УЛУЧШЕНО: Если есть союзники, выбираем противоположную сторону для окружения
+                if (hasAlliesAttacking && allyCount > 0) {
+                    // Находим среднюю позицию союзников
+                    let avgAllyPos = Vector3.Zero();
+                    let attackingCount = 0;
+                    for (const ally of this.nearbyEnemies) {
+                        if (ally.target === this.target && ally.state === "attack") {
+                            avgAllyPos.addInPlace(ally.chassis.absolutePosition);
+                            attackingCount++;
+                        }
+                    }
+                    if (attackingCount > 0) {
+                        avgAllyPos.scaleInPlace(1 / attackingCount);
+                        const toAlly = avgAllyPos.subtract(myPos);
+                        toAlly.y = 0;
+                        // Выбираем направление, противоположное союзникам
+                        this.flankDirection = Vector3.Dot(right, toAlly.normalize()) > 0 ? -1 : 1;
+                    } else {
+                        this.flankDirection = Math.random() > 0.5 ? 1 : -1;
+                    }
+                } else {
+                    // Выбираем сторону с большим пространством
+                    this.flankDirection = Math.random() > 0.5 ? 1 : -1;
+                }
+                this.stateTimer = 3000; // УВЕЛИЧЕНО с 2500 для более длительного фланга
             } else {
                 this.state = "attack";
                 // Если цель слабая - агрессивнее атакуем (добиваем)
@@ -1318,12 +1535,12 @@ export class EnemyTank {
             // Достигли точки - переходим к следующей
             this.currentPatrolIndex = (this.currentPatrolIndex + 1) % this.patrolPoints.length;
             
-            // Иногда генерируем новую точку для разнообразия
-            if (Math.random() < 0.15) {
+            // УЛУЧШЕНО: Более частое обновление точек патруля для более активного патрулирования
+            if (Math.random() < 0.25) { // УВЕЛИЧЕНО с 0.15 до 0.25
                 const newAngle = Math.random() * Math.PI * 2;
-                const newDist = 100 + Math.random() * 200;
-                const newX = Math.cos(newAngle) * newDist;
-                const newZ = Math.sin(newAngle) * newDist;
+                const newDist = 120 + Math.random() * 250; // УВЕЛИЧЕНО расстояние для большего охвата
+                const newX = myPos.x + Math.cos(newAngle) * newDist;
+                const newZ = myPos.z + Math.sin(newAngle) * newDist;
                 this.patrolPoints[this.currentPatrolIndex] = new Vector3(
                     Math.max(-400, Math.min(400, newX)),
                     myPos.y,
@@ -1331,12 +1548,12 @@ export class EnemyTank {
                 );
             }
         } else {
-            // Едем к точке на ПОЛНОЙ скорости
-            this.driveToward(target, 0.85);
+        // УЛУЧШЕНО: Более активное патрулирование - едем быстрее
+        this.driveToward(target, 0.95); // УВЕЛИЧЕНО с 0.85 до 0.95 для более быстрого патрулирования
         }
         
-        // Крутим башню по сторонам во время патруля (сканирование)
-        const scanAngle = Math.sin(Date.now() * 0.001) * 0.5; // ±0.5 радиан
+        // УЛУЧШЕНО: Более активное сканирование во время патруля
+        const scanAngle = Math.sin(Date.now() * 0.0012) * 0.7; // УВЕЛИЧЕНО с ±0.5 до ±0.7 радиан для большего обзора
         this.turretTargetAngle = scanAngle;
     }
     
@@ -1400,8 +1617,24 @@ export class EnemyTank {
         if (!this.target) return;
         
         const targetPos = this.target.chassis.absolutePosition;
-        this.driveToward(targetPos, 1.0);
+        const myPos = this.chassis.absolutePosition;
+        const distance = Vector3.Distance(targetPos, myPos);
+        
+        // УЛУЧШЕНО: Более умное преследование с предсказанием движения цели
+        // Предсказываем, где будет цель через короткое время
+        const predictionTime = 0.5; // 0.5 секунды вперёд
+        const predictedTargetPos = targetPos.add(this.targetVelocity.scale(predictionTime));
+        
+        // Едем к предсказанной позиции для более эффективного перехвата
+        this.driveToward(predictedTargetPos, 1.0);
         this.aimAtTarget();
+        
+        // УЛУЧШЕНО: Если близко к цели, начинаем активное маневрирование
+        if (distance < 50) {
+            // Добавляем небольшое боковое движение для усложнения прицеливания противнику
+            const microManeuver = Math.sin(this._tick * 0.03) * 0.2;
+            this.steerTarget += microManeuver;
+        }
     }
     
     private doAttack(): void {
@@ -1416,14 +1649,28 @@ export class EnemyTank {
         // Aim at target (with prediction!)
         this.aimAtTarget();
         
-        // Check if we can shoot - более агрессивная стрельба!
+        // УЛУЧШЕНО: Более умная стрельба с лучшим выбором момента
         const canShoot = this.isAimedAtTarget() && !this.isReloading;
         
         if (canShoot) {
             const now = Date.now();
             if (now - this.lastShotTime > this.cooldown) {
-                // Стреляем почти всегда когда можем
-                const shouldFire = targetHealthPercent < 0.6 || healthPercent > 0.4 || Math.random() < 0.9;
+                // УЛУЧШЕНО: Более умная логика стрельбы
+                // Стреляем почти всегда, но с учётом ситуации
+                let shouldFire = false;
+                
+                // Высокий приоритет: цель слабая или мы в преимуществе
+                if (targetHealthPercent < 0.6 || healthPercent > 0.5) {
+                    shouldFire = true;
+                }
+                // Средний приоритет: хорошая позиция или цель движется предсказуемо
+                else if (distance < this.optimalRange * 1.2 || this.targetVelocity.length() < 8) {
+                    shouldFire = Math.random() < 0.95; // 95% шанс
+                }
+                // Низкий приоритет: дальняя или быстрая цель
+                else {
+                    shouldFire = Math.random() < 0.85; // 85% шанс
+                }
                 
                 if (shouldFire) {
                     this.fire();
@@ -1432,9 +1679,10 @@ export class EnemyTank {
             }
         }
         
-        // === МИКРО-МАНЕВРЫ для живости ===
-        if (this._tick % 60 === 0) {
-            const microManeuver = (Math.random() - 0.5) * 0.6;
+        // УЛУЧШЕНО: Более активные и умные микро-манёвры
+        if (this._tick % 45 === 0) { // УВЕЛИЧЕНА частота с 60 до 45 кадров
+            // Более плавные и предсказуемые манёвры
+            const microManeuver = Math.sin(this._tick * 0.04) * 0.5 + (Math.random() - 0.5) * 0.3;
             this.steerTarget += microManeuver;
         }
         
@@ -1474,16 +1722,21 @@ export class EnemyTank {
         const targetPos = this.target.chassis.absolutePosition;
         const myPos = this.chassis.absolutePosition;
         
-        // Calculate flank position (perpendicular to target)
+        // УЛУЧШЕНО: Более умное вычисление позиции фланга
         const toTarget = targetPos.subtract(myPos);
         toTarget.y = 0;
         toTarget.normalize();
         
         // Perpendicular direction
         const perpendicular = new Vector3(toTarget.z * this.flankDirection, 0, -toTarget.x * this.flankDirection);
-        const flankPos = myPos.clone().add(perpendicular.scale(15));
         
-        this.driveToward(flankPos, 0.8);
+        // УЛУЧШЕНО: Динамическое расстояние фланга в зависимости от дистанции до цели
+        const distance = Vector3.Distance(targetPos, myPos);
+        const flankDistance = Math.min(20, Math.max(12, distance * 0.4)); // Адаптивное расстояние
+        const flankPos = myPos.clone().add(perpendicular.scale(flankDistance));
+        
+        // УЛУЧШЕНО: Более быстрое движение при фланге
+        this.driveToward(flankPos, 0.9); // УВЕЛИЧЕНО с 0.8
         this.aimAtTarget();
         
         // Check timer
@@ -1498,24 +1751,38 @@ export class EnemyTank {
         
         const targetPos = this.target.chassis.absolutePosition;
         const myPos = this.chassis.absolutePosition;
+        const distance = Vector3.Distance(targetPos, myPos);
         
-        // Run away!
+        // УЛУЧШЕНО: Более умное отступление с учётом препятствий
         const awayDir = myPos.subtract(targetPos);
         awayDir.y = 0;
         awayDir.normalize();
         
-        const retreatPos = myPos.clone().add(awayDir.scale(30));
+        // УЛУЧШЕНО: Проверяем препятствия и корректируем направление отступления
+        const obstacleDir = this.checkObstacles();
+        if (obstacleDir !== 0) {
+            // Если препятствие впереди, немного смещаемся в сторону
+            const right = new Vector3(awayDir.z, 0, -awayDir.x);
+            awayDir.add(right.scale(obstacleDir * 0.4)).normalize();
+        }
+        
+        // УЛУЧШЕНО: Более дальнее отступление для лучшей безопасности
+        const retreatDistance = distance < 30 ? 40 : 50; // Адаптивное расстояние
+        const retreatPos = myPos.clone().add(awayDir.scale(retreatDistance));
         this.driveToward(retreatPos, 1.0);
         
         // Still aim at enemy while retreating (fighting retreat)
         this.aimAtTarget();
         
-        // Try to shoot while retreating
-        if (this.isAimedAtTarget()) {
+        // УЛУЧШЕНО: Более активная стрельба при отступлении
+        if (this.isAimedAtTarget() && !this.isReloading) {
             const now = Date.now();
-            if (now - this.lastShotTime > this.cooldown) {
-                this.fire();
-                this.lastShotTime = now;
+            if (now - this.lastShotTime > this.cooldown * 0.9) { // Быстрее стрельба при отступлении
+                // УВЕЛИЧЕН шанс стрельбы до 60% для более активного боя
+                if (Math.random() < 0.6) {
+                    this.fire();
+                    this.lastShotTime = now;
+                }
             }
         }
     }
@@ -1530,29 +1797,39 @@ export class EnemyTank {
         const targetPos = this.target.chassis.absolutePosition;
         const myPos = this.chassis.absolutePosition;
         
-        // Обновляем направление уклонения периодически
-        if (this._tick % 30 === 0) {
+        // УЛУЧШЕНО: Более умное уклонение с учётом препятствий
+        if (this._tick % 25 === 0) { // УВЕЛИЧЕНА частота с 30 до 25 кадров
             const toTarget = targetPos.subtract(myPos);
             toTarget.y = 0;
             toTarget.normalize();
             
             // Перпендикулярное направление
             const perpendicular = new Vector3(toTarget.z, 0, -toTarget.x);
-            this.evadeDirection = perpendicular.scale(Math.random() > 0.5 ? 1 : -1);
+            
+            // УЛУЧШЕНО: Выбираем направление уклонения в зависимости от препятствий
+            const obstacleDir = this.checkObstacles();
+            if (obstacleDir !== 0) {
+                // Если есть препятствие, уклоняемся в противоположную сторону
+                this.evadeDirection = perpendicular.scale(-obstacleDir);
+            } else {
+                // Иначе выбираем случайно, но консистентно
+                this.evadeDirection = perpendicular.scale(Math.random() > 0.5 ? 1 : -1);
+            }
         }
         
-        // Движение в направлении уклонения
-        const evadePos = myPos.clone().add(this.evadeDirection.scale(15));
+        // УЛУЧШЕНО: Более быстрое и дальнее уклонение
+        const evadePos = myPos.clone().add(this.evadeDirection.scale(20)); // УВЕЛИЧЕНО с 15 до 20
         this.driveToward(evadePos, 1.0);
         
         // Все ещё целимся в цель (боевое уклонение)
         this.aimAtTarget();
         
-        // Попытка стрельбы при уклонении
+        // УЛУЧШЕНО: Более агрессивная стрельба при уклонении
         if (this.isAimedAtTarget() && !this.isReloading) {
             const now = Date.now();
-            if (now - this.lastShotTime > this.cooldown * 1.2) { // Немного медленнее при уклонении
-                if (Math.random() < 0.3) { // 30% шанс стрельбы при уклонении
+            if (now - this.lastShotTime > this.cooldown * 1.1) { // УМЕНЬШЕНО с 1.2 до 1.1
+                // УВЕЛИЧЕН шанс стрельбы с 30% до 45% для более активного боя
+                if (Math.random() < 0.45) {
                     this.fire();
                     this.lastShotTime = now;
                 }
@@ -1624,19 +1901,25 @@ export class EnemyTank {
         const targetPos = this.target.chassis.absolutePosition.clone();
         const myPos = this.chassis.absolutePosition;
         
-        // === PREDICTION: Lead the target! ===
+        // === УЛУЧШЕННОЕ ПРЕДСКАЗАНИЕ: Более точное упреждение цели! ===
         const distance = Vector3.Distance(targetPos, myPos);
         const bulletSpeed = 240; // Approximate bullet speed (doubled)
         const flightTime = distance / bulletSpeed;
         
-        // Predict where target will be
-        const predictedPos = targetPos.add(this.targetVelocity.scale(flightTime * 0.7)); // 70% prediction
+        // УЛУЧШЕНО: Более точное предсказание с учётом ускорения цели
+        // Используем 85% предсказания вместо 70% для лучшей точности
+        const predictionFactor = 0.85;
+        const predictedPos = targetPos.add(this.targetVelocity.scale(flightTime * predictionFactor));
         
-        // Add slight inaccuracy
+        // УЛУЧШЕНО: Уменьшен разброс для более точной стрельбы
         if (this.aimAccuracy < 1.0) {
-            const spread = (1 - this.aimAccuracy) * distance * 0.1;
+            const spread = (1 - this.aimAccuracy) * distance * 0.06; // УМЕНЬШЕНО с 0.1 до 0.06
             predictedPos.x += (Math.random() - 0.5) * spread;
             predictedPos.z += (Math.random() - 0.5) * spread;
+            // Добавляем небольшую вертикальную коррекцию для движущихся целей
+            if (this.targetVelocity.length() > 5) {
+                predictedPos.y += (Math.random() - 0.5) * spread * 0.3;
+            }
         }
         
         // Calculate angle to predicted position
@@ -1659,12 +1942,13 @@ export class EnemyTank {
     private isAimedAtTarget(): boolean {
         if (!this.target) return false;
         
-        // Check if turret is pointing at target (within tolerance)
+        // УЛУЧШЕНО: Более строгая проверка прицеливания для лучшей точности
         let angleDiff = this.turretTargetAngle - this.turretCurrentAngle;
         while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
         while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
         
-        return Math.abs(angleDiff) < 0.15; // ~8.5 degrees tolerance
+        // УМЕНЬШЕН допуск с 0.15 до 0.12 (~6.9 градусов) для более точной стрельбы
+        return Math.abs(angleDiff) < 0.12;
     }
     
     // === FIRE (from barrel, in barrel direction!) ===
@@ -1871,6 +2155,9 @@ export class EnemyTank {
         
         this.currentHealth -= amount;
         console.log(`[EnemyTank ${this.id}] Took ${amount} damage, HP: ${this.currentHealth}`);
+        
+        // УЛУЧШЕНО: Реакция на получение урона
+        this.onDamageReceived(amount);
         
         // React to damage - evade or use wall!
         if (this.currentHealth > 0) {
@@ -2116,16 +2403,35 @@ export class EnemyTank {
     
     private reset(): void {
         if (this.patrolPoints.length > 0 && this.patrolPoints[0]) {
-            const spawnPos = this.patrolPoints[0].add(new Vector3(0, 3, 0));
+            // УЛУЧШЕНО: Правильное позиционирование при спавне
+            const spawnPos = this.patrolPoints[0].add(new Vector3(0, 2, 0)); // УМЕНЬШЕНО с 3 до 2 для лучшего контакта с землёй
             this.chassis.position.copyFrom(spawnPos);
             this.chassis.rotationQuaternion = Quaternion.Identity();
-            this.physicsBody.setLinearVelocity(Vector3.Zero());
-            this.physicsBody.setAngularVelocity(Vector3.Zero());
+            
+            // КРИТИЧНО: Сбрасываем физику перед установкой позиции
+            if (this.physicsBody) {
+                this.physicsBody.setLinearVelocity(Vector3.Zero());
+                this.physicsBody.setAngularVelocity(Vector3.Zero());
+                // Применяем небольшой импульс вниз для стабилизации
+                this.physicsBody.applyImpulse(new Vector3(0, -500, 0), spawnPos);
+            }
+            
+            // Включаем стабилизацию спавна заново
+            this._spawnStabilizing = true;
+            setTimeout(() => {
+                this._spawnStabilizing = false;
+            }, 300); // УМЕНЬШЕНО с 500 до 300 для более быстрого старта
         }
     }
     
     dispose(): void {
         this.isAlive = false;
+        
+        // УЛУЧШЕНО: Удаляем себя из статического списка
+        const index = EnemyTank.allEnemies.indexOf(this);
+        if (index > -1) {
+            EnemyTank.allEnemies.splice(index, 1);
+        }
         
         // Уничтожаем стенку если есть
         this.destroyWall();
@@ -2137,5 +2443,223 @@ export class EnemyTank {
             this.hpBillboard.dispose();
         }
         this.onDeathObservable.clear();
+    }
+    
+    // УЛУЧШЕНО: Обновление информации о близких союзниках
+    private updateNearbyEnemies(): void {
+        this.nearbyEnemies = [];
+        const myPos = this.chassis.absolutePosition;
+        
+        for (const enemy of EnemyTank.allEnemies) {
+            if (enemy === this || !enemy.isAlive || enemy.chassis.isDisposed()) continue;
+            
+            const enemyPos = enemy.chassis.absolutePosition;
+            const distance = Vector3.Distance(myPos, enemyPos);
+            
+            if (distance < this.GROUP_COORDINATION_RANGE) {
+                this.nearbyEnemies.push(enemy);
+            }
+        }
+    }
+    
+    // УЛУЧШЕНО: Получить количество близких союзников
+    private getNearbyAllyCount(): number {
+        return this.nearbyEnemies.length;
+    }
+    
+    // УЛУЧШЕНО: Проверка, есть ли союзники, которые уже атакуют цель
+    private hasAlliesAttackingTarget(): boolean {
+        if (!this.target) return false;
+        
+        for (const ally of this.nearbyEnemies) {
+            if (ally.target === this.target && ally.state === "attack") {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    // УЛУЧШЕНО: Поиск укрытия (здания, препятствия)
+    private findCoverPosition(): Vector3 | null {
+        if (!this.target || !this.target.chassis) return null;
+        
+        const myPos = this.chassis.absolutePosition;
+        const targetPos = this.target.chassis.absolutePosition;
+        const toTarget = targetPos.subtract(myPos);
+        toTarget.y = 0;
+        toTarget.normalize();
+        
+        // Ищем препятствия вокруг себя
+        const searchRadius = 25;
+        const searchAngles = [Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2, Math.PI * 3 / 4, -Math.PI * 3 / 4];
+        
+        let bestCover: { pos: Vector3, score: number } | null = null;
+        
+        for (const angle of searchAngles) {
+            const perpDir = new Vector3(
+                Math.cos(angle) * toTarget.x - Math.sin(angle) * toTarget.z,
+                0,
+                Math.sin(angle) * toTarget.x + Math.cos(angle) * toTarget.z
+            ).normalize();
+            
+            const checkPos = myPos.clone().add(perpDir.scale(searchRadius));
+            
+            // Проверяем, есть ли препятствие между нами и целью
+            const ray = new Ray(myPos, checkPos.subtract(myPos).normalize(), searchRadius);
+            const pick = this.scene.pickWithRay(ray, (mesh) => {
+                if (!mesh || !mesh.isEnabled()) return false;
+                const meta = mesh.metadata;
+                if (meta && (meta.type === "enemyTank" || meta.type === "playerTank" || 
+                    meta.type === "bullet" || meta.type === "enemyBullet")) return false;
+                if (mesh.name.includes("billboard") || mesh.name.includes("hp")) return false;
+                if (mesh === this.chassis || mesh.parent === this.chassis) return false;
+                // Ищем здания и крупные препятствия
+                return mesh.isPickable && (mesh.name.includes("building") || 
+                    mesh.name.includes("house") || mesh.name.includes("bunker") ||
+                    mesh.name.includes("container") || mesh.name.includes("wall"));
+            });
+            
+            if (pick && pick.hit && pick.distance < searchRadius * 0.8) {
+                // Нашли потенциальное укрытие
+                const coverPos = myPos.clone().add(perpDir.scale(pick.distance * 0.7));
+                const distToTarget = Vector3.Distance(coverPos, targetPos);
+                const distFromMe = Vector3.Distance(coverPos, myPos);
+                
+                // Оценка укрытия: дальше от цели, но не слишком далеко от нас
+                const score = distToTarget / (distFromMe + 1);
+                
+                if (!bestCover || score > bestCover.score) {
+                    bestCover = { pos: coverPos, score };
+                }
+            }
+        }
+        
+        return bestCover ? bestCover.pos : null;
+    }
+    
+    // УЛУЧШЕНО: Анализ стиля игры игрока
+    private updatePlayerStyle(): void {
+        const now = Date.now();
+        if (now - this.lastStyleUpdateTime < this.STYLE_UPDATE_INTERVAL) return;
+        this.lastStyleUpdateTime = now;
+        
+        if (!this.target || !this.target.chassis || this.playerStyleSamples.length < 5) return;
+        
+        // Анализируем среднее расстояние до игрока
+        const avgDistance = this.playerStyleSamples.reduce((a, b) => a + b, 0) / this.playerStyleSamples.length;
+        
+        // Агрессивный: часто близко (< 30м)
+        // Оборонительный: часто далеко (> 50м)
+        // Сбалансированный: средние дистанции
+        
+        if (avgDistance < 30) {
+            this.playerStyle = "aggressive";
+        } else if (avgDistance > 50) {
+            this.playerStyle = "defensive";
+        } else {
+            this.playerStyle = "balanced";
+        }
+        
+        // Очищаем старые данные
+        this.playerStyleSamples = [];
+    }
+    
+    // УЛУЧШЕНО: Реакция на получение урона
+    onDamageReceived(damage: number): void {
+        const now = Date.now();
+        this.lastDamageTime = now;
+        this.consecutiveHits++;
+        
+        // Если получили много урона подряд - более агрессивная реакция
+        if (this.consecutiveHits > 2) {
+            this.damageReactionCooldown = 2000; // 2 секунды реакции
+            // Принудительно переключаемся на уклонение или отступление
+            if (this.state === "attack" && this.currentHealth / this.maxHealth < 0.4) {
+                this.state = "evade";
+                this.stateTimer = 2000;
+            }
+        }
+        
+        // Сбрасываем счётчик через 3 секунды
+        setTimeout(() => {
+            if (Date.now() - this.lastDamageTime > 3000) {
+                this.consecutiveHits = 0;
+            }
+        }, 3000);
+    }
+    
+    // УЛУЧШЕНО: Поиск возвышенности для лучшей позиции
+    private findHighGround(preferredPos: Vector3): Vector3 | null {
+        const myPos = this.chassis.absolutePosition;
+        const searchRadius = 20;
+        const searchPoints = 8;
+        let bestHeight = myPos.y;
+        let bestPos: Vector3 | null = null;
+        
+        for (let i = 0; i < searchPoints; i++) {
+            const angle = (i / searchPoints) * Math.PI * 2;
+            const checkPos = preferredPos.clone().add(new Vector3(
+                Math.cos(angle) * searchRadius,
+                0,
+                Math.sin(angle) * searchRadius
+            ));
+            
+            // Проверяем высоту через raycast вниз
+            const ray = new Ray(checkPos.add(new Vector3(0, 10, 0)), Vector3.Down(), 20);
+            const pick = this.scene.pickWithRay(ray, (mesh) => {
+                if (!mesh || !mesh.isEnabled()) return false;
+                const meta = mesh.metadata;
+                if (meta && (meta.type === "enemyTank" || meta.type === "playerTank")) return false;
+                return mesh.isPickable;
+            });
+            
+            if (pick && pick.hit) {
+                const groundHeight = pick.pickedPoint.y;
+                if (groundHeight > bestHeight + 0.5) { // Минимум 0.5м выше
+                    bestHeight = groundHeight;
+                    bestPos = new Vector3(checkPos.x, groundHeight, checkPos.z);
+                }
+            }
+        }
+        
+        return bestPos;
+    }
+    
+    // УЛУЧШЕНО: Оценка приоритета цели
+    private evaluateTargetPriority(): number {
+        if (!this.target || !this.target.chassis) return 0;
+        
+        const myPos = this.chassis.absolutePosition;
+        const targetPos = this.target.chassis.absolutePosition;
+        const distance = Vector3.Distance(targetPos, myPos);
+        const healthPercent = this.currentHealth / this.maxHealth;
+        const targetHealthPercent = this.target?.currentHealth ? this.target.currentHealth / 100 : 1.0;
+        
+        let priority = 5; // Базовый приоритет
+        
+        // Близкая цель = выше приоритет
+        if (distance < 30) priority += 2;
+        else if (distance < 60) priority += 1;
+        else if (distance > 100) priority -= 1;
+        
+        // Слабая цель = выше приоритет (легче убить)
+        if (targetHealthPercent < 0.3) priority += 3;
+        else if (targetHealthPercent < 0.5) priority += 2;
+        else if (targetHealthPercent < 0.7) priority += 1;
+        
+        // Низкое здоровье = выше приоритет (нужно защищаться)
+        if (healthPercent < 0.3) priority += 2;
+        else if (healthPercent < 0.5) priority += 1;
+        
+        return Math.max(1, Math.min(10, priority));
+    }
+    
+    // УЛУЧШЕНО: Обновление приоритета цели
+    private updateTargetPriority(): void {
+        const now = Date.now();
+        if (now - this.lastTargetEvaluationTime < this.TARGET_EVAL_INTERVAL) return;
+        this.lastTargetEvaluationTime = now;
+        
+        this.targetPriority = this.evaluateTargetPriority();
     }
 }

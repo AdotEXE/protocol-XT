@@ -6,6 +6,26 @@
 const SW_PATH = '/sw.js';
 
 export function registerServiceWorker(): void {
+  // Отключаем ServiceWorker в режиме разработки (localhost или dev сервер)
+  const isDev = import.meta.env.DEV || 
+                window.location.hostname === 'localhost' || 
+                window.location.hostname === '127.0.0.1' ||
+                window.location.hostname.includes('localhost');
+  
+  if (isDev) {
+    console.log('[SW] Service Worker disabled in development mode');
+    // Отключаем существующие ServiceWorker в dev режиме
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        registrations.forEach((registration) => {
+          registration.unregister();
+          console.log('[SW] Service Worker unregistered for dev mode');
+        });
+      });
+    }
+    return;
+  }
+  
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register(SW_PATH, {

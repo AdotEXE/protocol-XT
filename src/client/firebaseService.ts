@@ -319,7 +319,15 @@ export class FirebaseService {
                             const errorCode = error?.code || 'unknown';
                             const errorMessage = error?.message || 'Unknown error';
                             
-                            if (errorCode === 'auth/api-key-not-valid' || errorCode.includes('api-key')) {
+                            // УЛУЧШЕНО: Обработка ошибки блокировки Identity Toolkit API
+                            if (errorCode === 'auth/requests-to-this-api-identitytoolkit-method-google.cloud.identitytoolkit.v1.projectconfigservice.getprojectconfig-are-blocked' ||
+                                errorMessage.includes('identitytoolkit') && errorMessage.includes('blocked')) {
+                                console.error("[Firebase] ❌ Identity Toolkit API is blocked!");
+                                console.error("[Firebase] To fix:");
+                                console.error("[Firebase]   1. Go to https://console.cloud.google.com/apis/library/identitytoolkit.googleapis.com");
+                                console.error("[Firebase]   2. Click 'Enable'");
+                                console.error("[Firebase]   3. Check Firebase Console → Authentication → Settings for domain restrictions");
+                            } else if (errorCode === 'auth/api-key-not-valid' || errorCode.includes('api-key')) {
                                 console.error("[Firebase] ❌ Invalid API key!");
                                 console.error("[Firebase] Please check your VITE_FIREBASE_API_KEY in .env file");
                                 console.error("[Firebase] See docs/FIREBASE_KEYS_EXPLAINED.md for setup instructions");
@@ -383,7 +391,16 @@ export class FirebaseService {
             
             let userFriendlyError = errorMessage;
             
-            if (errorCode === 'auth/api-key-not-valid' || errorCode.includes('api-key')) {
+            // УЛУЧШЕНО: Обработка ошибки блокировки Identity Toolkit API
+            if (errorCode === 'auth/requests-to-this-api-identitytoolkit-method-google.cloud.identitytoolkit.v1.projectconfigservice.getprojectconfig-are-blocked' ||
+                errorMessage.includes('identitytoolkit') && errorMessage.includes('blocked')) {
+                userFriendlyError = "Identity Toolkit API is blocked. Enable it in Google Cloud Console: APIs & Services → Enable Identity Toolkit API";
+                console.error("[Firebase] ❌ Identity Toolkit API is blocked!");
+                console.error("[Firebase] To fix:");
+                console.error("[Firebase]   1. Go to https://console.cloud.google.com/apis/library/identitytoolkit.googleapis.com");
+                console.error("[Firebase]   2. Click 'Enable'");
+                console.error("[Firebase]   3. Check Firebase Console → Authentication → Settings for domain restrictions");
+            } else if (errorCode === 'auth/api-key-not-valid' || errorCode.includes('api-key')) {
                 userFriendlyError = "Invalid API key. Please check your VITE_FIREBASE_API_KEY in .env file. See docs/FIREBASE_KEYS_EXPLAINED.md";
             } else if (errorCode === 'auth/operation-not-allowed') {
                 userFriendlyError = "Anonymous authentication is not enabled. Enable it in Firebase Console: Authentication → Sign-in method → Anonymous";

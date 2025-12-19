@@ -560,10 +560,15 @@ export class TerrainGenerator {
             }
         }
         
-        // ИСПРАВЛЕНИЕ: Минимальная высота для предотвращения глубоких дыр
-        const minHeight = -2.0;
+        // КРИТИЧНО: Минимальная высота для предотвращения глубоких дыр
+        const minHeight = -1.0; // Увеличено с -2.0 до -1.0 для предотвращения дыр
         if (height < minHeight) {
             height = minHeight;
+        }
+        
+        // КРИТИЧНО: Финальная проверка на валидность - НЕ ДОПУСКАЕМ NaN, undefined, Infinity
+        if (!isFinite(height) || isNaN(height)) {
+            height = 0.0; // Безопасное значение по умолчанию
         }
         
         // Cache result with cap to avoid unbounded growth

@@ -59,6 +59,7 @@
     "system:logs": "tsx scripts/system-logs.ts",
     "start:all": "tsx scripts/start-all.ts",
     "restart:all": "tsx scripts/restart-all.ts",
+    "save:windows": "tsx scripts/save-window-positions.ts",
     "chrome:debug": "node scripts/chrome-debug.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

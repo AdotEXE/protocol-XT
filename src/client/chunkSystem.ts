@@ -448,7 +448,8 @@ export class ChunkSystem {
         collisionMat.alpha = 0;
         collisionFloor.material = collisionMat;
         collisionFloor.name = `garageFloorCollision_${index}`;
-        new PhysicsAggregate(collisionFloor, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const floorPhysics = new PhysicsAggregate(collisionFloor, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        this.setEnvironmentCollisionFilters(floorPhysics);
         
         // ЗАДНЯЯ СТЕНА С ПРОЁМОМ (ворота)
         // Левая часть задней стены
@@ -464,7 +465,8 @@ export class ChunkSystem {
             garageZ - garageDepth / 2 + wallThickness / 2
         );
         backLeftWall.material = garageMat;
-        new PhysicsAggregate(backLeftWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const backLeftWallPhysics = new PhysicsAggregate(backLeftWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        this.setEnvironmentCollisionFilters(backLeftWallPhysics);
         
         // Правая часть задней стены
         const backRightWall = MeshBuilder.CreateBox(`garageBackRight_${index}`, {
@@ -478,7 +480,8 @@ export class ChunkSystem {
             garageZ - garageDepth / 2 + wallThickness / 2
         );
         backRightWall.material = garageMat;
-        new PhysicsAggregate(backRightWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const backRightWallPhysics = new PhysicsAggregate(backRightWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        this.setEnvironmentCollisionFilters(backRightWallPhysics);
         
         // ПЕРЕМЫЧКА НАД ПРОЁМОМ ЗАДНЕЙ СТЕНЫ
         const backLintel = MeshBuilder.CreateBox(`garageBackLintel_${index}`, {
@@ -492,7 +495,8 @@ export class ChunkSystem {
             garageZ - garageDepth / 2 + wallThickness / 2
         );
         backLintel.material = garageMat;
-        new PhysicsAggregate(backLintel, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const backLintelPhysics = new PhysicsAggregate(backLintel, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        this.setEnvironmentCollisionFilters(backLintelPhysics);
         
         // ЛЕВАЯ СТЕНА (сплошная)
         const leftWall = MeshBuilder.CreateBox(`garageLeft_${index}`, {
@@ -502,7 +506,8 @@ export class ChunkSystem {
         }, this.scene);
         leftWall.position = new Vector3(garageX - garageWidth / 2 + wallThickness / 2, wallHeight / 2, garageZ);
         leftWall.material = garageMat;
-        new PhysicsAggregate(leftWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const leftWallPhysics = new PhysicsAggregate(leftWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        this.setEnvironmentCollisionFilters(leftWallPhysics);
         
         // ПРАВАЯ СТЕНА (сплошная)
         const rightWall = MeshBuilder.CreateBox(`garageRight_${index}`, {
@@ -512,7 +517,8 @@ export class ChunkSystem {
         }, this.scene);
         rightWall.position = new Vector3(garageX + garageWidth / 2 - wallThickness / 2, wallHeight / 2, garageZ);
         rightWall.material = garageMat;
-        new PhysicsAggregate(rightWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const rightWallPhysics = new PhysicsAggregate(rightWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        this.setEnvironmentCollisionFilters(rightWallPhysics);
         
         // ПЕРЕДНЯЯ СТЕНА С ПРОЁМОМ
         // Левая часть передней стены
@@ -528,7 +534,8 @@ export class ChunkSystem {
             garageZ + garageDepth / 2 - wallThickness / 2
         );
         frontLeftWall.material = garageMat;
-        new PhysicsAggregate(frontLeftWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const frontLeftWallPhysics = new PhysicsAggregate(frontLeftWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        this.setEnvironmentCollisionFilters(frontLeftWallPhysics);
         
         // Правая часть передней стены
         const frontRightWall = MeshBuilder.CreateBox(`garageFrontRight_${index}`, {
@@ -542,7 +549,8 @@ export class ChunkSystem {
             garageZ + garageDepth / 2 - wallThickness / 2
         );
         frontRightWall.material = garageMat;
-        new PhysicsAggregate(frontRightWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const frontRightWallPhysics = new PhysicsAggregate(frontRightWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        this.setEnvironmentCollisionFilters(frontRightWallPhysics);
         
         // ПЕРЕМЫЧКА НАД ПРОЁМОМ
         const lintel = MeshBuilder.CreateBox(`garageLintel_${index}`, {
@@ -556,7 +564,8 @@ export class ChunkSystem {
             garageZ + garageDepth / 2 - wallThickness / 2
         );
         lintel.material = garageMat;
-        new PhysicsAggregate(lintel, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const lintelPhysics = new PhysicsAggregate(lintel, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        this.setEnvironmentCollisionFilters(lintelPhysics);
         
         // ПЕРЕДНИЕ ВОРОТА (поднимающиеся вверх)
         const frontDoor = MeshBuilder.CreateBox(`garageFrontDoor_${index}`, {
@@ -577,6 +586,7 @@ export class ChunkSystem {
         // Физика для непробиваемых ворот (как стены) - анимированный тип для движения
         const frontDoorPhysics = new PhysicsAggregate(frontDoor, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         frontDoorPhysics.body.setMotionType(PhysicsMotionType.ANIMATED);
+        this.setEnvironmentCollisionFilters(frontDoorPhysics);
         
         // ЗАДНИЕ ВОРОТА (поднимающиеся вверх)
         const backDoor = MeshBuilder.CreateBox(`garageBackDoor_${index}`, {
@@ -597,6 +607,7 @@ export class ChunkSystem {
         // Физика для непробиваемых ворот (как стены) - анимированный тип для движения
         const backDoorPhysics = new PhysicsAggregate(backDoor, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         backDoorPhysics.body.setMotionType(PhysicsMotionType.ANIMATED);
+        this.setEnvironmentCollisionFilters(backDoorPhysics);
         
         // Сохраняем ворота для управления
         this.garageDoors.push({
@@ -624,7 +635,8 @@ export class ChunkSystem {
         }, this.scene);
         roof.position = new Vector3(garageX, wallHeight + 0.125, garageZ);
         roof.material = garageMat;
-        new PhysicsAggregate(roof, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const roofPhysics = new PhysicsAggregate(roof, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        this.setEnvironmentCollisionFilters(roofPhysics);
         
         // Сохраняем все стены гаража и крышу для управления прозрачностью
         const garageWalls: Mesh[] = [
@@ -2012,14 +2024,10 @@ export class ChunkSystem {
             default: groundMat = typeof biome === "string" ? biome : "dirt";
         }
         
-        // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Проверяем, не находится ли весь чанк в области гаража
+        // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Всегда создаём ground, даже в гаражах (хотя бы плоский)
+        // Проверка на гараж используется только для корректировки высот, не для пропуска
         const chunkCenterX = worldX + size / 2;
         const chunkCenterZ = worldZ + size / 2;
-        
-        if (this.isPositionInGarageArea(chunkCenterX, chunkCenterZ, 25)) {
-            // Весь чанк в гараже, пропускаем создание ground
-            return;
-        }
         
         // If terrain generator is available, build a single heightmap ground mesh instead of many blocky boxes
         if (this.terrainGenerator) {
@@ -2044,22 +2052,46 @@ export class ChunkSystem {
                         const sampleX = worldX + (gx / subdivisions) * size;
                         const sampleZ = worldZ + (gz / subdivisions) * size;
                         
-                        // Проверяем, не находится ли эта точка в области гаража
+                        // КРИТИЧНО: ПЕРВЫМ ДЕЛОМ проверяем, находится ли точка в гараже
+                        // Если да - ВСЕГДА плоская поверхность на высоте 0, БЕЗ вызова terrainGenerator!
                         let inGarage = false;
+                        const garageCheckRadius = 30; // Увеличено для гарантии покрытия всего гаража
                         for (const garagePos of this.garagePositions) {
                             const dx = Math.abs(sampleX - garagePos.x);
                             const dz = Math.abs(sampleZ - garagePos.z);
-                            if (dx < garageRadius && dz < garageRadius) {
+                            if (dx < garageCheckRadius && dz < garageCheckRadius) {
                                 inGarage = true;
                                 break;
                             }
                         }
                         
-                        // Если точка в гараже, устанавливаем высоту на уровень пола гаража (0)
-                        // ИСПРАВЛЕНИЕ: Также сглаживаем область вокруг гаража для плавного выезда
+                        // КРИТИЧНО: Если точка в гараже - ВСЕГДА плоская поверхность на высоте 0
+                        // НЕ вызываем terrainGenerator для гаражей - это предотвращает появление травы/гор!
                         if (inGarage) {
-                            positions[idx + 1] = 0; // Пол гаража на уровне 0
-                        } else {
+                            positions[idx + 1] = 0.0; // Пол гаража ВСЕГДА на уровне 0
+                            continue; // Пропускаем всю остальную обработку для точек в гараже
+                        }
+                        
+                        // Для точек ВНЕ гаража получаем высоту из terrain generator
+                        let height = this.terrainGenerator.getHeight(sampleX, sampleZ, typeof biome === "string" ? biome : "dirt");
+                        
+                        // КРИТИЧНО: Проверка на валидность высоты - НЕ ДОПУСКАЕМ NaN, undefined, Infinity
+                        if (!isFinite(height) || isNaN(height)) {
+                            height = 0.0; // Безопасное значение по умолчанию
+                        }
+                        
+                        // КРИТИЧНО: Нормализация высоты для всех биомов - предотвращаем "утопление" танка
+                        // Ограничиваем высоту разумным диапазоном: от -0.5 до 3.0
+                        // Это гарантирует, что танк не будет тонуть в траве или парить над асфальтом
+                        if (height > 3.0) {
+                            height = 3.0; // Максимальная высота для холмов
+                        }
+                        if (height < -0.5) {
+                            height = -0.5; // Минимальная высота (немного ниже уровня для ям)
+                        }
+                        
+                        // Обрабатываем точки ВНЕ гаража
+                        {
                             // ИСПРАВЛЕНИЕ: Проверяем расстояние до гаража для плавного перехода
                             let minGarageDist = Infinity;
                             for (const garagePos of this.garagePositions) {
@@ -2071,7 +2103,6 @@ export class ChunkSystem {
                             
                             // Если точка близко к гаражу (в пределах 30 единиц), сглаживаем высоту
                             const garageSmoothingRadius = 30; // Увеличено с 20 до 30
-                            let height = this.terrainGenerator.getHeight(sampleX, sampleZ, typeof biome === "string" ? biome : "dirt");
                             
                             if (minGarageDist < garageSmoothingRadius) {
                                 // Плавный переход от гаража (высота 0) к нормальной высоте
@@ -2091,7 +2122,7 @@ export class ChunkSystem {
                             const isOnEdge = (gx === 0 || gx === subdivisions || gz === 0 || gz === subdivisions);
                             if (isOnEdge && this.terrainGenerator) {
                                 // Получаем высоты соседних точек из соседних чанков
-                                const neighborDist = 0.5;
+                                const neighborDist = 0.5; // Улучшено сглаживание границ
                                 const neighborHeights: number[] = [];
                                 
                                 // Проверяем 4 соседние точки (север, юг, восток, запад)
@@ -2134,49 +2165,245 @@ export class ChunkSystem {
                                 }
                             }
                             
-                            // ИСПРАВЛЕНИЕ: Минимальная высота для предотвращения глубоких дыр
-                            if (height < -2.0) {
-                                height = -2.0;
+                            // КРИТИЧНО: Финальная проверка и установка высоты
+                            // Нормализация высоты для предотвращения "утопления" танка в траве/асфальте
+                            if (height > 3.0) {
+                                height = 3.0; // Максимальная высота для холмов
+                            }
+                            if (height < -0.5) {
+                                height = -0.5; // Минимальная высота (немного ниже уровня для ям)
                             }
                             
+                            // КРИТИЧНО: Повторная проверка на валидность перед установкой
+                            if (!isFinite(height) || isNaN(height)) {
+                                height = 0.0; // Безопасное значение по умолчанию
+                            }
+                            
+                            // КРИТИЧНО: Всегда устанавливаем валидную высоту - НИКАКИХ ДЫР!
                             positions[idx + 1] = height;
+                        }
+                        
+                        // КРИТИЧНО: Дополнительная проверка - если точка оказалась в гараже после обработки, принудительно устанавливаем 0
+                        if (inGarage) {
+                            positions[idx + 1] = 0.0;
                         }
                     }
                 }
                 
-                // ЗАПОЛНЕНИЕ ПРОБЕЛОВ: Проверка сетки высот и заполнение дыр
-                const maxHeightDiff = 5.0;
-                const fillIterations = 2;
+                // КРИТИЧНО: ЗАПОЛНЕНИЕ ПРОБЕЛОВ - проверка сетки высот и заполнение ВСЕХ дыр
+                const maxHeightDiff = 1.5; // Уменьшено с 2.0 до 1.5 для ОЧЕНЬ агрессивного заполнения
+                const fillIterations = 8; // Увеличено с 5 до 8 для максимального заполнения всех дыр
                 
                 for (let iter = 0; iter < fillIterations; iter++) {
+                    for (let gz = 0; gz < vertsPerSide; gz++) {
+                        for (let gx = 0; gx < vertsPerSide; gx++) {
+                            const idx = (gz * vertsPerSide + gx) * 3;
+                            let currentHeight = positions[idx + 1];
+                            
+                            // КРИТИЧНО: Проверка на валидность - если NaN/undefined, заменяем на 0
+                            if (!isFinite(currentHeight) || isNaN(currentHeight) || currentHeight === undefined) {
+                                currentHeight = 0.0;
+                                positions[idx + 1] = currentHeight;
+                            }
+                            
+                            // Собираем валидные высоты соседей
+                            const neighbors: number[] = [];
+                            const neighborOffsets = [
+                                { gz: gz - 1, gx: gx },     // North
+                                { gz: gz + 1, gx: gx },     // South
+                                { gz: gz, gx: gx - 1 },     // West
+                                { gz: gz, gx: gx + 1 }      // East
+                            ];
+                            
+                            for (const offset of neighborOffsets) {
+                                if (offset.gz >= 0 && offset.gz < vertsPerSide && 
+                                    offset.gx >= 0 && offset.gx < vertsPerSide) {
+                                    const neighborIdx = (offset.gz * vertsPerSide + offset.gx) * 3;
+                                    const neighborHeight = positions[neighborIdx + 1];
+                                    if (isFinite(neighborHeight) && !isNaN(neighborHeight)) {
+                                        neighbors.push(neighborHeight);
+                                    }
+                                }
+                            }
+                            
+                            // Если есть валидные соседи, проверяем и заполняем пробелы
+                            if (neighbors.length > 0) {
+                                const avgNeighborHeight = neighbors.reduce((sum, h) => sum + h, 0) / neighbors.length;
+                                const diff = Math.abs(currentHeight - avgNeighborHeight);
+                                
+                                // Если разница слишком большая ИЛИ текущая высота невалидна, заполняем пробел
+                                if (diff > maxHeightDiff || !isFinite(currentHeight) || isNaN(currentHeight)) {
+                                    // Плавно сглаживаем к средней высоте соседей
+                                    const newHeight = currentHeight * 0.5 + avgNeighborHeight * 0.5;
+                                    positions[idx + 1] = isFinite(newHeight) && !isNaN(newHeight) ? newHeight : avgNeighborHeight;
+                                }
+                            } else {
+                                // Если нет валидных соседей, устанавливаем безопасное значение
+                                positions[idx + 1] = 0.0;
+                            }
+                        }
+                    }
+                }
+                
+                // КРИТИЧНО: Финальная проверка ВСЕХ высот - гарантируем, что нет ни одной дыры!
+                // И ВСЕГДА проверяем, что точки в гараже остались на высоте 0!
+                for (let gz = 0; gz < vertsPerSide; gz++) {
+                    for (let gx = 0; gx < vertsPerSide; gx++) {
+                        const idx = (gz * vertsPerSide + gx) * 3;
+                        const sampleX = worldX + (gx / subdivisions) * size;
+                        const sampleZ = worldZ + (gz / subdivisions) * size;
+                        
+                        // КРИТИЧНО: Проверяем, находится ли точка в гараже
+                        let inGarage = false;
+                        const garageCheckRadius = 30;
+                        for (const garagePos of this.garagePositions) {
+                            const dx = Math.abs(sampleX - garagePos.x);
+                            const dz = Math.abs(sampleZ - garagePos.z);
+                            if (dx < garageCheckRadius && dz < garageCheckRadius) {
+                                inGarage = true;
+                                break;
+                            }
+                        }
+                        
+                        // КРИТИЧНО: Если точка в гараже - ВСЕГДА высота 0, независимо от всего остального!
+                        if (inGarage) {
+                            positions[idx + 1] = 0.0;
+                            continue; // Пропускаем остальную обработку
+                        }
+                        
+                        let height = positions[idx + 1];
+                        
+                        // КРИТИЧНО: Если высота невалидна, проверяем соседей для заполнения
+                        if (!isFinite(height) || isNaN(height) || height === undefined) {
+                            // Пытаемся восстановить из соседей
+                            const neighborHeights: number[] = [];
+                            const neighborOffsets = [
+                                { gz: gz - 1, gx: gx }, { gz: gz + 1, gx: gx },
+                                { gz: gz, gx: gx - 1 }, { gz: gz, gx: gx + 1 }
+                            ];
+                            
+                            for (const offset of neighborOffsets) {
+                                if (offset.gz >= 0 && offset.gz < vertsPerSide && 
+                                    offset.gx >= 0 && offset.gx < vertsPerSide) {
+                                    const neighborIdx = (offset.gz * vertsPerSide + offset.gx) * 3;
+                                    const neighborHeight = positions[neighborIdx + 1];
+                                    if (isFinite(neighborHeight) && !isNaN(neighborHeight)) {
+                                        neighborHeights.push(neighborHeight);
+                                    }
+                                }
+                            }
+                            
+                            if (neighborHeights.length > 0) {
+                                height = neighborHeights.reduce((sum, h) => sum + h, 0) / neighborHeights.length;
+                            } else {
+                                height = 0.0; // Безопасное значение
+                            }
+                        }
+                        
+                        // Нормализация высоты для предотвращения "утопления" танка
+                        if (height > 3.0) {
+                            height = 3.0; // Максимальная высота
+                        }
+                        if (height < -0.5) {
+                            height = -0.5; // Минимальная высота
+                        }
+                        
+                        positions[idx + 1] = height;
+                    }
+                }
+                
+                // КРИТИЧНО: ДОПОЛНИТЕЛЬНАЯ проверка на дыры - проверяем все точки ещё раз после всех обработок
+                // Это гарантирует, что даже если что-то пошло не так, все дыры будут заполнены
+                for (let iter = 0; iter < 5; iter++) { // Увеличено с 3 до 5 итераций
                     for (let gz = 1; gz < vertsPerSide - 1; gz++) {
                         for (let gx = 1; gx < vertsPerSide - 1; gx++) {
                             const idx = (gz * vertsPerSide + gx) * 3;
-                            const currentHeight = positions[idx + 1] ?? 0;
+                            const currentHeight = positions[idx + 1];
                             
-                            // Проверяем 4 соседа
-                            const neighbors = [
-                                positions[((gz - 1) * vertsPerSide + gx) * 3 + 1] ?? 0, // North
-                                positions[((gz + 1) * vertsPerSide + gx) * 3 + 1] ?? 0, // South
-                                positions[(gz * vertsPerSide + (gx - 1)) * 3 + 1] ?? 0, // West
-                                positions[(gz * vertsPerSide + (gx + 1)) * 3 + 1] ?? 0  // East
-                            ];
-                            
-                            // Находим среднюю высоту соседей
-                            const avgNeighborHeight = neighbors.reduce((sum, h) => sum + (h ?? 0), 0) / neighbors.length;
-                            const diff = Math.abs(currentHeight - avgNeighborHeight);
-                            
-                            // Если разница слишком большая, заполняем пробел
-                            if (diff > maxHeightDiff) {
-                                // Плавно сглаживаем к средней высоте соседей
-                                positions[idx + 1] = currentHeight * 0.7 + avgNeighborHeight * 0.3;
+                            // Если высота невалидна - заполняем из соседей
+                            if (!isFinite(currentHeight) || isNaN(currentHeight)) {
+                                const neighbors = [
+                                    positions[((gz - 1) * vertsPerSide + gx) * 3 + 1],
+                                    positions[((gz + 1) * vertsPerSide + gx) * 3 + 1],
+                                    positions[(gz * vertsPerSide + (gx - 1)) * 3 + 1],
+                                    positions[(gz * vertsPerSide + (gx + 1)) * 3 + 1]
+                                ].filter(h => isFinite(h) && !isNaN(h));
+                                
+                                if (neighbors.length > 0) {
+                                    const avg = neighbors.reduce((sum, h) => sum + h, 0) / neighbors.length;
+                                    positions[idx + 1] = avg;
+                                } else {
+                                    positions[idx + 1] = 0.0; // Последний резерв
+                                }
+                            } else {
+                                // Проверяем на аномально большие перепады высот (дыры)
+                                const neighbors = [
+                                    positions[((gz - 1) * vertsPerSide + gx) * 3 + 1],
+                                    positions[((gz + 1) * vertsPerSide + gx) * 3 + 1],
+                                    positions[(gz * vertsPerSide + (gx - 1)) * 3 + 1],
+                                    positions[(gz * vertsPerSide + (gx + 1)) * 3 + 1]
+                                ].filter(h => isFinite(h) && !isNaN(h));
+                                
+                                if (neighbors.length > 0) {
+                                    const avg = neighbors.reduce((sum, h) => sum + h, 0) / neighbors.length;
+                                    const diff = Math.abs(currentHeight - avg);
+                                    
+                                    // Если разница больше 1.5 - это дыра, заполняем агрессивно
+                                    if (diff > 1.5) {
+                                        positions[idx + 1] = avg; // Полностью заменяем на среднее соседей
+                                    }
+                                }
                             }
                         }
                     }
                 }
                 
+                // КРИТИЧНО: Финальная проверка ВСЕХ высот перед обновлением mesh
+                // Гарантируем, что нет ни одной невалидной точки и нормализуем высоты
+                for (let i = 1; i < positions.length; i += 3) {
+                    let height = positions[i];
+                    if (!isFinite(height) || isNaN(height) || height === undefined) {
+                        height = 0.0; // Безопасное значение
+                    }
+                    // Нормализация высоты для предотвращения "утопления" танка в траве/асфальте
+                    if (height > 3.0) {
+                        height = 3.0; // Максимальная высота
+                    }
+                    if (height < -0.5) {
+                        height = -0.5; // Минимальная высота
+                    }
+                    positions[i] = height;
+                }
+                
+                // КРИТИЧНО: Обновляем mesh с валидными данными
+                
+                // КРИТИЧНО: Обновляем mesh с валидными данными
                 ground.updateVerticesData(VertexBuffer.PositionKind, positions, true);
                 ground.refreshBoundingInfo(true);
+                
+                // КРИТИЧНО: Дополнительная проверка после обновления - убеждаемся, что mesh валиден
+                const finalPositions = ground.getVerticesData(VertexBuffer.PositionKind);
+                if (finalPositions) {
+                    let hasInvalid = false;
+                    for (let i = 1; i < finalPositions.length; i += 3) {
+                        const height = finalPositions[i];
+                        if (!isFinite(height) || isNaN(height)) {
+                            hasInvalid = true;
+                            break;
+                        }
+                    }
+                    if (hasInvalid) {
+                        console.warn(`[ChunkSystem] Invalid heights detected in ground mesh ${ground.name}, fixing...`);
+                        // Повторно устанавливаем валидные значения
+                        for (let i = 1; i < finalPositions.length; i += 3) {
+                            if (!isFinite(finalPositions[i]) || isNaN(finalPositions[i])) {
+                                finalPositions[i] = 0.0;
+                            }
+                        }
+                        ground.updateVerticesData(VertexBuffer.PositionKind, finalPositions, true);
+                        ground.refreshBoundingInfo(true);
+                    }
+                }
             }
             
             // Позиция относительно chunk.node (который уже позиционирован в worldX, worldZ)
@@ -2439,7 +2666,8 @@ export class ChunkSystem {
                     detail.rotation.x = random.range(-0.4, 0.4);
                     detail.rotation.z = random.range(-0.4, 0.4);
                     detail.material = this.getMat("rock") || this.getMat("gravel");
-                    new PhysicsAggregate(detail, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                    const detailPhysics = new PhysicsAggregate(detail, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                    this.setEnvironmentCollisionFilters(detailPhysics);
                     break;
                 case "small_rock":
                     // Small natural rock - rectangular block
@@ -2868,7 +3096,8 @@ export class ChunkSystem {
             wall.parent = chunk.node;
             wall.freezeWorldMatrix();
             chunk.meshes.push(wall);
-            new PhysicsAggregate(wall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            const wallPhysics = new PhysicsAggregate(wall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            this.setEnvironmentCollisionFilters(wallPhysics);
         }
         
         // МОСТЫ (над дорогами или реками)
@@ -2893,7 +3122,8 @@ export class ChunkSystem {
             deck.parent = chunk.node;
             deck.freezeWorldMatrix();
             chunk.meshes.push(deck);
-            new PhysicsAggregate(deck, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            const deckPhysics = new PhysicsAggregate(deck, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            this.setEnvironmentCollisionFilters(deckPhysics);
             
             // Bridge supports (columns)
             const supportCount = random.int(2, 4);
@@ -2908,7 +3138,8 @@ export class ChunkSystem {
                 support.parent = chunk.node;
                 support.freezeWorldMatrix();
                 chunk.meshes.push(support);
-                new PhysicsAggregate(support, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                const supportPhysics = new PhysicsAggregate(support, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                this.setEnvironmentCollisionFilters(supportPhysics);
             }
             }
         }
@@ -2942,7 +3173,8 @@ export class ChunkSystem {
         building.parent = chunk.node;
         building.freezeWorldMatrix();
         chunk.meshes.push(building);
-        new PhysicsAggregate(building, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const buildingPhysics4 = new PhysicsAggregate(building, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        this.setEnvironmentCollisionFilters(buildingPhysics4);
         
         // MULTIPLE CONTAINERS
         const containerCount = random.int(1, 4);
@@ -2965,7 +3197,8 @@ export class ChunkSystem {
             container.parent = chunk.node;
             container.freezeWorldMatrix();
             chunk.meshes.push(container);
-            new PhysicsAggregate(container, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            const containerPhysics = new PhysicsAggregate(container, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            this.setEnvironmentCollisionFilters(containerPhysics);
         }
         
         // TRUCK
@@ -3106,7 +3339,8 @@ export class ChunkSystem {
             house.parent = chunk.node;
             house.freezeWorldMatrix();
             chunk.meshes.push(house);
-            new PhysicsAggregate(house, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            const housePhysics = new PhysicsAggregate(house, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            this.setEnvironmentCollisionFilters(housePhysics);
             
             // GARAGE attached to house
             if (random.chance(0.4)) {
@@ -3125,7 +3359,8 @@ export class ChunkSystem {
                 garage.parent = chunk.node;
                 garage.freezeWorldMatrix();
                 chunk.meshes.push(garage);
-                new PhysicsAggregate(garage, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                const garagePhysics = new PhysicsAggregate(garage, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                this.setEnvironmentCollisionFilters(garagePhysics);
                 }
             }
         }
@@ -3412,7 +3647,8 @@ export class ChunkSystem {
         bunker.parent = chunk.node;
         bunker.freezeWorldMatrix();
         chunk.meshes.push(bunker);
-        new PhysicsAggregate(bunker, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const bunkerPhysics = new PhysicsAggregate(bunker, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        this.setEnvironmentCollisionFilters(bunkerPhysics);
         
         // Barriers
         if (random.chance(0.4)) {
@@ -3509,7 +3745,8 @@ export class ChunkSystem {
             wall.parent = chunk.node;
             wall.freezeWorldMatrix();
             chunk.meshes.push(wall);
-            new PhysicsAggregate(wall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            const ruinWallFrontPhysics = new PhysicsAggregate(wall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            this.setEnvironmentCollisionFilters(ruinWallFrontPhysics);
         }
         
         // Задняя стена
@@ -3522,7 +3759,8 @@ export class ChunkSystem {
             wall.parent = chunk.node;
             wall.freezeWorldMatrix();
             chunk.meshes.push(wall);
-            new PhysicsAggregate(wall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            const ruinWallBackPhysics = new PhysicsAggregate(wall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            this.setEnvironmentCollisionFilters(ruinWallBackPhysics);
         }
         
         // Левая стена
@@ -3535,7 +3773,8 @@ export class ChunkSystem {
             wall.parent = chunk.node;
             wall.freezeWorldMatrix();
             chunk.meshes.push(wall);
-            new PhysicsAggregate(wall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            const ruinWallLeftPhysics = new PhysicsAggregate(wall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            this.setEnvironmentCollisionFilters(ruinWallLeftPhysics);
         }
         
         // Правая стена

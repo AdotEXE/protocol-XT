@@ -53,6 +53,14 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   
+  // Пропускаем запросы к Vite dev server (HMR и другие dev запросы)
+  if (url.pathname.includes('/@vite/') || 
+      url.pathname.includes('/node_modules/') ||
+      url.searchParams.has('t') || // Vite timestamp параметр
+      url.hostname === 'localhost' && url.port !== self.location.port) {
+    return; // Пропускаем запрос, не перехватываем
+  }
+  
   // Пропускаем запросы к внешним доменам (кроме статических ресурсов)
   if (url.origin !== self.location.origin) {
     // Для внешних ресурсов используем Network First

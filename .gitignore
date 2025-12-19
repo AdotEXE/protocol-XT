@@ -48,6 +48,9 @@ ui-debug.log
 *-firebase-adminsdk-*.json
 protocol-*-firebase-adminsdk-*.json
 
+# Window positions (user-specific)
+scripts/window-positions.json
+
 # Testing
 coverage/
 .nyc_output/

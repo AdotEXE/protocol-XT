@@ -153,13 +153,13 @@ export class TankController {
     trackType: TrackType;
     
     // Config (будут переопределены типом корпуса)
-    mass = 2100;
+    mass = 9000; // УВЕЛИЧЕНО до 9000 для реалистичной физики и предотвращения парения в воздухе
     hoverHeight = 1.0;  // Hover height
     
     // Movement Settings (будут переопределены типом корпуса)
     moveSpeed = 24;         // Slower max speed
     turnSpeed = 2.5;        // Moderate turning
-    acceleration = 10000;    // Smooth acceleration (was 20000!)
+    acceleration = 15000;    // УВЕЛИЧЕНО с 10000 для лучшей проходимости по пересечённой местности
     turnAccel = 11000;      // Угловое ускорение поворота
     stabilityTorque = 2000; // Стабилизация при повороте на скорости
     yawDamping = 4500;      // Демпфирование рыскания
@@ -169,14 +169,14 @@ export class TankController {
     angularDrag = 5000;     // Угловое сопротивление при остановке
     
     // Stability
-    hoverStiffness = 3500;   // Снижено с 4000 для плавности
-    hoverDamping = 30000;    // Увеличено с 20000 для сильного демпфирования
-    uprightForce = 10000;    // Без изменений
-    uprightDamp = 7000;     // Без изменений
-    stabilityForce = 2500;  // Без изменений
-    emergencyForce = 15000; // Без изменений
+    hoverStiffness = 4500;   // УВЕЛИЧЕНО с 3500 для лучшей проходимости по пересечённой местности
+    hoverDamping = 35000;    // УВЕЛИЧЕНО с 30000 для лучшей стабилизации на неровностях
+    uprightForce = 12000;    // УВЕЛИЧЕНО с 10000 для лучшей стабилизации на склонах
+    uprightDamp = 8000;     // УВЕЛИЧЕНО с 7000 для лучшего демпфирования
+    stabilityForce = 3000;  // УВЕЛИЧЕНО с 2500 для лучшей стабильности
+    emergencyForce = 18000; // УВЕЛИЧЕНО с 15000 для экстренных ситуаций
     liftForce = 0;          // УСТАНОВЛЕНО В 0 - полностью отключено для предотвращения взлета
-    downForce = 4000;       // Увеличено с 2000 для лучшего сцепления с землей
+    downForce = 6000;       // УВЕЛИЧЕНО с 4000 для лучшего сцепления с землей на пересечённой местности
 
     // Health System (будет переопределено типом корпуса)
     maxHealth = 100;
@@ -451,7 +451,7 @@ export class TankController {
         
         this.physicsBody = new PhysicsBody(this.chassis, PhysicsMotionType.DYNAMIC, false, scene);
         this.physicsBody.shape = chassisShape;
-        this.physicsBody.setMassProperties({ mass: this.mass, centerOfMass: new Vector3(0, -0.55, 0) });
+        this.physicsBody.setMassProperties({ mass: this.mass, centerOfMass: new Vector3(0, -0.55, -0.3) });
         this.physicsBody.setLinearDamping(0.8);
         this.physicsBody.setAngularDamping(4.0);
 
@@ -472,25 +472,18 @@ export class TankController {
     }
     
     // Создать визуальные меши для модулей
-    // Модули размещаются в фиксированных слотах:
-    // - На корпусе: модули 6 (щит), 9 (маневрирование), 0 (прыжок)
-    // - На башне: модуль 8 (автонаводка)
-    // - На пушке: модуль 7 (ускоренная стрельба)
+    // ВСЕ ЦВЕТНЫЕ МОДУЛИ УДАЛЕНЫ - они не существуют в гараже и не должны отображаться на танке
     private createModuleVisuals(): void {
         if (!this.chassis || !this.turret || !this.barrel) return;
         
-        const w = this.chassisType.width;
-        const h = this.chassisType.height;
-        const d = this.chassisType.depth;
+        // Все вызовы создания цветных модулей удалены:
+        // - Модуль 6 (синий щит) - УДАЛЕН
+        // - Модуль 7 (жёлтый индикатор) - УДАЛЕН
+        // - Модуль 8 (красный радар) - УДАЛЕН
+        // - Модуль 9 (бирюзовые ускорители) - УДАЛЕН
+        // - Модуль 0 (красные двигатели) - УДАЛЕН
         
-        // Создаём визуализацию для каждого модуля
-        this.createModule6Visual(w, h, d);  // Щит на корпусе (перед)
-        this.createModule7Visual();         // Индикатор на пушке
-        this.createModule8Visual(w);        // Радар на башне (использует только ширину)
-        this.createModule9Visual(w, h, d);  // Ускорители на корпусе (по бокам)
-        this.createModule0Visual(w, h, d);  // Двигатели на корпусе (сзади)
-        
-        // Обновляем видимость модулей в зависимости от установки
+        // Обновляем видимость модулей (если они были созданы ранее, они будут скрыты)
         this.updateModuleVisuals();
     }
     
@@ -2785,30 +2778,30 @@ export class TankController {
             const velY = vel.y;
             const absVelY = Math.abs(velY);
             
-            // Улучшенная система hover - усиленное демпфирование для предотвращения подпрыгиваний
+            // УЛУЧШЕННАЯ система hover для пересечённой местности - более агрессивная и адаптивная
             let hoverForce = 0;
             if (deltaY > 0) {
                 // Танк ниже цели - применяем hover для поднятия
-                // УМЕНЬШЕНА чувствительность при движении для предотвращения взлета
-                const hoverSensitivity = isMoving ? 0.15 : 1.0; // Еще больше уменьшено с 0.2
-                const stiffnessMultiplier = 1.0 + Math.min(Math.abs(deltaY) * 0.015, 0.08) * hoverSensitivity; // Уменьшено
-                const dampingMultiplier = isMoving ? 4.0 : 2.0; // Увеличено демпфирование при движении
+                // УЛУЧШЕНО для пересечённой местности: более быстрая реакция на неровности
+                const hoverSensitivity = isMoving ? 0.25 : 1.0; // УВЕЛИЧЕНО с 0.15 для лучшей проходимости
+                const stiffnessMultiplier = 1.0 + Math.min(Math.abs(deltaY) * 0.02, 0.12) * hoverSensitivity; // УВЕЛИЧЕНО для более быстрой реакции
+                const dampingMultiplier = isMoving ? 4.5 : 2.5; // УВЕЛИЧЕНО демпфирование при движении
                 hoverForce = (deltaY * this.hoverStiffness * stiffnessMultiplier) - (velY * this.hoverDamping * dampingMultiplier);
                 
-                // Более строгое динамическое ограничение при движении
-                const movementReduction = isMoving ? 0.2 : 1.0; // Еще больше уменьшено с 0.3
+                // Более мягкое ограничение при движении для лучшей проходимости
+                const movementReduction = isMoving ? 0.35 : 1.0; // УВЕЛИЧЕНО с 0.2 для лучшей проходимости
                 const dynamicMaxForce = Math.min(
-                    (absVelY > 30 ? 600 : (absVelY > 15 ? 1200 : 2000)) * movementReduction,
-                    this.hoverStiffness * 0.4 // Уменьшено с 0.5
+                    (absVelY > 30 ? 800 : (absVelY > 15 ? 1500 : 2500)) * movementReduction, // УВЕЛИЧЕНО для лучшей проходимости
+                    this.hoverStiffness * 0.5 // УВЕЛИЧЕНО с 0.4
                 );
                 hoverForce = Math.max(-dynamicMaxForce, Math.min(dynamicMaxForce, hoverForce));
             } else {
                 // Танк выше цели - ТОЛЬКО демпфирование вниз (усилено)
-                hoverForce = -velY * this.hoverDamping * 3.0; // Увеличено с 2.5
+                hoverForce = -velY * this.hoverDamping * 3.5; // УВЕЛИЧЕНО с 3.0
                 
                 // Дополнительная прижимная сила если танк слишком высоко
                 if (deltaY < -0.15) {
-                    hoverForce -= Math.abs(deltaY) * this.mass * 100; // Усилено прижимание
+                    hoverForce -= Math.abs(deltaY) * this.mass * 120; // УСИЛЕНО прижимание
                 }
             }
             const clampedHoverForce = hoverForce;
@@ -3041,12 +3034,12 @@ export class TankController {
             const targetSpeed = this.smoothThrottle * this.moveSpeed;
             const speedDiff = targetSpeed - fwdSpeed;
             
-            // Применяем силу для достижения целевой скорости (с ограничением для плавности)
+            // Применяем силу для достижения целевой скорости (УЛУЧШЕНО для пересечённой местности)
             if (Math.abs(this.smoothThrottle) > 0.05) {
-                // Уменьшаем силу ускорения для более плавного движения
-                const accelForce = speedDiff * this.acceleration * 0.8;
-                // Ограничиваем максимальную силу для предотвращения тряски
-                const maxAccelForce = this.moveSpeed * this.mass * 2;
+                // УВЕЛИЧЕНА сила ускорения для лучшей проходимости по пересечённой местности
+                const accelForce = speedDiff * this.acceleration * 1.0; // УВЕЛИЧЕНО с 0.8
+                // УВЕЛИЧЕНА максимальная сила для лучшей проходимости
+                const maxAccelForce = this.moveSpeed * this.mass * 2.5; // УВЕЛИЧЕНО с 2.0
                 const clampedAccelForce = Math.max(-maxAccelForce, Math.min(maxAccelForce, accelForce));
                 // Use scaleToRef to avoid corrupting forward vector
                 if (body && isFinite(clampedAccelForce)) {
@@ -4926,6 +4919,10 @@ export class TankController {
         this.acceleration = this.chassisType.acceleration;
         this.maxHealth = this.chassisType.maxHealth;
         this.currentHealth = Math.min(this.currentHealth, this.maxHealth);
+        // Обновляем физические свойства при смене типа корпуса
+        if (this.physicsBody) {
+            this.physicsBody.setMassProperties({ mass: this.mass, centerOfMass: new Vector3(0, -0.55, -0.3) });
+        }
         // Recreate chassis visuals would require full respawn, so we just update stats
     }
     
