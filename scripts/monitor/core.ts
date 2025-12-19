@@ -2,8 +2,7 @@
  * Monitor Core - Ядро системы мониторинга
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
+// Reserved for future filesystem operations
 import { ConfigManager } from './config';
 import { MetricsManager } from './metrics';
 import { HistoryManager } from './history';

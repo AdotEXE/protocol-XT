@@ -1,5 +1,5 @@
 import { Vector3 } from "@babylonjs/core";
-import type { GameMode, PlayerInput, PlayerData, ProjectileData, WorldUpdate, ConsumableData } from "./types";
+import type { GameMode, PlayerData, ProjectileData, WorldUpdate, ConsumableData } from "./types";
 
 // Client -> Server messages
 export interface ClientMessage {

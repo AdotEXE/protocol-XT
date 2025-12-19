@@ -89,6 +89,9 @@ export class MatchmakingSystem {
         
         // Create room with first available player
         const otherPlayer = otherPlayers[0];
+        if (!otherPlayer) {
+            return null;
+        }
         const room = new GameRoom(queue.mode, 32, false);
         
         room.addPlayer(player);
@@ -121,6 +124,9 @@ export class MatchmakingSystem {
         
         // Create room with best match
         const match = candidates[0];
+        if (!match) {
+            return this.findQuickMatch(player, queue);
+        }
         const room = new GameRoom(queue.mode, 32, false);
         
         room.addPlayer(player);
@@ -144,7 +150,7 @@ export class MatchmakingSystem {
         this.skillLevels.set(playerId, level);
     }
     
-    updateSkillAfterMatch(playerId: string, won: boolean, opponentSkill: number): void {
+    updateSkillAfterMatch(playerId: string, won: boolean, _opponentSkill: number): void {
         const currentSkill = this.getSkillLevel(playerId);
         const change = won ? 2 : -1; // Gain 2 on win, lose 1 on loss
         const newSkill = Math.max(0, Math.min(100, currentSkill + change));

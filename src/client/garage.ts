@@ -55,14 +55,11 @@ export class Garage {
     private isOpen: boolean = false;
     
     // External systems
-    // @ts-expect-error - Reserved for future use
     private _chatSystem: { success: (message: string, duration?: number) => void } | null = null;
-    private tankController: { chassis: Mesh; turret: Mesh; barrel: Mesh; respawn: () => void } | null = null;
-    // @ts-expect-error - Reserved for future use
+    private tankController: { chassis: Mesh; turret: Mesh; barrel: Mesh; respawn: () => void; setChassisType?: (id: string) => void; setCannonType?: (id: string) => void; setTrackType?: (id: string) => void } | null = null;
     private _experienceSystem: { addExperience: (partId: string, type: "chassis" | "cannon", amount: number) => void } | null = null;
-    // @ts-expect-error - Reserved for future use
     private _playerProgression: { addExperience: (amount: number) => void } | null = null;
-    private soundManager: { play: (sound: string, volume?: number) => void } | null = null;
+    private soundManager: { play: (sound: string, volume?: number) => void; playGarageOpen?: () => void } | null = null;
     private onCloseCallback: (() => void) | null = null;
     
     // HTML Elements
@@ -111,8 +108,9 @@ export class Garage {
         };
         
         let cost = baseCost + (chassis.maxHealth * hpMultiplier) + (chassis.moveSpeed * speedMultiplier);
-        if (chassis.specialAbility && abilityBonuses[chassis.specialAbility]) {
-            cost += abilityBonuses[chassis.specialAbility];
+        if (chassis.specialAbility) {
+            const bonus = abilityBonuses[chassis.specialAbility];
+            if (bonus) cost += bonus;
         }
         
         // Round to nearest 50 for cleaner prices
@@ -183,8 +181,9 @@ export class Garage {
         };
         
         let cost = baseCost + (cannon.damage * damageMultiplier) + (dps * dpsMultiplier);
-        if (specialBonuses[cannon.id]) {
-            cost += specialBonuses[cannon.id];
+        const specialBonus = specialBonuses[cannon.id];
+        if (specialBonus) {
+            cost += specialBonus;
         }
         
         // Round to nearest 50 for cleaner prices
@@ -2755,33 +2754,38 @@ export class Garage {
                 }
                 break;
             case "command":
-                // Command - аура, множественные антенны, командный модуль
-                const commandAura = MeshBuilder.CreateBox("previewCommandAura", { width: w * 1.6, height: 0.06, depth: w * 1.6 }, scene);
-                commandAura.position = new Vector3(0, h * 0.55, 0);
-                                commandAura.parent = chassis;
-                const auraMat = new StandardMaterial("previewAuraMat", scene);
-                auraMat.diffuseColor = new Color3(1, 0.88, 0);
-                auraMat.emissiveColor = new Color3(0.6, 0.5, 0);
-                auraMat.disableLighting = true;
-                commandAura.material = auraMat;
-                
-                // Командный модуль сверху
-                const commandModule = MeshBuilder.CreateBox("previewCommandModule", { width: w * 0.6, height: h * 0.3, depth: d * 0.4 }, scene);
-                commandModule.position = new Vector3(0, h * 0.6, -d * 0.3);
-                commandModule.parent = chassis;
-                const moduleMat = new StandardMaterial("previewModuleMat", scene);
-                moduleMat.diffuseColor = new Color3(1, 0.9, 0.3);
-                moduleMat.emissiveColor = new Color3(0.3, 0.27, 0.1);
-                commandModule.material = moduleMat;
-                
-                // Множественные антенны
-                for (let i = 0; i < 4; i++) {
-                    const antenna = MeshBuilder.CreateBox(`previewCmdAntenna${i}`, { width: 0.025 , height: 0.5, depth: 0.025  }, scene);
-                    antenna.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.35, h * 0.7, (i < 2 ? -1 : 1) * d * 0.35);
-                    antenna.parent = chassis;
-                    const antennaMat = new StandardMaterial(`previewCmdAntennaMat${i}`, scene);
-                    antennaMat.diffuseColor = new Color3(1, 0.9, 0.2);
-                    antenna.material = antennaMat;
+                // Command - по умолчанию показываем только базовый корпус без модулей.
+                // Визуальная аура, надстройка и антенны будут добавлены, когда появится
+                // полноценная система покупки/экипировки модулей.
+                // Код ниже оставлен как заготовка и намеренно не выполняется.
+                if (false) {
+                    const commandAura = MeshBuilder.CreateBox("previewCommandAura", { width: w * 1.6, height: 0.06, depth: w * 1.6 }, scene);
+                    commandAura.position = new Vector3(0, h * 0.55, 0);
+                    commandAura.parent = chassis;
+                    const auraMat = new StandardMaterial("previewAuraMat", scene);
+                    auraMat.diffuseColor = new Color3(1, 0.88, 0);
+                    auraMat.emissiveColor = new Color3(0.6, 0.5, 0);
+                    auraMat.disableLighting = true;
+                    commandAura.material = auraMat;
+                    
+                    // Командный модуль сверху
+                    const commandModule = MeshBuilder.CreateBox("previewCommandModule", { width: w * 0.6, height: h * 0.3, depth: d * 0.4 }, scene);
+                    commandModule.position = new Vector3(0, h * 0.6, -d * 0.3);
+                    commandModule.parent = chassis;
+                    const moduleMat = new StandardMaterial("previewModuleMat", scene);
+                    moduleMat.diffuseColor = new Color3(1, 0.9, 0.3);
+                    moduleMat.emissiveColor = new Color3(0.3, 0.27, 0.1);
+                    commandModule.material = moduleMat;
+                    
+                    // Множественные антенны
+                    for (let i = 0; i < 4; i++) {
+                        const antenna = MeshBuilder.CreateBox(`previewCmdAntenna${i}`, { width: 0.025 , height: 0.5, depth: 0.025  }, scene);
+                        antenna.position = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.35, h * 0.7, (i < 2 ? -1 : 1) * d * 0.35);
+                        antenna.parent = chassis;
+                        const antennaMat = new StandardMaterial(`previewCmdAntennaMat${i}`, scene);
+                        antennaMat.diffuseColor = new Color3(1, 0.9, 0.2);
+                        antenna.material = antennaMat;
+                    }
                 }
                 
                 // Люки
@@ -2913,7 +2917,7 @@ export class Garage {
                 this.previewSceneData.animationGroups.forEach(ag => {
                     try {
                         ag.stop();
-                        ag.dispose();
+                        if (ag.dispose) ag.dispose();
                     } catch (e) {
                         console.warn("[Garage] Error disposing animation:", e);
                     }

@@ -34,7 +34,6 @@ import { EnemyTank } from "./enemyTank";
 // MainMenu is lazy loaded - imported dynamically when needed
 import type { GameSettings, MapType } from "./menu";
 import { CurrencyManager } from "./currencyManager";
-// import { Garage } from "./garage"; // Не используется напрямую
 import { ConsumablesManager, CONSUMABLE_TYPES } from "./consumables";
 import { ChatSystem } from "./chatSystem";
 import { ExperienceSystem } from "./experienceSystem";
@@ -54,20 +53,19 @@ import { socialSystem } from "./socialSystem";
 import { MetricsCollector } from "./metricsCollector";
 // type ExtendedMetrics не используется
 import type { ClientMetricsData } from "../shared/messages";
-
-// Типы для lazy-loaded модулей
-type DebugDashboard = { isVisible: () => boolean; toggle: () => void; dispose: () => void };
-type PhysicsPanel = { isVisible: () => boolean; toggle: () => void; dispose: () => void };
-type CheatMenu = { isVisible: () => boolean; toggle: () => void; setTank: (tank: TankController | null) => void; setGame: (game: Game) => void; dispose: () => void };
-type NetworkMenu = { isVisible: () => boolean; toggle: () => void; dispose: () => void };
-type WorldGenerationMenu = { isVisible: () => boolean; toggle: () => void; dispose: () => void };
-type HelpMenu = { isVisible: () => boolean; toggle: () => void; dispose: () => void };
-type ScreenshotManager = { takeScreenshot: (options?: any) => Promise<string>; dispose: () => void };
-type ScreenshotPanel = { isVisible: () => boolean; toggle: () => void; dispose: () => void };
-type Garage = { isOpen: boolean; show: () => void; hide: () => void; setOnCloseCallback: (callback: () => void) => void; dispose: () => void };
-type BattleRoyaleVisualizer = { update: () => void; dispose: () => void };
-type CTFVisualizer = { update: () => void; dispose: () => void };
-type MainMenu = { show: () => void; hide: () => void; dispose: () => void };
+// Типы для lazy-loaded модулей (импортируем реальные классы как типы)
+import type { MainMenu } from "./menu";
+import type { Garage } from "./garage";
+import type { DebugDashboard } from "./debugDashboard";
+import type { PhysicsPanel } from "./physicsPanel";
+import type { CheatMenu } from "./cheatMenu";
+import type { NetworkMenu } from "./networkMenu";
+import type { WorldGenerationMenu } from "./worldGenerationMenu";
+import type { HelpMenu } from "./helpMenu";
+import type { ScreenshotManager } from "./screenshotManager";
+import type { ScreenshotPanel } from "./screenshotPanel";
+import type { BattleRoyaleVisualizer } from "./battleRoyale";
+import type { CTFVisualizer } from "./ctfVisualizer";
 
 export class Game {
     engine!: Engine; // Инициализируется в init()
@@ -200,18 +198,12 @@ export class Game {
     // Stats overlay (Tab key - пункт 13)
     private statsOverlay: HTMLDivElement | null = null;
     private statsOverlayVisible = false;
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    private _experienceSubscription: { unsubscribe: () => void } | null = null; // Подписка на изменения опыта для Stats Overlay (используется в строке 2399)
     
     // Real-time statistics tracker
     private realtimeStatsTracker: RealtimeStatsTracker | undefined;
     
     // Replay system (lazy loaded)
     private replayRecorder: any | undefined; // Lazy loaded from "./replaySystem"
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    private _replayPlayer: any | undefined; // Lazy loaded from "./replaySystem" (зарезервировано для будущего использования)
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    private _isReplayMode: boolean = false; // Зарезервировано для будущего использования
     
     // Social menu (lazy loaded)
     socialMenu: any | undefined; // Lazy loaded from "./socialMenu"
@@ -227,8 +219,6 @@ export class Game {
     private loadingScreen: HTMLDivElement | null = null;
     private loadingProgress = 0;
     private targetLoadingProgress = 0; // Целевой прогресс для плавной интерполяции
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    private _loadingStage = ""; // Текущий этап загрузки (используется в строке 1629)
     private loadingAnimationFrame: number | null = null; // Для плавной анимации прогресса
     
     // Camera settings
@@ -280,10 +270,11 @@ export class Game {
             this.currentMapType = autoStartMap as MapType;
             logger.log(`[Game] Auto-starting on map: ${autoStartMap}`);
             this.loadMainMenu().then(() => {
-                if (this.mainMenu) {
+                const menu = this.mainMenu;
+                if (menu) {
                     localStorage.removeItem("autoStartMap");
                     setTimeout(() => {
-                        this.mainMenu.triggerStartGame(this.currentMapType);
+                        menu.triggerStartGame(this.currentMapType);
                     }, 100);
                 }
             });
@@ -523,6 +514,8 @@ export class Game {
         
         // Setup ESC for pause and Garage
         // Use global keydown handler for all high-level hotkeys (garage, panels, admin tools)
+        // IMPORTANT: use capture phase (third argument = true), чтобы ловить сочетания
+        // Ctrl+цифры и F-клавиши до того, как их перехватит браузер или другие слушатели.
         window.addEventListener("keydown", (e) => {
             // Open/Close garage MENU with B key - В ЛЮБОЙ МОМЕНТ (даже до старта игры)
             // G key используется для управления воротами гаража во время игры
@@ -1066,30 +1059,7 @@ export class Game {
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
-                if (!this.mapEditor) {
-                    // Lazy load map editor on first use
-                    logger.log("[Game] Loading map editor (Ctrl+Shift+M)...");
-                    import("./mapEditor").then(({ MapEditor }) => {
-                        this.mapEditor = new MapEditor(this.scene);
-                        this.mapEditor.chunkSystem = this.chunkSystem; // Передаем chunkSystem для доступа к террейну
-                        this.mapEditor.open();
-                        logger.log("[Game] Map editor loaded successfully");
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load map editor:", error);
-                        if (this.hud) {
-                            this.hud.showMessage("Failed to load Map Editor", "#f00", 3000);
-                        }
-                        this.mapEditor = undefined;
-                    });
-                } else {
-                    // Toggle editor
-                    if (this.mapEditor.isEditorActive()) {
-                        this.mapEditor.close();
-                    } else {
-                        this.mapEditor.open();
-                    }
-                    logger.log("[Game] Map editor toggled");
-                }
+                void this.openMapEditorInternal();
                 return;
             }
             
@@ -1714,14 +1684,14 @@ export class Game {
         
         const tipElement = document.getElementById("loading-tip");
         if (tipElement) {
-            tipElement.textContent = tips[Math.floor(Math.random() * tips.length)];
+            const index = Math.floor(Math.random() * tips.length);
+            const tip = tips[index] ?? "";
+            tipElement.textContent = tip;
         }
     }
     
     private updateLoadingProgress(progress: number, stage: string): void {
         this.targetLoadingProgress = Math.min(100, Math.max(0, progress));
-        this._loadingStage = stage;
-        
         // Запускаем плавную анимацию прогресса, если она еще не запущена
         if (this.loadingAnimationFrame === null) {
             this.animateLoadingProgress();
@@ -2071,9 +2041,9 @@ export class Game {
             if (this.hud && this.hud.isFullMapVisible()) {
                 this.hud.toggleFullMap();
             }
-            this.mainMenu.show(true); // Передаем true чтобы показать кнопки паузы
+            this.mainMenu?.show(true); // Передаем true чтобы показать кнопки паузы
         } else {
-            this.mainMenu.hide();
+            this.mainMenu?.hide();
         }
         
         // Обновляем pointer-events для canvas в зависимости от видимости меню
@@ -2432,11 +2402,13 @@ export class Game {
             
             // Set intro sound callback for menu
             // ОТКЛЮЧЕНО: playIntroSound()
-            this.mainMenu.setOnPlayIntroSound(() => {
-                if (this.soundManager) {
-                    // this.soundManager.playIntroSound(); // Отключено
-                }
-            });
+            if (this.mainMenu) {
+                this.mainMenu.setOnPlayIntroSound(() => {
+                    if (this.soundManager) {
+                        // this.soundManager.playIntroSound(); // Отключено
+                    }
+                });
+            }
             
             // Create Effects Manager
             this.effectsManager = new EffectsManager(this.scene);
@@ -2527,7 +2499,7 @@ export class Game {
             // Subscribe to experience changes for Stats Overlay updates
             if (this.playerProgression && this.playerProgression.onExperienceChanged) {
                 logger.log("[Game] Subscribing to experience changes for Stats Overlay");
-                this._experienceSubscription = this.playerProgression.onExperienceChanged.add((data: {
+                this.playerProgression.onExperienceChanged.add((data: {
                     current: number;
                     required: number;
                     percent: number;
@@ -2776,8 +2748,9 @@ export class Game {
         // Приоритет: настройки сессии (ин‑игровая панель) > настройки главного меню > medium
         if (this.sessionSettings) {
             const sessionSettings = this.sessionSettings.getSettings();
-            if (sessionSettings.aiDifficulty) {
-                return sessionSettings.aiDifficulty;
+            const sessionDiff = sessionSettings.aiDifficulty;
+            if (sessionDiff === "easy" || sessionDiff === "medium" || sessionDiff === "hard") {
+                return sessionDiff;
             }
         }
         
@@ -2941,15 +2914,17 @@ export class Game {
         if (this.sessionSettings) {
             const sessionSettings = this.sessionSettings.getSettings();
             // Используем настройки из sessionSettings только если они установлены и > 0
-            if (sessionSettings.enemyCount && sessionSettings.enemyCount > 0) {
-                enemyCount = sessionSettings.enemyCount;
+            const sessionEnemyCount = sessionSettings.enemyCount;
+            if (sessionEnemyCount && sessionEnemyCount > 0) {
+                enemyCount = sessionEnemyCount;
                 enemyCountOverridden = true;
             }
         } else {
             // Если sessionSettings нет, используем настройки из меню или динамическое значение
-            const menuSettings = this.mainMenu?.getSettings();
-            if (menuSettings?.enemyCount && menuSettings.enemyCount > 0) {
-                enemyCount = menuSettings.enemyCount;
+            const menuSettings = this.mainMenu?.getSettings() as GameSettings & { enemyCount?: number };
+            const menuEnemyCount = menuSettings?.enemyCount;
+            if (menuEnemyCount && menuEnemyCount > 0) {
+                enemyCount = menuEnemyCount;
                 enemyCountOverridden = true;
             }
         }
@@ -3609,10 +3584,15 @@ export class Game {
         
         // ВСЕГДА выбираем центральный гараж (0, 0) для игрока
         // Находим гараж ближайший к центру карты
-        let playerGarage: Vector3 = this.chunkSystem.garagePositions[0];
+        if (!this.chunkSystem || this.chunkSystem.garagePositions.length === 0) {
+            logger.warn("[Game] Cannot select player garage: no garage positions available");
+            return;
+        }
+        const playerGarages = this.chunkSystem.garagePositions;
+        let playerGarage: Vector3 = playerGarages[0]!;
         let minDist = Infinity;
         
-        for (const garage of this.chunkSystem.garagePositions) {
+        for (const garage of playerGarages) {
             const dist = Math.sqrt(garage.x * garage.x + garage.z * garage.z);
             if (dist < minDist) {
                 minDist = dist;
@@ -3845,12 +3825,17 @@ export class Game {
         // Перемешиваем гаражи
         for (let i = availableGarages.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
-            [availableGarages[i], availableGarages[j]] = [availableGarages[j], availableGarages[i]];
+            const tmp = availableGarages[i]!;
+            availableGarages[i] = availableGarages[j]!;
+            availableGarages[j] = tmp;
         }
         
         // Спавним врагов в первых N гаражах
         for (let i = 0; i < enemyCount; i++) {
             const garagePos = availableGarages[i];
+            if (!garagePos) {
+                continue;
+            }
             // Используем сложность из текущих настроек (sessionSettings/меню)
             const difficulty = this.getCurrentEnemyDifficulty();
             const difficultyScale = adaptiveScale;
@@ -4046,8 +4031,13 @@ export class Game {
                 // Время вышло - респавним врага
                 const parts = key.split(',');
                 if (parts.length === 2) {
-                    const x = parseFloat(parts[0]);
-                    const z = parseFloat(parts[1]);
+                    const xStr = parts[0];
+                    const zStr = parts[1];
+                    if (xStr === undefined || zStr === undefined) {
+                        return;
+                    }
+                    const x = parseFloat(xStr);
+                    const z = parseFloat(zStr);
                     if (!isNaN(x) && !isNaN(z)) {
                         // КРИТИЧЕСКИ ВАЖНО: Не респавним врага рядом с гаражом игрока!
                         if (this.playerGaragePosition) {
@@ -6420,114 +6410,11 @@ export class Game {
         this.statsOverlayVisible = false;
     }
     
-    // === ПУНКТ 14 & 15: Корректировка камеры при столкновении с постройками ===
-    // Также делает танк видимым если он за стенкой (силуэт)
-    // Camera collision smoothing
-    private targetCameraRadius = 12;
-    private currentCameraRadius = 12;
-    
+    // === ПУНКТ 14 & 15: Проверка видимости танка и плавная работа камеры ===
     // Состояние видимости танка (для предотвращения мерцания)
     private tankVisibilityState = false; // false = виден, true = за стеной
     private tankVisibilityTarget = false;
     private tankVisibilitySmooth = 0.0; // 0.0 = виден, 1.0 = за стеной
-    
-    // Метод зарезервирован для будущего использования (альтернативная реализация корректировки камеры)
-    // Вместо этого используется checkPlayerTankVisibility() в update()
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    private _adjustCameraForCollision(): void {
-        if (!this.camera || !this.tank || !this.tank.chassis) return;
-        
-        // Target position (tank)
-        const targetPos = this.tank.chassis.absolutePosition.clone();
-        targetPos.y += 1.0;
-        
-        // Camera position
-        const cameraPos = this.camera.position.clone();
-        
-        // Direction from target to camera
-        const direction = cameraPos.subtract(targetPos).normalize();
-        const distance = Vector3.Distance(targetPos, cameraPos);
-        
-        // Raycast from tank to camera
-        const ray = new Ray(targetPos, direction, distance);
-        const pick = this.scene.pickWithRay(ray, (mesh) => {
-            if (!mesh || !mesh.isEnabled()) return false;
-            const meta = mesh.metadata;
-            if (meta && (meta.type === "playerTank" || meta.type === "bullet" || meta.type === "consumable")) return false;
-            if (mesh.name.includes("billboard") || mesh.name.includes("hp") || mesh.name.includes("turret")) return false;
-            if (mesh.parent === this.tank?.chassis || mesh.parent === this.tank?.turret) return false;
-            return mesh.isPickable && mesh.visibility > 0.5;
-        });
-        
-        let tankBehindWall = false;
-        
-        if (pick && pick.hit && pick.distance < distance - 0.5) {
-            // Camera collided - calculate new target radius
-            const newRadius = Math.max(4, pick.distance - 1.0);
-            this.targetCameraRadius = newRadius;
-            tankBehindWall = true;
-        } else {
-            // No collision - slowly restore to normal distance
-            this.targetCameraRadius = 12;
-        }
-        
-        // SMOOTH interpolation to target radius (prevents jitter)
-        // Используем более медленную интерполяцию для предотвращения мерцания
-        const lerpSpeed = tankBehindWall ? 0.08 : 0.03; // Медленнее для плавности
-        this.currentCameraRadius = this.currentCameraRadius + (this.targetCameraRadius - this.currentCameraRadius) * lerpSpeed;
-        
-        // Применяем сглаженный радиус с минимальным изменением (предотвращает мерцание)
-        const radiusDiff = this.currentCameraRadius - this.camera.radius;
-        if (Math.abs(radiusDiff) > 0.1) { // Изменяем только если разница значительная
-            this.camera.radius = this.currentCameraRadius;
-        }
-        
-        // Tank visibility behind walls (включая гусеницы)
-        if (this.tank.chassis && this.tank.turret && this.tank.barrel) {
-            if (tankBehindWall || this.camera.radius < 5) {
-                this.tank.chassis.renderingGroupId = 3;
-                this.tank.turret.renderingGroupId = 3;
-                this.tank.barrel.renderingGroupId = 3;
-                
-                if (this.camera.radius < 4) {
-                    const vis = 0.6;
-                    this.tank.chassis.visibility = vis;
-                    this.tank.turret.visibility = vis;
-                    this.tank.barrel.visibility = vis;
-                    
-                    // Гусеницы тоже подсвечиваем
-                    if (this.tank.leftTrack) {
-                        this.tank.leftTrack.renderingGroupId = 3;
-                        this.tank.leftTrack.visibility = vis;
-                    }
-                    if (this.tank.rightTrack) {
-                        this.tank.rightTrack.renderingGroupId = 3;
-                        this.tank.rightTrack.visibility = vis;
-                    }
-                }
-            } else {
-                this.tank.chassis.renderingGroupId = 0;
-                this.tank.turret.renderingGroupId = 0;
-                this.tank.barrel.renderingGroupId = 0;
-                
-                if (!this.isAiming) {
-                    this.tank.chassis.visibility = 1.0;
-                    this.tank.turret.visibility = 1.0;
-                    this.tank.barrel.visibility = 1.0;
-                    
-                    // Гусеницы тоже видимы
-                    if (this.tank.leftTrack) {
-                        this.tank.leftTrack.renderingGroupId = 0;
-                        this.tank.leftTrack.visibility = 1.0;
-                    }
-                    if (this.tank.rightTrack) {
-                        this.tank.rightTrack.renderingGroupId = 0;
-                        this.tank.rightTrack.visibility = 1.0;
-                    }
-                }
-            }
-        }
-    }
     
     // === ПРОВЕРКА ВИДИМОСТИ ТАНКА ИГРОКА ЗА СТЕНАМИ (с гистерезисом для предотвращения мерцания) ===
     private checkPlayerTankVisibility(): void {
@@ -6667,66 +6554,6 @@ export class Game {
     }
     
     // === РАСЧЁТ ТОЧКИ ПОПАДАНИЯ СНАРЯДА ===
-    // Метод зарезервирован для будущего использования (визуализация траектории)
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    private _calculateProjectileImpact(): Vector3 | null {
-        if (!this.tank || !this.tank.barrel) return null;
-        
-        const barrelPos = this.tank.barrel.getAbsolutePosition();
-        const barrelDir = this.tank.barrel.getDirection(Vector3.Forward()).normalize();
-        
-        // Симуляция траектории снаряда
-        const gravity = 9.81;
-        const speed = this.tank.projectileSpeed || 100;
-        const dt = 0.02; // 20мс шаг
-        const maxTime = 8; // Максимум 8 секунд полёта
-        
-        // Начальные условия
-        let pos = barrelPos.clone();
-        let vel = barrelDir.scale(speed);
-        
-        // Симулируем полёт
-        for (let t = 0; t < maxTime; t += dt) {
-            // Сохраняем предыдущую позицию
-            const prevPos = pos.clone();
-            
-            // Обновляем скорость (гравитация)
-            vel.y -= gravity * dt;
-            
-            // Обновляем позицию
-            pos = pos.add(vel.scale(dt));
-            
-            // Проверяем столкновение с землёй
-            if (pos.y <= 0.1) {
-                // Интерполируем точку на уровне земли
-                const ratio = (prevPos.y - 0.1) / (prevPos.y - pos.y);
-                return Vector3.Lerp(prevPos, pos, ratio);
-            }
-            
-            // Raycast для столкновения с объектами (каждые 5 шагов)
-            if (Math.floor(t / dt) % 5 === 0) {
-                const rayDir = pos.subtract(prevPos).normalize();
-                const rayLen = Vector3.Distance(prevPos, pos);
-                const ray = new Ray(prevPos, rayDir, rayLen + 1);
-                
-                const pick = this.scene.pickWithRay(ray, (mesh) => {
-                    if (!mesh || !mesh.isEnabled()) return false;
-                    const meta = mesh.metadata;
-                    if (meta && (meta.type === "playerTank" || meta.type === "bullet" || meta.type === "consumable")) return false;
-                    if (mesh.name.includes("impactMarker")) return false;
-                    return mesh.isPickable;
-                });
-                
-                if (pick && pick.hit && pick.pickedPoint) {
-                    return pick.pickedPoint;
-                }
-            }
-        }
-        
-        // Если не нашли точку - возвращаем последнюю позицию
-        return pos;
-    }
-    
     // Обновить содержимое overlay статистики (стиль многопользовательской игры)
     private updateStatsOverlay(): void {
         const content = document.getElementById("scoreboard-content");
@@ -7254,6 +7081,7 @@ export class Game {
         const allEnemiesCount = allEnemies.length;
         for (let i = 0; i < allEnemiesCount; i++) {
             const enemy = allEnemies[i];
+            if (!enemy) continue;
             let enemyPos: Vector3;
             if (enemy instanceof Vector3) {
                 enemyPos = enemy;
@@ -7386,7 +7214,7 @@ export class Game {
         const maxDist = 100;
         for (let i = 0; i < this.enemyTanks.length; i++) {
             const enemy = this.enemyTanks[i];
-            if (!enemy.isAlive || !enemy.chassis) continue;
+            if (!enemy || !enemy.isAlive || !enemy.chassis) continue;
             
             const enemyPos = enemy.chassis.absolutePosition;
             // Вычисляем расстояние от луча ствола до врага
@@ -8167,7 +7995,13 @@ export class Game {
             nextIndex = currentIndex <= 0 ? networkPlayers.length - 1 : currentIndex - 1;
         }
         
-        this.spectatingPlayerId = networkPlayers[nextIndex].id;
+        const nextPlayer = networkPlayers[nextIndex];
+        if (!nextPlayer) {
+            this.spectatingPlayerId = null;
+            return;
+        }
+        
+        this.spectatingPlayerId = nextPlayer.id;
     }
     
     private updateSpectatorCamera(): void {
@@ -8206,83 +8040,7 @@ export class Game {
         }
     }
     
-    private handleSpectatorInput(): void {
-        // Spectator controls: N/M to switch targets, arrow keys for free camera
-        if (!this._inputMap) return;
-        
-        // Switch targets with N/M keys (only once per press)
-        if (this._inputMap["KeyN"] && !(this as any)._nKeyPressed) {
-            this.switchSpectatorTarget(true);
-            (this as any)._nKeyPressed = true;
-        }
-        if (!this._inputMap["KeyN"]) {
-            (this as any)._nKeyPressed = false;
-        }
-        
-        if (this._inputMap["KeyM"] && !(this as any)._mKeyPressed) {
-            this.switchSpectatorTarget(false);
-            (this as any)._mKeyPressed = true;
-        }
-        if (!this._inputMap["KeyM"]) {
-            (this as any)._mKeyPressed = false;
-        }
-    }
-    
     // === FIREBASE INTEGRATION ===
-    
-    // Метод зарезервирован для будущего использования (прямое создание скриншота)
-    // Вместо этого используется openScreenshotPanel() для открытия панели скриншотов
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    private async takeScreenshot(): Promise<void> {
-        try {
-            // Ленивая загрузка ScreenshotManager
-            if (!this.screenshotManager) {
-                const { ScreenshotManager } = await import("./screenshotManager");
-                this.screenshotManager = new ScreenshotManager(this.engine, this.scene, this.hud || null);
-            }
-            
-            // Получаем настройки из localStorage или используем значения по умолчанию
-            const defaultFormat = (localStorage.getItem('ptx_screenshot_format') || 'png') as any;
-            const defaultMode = (localStorage.getItem('ptx_screenshot_mode') || 'full') as any;
-            const defaultQuality = parseFloat(localStorage.getItem('ptx_screenshot_quality') || '0.92');
-            
-            // Создаём опции для скриншота
-            const { ScreenshotFormat, ScreenshotMode } = await import("./screenshotManager");
-            const formatMap: { [key: string]: any } = {
-                'png': ScreenshotFormat.PNG,
-                'jpeg': ScreenshotFormat.JPEG,
-                'webp': ScreenshotFormat.WEBP
-            };
-            const modeMap: { [key: string]: any } = {
-                'full': ScreenshotMode.FULL_SCREEN,
-                'game': ScreenshotMode.GAME_ONLY,
-                'ui': ScreenshotMode.UI_ONLY,
-                'region': ScreenshotMode.REGION
-            };
-            
-            const options = {
-                format: formatMap[defaultFormat] || ScreenshotFormat.PNG,
-                quality: defaultQuality,
-                mode: modeMap[defaultMode] || ScreenshotMode.FULL_SCREEN
-            };
-            
-            // Создаём скриншот
-            const blob = await this.screenshotManager.capture(options);
-            
-            // Копирование в буфер обмена
-            await this.screenshotManager.copyToClipboard(blob);
-            
-            // Сохранение в localStorage
-            const key = await this.screenshotManager.saveToLocalStorage(blob, options);
-            
-            // Уведомление
-            this.hud?.showMessage("📸 Screenshot saved! (Ctrl+2)", "#0f0", 3000);
-            logger.log(`[Game] Screenshot saved: ${key}, size: ${(blob.size / 1024).toFixed(2)} KB`);
-        } catch (error) {
-            logger.error("[Game] Screenshot failed:", error);
-            this.hud?.showMessage("Screenshot failed", "#f00", 2000);
-        }
-    }
     
     /**
      * Открыть панель настроек скриншотов
@@ -8330,6 +8088,63 @@ export class Game {
             logger.error("[Game] Failed to open screenshot panel:", error);
             if (this.hud) {
                 this.hud.showMessage("Failed to load Screenshot Panel", "#f00", 3000);
+            }
+        }
+    }
+
+    // === MAP EDITOR HELPERS ===
+    private async openMapEditorInternal(): Promise<void> {
+        if (!this.gameStarted) {
+            logger.warn("[Game] Cannot open Map Editor: game not started");
+            return;
+        }
+        if (!this.chunkSystem) {
+            logger.warn("[Game] Cannot open Map Editor: chunkSystem is not ready");
+            return;
+        }
+
+        try {
+            if (!this.mapEditor) {
+                logger.log("[Game] Loading map editor...");
+                const { MapEditor } = await import("./mapEditor");
+                this.mapEditor = new MapEditor(this.scene);
+                this.mapEditor.chunkSystem = this.chunkSystem; // Передаем chunkSystem для доступа к террейну
+            }
+
+            if (typeof this.mapEditor.isEditorActive === "function" && this.mapEditor.isEditorActive()) {
+                this.mapEditor.close();
+                logger.log("[Game] Map editor closed");
+            } else if (typeof this.mapEditor.open === "function") {
+                this.mapEditor.open();
+                logger.log("[Game] Map editor opened");
+            }
+        } catch (error) {
+            logger.error("[Game] Failed to open map editor:", error);
+            if (this.hud) {
+                this.hud.showMessage("Failed to load Map Editor", "#f00", 3000);
+            }
+            this.mapEditor = undefined;
+        }
+    }
+
+    public async openMapEditorFromMenu(): Promise<void> {
+        try {
+            // Инициализируем игру и запускаем, если ещё не запущена
+            if (!this.gameInitialized) {
+                logger.debug(`[Game] Initializing game for Map Editor with map type: ${this.currentMapType}`);
+                await this.init();
+                this.gameInitialized = true;
+                logger.log("[Game] Game initialized for Map Editor");
+            }
+            if (!this.gameStarted) {
+                this.startGame();
+            }
+
+            await this.openMapEditorInternal();
+        } catch (error) {
+            logger.error("[Game] Failed to open Map Editor from menu:", error);
+            if (this.hud) {
+                this.hud.showMessage("Failed to open Map Editor", "#f00", 3000);
             }
         }
     }

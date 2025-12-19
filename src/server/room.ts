@@ -1,11 +1,10 @@
 import { nanoid } from "nanoid";
 import { Vector3 } from "@babylonjs/core";
-import type { GameMode, PlayerData, PlayerInput, EnemyData } from "../shared/types";
+import type { GameMode, PlayerData, ConsumableData, WorldUpdate } from "../shared/types";
 import { ServerPlayer } from "./player";
-import type { ProjectileData, ConsumableData, WorldUpdate } from "../shared/types";
 import { ServerProjectile } from "./projectile";
 import { ServerEnemy } from "./enemy";
-import { getGameModeRules, type GameModeRules, BattleRoyaleMode, CTFMode } from "./gameModes";
+import { getGameModeRules, type GameModeRules } from "./gameModes";
 import { CTFSystem } from "./ctf";
 import { InputValidator } from "./validation";
 
@@ -35,9 +34,6 @@ export class GameRoom {
     
     // Game mode rules
     private gameModeRules: GameModeRules;
-    
-    // Consumables tracking (for deterministic spawn, server validates pickup)
-    private pickedUpConsumables: Set<string> = new Set(); // consumableId
     
     // CTF system
     ctfSystem: CTFSystem | null = null;
@@ -73,7 +69,6 @@ export class GameRoom {
         
         // Assign team for team-based modes
         if (this.mode === "tdm" || this.mode === "ctf") {
-            const teamSize = Math.floor(this.players.size / 2);
             player.team = this.players.size % 2 === 0 ? 1 : 0;
         }
         

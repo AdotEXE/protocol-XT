@@ -1,4 +1,4 @@
-import { Scene, Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Animation, AnimationGroup } from "@babylonjs/core";
+import { Scene, Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Animation } from "@babylonjs/core";
 import type { FlagData } from "../shared/types";
 
 export class CTFVisualizer {

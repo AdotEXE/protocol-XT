@@ -207,10 +207,10 @@ export class BattleRoyaleVisualizer {
             const pulse = Math.sin(this.animationTime * this.pulseSpeed * Math.PI * 2) * 0.1 + 0.9;
             this.safeZoneMaterial.alpha = 0.15 + pulse * 0.1;
             
-            // Increase pulse speed as zone shrinks
+            // Increase emissive intensity as zone shrinks (визуальный индикатор опасности)
             const shrinkMultiplier = 1 + this.currentZoneData.shrinkProgress * 2;
             this.safeZoneMaterial.emissiveColor = new Color3(
-                this.currentZoneData.shrinkProgress * 0.3 * pulse,
+                this.currentZoneData.shrinkProgress * 0.3 * pulse * shrinkMultiplier,
                 (1 - this.currentZoneData.shrinkProgress * 0.5) * pulse,
                 0
             );

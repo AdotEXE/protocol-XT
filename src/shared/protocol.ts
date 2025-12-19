@@ -14,10 +14,17 @@ const USE_BINARY_SERIALIZATION = false; // TODO: Enable after testing
  * Convert message to plain object with Vector3 handling
  */
 function messageToPlainObject(message: ClientMessage | ServerMessage): any {
-    return JSON.parse(JSON.stringify(message, (key, value) => {
-        // Handle Vector3
-        if (value && typeof value === 'object' && 'x' !== undefined && 'y' !== undefined && 'z' !== undefined && !value._type) {
-            return { x: value.x, y: value.y, z: value.z, _type: 'Vector3' };
+    return JSON.parse(JSON.stringify(message, (_key, value) => {
+        // Handle Vector3-like objects coming from Babylon Vector3
+        if (
+            value &&
+            typeof value === "object" &&
+            "x" in value &&
+            "y" in value &&
+            "z" in value &&
+            !(value as { _type?: string })._type
+        ) {
+            return { x: value.x, y: value.y, z: value.z, _type: "Vector3" };
         }
         return value;
     }));
@@ -27,9 +34,9 @@ function messageToPlainObject(message: ClientMessage | ServerMessage): any {
  * Reconstruct object from plain object with Vector3 handling
  */
 function plainObjectToMessage<T>(obj: any): T {
-    const reconstructed = JSON.parse(JSON.stringify(obj, (key, value) => {
+    const reconstructed = JSON.parse(JSON.stringify(obj, (_key, value) => {
         // Reconstruct Vector3
-        if (value && typeof value === 'object' && value._type === 'Vector3') {
+        if (value && typeof value === "object" && (value as { _type?: string })._type === "Vector3") {
             return { x: value.x, y: value.y, z: value.z };
         }
         return value;

@@ -8,7 +8,6 @@
  */
 
 import { exec } from 'child_process';
-import * as path from 'path';
 import WebSocket from 'ws';
 
 async function startInNewWindow(title: string, command: string, workingDir: string) {

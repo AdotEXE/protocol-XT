@@ -91,7 +91,7 @@ export class UIManager {
     private grid: contrib.grid;
     private core: MonitorCore;
     private theme: Theme;
-    private widgets: Map<string, blessed.Widgets.Node> = new Map();
+    private _widgets: Map<string, blessed.Widgets.Node> = new Map();
     
     // Widgets
     private headerBox: blessed.Widgets.Box;
@@ -105,9 +105,9 @@ export class UIManager {
     private logsBox: blessed.Widgets.Box;
     
     // Charts
-    private cpuChart: contrib.Widgets.Line | null = null;
-    private ramChart: contrib.Widgets.Line | null = null;
-    private fpsChart: contrib.Widgets.Line | null = null;
+    private _cpuChart: any = null;
+    private _ramChart: any = null;
+    private _fpsChart: any = null;
     
     // Modal state
     private currentModal: blessed.Widgets.Box | null = null;
@@ -131,7 +131,7 @@ export class UIManager {
     constructor(core: MonitorCore) {
         this.core = core;
         const config = core.getConfig();
-        this.theme = themes[config.ui.theme] || themes['terminal-green'];
+        this.theme = themes[config.ui.theme] ?? themes['terminal-green']!;
         
         // Create screen
         this.screen = blessed.screen({
@@ -308,7 +308,7 @@ export class UIManager {
         });
         
         // Footer (row 11, full width)
-        const footerBox = this.grid.set(11, 0, 1, 12, blessed.box, {
+        this.grid.set(11, 0, 1, 12, blessed.box, {
             content: '[F1]Help [F2]Config [F3]Export [F4]Alerts [F5]Players [F6]Rooms [ESC]Quit',
             tags: true,
             style: {
@@ -502,7 +502,8 @@ export class UIManager {
         this.gameStateBox.setContent(content);
     }
     
-    private updateMetricsHistory(metrics: MetricsSnapshot): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private updateMetricsHistory(_metrics: MetricsSnapshot): void {
         if (!this.metricsHistoryBox || typeof this.metricsHistoryBox.setContent !== 'function') return;
         
         const totalHistory = this.core.getHistoryManager().getLatest(this.chartHistorySize * this.chartZoom);
@@ -660,8 +661,9 @@ export class UIManager {
                 const filters: Array<'all' | 'info' | 'warn' | 'error'> = ['all', 'info', 'warn', 'error'];
                 const currentIndex = filters.indexOf(this.logFilter);
                 const nextIndex = (currentIndex + 1) % filters.length;
-                this.filterLogs(filters[nextIndex]);
-                this.addLog(`Log filter: ${filters[nextIndex]}`, 'info');
+                const nextFilter = filters[nextIndex] ?? 'all';
+                this.filterLogs(nextFilter);
+                this.addLog(`Log filter: ${nextFilter}`, 'info');
             }
         });
         
@@ -702,7 +704,7 @@ export class UIManager {
         });
         
         // Allow scrolling logs with arrow keys
-        this.screen.key(['up', 'down'], (ch, key) => {
+        this.screen.key(['up', 'down'], (_ch: unknown, key: { name: string }) => {
             if (!this.currentModal && this.logsBox && typeof (this.logsBox as any).scroll === 'function') {
                 if (key.name === 'up') {
                     (this.logsBox as any).scroll(-1);
@@ -893,7 +895,7 @@ Press [ESC] to close`;
                 const time = new Date(alert.timestamp).toLocaleString();
                 const severity = alert.severity.toUpperCase().padEnd(7);
                 const message = alert.message.substring(0, 50).padEnd(50);
-                const color = alert.severity === 'error' ? '{red-fg}' : alert.severity === 'warn' ? '{yellow-fg}' : '{green-fg}';
+                const color = alert.severity === 'error' ? '{red-fg}' : alert.severity === 'warning' ? '{yellow-fg}' : '{green-fg}';
                 alertsContent += `║    ${color}[${severity}]{/} ${time} - ${message}  ║\n`;
             });
         }
@@ -909,7 +911,7 @@ Press [ESC] to close`;
                 const severity = alert.severity.toUpperCase().padEnd(7);
                 const resolved = alert.resolved ? '[RESOLVED]' : '[ACTIVE]';
                 const message = alert.message.substring(0, 45).padEnd(45);
-                const color = alert.severity === 'error' ? '{red-fg}' : alert.severity === 'warn' ? '{yellow-fg}' : '{green-fg}';
+                const color = alert.severity === 'error' ? '{red-fg}' : alert.severity === 'warning' ? '{yellow-fg}' : '{green-fg}';
                 alertsContent += `║    ${color}[${severity}]{/} ${time} ${resolved} - ${message}  ║\n`;
             });
         } else {
@@ -926,7 +928,7 @@ Press [ESC] to close`;
     
     private showPlayers(): void {
         // Get player stats from server collector
-        const serverCollector = (this.core.getMetricsManager() as any).serverCollector;
+        (this.core.getMetricsManager() as any).serverCollector;
         let playersContent = `
 ╔═══════════════════════════════════════════════════════════════════════╗
 ║                      PLAYER STATISTICS                                ║
@@ -1010,7 +1012,7 @@ Press [ESC] to close`;
             label: ' Search Logs '
         });
         
-        input.on('submit', (value) => {
+        input.on('submit', (value: string) => {
             this.searchLogs(value);
             input.detach();
             this.screen.render();

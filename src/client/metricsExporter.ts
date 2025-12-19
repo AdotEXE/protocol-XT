@@ -50,7 +50,7 @@ export class MetricsExporter {
      */
     exportToCSV(metrics?: MetricsData[]): string {
         const data = metrics || this.metricsHistory;
-        if (data.length === 0) {
+        if (data.length === 0 || !data[0]) {
             return '';
         }
         

@@ -1003,9 +1003,9 @@ export class EnemyTank {
         });
         
         // Оценка препятствий с весами (центральные лучи важнее)
-        const centerHit = hits[0];
-        const leftHits = Math.min(hits[1], hits[3]);
-        const rightHits = Math.min(hits[2], hits[4]);
+        const centerHit = hits[0] ?? 100;
+        const leftHits = Math.min(hits[1] ?? 100, hits[3] ?? 100);
+        const rightHits = Math.min(hits[2] ?? 100, hits[4] ?? 100);
         
         // Выбираем направление с наибольшим свободным пространством
         if (centerHit < 10) { // Препятствие впереди ближе 10м
@@ -1104,7 +1104,9 @@ export class EnemyTank {
         // Перемешиваем точки для непредсказуемости
         for (let i = this.patrolPoints.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
-            [this.patrolPoints[i], this.patrolPoints[j]] = [this.patrolPoints[j], this.patrolPoints[i]];
+            const temp = this.patrolPoints[i]!;
+            this.patrolPoints[i] = this.patrolPoints[j]!;
+            this.patrolPoints[j] = temp;
         }
         
         // Начинаем патруль сразу!
@@ -1308,6 +1310,7 @@ export class EnemyTank {
         }
         
         const target = this.patrolPoints[this.currentPatrolIndex];
+        if (!target) return;
         const myPos = this.chassis.absolutePosition;
         const distance = Vector3.Distance(myPos, target);
         
@@ -2112,7 +2115,7 @@ export class EnemyTank {
     }
     
     private reset(): void {
-        if (this.patrolPoints.length > 0) {
+        if (this.patrolPoints.length > 0 && this.patrolPoints[0]) {
             const spawnPos = this.patrolPoints[0].add(new Vector3(0, 3, 0));
             this.chassis.position.copyFrom(spawnPos);
             this.chassis.rotationQuaternion = Quaternion.Identity();

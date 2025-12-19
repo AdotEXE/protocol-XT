@@ -25,7 +25,7 @@ class SeededRandom {
     range(min: number, max: number): number { return min + this.next() * (max - min); }
     int(min: number, max: number): number { return Math.floor(this.range(min, max + 1)); }
     chance(p: number): boolean { return this.next() < p; }
-    pick<T>(arr: T[]): T { return arr[Math.floor(this.next() * arr.length)]; }
+    pick<T>(arr: T[]): T { return arr[Math.floor(this.next() * arr.length)] as T; }
 }
 
 export interface CoverObject {

@@ -10,7 +10,7 @@ import {
     Mesh,
     TransformNode,
     VertexBuffer,
-    Animation,
+    Animation as _Animation,
     PointLight
 } from "@babylonjs/core";
 import { MapType } from "./menu";
@@ -30,7 +30,7 @@ class SeededRandom {
     range(min: number, max: number): number { return min + this.next() * (max - min); }
     int(min: number, max: number): number { return Math.floor(this.range(min, max + 1)); }
     chance(p: number): boolean { return this.next() < p; }
-    pick<T>(arr: T[]): T { return arr[Math.floor(this.next() * arr.length)]; }
+    pick<T>(arr: T[]): T { return arr[Math.floor(this.next() * arr.length)] as T; }
 }
 
 interface ChunkData {
@@ -242,7 +242,16 @@ export class ChunkSystem {
         mesh.freezeWorldMatrix();
         mesh.doNotSyncBoundingInfo = true;
         mesh.cullingStrategy = Mesh.CULLINGSTRATEGY_BOUNDINGSPHERE_ONLY;
-        mesh.isPickable = false;
+        
+        // ВАЖНО: земля и дороги остаются pickable для raycast'ов (танк, редактор карт и т.п.)
+        // чтобы hover‑физика и инструменты могли определять реальную высоту поверхности.
+        const name = mesh.name || "";
+        const isGround = name.startsWith("ground_");
+        const isRoad = name.startsWith("road_");
+        const isRoadMarking = name.startsWith("marking_");
+        if (!isGround && !isRoad && !isRoadMarking) {
+            mesh.isPickable = false;
+        }
         
         // Дополнительные оптимизации для производительности
         if (mesh.material) {
@@ -253,7 +262,7 @@ export class ChunkSystem {
         }
         
         // Отключаем ненужные вычисления для статических объектов
-        mesh.computeBoundingInfo = false;
+        (mesh as unknown as { computeBoundingInfo: boolean }).computeBoundingInfo = false;
     }
     
     // Батчинг одинаковых мешей для оптимизации
@@ -1493,16 +1502,16 @@ export class ChunkSystem {
         // Select biome based on combined noise
         const combinedNoise = (biomeNoise1 + biomeNoise2) / 2;
         const cumulative = weights.reduce((acc, w, i) => {
-            acc.push(acc[i] + w);
+            acc.push((acc[i] ?? 0) + w);
             return acc;
         }, [0] as number[]);
-        const total = cumulative[cumulative.length - 1];
+        const total = cumulative[cumulative.length - 1] ?? 1;
         const normalizedNoise = combinedNoise * total;
         
-        let selectedBiome = allBiomes[0];
+        let selectedBiome = allBiomes[0] as BiomeType;
         for (let i = 0; i < cumulative.length - 1; i++) {
-            if (normalizedNoise >= cumulative[i] && normalizedNoise < cumulative[i + 1]) {
-                selectedBiome = allBiomes[i];
+            if (normalizedNoise >= (cumulative[i] ?? 0) && normalizedNoise < (cumulative[i + 1] ?? 0)) {
+                selectedBiome = allBiomes[i] as BiomeType;
                 break;
             }
         }
@@ -1523,10 +1532,10 @@ export class ChunkSystem {
                 const sampleCombined = (sampleNoise + random.next()) / 2;
                 const sampleNormalized = sampleCombined * total;
                 
-                let sampleBiome = allBiomes[0];
+                let sampleBiome = allBiomes[0] as BiomeType;
                 for (let i = 0; i < cumulative.length - 1; i++) {
-                    if (sampleNormalized >= cumulative[i] && sampleNormalized < cumulative[i + 1]) {
-                        sampleBiome = allBiomes[i];
+                    if (sampleNormalized >= (cumulative[i] ?? 0) && sampleNormalized < (cumulative[i + 1] ?? 0)) {
+                        sampleBiome = allBiomes[i] as BiomeType;
                         break;
                     }
                 }
@@ -1661,14 +1670,14 @@ export class ChunkSystem {
         let selectedBiome: BiomeType = baseBiome;
         if (biomeOptions.length > 0) {
             const cumulative = weights.reduce((acc, w, i) => {
-                acc.push(acc[i] + w);
+                acc.push((acc[i] ?? 0) + w);
                 return acc;
             }, [0] as number[]);
-            const total = cumulative[cumulative.length - 1];
+            const total = cumulative[cumulative.length - 1] ?? 1;
             const normalizedNoise = biomeNoise1 * total;
             
             for (let i = 0; i < cumulative.length - 1; i++) {
-                if (normalizedNoise >= cumulative[i] && normalizedNoise < cumulative[i + 1]) {
+                if (normalizedNoise >= (cumulative[i] ?? 0) && normalizedNoise < (cumulative[i + 1] ?? 0)) {
                     selectedBiome = biomeOptions[i] as BiomeType;
                     break;
                 }
@@ -1891,7 +1900,7 @@ export class ChunkSystem {
                 
                 if (isOnEdge) {
                     const idx = (gz * (subdivisions + 1) + gx) * 3;
-                    const currentHeight = positions[idx + 1];
+                    const currentHeight = positions[idx + 1] ?? 0;
                     
                     // Получаем координаты в мировом пространстве
                     const sampleX = worldX + (gx / subdivisions) * size;
@@ -1938,7 +1947,7 @@ export class ChunkSystem {
                     }
                     
                     // Если есть соседние высоты, сглаживаем текущую высоту
-                    if (neighborHeights.length > 0) {
+                    if (neighborHeights.length > 0 && currentHeight !== undefined) {
                         const avgNeighborHeight = neighborHeights.reduce((a, b) => a + b, 0) / neighborHeights.length;
                         const heightDiff = Math.abs(currentHeight - avgNeighborHeight);
                         
@@ -1950,8 +1959,6 @@ export class ChunkSystem {
                                 Math.min(gz, subdivisions - gz)
                             );
                             // Более агрессивное сглаживание на границах
-                            const smoothingFactor = Math.max(0.4, Math.min(0.8, edgeDist / edgeSmoothingRadius));
-                            
                             // Используем smoothstep для более плавного перехода
                             const normalizedDist = edgeDist / edgeSmoothingRadius;
                             const smoothFactor = normalizedDist * normalizedDist * (3 - 2 * normalizedDist);
@@ -2134,18 +2141,18 @@ export class ChunkSystem {
                     for (let gz = 1; gz < vertsPerSide - 1; gz++) {
                         for (let gx = 1; gx < vertsPerSide - 1; gx++) {
                             const idx = (gz * vertsPerSide + gx) * 3;
-                            const currentHeight = positions[idx + 1];
+                            const currentHeight = positions[idx + 1] ?? 0;
                             
                             // Проверяем 4 соседа
                             const neighbors = [
-                                positions[((gz - 1) * vertsPerSide + gx) * 3 + 1], // North
-                                positions[((gz + 1) * vertsPerSide + gx) * 3 + 1], // South
-                                positions[(gz * vertsPerSide + (gx - 1)) * 3 + 1], // West
-                                positions[(gz * vertsPerSide + (gx + 1)) * 3 + 1]   // East
+                                positions[((gz - 1) * vertsPerSide + gx) * 3 + 1] ?? 0, // North
+                                positions[((gz + 1) * vertsPerSide + gx) * 3 + 1] ?? 0, // South
+                                positions[(gz * vertsPerSide + (gx - 1)) * 3 + 1] ?? 0, // West
+                                positions[(gz * vertsPerSide + (gx + 1)) * 3 + 1] ?? 0  // East
                             ];
                             
                             // Находим среднюю высоту соседей
-                            const avgNeighborHeight = neighbors.reduce((sum, h) => sum + h, 0) / neighbors.length;
+                            const avgNeighborHeight = neighbors.reduce((sum, h) => sum + (h ?? 0), 0) / neighbors.length;
                             const diff = Math.abs(currentHeight - avgNeighborHeight);
                             
                             // Если разница слишком большая, заполняем пробел
@@ -2172,7 +2179,7 @@ export class ChunkSystem {
             
             // Отключаем тени для ground, чтобы избежать артефактов
             ground.receiveShadows = false;
-            ground.castShadows = false;
+            (ground as unknown as { castShadows: boolean }).castShadows = false;
             
             this.optimizeMesh(ground);
             chunk.meshes.push(ground);
@@ -2192,7 +2199,7 @@ export class ChunkSystem {
         
         // Отключаем тени для ground, чтобы избежать артефактов
         ground.receiveShadows = false;
-        ground.castShadows = false;
+        (ground as unknown as { castShadows: boolean }).castShadows = false;
         
         ground.material = this.getMat(groundMat);
         ground.parent = chunk.node;
@@ -2694,6 +2701,7 @@ export class ChunkSystem {
         
         // Continue with rest of generation using first building position as reference
         const mainBuilding = existingObjects[0];
+        if (!mainBuilding) return;
         const bx = mainBuilding.pos.x;
         const bz = mainBuilding.pos.z;
         
@@ -3065,17 +3073,8 @@ export class ChunkSystem {
         
         // Use clustering for natural neighborhood feel
         const houseCount = random.int(2, 4);
-        const clusterCount = Math.min(houseCount, 2);
-        const housePositions = this.generateClusteredPositions(
-            houseCount,
-            size,
-            6, // min distance between houses
-            20, // max distance from cluster center
-            clusterCount,
-            random
-        );
-        
-        const existingObjects: Array<{ pos: Vector3, radius: number }> = [];
+        const _clusterCount = Math.min(houseCount, 2); void _clusterCount;
+        // House positions and existing objects not currently used but kept for future village generation
         for (let i = 0; i < houseCount; i++) {
             const type = random.pick(houseTypes);
             const hx = size / 3 + i * (size / 3) + random.range(-10, 10);
@@ -3428,7 +3427,8 @@ export class ChunkSystem {
     // === HELPER METHODS FOR MAP GENERATION ===
     
     // Create craters for frontline/ruins maps
-    private createCraters(chunk: ChunkData, size: number, random: SeededRandom, worldX: number, worldZ: number, count: number = 3): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private _createCraters(chunk: ChunkData, size: number, random: SeededRandom, _worldX: number, _worldZ: number, count: number = 3): void {
         for (let i = 0; i < count; i++) {
             const cx = random.range(5, size - 5);
             const cz = random.range(5, size - 5);
@@ -3455,7 +3455,8 @@ export class ChunkSystem {
     }
     
     // Create trenches (linear depressions)
-    private _createTrenches(chunk: ChunkData, size: number, random: SeededRandom, worldX: number, worldZ: number): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private __createTrenches(chunk: ChunkData, size: number, random: SeededRandom, _worldX: number, _worldZ: number): void {
         if (random.chance(0.4)) {
             const length = random.range(15, 30);
             const width = 2;
@@ -3578,7 +3579,8 @@ export class ChunkSystem {
     }
     
     // Create river (flat depression with water-like appearance)
-    private createRiver(chunk: ChunkData, startX: number, startZ: number, endX: number, endZ: number, width: number, random: SeededRandom): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private createRiver(chunk: ChunkData, startX: number, startZ: number, endX: number, endZ: number, width: number, _random: SeededRandom): void {
         const length = Math.sqrt((endX - startX) ** 2 + (endZ - startZ) ** 2);
         const angle = Math.atan2(endZ - startZ, endX - startX);
         const centerX = (startX + endX) / 2;
@@ -3676,7 +3678,8 @@ export class ChunkSystem {
     }
     
     // Create barricade - все типы: бетонные блоки, мешки с песком, заблокированные машины
-    private createBarricade(chunk: ChunkData, x: number, z: number, length: number, random: SeededRandom, type?: "concrete" | "sandbags" | "vehicles"): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private createBarricade(chunk: ChunkData, x: number, z: number, _length: number, random: SeededRandom, type?: "concrete" | "sandbags" | "vehicles"): void {
         const barricadeType = type || random.pick(["concrete", "sandbags", "vehicles"]);
         
         if (barricadeType === "concrete") {
@@ -3737,7 +3740,8 @@ export class ChunkSystem {
     // Размер арены полигона
     private readonly POLYGON_ARENA_SIZE = 600;
     private readonly POLYGON_WALL_HEIGHT = 6;
-    private _polygonInitialized = false;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private __polygonInitialized = false;
     
     private generatePolygonContent(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
         // Земля военного типа (песок/грязь)
@@ -3747,7 +3751,8 @@ export class ChunkSystem {
         this.generatePolygonTerrain(chunk, worldX, worldZ, size, random);
         
         // Определяем границы арены
-        const arenaHalf = this.POLYGON_ARENA_SIZE / 2;
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const __arenaHalf = this.POLYGON_ARENA_SIZE / 2; void __arenaHalf;
         const chunkCenterX = worldX + size / 2;
         const chunkCenterZ = worldZ + size / 2;
         
@@ -3774,7 +3779,8 @@ export class ChunkSystem {
         }
     }
     
-    private generatePolygonTerrain(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private generatePolygonTerrain(chunk: ChunkData, _worldX: number, _worldZ: number, size: number, random: SeededRandom): void {
         // Смешанная местность: 30-40% холмы, 60-70% равнины
         // Создаём несколько холмов на чанке
         const hillCount = random.int(2, 4);
@@ -4491,9 +4497,11 @@ export class ChunkSystem {
         this.createGround(chunk, worldX, worldZ, size, "wasteland", random);
         
         // Определяем границы карты
-        const arenaHalf = this.FRONTLINE_ARENA_SIZE / 2;
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const __arenaHalfFrontline = this.FRONTLINE_ARENA_SIZE / 2; void __arenaHalfFrontline;
         const chunkCenterX = worldX + size / 2;
-        const chunkCenterZ = worldZ + size / 2;
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const __chunkCenterZ = worldZ + size / 2; void __chunkCenterZ;
         
         // Генерируем периметр
         this.generateFrontlinePerimeter(chunk, worldX, worldZ, size, random);
@@ -5084,7 +5092,8 @@ export class ChunkSystem {
     // removed unused helpers (tree/bench/streetlight/house/apartment)
     
     // Generic scattered props with varied forms/sizes (avoid z-fighting via Y offsets)
-    private _addScatteredProps(chunk: ChunkData, size: number, random: SeededRandom): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private __addScatteredProps(chunk: ChunkData, size: number, random: SeededRandom): void {
         const count = random.int(2, 5); // больше пропсов
         for (let i = 0; i < count; i++) {
             const kind = random.int(0, 4);
@@ -5143,8 +5152,8 @@ export class ChunkSystem {
     }
 
     // Legacy BLOCKY terrain generator (kept for reference; not used after heightmap switch)
-    // eslint-disable-next-line @typescript-eslint/no-unused-private-class-members
-    private _createTerrainFromNoise(chunk: ChunkData, worldX: number, worldZ: number, size: number, biome: BiomeType, random: SeededRandom): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private __createTerrainFromNoise(chunk: ChunkData, worldX: number, worldZ: number, size: number, biome: BiomeType, random: SeededRandom): void {
         if (!this.terrainGenerator) return;
         
         // Use grid for blocky terrain (voxel-style)
@@ -5158,7 +5167,8 @@ export class ChunkSystem {
             for (let gz = 0; gz <= gridSize; gz++) {
                 const sampleX = worldX + gx * cellSize;
                 const sampleZ = worldZ + gz * cellSize;
-                heights[gx][gz] = this.terrainGenerator.getHeight(sampleX, sampleZ, biome);
+                const row = heights[gx];
+                if (row) row[gz] = this.terrainGenerator.getHeight(sampleX, sampleZ, biome);
             }
         }
         
@@ -5169,10 +5179,10 @@ export class ChunkSystem {
                 const localZ = gz * cellSize + cellSize / 2;
                 
                 // Get heights at cell corners (for stepped/blended blocks)
-                const h00 = heights[gx][gz];
-                const h10 = heights[gx + 1][gz];
-                const h01 = heights[gx][gz + 1];
-                const h11 = heights[gx + 1][gz + 1];
+                const h00 = heights[gx]?.[gz] ?? 0;
+                const h10 = heights[gx + 1]?.[gz] ?? 0;
+                const h01 = heights[gx]?.[gz + 1] ?? 0;
+                const h11 = heights[gx + 1]?.[gz + 1] ?? 0;
                 
                 // Use average height for this cell (or use stepped approach)
                 const avgHeight = (h00 + h10 + h01 + h11) / 4;
@@ -5938,8 +5948,8 @@ export class ChunkSystem {
         
         // Позиция гаража в чанке - стратегическое расположение
         // Пытаемся разместить возле POI или на перекрёстках дорог
-        let gx: number, gz: number;
-        let worldGarageX: number, worldGarageZ: number;
+        let gx: number = size / 2, gz: number = size / 2;
+        let worldGarageX: number = worldX + gx, worldGarageZ: number = worldZ + gz;
         let strategicPlacement = false;
         
         // Проверяем близость к POI
@@ -6269,32 +6279,33 @@ export class ChunkSystem {
             // Распределение: 40% жилые, 30% коммерческие, 20% промышленные, 10% военные
             const buildingType = random.next();
             let w: number, h: number, d: number;
-            let material: string;
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            let _material: string;
             
             if (buildingType < 0.4) {
                 // Жилые: 6x6x4
                 w = random.range(5, 7);
                 h = random.range(3, 5);
                 d = random.range(5, 7);
-                material = random.pick(["brick", "plaster"]);
+                _material = random.pick(["brick", "plaster"]);
             } else if (buildingType < 0.7) {
                 // Коммерческие: 12x12x8
                 w = random.range(10, 14);
                 h = random.range(6, 10);
                 d = random.range(10, 14);
-                material = random.pick(["concrete", "brick"]);
+                _material = random.pick(["concrete", "brick"]);
             } else if (buildingType < 0.9) {
                 // Промышленные: 15x15x10
                 w = random.range(13, 17);
                 h = random.range(8, 12);
                 d = random.range(13, 17);
-                material = random.pick(["metal", "concrete"]);
+                _material = random.pick(["metal", "concrete"]);
             } else {
                 // Военные: 10x10x6
                 w = random.range(8, 12);
                 h = random.range(4, 8);
                 d = random.range(8, 12);
-                material = random.pick(["concrete", "brickDark"]);
+                _material = random.pick(["concrete", "brickDark"]);
             }
             
             // Создаём частично разрушенное здание (30-70% остаётся)
@@ -6391,7 +6402,8 @@ export class ChunkSystem {
         this.generateConsumables(chunk, worldX, worldZ, size, random);
     }
     
-    private generateCanyonRivers(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private generateCanyonRivers(chunk: ChunkData, _worldX: number, _worldZ: number, size: number, random: SeededRandom): void {
         // Несколько рек (2-3 на карту) - генерируем с низкой вероятностью на чанк
         if (random.chance(0.15)) {
             const startX = random.range(0, size);
@@ -6402,7 +6414,8 @@ export class ChunkSystem {
         }
     }
     
-    private createLake(chunk: ChunkData, x: number, z: number, radius: number, random: SeededRandom): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private createLake(chunk: ChunkData, x: number, z: number, radius: number, _random: SeededRandom): void {
         // Озеро - плоский куб с материалом "water" (replaced cylinder with box)
         const lake = MeshBuilder.CreateBox("lake", { width: radius * 2, height: 0.1, depth: radius * 2 }, this.scene);
         lake.position = new Vector3(x, 0.1, z); // Поднято на +0.15 (было -0.05)
@@ -6412,7 +6425,8 @@ export class ChunkSystem {
         chunk.meshes.push(lake);
     }
     
-    private generateCanyonLakes(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private generateCanyonLakes(chunk: ChunkData, _worldX: number, _worldZ: number, size: number, random: SeededRandom): void {
         // Несколько озёр (2-3 на карту) - генерируем с низкой вероятностью на чанк
         if (random.chance(0.12)) {
             const lx = random.range(15, size - 15);
@@ -6427,7 +6441,8 @@ export class ChunkSystem {
         }
     }
     
-    private generateCanyonPasses(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private generateCanyonPasses(chunk: ChunkData, _worldX: number, _worldZ: number, size: number, random: SeededRandom): void {
         // Горные перевалы - проходы между высокими горами
         if (random.chance(0.2)) {
             const px = random.range(10, size - 10);
@@ -6576,7 +6591,8 @@ export class ChunkSystem {
         this.generateConsumables(chunk, worldX, worldZ, size, random);
     }
     
-    private generateLargePort(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private generateLargePort(chunk: ChunkData, _worldX: number, _worldZ: number, size: number, random: SeededRandom): void {
         // Большой порт с причалами - генерируем 1 на карту (низкая вероятность на чанк)
         if (random.chance(0.1)) {
             const portX = random.range(20, size - 20);
@@ -6623,7 +6639,8 @@ export class ChunkSystem {
         }
     }
     
-    private generateRailwayTerminal(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private generateRailwayTerminal(chunk: ChunkData, _worldX: number, _worldZ: number, size: number, random: SeededRandom): void {
         // Ж/д терминал - генерируем 1 на карту
         if (random.chance(0.08)) {
             const termX = random.range(25, size - 25);
@@ -6695,7 +6712,8 @@ export class ChunkSystem {
         }
     }
     
-    private generatePipeNetwork(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private generatePipeNetwork(chunk: ChunkData, _worldX: number, _worldZ: number, size: number, random: SeededRandom): void {
         // Трубопроводы - несколько труб на чанк
         const pipeCount = random.int(2, 4);
         for (let i = 0; i < pipeCount; i++) {
@@ -6978,7 +6996,8 @@ export class ChunkSystem {
         this.generateConsumables(chunk, worldX, worldZ, size, random);
     }
     
-    private generateNaturalCaves(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private generateNaturalCaves(chunk: ChunkData, _worldX: number, _worldZ: number, size: number, random: SeededRandom): void {
         // Природные пещеры - большие залы неправильной формы
         if (random.chance(0.3)) {
             const caveX = random.range(20, size - 20);
@@ -7000,7 +7019,8 @@ export class ChunkSystem {
         }
     }
     
-    private generateMineSystem(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private generateMineSystem(chunk: ChunkData, _worldX: number, _worldZ: number, size: number, random: SeededRandom): void {
         // Система шахт: туннели, рельсы, вагонетки, оборудование
         if (random.chance(0.4)) {
             const tunnelWidth = random.range(5, 8);
@@ -7174,7 +7194,8 @@ export class ChunkSystem {
         this.generateConsumables(chunk, worldX, worldZ, size, random);
     }
     
-    private generateLighthouses(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private generateLighthouses(chunk: ChunkData, _worldX: number, _worldZ: number, size: number, random: SeededRandom): void {
         // Несколько маяков (2-3 на карту) - низкая вероятность на чанк
         if (random.chance(0.15)) {
             const lx = random.range(15, size - 15);
@@ -7207,7 +7228,8 @@ export class ChunkSystem {
         }
     }
     
-    private generateLargeCoastalPort(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private generateLargeCoastalPort(chunk: ChunkData, _worldX: number, _worldZ: number, size: number, random: SeededRandom): void {
         // Большой порт - генерируем 1 на карту
         if (random.chance(0.1)) {
             const portX = random.range(25, size - 25);
@@ -7251,7 +7273,8 @@ export class ChunkSystem {
         }
     }
     
-    private generateCoastalBeach(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private generateCoastalBeach(chunk: ChunkData, _worldX: number, _worldZ: number, size: number, random: SeededRandom): void {
         // Смешанный берег: песчаные пляжи + скалистые участки
         if (random.chance(0.4)) {
             const beachX = random.range(10, size - 10);
@@ -7280,7 +7303,8 @@ export class ChunkSystem {
         }
     }
     
-    private generateCoastalWaterFeatures(chunk: ChunkData, worldX: number, worldZ: number, size: number, random: SeededRandom): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private generateCoastalWaterFeatures(chunk: ChunkData, _worldX: number, _worldZ: number, size: number, random: SeededRandom): void {
         // Водные объекты: гавань, бухты, острова
         if (random.chance(0.12)) {
             const harborX = random.range(20, size - 20);

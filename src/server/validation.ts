@@ -9,7 +9,6 @@ export interface ValidationResult {
 export class InputValidator {
     // Maximum values
     private static readonly MAX_SPEED = 40; // units per second (increased for fastest tanks)
-    private static readonly MAX_TURN_SPEED = 5; // radians per second
     private static readonly MAX_POSITION_DELTA = 50; // maximum position change per tick
     private static readonly MAX_POSITION = 10000; // maximum absolute position
     private static readonly MIN_POSITION = -10000; // minimum absolute position
@@ -17,8 +16,6 @@ export class InputValidator {
     // Anti-cheat thresholds
     private static readonly TELEPORT_DISTANCE = 100; // Distance that triggers teleport detection
     private static readonly MAX_SPEED_MULTIPLIER = 1.5; // Allow 50% speed boost (for abilities)
-    private static readonly SUSPICIOUS_MOVEMENT_COUNT = 5; // Number of suspicious movements before action
-    private static readonly SPEED_CHECK_WINDOW = 1000; // Check speed over 1 second window
     
     // Input ranges
     private static readonly MIN_THROTTLE = -1;
@@ -29,10 +26,6 @@ export class InputValidator {
     private static readonly MAX_TURRET_ROTATION = Math.PI * 2;
     private static readonly MIN_AIM_PITCH = -Math.PI / 2;
     private static readonly MAX_AIM_PITCH = Math.PI / 2;
-    
-    // Rate limits
-    private static readonly MAX_INPUTS_PER_SECOND = 60; // 60 Hz max
-    private static readonly MAX_SHOOTS_PER_SECOND = 10; // 10 shots per second max
     
     static validatePlayerInput(input: PlayerInput, lastPosition: Vector3, currentPosition: Vector3, deltaTime: number): ValidationResult {
         // Validate input structure
@@ -123,6 +116,9 @@ export class InputValidator {
         }
         
         const lastEntry = positionHistory[positionHistory.length - 1];
+        if (!lastEntry) {
+            return { valid: true };
+        }
         const timeSinceLastUpdate = Date.now() - lastEntry.time;
         
         // Check for time manipulation
@@ -133,6 +129,10 @@ export class InputValidator {
         // Check for impossible acceleration
         if (positionHistory.length >= 2) {
             const prevEntry = positionHistory[positionHistory.length - 2];
+            if (!prevEntry) {
+                return { valid: true };
+            }
+            
             const prevDelta = Vector3.Distance(prevEntry.position, lastEntry.position);
             const prevTime = (lastEntry.time - prevEntry.time) / 1000;
             const prevSpeed = prevTime > 0 ? prevDelta / prevTime : 0;
@@ -172,6 +172,9 @@ export class InputValidator {
             const prev = positionHistory[i - 1];
             const curr = positionHistory[i];
             const next = positionHistory[i + 1];
+            if (!prev || !curr || !next) {
+                continue;
+            }
             
             const dir1 = curr.position.subtract(prev.position).normalize();
             const dir2 = next.position.subtract(curr.position).normalize();
@@ -191,14 +194,22 @@ export class InputValidator {
         for (let i = 1; i < positionHistory.length; i++) {
             const prev = positionHistory[i - 1];
             const curr = positionHistory[i];
+            if (!prev || !curr) {
+                continue;
+            }
             const distance = Vector3.Distance(prev.position, curr.position);
             const time = (curr.time - prev.time) / 1000;
             const speed = time > 0 ? distance / time : 0;
             
             // Check if speed is exactly constant (suspicious)
             if (i > 1) {
-                const prevDistance = Vector3.Distance(positionHistory[i - 2].position, prev.position);
-                const prevTime = (prev.time - positionHistory[i - 2].time) / 1000;
+                const prev2 = positionHistory[i - 2];
+                if (!prev2) {
+                    continue;
+                }
+                
+                const prevDistance = Vector3.Distance(prev2.position, prev.position);
+                const prevTime = (prev.time - prev2.time) / 1000;
                 const prevSpeed = prevTime > 0 ? prevDistance / prevTime : 0;
                 
                 if (Math.abs(speed - prevSpeed) < 0.01 && speed > 0) {

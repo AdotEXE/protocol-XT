@@ -29,6 +29,8 @@
 - `.vercel` - папка Vercel
 - `vercel.json.secret` - секретные конфигурации
 - `.env*` - файлы с переменными окружения
+- `*-firebase-adminsdk-*.json` - Firebase Admin SDK ключи
+- `protocol-*-firebase-adminsdk-*.json` - Firebase Admin SDK ключи проекта
 
 ### Хранение секретов
 
@@ -36,11 +38,13 @@
 - ✅ GitHub Secrets (для CI/CD)
 - ✅ Локальные `.env` файлы (в .gitignore)
 - ✅ `.vercel.token` файл (в .gitignore)
+- ✅ Firebase ключи через переменные окружения (см. [FIREBASE_ADMIN_SETUP.md](FIREBASE_ADMIN_SETUP.md))
 
 **Неправильно:**
 - ❌ Коммиты в Git
 - ❌ Публичные файлы
 - ❌ Документация с реальными ключами
+- ❌ Firebase Admin SDK JSON файлы в репозитории
 
 ### Если ключ был скомпрометирован
 

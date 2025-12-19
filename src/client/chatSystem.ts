@@ -53,8 +53,9 @@ export class ChatSystem {
     private themeManager: any = null; // Lazy loaded from "./terminalTheme"
     private automation: any = null; // Lazy loaded from "./terminalAutomation"
     private commandInput: HTMLInputElement | null = null;
-    private commandHistory: string[] = [];
-    private commandHistoryIndex: number = -1;
+    private _commandHistory: string[] = [];
+    private _commandHistoryIndex: number = -1;
+    private game: any = null;
     
     constructor(scene: Scene) {
         this.guiTexture = AdvancedDynamicTexture.CreateFullscreenUI("ChatUI", false, scene);
@@ -76,6 +77,7 @@ export class ChatSystem {
     }
     
     setGame(game: any): void {
+        this.game = game;
         if (this.commandSystem) {
             this.commandSystem.setGame(game);
         }
@@ -762,7 +764,7 @@ export class ChatSystem {
             button.top = "2px";
             
             const buttonText = new TextBlock(`filterText_${type}`);
-            buttonText.text = icons[index];
+            buttonText.text = icons[index] ?? "";
             buttonText.color = this.getColorForType(type);
             buttonText.fontSize = 10;
             buttonText.fontFamily = "Courier New, monospace";
@@ -1079,7 +1081,7 @@ export class ChatSystem {
     /**
      * Обработка команд тем
      */
-    private async handleThemeCommand(command: string): Promise<void> {
+    private async _handleThemeCommand(command: string): Promise<void> {
         await this.initThemeManager();
         if (!this.themeManager) return;
         
@@ -1314,7 +1316,7 @@ export class ChatSystem {
     
     private hexToRgb(hex: string): { r: number, g: number, b: number } | null {
         const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-        return result ? {
+        return result && result[1] && result[2] && result[3] ? {
             r: parseInt(result[1], 16),
             g: parseInt(result[2], 16),
             b: parseInt(result[3], 16)
@@ -1348,7 +1350,9 @@ export class ChatSystem {
             // Удаляем в обратном порядке, чтобы индексы не сбились
             for (let i = toRemove.length - 1; i >= 0; i--) {
                 const index = toRemove[i];
+                if (index === undefined) continue;
                 const message = this.messages[index];
+                if (!message) continue;
                 this.messages.splice(index, 1);
                 
                 const element = this.messageElements.get(message.timestamp);

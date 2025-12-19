@@ -322,7 +322,7 @@ export class MetricsCharts {
             
             // Текущее значение
             if (data.length > 0) {
-                const lastValue = data[data.length - 1];
+                const lastValue = data[data.length - 1] ?? 0;
                 ctx.fillStyle = config.color;
                 ctx.font = '10px Consolas';
                 ctx.textAlign = 'right';

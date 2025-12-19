@@ -9,8 +9,7 @@ import {
     PhysicsShapeType,
     PhysicsBody,
     PhysicsMotionType,
-    PhysicsShape,
-    Quaternion
+    PhysicsShape
 } from "@babylonjs/core";
 import { AdvancedDynamicTexture, Rectangle, TextBlock } from "@babylonjs/gui";
 import { TankController } from "./tankController";
@@ -41,7 +40,7 @@ export class EnemyTurret {
     
     // HP billboard
     private hpBillboard: Mesh | null = null;
-    private hpTextBlock: any = null;
+    private _hpTextBlock: any = null;
     
     // References
     effectsManager: EffectsManager | null = null;
@@ -145,7 +144,7 @@ export class EnemyTurret {
 
     private hpBarContainer: Rectangle | null = null;
     private hpBarFill: Rectangle | null = null;
-    private hpBarText: TextBlock | null = null;
+    private _hpBarText: TextBlock | null = null;
     
     private createHpBillboard() {
         const plane = MeshBuilder.CreatePlane("turretHp", { size: 2.0 }, this.scene);

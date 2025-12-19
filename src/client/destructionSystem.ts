@@ -10,8 +10,7 @@ import {
     Color3,
     Mesh,
     PhysicsAggregate,
-    PhysicsShapeType,
-    PhysicsMotionType
+    PhysicsShapeType
 } from "@babylonjs/core";
 
 export interface Destructible {
@@ -95,7 +94,9 @@ export class DestructionSystem {
             default: destructibleType = "wall";
         }
         
-        this.registerDestructible(coverMesh, destructibleType, health);
+        // Используем maxHealth для безопасного ограничения стартового здоровья
+        const clampedHealth = Math.min(health, maxHealth);
+        this.registerDestructible(coverMesh, destructibleType, clampedHealth);
     }
     
     // Apply damage to a destructible mesh
@@ -169,13 +170,19 @@ export class DestructionSystem {
     
     // Create debris particles/meshes
     private createDebris(position: Vector3, type: Destructible["type"]): void {
+        // type сейчас влияет только на лёгкую вариацию размеров обломков (без изменения логики)
+        const typeScale =
+            type === "car" ? 1.2 :
+            type === "container" ? 1.1 :
+            type === "tree" ? 0.8 :
+            1.0;
         const debrisCount = Math.min(
             this.config.maxDebrisPerObject,
             Math.floor(Math.random() * 3) + 2
         );
         
         for (let i = 0; i < debrisCount; i++) {
-            const size = 0.2 + Math.random() * 0.5;
+            const size = (0.2 + Math.random() * 0.5) * typeScale;
             
             const debris = MeshBuilder.CreateBox(`debris_${Date.now()}_${i}`, {
                 width: size,

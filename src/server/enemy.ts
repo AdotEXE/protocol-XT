@@ -197,7 +197,7 @@ export class ServerEnemy {
         }
     }
     
-    private updateChase(deltaTime: number, players?: Array<{ id: string; position: Vector3; status: string }>): void {
+    private updateChase(_deltaTime: number, players?: Array<{ id: string; position: Vector3; status: string }>): void {
         if (!this.targetId || !players) return;
         
         const target = players.find(p => p.id === this.targetId);
@@ -225,7 +225,7 @@ export class ServerEnemy {
         this.throttleTarget = Math.abs(angleDiff) < Math.PI / 3 ? 1 : 0.5; // Slow down when turning
     }
     
-    private updateAttackMovement(deltaTime: number, players?: Array<{ id: string; position: Vector3; status: string }>): void {
+    private updateAttackMovement(_deltaTime: number, players?: Array<{ id: string; position: Vector3; status: string }>): void {
         if (!this.targetId || !players) return;
         
         const target = players.find(p => p.id === this.targetId);
@@ -267,10 +267,11 @@ export class ServerEnemy {
         }
     }
     
-    private updatePatrol(deltaTime: number): void {
+    private updatePatrol(_deltaTime: number): void {
         if (this.patrolPoints.length === 0) return;
         
         const targetPoint = this.patrolPoints[this.currentPatrolIndex];
+        if (!targetPoint) return;
         const direction = targetPoint.subtract(this.position);
         direction.y = 0;
         
@@ -292,7 +293,7 @@ export class ServerEnemy {
         this.throttleTarget = Math.abs(angleDiff) < Math.PI / 2 ? 1 : 0.3;
     }
     
-    private updateTurret(deltaTime: number, players: Array<{ id: string; position: Vector3; status: string }>): void {
+    private updateTurret(_deltaTime: number, players: Array<{ id: string; position: Vector3; status: string }>): void {
         if (!this.targetId) {
             // Center turret
             let angleDiff = -this.turretRotation;

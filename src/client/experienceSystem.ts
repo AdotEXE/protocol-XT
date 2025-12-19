@@ -2,6 +2,7 @@
 // EXPERIENCE SYSTEM - Система набора опыта для корпусов и пушек
 // ═══════════════════════════════════════════════════════════════════════════
 
+import { Vector3 } from "@babylonjs/core";
 import { CHASSIS_TYPES, CANNON_TYPES } from "./tankTypes";
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -154,10 +155,10 @@ export const CANNON_ACHIEVEMENTS: Achievement[] = [
 export class ExperienceSystem {
     private chassisExperience: Map<string, PartExperience> = new Map();
     private cannonExperience: Map<string, PartExperience> = new Map();
-    private chatSystem: { success: (message: string, duration?: number) => void } | null = null;
-    private hud: { showMessage: (message: string, color: string, duration: number) => void } | null = null; // HUD для визуальных эффектов
+    private chatSystem: { success: (message: string, duration?: number) => void; info?: (message: string, duration?: number) => void; combat?: (message: string, duration?: number) => void } | null = null;
+    private hud: { showMessage: (message: string, color: string, duration: number) => void; showLevelUp?: (level: number, title: string) => void; showExperienceGain?: (amount: number, source: string) => void } | null = null; // HUD для визуальных эффектов
     private effectsManager: { createLevelUpEffect: (position: Vector3) => void } | null = null; // EffectsManager для эффектов повышения уровня
-    private soundManager: { play: (sound: string, volume?: number) => void } | null = null; // SoundManager для звуков опыта
+    private soundManager: { play: (sound: string, volume?: number) => void; playSuccess?: () => void } | null = null; // SoundManager для звуков опыта
     private playerProgression: { addExperience: (amount: number) => void } | null = null; // PlayerProgressionSystem для передачи опыта игроку
     // Мультипликатор XP для игрока в зависимости от сложности
     private xpDifficultyMultiplier: number = 1.0;
@@ -345,17 +346,17 @@ export class ExperienceSystem {
             const levelInfo = CHASSIS_LEVEL_BONUSES[exp.level - 1];
             
             // Эффект повышения уровня
-            if (this.hud) {
-                this.hud.showLevelUp(exp.level, levelInfo.title, "chassis");
+            if (this.hud && this.hud.showLevelUp && levelInfo) {
+                this.hud.showLevelUp(exp.level, levelInfo.title);
             }
             
             // Визуальный эффект повышения уровня
-            if (this.effectsManager && this.soundManager) {
+            if (this.effectsManager && this.soundManager && this.soundManager.playSuccess) {
                 // Звук повышения уровня будет вызван через soundManager
                 this.soundManager.playSuccess();
             }
             
-            if (this.chatSystem) {
+            if (this.chatSystem && levelInfo) {
                 this.chatSystem.success(`🎉 УРОВЕНЬ! ${chassis?.name || chassisId} → Ур.${exp.level} "${levelInfo.title}"`, 1);
                 this.showLevelUpBonuses(levelInfo, "chassis");
             }
@@ -405,17 +406,17 @@ export class ExperienceSystem {
             const levelInfo = CANNON_LEVEL_BONUSES[exp.level - 1];
             
             // Эффект повышения уровня
-            if (this.hud) {
-                this.hud.showLevelUp(exp.level, levelInfo.title, "cannon");
+            if (this.hud && this.hud.showLevelUp && levelInfo) {
+                this.hud.showLevelUp(exp.level, levelInfo.title);
             }
             
             // Визуальный эффект повышения уровня
-            if (this.effectsManager && this.soundManager) {
+            if (this.effectsManager && this.soundManager && this.soundManager.playSuccess) {
                 // Звук повышения уровня будет вызван через soundManager
                 this.soundManager.playSuccess();
             }
             
-            if (this.chatSystem) {
+            if (this.chatSystem && levelInfo) {
                 this.chatSystem.success(`🎉 УРОВЕНЬ! ${cannon?.name || cannonId} → Ур.${exp.level} "${levelInfo.title}"`, 1);
                 this.showLevelUpBonuses(levelInfo, "cannon");
             }
@@ -441,13 +442,13 @@ export class ExperienceSystem {
             if (levelInfo.projectileSpeedBonus > 0) bonuses.push(`+${levelInfo.projectileSpeedBonus} скор. снаряда`);
         }
         
-        if (bonuses.length > 0) {
+        if (bonuses.length > 0 && this.chatSystem?.info) {
             this.chatSystem.info(`Бонусы: ${bonuses.join(", ")}`);
         }
     }
     
     private checkLevelUp(exp: PartExperience, _type: "chassis" | "cannon"): void {
-        while (exp.level < MAX_LEVEL && exp.experience >= LEVEL_EXPERIENCE[exp.level]) {
+        while (exp.level < MAX_LEVEL && exp.experience >= (LEVEL_EXPERIENCE[exp.level] ?? Infinity)) {
             exp.level++;
         }
     }
@@ -464,13 +465,15 @@ export class ExperienceSystem {
                 }
                 
                 // Звук достижения
-                if (this.soundManager) {
+                if (this.soundManager?.playSuccess) {
                     this.soundManager.playSuccess();
                 }
                 
                 if (this.chatSystem) {
                     this.chatSystem.success(`🏆 ДОСТИЖЕНИЕ: ${achievement.icon} ${achievement.name}`, 2);
-                    this.chatSystem.info(`${achievement.description} (+${achievement.xpReward} XP)`, 1);
+                    if (this.chatSystem.info) {
+                        this.chatSystem.info(`${achievement.description} (+${achievement.xpReward} XP)`, 1);
+                    }
                 }
                 
                 // Добавляем опыт от достижения в батч
@@ -553,11 +556,13 @@ export class ExperienceSystem {
                 this.chatSystem.success(`🔥🔥🔥 UNSTOPPABLE! x10 (+200% XP)`, 3);
             }
             
-            this.chatSystem.combat(message, comboCount >= 5 || this.killStreak >= 5 ? 2 : 1);
+            if (this.chatSystem.combat) {
+                this.chatSystem.combat(message, comboCount >= 5 || this.killStreak >= 5 ? 2 : 1);
+            }
         }
         
         // Звуковой эффект при большой серии
-        if (this.soundManager && this.killStreak >= 5) {
+        if (this.soundManager?.playSuccess && this.killStreak >= 5) {
             this.soundManager.playSuccess();
         }
     }
@@ -579,7 +584,7 @@ export class ExperienceSystem {
     
     // Записать смерть игрока (сбрасывает серию убийств)
     recordDeath(): void {
-        if (this.killStreak >= 5 && this.chatSystem) {
+        if (this.killStreak >= 5 && this.chatSystem?.info) {
             this.chatSystem.info(`💀 Kill streak ended at x${this.killStreak}`, 1);
         }
         this.resetKillStreak();
@@ -676,7 +681,7 @@ export class ExperienceSystem {
                 this.addCannonExperience(cannonId, XP_REWARDS.SURVIVAL_MINUTE, "survival");
             }
             
-            if (this.chatSystem) {
+            if (this.chatSystem?.info) {
                 this.chatSystem.info(`+${XP_REWARDS.SURVIVAL_MINUTE * 2} XP (время в бою)`);
             }
         }
@@ -719,18 +724,18 @@ export class ExperienceSystem {
         if (!exp) return null;
         
         const bonuses = type === "chassis" ? CHASSIS_LEVEL_BONUSES : CANNON_LEVEL_BONUSES;
-        return bonuses[Math.min(exp.level - 1, bonuses.length - 1)];
+        return bonuses[Math.min(exp.level - 1, bonuses.length - 1)] ?? null;
     }
     
     // Получить бонусы за уровень
     getChassisLevelBonus(chassisId: string): LevelBonus {
         const level = this.getChassisLevel(chassisId);
-        return CHASSIS_LEVEL_BONUSES[Math.min(level - 1, CHASSIS_LEVEL_BONUSES.length - 1)];
+        return CHASSIS_LEVEL_BONUSES[Math.min(level - 1, CHASSIS_LEVEL_BONUSES.length - 1)] as LevelBonus;
     }
     
     getCannonLevelBonus(cannonId: string): LevelBonus {
         const level = this.getCannonLevel(cannonId);
-        return CANNON_LEVEL_BONUSES[Math.min(level - 1, CANNON_LEVEL_BONUSES.length - 1)];
+        return CANNON_LEVEL_BONUSES[Math.min(level - 1, CANNON_LEVEL_BONUSES.length - 1)] as LevelBonus;
     }
     
     // Получить прогресс до следующего уровня
@@ -743,8 +748,8 @@ export class ExperienceSystem {
         
         if (exp.level >= MAX_LEVEL) return 100;
         
-        const currentLevelXP = LEVEL_EXPERIENCE[exp.level - 1];
-        const nextLevelXP = LEVEL_EXPERIENCE[exp.level];
+        const currentLevelXP = LEVEL_EXPERIENCE[exp.level - 1] ?? 0;
+        const nextLevelXP = LEVEL_EXPERIENCE[exp.level] ?? currentLevelXP;
         const current = exp.experience - currentLevelXP;
         const required = nextLevelXP - currentLevelXP;
         
@@ -760,7 +765,7 @@ export class ExperienceSystem {
         if (!exp) return 0;
         if (exp.level >= MAX_LEVEL) return 0;
         
-        return LEVEL_EXPERIENCE[exp.level] - exp.experience;
+        return (LEVEL_EXPERIENCE[exp.level] ?? 0) - exp.experience;
     }
     
     getExperienceToNextLevel(exp: PartExperience): { current: number, required: number, progress: number } {
@@ -768,8 +773,8 @@ export class ExperienceSystem {
             return { current: exp.experience, required: exp.experience, progress: 1 };
         }
         
-        const currentLevelXP = LEVEL_EXPERIENCE[exp.level - 1];
-        const nextLevelXP = LEVEL_EXPERIENCE[exp.level];
+        const currentLevelXP = LEVEL_EXPERIENCE[exp.level - 1] ?? 0;
+        const nextLevelXP = LEVEL_EXPERIENCE[exp.level] ?? currentLevelXP;
         const current = exp.experience - currentLevelXP;
         const required = nextLevelXP - currentLevelXP;
         const progress = current / required;
@@ -798,7 +803,7 @@ export class ExperienceSystem {
             ? CHASSIS_LEVEL_BONUSES[exp.level - 1]
             : CANNON_LEVEL_BONUSES[exp.level - 1];
         
-        stats.push(`Уровень: ${exp.level} "${levelInfo.title}"`);
+        stats.push(`Уровень: ${exp.level} "${levelInfo?.title ?? 'Unknown'}"`);
         stats.push(`Опыт: ${exp.experience} XP`);
         stats.push(`Убийств: ${exp.kills}`);
         stats.push(`Урон: ${Math.round(exp.damageDealt)}`);
@@ -880,7 +885,7 @@ export class ExperienceSystem {
             if (amount > 0) {
                 totalChassisXP += amount;
                 // Показываем визуальную обратную связь только для значимых сумм (>= 2 XP)
-                if (this.hud && amount >= 2) {
+                if (this.hud?.showExperienceGain && amount >= 2) {
                     this.hud.showExperienceGain(amount, "chassis");
                 }
             }
@@ -890,7 +895,7 @@ export class ExperienceSystem {
             if (amount > 0) {
                 totalCannonXP += amount;
                 // Показываем визуальную обратную связь только для значимых сумм (>= 2 XP)
-                if (this.hud && amount >= 2) {
+                if (this.hud?.showExperienceGain && amount >= 2) {
                     this.hud.showExperienceGain(amount, "cannon");
                 }
             }
@@ -913,7 +918,7 @@ export class ExperienceSystem {
                     this.lastXpTransfer.amount !== scaledXP ||
                     this.lastXpTransfer.reason !== reason) {
                     
-                    this.playerProgression.addExperience(scaledXP, reason);
+                    this.playerProgression.addExperience(scaledXP);
                     this.lastXpTransfer = { time: now, amount: scaledXP, reason };
                 }
             }
@@ -927,14 +932,14 @@ export class ExperienceSystem {
         const totalXP = totalChassisXP + totalCannonXP;
         const comboCount = this.getComboCount();
         
-        if (totalXP >= 5 && this.chatSystem) {
+        if (totalXP >= 5 && this.chatSystem?.combat) {
             let message = `+${Math.round(totalXP)} XP`;
             if (comboCount >= 3) {
                 const comboBonus = Math.min(comboCount / this.MAX_COMBO, 1) * 100;
                 message += ` [COMBO x${comboCount.toFixed(0)} +${comboBonus.toFixed(0)}%]`;
             }
             this.chatSystem.combat(message, comboCount >= 5 ? 2 : 1);
-        } else if (comboCount >= 3 && this.chatSystem && totalXP > 0) {
+        } else if (comboCount >= 3 && this.chatSystem?.combat && totalXP > 0) {
             // Показываем комбо отдельно, если опыт небольшой, но комбо есть
             const comboBonus = Math.min(comboCount / this.MAX_COMBO, 1) * 100;
             // Показываем только при значительных изменениях комбо
@@ -944,7 +949,7 @@ export class ExperienceSystem {
         }
         
         // Звук получения опыта (только для значимых сумм)
-        if (this.soundManager && totalXP >= 10) {
+        if (this.soundManager?.playSuccess && totalXP >= 10) {
             this.soundManager.playSuccess();
         }
         

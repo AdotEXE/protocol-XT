@@ -37,6 +37,7 @@ export interface PreviewScene {
     light: HemisphericLight;
     canvas: HTMLCanvasElement;
     renderLoop?: number;
+    animationGroups?: { stop: () => void; dispose?: () => void }[];
 }
 
 /**
@@ -133,7 +134,7 @@ export function cleanupPreviewScene(previewScene: PreviewScene | null): void {
         // 2. Отключить камеру от canvas ПЕРЕД dispose
         if (previewScene.camera && previewScene.canvas) {
             try {
-                previewScene.camera.detachControls();
+                previewScene.camera.detachControl();
             } catch (e) {
                 // Игнорируем ошибки при отключении (может быть уже отключена)
             }

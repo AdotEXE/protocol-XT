@@ -213,7 +213,7 @@ export const SHOOT_PATTERNS: Record<string, ShootPattern> = {
  */
 export function getShootPattern(cannonType: string): ShootPattern {
     const pattern = SHOOT_PATTERNS[cannonType] ?? SHOOT_PATTERNS.standard;
-    return pattern;
+    return pattern!;
 }
 
 

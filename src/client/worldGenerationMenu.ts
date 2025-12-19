@@ -1355,6 +1355,18 @@ export class WorldGenerationMenu {
         // Этот метод оставлен для возможного будущего использования
     }
     
+    /**
+     * Скрыть меню генерации мира (используется из game.ts)
+     */
+    hide(): void {
+        if (!this.visible) return;
+        this.visible = false;
+        if (this.container) {
+            this.container.classList.add("hidden");
+            this.container.style.display = "none";
+        }
+    }
+    
     toggle(): void {
         if (!this.container) return;
         

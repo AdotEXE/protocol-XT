@@ -1121,24 +1121,29 @@ export function addChassisDetails(
             }
             
             // Энергетические усилители брони (футуристические элементы)
-            for (let i = 0; i < 2; i++) {
-                const energyBooster = MeshBuilder.CreateBox(`heavyEnergyBooster${i}`, {
-                    width: 0.12,
-                    height: 0.12,
-                    depth: 0.12
-                }, scene);
-                energyBooster.position = addZFightingOffset(new Vector3(
-                    (i === 0 ? -1 : 1) * w * 0.5,
-                    h * 0.3,
-                    d * 0.4
-                ), "forward");
-                energyBooster.parent = chassis;
-                const boosterMat = new StandardMaterial(`heavyBoosterMat${i}`, scene);
-                boosterMat.diffuseColor = new Color3(0.2, 0.4, 0.8);
-                boosterMat.emissiveColor = new Color3(0.1, 0.2, 0.4);
-                energyBooster.material = boosterMat;
-                animationElements.energyBoosters = animationElements.energyBoosters || [];
-                animationElements.energyBoosters.push(energyBooster);
+            // ВАЖНО: по запросу баланса экономики визуальные модули не должны быть
+            // предустановлены на корпусе — они будут появляться только при покупке/активации.
+            // Оставляем код как заготовку, но не создаём меши по умолчанию.
+            if (false) {
+                for (let i = 0; i < 2; i++) {
+                    const energyBooster = MeshBuilder.CreateBox(`heavyEnergyBooster${i}`, {
+                        width: 0.12,
+                        height: 0.12,
+                        depth: 0.12
+                    }, scene);
+                    energyBooster.position = addZFightingOffset(new Vector3(
+                        (i === 0 ? -1 : 1) * w * 0.5,
+                        h * 0.3,
+                        d * 0.4
+                    ), "forward");
+                    energyBooster.parent = chassis;
+                    const boosterMat = new StandardMaterial(`heavyBoosterMat${i}`, scene);
+                    boosterMat.diffuseColor = new Color3(0.2, 0.4, 0.8);
+                    boosterMat.emissiveColor = new Color3(0.1, 0.2, 0.4);
+                    energyBooster.material = boosterMat;
+                    if (!animationElements.energyBoosters) animationElements.energyBoosters = [];
+                    animationElements.energyBoosters!.push(energyBooster);
+                }
             }
             
             // Детали гусениц - катки (большие для тяжелого танка)
@@ -2865,19 +2870,21 @@ export function addChassisDetails(
                 sideShield.material = armorMat;
             }
             
-            // Генератор щита
-            const shieldGen = MeshBuilder.CreateBox("shieldGen", {
-                width: w * 0.4,
-                height: h * 0.5,
-                depth: w * 0.4
-            }, scene);
-            shieldGen.position = addZFightingOffset(new Vector3(0, h * 0.4, -d * 0.35), "forward");
-            shieldGen.parent = chassis;
-            const shieldGenMat = new StandardMaterial("shieldGenMat", scene);
-            shieldGenMat.diffuseColor = new Color3(0.2, 0.6, 0.8);
-            shieldGenMat.emissiveColor = new Color3(0.1, 0.3, 0.5);
-            shieldGen.material = shieldGenMat;
-            animationElements.shieldMesh = shieldGen;
+            // Генератор щита — визуальный модуль, отключён по умолчанию.
+            if (false) {
+                const shieldGen = MeshBuilder.CreateBox("shieldGen", {
+                    width: w * 0.4,
+                    height: h * 0.5,
+                    depth: w * 0.4
+                }, scene);
+                shieldGen.position = addZFightingOffset(new Vector3(0, h * 0.4, -d * 0.35), "forward");
+                shieldGen.parent = chassis;
+                const shieldGenMat = new StandardMaterial("shieldGenMat", scene);
+                shieldGenMat.diffuseColor = new Color3(0.2, 0.6, 0.8);
+                shieldGenMat.emissiveColor = new Color3(0.1, 0.3, 0.5);
+                shieldGen.material = shieldGenMat;
+                animationElements.shieldMesh = shieldGen;
+            }
             
             // Фары
             for (let i = 0; i < 2; i++) {
@@ -3370,20 +3377,22 @@ export function addChassisDetails(
                 sidePanel.material = armorMat;
             }
             
-            // Командная аура (энергетическая)
-            const commandAura = MeshBuilder.CreateBox("commandAura", {
-                width: w * 0.5,
-                height: h * 0.6,
-                depth: w * 0.5
-            }, scene);
-            commandAura.position = addZFightingOffset(new Vector3(0, h * 0.45, -d * 0.3), "up");
-            commandAura.parent = chassis;
-            const commandAuraMat = new StandardMaterial("commandAuraMat", scene);
-            commandAuraMat.diffuseColor = new Color3(1.0, 0.84, 0.0);
-            commandAuraMat.emissiveColor = new Color3(0.5, 0.42, 0.0);
-            commandAuraMat.alpha = 0.3;
-            commandAura.material = commandAuraMat;
-            animationElements.commandAura = commandAura;
+            // Командная аура (энергетическая) — модульный визуальный эффект, отключён по умолчанию.
+            if (false) {
+                const commandAura = MeshBuilder.CreateBox("commandAura", {
+                    width: w * 0.5,
+                    height: h * 0.6,
+                    depth: w * 0.5
+                }, scene);
+                commandAura.position = addZFightingOffset(new Vector3(0, h * 0.45, -d * 0.3), "up");
+                commandAura.parent = chassis;
+                const commandAuraMat = new StandardMaterial("commandAuraMat", scene);
+                commandAuraMat.diffuseColor = new Color3(1.0, 0.84, 0.0);
+                commandAuraMat.emissiveColor = new Color3(0.5, 0.42, 0.0);
+                commandAuraMat.alpha = 0.3;
+                commandAura.material = commandAuraMat;
+                animationElements.commandAura = commandAura;
+            }
             
             // Антенны связи (большие)
             for (let i = 0; i < 3; i++) {
@@ -3487,7 +3496,7 @@ export function addChassisDetails(
     // These are handled separately after the switch statement
     
     if (chassisType.id === "stealth") {
-        // Stealth - угловатые панели, генератор невидимости, низкий профиль
+        // Stealth - угловатые панели, низкий профиль
         const stealthPanels = [
             { pos: new Vector3(-w * 0.45, h * 0.2, d * 0.3), size: new Vector3(0.08, h * 0.3, d * 0.4) },
             { pos: new Vector3(w * 0.45, h * 0.2, d * 0.3), size: new Vector3(0.08, h * 0.3, d * 0.4) },
@@ -3504,19 +3513,23 @@ export function addChassisDetails(
             panelMesh.material = armorMat;
         });
         
-        // Генератор невидимости
-        const stealthGen = MeshBuilder.CreateBox("stealthGen", {
-            width: w * 0.35,
-            height: h * 0.45,
-            depth: w * 0.35
-        }, scene);
-        stealthGen.position = addZFightingOffset(new Vector3(0, h * 0.35, -d * 0.35), "forward");
-        stealthGen.parent = chassis;
-        const stealthMat = new StandardMaterial("stealthMat", scene);
-        stealthMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
-        stealthMat.emissiveColor = new Color3(0.08, 0.08, 0.12);
-        stealthGen.material = stealthMat;
-        animationElements.stealthMesh = stealthGen;
+        // Генератор невидимости как отдельный визуальный модуль отключён по умолчанию.
+        // Способности невидимости будут использовать собственные эффекты, а не
+        // предустановленный "генератор" на корпусе.
+        if (false) {
+            const stealthGen = MeshBuilder.CreateBox("stealthGen", {
+                width: w * 0.35,
+                height: h * 0.45,
+                depth: w * 0.35
+            }, scene);
+            stealthGen.position = addZFightingOffset(new Vector3(0, h * 0.35, -d * 0.35), "forward");
+            stealthGen.parent = chassis;
+            const stealthMat = new StandardMaterial("stealthMat", scene);
+            stealthMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
+            stealthMat.emissiveColor = new Color3(0.08, 0.08, 0.12);
+            stealthGen.material = stealthMat;
+            animationElements.stealthMesh = stealthGen;
+        }
     }
     
     if (chassisType.id === "hover") {
@@ -3538,19 +3551,24 @@ export function addChassisDetails(
             hoverPanels.push(panel);
         }
         
-        // Реактивные двигатели (4 штуки)
-        animationElements.hoverThrusters = [];
-        for (let i = 0; i < 4; i++) {
-            const thruster = MeshBuilder.CreateBox(`thruster${i}`, { width: 0.18, height: 0.25, depth: 0.18 }, scene);
-            const posX = (i % 2 === 0 ? -1 : 1) * w * 0.38;
-            const posZ = (i < 2 ? -1 : 1) * d * 0.38;
-            thruster.position = addZFightingOffset(new Vector3(posX, -h * 0.45, posZ), "up");
-            thruster.parent = chassis;
-            const thrusterMat = new StandardMaterial(`thrusterMat${i}`, scene);
-            thrusterMat.diffuseColor = new Color3(0, 0.6, 1);
-            thrusterMat.emissiveColor = new Color3(0, 0.4, 0.7);
-            thruster.material = thrusterMat;
-            animationElements.hoverThrusters.push(thruster);
+        // Реактивные двигатели (4 штуки) — считаем визуальным модулем, который
+        // должен появляться только при наличии соответствующего апгрейда.
+        // Оставляем код как заготовку, но не создаём thruster'ы по умолчанию.
+        if (false) {
+            animationElements.hoverThrusters = [];
+            for (let i = 0; i < 4; i++) {
+                const thruster = MeshBuilder.CreateBox(`thruster${i}`, { width: 0.18, height: 0.25, depth: 0.18 }, scene);
+                const posX = (i % 2 === 0 ? -1 : 1) * w * 0.38;
+                const posZ = (i < 2 ? -1 : 1) * d * 0.38;
+                thruster.position = addZFightingOffset(new Vector3(posX, -h * 0.45, posZ), "up");
+                thruster.parent = chassis;
+                const thrusterMat = new StandardMaterial(`thrusterMat${i}`, scene);
+                thrusterMat.diffuseColor = new Color3(0, 0.6, 1);
+                thrusterMat.emissiveColor = new Color3(0, 0.4, 0.7);
+                thruster.material = thrusterMat;
+                if (!animationElements.hoverThrusters) animationElements.hoverThrusters = [];
+                animationElements.hoverThrusters!.push(thruster);
+            }
         }
         
         // Обтекаемые фары спереди
@@ -4152,32 +4170,36 @@ export function addChassisDetails(
     
     if (chassisType.id === "shield") {
         // Shield - генератор щита, энергетические панели
-        const shieldGen = MeshBuilder.CreateBox("shieldGen", { width: w * 0.45, height: w * 0.45, depth: w * 0.45 }, scene);
-        shieldGen.position = addZFightingOffset(new Vector3(0, h * 0.45, -d * 0.25), "up");
-        shieldGen.parent = chassis;
-        const shieldGenMat = new StandardMaterial("shieldGenMat", scene);
-        shieldGenMat.diffuseColor = new Color3(0, 1, 0.6);
-        shieldGenMat.emissiveColor = new Color3(0, 0.6, 0.3);
-        shieldGen.material = shieldGenMat;
-        animationElements.shieldMesh = shieldGen;
-        
-        // Энергетические панели по бокам
-        for (let i = 0; i < 2; i++) {
-            const energyPanel = MeshBuilder.CreateBox(`energyPanel${i}`, {
-                width: 0.1,
-                height: h * 0.5,
-                depth: d * 0.3
-            }, scene);
-            energyPanel.position = addZFightingOffset(new Vector3(
-                    (i === 0 ? -1 : 1) * w * 0.55,
-                    h * 0.15,
-                    0
-                ), "x");
-            energyPanel.parent = chassis;
-            const panelMat = new StandardMaterial(`energyPanelMat${i}`, scene);
-            panelMat.diffuseColor = new Color3(0, 0.8, 0.4);
-            panelMat.emissiveColor = new Color3(0, 0.3, 0.15);
-            energyPanel.material = panelMat;
+        // Визуальный генератор и панели считаем модульными элементами — не создаём их
+        // по умолчанию, чтобы корпус выглядел "голым" до покупки апгрейдов.
+        if (false) {
+            const shieldGen = MeshBuilder.CreateBox("shieldGen", { width: w * 0.45, height: w * 0.45, depth: w * 0.45 }, scene);
+            shieldGen.position = addZFightingOffset(new Vector3(0, h * 0.45, -d * 0.25), "up");
+            shieldGen.parent = chassis;
+            const shieldGenMat = new StandardMaterial("shieldGenMat", scene);
+            shieldGenMat.diffuseColor = new Color3(0, 1, 0.6);
+            shieldGenMat.emissiveColor = new Color3(0, 0.6, 0.3);
+            shieldGen.material = shieldGenMat;
+            animationElements.shieldMesh = shieldGen;
+            
+            // Энергетические панели по бокам
+            for (let i = 0; i < 2; i++) {
+                const energyPanel = MeshBuilder.CreateBox(`energyPanel${i}`, {
+                    width: 0.1,
+                    height: h * 0.5,
+                    depth: d * 0.3
+                }, scene);
+                energyPanel.position = addZFightingOffset(new Vector3(
+                        (i === 0 ? -1 : 1) * w * 0.55,
+                        h * 0.15,
+                        0
+                    ), "x");
+                energyPanel.parent = chassis;
+                const panelMat = new StandardMaterial(`energyPanelMat${i}`, scene);
+                panelMat.diffuseColor = new Color3(0, 0.8, 0.4);
+                panelMat.emissiveColor = new Color3(0, 0.3, 0.15);
+                energyPanel.material = panelMat;
+            }
         }
         
         // Люки
@@ -4370,34 +4392,40 @@ export function addChassisDetails(
     
     if (chassisType.id === "drone") {
         // Drone - платформы для дронов, антенны связи
-        animationElements.droneMeshes = [];
-        for (let i = 0; i < 2; i++) {
-            const platform = MeshBuilder.CreateBox(`dronePlatform${i}`, {
-                width: w * 0.45,
-                height: 0.12,
-                depth: w * 0.45
-            }, scene);
-            platform.position = addZFightingOffset(new Vector3(
-                    (i === 0 ? -1 : 1) * w * 0.38,
-                    h * 0.65,
-                    0
-                ), "up");
-            platform.parent = chassis;
-            const platformMat = new StandardMaterial(`platformMat${i}`, scene);
-            platformMat.diffuseColor = new Color3(0.6, 0, 1);
-            platformMat.emissiveColor = new Color3(0.35, 0, 0.7);
-            platform.material = platformMat;
-            animationElements.droneMeshes.push(platform);
-            
-            // Антенны на платформах
-            const antenna = MeshBuilder.CreateBox(`droneAntenna${i}`, { width: 0.03, height: 0.15, depth: 0.03 }, scene);
-            antenna.position = addZFightingOffset(new Vector3(
-                    (i === 0 ? -1 : 1) * w * 0.38,
-                    h * 0.72,
-                    0
-                ), "up");
-            antenna.parent = chassis;
-            antenna.material = platformMat;
+        // По умолчанию не добавляем "посадочные площадки" и антенны — это визуальные
+        // элементы модулей, которые должны появляться только при наличии соответствующих
+        // апгрейдов/способностей.
+        if (false) {
+            animationElements.droneMeshes = [];
+            for (let i = 0; i < 2; i++) {
+                const platform = MeshBuilder.CreateBox(`dronePlatform${i}`, {
+                    width: w * 0.45,
+                    height: 0.12,
+                    depth: w * 0.45
+                }, scene);
+                platform.position = addZFightingOffset(new Vector3(
+                        (i === 0 ? -1 : 1) * w * 0.38,
+                        h * 0.65,
+                        0
+                    ), "up");
+                platform.parent = chassis;
+                const platformMat = new StandardMaterial(`platformMat${i}`, scene);
+                platformMat.diffuseColor = new Color3(0.6, 0, 1);
+                platformMat.emissiveColor = new Color3(0.35, 0, 0.7);
+                platform.material = platformMat;
+                if (!animationElements.droneMeshes) animationElements.droneMeshes = [];
+                animationElements.droneMeshes!.push(platform);
+                
+                // Антенны на платформах
+                const antenna = MeshBuilder.CreateBox(`droneAntenna${i}`, { width: 0.03, height: 0.15, depth: 0.03 }, scene);
+                antenna.position = addZFightingOffset(new Vector3(
+                        (i === 0 ? -1 : 1) * w * 0.38,
+                        h * 0.72,
+                        0
+                    ), "up");
+                antenna.parent = chassis;
+                antenna.material = platformMat;
+            }
         }
         
         // Люки

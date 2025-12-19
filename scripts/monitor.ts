@@ -108,7 +108,8 @@ Write-Host "FAILED"`;
         const escapedScriptPath = posScriptPath.replace(/\\/g, '\\\\');
         const psCommand = `powershell -NoProfile -ExecutionPolicy Bypass -File "${escapedScriptPath}" -targetPid ${processId} -x ${position.x} -y ${position.y}`;
         
-        exec(psCommand, (error, stdout, stderr) => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        exec(psCommand, (_error, stdout, _stderr) => {
             try {
                 fs.unlinkSync(posScriptPath);
             } catch (e) {
@@ -195,12 +196,13 @@ async function launchAllWindows(): Promise<void> {
     if (isWindows) {
         try {
             const screenInfo = await new Promise<string>((resolve) => {
-                exec(`powershell -NoProfile -Command "[System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width; [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Height"`, (error, stdout) => {
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                exec(`powershell -NoProfile -Command "[System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width; [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Height"`, (_error, stdout) => {
                     resolve(stdout || '');
                 });
             });
             const lines = screenInfo.trim().split('\n');
-            if (lines.length >= 2) {
+            if (lines.length >= 2 && lines[0] && lines[1]) {
                 monitorWidth = parseInt(lines[0].trim()) || 1920;
                 monitorHeight = parseInt(lines[1].trim()) || 1080;
             }

@@ -3,7 +3,7 @@
  */
 
 import WebSocket from 'ws';
-import type { ServerStats, DetailedRoomStats, DetailedPlayerStats } from '../../../src/server/monitoring';
+import type { ServerStats } from '../../../src/server/monitoring';
 
 export interface ServerCollectorConfig {
     host: string;
@@ -114,7 +114,8 @@ export class ServerCollector {
         }
         
         const now = Date.now();
-        const uptime = this.connectTime > 0 ? now - this.connectTime : 0;
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const __uptime = this.connectTime > 0 ? now - this.connectTime : 0; void __uptime;
         
         // Calculate latency (time since last stats update)
         const latency = this.lastStatsTime > 0 ? now - this.lastStatsTime : 0;

@@ -80,7 +80,8 @@ export class SystemCollector {
         // Get disk usage (current directory)
         let diskUsage: number | undefined;
         try {
-            const stats = fs.statSync(process.cwd());
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const __stats = fs.statSync(process.cwd()); void __stats;
             // This is a simplified check - in production you'd want to check actual disk space
             diskUsage = undefined; // TODO: Implement proper disk usage check
         } catch (error) {
@@ -103,6 +104,7 @@ export class SystemCollector {
         };
     }
 }
+
 
 
 

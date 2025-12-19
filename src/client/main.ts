@@ -5,7 +5,7 @@ import { registerServiceWorker } from './serviceWorker';
 console.log('Protocol TX Client Starting...');
 
 // Подавляем ошибки от внешних скриптов (расширения браузера, Sentry и т.д.)
-window.addEventListener('error', (event) => {
+window.addEventListener('error', (event): boolean | void => {
     // Игнорируем ошибки от внешних скриптов (расширения браузера, Sentry)
     if (event.message && (
         event.message.includes('sentry.io') ||
@@ -16,6 +16,7 @@ window.addEventListener('error', (event) => {
         event.preventDefault();
         return false;
     }
+    return true;
 }, true);
 
 // Подавляем ошибки от fetch/XMLHttpRequest для внешних скриптов
@@ -51,7 +52,8 @@ window.addEventListener('resize', () => {
 registerServiceWorker();
 
 // Initialize game
-const game = new Game();
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _game = new Game();
 
 // Lazy load analytics after game initialization to reduce initial bundle size
 (async () => {

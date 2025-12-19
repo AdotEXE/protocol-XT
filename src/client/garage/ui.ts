@@ -798,7 +798,8 @@ export function setupGarageKeyboardNavigation(
         for (let i = 1; i <= 6; i++) {
             if (e.code === `Digit${i}` || e.code === `Numpad${i}`) {
                 e.preventDefault();
-                callbacks.onCategorySelect(cats[i - 1]);
+                const cat = cats[i - 1];
+                if (cat) callbacks.onCategorySelect(cat);
                 return;
             }
         }

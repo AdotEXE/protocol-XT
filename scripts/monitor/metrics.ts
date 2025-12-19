@@ -63,6 +63,12 @@ export interface MetricsSnapshot {
         networkIn: number;
         networkOut: number;
         diskUsage?: number;
+        serverMemory?: {
+            rss: number;
+            heapTotal: number;
+            heapUsed: number;
+            external: number;
+        };
     };
     
     // Game state

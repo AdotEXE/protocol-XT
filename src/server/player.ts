@@ -1,6 +1,6 @@
 import { WebSocket } from "ws";
 import { Vector3 } from "@babylonjs/core";
-import type { PlayerData, PlayerInput, PlayerStatus, GameMode } from "../shared/types";
+import type { PlayerData, PlayerInput, PlayerStatus } from "../shared/types";
 import { nanoid } from "nanoid";
 
 export class ServerPlayer {

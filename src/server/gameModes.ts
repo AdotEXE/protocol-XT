@@ -101,7 +101,7 @@ export class CoopPVEMode implements GameModeRules {
         );
     }
     
-    checkWinCondition(room: GameRoom): { winner: string | null; reason: string } | null {
+    checkWinCondition(_room: GameRoom): { winner: string | null; reason: string } | null {
         // Co-op: Survive X waves or kill all enemies
         // This will be handled by AI system
         return null;
@@ -121,12 +121,10 @@ export class BattleRoyaleMode implements GameModeRules {
     private safeZoneCenter: Vector3 = new Vector3(0, 0, 0);
     private nextZoneRadius: number = 200;
     private nextZoneCenter: Vector3 = new Vector3(0, 0, 0);
-    private zoneShrinkStartTime: number = 0;
-    private zoneShrinkDuration: number = 60000; // 60 seconds to shrink
     private damagePerSecond: number = 5; // Damage outside safe zone
     private lastDamageTime: Map<string, number> = new Map();
     
-    getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3 {
+    getSpawnPosition(_player: ServerPlayer, _room: GameRoom): Vector3 {
         // Random spawn in safe zone (but not too close to center)
         const angle = Math.random() * Math.PI * 2;
         const minRadius = this.safeZoneRadius * 0.3; // Spawn in outer 70% of zone
@@ -144,7 +142,10 @@ export class BattleRoyaleMode implements GameModeRules {
         // Battle Royale: Last player standing
         const alivePlayers = room.getAllPlayers().filter(p => p.status === "alive");
         if (alivePlayers.length === 1) {
-            return { winner: alivePlayers[0].id, reason: "Last player standing" };
+            const winner = alivePlayers[0];
+            if (winner) {
+                return { winner: winner.id, reason: "Last player standing" };
+            }
         }
         if (alivePlayers.length === 0) {
             return { winner: null, reason: "All players eliminated" };
@@ -222,7 +223,7 @@ export class BattleRoyaleMode implements GameModeRules {
         };
     }
     
-    initialize(room: GameRoom): void {
+    initialize(_room: GameRoom): void {
         // Set initial safe zone
         this.safeZoneRadius = 200;
         this.safeZoneCenter = new Vector3(0, 0, 0);
@@ -240,7 +241,7 @@ export class BattleRoyaleMode implements GameModeRules {
 }
 
 export class CTFMode implements GameModeRules {
-    getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3 {
+    getSpawnPosition(player: ServerPlayer, _room: GameRoom): Vector3 {
         // Spawn at team base
         const team = player.team || 0;
         const baseX = team === 0 ? -50 : 50;
@@ -248,7 +249,7 @@ export class CTFMode implements GameModeRules {
         return new Vector3(baseX, 5, 0);
     }
     
-    checkWinCondition(room: GameRoom): { winner: string | null; reason: string } | null {
+    checkWinCondition(_room: GameRoom): { winner: string | null; reason: string } | null {
         // CTF: First team to capture X flags
         // This will be handled by flag system
         return null;

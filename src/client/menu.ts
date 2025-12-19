@@ -327,8 +327,6 @@ export class MainMenu {
     private selectedCannon: string = "";
     private ownedChassisIds: Set<string> = new Set();
     private ownedCannonIds: Set<string> = new Set();
-    // @ts-expect-error - используется в setPlayStep() и через события
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private currentPlayStep: number = 0;
     private onPlayIntroSound: () => void = () => {};
     private settings!: GameSettings;
@@ -4924,8 +4922,6 @@ export class MainMenu {
         }
     }
     
-    // @ts-expect-error - используется через обработчики событий
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private showMapSelection(): void {
         debugLog("[Menu] showMapSelection() called");
         debugLog("[Menu] mapSelectionPanel exists:", !!this.mapSelectionPanel);
@@ -5197,22 +5193,16 @@ export class MainMenu {
     // Deprecated: Garage is now loaded lazily via loadGarageInMenu()
     // This method is kept for compatibility but does nothing
     // Garage is now loaded lazily when showGarage() is called
-    // @ts-expect-error - deprecated method, kept for compatibility
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private initializeGarageInMenu(): void {
         debugLog("[Menu] initializeGarageInMenu() called (deprecated - garage is lazy loaded)");
     }
     
-    // @ts-expect-error - deprecated метод для совместимости
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private initializeGarage(): void {
         // Garage is already initialized in constructor
         // This method is kept for compatibility
         debugLog("[Menu] Garage already initialized");
     }
     
-    // @ts-expect-error - deprecated метод для совместимости
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private hideGarage(): void {
         // Старый метод для совместимости, но теперь гараж закрывается через свой callback
         debugLog("[Menu] hideGarage() called (deprecated, garage closes via its own callback)");
@@ -5231,8 +5221,15 @@ export class MainMenu {
      */
     private openMapEditor(): void {
         debugLog("[Menu] openMapEditor() called");
-        // Отправляем событие для открытия редактора карт (Ctrl+Shift+M)
-        // Редактор карт работает только когда игра запущена
+        // Пытаемся открыть редактор карт напрямую через экземпляр Game
+        const gameInstance = (window as any).gameInstance;
+        if (gameInstance && typeof gameInstance.openMapEditorFromMenu === "function") {
+            gameInstance.openMapEditorFromMenu();
+            debugLog("[Menu] Map editor opened via gameInstance.openMapEditorFromMenu()");
+            return;
+        }
+        
+        // Fallback: старое поведение через синтетическое нажатие Ctrl+Shift+M
         const event = new KeyboardEvent("keydown", {
             key: "m",
             code: "KeyM",
@@ -5242,7 +5239,7 @@ export class MainMenu {
             cancelable: true
         });
         window.dispatchEvent(event);
-        debugLog("[Menu] Map editor event dispatched");
+        debugLog("[Menu] Map editor event dispatched (fallback)");
     }
     
     /**
@@ -5255,8 +5252,6 @@ export class MainMenu {
         this.showGarage();
     }
     
-    // @ts-expect-error - используется через обработчики событий
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private saveTankConfig(): void {
         localStorage.setItem("tankConfig", JSON.stringify(this.tankConfig));
         window.dispatchEvent(new CustomEvent("tankConfigChanged", { detail: this.tankConfig }));

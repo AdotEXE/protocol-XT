@@ -1015,7 +1015,8 @@ export class CannonDetailsGenerator {
         scene: Scene,
         barrel: Mesh,
         position: Vector3,
-        angle: number,
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        _angle: number,
         width: number,
         height: number,
         depth: number,

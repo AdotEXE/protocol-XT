@@ -39,7 +39,7 @@ export class EffectsManager {
     }
     
     // Улучшенный эффект использования припаса - свечение вокруг танка
-    createConsumableEffect(position: Vector3, color: Color3, type: string): void {
+    createConsumableEffect(position: Vector3, color: Color3, _type: string): void {
         // Основное светящееся кольцо (расширяется) - replaced cylinder with box
         const ring = MeshBuilder.CreateBox("consumableRing", { width: 5, height: 0.3, depth: 5 }, this.scene);
         ring.position = position.clone();
@@ -139,7 +139,7 @@ export class EffectsManager {
     }
     
     // Эффект подбора припаса (на карте)
-    createPickupEffect(position: Vector3, color: Color3, type: string): void {
+    createPickupEffect(position: Vector3, color: Color3, _type: string): void {
         // Вспышка при подборе
         const pickupFlash = MeshBuilder.CreateBox("pickupFlash", { size: 1.2 }, this.scene);
         pickupFlash.position = position.clone();
@@ -420,7 +420,7 @@ export class EffectsManager {
     }
     
     // Simple hit spark - just a small bright box
-    createHitSpark(position: Vector3, direction?: Vector3): void {
+    createHitSpark(position: Vector3, _direction?: Vector3): void {
         const spark = MeshBuilder.CreateBox("spark", { size: 0.3 }, this.scene);
         spark.position = position.clone();
         spark.material = this.flashMat;
@@ -476,7 +476,7 @@ export class EffectsManager {
             
             const angle = (Math.PI * 2 * i) / 12;
             const radius = 2;
-            const speed = 0.4;
+            const _speed = 0.4; void _speed;
             let t = 0;
             const moveParticle = () => {
                 t += 0.05;
@@ -524,7 +524,7 @@ export class EffectsManager {
     // Simple tracer - elongated box
     createTracer(start: Vector3, end: Vector3): void {
         const length = Vector3.Distance(start, end);
-        const direction = end.subtract(start).normalize();
+        const _direction = end.subtract(start).normalize(); void _direction;
         
         // Main tracer line - brighter and thicker (replaced cylinder with box)
         const tracer = MeshBuilder.CreateBox("tracer", {

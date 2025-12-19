@@ -100,9 +100,6 @@ export class MonitoringAPI {
     private messagesIn: number = 0;
     private messagesOut: number = 0;
     
-    // Client metrics storage (playerId -> latest metrics)
-    private clientMetrics: Map<string, { metrics: any; timestamp: number }> = new Map();
-    
     constructor(server: GameServer) {
         this.server = server;
         this.startTime = Date.now();

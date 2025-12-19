@@ -48,7 +48,10 @@ export class CommandSystem {
         const trimmed = input.trim();
         if (!trimmed) return '';
         
-        const [cmd, ...args] = trimmed.split(/\s+/);
+        const parts = trimmed.split(/\s+/);
+        const cmd = parts[0];
+        if (!cmd) return 'Empty command';
+        const args = parts.slice(1);
         const command = this.commands.get(cmd.toLowerCase());
         
         if (!command) {
@@ -148,7 +151,7 @@ export class CommandSystem {
             usage: 'help [command]',
             category: 'system',
             execute: (args) => {
-                if (args.length > 0) {
+                if (args.length > 0 && args[0]) {
                     const cmd = this.commands.get(args[0].toLowerCase());
                     if (cmd) {
                         return `Command: ${cmd.name}\nDescription: ${cmd.description}\nUsage: ${cmd.usage}`;
@@ -201,10 +204,10 @@ export class CommandSystem {
                 if (!game) return 'Game not available';
                 if (args.length < 3) return 'Usage: spawn <x> <y> <z> [type]';
                 
-                const x = parseFloat(args[0]);
-                const y = parseFloat(args[1]);
-                const z = parseFloat(args[2]);
-                const type = args[3] || 'basic';
+                const x = parseFloat(args[0] ?? "0");
+                const y = parseFloat(args[1] ?? "0");
+                const z = parseFloat(args[2] ?? "0");
+                const _type = args[3] || 'basic'; void _type;
                 
                 if (isNaN(x) || isNaN(y) || isNaN(z)) {
                     return 'Invalid coordinates';
@@ -212,7 +215,7 @@ export class CommandSystem {
                 
                 // Логика спавна через game.enemyManager
                 if (game.enemyManager) {
-                    const pos = new Vector3(x, y, z);
+                    const _pos = new Vector3(x, y, z); void _pos;
                     // game.enemyManager.spawnEnemyAt(pos, type);
                     return `Enemy spawned at (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)})`;
                 }
@@ -231,9 +234,9 @@ export class CommandSystem {
                 if (!game) return 'Game not available';
                 if (args.length < 3) return 'Usage: teleport <x> <y> <z>';
                 
-                const x = parseFloat(args[0]);
-                const y = parseFloat(args[1]);
-                const z = parseFloat(args[2]);
+                const x = parseFloat(args[0] ?? "0");
+                const y = parseFloat(args[1] ?? "0");
+                const z = parseFloat(args[2] ?? "0");
                 
                 if (isNaN(x) || isNaN(y) || isNaN(z)) {
                     return 'Invalid coordinates';
@@ -259,7 +262,9 @@ export class CommandSystem {
                 if (!game) return 'Game not available';
                 if (args.length < 2) return 'Usage: set <variable> <value>';
                 
-                const [varName, ...valueParts] = args;
+                const varName = args[0];
+                if (!varName) return 'Variable name required';
+                const valueParts = args.slice(1);
                 const value = valueParts.join(' ');
                 
                 // Попытка установить переменную
@@ -289,6 +294,7 @@ export class CommandSystem {
                 if (args.length < 1) return 'Usage: get <variable>';
                 
                 const varName = args[0];
+                if (!varName) return 'Variable name required';
                 const value = (game as any)[varName];
                 
                 if (value === undefined) {
@@ -305,7 +311,7 @@ export class CommandSystem {
             description: 'Show current FPS',
             usage: 'fps',
             category: 'info',
-            execute: (args, game) => {
+            execute: (_args, game) => {
                 if (!game || !game.engine) return 'Engine not available';
                 const fps = game.engine.getFps();
                 return `FPS: ${fps.toFixed(1)}`;
@@ -318,7 +324,7 @@ export class CommandSystem {
             description: 'Show player position',
             usage: 'pos',
             category: 'info',
-            execute: (args, game) => {
+            execute: (_args, game) => {
                 if (!game || !game.tank || !game.tank.chassis) {
                     return 'Tank not available';
                 }
@@ -335,7 +341,7 @@ export class CommandSystem {
             description: 'Show player health',
             usage: 'health',
             category: 'info',
-            execute: (args, game) => {
+            execute: (_args, game) => {
                 if (!game || !game.tank) {
                     return 'Tank not available';
                 }
@@ -364,7 +370,7 @@ export class CommandSystem {
             description: 'Manage scripts',
             usage: 'script [list|run|save] <name> [content]',
             category: 'system',
-            execute: async (args) => {
+            execute: async (_args) => {
                 // Обработка будет в chatSystem
                 return 'Use script command in terminal';
             }
@@ -376,7 +382,7 @@ export class CommandSystem {
             description: 'Manage macros',
             usage: 'macro [list|run] <name>',
             category: 'system',
-            execute: async (args) => {
+            execute: async (_args) => {
                 // Обработка будет в chatSystem
                 return 'Use macro command in terminal';
             }
@@ -404,7 +410,7 @@ export class CommandSystem {
             description: 'Manage terminal triggers',
             usage: 'trigger [list|add|remove]',
             category: 'system',
-            execute: async (args) => {
+            execute: async (_args) => {
                 return 'Use trigger command in terminal';
             }
         });
@@ -415,7 +421,7 @@ export class CommandSystem {
             description: 'Manage scheduled tasks',
             usage: 'schedule [list|add|remove]',
             category: 'system',
-            execute: async (args) => {
+            execute: async (_args) => {
                 return 'Use schedule command in terminal';
             }
         });

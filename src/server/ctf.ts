@@ -45,7 +45,7 @@ export class CTFSystem {
         this.flags.set(1, team1Flag);
     }
     
-    update(deltaTime: number): void {
+    update(_deltaTime: number): void {
         // Update flag positions if carried
         for (const flag of this.flags.values()) {
             if (flag.isCarried && flag.carrierId) {

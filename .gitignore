@@ -45,6 +45,8 @@ desktop.ini
 firebase-debug.log
 firestore-debug.log
 ui-debug.log
+*-firebase-adminsdk-*.json
+protocol-*-firebase-adminsdk-*.json
 
 # Testing
 coverage/
@@ -122,9 +124,19 @@ coverage/
 *.lcov
 
 # Misc
-*.swp
-*.swo
-*~
 .project
 .classpath
 .settings/
+
+# TypeScript compiler output files in root
+tsc_*.txt
+
+# Files with non-standard names (command outputs, etc.)
+# Files starting with dash or special characters
+-*
+# Files with command-like names
+*tree*
+*tat*
+*findstr*
+*Select-String*
+*ion generation*

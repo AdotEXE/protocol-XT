@@ -110,9 +110,9 @@ export class HUD {
     private scannedEnemies: Map<string, { marker: Rectangle, fadeTime: number }> = new Map();
     
     // Fuel indicator
-    private fuelBar: Rectangle | null = null;
-    private fuelFill: Rectangle | null = null;
-    private fuelText: TextBlock | null = null;
+    private _fuelBar: Rectangle | null = null;
+    private _fuelFill: Rectangle | null = null;
+    private _fuelText: TextBlock | null = null;
     
     // Tank status block (слева от радара)
     private tankStatusContainer: Rectangle | null = null;
@@ -124,7 +124,7 @@ export class HUD {
     private currentArmor: number = 0;
     
     // POI indicators
-    private _poiMarkers: Map<string, Rectangle> = new Map();
+    private __poiMarkers: Map<string, Rectangle> = new Map();
     private poiCaptureProgress: Rectangle | null = null;
     private poiCaptureProgressFill: Rectangle | null = null;
     private poiCaptureText: TextBlock | null = null;
@@ -195,6 +195,7 @@ export class HUD {
     private tutorialText: TextBlock | null = null;
     private tutorialStep = 0;
     private tutorialCompleted = false;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private _tutorialStartTime = 0;
     private hasMoved = false;
     private hasShot = false;
@@ -230,6 +231,7 @@ export class HUD {
     private comboAnimationTime = 0;
     private comboScale = 1.0;
     private maxComboReached = 0; // Максимальное достигнутое комбо
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private _comboParticles: Rectangle[] = []; // Частицы для эффектов комбо
     private experienceSystem: any = null; // ExperienceSystem для комбо
     private glowElements: Map<string, { element: Rectangle | TextBlock, baseColor: string, glowColor: string }> = new Map();
@@ -262,6 +264,7 @@ export class HUD {
     private garageCaptureTimeText: TextBlock | null = null;
     
     // Player progression subscription
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private _playerProgression: any = null;
     private experienceSubscription: any = null;
     
@@ -851,6 +854,7 @@ export class HUD {
         const glowEntries = Array.from(this.glowElements.values());
         for (let i = 0; i < glowEntries.length; i++) {
             const glow = glowEntries[i];
+            if (!glow) continue;
             const pulse = (Math.sin(this.animationTime * 2) + 1) / 2; // 0-1
             const color = this.interpolateColor(glow.baseColor, glow.glowColor, pulse * 0.5);
             glow.element.color = color;
@@ -1815,7 +1819,8 @@ export class HUD {
             const pulse = () => {
                 if (!hotbarSlot.container || !hotbarSlot.container.isVisible) return;
                 const alphaMatch = (hotbarSlot.container.background as string).match(/[\d.]+$/);
-                const currentAlpha = parseFloat(alphaMatch ? alphaMatch[0] : "0.2");
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                const _currentAlpha = parseFloat(alphaMatch ? alphaMatch[0] : "0.2");
                 const newAlpha = 0.2 + Math.sin(Date.now() / 500) * 0.15;
                 hotbarSlot.container.background = `#00ffff${Math.floor(newAlpha * 255).toString(16).padStart(2, '0')}`;
                 setTimeout(pulse, 50);
@@ -3865,6 +3870,7 @@ export class HUD {
     }
     
     // Кэш для позиций врагов на мини-карте (обновляется реже для оптимизации)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private _enemyPositionsCache: {x: number, z: number, alive: boolean, turretRotation?: number}[] = [];
     
     /**
@@ -4135,6 +4141,7 @@ export class HUD {
     
     // Дополнительная (скрытая) панель статистики танка.
     // Оставлена для обратной совместимости, на геймплей не влияет.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private _createTankStatsDisplay() {
         // Контейнер для статистики танка - СКРЫТ (XP теперь по центру)
         this.tankStatsContainer = new Rectangle("tankStatsContainer");
@@ -5349,6 +5356,7 @@ export class HUD {
     
     // === TRACER COUNTER (deprecated, теперь отображается в блоке АРСЕНАЛ) ===
     // Метод оставлен для совместимости, но больше не создаёт элементов.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private createTracerCounter(): void {
         // no-op
     }
@@ -5384,8 +5392,10 @@ export class HUD {
         const blockWidth = this.scalePx(150);
         const blockHeight = this.scalePx(175); // Такая же высота как радар (175px)
         const RADAR_SIZE = 175; // Размер радара
-        const HEADER_HEIGHT = 22; // Высота заголовка радара
-        const INFO_HEIGHT = 22; // Высота блока информации радара
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const _HEADER_HEIGHT = 22; // Высота заголовка радара
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const _INFO_HEIGHT = 22; // Высота блока информации радара
         
         this.tankStatusContainer = new Rectangle("tankStatusContainer");
         this.tankStatusContainer.width = blockWidth;
@@ -5661,6 +5671,7 @@ export class HUD {
         if (slotIndex < 0 || slotIndex >= this.arsenalSlots.length) return;
         
         const slot = this.arsenalSlots[slotIndex];
+        if (!slot) return;
         slot.countText.text = `${current}/${max}`;
         
         // Цвет в зависимости от количества
@@ -5943,7 +5954,7 @@ export class HUD {
         notification.top = "20px";
         notification.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         notification.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        notification.right = "20px";
+        notification.left = "-20px"; // Use negative left instead of right
         
         this.notificationContainer.addControl(notification);
         

@@ -11,8 +11,7 @@ import {
     PhysicsMotionType,
     PhysicsShape,
     PhysicsShapeType,
-    Quaternion,
-    TorusBuilder
+    Quaternion
 } from "@babylonjs/core";
 
 export interface ConsumableType {
@@ -210,7 +209,7 @@ export const CONSUMABLE_TYPES: ConsumableType[] = [
 export class ConsumablePickup {
     public mesh: Mesh;
     private type: ConsumableType;
-    private scene: Scene;
+    private _scene: Scene;
     private rotationSpeed = 0.02;
     private bobSpeed = 0.003;
     private bobAmount = 0.3;
@@ -218,7 +217,7 @@ export class ConsumablePickup {
     private time = 0;
 
     constructor(scene: Scene, position: Vector3, type: ConsumableType) {
-        this.scene = scene;
+        this._scene = scene;
         this.type = type;
         this.initialY = position.y;
 

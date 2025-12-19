@@ -974,7 +974,7 @@ export class FirebaseService {
                 const userId = this.getUserId();
                 // Проверяем, не занят ли он текущим пользователем
                 const docs = querySnapshot.docs;
-                if (docs.length === 1 && docs[0].id === userId) {
+                if (docs.length === 1 && docs[0] && docs[0].id === userId) {
                     return true; // Это наш username
                 }
                 return false; // Занят другим пользователем
@@ -1068,7 +1068,9 @@ export class FirebaseService {
         
         try {
             const idToken = await getIdToken(this.auth.currentUser, true);
-            const decodedToken = JSON.parse(atob(idToken.split('.')[1]));
+            const tokenParts = idToken.split('.');
+            if (!tokenParts[1]) return false;
+            const decodedToken = JSON.parse(atob(tokenParts[1]));
             return decodedToken.admin === true || decodedToken.role === 'admin';
         } catch (error) {
             console.error("[Firebase] Error checking admin status:", error);
