@@ -2752,6 +2752,10 @@ export class TankController {
                     const meta = mesh.metadata;
                     if (meta && (meta.type === "bullet" || meta.type === "consumable" || meta.type === "playerTank")) return false;
                     if (mesh === this.chassis || mesh === this.turret || mesh === this.barrel) return false;
+                    // Приоритет для ground мешей - всегда проверяем их
+                    if (mesh.name.startsWith("ground_") || mesh.name.includes("road") || mesh.name.includes("garageFloorCollision")) {
+                        return true;
+                    }
                     return true;
                 };
 

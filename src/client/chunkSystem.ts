@@ -265,6 +265,17 @@ export class ChunkSystem {
         (mesh as unknown as { computeBoundingInfo: boolean }).computeBoundingInfo = false;
     }
     
+    /**
+     * Устанавливает правильные фильтры коллизий для статических объектов окружения
+     * Environment group (mask 2) может сталкиваться с Player (1), Enemy Tanks (8), Enemy Bullets (16)
+     */
+    private setEnvironmentCollisionFilters(aggregate: PhysicsAggregate): void {
+        if (aggregate.shape) {
+            aggregate.shape.filterMembershipMask = 2; // Environment group
+            aggregate.shape.filterCollideMask = 1 | 8 | 16; // Player (1), enemies (8), enemy bullets (16)
+        }
+    }
+    
     // Батчинг одинаковых мешей для оптимизации
     private batchSimilarMeshes(meshes: Mesh[]): void {
         // Оптимизируем все меши чанка для максимальной производительности
@@ -2183,7 +2194,8 @@ export class ChunkSystem {
             
             this.optimizeMesh(ground);
             chunk.meshes.push(ground);
-            new PhysicsAggregate(ground, PhysicsShapeType.MESH, { mass: 0 }, this.scene);
+            const groundPhysics = new PhysicsAggregate(ground, PhysicsShapeType.MESH, { mass: 0 }, this.scene);
+            this.setEnvironmentCollisionFilters(groundPhysics);
             return;
         }
         
@@ -2191,8 +2203,8 @@ export class ChunkSystem {
         const ground = MeshBuilder.CreateBox(`ground_${chunk.x}_${chunk.z}`, { width: size, height: 0.1, depth: size }, this.scene);
         // Позиция относительно chunk.node (который уже позиционирован в worldX, worldZ)
         // Ground должен начинаться с (0, 0, 0) относительно chunk.node, чтобы избежать дублирования
-        // Небольшое смещение по Y для предотвращения z-fighting между соседними чанками
-        ground.position = new Vector3(0, -0.05, 0);
+        // Исправлено: y = 0 вместо -0.05 для правильной коллизии с танком
+        ground.position = new Vector3(0, 0, 0);
         
         // Устанавливаем renderOrder для правильного рендеринга (ground должен рендериться первым)
         ground.renderingGroupId = 0;
@@ -2205,7 +2217,8 @@ export class ChunkSystem {
         ground.parent = chunk.node;
         this.optimizeMesh(ground);
         chunk.meshes.push(ground);
-        new PhysicsAggregate(ground, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const groundPhysics = new PhysicsAggregate(ground, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        this.setEnvironmentCollisionFilters(groundPhysics);
     }
     
     private createRoads(chunk: ChunkData, size: number, random: SeededRandom, biome?: BiomeType): void {
@@ -6135,7 +6148,8 @@ export class ChunkSystem {
         collisionFloor.parent = chunk.node;
         collisionFloor.freezeWorldMatrix();
         chunk.meshes.push(collisionFloor);
-        new PhysicsAggregate(collisionFloor, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const floorPhysics = new PhysicsAggregate(collisionFloor, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        this.setEnvironmentCollisionFilters(floorPhysics);
         
         // Сохраняем область гаража для исключения из генерации других объектов
         // УВЕЛИЧЕННЫЙ ЗАПАС чтобы ничего не спавнилось внутри или рядом с гаражом

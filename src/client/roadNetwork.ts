@@ -411,7 +411,11 @@ export class RoadNetwork {
         }
         
         // Add physics (static ground)
-        new PhysicsAggregate(mesh, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const roadPhysics = new PhysicsAggregate(mesh, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        if (roadPhysics.shape) {
+            roadPhysics.shape.filterMembershipMask = 2; // Environment group
+            roadPhysics.shape.filterCollideMask = 1 | 8 | 16; // Player (1), enemies (8), enemy bullets (16)
+        }
         
         mesh.receiveShadows = true;
         mesh.isPickable = false;

@@ -269,14 +269,15 @@ export function createUniqueChassis(
     mat.freeze();
     chassis.material = mat;
     
-    // Add visual details based on type
-    addChassisDetails(chassis, chassisType, scene, color, animationElements);
+    // Add visual details based on type - ОТКЛЮЧЕНО: оставляем только простой прямоугольник
+    // addChassisDetails(chassis, chassisType, scene, color, animationElements);
     
     return chassis;
 }
 
 /**
  * Добавляет детали к корпусу танка
+ * ОТКЛЮЧЕНО: оставляем только простой прямоугольник корпуса
  */
 export function addChassisDetails(
     chassis: Mesh,
@@ -285,6 +286,10 @@ export function addChassisDetails(
     baseColor: Color3,
     animationElements: ChassisAnimationElements
 ): void {
+    // Все детали отключены - оставляем только простой прямоугольник корпуса
+    return;
+    
+    /* ЗАКОММЕНТИРОВАНО - весь код деталей отключен
     const w = chassisType.width;
     const h = chassisType.height;
     const d = chassisType.depth;
@@ -5341,6 +5346,7 @@ export function addChassisDetails(
         antennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
         antenna.material = antennaMat;
     }
+    */
 }
 
 
