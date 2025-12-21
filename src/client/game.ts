@@ -3514,8 +3514,15 @@ export class Game {
                         return;
                     }
                     if (this.chunkSystem && this.chunkSystem.garagePositions.length >= 2) {
-                        logger.log("[Game] Spawning enemies...");
-                    this.spawnEnemiesInGarages();
+                        logger.log("[Game] Spawning enemies in garages...");
+                        this.spawnEnemiesInGarages();
+                        if (this.tank) {
+                            this.tank.setEnemyTanks(this.enemyTanks);
+                        }
+                    } else {
+                        // Fallback: спавним врагов на карте если гаражей недостаточно
+                        logger.log("[Game] Not enough garages, spawning enemies on map instead...");
+                        this.spawnEnemyTanks();
                         if (this.tank) {
                             this.tank.setEnemyTanks(this.enemyTanks);
                         }
@@ -3534,21 +3541,35 @@ export class Game {
                 logger.warn("[Game] Garage generation timeout");
                 this.spawnPlayerInGarage();
                 
-                // Враги спавнятся ТОЛЬКО в других гаражах с БОЛЬШОЙ задержкой
-                if (this.chunkSystem && this.chunkSystem.garagePositions.length >= 2 && this.playerGaragePosition) {
+                // Враги спавнятся в гаражах или на карте
+                if (this.playerGaragePosition) {
                     logger.log("[Game] (Timeout) Delaying enemy spawn by 5 seconds...");
                     setTimeout(() => {
                         if (this.playerGaragePosition) {
-                            this.spawnEnemiesInGarages();
-                if (this.tank) {
-                    this.tank.setEnemyTanks(this.enemyTanks);
+                            if (this.chunkSystem && this.chunkSystem.garagePositions.length >= 2) {
+                                logger.log("[Game] (Timeout) Spawning enemies in garages...");
+                                this.spawnEnemiesInGarages();
+                            } else {
+                                // Fallback: спавним врагов на карте если гаражей недостаточно
+                                logger.log("[Game] (Timeout) Not enough garages, spawning enemies on map instead...");
+                                this.spawnEnemyTanks();
+                            }
+                            if (this.tank) {
+                                this.tank.setEnemyTanks(this.enemyTanks);
                             }
                         } else {
                             logger.error("[Game] (Timeout) Player garage STILL not set!");
                         }
                     }, 5000);
                 } else {
-                    logger.log("[Game] (Timeout) Not enough garages or player garage not set");
+                    logger.log("[Game] (Timeout) Player garage not set, spawning enemies on map...");
+                    // Если гаража игрока нет, спавним врагов на карте
+                    setTimeout(() => {
+                        this.spawnEnemyTanks();
+                        if (this.tank) {
+                            this.tank.setEnemyTanks(this.enemyTanks);
+                        }
+                    }, 5000);
                 }
             } else {
                 // Продолжаем ждать
