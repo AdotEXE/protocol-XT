@@ -3143,9 +3143,7 @@ export class Garage {
         }
     }
     
-    /**
-     * Сохранить текущую конфигурацию как пресет
-     */
+    // Сохранить текущую конфигурацию как пресет
     private saveCurrentConfigurationAsPreset(): void {
         if (!this.tankEditor) return;
         
