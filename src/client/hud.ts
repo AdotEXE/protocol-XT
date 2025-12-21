@@ -2189,9 +2189,8 @@ export class HUD {
         const INFO_HEIGHT = 22; // Высота блока информации
         
         // Создаём общий контейнер для радара + блока информации + буквенных обозначений
-        // Ширина увеличена на 50px для размещения блока состояния танка слева
         this.minimapContainer = new Rectangle("minimapContainer");
-        this.minimapContainer.width = this.scalePx(RADAR_SIZE + 50);
+        this.minimapContainer.width = this.scalePx(RADAR_SIZE);
         this.minimapContainer.height = this.scalePx(RADAR_SIZE + HEADER_HEIGHT + INFO_HEIGHT);
         this.minimapContainer.cornerRadius = 0;
         this.minimapContainer.thickness = 2;
@@ -2212,8 +2211,6 @@ export class HUD {
         this.directionLabelsContainer.background = "#000";
         this.directionLabelsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.directionLabelsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        // Сдвигаем вправо на 25px (половина от 50px), чтобы оставаться по центру в оставшемся пространстве
-        this.directionLabelsContainer.left = this.scalePx(50 / 2);
         this.minimapContainer.addControl(this.directionLabelsContainer);
         
         // Создаём одно буквенное обозначение направления движения (над направлением камеры)
@@ -2236,8 +2233,6 @@ export class HUD {
         radarInnerContainer.background = "#0a1520";
         radarInnerContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         radarInnerContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        // Сдвигаем вправо на 25px (половина от 50px), чтобы оставаться по центру в оставшемся пространстве
-        radarInnerContainer.left = this.scalePx(50 / 2);
         radarInnerContainer.top = this.scalePx(HEADER_HEIGHT);
         this.minimapContainer.addControl(radarInnerContainer);
         
@@ -2397,8 +2392,6 @@ export class HUD {
         infoPanel.background = "transparent";
         infoPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         infoPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        // Сдвигаем вправо на 25px (половина от 50px), чтобы оставаться по центру в оставшемся пространстве
-        infoPanel.left = this.scalePx(50 / 2);
         this.minimapContainer.addControl(infoPanel);
         
         // Speed block (left)
@@ -2590,13 +2583,11 @@ export class HUD {
         // Вычисляем позицию: модули (слоты 6-0) занимают 5 слотов справа от припасов
         // Припасы: 10 слотов, модули: 5 слотов (6-0), эффекты: 8 слотов справа от модулей
         // Симметричное расположение относительно центра (как припасы и модули)
-        // Отступ между модулями и эффектами должен быть равен отступу между припасами и модулями (slotGap)
         const consumablesTotalWidth = 10 * slotWidth + 9 * slotGap;
         const modulesTotalWidth = 5 * slotWidth + 4 * slotGap;
         const consumablesRightEdge = consumablesTotalWidth / 2;
-        const modulesLeftEdge = consumablesRightEdge + slotGap; // Левая граница модулей
-        const modulesRightEdge = modulesLeftEdge + modulesTotalWidth; // Правая граница модулей
-        const effectsLeftEdge = modulesRightEdge + slotGap; // Левая граница эффектов (отступ равен slotGap)
+        const modulesRightEdge = consumablesRightEdge + modulesTotalWidth + slotGap;
+        const effectsLeftEdge = modulesRightEdge + slotGap; // Справа от модулей с минимальным отступом (симметрично)
         const effectsCenterOffset = effectsLeftEdge + totalWidth / 2;
         
         // Создаем контейнер для всех слотов эффектов
@@ -5395,16 +5386,16 @@ export class HUD {
     // === TANK STATUS BLOCK ===
     
     private createTankStatusBlock(): void {
-        // === БЛОК СОСТОЯНИЯ ТАНКА - ВСТРОЕН В ЛЕВЫЙ БОК РАДАРА, ВО ВСЮ ВЫСОТУ ===
-        // Блок встроен в minimapContainer как дочерний элемент, занимает левый бок на всю высоту радара
+        // === БЛОК СОСТОЯНИЯ ТАНКА - ВПЛОТНУЮ СЛЕВА ОТ РАДАРА, ВЫСОТА КАК У РАДАРА ===
+        // Радар находится: horizontalAlignment: RIGHT, left: -15px, top: -45px, размер 175px
+        // Блок состояния должен быть вплотную слева от радара, высота такая же как радар (175px)
+        const blockWidth = this.scalePx(75); // Уменьшено в два раза (было 150)
+        const blockHeight = this.scalePx(175); // Такая же высота как радар (175px)
         const RADAR_SIZE = 175; // Размер радара
-        const HEADER_HEIGHT = 22; // Высота заголовка радара
-        const INFO_HEIGHT = 22; // Высота блока информации радара
-        
-        // Ширина блока - примерно 25-30% от ширины радара
-        const blockWidth = this.scalePx(50); // 50px = примерно 28% от 175px
-        // Высота блока - равна высоте самого радара (175px), без заголовка и информации
-        const blockHeight = this.scalePx(RADAR_SIZE);
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const _HEADER_HEIGHT = 22; // Высота заголовка радара
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const _INFO_HEIGHT = 22; // Высота блока информации радара
         
         this.tankStatusContainer = new Rectangle("tankStatusContainer");
         this.tankStatusContainer.width = blockWidth;
@@ -5413,22 +5404,19 @@ export class HUD {
         this.tankStatusContainer.thickness = 2;
         this.tankStatusContainer.color = "#0f0";
         this.tankStatusContainer.background = "rgba(10, 21, 32, 0.9)";
-        // Позиционируем относительно minimapContainer (родительского элемента)
-        this.tankStatusContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.tankStatusContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        // Позиционируем слева, выходя за левую границу minimapContainer (отрицательный left)
-        // Блок будет встроен в левый бок радара, начиная с заголовка
-        this.tankStatusContainer.left = `-${blockWidth}px`;
-        this.tankStatusContainer.top = this.scalePx(HEADER_HEIGHT);
+        this.tankStatusContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.tankStatusContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        // Позиционируем ВПЛОТНУЮ слева от радара: радар на -15px, блок на -15px - radarWidth - blockWidth (без зазора)
+        const radarLeft = -15;
+        const radarWidth = scalePixels(RADAR_SIZE);
+        const blockWidthNum = scalePixels(75); // Уменьшено в два раза (было 150)
+        const gap = 0; // Без зазора - вплотную к радару
+        const calculatedLeft = radarLeft - radarWidth - blockWidthNum - gap;
+        this.tankStatusContainer.left = `${calculatedLeft}px`;
+        this.tankStatusContainer.top = this.scalePx(-45); // Выровнено с радаром (тот же top)
         this.tankStatusContainer.isVisible = true;
         
-        // ВСТРАИВАЕМ в minimapContainer вместо guiTexture
-        if (this.minimapContainer) {
-            this.minimapContainer.addControl(this.tankStatusContainer);
-        } else {
-            // Fallback на случай, если minimapContainer еще не создан (не должно произойти)
-            this.guiTexture.addControl(this.tankStatusContainer);
-        }
+        this.guiTexture.addControl(this.tankStatusContainer);
         
         // Заголовок
         const title = new TextBlock("tankStatusTitle");

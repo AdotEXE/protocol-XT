@@ -153,7 +153,7 @@ export class TankController {
     trackType: TrackType;
     
     // Config (будут переопределены типом корпуса)
-    mass = 9000; // УВЕЛИЧЕНО до 9000 для реалистичной физики и предотвращения парения в воздухе
+    mass = 3500; // УВЕЛИЧЕНО с 2100 для предотвращения парения в воздухе
     hoverHeight = 1.0;  // Hover height
     
     // Movement Settings (будут переопределены типом корпуса)
@@ -451,7 +451,7 @@ export class TankController {
         
         this.physicsBody = new PhysicsBody(this.chassis, PhysicsMotionType.DYNAMIC, false, scene);
         this.physicsBody.shape = chassisShape;
-        this.physicsBody.setMassProperties({ mass: this.mass, centerOfMass: new Vector3(0, -0.55, -0.3) });
+        this.physicsBody.setMassProperties({ mass: this.mass, centerOfMass: new Vector3(0, -0.55, 0) });
         this.physicsBody.setLinearDamping(0.8);
         this.physicsBody.setAngularDamping(4.0);
 
@@ -472,18 +472,25 @@ export class TankController {
     }
     
     // Создать визуальные меши для модулей
-    // ВСЕ ЦВЕТНЫЕ МОДУЛИ УДАЛЕНЫ - они не существуют в гараже и не должны отображаться на танке
+    // Модули размещаются в фиксированных слотах:
+    // - На корпусе: модули 6 (щит), 9 (маневрирование), 0 (прыжок)
+    // - На башне: модуль 8 (автонаводка)
+    // - На пушке: модуль 7 (ускоренная стрельба)
     private createModuleVisuals(): void {
         if (!this.chassis || !this.turret || !this.barrel) return;
         
-        // Все вызовы создания цветных модулей удалены:
-        // - Модуль 6 (синий щит) - УДАЛЕН
-        // - Модуль 7 (жёлтый индикатор) - УДАЛЕН
-        // - Модуль 8 (красный радар) - УДАЛЕН
-        // - Модуль 9 (бирюзовые ускорители) - УДАЛЕН
-        // - Модуль 0 (красные двигатели) - УДАЛЕН
+        const w = this.chassisType.width;
+        const h = this.chassisType.height;
+        const d = this.chassisType.depth;
         
-        // Обновляем видимость модулей (если они были созданы ранее, они будут скрыты)
+        // Создаём визуализацию для каждого модуля
+        this.createModule6Visual(w, h, d);  // Щит на корпусе (перед)
+        this.createModule7Visual();         // Индикатор на пушке
+        this.createModule8Visual(w);        // Радар на башне (использует только ширину)
+        this.createModule9Visual(w, h, d);  // Ускорители на корпусе (по бокам)
+        this.createModule0Visual(w, h, d);  // Двигатели на корпусе (сзади)
+        
+        // Обновляем видимость модулей в зависимости от установки
         this.updateModuleVisuals();
     }
     
@@ -4919,10 +4926,6 @@ export class TankController {
         this.acceleration = this.chassisType.acceleration;
         this.maxHealth = this.chassisType.maxHealth;
         this.currentHealth = Math.min(this.currentHealth, this.maxHealth);
-        // Обновляем физические свойства при смене типа корпуса
-        if (this.physicsBody) {
-            this.physicsBody.setMassProperties({ mass: this.mass, centerOfMass: new Vector3(0, -0.55, -0.3) });
-        }
         // Recreate chassis visuals would require full respawn, so we just update stats
     }
     
