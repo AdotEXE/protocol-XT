@@ -1,14 +1,20 @@
 /**
- * Frontline Map Generator
- * Разрушенная линия фронта с кратерами, окопами и укреплениями
+ * @module maps/frontline
+ * @description Генератор карты "Линия фронта" - поле боя с окопами
+ * 
+ * Содержит:
+ * - FrontlineGenerator - основной класс генератора
+ * - FrontlineConfig - конфигурация генератора
+ * - FRONTLINE_MAP_INFO - метаданные карты
  */
 
-// Генератор карты Frontline находится в chunkSystem.ts
-// Этот файл подготовлен для будущего выноса генератора
+export { FrontlineGenerator, DEFAULT_FRONTLINE_CONFIG } from './FrontlineGenerator';
+export type { FrontlineConfig, FrontlineZone } from './FrontlineGenerator';
 
+/** Метаданные карты "Линия фронта" */
 export const FRONTLINE_MAP_INFO = {
     id: "frontline" as const,
-    name: "Передовая",
-    description: "Разрушенная линия фронта с кратерами, окопами и укреплениями"
+    name: "Линия фронта",
+    description: "Окопы, траншеи, бункеры и нейтральная полоса"
 };
 
