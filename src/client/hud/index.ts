@@ -51,3 +51,9 @@ export type { DamageIndicatorConfig } from './components';
 
 export { NotificationQueue, DEFAULT_NOTIFICATION_CONFIG } from './components';
 export type { NotificationQueueConfig, NotificationType } from './components';
+
+export { FuelIndicator, DEFAULT_FUEL_CONFIG } from './components';
+export type { FuelIndicatorConfig } from './components';
+
+export { TankStatus, DEFAULT_TANK_STATUS_CONFIG } from './components';
+export type { TankStatusConfig, TankStatusData } from './components';

@@ -46,7 +46,26 @@ export const HUD_COLORS = {
     MINIMAP_PLAYER: "#00ff00",
     MINIMAP_ENEMY: "#ff0000",
     MINIMAP_ALLY: "#00ffff",
-    MINIMAP_POI: "#ffff00"
+    MINIMAP_POI: "#ffff00",
+    
+    // Топливо
+    FUEL_FULL: "#00cc00",
+    FUEL_WARNING: "#ffcc00",
+    FUEL_CRITICAL: "#ff3300",
+    
+    // Броня
+    ARMOR_FULL: "#3399ff",
+    ARMOR_DAMAGED: "#ff9900",
+    
+    // Прицел (дополнительные)
+    crosshair: "#00ff00",
+    crosshairGlow: "#00ff0066",
+    hitMarker: "#ff0000",
+    critical: "#ff0000",
+    background: "#000000",
+    border: "#00ff00",
+    health: "#00ff00",
+    lowHealth: "#ff0000"
 };
 
 /**

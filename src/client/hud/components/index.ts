@@ -42,3 +42,11 @@ export type { DamageIndicatorConfig } from './DamageIndicator';
 export { NotificationQueue, DEFAULT_NOTIFICATION_CONFIG } from './NotificationQueue';
 export type { NotificationQueueConfig, NotificationType } from './NotificationQueue';
 
+// Индикатор топлива
+export { FuelIndicator, DEFAULT_FUEL_CONFIG } from './FuelIndicator';
+export type { FuelIndicatorConfig } from './FuelIndicator';
+
+// Статус танка
+export { TankStatus, DEFAULT_TANK_STATUS_CONFIG } from './TankStatus';
+export type { TankStatusConfig, TankStatusData } from './TankStatus';
+
