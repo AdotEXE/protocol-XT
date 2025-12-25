@@ -2,7 +2,7 @@
 // GAME CAMERA - Управление камерами и режимами обзора
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { Vector3, ArcRotateCamera, UniversalCamera } from "@babylonjs/core";
+import { Vector3, ArcRotateCamera, UniversalCamera, Ray } from "@babylonjs/core";
 import { logger } from "../utils/logger";
 import type { Scene } from "@babylonjs/core";
 import type { TankController } from "../tankController";
@@ -292,27 +292,65 @@ export class GameCamera {
     }
     
     /**
-     * Вычисляет дальность полёта снаряда
+     * Предотвращение захода камеры за текстуры/стены
      */
-    calculateProjectileRange(pitch: number, projectileSpeed: number, barrelHeight: number): number {
-        const gravity = 9.81;
-        const dt = 0.02;
-        const maxTime = 10;
+    adjustCameraForCollision(aimingTransitionProgress: number): void {
+        if (!this.camera || !this.tank || !this.tank.chassis || !this.scene) return;
         
-        let x = 0;
-        let y = barrelHeight;
-        const vx = projectileSpeed * Math.cos(pitch);
-        let vy = projectileSpeed * Math.sin(pitch);
+        // Только для обычной камеры (не в режиме прицеливания)
+        const t = aimingTransitionProgress || 0;
+        if (t > 0.01) return; // В режиме прицеливания не применяем
         
-        let time = 0;
-        while (y > 0 && time < maxTime) {
-            x += vx * dt;
-            y += vy * dt;
-            vy -= gravity * dt;
-            time += dt;
+        const tankPos = this.tank.chassis.getAbsolutePosition();
+        const cameraPos = this.camera.position;
+        
+        // Направление от танка к камере
+        const direction = cameraPos.subtract(tankPos.add(new Vector3(0, 1.0, 0)));
+        const distance = direction.length();
+        direction.normalize();
+        
+        // Минимальное расстояние до камеры
+        const minDistance = 2.0;
+        
+        // Проверяем коллизию с мешами
+        const ray = new Ray(tankPos.add(new Vector3(0, 1.0, 0)), direction);
+        const hit = this.scene.pickWithRay(ray, (mesh) => {
+            if (!mesh || !mesh.isEnabled() || 
+                mesh === this.tank?.chassis || 
+                mesh === this.tank?.turret || 
+                mesh === this.tank?.barrel) {
+                return false;
+            }
+            // Игнорируем эффекты, частицы и другие невидимые объекты
+            if (mesh.name.includes("particle") || mesh.name.includes("effect") || 
+                mesh.name.includes("trail") || mesh.name.includes("bullet")) {
+                return false;
+            }
+            return true;
+        });
+        
+        if (hit && hit.hit && hit.distance !== null && hit.distance < distance) {
+            // Есть коллизия - перемещаем камеру ближе к танку
+            const safeDistance = Math.max(minDistance, hit.distance - 0.5);
+            const newCameraPos = tankPos.add(new Vector3(0, 1.0, 0)).add(direction.clone().scale(safeDistance));
+            
+            // Плавно перемещаем камеру к безопасной позиции
+            this.camera.position = Vector3.Lerp(cameraPos, newCameraPos, 0.3);
         }
-        
-        return Math.max(0, x);
+    }
+    
+    /**
+     * Получить смещение от тряски камеры
+     */
+    getCameraShakeOffset(): Vector3 {
+        return this.cameraShakeOffset.clone();
+    }
+    
+    /**
+     * Получить интенсивность тряски
+     */
+    getCameraShakeIntensity(): number {
+        return this.cameraShakeIntensity;
     }
     
     /**
