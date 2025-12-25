@@ -34,6 +34,7 @@ import { ChunkSystem } from "./chunkSystem";
 // Debug tools are lazy loaded (only loaded when F3/F4/F7 are pressed)
 import { EnemyTank } from "./enemyTank";
 import { AICoordinator } from "./ai/AICoordinator";
+import { PerformanceOptimizer } from "./optimization/PerformanceOptimizer";
 // MainMenu is lazy loaded - imported dynamically when needed
 import type { GameSettings, MapType } from "./menu";
 import { CurrencyManager } from "./currencyManager";
@@ -114,6 +115,9 @@ export class Game {
     
     // УЛУЧШЕНО: AI Coordinator для групповой тактики
     aiCoordinator: AICoordinator | undefined;
+    
+    // УЛУЧШЕНО: Performance Optimizer для LOD и culling
+    performanceOptimizer: PerformanceOptimizer | undefined;
     
     // Currency manager
     currencyManager: CurrencyManager | undefined;
@@ -2886,6 +2890,12 @@ export class Game {
             
             // УЛУЧШЕНО: Инициализация AI Coordinator для групповой тактики
             this.aiCoordinator = new AICoordinator();
+            
+            // УЛУЧШЕНО: Инициализация Performance Optimizer
+            this.performanceOptimizer = new PerformanceOptimizer(this.scene);
+            
+            // Оптимизируем все статические меши
+            this.performanceOptimizer.optimizeAllStaticMeshes();
             
             // Connect enemy manager to tank for hit detection
             this.tank.setEnemyManager(this.enemyManager);
@@ -6013,6 +6023,17 @@ export class Game {
                 // Обновляем координатор (каждые 2 кадра для оптимизации)
                 if (this._updateTick % 2 === 0) {
                     this.aiCoordinator.update();
+                }
+            }
+            
+            // УЛУЧШЕНО: Обновление Performance Optimizer для LOD и culling
+            if (this.performanceOptimizer && this.tank && this.tank.chassis) {
+                // Обновляем позицию референса (игрок)
+                this.performanceOptimizer.setReferencePosition(this.tank.chassis.absolutePosition);
+                
+                // Обновляем оптимизатор (каждые 4 кадра для оптимизации)
+                if (this._updateTick % 4 === 0) {
+                    this.performanceOptimizer.update();
                 }
             }
         }
