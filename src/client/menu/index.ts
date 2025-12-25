@@ -1,5 +1,6 @@
 /**
- * Menu Module - централизованный экспорт
+ * @module menu
+ * @description Menu Module - централизованный экспорт меню и настроек
  */
 
 // Типы
@@ -41,3 +42,16 @@ export {
 } from './skillTreeUI';
 
 export type { SkillTreeCallbacks } from './skillTreeUI';
+
+// Экраны меню
+export { MAIN_MENU_ITEMS, DEFAULT_MAIN_MENU_CONFIG, SETTINGS_CATEGORIES } from './screens';
+export type { 
+    MainMenuConfig, 
+    MainMenuItemId, 
+    MainMenuEventHandler,
+    SettingsCategoryId,
+    GraphicsSettings,
+    AudioSettings,
+    ControlSettings,
+    CameraSettings
+} from './screens';
