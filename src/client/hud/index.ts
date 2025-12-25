@@ -1,5 +1,6 @@
 /**
- * HUD Module - централизованный экспорт
+ * @module hud
+ * @description HUD Module - централизованный экспорт типов, констант и компонентов
  */
 
 // Типы
@@ -25,3 +26,10 @@ export {
     HUD_Z_INDEX,
     HUD_THRESHOLDS
 } from './HUDConstants';
+
+// Компоненты
+export { Crosshair, DEFAULT_CROSSHAIR_CONFIG } from './components';
+export type { CrosshairConfig } from './components';
+
+export { HealthBar, DEFAULT_HEALTHBAR_CONFIG } from './components';
+export type { HealthBarConfig } from './components';
