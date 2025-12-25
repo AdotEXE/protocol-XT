@@ -1,17 +1,34 @@
 /**
- * Maps Module - централизованный экспорт всех карт
+ * @module maps
+ * @description Maps Module - централизованный экспорт всех карт и генераторов
+ * 
+ * Этот модуль предоставляет:
+ * - Генераторы карт (PolygonGenerator, FrontlineGenerator, и т.д.)
+ * - Метаданные карт (POLYGON_MAP_INFO, и т.д.)
+ * - Общие утилиты (SeededRandom, MapGeneratorFactory)
  */
 
 // Shared utilities
-export { SeededRandom, MAP_TYPES, MapGeneratorFactory } from './shared';
+export { SeededRandom, MAP_TYPES, MapGeneratorFactory, BaseMapGenerator } from './shared';
 export type { 
     ChunkData, 
     ChunkConfig, 
     BiomeType, 
     MapType,
     IMapGenerator,
-    ChunkGenerationContext
+    ChunkGenerationContext,
+    GenerationContext
 } from './shared';
+
+// Generators
+export { PolygonGenerator, DEFAULT_POLYGON_CONFIG } from './polygon';
+export { FrontlineGenerator, DEFAULT_FRONTLINE_CONFIG } from './frontline';
+export { RuinsGenerator, DEFAULT_RUINS_CONFIG } from './ruins';
+export { CanyonGenerator, DEFAULT_CANYON_CONFIG } from './canyon';
+export { IndustrialGenerator, DEFAULT_INDUSTRIAL_CONFIG } from './industrial';
+export { UrbanWarfareGenerator, DEFAULT_URBAN_CONFIG } from './urban_warfare';
+export { UndergroundGenerator, DEFAULT_UNDERGROUND_CONFIG } from './underground';
+export { CoastalGenerator, DEFAULT_COASTAL_CONFIG } from './coastal';
 
 // Map info exports
 export { POLYGON_MAP_INFO } from './polygon';
