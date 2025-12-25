@@ -21,6 +21,8 @@ export type { PhysicsConfig } from "./GamePhysics";
 export { GameConsumables } from "./GameConsumables";
 export { GameProjectile } from "./GameProjectile";
 export { GameVisibility } from "./GameVisibility";
+export { GamePersistence } from "./GamePersistence";
+export { GameLoaders } from "./GameLoaders";
 
 // UI modules
 export { LoadingScreen } from "./LoadingScreen";
