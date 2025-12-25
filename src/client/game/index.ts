@@ -18,6 +18,16 @@ export { GameUpdate } from "./GameUpdate";
 export { LoadingScreen } from "./LoadingScreen";
 export { SettingsManager } from "./SettingsManager";
 
+// Game modes
+export { FrontlineMode, DEFAULT_FRONTLINE_CONFIG } from "./FrontlineMode";
+export type { 
+    FrontlineConfig, 
+    WaveState, 
+    DefenderState, 
+    FrontlineEnemy,
+    FrontlineEnemyType 
+} from "./FrontlineMode";
+
 // Types
 export type * from "./types";
 

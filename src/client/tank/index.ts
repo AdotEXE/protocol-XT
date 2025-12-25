@@ -38,3 +38,11 @@ export { DEFAULT_MOVEMENT_PARAMS, CHASSIS_MOVEMENT_PARAMS } from './movement';
 // Вооружение
 export type { WeaponParams, WeaponState, AmmoType } from './combat';
 export { AMMO_TYPES, AMMO_PARAMS, DEFAULT_AMMO_COUNT } from './combat';
+
+// Прицеливание
+export type { AimingConfig, AimingState, TrajectoryResult } from './combat';
+export { TankAiming, DEFAULT_AIMING_CONFIG } from './combat';
+
+// Урон
+export type { DamageType, DamageData, DamageResult, ArmorConfig } from './combat';
+export { TankDamage, DAMAGE_TYPES, DEFAULT_ARMOR_CONFIG, VULNERABLE_MODULES } from './combat';
