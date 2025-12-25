@@ -31,21 +31,23 @@ export class EffectsManager {
         this.scene = scene;
         this.useParticles = useParticles;
         
-        // Pre-create simple materials - FLAT colors only, NO emissive, NO alpha
+        // Pre-create simple materials - FLAT colors only, NO emissive
+        // УЛУЧШЕНО: Материалы не замораживаем, так как alpha будет изменяться динамически
+        // Для эффектов с alpha создаются отдельные материалы
         this.flashMat = new StandardMaterial("flashMat", scene);
         this.flashMat.diffuseColor = new Color3(1, 1, 0); // Pure yellow
         this.flashMat.specularColor = Color3.Black();
-        this.flashMat.freeze();
+        // Не замораживаем - может использоваться для простых эффектов без alpha
         
         this.explosionMat = new StandardMaterial("explosionMat", scene);
         this.explosionMat.diffuseColor = new Color3(1, 0.5, 0); // Orange
         this.explosionMat.specularColor = Color3.Black();
-        this.explosionMat.freeze();
+        // Не замораживаем - используется как шаблон, для эффектов с alpha создаются новые
         
         this.dustMat = new StandardMaterial("dustMat", scene);
-        this.dustMat.diffuseColor = new Color3(0.5, 0.4, 0.3); // Brown - NO alpha
+        this.dustMat.diffuseColor = new Color3(0.5, 0.4, 0.3); // Brown
         this.dustMat.specularColor = Color3.Black();
-        this.dustMat.freeze();
+        // Не замораживаем
         
         // УЛУЧШЕНО: Инициализация улучшенной системы частиц
         if (this.useParticles) {
