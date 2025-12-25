@@ -165,6 +165,11 @@ export class EnemyTank {
     private static sharedBulletMat: StandardMaterial | null = null;
     private id: number;
     
+    // Публичный геттер для id (для AICoordinator)
+    public getId(): number {
+        return this.id;
+    }
+    
     // Tick counter
     private _tick = 0;
     
@@ -329,6 +334,7 @@ export class EnemyTank {
             // КРИТИЧНО: Немедленно устанавливаем направление к первой точке патруля
             if (this.patrolPoints.length > 0) {
                 const target = this.patrolPoints[0];
+                if (!target) return;
                 const myPos = this.chassis.absolutePosition;
                 const dir = target.subtract(myPos);
                 dir.y = 0;

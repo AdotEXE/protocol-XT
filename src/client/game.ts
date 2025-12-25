@@ -3401,7 +3401,7 @@ export class Game {
                 }
                 // УЛУЧШЕНО: Удаляем бота из AI Coordinator
                 if (this.aiCoordinator) {
-                    this.aiCoordinator.unregisterBot(enemyTank.id);
+                    this.aiCoordinator.unregisterBot(enemyTank.getId().toString());
                 }
                 
                 // Remove from array
@@ -3437,8 +3437,11 @@ export class Game {
                 }
                 
                 // УЛУЧШЕНО: Устанавливаем roadNetwork для pathfinding
-                if (this.chunkSystem && this.chunkSystem.roadNetwork) {
-                    enemyTank.setRoadNetwork(this.chunkSystem.roadNetwork);
+                if (this.chunkSystem) {
+                    const roadNetwork = this.chunkSystem.getRoadNetwork();
+                    if (roadNetwork) {
+                        enemyTank.setRoadNetwork(roadNetwork);
+                    }
                 }
                 
                 // УЛУЧШЕНО: Обновляем позицию референса для pathfinding

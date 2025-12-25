@@ -2261,9 +2261,9 @@ export class HUD {
         this.minimapContainer.width = this.scalePx(RADAR_SIZE + TANK_STATUS_WIDTH + 10);
         this.minimapContainer.height = this.scalePx(RADAR_SIZE + HEADER_HEIGHT + INFO_HEIGHT + 10);
         this.minimapContainer.cornerRadius = 8;
-        this.minimapContainer.thickness = 3;
-        this.minimapContainer.color = "#00ff88";
-        this.minimapContainer.background = "rgba(5, 15, 25, 0.95)";
+        this.minimapContainer.thickness = 2;
+        this.minimapContainer.color = "#0f0";
+        this.minimapContainer.background = "rgba(0, 30, 0, 0.8)";
         this.minimapContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         this.minimapContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         this.minimapContainer.left = this.scalePx(-15);
@@ -2279,9 +2279,9 @@ export class HUD {
         this.directionLabelsContainer.width = this.scalePx(RADAR_SIZE + 4);
         this.directionLabelsContainer.height = this.scalePx(HEADER_HEIGHT);
         this.directionLabelsContainer.cornerRadius = 6;
-        this.directionLabelsContainer.thickness = 2;
-        this.directionLabelsContainer.color = "#00ff88";
-        this.directionLabelsContainer.background = "rgba(0, 20, 10, 0.85)";
+        this.directionLabelsContainer.thickness = 0;
+        this.directionLabelsContainer.color = "#0f0";
+        this.directionLabelsContainer.background = "transparent";
         this.directionLabelsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         this.directionLabelsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.directionLabelsContainer.left = this.scalePx(-2);
@@ -2291,7 +2291,7 @@ export class HUD {
         // Создаём одно буквенное обозначение направления движения (над направлением камеры)
         this.movementDirectionLabel = new TextBlock("movementDirectionLabel");
         this.movementDirectionLabel.text = "N";
-        this.movementDirectionLabel.color = "#00ff88";
+        this.movementDirectionLabel.color = "#0f0";
         this.movementDirectionLabel.fontSize = this.scaleFontSize(14, 11, 18);
         this.movementDirectionLabel.fontWeight = "bold";
         this.movementDirectionLabel.fontFamily = "'Press Start 2P', monospace";
@@ -2304,9 +2304,9 @@ export class HUD {
         radarInnerContainer.width = this.scalePx(RADAR_SIZE + 4);
         radarInnerContainer.height = this.scalePx(RADAR_SIZE + 4);
         radarInnerContainer.cornerRadius = 8;
-        radarInnerContainer.thickness = 2;
-        radarInnerContainer.color = "#00ff88";
-        radarInnerContainer.background = "rgba(5, 15, 25, 0.9)";
+        radarInnerContainer.thickness = 0;
+        radarInnerContainer.color = "#0f0";
+        radarInnerContainer.background = "transparent";
         radarInnerContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         radarInnerContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         radarInnerContainer.left = this.scalePx(-2);
@@ -2350,14 +2350,16 @@ export class HUD {
         hLine.width = this.scalePx(RADAR_INNER);
         hLine.height = this.scalePx(2);
         hLine.thickness = 0;
-        hLine.background = "#0ff";
+        hLine.background = "#0f0";
+        hLine.alpha = 0.4;
         this.radarArea.addControl(hLine);
         
         const vLine = new Rectangle("radarVLine");
         vLine.width = this.scalePx(2);
         vLine.height = this.scalePx(RADAR_INNER);
         vLine.thickness = 0;
-        vLine.background = "#0f04";
+        vLine.background = "#0f0";
+        vLine.alpha = 0.4;
         this.radarArea.addControl(vLine);
         
         // === FOV CONE (скрытый, для направления) ===
@@ -2376,7 +2378,8 @@ export class HUD {
         this.fovLeftLine.width = this.scalePx(2);
         this.fovLeftLine.height = this.scalePx(fovLength);
         this.fovLeftLine.thickness = 0;
-        this.fovLeftLine.background = "#0f04";
+        this.fovLeftLine.background = "#0f0";
+        this.fovLeftLine.alpha = 0.3;
         this.fovLeftLine.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.fovLeftLine.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.fovLeftLine.top = this.scalePx(-fovLength/2);
@@ -2389,7 +2392,8 @@ export class HUD {
         this.fovRightLine.width = this.scalePx(2);
         this.fovRightLine.height = this.scalePx(fovLength);
         this.fovRightLine.thickness = 0;
-        this.fovRightLine.background = "#0f04";
+        this.fovRightLine.background = "#0f0";
+        this.fovRightLine.alpha = 0.3;
         this.fovRightLine.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.fovRightLine.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.fovRightLine.top = this.scalePx(-fovLength/2);
@@ -2402,7 +2406,8 @@ export class HUD {
         this.fovCenterLine.width = this.scalePx(2);
         this.fovCenterLine.height = this.scalePx(fovLength);
         this.fovCenterLine.thickness = 0;
-        this.fovCenterLine.background = "#0f02";
+        this.fovCenterLine.background = "#0f0";
+        this.fovCenterLine.alpha = 0.2;
         this.fovCenterLine.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.fovCenterLine.top = this.scalePx(-fovLength/2);
         this.fovConeContainer.addControl(this.fovCenterLine);
@@ -2420,7 +2425,7 @@ export class HUD {
         this.minimapPlayer.width = this.scalePx(8);
         this.minimapPlayer.height = this.scalePx(8);
         this.minimapPlayer.thickness = 0;
-        this.minimapPlayer.background = "#0ff"; // Cyan player
+        this.minimapPlayer.background = "#0f0"; // Green player (menu style)
         this.minimapPlayerContainer.addControl(this.minimapPlayer);
         
         // Player barrel removed from radar per user request
@@ -2433,7 +2438,7 @@ export class HUD {
         this.radarScanLine.height = this.scalePx(scanLineLength);
         this.radarScanLine.thickness = 0;
         this.radarScanLine.background = "#0f0";
-        this.radarScanLine.alpha = 0.8;
+        this.radarScanLine.alpha = 0.6;
         this.radarScanLine.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.radarScanLine.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.radarScanLine.top = this.scalePx(-scanLineLength/2);
@@ -2469,9 +2474,9 @@ export class HUD {
         this.tankStatusContainer.width = tankStatusWidth;
         this.tankStatusContainer.height = tankStatusHeight;
         this.tankStatusContainer.cornerRadius = 8;
-        this.tankStatusContainer.thickness = 2;
-        this.tankStatusContainer.color = "#00ff88";
-        this.tankStatusContainer.background = "rgba(0, 20, 10, 0.85)";
+        this.tankStatusContainer.thickness = 0;
+        this.tankStatusContainer.color = "#0f0";
+        this.tankStatusContainer.background = "transparent";
         this.tankStatusContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.tankStatusContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.tankStatusContainer.left = this.scalePx(5);
@@ -2482,10 +2487,10 @@ export class HUD {
         // Заголовок (выровнен по центру)
         const title = new TextBlock("tankStatusTitle");
         title.text = "ТАНК";
-        title.color = "#00ffff";
+        title.color = "#0f0";
         title.fontSize = this.scaleFontSize(13, 11, 17);
         title.fontWeight = "bold";
-        title.fontFamily = "Consolas, monospace";
+        title.fontFamily = "'Press Start 2P', monospace";
         title.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         title.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         title.left = "0px";
@@ -2495,10 +2500,10 @@ export class HUD {
         // Здоровье (первый элемент по вертикали, выровнен по центру)
         this.tankStatusHealthText = new TextBlock("tankStatusHealth");
         this.tankStatusHealthText.text = "❤ 100%";
-        this.tankStatusHealthText.color = "#00ff88";
+        this.tankStatusHealthText.color = "#0f0";
         this.tankStatusHealthText.fontSize = this.scaleFontSize(13, 11, 19);
         this.tankStatusHealthText.fontWeight = "bold";
-        this.tankStatusHealthText.fontFamily = "Consolas, monospace";
+        this.tankStatusHealthText.fontFamily = "'Press Start 2P', monospace";
         this.tankStatusHealthText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.tankStatusHealthText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.tankStatusHealthText.left = "0px";
@@ -2508,10 +2513,10 @@ export class HUD {
         // Топливо (второй элемент по вертикали, выровнен по центру)
         this.tankStatusFuelText = new TextBlock("tankStatusFuel");
         this.tankStatusFuelText.text = "⛽ 100%";
-        this.tankStatusFuelText.color = "#ffaa00";
+        this.tankStatusFuelText.color = "#0f0";
         this.tankStatusFuelText.fontSize = this.scaleFontSize(13, 11, 19);
         this.tankStatusFuelText.fontWeight = "bold";
-        this.tankStatusFuelText.fontFamily = "Consolas, monospace";
+        this.tankStatusFuelText.fontFamily = "'Press Start 2P', monospace";
         this.tankStatusFuelText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.tankStatusFuelText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.tankStatusFuelText.left = "0px";
@@ -2521,10 +2526,10 @@ export class HUD {
         // Броня (третий элемент по вертикали, выровнен по центру)
         this.tankStatusArmorText = new TextBlock("tankStatusArmor");
         this.tankStatusArmorText.text = "🛡 0%";
-        this.tankStatusArmorText.color = "#00ffff";
+        this.tankStatusArmorText.color = "#0f0";
         this.tankStatusArmorText.fontSize = this.scaleFontSize(13, 11, 19);
         this.tankStatusArmorText.fontWeight = "bold";
-        this.tankStatusArmorText.fontFamily = "Consolas, monospace";
+        this.tankStatusArmorText.fontFamily = "'Press Start 2P', monospace";
         this.tankStatusArmorText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.tankStatusArmorText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.tankStatusArmorText.left = "0px";
@@ -2548,15 +2553,15 @@ export class HUD {
         speedBlock.width = this.scalePx(90);
         speedBlock.height = this.scalePx(24);
         speedBlock.cornerRadius = 6;
-        speedBlock.thickness = 2;
-        speedBlock.color = "#00ff88";
-        speedBlock.background = "rgba(0, 20, 10, 0.85)";
+        speedBlock.thickness = 0;
+        speedBlock.color = "#0f0";
+        speedBlock.background = "transparent";
         speedBlock.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         infoPanel.addControl(speedBlock);
         
         const speedValue = new TextBlock("radarSpeedValue");
         speedValue.text = "0 km/h";
-        speedValue.color = "#00ff88";
+        speedValue.color = "#0f0";
         speedValue.fontSize = this.scaleFontSize(11, 9, 15);
         speedValue.fontFamily = "'Press Start 2P', monospace";
         speedValue.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -2569,15 +2574,15 @@ export class HUD {
         coordBlock.width = this.scalePx(85);
         coordBlock.height = this.scalePx(24);
         coordBlock.cornerRadius = 6;
-        coordBlock.thickness = 2;
-        coordBlock.color = "#00ff88";
-        coordBlock.background = "rgba(0, 20, 10, 0.85)";
+        coordBlock.thickness = 0;
+        coordBlock.color = "#0f0";
+        coordBlock.background = "transparent";
         coordBlock.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         infoPanel.addControl(coordBlock);
         
         const coordValue = new TextBlock("radarCoordValue");
         coordValue.text = "[0, 0]";
-        coordValue.color = "#00ff88";
+        coordValue.color = "#0f0";
         coordValue.fontSize = this.scaleFontSize(11, 9, 15);
         coordValue.fontFamily = "'Press Start 2P', monospace";
         coordValue.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;

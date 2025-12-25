@@ -165,6 +165,8 @@ export class PerformanceOptimizer {
         
         while (processed < batchSize) {
             const key = this.objectKeys[this.updateIndex];
+            if (!key) break; // Защита от undefined
+            
             const data = this.trackedObjects.get(key);
             
             if (data && data.mesh && !data.mesh.isDisposed()) {

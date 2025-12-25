@@ -197,6 +197,8 @@ export class DamageIndicator {
         // Обновляем затухание индикаторов
         for (let i = this.indicators.length - 1; i >= 0; i--) {
             const indicator = this.indicators[i];
+            if (!indicator) continue; // Защита от undefined
+            
             const elapsed = now - indicator.fadeStart;
             
             if (elapsed >= this.config.fadeTime) {

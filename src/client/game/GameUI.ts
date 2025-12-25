@@ -51,7 +51,8 @@ export class GameUI {
         }
         
         // Show ammo counter
-        if (this.settings.showAmmo !== undefined) {
+        // showAmmo не существует в GameSettings, пропускаем
+        // if (this.settings.showAmmo !== undefined) {
             // this.hud.setAmmoVisible(this.settings.showAmmo);
         }
         
@@ -61,7 +62,7 @@ export class GameUI {
         }
         
         // HUD scale
-        if (this.settings.hudScale !== undefined) {
+        if (this.settings.uiScale !== undefined) {
             // this.hud.setScale(this.settings.hudScale);
         }
         

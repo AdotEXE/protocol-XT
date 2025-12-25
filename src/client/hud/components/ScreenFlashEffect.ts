@@ -200,9 +200,11 @@ export class ScreenFlashEffect {
             // УЛУЧШЕНО: Применяем градиент: ближе к краю - ярче
             // Первый прямоугольник (край) - 100%, второй - 70%, третий - 40%
             for (let i = 0; i < rectangles.length; i++) {
+                const rect = rectangles[i];
+                if (!rect) continue; // Защита от undefined
                 const gradientFactor = 1 - (i * 0.3); // Каждый шаг на 30% темнее
                 const stepAlpha = baseAlpha * gradientFactor;
-                rectangles[i].alpha = Math.max(0, Math.min(1, stepAlpha));
+                rect.alpha = Math.max(0, Math.min(1, stepAlpha));
             }
         } else if (elapsed < this.config.duration) {
             // Фаза 2: Плавное затухание (maxAlpha → 0)
@@ -213,9 +215,11 @@ export class ScreenFlashEffect {
             
             // УЛУЧШЕНО: Применяем градиент с затуханием
             for (let i = 0; i < rectangles.length; i++) {
+                const rect = rectangles[i];
+                if (!rect) continue; // Защита от undefined
                 const gradientFactor = 1 - (i * 0.3);
                 const stepAlpha = baseAlpha * gradientFactor;
-                rectangles[i].alpha = Math.max(0, Math.min(1, stepAlpha));
+                rect.alpha = Math.max(0, Math.min(1, stepAlpha));
             }
         } else {
             // Завершение - скрываем

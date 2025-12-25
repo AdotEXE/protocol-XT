@@ -78,7 +78,7 @@ export class AICoordinator {
      * Регистрация бота
      */
     registerBot(tank: EnemyTank): void {
-        const id = tank.id;
+        const id = tank.getId().toString(); // Преобразуем number в string
         const role = this.assignRole(this.bots.size);
         
         this.bots.set(id, {
@@ -210,7 +210,8 @@ export class AICoordinator {
      */
     private assignRole(index: number): TacticalRole {
         const roles: TacticalRole[] = ["leader", "flanker", "support", "flanker", "scout", "defender"];
-        return roles[index % roles.length];
+        const role = roles[index % roles.length];
+        return role || "scout"; // Fallback на scout если что-то пошло не так
     }
     
     /**

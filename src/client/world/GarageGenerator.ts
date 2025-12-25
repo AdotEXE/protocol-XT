@@ -531,6 +531,8 @@ export class GarageGenerator {
     isInsideGarage(position: Vector3): { inside: boolean; garageIndex: number } {
         for (let i = 0; i < this.garageAreas.length; i++) {
             const area = this.garageAreas[i];
+            if (!area) continue; // Защита от undefined
+            
             if (
                 position.x >= area.x - area.width / 2 &&
                 position.x <= area.x + area.width / 2 &&

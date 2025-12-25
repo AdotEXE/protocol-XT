@@ -68,6 +68,9 @@ export class AIPathfinding {
     // Ссылка на систему дорог (опционально)
     private roadNetwork: { isOnRoad: (x: number, z: number) => boolean } | null = null;
     
+    // Референсная позиция для оптимизации (позиция игрока/камеры)
+    private referencePosition: Vector3 | null = null;
+    
     constructor(scene: Scene, config: Partial<PathfindingConfig> = {}) {
         this.scene = scene;
         this.config = { ...DEFAULT_PATHFINDING_CONFIG, ...config };
@@ -78,6 +81,13 @@ export class AIPathfinding {
      */
     setRoadNetwork(roadNetwork: { isOnRoad: (x: number, z: number) => boolean }): void {
         this.roadNetwork = roadNetwork;
+    }
+    
+    /**
+     * Установка референсной позиции (для оптимизации)
+     */
+    setReferencePosition(position: Vector3): void {
+        this.referencePosition = position.clone();
     }
     
     /**
@@ -139,7 +149,8 @@ export class AIPathfinding {
                 );
                 
                 if (existingIndex >= 0) {
-                    if (neighbor.cost < openSet[existingIndex].cost) {
+                    const existing = openSet[existingIndex];
+                    if (existing && neighbor.cost < existing.cost) {
                         openSet[existingIndex] = neighbor;
                     }
                 } else {
@@ -333,7 +344,8 @@ export class AIPathfinding {
         }
         
         // Добавляем цель если не совпадает
-        if (path.length === 0 || Vector3.Distance(path[path.length - 1], goal) > 1) {
+        const lastPathPoint = path[path.length - 1];
+        if (path.length === 0 || !lastPathPoint || Vector3.Distance(lastPathPoint, goal) > 1) {
             path.push(goal.clone());
         }
         
@@ -347,21 +359,31 @@ export class AIPathfinding {
     private smoothPath(path: Vector3[]): Vector3[] {
         if (path.length <= 2) return path;
         
-        const smoothed: Vector3[] = [path[0]];
+        const firstPoint = path[0];
+        if (!firstPoint) return path;
+        
+        const smoothed: Vector3[] = [firstPoint];
         let current = 0;
         
         while (current < path.length - 1) {
             // Ищем самую дальнюю точку с прямой видимостью
             let farthest = current + 1;
             
+            const currentPoint = path[current];
+            if (!currentPoint) break;
+            
             for (let i = path.length - 1; i > current + 1; i--) {
-                if (this.hasDirectPath(path[current], path[i])) {
+                const checkPoint = path[i];
+                if (checkPoint && this.hasDirectPath(currentPoint, checkPoint)) {
                     farthest = i;
                     break;
                 }
             }
             
-            smoothed.push(path[farthest]);
+            const farthestPoint = path[farthest];
+            if (farthestPoint) {
+                smoothed.push(farthestPoint);
+            }
             current = farthest;
         }
         

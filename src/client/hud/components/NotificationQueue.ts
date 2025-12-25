@@ -277,6 +277,8 @@ export class NotificationQueue {
         if (index === -1) return;
         
         const notification = this.notifications[index];
+        if (!notification) return;
+        
         this.notifications.splice(index, 1);
         
         if (this.container) {

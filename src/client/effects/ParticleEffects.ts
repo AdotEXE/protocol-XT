@@ -306,6 +306,7 @@ export class ParticleEffects {
         
         for (let i = this.particles.length - 1; i >= 0; i--) {
             const particle = this.particles[i];
+            if (!particle) continue; // Защита от undefined
             
             // Уменьшаем время жизни
             particle.lifetime -= deltaTime * 1000;

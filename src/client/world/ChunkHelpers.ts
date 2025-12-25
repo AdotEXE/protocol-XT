@@ -59,7 +59,12 @@ export class SeededRandom {
         const result = [...arr];
         for (let i = result.length - 1; i > 0; i--) {
             const j = Math.floor(this.next() * (i + 1));
-            [result[i], result[j]] = [result[j], result[i]];
+            const temp = result[i];
+            const swap = result[j];
+            if (temp !== undefined && swap !== undefined) {
+                result[i] = swap;
+                result[j] = temp;
+            }
         }
         return result;
     }
@@ -114,8 +119,10 @@ export class ChunkHelpers {
      * Парсинг ключа чанка
      */
     static parseChunkKey(key: string): { chunkX: number; chunkZ: number } {
-        const [x, z] = key.split(",").map(Number);
-        return { chunkX: x, chunkZ: z };
+        const parts = key.split(",").map(Number);
+        const x = parts[0];
+        const z = parts[1];
+        return { chunkX: x ?? 0, chunkZ: z ?? 0 };
     }
     
     /**

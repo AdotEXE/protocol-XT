@@ -111,6 +111,11 @@ export class ChunkSystem {
     // Road network for procedural road generation
     private roadNetwork: RoadNetwork | null = null;
     
+    // Публичный геттер для roadNetwork (для game.ts)
+    public getRoadNetwork(): RoadNetwork | null {
+        return this.roadNetwork;
+    }
+    
     // Terrain generator for heightmap (public for external access)
     public terrainGenerator: TerrainGenerator | null = null;
     
