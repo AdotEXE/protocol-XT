@@ -135,12 +135,12 @@ export class TankMovementModule {
         // Barrel Pitch Control (R/F - vertical tilt of barrel)
         this.tank.barrelPitchTarget = 0;
         if (inputMap["KeyR"]) {
-            // R - вниз (уменьшает угол pitch, ствол опускается)
-            this.tank.barrelPitchTarget = 1;
+            // R - вверх (увеличивает угол pitch, ствол поднимается)
+            this.tank.barrelPitchTarget = -1;
         }
         if (inputMap["KeyF"]) {
-            // F - вверх (увеличивает угол pitch, ствол поднимается)
-            this.tank.barrelPitchTarget = -1;
+            // F - вниз (уменьшает угол pitch, ствол опускается)
+            this.tank.barrelPitchTarget = 1;
         }
     }
     

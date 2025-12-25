@@ -61,11 +61,12 @@ export class TankHealthModule {
         if (this.tank.hud) {
             this.tank.hud.damage(finalDamage);
             
-            // Показываем индикатор направления урона, если известна позиция атакующего
+            // УЛУЧШЕНО: Показываем экранную вспышку вместо объёмного эффекта, если известна позиция атакующего
             if (attackerPosition && this.tank.chassis) {
                 const playerPos = this.tank.chassis.position;
                 const playerRotation = this.tank.chassis.rotation.y;
-                this.tank.hud.showDamageFromPosition(attackerPosition, playerPos, playerRotation);
+                // Передаём finalDamage для вычисления интенсивности вспышки
+                this.tank.hud.showDamageFromPosition(attackerPosition, playerPos, playerRotation, finalDamage);
             }
         }
         

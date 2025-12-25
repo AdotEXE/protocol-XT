@@ -12,6 +12,8 @@ import type { MissionSystem, Mission, MissionProgress } from "./missionSystem";
 import { scalePixels } from "./utils/uiScale";
 import { loggingSettings, LogLevel } from "./utils/logger";
 import { getAddressFromCoordinates } from "./tartuRoads";
+import { ScreenFlashEffect, type FlashDirection } from "./hud/components/ScreenFlashEffect";
+import { EFFECTS_CONFIG } from "./effects/EffectsConfig";
 
 // ULTRA SIMPLE HUD - NO gradients, NO shadows, NO alpha, NO transparency
 // Pure solid colors only!
@@ -125,11 +127,6 @@ export class HUD {
     // Address display (под радаром, отдельно)
     private addressPanel: Rectangle | null = null;
     private addressText: TextBlock | null = null;
-    private addressScrollOffset = 0;
-    private addressScrollSpeed = 30; // пикселей в секунду
-    private addressScrollDirection = 1; // 1 = вправо, -1 = влево
-    private addressScrollPauseTime = 0;
-    private addressScrollPauseDuration = 2; // пауза в секундах перед началом прокрутки
     private currentFuel: number = 100;
     private maxFuel: number = 100;
     private currentArmor: number = 0;
@@ -290,9 +287,12 @@ export class HUD {
     private sessionDamage = 0;
     private sessionStartTime = Date.now();
     
-    // Directional damage indicators
+    // Directional damage indicators (legacy - будет заменён на ScreenFlashEffect)
     private damageDirectionIndicators: Map<string, { element: Rectangle, fadeTime: number }> = new Map();
     private damageIndicatorDuration = 1500; // ms
+    
+    // УЛУЧШЕНО: Экранная вспышка при уроне
+    private screenFlashEffect: ScreenFlashEffect | null = null;
     
     // Values
     public maxHealth = 100;
@@ -325,6 +325,9 @@ export class HUD {
         this.createInvulnerabilityIndicator();
         this.createFullMap();          // Полноценная карта (M)
         this.createGarageCaptureBar(); // Прогресс-бар захвата гаража
+        
+        // УЛУЧШЕНО: Создаём экранную вспышку при уроне
+        this.screenFlashEffect = new ScreenFlashEffect(this.guiTexture);
         this.createComboIndicator();   // Индикатор комбо
         this.createDeathScreen();      // Экран результатов смерти
         this.createDirectionalDamageIndicators(); // Индикаторы направления урона
@@ -844,12 +847,16 @@ export class HUD {
         this.animateXpBar(deltaTime);
         this.updateGlowEffects();
         this.updateComboAnimation(deltaTime);
-        this.updateAddressScroll(deltaTime);
         
         // Обновление индикаторов направления урона
         this.updateDamageIndicators();
         this.updateHitMarker();
         this.updateLowHpEffect(deltaTime);
+        
+        // УЛУЧШЕНО: Обновление экранной вспышки
+        if (this.screenFlashEffect) {
+            this.screenFlashEffect.update();
+        }
         
         // Обновление индикатора комбо (если есть experienceSystem)
         if (this.experienceSystem) {
@@ -2247,17 +2254,16 @@ export class HUD {
         const RADAR_INNER = 165; // Внутренняя область
         const HEADER_HEIGHT = 28; // Высота заголовка (увеличена)
         const INFO_HEIGHT = 28; // Высота блока информации (увеличена)
-        const ADDRESS_HEIGHT = 45; // Высота блока адреса
         
-        // Создаём общий контейнер для радара + блока состояния танка + блока информации + буквенных обозначений + адреса
+        // Создаём общий контейнер для радара + блока состояния танка + блока информации + буквенных обозначений
         const TANK_STATUS_WIDTH = 85; // Ширина блока состояния танка (увеличена)
         this.minimapContainer = new Rectangle("minimapContainer");
-        this.minimapContainer.width = this.scalePx(RADAR_SIZE + TANK_STATUS_WIDTH + 12);
-        this.minimapContainer.height = this.scalePx(RADAR_SIZE + HEADER_HEIGHT + INFO_HEIGHT + ADDRESS_HEIGHT + 16);
-        this.minimapContainer.cornerRadius = 10;
-        this.minimapContainer.thickness = 4;
+        this.minimapContainer.width = this.scalePx(RADAR_SIZE + TANK_STATUS_WIDTH + 10);
+        this.minimapContainer.height = this.scalePx(RADAR_SIZE + HEADER_HEIGHT + INFO_HEIGHT + 10);
+        this.minimapContainer.cornerRadius = 8;
+        this.minimapContainer.thickness = 3;
         this.minimapContainer.color = "#00ff88";
-        this.minimapContainer.background = "rgba(5, 15, 25, 0.98)";
+        this.minimapContainer.background = "rgba(5, 15, 25, 0.95)";
         this.minimapContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         this.minimapContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         this.minimapContainer.left = this.scalePx(-15);
@@ -2272,21 +2278,21 @@ export class HUD {
         this.directionLabelsContainer = new Rectangle("directionLabelsContainer");
         this.directionLabelsContainer.width = this.scalePx(RADAR_SIZE + 4);
         this.directionLabelsContainer.height = this.scalePx(HEADER_HEIGHT);
-        this.directionLabelsContainer.cornerRadius = 0;
-        this.directionLabelsContainer.thickness = 0;
+        this.directionLabelsContainer.cornerRadius = 6;
+        this.directionLabelsContainer.thickness = 2;
         this.directionLabelsContainer.color = "#00ff88";
-        this.directionLabelsContainer.background = "transparent";
+        this.directionLabelsContainer.background = "rgba(0, 20, 10, 0.85)";
         this.directionLabelsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         this.directionLabelsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.directionLabelsContainer.left = this.scalePx(-2);
-        this.directionLabelsContainer.top = this.scalePx(6);
+        this.directionLabelsContainer.top = this.scalePx(5);
         this.minimapContainer.addControl(this.directionLabelsContainer);
         
         // Создаём одно буквенное обозначение направления движения (над направлением камеры)
         this.movementDirectionLabel = new TextBlock("movementDirectionLabel");
         this.movementDirectionLabel.text = "N";
         this.movementDirectionLabel.color = "#00ff88";
-        this.movementDirectionLabel.fontSize = this.scaleFontSize(16, 13, 20);
+        this.movementDirectionLabel.fontSize = this.scaleFontSize(14, 11, 18);
         this.movementDirectionLabel.fontWeight = "bold";
         this.movementDirectionLabel.fontFamily = "'Press Start 2P', monospace";
         this.movementDirectionLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -2297,14 +2303,14 @@ export class HUD {
         const radarInnerContainer = new Rectangle("radarInnerContainer");
         radarInnerContainer.width = this.scalePx(RADAR_SIZE + 4);
         radarInnerContainer.height = this.scalePx(RADAR_SIZE + 4);
-        radarInnerContainer.cornerRadius = 0;
-        radarInnerContainer.thickness = 0;
+        radarInnerContainer.cornerRadius = 8;
+        radarInnerContainer.thickness = 2;
         radarInnerContainer.color = "#00ff88";
-        radarInnerContainer.background = "transparent";
+        radarInnerContainer.background = "rgba(5, 15, 25, 0.9)";
         radarInnerContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         radarInnerContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         radarInnerContainer.left = this.scalePx(-2);
-        radarInnerContainer.top = this.scalePx(HEADER_HEIGHT + 8);
+        radarInnerContainer.top = this.scalePx(HEADER_HEIGHT + 5);
         this.minimapContainer.addControl(radarInnerContainer);
         
         // Область радара
@@ -2462,14 +2468,14 @@ export class HUD {
         this.tankStatusContainer = new Rectangle("tankStatusContainer");
         this.tankStatusContainer.width = tankStatusWidth;
         this.tankStatusContainer.height = tankStatusHeight;
-        this.tankStatusContainer.cornerRadius = 0;
-        this.tankStatusContainer.thickness = 0;
+        this.tankStatusContainer.cornerRadius = 8;
+        this.tankStatusContainer.thickness = 2;
         this.tankStatusContainer.color = "#00ff88";
-        this.tankStatusContainer.background = "transparent";
+        this.tankStatusContainer.background = "rgba(0, 20, 10, 0.85)";
         this.tankStatusContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.tankStatusContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.tankStatusContainer.left = this.scalePx(6);
-        this.tankStatusContainer.top = this.scalePx(HEADER_HEIGHT + 8);
+        this.tankStatusContainer.left = this.scalePx(5);
+        this.tankStatusContainer.top = this.scalePx(HEADER_HEIGHT + 5);
         this.tankStatusContainer.isVisible = true;
         this.minimapContainer.addControl(this.tankStatusContainer);
         
@@ -2532,19 +2538,19 @@ export class HUD {
         infoPanel.thickness = 0;
         infoPanel.background = "transparent";
         infoPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        infoPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        infoPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         infoPanel.left = this.scalePx(-2);
-        infoPanel.top = this.scalePx(HEADER_HEIGHT + RADAR_SIZE + 12);
+        infoPanel.top = this.scalePx(-5);
         this.minimapContainer.addControl(infoPanel);
         
         // Speed block (left)
         const speedBlock = new Rectangle("speedBlock");
         speedBlock.width = this.scalePx(90);
         speedBlock.height = this.scalePx(24);
-        speedBlock.cornerRadius = 0;
-        speedBlock.thickness = 0;
+        speedBlock.cornerRadius = 6;
+        speedBlock.thickness = 2;
         speedBlock.color = "#00ff88";
-        speedBlock.background = "transparent";
+        speedBlock.background = "rgba(0, 20, 10, 0.85)";
         speedBlock.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         infoPanel.addControl(speedBlock);
         
@@ -2562,10 +2568,10 @@ export class HUD {
         const coordBlock = new Rectangle("coordBlock");
         coordBlock.width = this.scalePx(85);
         coordBlock.height = this.scalePx(24);
-        coordBlock.cornerRadius = 0;
-        coordBlock.thickness = 0;
+        coordBlock.cornerRadius = 6;
+        coordBlock.thickness = 2;
         coordBlock.color = "#00ff88";
-        coordBlock.background = "transparent";
+        coordBlock.background = "rgba(0, 20, 10, 0.85)";
         coordBlock.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         infoPanel.addControl(coordBlock);
         
@@ -2578,66 +2584,42 @@ export class HUD {
         coordValue.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         coordBlock.addControl(coordValue);
         (this.minimapContainer as any)._coordValue = coordValue;
+    }
+    
+    // === АДРЕС ПОД РАДАРОМ (ОТДЕЛЬНО) ===
+    private createAddressDisplay(): void {
+        const ADDRESS_HEIGHT = 35;
+        const RADAR_SIZE = 175;
+        const HEADER_HEIGHT = 28;
+        const INFO_HEIGHT = 28;
         
-        // === АДРЕС ВНУТРИ ГЛАВНОГО БЛОКА РАДАРА ===
+        // Создаем панель адреса отдельно от радара
         this.addressPanel = new Rectangle("addressPanel");
-        this.addressPanel.width = this.scalePx(RADAR_SIZE + TANK_STATUS_WIDTH + 4);
+        this.addressPanel.width = this.scalePx(RADAR_SIZE + 90);
         this.addressPanel.height = this.scalePx(ADDRESS_HEIGHT);
-        this.addressPanel.cornerRadius = 0;
-        this.addressPanel.thickness = 0;
+        this.addressPanel.cornerRadius = 8;
+        this.addressPanel.thickness = 3;
         this.addressPanel.color = "#00ff88";
-        this.addressPanel.background = "transparent";
-        this.addressPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.addressPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.addressPanel.left = "0px";
-        this.addressPanel.top = this.scalePx(HEADER_HEIGHT + RADAR_SIZE + INFO_HEIGHT + 16);
-        this.addressPanel.clipChildren = true; // Обрезаем текст, который выходит за границы
-        this.minimapContainer.addControl(this.addressPanel);
+        this.addressPanel.background = "rgba(5, 15, 25, 0.95)";
+        this.addressPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.addressPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        // Позиционируем под радаром (радар на -45px, его высота + HEADER_HEIGHT + INFO_HEIGHT + отступы)
+        const radarHeight = RADAR_SIZE + HEADER_HEIGHT + INFO_HEIGHT + 20;
+        this.addressPanel.left = this.scalePx(-15); // Та же позиция по X что и радар
+        this.addressPanel.top = this.scalePx(-45 - radarHeight - ADDRESS_HEIGHT - 5);
+        this.addressPanel.isVisible = true;
+        this.guiTexture.addControl(this.addressPanel);
         
-        // Текст адреса (БЕЗ ПРЕФИКСА "Адрес: ", увеличенный размер для лучшей читаемости)
+        // Текст адреса (БЕЗ ПРЕФИКСА "Адрес: ", увеличенный размер)
         this.addressText = new TextBlock("addressText");
         this.addressText.text = "X:0, Z:0";
         this.addressText.color = "#00ff88";
-        this.addressText.fontSize = this.scaleFontSize(18, 16, 24);
+        this.addressText.fontSize = this.scaleFontSize(14, 12, 20);
         this.addressText.fontWeight = "bold";
         this.addressText.fontFamily = "'Press Start 2P', monospace";
-        this.addressText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.addressText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.addressText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        this.addressText.left = "0px";
         this.addressPanel.addControl(this.addressText);
-    }
-    
-    // === АДРЕС ВНУТРИ ГЛАВНОГО БЛОКА РАДАРА ===
-    private createAddressDisplay(): void {
-        // Адрес теперь создается внутри createMinimap() как часть главного контейнера радара
-        // Эта функция оставлена для совместимости, но панель адреса уже создана в createMinimap()
-        if (!this.addressPanel || !this.addressText) {
-            // Если по какой-то причине панель не создана, создаем её здесь как fallback
-            const ADDRESS_HEIGHT = 45;
-            this.addressPanel = new Rectangle("addressPanel");
-            this.addressPanel.width = this.scalePx(265);
-            this.addressPanel.height = this.scalePx(ADDRESS_HEIGHT);
-            this.addressPanel.cornerRadius = 8;
-            this.addressPanel.thickness = 3;
-            this.addressPanel.color = "#00ffaa";
-            this.addressPanel.background = "rgba(0, 30, 15, 0.92)";
-            this.addressPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-            this.addressPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            this.addressPanel.left = this.scalePx(-15);
-            this.addressPanel.top = this.scalePx(-45);
-            this.addressPanel.isVisible = true;
-            this.guiTexture.addControl(this.addressPanel);
-            
-            this.addressText = new TextBlock("addressText");
-            this.addressText.text = "X:0, Z:0";
-            this.addressText.color = "#00ffaa";
-            this.addressText.fontSize = this.scaleFontSize(18, 16, 24);
-            this.addressText.fontWeight = "bold";
-            this.addressText.fontFamily = "'Press Start 2P', monospace";
-            this.addressText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            this.addressText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-            this.addressPanel.addControl(this.addressText);
-        }
     }
     
     private createDamageIndicator() {
@@ -3414,14 +3396,7 @@ export class HUD {
         // Обновляем адрес под радаром (отдельно) - реальный адрес из системы дорог (БЕЗ ПРЕФИКСА)
         if (this.addressText) {
             const address = getAddressFromCoordinates(x, z);
-            const oldAddress = this.addressText.text;
             this.addressText.text = address;
-            
-            // Если адрес изменился, сбрасываем анимацию прокрутки
-            if (oldAddress !== address) {
-                this.addressScrollOffset = 0;
-                this.addressScrollPauseTime = 0;
-            }
         }
     }
     
@@ -3899,8 +3874,8 @@ export class HUD {
         }
     }
     
-    // Показать урон с направлением от позиции атакующего
-    showDamageFromPosition(attackerPosition: Vector3, playerPosition: Vector3, playerRotation: number): void {
+    // УЛУЧШЕНО: Показать урон с направлением от позиции атакующего (использует экранную вспышку)
+    showDamageFromPosition(attackerPosition: Vector3, playerPosition: Vector3, playerRotation: number, damageAmount?: number): void {
         // Вычисляем направление от игрока к атакующему
         const dx = attackerPosition.x - playerPosition.x;
         const dz = attackerPosition.z - playerPosition.z;
@@ -3924,18 +3899,40 @@ export class HUD {
         const deg45 = Math.PI / 4;
         const deg135 = Math.PI * 3 / 4;
         
+        let direction: FlashDirection;
         if (relativeAngle >= -deg45 && relativeAngle <= deg45) {
             // Урон спереди
-            this.showDamageDirection("top");
+            direction = "top";
         } else if (relativeAngle >= deg45 && relativeAngle <= deg135) {
             // Урон справа
-            this.showDamageDirection("right");
+            direction = "right";
         } else if (relativeAngle >= -deg135 && relativeAngle <= -deg45) {
             // Урон слева
-            this.showDamageDirection("left");
+            direction = "left";
         } else {
             // Урон сзади
-            this.showDamageDirection("bottom");
+            direction = "bottom";
+        }
+        
+        // УЛУЧШЕНО: Вычисляем интенсивность на основе урона
+        let intensity = 1;
+        if (damageAmount !== undefined) {
+            const mapping = EFFECTS_CONFIG.screenFlash.intensityMapping;
+            if (damageAmount > 30) {
+                intensity = mapping.critical;
+            } else if (damageAmount >= 15) {
+                intensity = mapping.medium;
+            } else {
+                intensity = mapping.low;
+            }
+        }
+        
+        // УЛУЧШЕНО: Используем экранную вспышку вместо старых индикаторов
+        if (this.screenFlashEffect) {
+            this.screenFlashEffect.flash(direction, intensity);
+        } else {
+            // Fallback на старый метод если screenFlashEffect недоступен
+            this.showDamageDirection(direction);
         }
     }
     
@@ -5014,69 +5011,6 @@ export class HUD {
                 console.debug("[HUD] Error updating XP bar:", e);
             }
         }
-    }
-    
-    // Анимация прокрутки адреса (вызывается из updateAnimations)
-    private updateAddressScroll(deltaTime: number): void {
-        if (!this.addressText || !this.addressPanel) return;
-        
-        // Получаем ширину панели и текста
-        const panelWidth = typeof this.addressPanel.width === "string" 
-            ? parseFloat(this.addressPanel.width.replace("px", "")) 
-            : this.addressPanel.width;
-        
-        // Приблизительная ширина текста (можно улучшить, используя measureText)
-        const textWidth = this.addressText.text.length * (typeof this.addressText.fontSize === "string" 
-            ? parseFloat(this.addressText.fontSize.replace("px", "")) * 0.6 
-            : (this.addressText.fontSize as number) * 0.6);
-        
-        // Если текст помещается в панель, не прокручиваем
-        if (textWidth <= panelWidth) {
-            this.addressText.left = "0px";
-            this.addressScrollOffset = 0;
-            this.addressScrollPauseTime = 0;
-            return;
-        }
-        
-        // Пауза перед началом прокрутки
-        if (this.addressScrollPauseTime < this.addressScrollPauseDuration) {
-            this.addressScrollPauseTime += deltaTime;
-            this.addressText.left = "0px";
-            this.addressScrollOffset = 0;
-            return;
-        }
-        
-        // Прокручиваем текст
-        const maxOffset = textWidth - panelWidth + 20; // +20 для небольшого отступа в конце
-        
-        if (this.addressScrollDirection === 1) {
-            // Прокрутка влево (текст движется вправо)
-            this.addressScrollOffset += this.addressScrollSpeed * deltaTime;
-            if (this.addressScrollOffset >= maxOffset) {
-                this.addressScrollOffset = maxOffset;
-                // Пауза в конце перед возвратом
-                this.addressScrollPauseTime += deltaTime;
-                if (this.addressScrollPauseTime >= this.addressScrollPauseDuration * 1.5) {
-                    this.addressScrollDirection = -1;
-                    this.addressScrollPauseTime = 0;
-                }
-            }
-        } else {
-            // Прокрутка вправо (текст движется влево, возврат)
-            this.addressScrollOffset -= this.addressScrollSpeed * deltaTime;
-            if (this.addressScrollOffset <= 0) {
-                this.addressScrollOffset = 0;
-                // Пауза в начале перед следующей прокруткой
-                this.addressScrollPauseTime += deltaTime;
-                if (this.addressScrollPauseTime >= this.addressScrollPauseDuration) {
-                    this.addressScrollDirection = 1;
-                    this.addressScrollPauseTime = 0;
-                }
-            }
-        }
-        
-        // Применяем смещение
-        this.addressText.left = `${-this.addressScrollOffset}px`;
     }
     
     // Плавная анимация шкалы опыта (вызывается из updateAnimations)

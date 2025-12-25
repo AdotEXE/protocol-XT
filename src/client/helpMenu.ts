@@ -40,15 +40,19 @@ export class HelpMenu {
             icon: "⚔",
             controls: [
                 { key: "ПРОБЕЛ", description: "Выстрел" },
-                { key: "ПКМ", description: "Режим прицеливания" },
-                { key: "CTRL", description: "Активация модулей" },
-                { key: "R", description: "Перезарядка" },
+                { key: "ПКМ / CTRL", description: "Режим прицеливания" },
+                { key: "R", description: "Поднять ствол" },
+                { key: "F", description: "Опустить ствол" },
+                { key: "1-5", description: "Расходники 1-5" },
+                { key: "6-9", description: "Расходники 6-9" },
             ]
         },
         {
             title: "ИНТЕРФЕЙС",
             icon: "🖥",
             controls: [
+                { key: "G", description: "Открыть/закрыть ворота гаража" },
+                { key: "B", description: "Открыть/закрыть меню гаража" },
                 { key: "TAB", description: "Статистика (удерживать)" },
                 { key: "M", description: "Карта" },
                 { key: "N", description: "Панель миссий" },
@@ -60,6 +64,12 @@ export class HelpMenu {
             title: "ГОРЯЧИЕ КЛАВИШИ",
             icon: "⌨",
             controls: [
+                { key: "F2", description: "Скриншот" },
+                { key: "F3", description: "Debug Dashboard" },
+                { key: "F4", description: "Physics Panel" },
+                { key: "F5", description: "System Terminal" },
+                { key: "F6", description: "Session Settings" },
+                { key: "F7", description: "Cheat Menu" },
                 { key: "Ctrl+1", description: "Помощь / Управление" },
                 { key: "Ctrl+2", description: "Настройки скриншотов" },
                 { key: "Ctrl+3", description: "Панель отладки" },
@@ -71,6 +81,15 @@ export class HelpMenu {
                 { key: "Ctrl+9", description: "Генерация мира" },
                 { key: "Ctrl+0", description: "Друзья и кланы" },
                 { key: "Ctrl+Shift+M", description: "Редактор карт" },
+            ]
+        },
+        {
+            title: "КАМЕРА",
+            icon: "📷",
+            controls: [
+                { key: "SHIFT", description: "Свободный обзор" },
+                { key: "C", description: "Центрировать башню" },
+                { key: "Q / E", description: "Наклон камеры вверх/вниз" },
             ]
         },
         {

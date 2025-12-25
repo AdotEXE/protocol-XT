@@ -5,6 +5,7 @@
 
 import { Scene, Vector3, MeshBuilder, StandardMaterial, Color3, Mesh } from "@babylonjs/core";
 import { logger } from "../utils/logger";
+import { EFFECTS_CONFIG } from "./EffectsConfig";
 
 /**
  * Конфигурация эффекта частиц
@@ -128,6 +129,10 @@ export class ParticleEffects {
     private maxPoolSize = 100;
     private maxActiveParticles = 200;
     
+    // УЛУЧШЕНО: Флаги для дыма и пыли
+    private enableSmoke: boolean = false;
+    private enableDust: boolean = false;
+    
     constructor(scene: Scene) {
         this.scene = scene;
         this.initMaterials();
@@ -138,6 +143,15 @@ export class ParticleEffects {
         });
         
         logger.log("[ParticleEffects] Initialized");
+    }
+    
+    // УЛУЧШЕНО: Методы для управления флагами
+    setSmokeEnabled(enabled: boolean): void {
+        this.enableSmoke = enabled;
+    }
+    
+    setDustEnabled(enabled: boolean): void {
+        this.enableDust = enabled;
     }
     
     /**
@@ -224,12 +238,14 @@ export class ParticleEffects {
         config.speed *= scale * 0.7;
         this.emitCustom(position, config);
         
-        // Добавляем дым
-        setTimeout(() => {
-            const smokeConfig = { ...PARTICLE_PRESETS.smoke };
-            smokeConfig.count = Math.round(smokeConfig.count * scale);
-            this.emitCustom(position.add(new Vector3(0, 0.5, 0)), smokeConfig, Vector3.Up());
-        }, 100);
+        // УЛУЧШЕНО: Добавляем дым только если флаг включен
+        if (this.enableSmoke) {
+            setTimeout(() => {
+                const smokeConfig = { ...PARTICLE_PRESETS.smoke };
+                smokeConfig.count = Math.round(smokeConfig.count * scale);
+                this.emitCustom(position.add(new Vector3(0, 0.5, 0)), smokeConfig, Vector3.Up());
+            }, 100);
+        }
     }
     
     /**
@@ -245,6 +261,8 @@ export class ParticleEffects {
      * Эффект пыли от движения
      */
     createDust(position: Vector3): void {
+        // УЛУЧШЕНО: Проверка флага перед созданием пыли
+        if (!this.enableDust) return;
         this.emit("dust", position.add(new Vector3(0, 0.3, 0)));
     }
     
@@ -252,6 +270,8 @@ export class ParticleEffects {
      * Эффект дыма от повреждённого танка
      */
     createDamageSmoke(position: Vector3): void {
+        // УЛУЧШЕНО: Проверка флага перед созданием дыма
+        if (!this.enableSmoke) return;
         this.emit("smoke", position.add(new Vector3(0, 1, 0)), Vector3.Up());
     }
     
@@ -302,10 +322,20 @@ export class ParticleEffects {
             // Обновляем позицию
             particle.mesh.position.addInPlace(particle.velocity.scale(deltaTime));
             
-            // Затухание
+            // УЛУЧШЕНО: Затухание через alpha материала вместо visibility
             if (particle.fadeOut) {
                 const lifeRatio = particle.lifetime / particle.maxLifetime;
-                particle.mesh.visibility = lifeRatio;
+                // Плавная кривая затухания (ease-out)
+                const fadePower = EFFECTS_CONFIG.particle.fadePower;
+                const alpha = Math.pow(lifeRatio, fadePower);
+                
+                // Применяем alpha к материалу
+                if (particle.mesh.material instanceof StandardMaterial) {
+                    particle.mesh.material.alpha = alpha;
+                } else {
+                    // Fallback на visibility если материал не StandardMaterial
+                    particle.mesh.visibility = alpha;
+                }
             }
             
             // Уменьшаем размер к концу жизни
@@ -324,6 +354,10 @@ export class ParticleEffects {
             mesh = this.particlePool.pop()!;
             mesh.scaling.setAll(1);
             mesh.visibility = 1;
+            // УЛУЧШЕНО: Сбрасываем alpha материала при получении из пула
+            if (mesh.material instanceof StandardMaterial) {
+                mesh.material.alpha = 1;
+            }
         } else {
             mesh = MeshBuilder.CreateBox("particle", { size: size }, this.scene);
             mesh.isPickable = false;

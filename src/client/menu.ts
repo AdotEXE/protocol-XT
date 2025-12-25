@@ -152,6 +152,21 @@ const LANG = {
         pauseMenu: "Пауза / Меню",
         freeLook: "Свободный обзор",
         center: "Центрировать",
+        barrelPitch: "Наклон ствола",
+        barrelUp: "Поднять ствол",
+        barrelDown: "Опустить ствол",
+        cameraTilt: "Наклон камеры",
+        aimKey: "Прицеливание",
+        gameCursor: "Игровой курсор",
+        garageMenu: "Меню гаража",
+        missions: "Панель миссий",
+        consumables6to9: "Расходники 6-9",
+        adminF2Key: "F2",
+        adminF3Key: "F3",
+        adminF4Key: "F4",
+        adminF5Key: "F5",
+        adminF6Key: "F6",
+        adminF7Key: "F7",
         // Settings
         sound: "Звук",
         music: "Музыка",
@@ -255,6 +270,21 @@ const LANG = {
         pauseMenu: "Pause / Menu",
         freeLook: "Free look",
         center: "Center",
+        barrelPitch: "Barrel Pitch",
+        barrelUp: "Raise Barrel",
+        barrelDown: "Lower Barrel",
+        cameraTilt: "Camera Tilt",
+        aimKey: "Aiming",
+        gameCursor: "Game Cursor",
+        garageMenu: "Garage Menu",
+        missions: "Missions Panel",
+        consumables6to9: "Consumables 6-9",
+        adminF2Key: "F2",
+        adminF3Key: "F3",
+        adminF4Key: "F4",
+        adminF5Key: "F5",
+        adminF6Key: "F6",
+        adminF7Key: "F7",
         // Settings
         sound: "Sound",
         music: "Music",
@@ -839,12 +869,24 @@ export class MainMenu {
                                     <span class="control-desc">${L.fire}</span>
                                 </div>
                                 <div class="control-item">
-                                    <span class="key">ПКМ</span>
+                                    <span class="key">ПКМ / CTRL</span>
                                     <span class="control-desc">${L.aimMode}</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">R</span>
+                                    <span class="control-desc">${L.barrelUp}</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">F</span>
+                                    <span class="control-desc">${L.barrelDown}</span>
                                 </div>
                                 <div class="control-item">
                                     <span class="key">1-5</span>
                                     <span class="control-desc">${L.useConsumables}</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">6-9</span>
+                                    <span class="control-desc">${L.consumables6to9}</span>
                                 </div>
                                 <div class="control-item">
                                     <span class="key">КОЛЕСО</span>
@@ -858,12 +900,24 @@ export class MainMenu {
                                     <span class="control-desc">${L.garageKey}</span>
                                 </div>
                                 <div class="control-item">
+                                    <span class="key">B</span>
+                                    <span class="control-desc">${L.garageMenu}</span>
+                                </div>
+                                <div class="control-item">
                                     <span class="key">M</span>
                                     <span class="control-desc">${L.map}</span>
                                 </div>
                                 <div class="control-item">
+                                    <span class="key">N</span>
+                                    <span class="control-desc">${L.missions}</span>
+                                </div>
+                                <div class="control-item">
                                     <span class="key">TAB</span>
                                     <span class="control-desc">${L.statsKey}</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">ALT</span>
+                                    <span class="control-desc">${L.gameCursor}</span>
                                 </div>
                                 <div class="control-item">
                                     <span class="key">ESC</span>
@@ -882,15 +936,11 @@ export class MainMenu {
                                 </div>
                                 <div class="control-item">
                                     <span class="key">Q / E</span>
-                                    <span class="control-desc">${L.rotateTurret}</span>
-                            </div>
+                                    <span class="control-desc">${L.cameraTilt}</span>
+                                </div>
                                 <div class="control-item">
                                     <span class="key">МЫШЬ</span>
                                     <span class="control-desc">${L.freeLook}</span>
-                                </div>
-                                <div class="control-item">
-                                    <span class="key">КОЛЕСО</span>
-                                    <span class="control-desc">${L.zoom}</span>
                                 </div>
                             </div>
                             <div class="control-category">
@@ -919,6 +969,34 @@ export class MainMenu {
                             <div class="control-category">
                                 <div class="category-header">🛠 ${L.admin}</div>
                                 <div class="control-item">
+                                    <span class="key">F2</span>
+                                    <span class="control-desc">Скриншот</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">F3</span>
+                                    <span class="control-desc">Debug Dashboard</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">F4</span>
+                                    <span class="control-desc">Physics Panel</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">F5</span>
+                                    <span class="control-desc">System Terminal</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">F6</span>
+                                    <span class="control-desc">Session Settings</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">F7</span>
+                                    <span class="control-desc">Cheat Menu</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">Ctrl+1</span>
+                                    <span class="control-desc">Помощь / Управление</span>
+                                </div>
+                                <div class="control-item">
                                     <span class="key">Ctrl+2</span>
                                     <span class="control-desc">${L.adminF2}</span>
                                 </div>
@@ -929,6 +1007,10 @@ export class MainMenu {
                                 <div class="control-item">
                                     <span class="key">Ctrl+4</span>
                                     <span class="control-desc">${L.adminF4}</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="key">Ctrl+5</span>
+                                    <span class="control-desc">System Terminal</span>
                                 </div>
                                 <div class="control-item">
                                     <span class="key">Ctrl+6</span>

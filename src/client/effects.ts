@@ -7,6 +7,7 @@ import {
     Mesh
 } from "@babylonjs/core";
 import { ParticleEffects } from "./effects/ParticleEffects";
+import { EFFECTS_CONFIG } from "./effects/EffectsConfig";
 
 // Ultra-simple effects - NO shaders, NO particles, NO gradients
 // Just simple boxes that appear and disappear
@@ -21,6 +22,10 @@ export class EffectsManager {
     // УЛУЧШЕНО: Опциональная улучшенная система частиц
     private particleEffects: ParticleEffects | null = null;
     private useParticles: boolean = true; // Флаг для включения/выключения частиц
+    
+    // УЛУЧШЕНО: Флаги для дыма и пыли (по умолчанию выключены)
+    private enableSmoke: boolean = false;
+    private enableDust: boolean = false;
     
     constructor(scene: Scene, useParticles: boolean = true) {
         this.scene = scene;
@@ -56,6 +61,29 @@ export class EffectsManager {
         }
     }
     
+    // УЛУЧШЕНО: Методы для управления дымом и пылью
+    setSmokeEnabled(enabled: boolean): void {
+        this.enableSmoke = enabled;
+        if (this.particleEffects) {
+            this.particleEffects.setSmokeEnabled(enabled);
+        }
+    }
+    
+    setDustEnabled(enabled: boolean): void {
+        this.enableDust = enabled;
+        if (this.particleEffects) {
+            this.particleEffects.setDustEnabled(enabled);
+        }
+    }
+    
+    getSmokeEnabled(): boolean {
+        return this.enableSmoke;
+    }
+    
+    getDustEnabled(): boolean {
+        return this.enableDust;
+    }
+    
     // Улучшенный эффект использования припаса - свечение вокруг танка
     createConsumableEffect(position: Vector3, color: Color3, _type: string): void {
         // Основное светящееся кольцо (расширяется) - replaced cylinder with box
@@ -77,20 +105,30 @@ export class EffectsManager {
         ring2.rotation.x = Math.PI / 2;
         ring2.material = ringMat;
         
-        // Анимация расширения основного кольца
+        // УЛУЧШЕНО: Анимация расширения с alpha затуханием
+        const ringConfig = EFFECTS_CONFIG.consumableRing;
         let scale = 0.5;
         let scale2 = 0.3;
+        const maxScale = 2.5;
         const animate = () => {
             scale += 0.12;
             scale2 += 0.15;
             ring.scaling.setAll(scale);
             ring2.scaling.setAll(scale2);
             
-            if (scale < 2.5) {
+            // УЛУЧШЕНО: Alpha анимация для колец (0.8 → 0.6 → 0)
+            const progress = (scale - 0.5) / (maxScale - 0.5);
+            const ringAlpha = ringConfig.alpha.start + 
+                (ringConfig.alpha.max - ringConfig.alpha.start) * (progress < 0.5 ? progress * 2 : 1) +
+                (ringConfig.alpha.end - ringConfig.alpha.max) * (progress > 0.5 ? (progress - 0.5) * 2 : 0);
+            ringMat.alpha = Math.max(0, Math.min(1, ringAlpha));
+            
+            if (scale < maxScale) {
                 setTimeout(animate, 30);
             } else {
                 ring.dispose();
                 ring2.dispose();
+                ringMat.dispose();
             }
         };
         animate();
@@ -120,10 +158,17 @@ export class EffectsManager {
                 particle.position.z = position.z + Math.sin(angle) * radius * t;
                 particle.scaling.setAll(1 - t * 0.8);
                 
+                // УЛУЧШЕНО: Alpha анимация для частиц (1 → 0.8 → 0)
+                const particleAlpha = ringConfig.particleAlpha.start + 
+                    (ringConfig.particleAlpha.max - ringConfig.particleAlpha.start) * (t < 0.3 ? t / 0.3 : 1) +
+                    (ringConfig.particleAlpha.end - ringConfig.particleAlpha.max) * (t > 0.3 ? (t - 0.3) / 0.7 : 0);
+                particleMat.alpha = Math.max(0, Math.min(1, particleAlpha));
+                
                 if (t < 1) {
                     setTimeout(moveParticle, 30);
                 } else {
                     particle.dispose();
+                    particleMat.dispose();
                 }
             };
             moveParticle();
@@ -142,15 +187,36 @@ export class EffectsManager {
         
         let flashScale = 0.3;
         let flashFrame = 0;
+        const flashTotalFrames = 6;
         const flashAnimate = () => {
             flashFrame++;
             flashScale += 0.25;
             flash.scaling.setAll(flashScale);
             
-            if (flashFrame < 6) {
+            // УЛУЧШЕНО: Alpha анимация для центральной вспышки (0 → 1 → 0.3 → 0)
+            const flashProgress = flashFrame / flashTotalFrames;
+            let flashAlpha: number;
+            if (flashProgress < 0.2) {
+                // Фаза 1: быстрое появление (0 → 1)
+                flashAlpha = ringConfig.flashAlpha.start + 
+                    (ringConfig.flashAlpha.max - ringConfig.flashAlpha.start) * (flashProgress / 0.2);
+            } else if (flashProgress < 0.5) {
+                // Фаза 2: удержание на максимуме
+                flashAlpha = ringConfig.flashAlpha.max;
+            } else {
+                // Фаза 3: затухание (1 → 0.3 → 0)
+                const fadeProgress = (flashProgress - 0.5) / 0.5;
+                flashAlpha = ringConfig.flashAlpha.max + 
+                    (0.3 - ringConfig.flashAlpha.max) * fadeProgress +
+                    (ringConfig.flashAlpha.end - 0.3) * (fadeProgress > 0.5 ? (fadeProgress - 0.5) * 2 : 0);
+            }
+            flashMat.alpha = Math.max(0, Math.min(1, flashAlpha));
+            
+            if (flashFrame < flashTotalFrames) {
                 setTimeout(flashAnimate, 30);
             } else {
                 flash.dispose();
+                flashMat.dispose();
             }
         };
         flashAnimate();
@@ -284,16 +350,26 @@ export class EffectsManager {
         flashMat.disableLighting = true;
         flash.material = flashMat;
         
-        // Simple 3-frame animation
+        // УЛУЧШЕНО: Анимация с alpha (быстрое появление, затем затухание)
+        const flashConfig = EFFECTS_CONFIG.muzzleFlash;
         let frame = 0;
+        const totalFrames = 3;
+        
         const animate = () => {
             frame++;
+            
             if (frame === 1) {
                 flash.scaling.setAll(1.5);
+                // УЛУЧШЕНО: Быстрое появление (0 → 1 за 1 кадр)
+                flashMat.alpha = flashConfig.alpha.max;
             } else if (frame === 2) {
                 flash.scaling.setAll(2);
+                // УЛУЧШЕНО: Начало затухания
+                const progress = (frame - flashConfig.appearFrames) / flashConfig.fadeFrames;
+                flashMat.alpha = flashConfig.alpha.max * (1 - progress);
             } else {
                 flash.dispose();
+                flashMat.dispose();
                 return;
             }
             setTimeout(animate, 30);
@@ -312,32 +388,40 @@ export class EffectsManager {
         // Main explosion box (expanding) - replaced sphere with box
         const explosion = MeshBuilder.CreateBox("explosion", { width: 0.7 * scale, height: 0.7 * scale, depth: 0.7 * scale }, this.scene);
         explosion.position = position.clone();
-        explosion.material = this.explosionMat;
         
-        // Expand and fade
+        // УЛУЧШЕНО: Создаём новый материал для каждого взрыва (чтобы можно было менять alpha)
+        const explosionMat = new StandardMaterial("explosionMatInstance", this.scene);
+        explosionMat.diffuseColor = new Color3(1, 0.5, 0);
+        explosionMat.specularColor = Color3.Black();
+        explosion.material = explosionMat;
+        
+        // УЛУЧШЕНО: Expand and fade с alpha анимацией
+        const config = EFFECTS_CONFIG.explosion;
         let frame = 0;
+        const totalFrames = 8;
+        
         const animate = () => {
             frame++;
             const scaleFactor = 1 + frame * 0.8;
             explosion.scaling.setAll(scaleFactor);
             
-            // Fade effect (reduce opacity by scaling material brightness)
-            const brightness = Math.max(0, 1 - frame * 0.15);
-            (explosion.material as StandardMaterial).diffuseColor = new Color3(
-                1 * brightness,
-                0.5 * brightness,
-                0 * brightness
-            );
+            // УЛУЧШЕНО: Alpha анимация с плавной кривой
+            const progress = frame / totalFrames;
+            const alphaValue = config.alpha.start + 
+                (config.alpha.max - config.alpha.start) * config.alpha.curve(progress) +
+                (config.alpha.end - config.alpha.max) * (progress > 0.3 ? config.alpha.curve((progress - 0.3) / 0.7) : 0);
+            explosionMat.alpha = Math.max(0, Math.min(1, alphaValue));
             
-            if (frame >= 8) {
+            if (frame >= totalFrames) {
                 explosion.dispose();
+                explosionMat.dispose();
                 return;
             }
             setTimeout(animate, 40);
         };
         animate();
         
-        // Secondary explosion rings
+        // УЛУЧШЕНО: Secondary explosion rings с alpha анимацией
         for (let ring = 0; ring < 2; ring++) {
             setTimeout(() => {
                 const ringMesh = MeshBuilder.CreateBox("explosionRing", {
@@ -347,16 +431,29 @@ export class EffectsManager {
                 }, this.scene);
                 ringMesh.position = position.clone();
                 ringMesh.position.y += ring * 0.5;
-                ringMesh.material = this.explosionMat;
+                
+                // УЛУЧШЕНО: Создаём отдельный материал для кольца
+                const ringMat = new StandardMaterial("explosionRingMat", this.scene);
+                ringMat.diffuseColor = new Color3(1, 0.5, 0);
+                ringMat.specularColor = Color3.Black();
+                ringMesh.material = ringMat;
                 
                 let ringFrame = 0;
+                const ringTotalFrames = 6;
                 const ringAnimate = () => {
                     ringFrame++;
                     ringMesh.scaling.setAll(1 + ringFrame * 0.6);
                     ringMesh.rotation.y += 0.1;
                     
-                    if (ringFrame >= 6) {
+                    // УЛУЧШЕНО: Alpha анимация для кольца
+                    const ringProgress = ringFrame / ringTotalFrames;
+                    const ringAlpha = config.ringAlpha.start + 
+                        (config.ringAlpha.end - config.ringAlpha.start) * config.ringAlpha.curve(ringProgress);
+                    ringMat.alpha = Math.max(0, Math.min(1, ringAlpha));
+                    
+                    if (ringFrame >= ringTotalFrames) {
                         ringMesh.dispose();
+                        ringMat.dispose();
                         return;
                     }
                     setTimeout(ringAnimate, 40);
@@ -365,13 +462,19 @@ export class EffectsManager {
             }, ring * 50);
         }
         
-        // Enhanced debris with more variety
+        // УЛУЧШЕНО: Enhanced debris with alpha анимацией
         const debrisCount = Math.floor(6 * scale);
         for (let i = 0; i < debrisCount; i++) {
             const debrisSize = (0.2 + Math.random() * 0.3) * scale;
             const debris = MeshBuilder.CreateBox("debris", { size: debrisSize }, this.scene);
             debris.position = position.clone();
-            debris.material = this.explosionMat;
+            
+            // УЛУЧШЕНО: Создаём отдельный материал для обломка
+            const debrisMat = new StandardMaterial("debrisMat", this.scene);
+            debrisMat.diffuseColor = new Color3(1, 0.5, 0);
+            debrisMat.specularColor = Color3.Black();
+            debris.material = debrisMat;
+            
             debris.rotation.set(
                 Math.random() * Math.PI * 2,
                 Math.random() * Math.PI * 2,
@@ -384,6 +487,7 @@ export class EffectsManager {
             const rotSpeed = (Math.random() - 0.5) * 0.3;
             
             let t = 0;
+            const maxT = 1.2;
             const moveDebris = () => {
                 t += 0.04;
                 debris.position.x += vx * 0.04;
@@ -392,8 +496,15 @@ export class EffectsManager {
                 debris.rotation.x += rotSpeed;
                 debris.rotation.y += rotSpeed;
                 
-                if (t > 1.2 || debris.position.y < 0) {
+                // УЛУЧШЕНО: Alpha анимация для обломков
+                const debrisProgress = t / maxT;
+                const debrisAlpha = config.debrisAlpha.start + 
+                    (config.debrisAlpha.end - config.debrisAlpha.start) * config.debrisAlpha.curve(debrisProgress);
+                debrisMat.alpha = Math.max(0, Math.min(1, debrisAlpha));
+                
+                if (t > maxT || debris.position.y < 0) {
                     debris.dispose();
+                    debrisMat.dispose();
                     return;
                 }
                 setTimeout(moveDebris, 30);
@@ -401,7 +512,7 @@ export class EffectsManager {
             moveDebris();
         }
         
-        // Flash effect (replaced sphere with box)
+        // УЛУЧШЕНО: Flash effect с alpha анимацией
         const flash = MeshBuilder.CreateBox("flash", { width: 0.3 * scale, height: 0.3 * scale, depth: 0.3 * scale }, this.scene);
         flash.position = position.clone();
         const flashMat = new StandardMaterial("flashMat", this.scene);
@@ -409,12 +520,21 @@ export class EffectsManager {
         flash.material = flashMat;
         
         let flashFrame = 0;
+        const flashTotalFrames = 3;
         const flashAnimate = () => {
             flashFrame++;
             flash.scaling.setAll(1 + flashFrame * 2);
             
-            if (flashFrame >= 3) {
+            // УЛУЧШЕНО: Alpha анимация для вспышки (быстрое мигание)
+            const flashProgress = flashFrame / flashTotalFrames;
+            const flashAlpha = config.flashAlpha.start + 
+                (config.flashAlpha.max - config.flashAlpha.start) * config.flashAlpha.curve(flashProgress) +
+                (config.flashAlpha.end - config.flashAlpha.max) * (flashProgress > 0.5 ? config.flashAlpha.curve((flashProgress - 0.5) / 0.5) : 0);
+            flashMat.alpha = Math.max(0, Math.min(1, flashAlpha));
+            
+            if (flashFrame >= flashTotalFrames) {
                 flash.dispose();
+                flashMat.dispose();
                 return;
             }
             setTimeout(flashAnimate, 30);
@@ -424,8 +544,11 @@ export class EffectsManager {
     
     // Simple dust - just a semi-transparent box
     createDustCloud(position: Vector3): void {
+        // УЛУЧШЕНО: Проверка флага перед созданием пыли
+        if (!this.enableDust) return; // Ранний выход если пыль отключена
+        
         // УЛУЧШЕНО: Используем улучшенную систему частиц если доступна
-        if (this.particleEffects) {
+        if (this.particleEffects && this.enableDust) {
             this.particleEffects.createDust(position);
         }
         

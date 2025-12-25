@@ -50,3 +50,7 @@ export type { FuelIndicatorConfig } from './FuelIndicator';
 export { TankStatus, DEFAULT_TANK_STATUS_CONFIG } from './TankStatus';
 export type { TankStatusConfig, TankStatusData } from './TankStatus';
 
+// Экранная вспышка при уроне
+export { ScreenFlashEffect } from './ScreenFlashEffect';
+export type { FlashDirection } from './ScreenFlashEffect';
+
