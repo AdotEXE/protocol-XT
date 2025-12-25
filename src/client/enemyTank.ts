@@ -280,7 +280,7 @@ export class EnemyTank {
             }
         });
         
-        // УВЕЛИЧЕНА задержка для более надёжной стабилизации
+        // УЛУЧШЕННАЯ стабилизация: короткая задержка + плавный старт
         setTimeout(() => {
             if (this.physicsBody && this.chassis && !this.chassis.isDisposed()) {
                 // Финальный сброс скоростей
@@ -290,7 +290,6 @@ export class EnemyTank {
                 // КРИТИЧНО: Принудительно устанавливаем правильную ориентацию
                 this.chassis.rotationQuaternion = Quaternion.Identity();
                 this.physicsBody.setTargetTransform(this.chassis.position, Quaternion.Identity());
-                
             }
             
             // Только после финальной корректировки отключаем стабилизацию
@@ -299,27 +298,41 @@ export class EnemyTank {
             // Сбрасываем накопленные значения ускорения для плавности движения
             this._lastAccel = 0;
             this._lastTurnAccel = 0;
-            this.throttleTarget = 0;
-            this.steerTarget = 0;
+            this._airStuckTimer = 0;
+            
+            // КРИТИЧНО: НЕ сбрасываем throttleTarget/steerTarget - они будут установлены doPatrol()
+            // Вместо этого сбрасываем только smooth-значения для плавного старта
             this.smoothThrottle = 0;
             this.smoothSteer = 0;
-            this._airStuckTimer = 0; // Сбрасываем таймер застревания в воздухе
             
             // КРИТИЧНО: Убеждаемся, что бот сразу начинает патрулировать после стабилизации
             this.state = "patrol";
             
-            // Сбрасываем цели движения для немедленного старта патрулирования
-            if (this.patrolPoints.length > 0) {
-                this.currentPatrolIndex = 0;
-            } else {
-                // Если точек патруля нет, генерируем их сразу
+            // Генерируем/проверяем точки патруля
+            if (this.patrolPoints.length === 0) {
                 this.generatePatrolPoints(this.chassis.absolutePosition);
             }
+            this.currentPatrolIndex = 0;
             
-            // КРИТИЧНО: Принудительно вызываем патрулирование для немедленного старта движения
+            // КРИТИЧНО: Немедленно устанавливаем направление к первой точке патруля
+            if (this.patrolPoints.length > 0) {
+                const target = this.patrolPoints[0];
+                const myPos = this.chassis.absolutePosition;
+                const dir = target.subtract(myPos);
+                dir.y = 0;
+                if (dir.length() > 1) {
+                    // Сразу устанавливаем throttle для немедленного начала движения
+                    this.throttleTarget = 0.8;
+                    this.steerTarget = 0;
+                    // Также инициализируем smooth-значения для плавного разгона
+                    this.smoothThrottle = 0.1; // Небольшое начальное значение для мгновенного старта
+                }
+            }
+            
+            // Вызываем doPatrol для корректировки направления
             this.doPatrol();
             
-        }, 300); // УМЕНЬШЕНО с 500 до 300 для более быстрого старта патрулирования
+        }, 150); // УМЕНЬШЕНО с 300 до 150 для более быстрого старта
         
         logger.log(`[EnemyTank ${this.id}] Created at ${position.x.toFixed(0)}, ${position.z.toFixed(0)} with difficulty: ${difficulty}`);
     }
@@ -1141,10 +1154,24 @@ export class EnemyTank {
         const pos = this.chassis.position;
         const vel = this.physicsBody?.getLinearVelocity();
         
-        // Проверка 1: Высота выше нормы (застряли на крыше гаража ~3м высота)
-        // Снижаем порог до 2.5 - нормальный hover height = 1.0
-        if (pos.y > 2.5) {
-            logger.debug(`[EnemyTank ${this.id}] Too high (y=${pos.y.toFixed(2)}), resetting to ground`);
+        // Проверка 1: Высота выше нормы относительно земли
+        // Используем raycast для определения высоты над землёй
+        const rayStart = new Vector3(pos.x, pos.y + 2, pos.z);
+        const ray = new Ray(rayStart, Vector3.Down(), 20);
+        const pick = this.scene.pickWithRay(ray, (mesh) => {
+            if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+            if (mesh === this.chassis || mesh === this.turret || mesh === this.barrel) return false;
+            const meta = mesh.metadata;
+            if (meta && (meta.type === "bullet" || meta.type === "enemyTank")) return false;
+            return true;
+        });
+        
+        const groundY = pick && pick.hit && pick.pickedPoint ? pick.pickedPoint.y : 0;
+        const heightAboveGround = pos.y - groundY;
+        
+        // Если высота над землёй > 4 единиц - сбрасываем (но не реагируем на холмы)
+        if (heightAboveGround > 4.0) {
+            logger.debug(`[EnemyTank ${this.id}] Too high above ground (height=${heightAboveGround.toFixed(2)}), resetting`);
             this.forceResetToGround();
             this.consecutiveStuckCount = 0;
             this.stuckTimer = now;
@@ -1184,41 +1211,59 @@ export class EnemyTank {
         if (!this.chassis || !this.physicsBody) return;
         
         const pos = this.chassis.position.clone();
-        pos.y = 1.2; // Стандартная высота hover (близко к земле)
         
-        // Сбрасываем скорости
+        // Используем raycast для определения правильной высоты земли
+        const rayStart = new Vector3(pos.x, pos.y + 5, pos.z);
+        const ray = new Ray(rayStart, Vector3.Down(), 15);
+        const pick = this.scene.pickWithRay(ray, (mesh) => {
+            if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+            if (mesh === this.chassis || mesh === this.turret || mesh === this.barrel) return false;
+            const meta = mesh.metadata;
+            if (meta && (meta.type === "bullet" || meta.type === "enemyTank")) return false;
+            return true;
+        });
+        
+        if (pick && pick.hit && pick.pickedPoint) {
+            pos.y = pick.pickedPoint.y + this.hoverHeight;
+        } else {
+            pos.y = this.hoverHeight; // Fallback на стандартную высоту
+        }
+        
+        // Сбрасываем скорости БЕЗ агрессивных импульсов
         this.physicsBody.setLinearVelocity(Vector3.Zero());
         this.physicsBody.setAngularVelocity(Vector3.Zero());
         
-        // Телепортируем на землю
+        // Телепортируем на правильную высоту
         this.chassis.position.copyFrom(pos);
         this.chassis.rotationQuaternion = Quaternion.Identity();
         
-        // Небольшой импульс вниз для стабилизации
-        this.physicsBody.applyImpulse(new Vector3(0, -5000, 0), pos);
+        // Синхронизируем physics body с мешем
+        this.physicsBody.setTargetTransform(pos, Quaternion.Identity());
         
-        // Сбрасываем цели движения
-        this.throttleTarget = 0;
-        this.steerTarget = 0;
+        // НЕ сбрасываем цели движения - пусть бот продолжает патруль
     }
     
     private forceUnstuck(): void {
         if (!this.chassis || !this.physicsBody) return;
         
         // Try to reverse first - go backwards
-        this.throttleTarget = -1.0;
-        this.steerTarget = (Math.random() - 0.5) * 2;
+        this.throttleTarget = -0.8;
+        this.steerTarget = (Math.random() - 0.5) * 1.5;
         
-        // Apply moderate impulse backwards (using chassis direction)
+        // Сбрасываем текущую скорость для предотвращения накопления
+        this.physicsBody.setLinearVelocity(Vector3.Zero());
+        
+        // Мягкий импульс назад (уменьшен с 5000)
         const backward = this.chassis.getDirection(Vector3.Backward());
-        this.physicsBody.applyImpulse(backward.scale(5000), this.chassis.absolutePosition);
+        this.physicsBody.applyImpulse(backward.scale(2000), this.chassis.absolutePosition);
         
         // Change obstacle avoidance direction
         this.obstacleAvoidanceDir = Math.random() > 0.5 ? 1 : -1;
         
-        // If stuck too many times (reduced from 5 to 3), teleport to nearest patrol point
+        // If stuck too many times, teleport to safe position
         if (this.consecutiveStuckCount > 3) {
             this.forceResetToGround();
+            this.consecutiveStuckCount = 0;
         }
     }
     

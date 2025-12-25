@@ -3483,7 +3483,7 @@ export class Game {
                     groundHeight = this.chunkSystem.terrainGenerator.getHeight(spawnX, spawnZ, "dirt");
                 }
                 
-                spawnY = Math.max(groundHeight, 0) + 2.0;
+                spawnY = Math.max(groundHeight, 0) + 1.2; // Высота чуть выше hover height (1.0) для плавного приземления
                 
                 pos = new Vector3(spawnX, spawnY, spawnZ);
                 
@@ -3638,7 +3638,7 @@ export class Game {
                 groundHeight = this.chunkSystem.terrainGenerator.getHeight(rawPos.x, rawPos.z, "dirt");
             }
             
-            const spawnY = Math.max(groundHeight, 0) + 2.0;
+            const spawnY = Math.max(groundHeight, 0) + 1.2; // Высота чуть выше hover height для плавного приземления
             const pos = new Vector3(rawPos.x, spawnY, rawPos.z);
             // Защитники - сложность берём из текущих настроек (sessionSettings/меню)
             const difficulty = this.getCurrentEnemyDifficulty();
@@ -3732,7 +3732,7 @@ export class Game {
                 groundHeight = this.chunkSystem.terrainGenerator.getHeight(spawnX, spawnZ, "dirt");
             }
             
-            const spawnY = Math.max(groundHeight, 0) + 2.0;
+            const spawnY = Math.max(groundHeight, 0) + 1.2; // Высота чуть выше hover height для плавного приземления
             const pos = new Vector3(spawnX, spawnY, spawnZ);
             
             // Сложность растёт с волнами
