@@ -13,6 +13,11 @@ export { GameGarage } from "./GameGarage";
 export { GameEnemies } from "./GameEnemies";
 export { GameEvents } from "./GameEvents";
 export { GameUpdate } from "./GameUpdate";
+export { GameAudio } from "./GameAudio";
+export { GameStats } from "./GameStats";
+export { GameUI } from "./GameUI";
+export { GamePhysics, DEFAULT_PHYSICS_CONFIG } from "./GamePhysics";
+export type { PhysicsConfig } from "./GamePhysics";
 
 // UI modules
 export { LoadingScreen } from "./LoadingScreen";
