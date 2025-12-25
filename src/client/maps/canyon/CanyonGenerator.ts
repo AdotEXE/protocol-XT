@@ -8,6 +8,9 @@
  */
 
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
+import { PhysicsAggregate } from "@babylonjs/core/Physics/v2/physicsAggregate";
+import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import { BaseMapGenerator } from "../shared/BaseMapGenerator";
 import { ChunkGenerationContext } from "../shared/MapGenerator";
 
@@ -29,26 +32,13 @@ export class CanyonGenerator extends BaseMapGenerator {
     readonly description = "Горное ущелье с реками и мостами";
     
     private config: CanyonConfig;
-    private chunkSystemDelegate: any = null;
     
     constructor(config: Partial<CanyonConfig> = {}) {
         super();
         this.config = { ...DEFAULT_CANYON_CONFIG, ...config };
     }
     
-    setChunkSystemDelegate(chunkSystem: any): void {
-        this.chunkSystemDelegate = chunkSystem;
-    }
-    
     generateContent(context: ChunkGenerationContext): void {
-        if (this.chunkSystemDelegate) {
-            const { chunkX, chunkZ, worldX, worldZ, size, random, chunkParent } = context;
-            this.chunkSystemDelegate.generateCanyonContentExternal(
-                chunkX, chunkZ, worldX, worldZ, size, random, chunkParent
-            );
-            return;
-        }
-        
         this.generateMountains(context);
         this.generateRivers(context);
         this.generateBridges(context);
@@ -80,12 +70,106 @@ export class CanyonGenerator extends BaseMapGenerator {
         }
     }
     
-    private generateRivers(_context: ChunkGenerationContext): void {
-        // TODO: Перенести логику создания рек
+    private generateRivers(context: ChunkGenerationContext): void {
+        const { chunkX, chunkZ, worldX, worldZ, size, random, chunkParent } = context;
+        
+        // Несколько рек (35% шанс)
+        if (random.chance(0.35)) {
+            const startX = random.range(0, size);
+            const startZ = random.range(0, size);
+            const endX = random.range(0, size);
+            const endZ = random.range(0, size);
+            this.createRiver(startX, startZ, endX, endZ, random.range(3, 6), random, chunkParent);
+        }
     }
     
-    private generateBridges(_context: ChunkGenerationContext): void {
-        // TODO: Перенести логику создания мостов
+    /**
+     * Создать реку
+     */
+    private createRiver(startX: number, startZ: number, endX: number, endZ: number, width: number, random: any, chunkParent: any): void {
+        const length = Math.sqrt((endX - startX) ** 2 + (endZ - startZ) ** 2);
+        const angle = Math.atan2(endZ - startZ, endX - startX);
+        const centerX = (startX + endX) / 2;
+        const centerZ = (startZ + endZ) / 2;
+        
+        // Create rectangular river valley (LOW POLY)
+        const river = MeshBuilder.CreateBox("river", {
+            width: length,
+            height: 1.5,
+            depth: width
+        }, this.scene);
+        
+        river.position = new Vector3(centerX, -1.5 / 2, centerZ);
+        river.rotation.y = angle;
+        
+        const waterMat = this.getMat("water");
+        river.material = waterMat;
+        river.parent = chunkParent;
+        river.freezeWorldMatrix();
+    }
+    
+    private generateBridges(context: ChunkGenerationContext): void {
+        const { chunkX, chunkZ, size, random, chunkParent } = context;
+        
+        // Мосты (20% шанс)
+        if (random.chance(0.2)) {
+            const bx = random.range(15, size - 15);
+            const bz = random.range(15, size - 15);
+            const bWorldX = chunkX * size + bx;
+            const bWorldZ = chunkZ * size + bz;
+            if (this.isPositionInGarageArea(bWorldX, bWorldZ, 8)) return;
+            
+            const bridgeLength = random.range(12, 20);
+            const bridgeHeight = random.range(4, 8);
+            
+            // Опоры моста
+            const pillar1 = this.createBox(
+                "bridgePillar",
+                { width: 2, height: bridgeHeight, depth: 2 },
+                new Vector3(bx - bridgeLength / 2 + 1, bridgeHeight / 2, bz),
+                "rock",
+                chunkParent,
+                true
+            );
+            
+            const pillar2 = this.createBox(
+                "bridgePillar",
+                { width: 2, height: bridgeHeight, depth: 2 },
+                new Vector3(bx + bridgeLength / 2 - 1, bridgeHeight / 2, bz),
+                "rock",
+                chunkParent,
+                true
+            );
+            
+            // Полотно моста
+            const deck = this.createBox(
+                "bridgeDeck",
+                { width: bridgeLength, height: 0.5, depth: 4 },
+                new Vector3(bx, bridgeHeight, bz),
+                "wood",
+                chunkParent,
+                true
+            );
+            
+            // Перила
+            const rail1 = this.createBox(
+                "bridgeRail",
+                { width: bridgeLength, height: 1, depth: 0.2 },
+                new Vector3(bx, bridgeHeight + 0.75, bz - 1.9),
+                "wood",
+                chunkParent,
+                false
+            );
+            
+            const rail2 = this.createBox(
+                "bridgeRail",
+                { width: bridgeLength, height: 1, depth: 0.2 },
+                new Vector3(bx, bridgeHeight + 0.75, bz + 1.9),
+                "wood",
+                chunkParent,
+                false
+            );
+        }
     }
 }
 
