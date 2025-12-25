@@ -204,7 +204,7 @@ export default defineConfig({
             return 'vendor';
           }
           
-          // Собственные модули - АГРЕССИВНОЕ ОБЪЕДИНЕНИЕ для уменьшения количества chunks
+          // Собственные модули - ОПТИМИЗИРОВАННОЕ РАЗДЕЛЕНИЕ
           if (id.includes('/src/client/')) {
             // Основной код игры + UI
             if (id.includes('/game.ts') || id.includes('/tankController.ts') || id.includes('/enemyTank.ts') ||
@@ -213,17 +213,30 @@ export default defineConfig({
               return 'game-core';
             }
             
-            // ВСЕ игровые системы в один chunk (включая Tartu модули)
+            // Генераторы карт (модульная структура)
+            if (id.includes('/maps/')) {
+              return 'game-maps';
+            }
+            
+            // Компоненты танка (модульная структура)
+            if (id.includes('/tank/')) {
+              return 'game-tank';
+            }
+            
+            // Tartaria специфичные модули
+            if (id.includes('/tartu')) {
+              return 'game-tartaria';
+            }
+            
+            // Игровые системы
             if (id.includes('/chunkSystem.ts') || id.includes('/effects.ts') || id.includes('/soundManager.ts') || 
                 id.includes('/consumables.ts') || id.includes('/experienceSystem.ts') || id.includes('/playerProgression.ts') ||
                 id.includes('/achievements.ts') || id.includes('/missionSystem.ts') || id.includes('/playerStats.ts') ||
                 id.includes('/aimingSystem.ts') || id.includes('/destructionSystem.ts') ||
-                id.includes('/tartuBiomes.ts') || id.includes('/tartuPOI.ts') || id.includes('/tartuBuildings.ts') ||
-                id.includes('/tartuRoads.ts') || id.includes('/tartuHeightmap.ts') || id.includes('/coverGenerator.ts') ||
-                id.includes('/poiSystem.ts') || id.includes('/roadNetwork.ts') || id.includes('/terrainGenerator.ts') ||
-                id.includes('/tank/') || id.includes('/garage/') || id.includes('/menu/') ||
+                id.includes('/coverGenerator.ts') || id.includes('/poiSystem.ts') || id.includes('/roadNetwork.ts') || 
+                id.includes('/terrainGenerator.ts') || id.includes('/garage/') || id.includes('/menu/') ||
                 id.includes('/utils/') || id.includes('/tankTypes.ts') || id.includes('/trackTypes.ts') || 
-                id.includes('/skillTreeConfig.ts') || id.includes('/jsfxr.ts')) {
+                id.includes('/skillTreeConfig.ts') || id.includes('/jsfxr.ts') || id.includes('/hud/')) {
               return 'game-systems';
             }
             
