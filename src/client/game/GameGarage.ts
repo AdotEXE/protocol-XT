@@ -2,12 +2,14 @@
 // GAME GARAGE - Логика гаражей (respawn, capture, doors)
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { Vector3, Mesh } from "@babylonjs/core";
-import { TextBlock } from "@babylonjs/gui";
+import { Vector3, Mesh, StandardMaterial, Color3, Quaternion, MeshBuilder } from "@babylonjs/core";
+import { TextBlock, AdvancedDynamicTexture } from "@babylonjs/gui";
 import { logger } from "../utils/logger";
 import type { Scene } from "@babylonjs/core";
 import type { ChunkSystem } from "../chunkSystem";
 import type { TankController } from "../tankController";
+import type { HUD } from "../hud";
+import type { EnemyTank } from "../enemyTank";
 
 /**
  * GameGarage - Логика гаражей
@@ -36,6 +38,16 @@ export class GameGarage {
     protected scene: Scene | undefined;
     protected chunkSystem: ChunkSystem | undefined;
     protected tank: TankController | undefined;
+    protected hud: HUD | undefined;
+    protected enemyTanks: EnemyTank[] = [];
+    
+    // Кэшированные цвета для оптимизации
+    private readonly _colorNeutral = new Color3(0.9, 0.9, 0.9);
+    private readonly _colorPlayer = new Color3(0.0, 1.0, 0.0);
+    private readonly _colorEnemy = new Color3(1.0, 0.0, 0.0);
+    private readonly _colorEmissiveNeutral = new Color3(0.1, 0.1, 0.1);
+    private readonly _colorEmissivePlayer = new Color3(0.2, 0.5, 0.2);
+    private readonly _colorEmissiveEnemy = new Color3(0.5, 0.1, 0.1);
     
     /**
      * Инициализация системы гаражей
@@ -43,11 +55,15 @@ export class GameGarage {
     initialize(
         scene: Scene,
         chunkSystem: ChunkSystem | undefined,
-        tank: TankController | undefined
+        tank: TankController | undefined,
+        hud?: HUD,
+        enemyTanks?: EnemyTank[]
     ): void {
         this.scene = scene;
         this.chunkSystem = chunkSystem;
         this.tank = tank;
+        this.hud = hud;
+        this.enemyTanks = enemyTanks || [];
         
         logger.log("[GameGarage] Garage system initialized");
     }
@@ -197,101 +213,348 @@ export class GameGarage {
     updateGarageDoors(): void {
         if (!this.chunkSystem || !this.chunkSystem.garageDoors) return;
         
-        // Будет реализовано в Game.ts, так как требует доступа к множеству систем
-        logger.debug("[GameGarage] Updating garage doors (will be implemented in Game.ts)");
+        const doorSpeed = 0.18;
+        
+        this.chunkSystem.garageDoors.forEach((doorData: any) => {
+            if (!doorData.frontDoor || !doorData.backDoor) return;
+            
+            // Автооткрытие ворот для ботов
+            const doorOpenDistance = 18;
+            const garagePos = doorData.position;
+            const garageDepth = doorData.garageDepth || 20;
+            
+            const frontDoorPos = new Vector3(garagePos.x, 0, garagePos.z + garageDepth / 2);
+            const backDoorPos = new Vector3(garagePos.x, 0, garagePos.z - garageDepth / 2);
+            
+            // Проверяем всех вражеских танков
+            for (const enemy of this.enemyTanks) {
+                if (!enemy || !enemy.isAlive || !enemy.chassis) continue;
+                
+                const enemyPos = enemy.chassis.absolutePosition;
+                
+                const distToFront = Vector3.Distance(
+                    new Vector3(enemyPos.x, 0, enemyPos.z),
+                    frontDoorPos
+                );
+                if (distToFront < doorOpenDistance && !doorData.frontDoorOpen) {
+                    doorData.frontDoorOpen = true;
+                }
+                
+                const distToBack = Vector3.Distance(
+                    new Vector3(enemyPos.x, 0, enemyPos.z),
+                    backDoorPos
+                );
+                if (distToBack < doorOpenDistance && !doorData.backDoorOpen) {
+                    doorData.backDoorOpen = true;
+                }
+            }
+            
+            const targetFrontOpen = doorData.frontDoorOpen !== undefined ? doorData.frontDoorOpen : false;
+            const targetBackOpen = doorData.backDoorOpen !== undefined ? doorData.backDoorOpen : false;
+            
+            const targetFrontY = targetFrontOpen ? doorData.frontOpenY : doorData.frontClosedY;
+            const targetBackY = targetBackOpen ? doorData.backOpenY : doorData.backClosedY;
+            
+            // Передние ворота
+            const currentFrontY = doorData.frontDoor.position.y;
+            const frontDiff = Math.abs(currentFrontY - targetFrontY);
+            if (frontDiff > 0.01) {
+                const newFrontY = currentFrontY + (targetFrontY - currentFrontY) * doorSpeed;
+                doorData.frontDoor.position.y = newFrontY;
+            } else {
+                doorData.frontDoor.position.y = targetFrontY;
+            }
+            if (doorData.frontDoorPhysics && doorData.frontDoorPhysics.body) {
+                doorData.frontDoor.computeWorldMatrix(true);
+                doorData.frontDoorPhysics.body.setTargetTransform(
+                    doorData.frontDoor.position.clone(),
+                    Quaternion.Identity()
+                );
+            }
+            
+            // Задние ворота
+            const currentBackY = doorData.backDoor.position.y;
+            const backDiff = Math.abs(currentBackY - targetBackY);
+            if (backDiff > 0.01) {
+                const newBackY = currentBackY + (targetBackY - currentBackY) * doorSpeed;
+                doorData.backDoor.position.y = newBackY;
+            } else {
+                doorData.backDoor.position.y = targetBackY;
+            }
+            if (doorData.backDoorPhysics && doorData.backDoorPhysics.body) {
+                doorData.backDoor.computeWorldMatrix(true);
+                doorData.backDoorPhysics.body.setTargetTransform(
+                    doorData.backDoor.position.clone(),
+                    Quaternion.Identity()
+                );
+            }
+        });
     }
     
     /**
      * Обновление системы захвата гаражей
      */
-    updateGarageCapture(deltaTime: number): void {
-        if (!this.chunkSystem || !this.tank || !this.tank.chassis) return;
+    updateGarageCapture(deltaTime: number, onRespawnEnemy?: (pos: Vector3) => void): void {
+        if (!this.chunkSystem || !this.tank || !this.tank.chassis || !this.chunkSystem.garageCapturePoints) return;
         
         const playerPos = this.tank.chassis.absolutePosition;
+        const playerId = this.PLAYER_ID;
         
-        // Проверяем каждый гараж
-        for (const garagePos of this.chunkSystem.garagePositions) {
-            const garageKey = `${garagePos.x},0,${garagePos.z}`;
-            const garageVec = new Vector3(garagePos.x, 0, garagePos.z);
-            const distance = Vector3.Distance(
-                garageVec,
-                new Vector3(playerPos.x, 0, playerPos.z)
+        // Собираем позиции всех танков
+        const tankPositions: Vector3[] = [playerPos];
+        if (this.enemyTanks) {
+            this.enemyTanks.forEach(enemy => {
+                if (enemy && enemy.isAlive && enemy.chassis) {
+                    tankPositions.push(enemy.chassis.absolutePosition);
+                }
+            });
+        }
+        
+        // Проверяем каждую точку захвата
+        this.chunkSystem.garageCapturePoints.forEach(capturePoint => {
+            const garageKey = `${capturePoint.position.x.toFixed(1)}_${capturePoint.position.z.toFixed(1)}`;
+            const ownership = ((this.chunkSystem as any).garageOwnership || new Map()).get(garageKey);
+            if (!ownership) return;
+            
+            // Проверяем состояние ворот
+            const garageDoor = this.chunkSystem!.garageDoors.find(door => 
+                Math.abs(door.position.x - capturePoint.position.x) < 0.1 &&
+                Math.abs(door.position.z - capturePoint.position.z) < 0.1
             );
             
-            if (distance < this.CAPTURE_RADIUS) {
-                // Игрок в радиусе захвата
-                const captureData = this.garageCaptureProgress.get(garageKey) || { progress: 0, capturingPlayers: 1 };
-                captureData.capturingPlayers = 1; // В одиночной игре всегда 1
-                captureData.progress += deltaTime / this.CAPTURE_TIME_SINGLE;
+            const garageDoorAny = garageDoor as any;
+            if (garageDoor && !garageDoorAny.frontDoorOpen && !garageDoorAny.backDoorOpen) {
+                // Ворота закрыты - захват невозможен
+                if (this.hud) {
+                    this.hud.setGarageCaptureProgress(null, 0, 0);
+                }
+                if (ownership.ownerId === null) {
+                    this.updateWrenchColor((capturePoint as any).wrench, "neutral");
+                } else if (ownership.ownerId === playerId) {
+                    this.updateWrenchColor((capturePoint as any).wrench, "player");
+                } else {
+                    this.updateWrenchColor((capturePoint as any).wrench, "enemy");
+                }
+                return;
+            }
+            
+            // Проверяем расстояние до точки захвата
+            const nearbyTanks: Vector3[] = [];
+            tankPositions.forEach(tankPos => {
+                const distance = Vector3.Distance(
+                    new Vector3(capturePoint.position.x, 0, capturePoint.position.z),
+                    new Vector3(tankPos.x, 0, tankPos.z)
+                );
+                if (distance <= this.CAPTURE_RADIUS) {
+                    nearbyTanks.push(tankPos);
+                }
+            });
+            
+            const capturingCount = nearbyTanks.length;
+            const isPlayerNearby = nearbyTanks.some(tankPos => 
+                Math.abs(tankPos.x - playerPos.x) < 0.1 && 
+                Math.abs(tankPos.z - playerPos.z) < 0.1
+            );
+            
+            // Если гараж уже принадлежит игроку
+            if (ownership.ownerId === playerId) {
+                if (this.garageCaptureProgress.has(garageKey)) {
+                    this.garageCaptureProgress.delete(garageKey);
+                }
+                if (this.hud && isPlayerNearby) {
+                    this.hud.setGarageCaptureProgress(null, 0, 0);
+                }
+                this.updateWrenchColor((capturePoint as any).wrench, "player");
+                return;
+            }
+            
+            // Если игрок не рядом, скрываем прогресс-бар
+            if (!isPlayerNearby) {
+                if (this.hud) {
+                    this.hud.setGarageCaptureProgress(null, 0, 0);
+                }
+                return;
+            }
+            
+            // Начинаем/продолжаем захват
+            if (!this.garageCaptureProgress.has(garageKey)) {
+                this.garageCaptureProgress.set(garageKey, { progress: 0, capturingPlayers: capturingCount });
+                logger.log(`[GameGarage] Starting capture of garage at (${capturePoint.position.x.toFixed(1)}, ${capturePoint.position.z.toFixed(1)})`);
+            }
+            
+            const captureData = this.garageCaptureProgress.get(garageKey)!;
+            captureData.capturingPlayers = capturingCount;
+            
+            const captureTime = this.CAPTURE_TIME_SINGLE / captureData.capturingPlayers;
+            captureData.progress += deltaTime / captureTime;
+            
+            // Обновляем прогресс-бар
+            if (this.hud) {
+                const remainingTime = (1.0 - captureData.progress) * captureTime;
+                this.hud.setGarageCaptureProgress(garageKey, captureData.progress, remainingTime);
+            }
+            
+            // Если захват завершён
+            if (captureData.progress >= 1.0) {
+                ownership.ownerId = playerId;
+                this.garageCaptureProgress.delete(garageKey);
                 
-                if (captureData.progress >= 1.0) {
-                    // Гараж захвачен
-                    this.onGarageCaptured(garageKey, garageVec);
-                    captureData.progress = 1.0;
+                this.updateWrenchColor((capturePoint as any).wrench, "player");
+                
+                if (this.hud) {
+                    this.hud.setGarageCaptureProgress(null, 0, 0);
                 }
                 
-                this.garageCaptureProgress.set(garageKey, captureData);
+                const wasEnemy = ownership.ownerId !== null && ownership.ownerId !== playerId;
+                logger.log(`[GameGarage] Garage ${wasEnemy ? 'captured from enemy' : 'captured'} at (${capturePoint.position.x.toFixed(1)}, ${capturePoint.position.z.toFixed(1)})`);
             } else {
-                // Игрок вне радиуса - сбрасываем прогресс
-                const captureData = this.garageCaptureProgress.get(garageKey);
-                if (captureData && captureData.progress > 0) {
-                    captureData.progress = Math.max(0, captureData.progress - deltaTime / this.CAPTURE_TIME_SINGLE);
-                    this.garageCaptureProgress.set(garageKey, captureData);
+                this.updateWrenchColor((capturePoint as any).wrench, "capturing");
+            }
+        });
+        
+        // Обновляем цвет гаечных ключей для гаражей, которые не захватываются
+        this.chunkSystem.garageCapturePoints.forEach(capturePoint => {
+            const garageKey = `${capturePoint.position.x.toFixed(1)}_${capturePoint.position.z.toFixed(1)}`;
+            const ownership = ((this.chunkSystem as any).garageOwnership || new Map()).get(garageKey);
+            if (!ownership) return;
+            
+            if (!this.garageCaptureProgress.has(garageKey)) {
+                if (ownership.ownerId === null) {
+                    this.updateWrenchColor((capturePoint as any).wrench, "neutral");
+                } else if (ownership.ownerId === this.PLAYER_ID) {
+                    this.updateWrenchColor((capturePoint as any).wrench, "player");
+                } else {
+                    this.updateWrenchColor((capturePoint as any).wrench, "enemy");
                 }
             }
-        }
+        });
     }
     
     /**
-     * Обработка захвата гаража
+     * Обновление цвета гаечного ключа
      */
-    private onGarageCaptured(garageKey: string, garagePos: Vector3): void {
-        logger.log(`[GameGarage] Garage captured at ${garageKey}`);
-        // Будет реализовано в Game.ts
+    private updateWrenchColor(wrench: Mesh, state: "neutral" | "player" | "enemy" | "capturing"): void {
+        if (!wrench || !wrench.material) return;
+        
+        const mat = wrench.material as StandardMaterial;
+        switch (state) {
+            case "neutral":
+                mat.diffuseColor = this._colorNeutral;
+                mat.emissiveColor = this._colorEmissiveNeutral;
+                break;
+            case "player":
+                mat.diffuseColor = this._colorPlayer;
+                mat.emissiveColor = this._colorEmissivePlayer;
+                break;
+            case "enemy":
+                mat.diffuseColor = this._colorEnemy;
+                mat.emissiveColor = this._colorEmissiveEnemy;
+                break;
+            case "capturing":
+                const pulse = 0.3 + 0.2 * Math.sin(Date.now() / 200);
+                mat.diffuseColor.set(1.0, 1.0, 0.0);
+                mat.emissiveColor.set(0.5 * pulse, 0.5 * pulse, 0.1 * pulse);
+                break;
+        }
     }
     
     /**
      * Обновление таймеров респавна гаражей
      */
-    updateGarageRespawnTimers(deltaTime: number): void {
-        // Обновляем таймеры
-        for (const [garageKey, timerData] of this.garageRespawnTimers.entries()) {
-            if (timerData.timer > 0) {
-                timerData.timer -= deltaTime * 1000; // deltaTime в секундах, timer в миллисекундах
-                
-                // Обновляем текст таймера
-                if (timerData.textBlock) {
-                    const minutes = Math.floor(timerData.timer / 60000);
-                    const seconds = Math.floor((timerData.timer % 60000) / 1000);
-                    timerData.textBlock.text = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    updateGarageRespawnTimers(deltaTime: number, onRespawnEnemy?: (pos: Vector3) => void): void {
+        this.garageRespawnTimers.forEach((data, key) => {
+            data.timer -= deltaTime * 1000; // deltaTime в секундах, timer в миллисекундах
+            
+            if (data.timer <= 0) {
+                // Время вышло - респавним врага
+                const parts = key.split(',');
+                if (parts.length === 2) {
+                    const xStr = parts[0];
+                    const zStr = parts[1];
+                    if (xStr === undefined || zStr === undefined) {
+                        return;
+                    }
+                    const x = parseFloat(xStr);
+                    const z = parseFloat(zStr);
+                    if (!isNaN(x) && !isNaN(z)) {
+                        // Не респавним врага рядом с гаражом игрока
+                        if (this.playerGaragePosition) {
+                            const garagePos = new Vector3(x, 0, z);
+                            const distToPlayer = Vector3.Distance(garagePos, new Vector3(this.playerGaragePosition.x, 0, this.playerGaragePosition.z));
+                            if (distToPlayer < 30) {
+                                logger.log(`[GameGarage] Skipping enemy respawn too close to player (${distToPlayer.toFixed(1)}m away)`);
+                                if (data.billboard) {
+                                    data.billboard.dispose();
+                                }
+                                this.garageRespawnTimers.delete(key);
+                                return;
+                            }
+                        }
+                        
+                        const garagePos = new Vector3(x, 0.6, z);
+                        if (onRespawnEnemy) {
+                            onRespawnEnemy(garagePos);
+                        }
+                    }
                 }
                 
-                if (timerData.timer <= 0) {
-                    // Таймер истек - гараж доступен
-                    this.onGarageRespawned(garageKey);
+                // Удаляем таймер
+                if (data.billboard) {
+                    data.billboard.dispose();
+                }
+                if (data.textBlock) {
+                    data.textBlock.dispose();
+                }
+                this.garageRespawnTimers.delete(key);
+            } else {
+                // Обновляем текст таймера
+                const totalSeconds = Math.ceil(data.timer / 1000);
+                const minutes = Math.floor(totalSeconds / 60);
+                const seconds = totalSeconds % 60;
+                if (data.textBlock) {
+                    data.textBlock.text = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                    if (totalSeconds <= 10) {
+                        data.textBlock.color = "red";
+                    } else if (totalSeconds <= 30) {
+                        data.textBlock.color = "yellow";
+                    } else {
+                        data.textBlock.color = "white";
+                    }
                 }
             }
-        }
+        });
     }
     
     /**
-     * Обработка респавна гаража
+     * Запустить таймер респавна для гаража
      */
-    private onGarageRespawned(garageKey: string): void {
-        logger.log(`[GameGarage] Garage respawned: ${garageKey}`);
+    startGarageRespawnTimer(garagePos: Vector3): void {
+        if (!this.scene) return;
         
-        const timerData = this.garageRespawnTimers.get(garageKey);
-        if (timerData) {
-            // Удаляем billboard и textBlock
-            if (timerData.billboard) {
-                timerData.billboard.dispose();
-            }
-            if (timerData.textBlock) {
-                timerData.textBlock.dispose();
-            }
-            
-            this.garageRespawnTimers.delete(garageKey);
+        const key = `${garagePos.x.toFixed(1)},${garagePos.z.toFixed(1)}`;
+        
+        // Проверяем, нет ли уже таймера
+        if (this.garageRespawnTimers.has(key)) {
+            return;
         }
+        
+        // Создаём billboard с таймером
+        const billboard = MeshBuilder.CreatePlane("respawnTimer", { size: 2 }, this.scene);
+        billboard.position = new Vector3(garagePos.x, 5, garagePos.z);
+        billboard.billboardMode = Mesh.BILLBOARDMODE_ALL;
+        
+        const texture = AdvancedDynamicTexture.CreateForMesh(billboard);
+        const textBlock = new TextBlock("timerText", "3:00");
+        textBlock.color = "white";
+        textBlock.fontSize = 48;
+        texture.addControl(textBlock);
+        
+        // Сохраняем таймер
+        this.garageRespawnTimers.set(key, {
+            timer: this.RESPAWN_TIME,
+            billboard: billboard,
+            textBlock: textBlock
+        });
     }
     
     /**
@@ -307,9 +570,21 @@ export class GameGarage {
     updateReferences(callbacks: {
         chunkSystem?: ChunkSystem;
         tank?: TankController;
+        hud?: HUD;
+        enemyTanks?: EnemyTank[];
     }): void {
         if (callbacks.chunkSystem !== undefined) this.chunkSystem = callbacks.chunkSystem;
         if (callbacks.tank !== undefined) this.tank = callbacks.tank;
+        if (callbacks.hud !== undefined) this.hud = callbacks.hud;
+        if (callbacks.enemyTanks !== undefined) this.enemyTanks = callbacks.enemyTanks;
+    }
+    
+    /**
+     * Проверить, занят ли гараж таймером респавна
+     */
+    isGarageRespawnTimerActive(garagePos: Vector3): boolean {
+        const key = `${garagePos.x.toFixed(1)},${garagePos.z.toFixed(1)}`;
+        return this.garageRespawnTimers.has(key);
     }
     
     /**

@@ -18,6 +18,8 @@ export { GameStats } from "./GameStats";
 export { GameUI } from "./GameUI";
 export { GamePhysics, DEFAULT_PHYSICS_CONFIG } from "./GamePhysics";
 export type { PhysicsConfig } from "./GamePhysics";
+export { GameConsumables } from "./GameConsumables";
+export { GameProjectile } from "./GameProjectile";
 
 // UI modules
 export { LoadingScreen } from "./LoadingScreen";
