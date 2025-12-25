@@ -357,13 +357,6 @@ export class FrontlineGenerator extends BaseMapGenerator {
     }
     
     /**
-     * Генерация мешков с песком
-     */
-    private generateSandbags(_context: ChunkGenerationContext): void {
-        // TODO: Перенести логику создания мешков
-    }
-    
-    /**
      * Генерация воронок
      */
     private generateCraters(context: ChunkGenerationContext): void {
