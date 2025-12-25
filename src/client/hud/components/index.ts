@@ -30,3 +30,15 @@ export type { CompassConfig } from './Compass';
 export { ConsumablesBar, DEFAULT_CONSUMABLES_CONFIG } from './ConsumablesBar';
 export type { ConsumablesBarConfig, ConsumableSlotData } from './ConsumablesBar';
 
+// Индикатор цели
+export { TargetIndicator, DEFAULT_TARGET_CONFIG } from './TargetIndicator';
+export type { TargetIndicatorConfig, TargetData } from './TargetIndicator';
+
+// Индикатор урона
+export { DamageIndicator, DEFAULT_DAMAGE_CONFIG } from './DamageIndicator';
+export type { DamageIndicatorConfig } from './DamageIndicator';
+
+// Очередь уведомлений
+export { NotificationQueue, DEFAULT_NOTIFICATION_CONFIG } from './NotificationQueue';
+export type { NotificationQueueConfig, NotificationType } from './NotificationQueue';
+

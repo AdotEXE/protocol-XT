@@ -42,3 +42,12 @@ export type { CompassConfig } from './components';
 
 export { ConsumablesBar, DEFAULT_CONSUMABLES_CONFIG } from './components';
 export type { ConsumablesBarConfig, ConsumableSlotData } from './components';
+
+export { TargetIndicator, DEFAULT_TARGET_CONFIG } from './components';
+export type { TargetIndicatorConfig, TargetData } from './components';
+
+export { DamageIndicator, DEFAULT_DAMAGE_CONFIG } from './components';
+export type { DamageIndicatorConfig } from './components';
+
+export { NotificationQueue, DEFAULT_NOTIFICATION_CONFIG } from './components';
+export type { NotificationQueueConfig, NotificationType } from './components';
