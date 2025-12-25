@@ -18,6 +18,8 @@ import { AdvancedDynamicTexture, Rectangle, TextBlock, Control } from "@babylonj
 import { SoundManager } from "./soundManager";
 import { EffectsManager } from "./effects";
 import { logger } from "./utils/logger";
+import { AIPathfinding } from "./ai/AIPathfinding";
+import type { RoadNetwork } from "./roadNetwork";
 
 // === AI States ===
 type AIState = "idle" | "patrol" | "chase" | "attack" | "flank" | "retreat" | "evade" | "capturePOI";
@@ -97,6 +99,11 @@ export class EnemyTank {
     private readonly COVER_CHECK_INTERVAL = 2000; // Проверка каждые 2 секунды
     private currentCoverPosition: Vector3 | null = null;
     private seekingCover = false;
+    
+    // УЛУЧШЕНО: AI Pathfinding для умной навигации
+    private pathfinding: AIPathfinding | null = null;
+    private currentPath: Vector3[] = [];
+    private currentPathIndex = 0;
     
     // УЛУЧШЕНО: Адаптация к стилю игры игрока
     private playerStyle: "aggressive" | "defensive" | "balanced" = "balanced";
@@ -245,6 +252,9 @@ export class EnemyTank {
         
         // Setup physics (SAME AS PLAYER!)
         this.setupPhysics();
+        
+        // УЛУЧШЕНО: Инициализация AI Pathfinding
+        this.pathfinding = new AIPathfinding(scene);
         
         // Generate patrol points
         this.generatePatrolPoints(position);
@@ -1933,18 +1943,24 @@ export class EnemyTank {
         const targetPos = this.target.chassis.absolutePosition;
         const myPos = this.chassis.absolutePosition;
         
-        // УЛУЧШЕНО: Более умное вычисление позиции фланга
-        const toTarget = targetPos.subtract(myPos);
-        toTarget.y = 0;
-        toTarget.normalize();
+        // УЛУЧШЕНО: Используем AIPathfinding для поиска оптимальной позиции фланга
+        let flankPos: Vector3 | null = null;
         
-        // Perpendicular direction
-        const perpendicular = new Vector3(toTarget.z * this.flankDirection, 0, -toTarget.x * this.flankDirection);
+        if (this.pathfinding) {
+            flankPos = this.pathfinding.findFlankPosition(myPos, targetPos, this.flankDirection);
+        }
         
-        // УЛУЧШЕНО: Динамическое расстояние фланга в зависимости от дистанции до цели
-        const distance = Vector3.Distance(targetPos, myPos);
-        const flankDistance = Math.min(20, Math.max(12, distance * 0.4)); // Адаптивное расстояние
-        const flankPos = myPos.clone().add(perpendicular.scale(flankDistance));
+        // Fallback: старый метод если pathfinding не нашёл позицию
+        if (!flankPos) {
+            const toTarget = targetPos.subtract(myPos);
+            toTarget.y = 0;
+            toTarget.normalize();
+            
+            const perpendicular = new Vector3(toTarget.z * this.flankDirection, 0, -toTarget.x * this.flankDirection);
+            const distance = Vector3.Distance(targetPos, myPos);
+            const flankDistance = Math.min(20, Math.max(12, distance * 0.4));
+            flankPos = myPos.clone().add(perpendicular.scale(flankDistance));
+        }
         
         // УЛУЧШЕНО: Более быстрое движение при фланге
         this.driveToward(flankPos, 0.9); // УВЕЛИЧЕНО с 0.8
@@ -2780,6 +2796,12 @@ export class EnemyTank {
         // Уничтожаем стенку если есть
         this.destroyWall();
         
+        // УЛУЧШЕНО: Очистка pathfinding
+        if (this.pathfinding) {
+            this.pathfinding.dispose();
+            this.pathfinding = null;
+        }
+        
         if (this.chassis && !this.chassis.isDisposed()) {
             this.chassis.dispose();
         }
@@ -2787,6 +2809,20 @@ export class EnemyTank {
             this.hpBillboard.dispose();
         }
         this.onDeathObservable.clear();
+    }
+    
+    // УЛУЧШЕНО: Установка roadNetwork для pathfinding
+    setRoadNetwork(roadNetwork: RoadNetwork): void {
+        if (this.pathfinding) {
+            this.pathfinding.setRoadNetwork(roadNetwork);
+        }
+    }
+    
+    // УЛУЧШЕНО: Обновление позиции референса для pathfinding
+    updatePathfindingReference(position: Vector3): void {
+        if (this.pathfinding) {
+            this.pathfinding.setReferencePosition(position);
+        }
     }
     
     // УЛУЧШЕНО: Обновление информации о близких союзниках
@@ -2823,12 +2859,21 @@ export class EnemyTank {
         return false;
     }
     
-    // УЛУЧШЕНО: Поиск укрытия (здания, препятствия)
+    // УЛУЧШЕНО: Поиск укрытия (здания, препятствия) - использует AIPathfinding
     private findCoverPosition(): Vector3 | null {
-        if (!this.target || !this.target.chassis) return null;
+        if (!this.target || !this.target.chassis || !this.pathfinding) return null;
         
         const myPos = this.chassis.absolutePosition;
         const targetPos = this.target.chassis.absolutePosition;
+        
+        // Используем улучшенный поиск укрытия из AIPathfinding
+        const coverPos = this.pathfinding.findCover(myPos, targetPos, 30);
+        
+        if (coverPos) {
+            return coverPos;
+        }
+        
+        // Fallback: старый метод если pathfinding не нашёл укрытие
         const toTarget = targetPos.subtract(myPos);
         toTarget.y = 0;
         toTarget.normalize();

@@ -655,5 +655,5 @@ Clients should check version compatibility before connecting.
 
 ---
 
-**Last Updated**: 2024
+**Last Updated**: 2025
 **API Version**: 1.0.0

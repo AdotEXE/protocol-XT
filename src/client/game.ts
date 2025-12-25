@@ -33,6 +33,7 @@ import { EnemyManager } from "./enemy";
 import { ChunkSystem } from "./chunkSystem";
 // Debug tools are lazy loaded (only loaded when F3/F4/F7 are pressed)
 import { EnemyTank } from "./enemyTank";
+import { AICoordinator } from "./ai/AICoordinator";
 // MainMenu is lazy loaded - imported dynamically when needed
 import type { GameSettings, MapType } from "./menu";
 import { CurrencyManager } from "./currencyManager";
@@ -110,6 +111,9 @@ export class Game {
     
     // Enemy tanks
     enemyTanks: EnemyTank[] = [];
+    
+    // УЛУЧШЕНО: AI Coordinator для групповой тактики
+    aiCoordinator: AICoordinator | undefined;
     
     // Currency manager
     currencyManager: CurrencyManager | undefined;
@@ -2880,6 +2884,9 @@ export class Game {
             this.enemyManager.setEffectsManager(this.effectsManager);
             this.enemyManager.setSoundManager(this.soundManager);
             
+            // УЛУЧШЕНО: Инициализация AI Coordinator для групповой тактики
+            this.aiCoordinator = new AICoordinator();
+            
             // Connect enemy manager to tank for hit detection
             this.tank.setEnemyManager(this.enemyManager);
             
@@ -3380,6 +3387,11 @@ export class Game {
                     // ИСПРАВЛЕНИЕ: Добавляем опыт игроку только один раз через ExperienceSystem
                     // PlayerProgression получает опыт через ExperienceSystem.flushXpBatch()
                 }
+                // УЛУЧШЕНО: Удаляем бота из AI Coordinator
+                if (this.aiCoordinator) {
+                    this.aiCoordinator.unregisterBot(enemyTank.id);
+                }
+                
                 // Remove from array
                 const idx = this.enemyTanks.indexOf(enemyTank);
                 if (idx !== -1) this.enemyTanks.splice(idx, 1);
@@ -3406,6 +3418,22 @@ export class Game {
             });
             
                 this.enemyTanks.push(enemyTank);
+                
+                // УЛУЧШЕНО: Регистрируем бота в AI Coordinator
+                if (this.aiCoordinator) {
+                    this.aiCoordinator.registerBot(enemyTank);
+                }
+                
+                // УЛУЧШЕНО: Устанавливаем roadNetwork для pathfinding
+                if (this.chunkSystem && this.chunkSystem.roadNetwork) {
+                    enemyTank.setRoadNetwork(this.chunkSystem.roadNetwork);
+                }
+                
+                // УЛУЧШЕНО: Обновляем позицию референса для pathfinding
+                if (this.tank && this.tank.chassis) {
+                    enemyTank.updatePathfindingReference(this.tank.chassis.absolutePosition);
+                }
+                
                 logger.log(`[Game] [${index + 1}/${spawnPositions.length}] Enemy added to array. Total enemies: ${this.enemyTanks.length}`);
             } catch (error) {
                 logger.error(`[Game] [${index + 1}/${spawnPositions.length}] FAILED to spawn enemy:`, error);
@@ -5974,6 +6002,17 @@ export class Game {
                     if (this._updateTick % 8 === 0) {
                         enemy.update();
                     }
+                }
+            }
+            
+            // УЛУЧШЕНО: Обновление AI Coordinator для групповой тактики
+            if (this.aiCoordinator && this.tank && this.tank.chassis) {
+                // Обновляем позицию игрока в координаторе
+                this.aiCoordinator.updatePlayerPosition(this.tank.chassis.absolutePosition);
+                
+                // Обновляем координатор (каждые 2 кадра для оптимизации)
+                if (this._updateTick % 2 === 0) {
+                    this.aiCoordinator.update();
                 }
             }
         }
