@@ -711,7 +711,9 @@ export class Game {
             // G key открывает/закрывает ТОЛЬКО ту ворота, на которую смотрит пушка танка
             if ((e.code === "KeyG" || e.key === "g" || e.key === "G") && this.gameStarted && this.chunkSystem && this.chunkSystem.garageDoors && 
                 (!this.garage || !this.garage.isGarageOpen())) {
-                e.preventDefault();
+                e.preventDefault(); // Предотвращаем другие обработчики
+                e.stopPropagation(); // Останавливаем распространение события
+                e.stopImmediatePropagation(); // Останавливаем все обработчики
                 // Переключаем состояние ворот ближайшего гаража (только той, на которую смотрит пушка)
                 if (this.tank && this.tank.chassis && this.tank.barrel) {
                     const playerPos = this.tank.chassis.absolutePosition;
