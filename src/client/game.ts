@@ -612,6 +612,8 @@ export class Game {
         // IMPORTANT: use capture phase (third argument = true), чтобы ловить сочетания
         // Ctrl+цифры и F-клавиши до того, как их перехватит браузер или другие слушатели.
         window.addEventListener("keydown", (e) => {
+            // ИСПРАВЛЕНИЕ: Обрабатываем Ctrl+цифры в первую очередь с capture phase
+            // Это гарантирует что наши обработчики сработают до других
             // Open/Close garage MENU with B key - В ЛЮБОЙ МОМЕНТ (даже до старта игры)
             // G key используется для управления воротами гаража во время игры
             if (e.code === "KeyB" || e.key === "b" || e.key === "B") {
@@ -1390,7 +1392,7 @@ export class Game {
                     }
                 }
             }
-        });
+        }, true); // ИСПРАВЛЕНИЕ: capture phase = true, чтобы Ctrl+цифры работали до других обработчиков
         
         // КРИТИЧЕСКИ ВАЖНО: Подписка на onAfterPhysicsObservable будет добавлена в init() после создания сцены и включения физики
         
