@@ -1,4 +1,7 @@
-// Главный файл экспорта компонентов танка
+/**
+ * @module tank
+ * @description Главный файл экспорта компонентов танка
+ */
 
 // Шасси
 export type { ChassisType } from './chassis';
@@ -27,3 +30,11 @@ export { SHELL_TYPES, getShellTypeById } from './arsenal';
 // Двигатели
 export type { EngineType } from './engines';
 export { ENGINE_PRESETS, getEngineById } from './engines';
+
+// Движение
+export type { TankMovementParams, TankMovementState } from './movement';
+export { DEFAULT_MOVEMENT_PARAMS, CHASSIS_MOVEMENT_PARAMS } from './movement';
+
+// Вооружение
+export type { WeaponParams, WeaponState, AmmoType } from './combat';
+export { AMMO_TYPES, AMMO_PARAMS, DEFAULT_AMMO_COUNT } from './combat';
