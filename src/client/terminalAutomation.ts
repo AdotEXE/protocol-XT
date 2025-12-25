@@ -71,27 +71,21 @@ export class TerminalAutomation {
         try {
             // Простые условия через команды
             if (condition.startsWith('command:')) {
-                const cmd = condition.replace('command:', '').trim();
+                const _cmd = condition.replace('command:', '').trim();
                 // Можно выполнить команду и проверить результат
                 return true; // Упрощённая версия
             }
             
-            // JavaScript выражения
+            // Безопасный парсер условий (без eval)
             if (this.game) {
-                // Безопасное выполнение выражений
-                const context = {
-                    game: this.game,
+                const variables: Record<string, number> = {
                     fps: this.game.engine?.getFps() || 0,
-                    time: Date.now()
+                    time: Date.now(),
+                    health: 100, // Можно расширить
+                    score: 0
                 };
                 
-                // Простые проверки
-                if (condition.includes('fps')) {
-                    const fps = context.fps;
-                    return eval(condition.replace(/fps/g, fps.toString()));
-                }
-                
-                return eval(condition);
+                return this.safeEvaluateExpression(condition, variables);
             }
             
             return false;
@@ -99,6 +93,74 @@ export class TerminalAutomation {
             logger.warn(`[TerminalAutomation] Condition evaluation failed: ${condition}`, error);
             return false;
         }
+    }
+    
+    /**
+     * Безопасное вычисление простых выражений без eval
+     * Поддерживает: >, <, >=, <=, ==, !=, &&, ||
+     */
+    private safeEvaluateExpression(expression: string, variables: Record<string, number>): boolean {
+        // Удаляем пробелы
+        const expr = expression.trim();
+        
+        // Обработка логических операторов (&&, ||)
+        if (expr.includes('&&')) {
+            const parts = expr.split('&&');
+            return parts.every(part => this.safeEvaluateExpression(part, variables));
+        }
+        
+        if (expr.includes('||')) {
+            const parts = expr.split('||');
+            return parts.some(part => this.safeEvaluateExpression(part, variables));
+        }
+        
+        // Операторы сравнения (в порядке от длинных к коротким)
+        const operators: Array<{ op: string; fn: (a: number, b: number) => boolean }> = [
+            { op: '>=', fn: (a, b) => a >= b },
+            { op: '<=', fn: (a, b) => a <= b },
+            { op: '!=', fn: (a, b) => a !== b },
+            { op: '==', fn: (a, b) => a === b },
+            { op: '>', fn: (a, b) => a > b },
+            { op: '<', fn: (a, b) => a < b }
+        ];
+        
+        for (const { op, fn } of operators) {
+            if (expr.includes(op)) {
+                const [leftStr, rightStr] = expr.split(op).map(s => s.trim());
+                if (!leftStr || !rightStr) continue;
+                
+                const leftVal = this.resolveValue(leftStr, variables);
+                const rightVal = this.resolveValue(rightStr, variables);
+                
+                return fn(leftVal, rightVal);
+            }
+        }
+        
+        // Если нет оператора, проверяем truthiness переменной
+        const val = this.resolveValue(expr, variables);
+        return val !== 0;
+    }
+    
+    /**
+     * Получить значение переменной или числа
+     */
+    private resolveValue(token: string, variables: Record<string, number>): number {
+        const trimmed = token.trim();
+        
+        // Проверяем, это число?
+        const num = parseFloat(trimmed);
+        if (!isNaN(num)) {
+            return num;
+        }
+        
+        // Это переменная?
+        if (trimmed in variables) {
+            return variables[trimmed]!;
+        }
+        
+        // Неизвестное значение
+        logger.warn(`[TerminalAutomation] Unknown variable: ${trimmed}`);
+        return 0;
     }
     
     /**
