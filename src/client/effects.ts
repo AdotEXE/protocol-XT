@@ -6,9 +6,11 @@ import {
     Color3,
     Mesh
 } from "@babylonjs/core";
+import { ParticleEffects } from "./effects/ParticleEffects";
 
 // Ultra-simple effects - NO shaders, NO particles, NO gradients
 // Just simple boxes that appear and disappear
+// УЛУЧШЕНО: Поддержка улучшенной системы частиц через ParticleEffects
 
 export class EffectsManager {
     private scene: Scene;
@@ -16,8 +18,13 @@ export class EffectsManager {
     private explosionMat: StandardMaterial;
     private dustMat: StandardMaterial;
     
-    constructor(scene: Scene) {
+    // УЛУЧШЕНО: Опциональная улучшенная система частиц
+    private particleEffects: ParticleEffects | null = null;
+    private useParticles: boolean = true; // Флаг для включения/выключения частиц
+    
+    constructor(scene: Scene, useParticles: boolean = true) {
         this.scene = scene;
+        this.useParticles = useParticles;
         
         // Pre-create simple materials - FLAT colors only, NO emissive, NO alpha
         this.flashMat = new StandardMaterial("flashMat", scene);
@@ -35,7 +42,18 @@ export class EffectsManager {
         this.dustMat.specularColor = Color3.Black();
         this.dustMat.freeze();
         
-        console.log("[EffectsManager] Initialized (simple mode)");
+        // УЛУЧШЕНО: Инициализация улучшенной системы частиц
+        if (this.useParticles) {
+            try {
+                this.particleEffects = new ParticleEffects(this.scene);
+                console.log("[EffectsManager] Initialized with ParticleEffects");
+            } catch (error) {
+                console.warn("[EffectsManager] Failed to initialize ParticleEffects, using simple mode:", error);
+                this.particleEffects = null;
+            }
+        } else {
+            console.log("[EffectsManager] Initialized (simple mode)");
+        }
     }
     
     // Улучшенный эффект использования припаса - свечение вокруг танка
@@ -285,6 +303,12 @@ export class EffectsManager {
     
     // УЛУЧШЕНО: Enhanced explosion - более эффектные взрывы
     createExplosion(position: Vector3, scale: number = 1.0): void {
+        // УЛУЧШЕНО: Используем улучшенную систему частиц если доступна
+        if (this.particleEffects) {
+            this.particleEffects.createExplosion(position, scale);
+            // Также создаём простой эффект для совместимости
+        }
+        
         // Main explosion box (expanding) - replaced sphere with box
         const explosion = MeshBuilder.CreateBox("explosion", { width: 0.7 * scale, height: 0.7 * scale, depth: 0.7 * scale }, this.scene);
         explosion.position = position.clone();
@@ -400,6 +424,11 @@ export class EffectsManager {
     
     // Simple dust - just a semi-transparent box
     createDustCloud(position: Vector3): void {
+        // УЛУЧШЕНО: Используем улучшенную систему частиц если доступна
+        if (this.particleEffects) {
+            this.particleEffects.createDust(position);
+        }
+        
         const dust = MeshBuilder.CreateBox("dust", { size: 1 }, this.scene);
         dust.position = position.clone();
         dust.material = this.dustMat;
@@ -420,7 +449,12 @@ export class EffectsManager {
     }
     
     // Simple hit spark - just a small bright box
-    createHitSpark(position: Vector3, _direction?: Vector3): void {
+    createHitSpark(position: Vector3, direction?: Vector3): void {
+        // УЛУЧШЕНО: Используем улучшенную систему частиц если доступна
+        if (this.particleEffects && direction) {
+            this.particleEffects.createHit(position, direction);
+        }
+        
         const spark = MeshBuilder.CreateBox("spark", { size: 0.3 }, this.scene);
         spark.position = position.clone();
         spark.material = this.flashMat;
