@@ -176,6 +176,8 @@ export class EnemyTank {
     
     // === SPAWN STABILIZATION ===
     private _spawnStabilizing = true;
+    private _spawnWarmupTime = 0; // Время с момента окончания стабилизации (для плавного разгона)
+    private readonly SPAWN_WARMUP_DURATION = 1500; // 1.5 секунды плавного разгона
     
     // Для отслеживания застревания в воздухе
     private _airStuckTimer = 0;
@@ -1400,13 +1402,22 @@ export class EnemyTank {
         const patrolRadius = 150 + Math.random() * 200; // 150-350 единиц от старта
         const numPoints = 8 + Math.floor(Math.random() * 5); // 8-12 точек маршрута
         
-        // КРИТИЧНО: Добавляем точку выезда из гаража ПЕРВОЙ (она НЕ будет перемешана!)
-        // Враги должны СРАЗУ выезжать из гаража на патруль
+        // Очищаем старые точки
+        this.patrolPoints = [];
+        
+        // КРИТИЧНО: Добавляем БЛИЖНЮЮ точку первой для плавного старта
+        // Враги начинают с короткого броска вперёд, затем расходятся
         const exitAngle = Math.random() * Math.PI * 2;
-        const exitX = center.x + Math.cos(exitAngle) * 50; // УВЕЛИЧЕНО с 40 для гарантированного выезда
-        const exitZ = center.z + Math.sin(exitAngle) * 50;
-        const exitPoint = new Vector3(exitX, center.y + 2.0, exitZ); // Добавляем высоту для правильного спавна
-        this.patrolPoints.push(exitPoint);
+        const nearExitX = center.x + Math.cos(exitAngle) * 15; // БЛИЖНЯЯ точка (15 единиц)
+        const nearExitZ = center.z + Math.sin(exitAngle) * 15;
+        const nearExitPoint = new Vector3(nearExitX, center.y, nearExitZ);
+        this.patrolPoints.push(nearExitPoint);
+        
+        // Вторая точка - дальше для продолжения движения
+        const farExitX = center.x + Math.cos(exitAngle) * 60;
+        const farExitZ = center.z + Math.sin(exitAngle) * 60;
+        const farExitPoint = new Vector3(farExitX, center.y, farExitZ);
+        this.patrolPoints.push(farExitPoint);
         
         // Генерируем случайные точки по карте
         const otherPoints: Vector3[] = [];
@@ -1713,9 +1724,9 @@ export class EnemyTank {
             this.currentPatrolIndex = (this.currentPatrolIndex + 1) % this.patrolPoints.length;
             
             // УЛУЧШЕНО: Более частое обновление точек патруля для более активного патрулирования
-            if (Math.random() < 0.25) { // УВЕЛИЧЕНО с 0.15 до 0.25
+            if (Math.random() < 0.25) {
                 const newAngle = Math.random() * Math.PI * 2;
-                const newDist = 120 + Math.random() * 250; // УВЕЛИЧЕНО расстояние для большего охвата
+                const newDist = 120 + Math.random() * 250;
                 const newX = myPos.x + Math.cos(newAngle) * newDist;
                 const newZ = myPos.z + Math.sin(newAngle) * newDist;
                 this.patrolPoints[this.currentPatrolIndex] = new Vector3(
@@ -1725,12 +1736,19 @@ export class EnemyTank {
                 );
             }
         } else {
-        // УЛУЧШЕНО: Более активное патрулирование - едем быстрее
-        this.driveToward(target, 0.95); // УВЕЛИЧЕНО с 0.85 до 0.95 для более быстрого патрулирования
+            // УЛУЧШЕНО: Плавный разгон после спавна
+            let patrolSpeed = 0.95;
+            if (this._spawnWarmupTime < this.SPAWN_WARMUP_DURATION) {
+                // Во время warmup постепенно увеличиваем скорость от 0.3 до 0.95
+                const warmupProgress = this._spawnWarmupTime / this.SPAWN_WARMUP_DURATION;
+                patrolSpeed = 0.3 + warmupProgress * 0.65;
+                this._spawnWarmupTime += 16; // ~16ms per frame
+            }
+            this.driveToward(target, patrolSpeed);
         }
         
-        // УЛУЧШЕНО: Более активное сканирование во время патруля
-        const scanAngle = Math.sin(Date.now() * 0.0012) * 0.7; // УВЕЛИЧЕНО с ±0.5 до ±0.7 радиан для большего обзора
+        // Плавное сканирование башни во время патруля
+        const scanAngle = Math.sin(Date.now() * 0.0012) * 0.7;
         this.turretTargetAngle = scanAngle;
     }
     
