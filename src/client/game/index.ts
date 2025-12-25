@@ -2,6 +2,7 @@
 // GAME MODULES - Экспорт всех модулей Game
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Core modules
 export { GameCore } from "./GameCore";
 export { GameSystems } from "./GameSystems";
 export { GameInput } from "./GameInput";
@@ -12,5 +13,11 @@ export { GameGarage } from "./GameGarage";
 export { GameEnemies } from "./GameEnemies";
 export { GameEvents } from "./GameEvents";
 export { GameUpdate } from "./GameUpdate";
+
+// UI modules
+export { LoadingScreen } from "./LoadingScreen";
+export { SettingsManager } from "./SettingsManager";
+
+// Types
 export type * from "./types";
 
