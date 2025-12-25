@@ -8,6 +8,11 @@
  */
 
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
+import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import { Color3 } from "@babylonjs/core/Maths/math.color";
+import { PhysicsAggregate } from "@babylonjs/core/Physics/v2/physicsAggregate";
+import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import { BaseMapGenerator } from "../shared/BaseMapGenerator";
 import { ChunkGenerationContext } from "../shared/MapGenerator";
 
@@ -29,33 +34,52 @@ export class IndustrialGenerator extends BaseMapGenerator {
     readonly description = "Заводы, контейнеры и краны";
     
     private config: IndustrialConfig;
-    private chunkSystemDelegate: any = null;
     
     constructor(config: Partial<IndustrialConfig> = {}) {
         super();
         this.config = { ...DEFAULT_INDUSTRIAL_CONFIG, ...config };
     }
     
-    setChunkSystemDelegate(chunkSystem: any): void {
-        this.chunkSystemDelegate = chunkSystem;
-    }
-    
     generateContent(context: ChunkGenerationContext): void {
-        if (this.chunkSystemDelegate) {
-            const { chunkX, chunkZ, worldX, worldZ, size, random, chunkParent } = context;
-            this.chunkSystemDelegate.generateIndustrialMapContentExternal(
-                chunkX, chunkZ, worldX, worldZ, size, random, chunkParent
-            );
-            return;
-        }
-        
         this.generateFactories(context);
         this.generateContainers(context);
         this.generateCranes(context);
     }
     
-    private generateFactories(_context: ChunkGenerationContext): void {
-        // TODO: Перенести логику создания заводов
+    private generateFactories(context: ChunkGenerationContext): void {
+        const { chunkX, chunkZ, size, random, chunkParent } = context;
+        
+        // Несколько средних заводов (2-4 на чанк)
+        const factoryCount = random.int(2, 4);
+        for (let i = 0; i < factoryCount; i++) {
+            const fx = random.range(10, size - 10);
+            const fz = random.range(10, size - 10);
+            const fWorldX = chunkX * size + fx;
+            const fWorldZ = chunkZ * size + fz;
+            
+            if (this.isPositionInGarageArea(fWorldX, fWorldZ, 15)) continue;
+            
+            const factory = this.createBox(
+                "factory",
+                { width: random.range(20, 30), height: random.range(8, 15), depth: random.range(25, 35) },
+                new Vector3(fx, random.range(4, 7.5), fz),
+                random.pick(["metal", "concrete", "metalRust"]),
+                chunkParent,
+                true
+            );
+            
+            // Add smokestacks
+            if (random.chance(0.7)) {
+                const stack = this.createBox(
+                    "stack",
+                    { width: 2, height: random.range(10, 18), depth: 2 },
+                    new Vector3(fx + random.range(-10, 10), random.range(5, 9), fz + random.range(-10, 10)),
+                    "brickDark",
+                    chunkParent,
+                    true
+                );
+            }
+        }
     }
     
     private generateContainers(context: ChunkGenerationContext): void {
@@ -87,8 +111,37 @@ export class IndustrialGenerator extends BaseMapGenerator {
         }
     }
     
-    private generateCranes(_context: ChunkGenerationContext): void {
-        // TODO: Перенести логику создания кранов
+    private generateCranes(context: ChunkGenerationContext): void {
+        const { chunkX, chunkZ, size, random, chunkParent } = context;
+        
+        // Несколько кранов (4-6 на чанк)
+        const craneCount = random.int(4, 6);
+        for (let i = 0; i < craneCount; i++) {
+            const craneX = random.range(15, size - 15);
+            const craneZ = random.range(15, size - 15);
+            const cWorldX = chunkX * size + craneX;
+            const cWorldZ = chunkZ * size + craneZ;
+            
+            if (!this.isPositionInGarageArea(cWorldX, cWorldZ, 10)) {
+                const tower = this.createBox(
+                    "craneTower",
+                    { width: 2, height: 15, depth: 2 },
+                    new Vector3(craneX, 7.5, craneZ),
+                    "yellow",
+                    chunkParent,
+                    false
+                );
+                
+                const arm = this.createBox(
+                    "craneArm",
+                    { width: 1, height: 1, depth: 18 },
+                    new Vector3(craneX, 14, craneZ + 8),
+                    "yellow",
+                    chunkParent,
+                    false
+                );
+            }
+        }
     }
 }
 
