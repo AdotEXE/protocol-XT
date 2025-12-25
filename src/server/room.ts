@@ -7,6 +7,7 @@ import { ServerEnemy } from "./enemy";
 import { getGameModeRules, type GameModeRules } from "./gameModes";
 import { CTFSystem } from "./ctf";
 import { InputValidator } from "./validation";
+import { logger, LogLevel, loggingSettings } from "../client/utils/logger";
 
 export class GameRoom {
     id: string;
@@ -175,7 +176,9 @@ export class GameRoom {
             this.enemies.set(enemy.id, enemy);
         }
         
-        console.log(`[Room ${this.id}] Spawned ${enemyCount} enemies for Co-op mode`);
+        if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+            logger.debug(`[Room] Enemies spawned: ${enemyCount} enemies`);
+        }
     }
     
     endMatch(): void {
@@ -389,7 +392,9 @@ export class GameRoom {
             // Validate position after movement
             const posValidation = InputValidator.validatePosition(player.position);
             if (!posValidation.valid) {
-                console.warn(`[Room] Invalid position for player ${player.id}, reverting: ${posValidation.reason}`);
+                if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+                    logger.debug(`[Room] Invalid position for player ${player.name}: ${posValidation.reason}`);
+                }
                 player.position = oldPosition; // Revert to old position
                 player.violationCount++;
                 player.lastViolationTime = Date.now();
@@ -401,11 +406,15 @@ export class GameRoom {
                 const suspiciousCheck = InputValidator.checkSuspiciousMovement(player.positionHistory);
                 if (suspiciousCheck.suspicious) {
                     player.suspiciousMovementCount++;
-                    console.warn(`[Room] Suspicious movement from player ${player.id}: ${suspiciousCheck.reason} (count: ${player.suspiciousMovementCount})`);
+                    if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+                        logger.debug(`[Room] Suspicious movement detected for player ${player.name}: ${suspiciousCheck.reason}`);
+                    }
                     
                     // Kick player after too many violations
                     if (player.suspiciousMovementCount >= 10 || player.violationCount >= 20) {
-                        console.warn(`[Room] Kicking player ${player.id} for repeated violations`);
+                        if (loggingSettings.getLevel() >= LogLevel.WARN) {
+                            logger.warn(`[Room] Player ${player.name} kicked: ${player.suspiciousMovementCount} suspicious movements, ${player.violationCount} violations`);
+                        }
                         player.disconnect();
                         return;
                     }

@@ -4,6 +4,7 @@
 
 import { firebaseService } from "./firebaseService";
 import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, query, where, getDocs, arrayUnion, serverTimestamp, orderBy, limit } from "firebase/firestore";
+import { logger, LogLevel, loggingSettings, LogCategory } from "./utils/logger";
 
 export interface Friend {
     playerId: string;
@@ -93,7 +94,9 @@ export class SocialSystem {
                 status: "pending"
             });
 
-            console.log(`[Social] Friend request sent to ${targetPlayerName}`);
+            if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+                logger.debug(`[Social] Friend request sent to ${targetPlayerId}`);
+            }
             return true;
         } catch (error) {
             console.error("[Social] Error sending friend request:", error);
@@ -149,7 +152,9 @@ export class SocialSystem {
                 friends: arrayUnion(currentUserFriendData)
             }, { merge: true });
 
-            console.log(`[Social] Friend request accepted from ${request.fromPlayerName}`);
+            if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+                logger.debug(`[Social] Friend request accepted: ${requestId}`);
+            }
             return true;
         } catch (error) {
             console.error("[Social] Error accepting friend request:", error);
@@ -166,7 +171,9 @@ export class SocialSystem {
         try {
             const requestRef = doc(this.db, "friendRequests", requestId);
             await updateDoc(requestRef, { status: "rejected" });
-            console.log("[Social] Friend request rejected");
+            if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+                logger.debug(`[Social] Friend request rejected: ${requestId}`);
+            }
             return true;
         } catch (error) {
             console.error("[Social] Error rejecting friend request:", error);
@@ -204,7 +211,9 @@ export class SocialSystem {
                 await setDoc(friendUserRef, { friends: updatedFriends });
             }
 
-            console.log(`[Social] Friend removed: ${friendId}`);
+            if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+                logger.debug(`[Social] Friend removed: ${friendId}`);
+            }
             return true;
         } catch (error) {
             console.error("[Social] Error removing friend:", error);
@@ -346,7 +355,9 @@ export class SocialSystem {
             });
 
             this.clanCache = clan;
-            console.log(`[Social] Clan created: ${name} [${tag}]`);
+            if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+                logger.debug(`[Social] Clan created: ${clan.name} (${clan.tag})`);
+            }
             return clanId;
         } catch (error) {
             console.error("[Social] Error creating clan:", error);

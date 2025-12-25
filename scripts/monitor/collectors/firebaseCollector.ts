@@ -11,7 +11,9 @@ export interface FirebaseMetrics {
 
 export class FirebaseCollector {
     private lastRequestTime: number = 0;
-    private isOnline: boolean = false;
+    // Reserved for future use
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private _isOnline: boolean = false;
     
     async start(): Promise<void> {
         // Firebase status is inferred from server stats
@@ -39,11 +41,11 @@ export class FirebaseCollector {
     
     recordRequest(): void {
         this.lastRequestTime = Date.now();
-        this.isOnline = true;
+        this._isOnline = true;
     }
     
     setOnline(online: boolean): void {
-        this.isOnline = online;
+        this._isOnline = online;
     }
 }
 

@@ -4,6 +4,7 @@
 
 import type { PlayerData, GameMode } from "../shared/types";
 import { ServerMessageType } from "../shared/messages";
+import { logger, LogLevel, loggingSettings, LogCategory } from "./utils/logger";
 
 export interface ReplayEvent {
     timestamp: number; // Time in milliseconds since match start
@@ -65,7 +66,9 @@ export class ReplayRecorder {
             }))
         });
         
-        console.log(`[Replay] Started recording match ${matchId}`);
+        if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+            logger.debug("[Replay] Started recording");
+        }
     }
 
     /**
@@ -95,7 +98,9 @@ export class ReplayRecorder {
             metadata: this.metadata
         };
         
-        console.log(`[Replay] Stopped recording. Total events: ${this.events.length}, Duration: ${duration}ms`);
+        if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+            logger.debug(`[Replay] Stopped recording. Duration: ${(duration/1000).toFixed(1)}s, Events: ${this.events.length}`);
+        }
         
         return replayData;
     }
@@ -191,7 +196,9 @@ export class ReplayRecorder {
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
-                console.log(`[Replay] Downloaded replay: ${a.download}`);
+                if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+                    logger.debug(`[Replay] Replay downloaded: ${a.download}`);
+                }
                 return null;
             } else {
                 // Save to localStorage (with size limit)
@@ -205,7 +212,9 @@ export class ReplayRecorder {
                 }
                 
                 localStorage.setItem(key, json);
-                console.log(`[Replay] Saved replay to localStorage: ${key} (${(size / 1024).toFixed(2)}KB)`);
+                    if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+                        logger.debug(`[Replay] Replay saved to localStorage: ${key}`);
+                    }
                 return key;
             }
         } catch (error) {
@@ -239,7 +248,10 @@ export class ReplayRecorder {
                 return null;
             }
             
-            console.log(`[Replay] Loaded replay: ${data.matchId}, ${data.events.length} events, ${data.duration}ms`);
+            if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+                const replayKey = typeof keyOrData === "string" ? keyOrData : keyOrData.matchId;
+                logger.debug(`[Replay] Replay loaded from localStorage: ${replayKey}`);
+            }
             return data;
         } catch (error) {
             console.error("[Replay] Error loading replay:", error);
@@ -315,7 +327,7 @@ export class ReplayPlayer {
         this.currentTime = 0;
         this.eventIndex = 0;
         this.isPlaying = false;
-        console.log(`[Replay] Loaded replay: ${replayData.matchId}`);
+        // Replay loaded - logging removed
     }
 
     /**
@@ -326,7 +338,9 @@ export class ReplayPlayer {
         this.isPlaying = true;
         this.currentTime = 0;
         this.eventIndex = 0;
-        console.log("[Replay] Started playback");
+        if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+            logger.debug(`[Replay] Playback started. Duration: ${(this.replayData.duration/1000).toFixed(1)}s, Events: ${this.replayData.events.length}`);
+        }
     }
 
     /**

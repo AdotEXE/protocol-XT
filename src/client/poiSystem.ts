@@ -17,6 +17,8 @@ import {
     Texture,
     Color4
 } from "@babylonjs/core";
+import { getTartuLandmarksInChunk, TartuLandmark } from "./tartuPOI";
+import { generateBuildingsAlongRoads } from "./tartuBuildings";
 
 // Seeded random
 class SeededRandom {
@@ -109,6 +111,7 @@ export interface POICallbacks {
 interface POISystemConfig {
     worldSeed: number;
     poiSpacing: number;
+    mapType?: string;
 }
 
 export class POISystem {
@@ -1238,6 +1241,13 @@ export class POISystem {
             return poiIds.map(id => this.pois.get(id)!).filter(p => p);
         }
         
+        // СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ ТАРТУ
+        // ЗАЩИТНАЯ ПРОВЕРКА: только явно "tartaria", не undefined и не другие значения
+        // ТОЛЬКО для Тартарии используем специальную систему POI
+        if (this.config.mapType === "tartaria") {
+            return this.generateTartuPOIsForChunk(chunkX, chunkZ, chunkSize, biome, parent);
+        }
+        
         const seed = this.config.worldSeed + chunkX * 10000 + chunkZ;
         const random = new SeededRandom(seed);
         const createdPOIs: POI[] = [];
@@ -1402,6 +1412,197 @@ export class POISystem {
         
         this.chunkPOIs.set(key, poiIds);
         return createdPOIs;
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // TARTU POI GENERATION
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Генерирует POI для карты Тарту
+     */
+    private generateTartuPOIsForChunk(
+        chunkX: number,
+        chunkZ: number,
+        chunkSize: number,
+        biome: string,
+        parent: TransformNode
+    ): POI[] {
+        const key = `${chunkX}_${chunkZ}`;
+        const createdPOIs: POI[] = [];
+        const poiIds: string[] = [];
+        
+        const worldX = chunkX * chunkSize;
+        const worldZ = chunkZ * chunkSize;
+        
+        // 1. Получаем достопримечательности в этом чанке
+        const landmarks = getTartuLandmarksInChunk(chunkX, chunkZ, chunkSize);
+        
+        for (const landmark of landmarks) {
+            const worldPos = new Vector3(landmark.position.x, 0, landmark.position.z);
+            const localPos = worldPos.subtract(new Vector3(
+                worldX + chunkSize / 2,
+                0,
+                worldZ + chunkSize / 2
+            ));
+            
+            const id = `tartu_landmark_${landmark.id}`;
+            
+            // Создаем POI на основе типа достопримечательности
+            let poi: POI;
+            if (landmark.poiType === "capturePoint") {
+                poi = this.createCapturePoint(localPos, id, parent, worldPos);
+            } else if (landmark.poiType === "repairStation") {
+                poi = this.createRepairStation(localPos, id, parent, worldPos);
+            } else if (landmark.poiType === "ammoDepot") {
+                poi = this.createAmmoDepot(localPos, id, parent, worldPos);
+            } else if (landmark.poiType === "fuelDepot") {
+                poi = this.createFuelDepot(localPos, id, parent, worldPos);
+            } else if (landmark.poiType === "radarStation") {
+                poi = this.createRadarStation(localPos, id, parent, worldPos);
+            } else {
+                // По умолчанию - точка захвата
+                poi = this.createCapturePoint(localPos, id, parent, worldPos);
+            }
+            
+            // Создаем визуальное представление здания
+            this.createTartuBuilding(landmark, parent);
+            
+            createdPOIs.push(poi);
+            poiIds.push(id);
+            this.pois.set(id, poi);
+        }
+        
+        // 2. Генерируем здания вдоль дорог
+        const seed = this.config.worldSeed + chunkX * 10000 + chunkZ;
+        const buildings = generateBuildingsAlongRoads(chunkX, chunkZ, chunkSize, seed);
+        
+        for (const building of buildings) {
+            // Создаем визуальное представление здания
+            const buildingMesh = MeshBuilder.CreateBox(
+                `tartu_building_${chunkX}_${chunkZ}_${buildings.indexOf(building)}`,
+                {
+                    width: building.width,
+                    height: building.height,
+                    depth: building.depth
+                },
+                this.scene
+            );
+            
+            const localBuildingPos = building.position.subtract(new Vector3(
+                worldX + chunkSize / 2,
+                0,
+                worldZ + chunkSize / 2
+            ));
+            
+            buildingMesh.position = localBuildingPos;
+            buildingMesh.position.y = building.height / 2;
+            buildingMesh.rotation.y = building.rotation;
+            
+            // Материал зависит от типа здания
+            const material = new StandardMaterial(`building_${chunkX}_${chunkZ}_${buildings.indexOf(building)}`, this.scene);
+            if (building.type === "commercial" || building.type === "office") {
+                material.diffuseColor = new Color3(0.6, 0.6, 0.65); // Светло-серый
+            } else if (building.type === "industrial") {
+                material.diffuseColor = new Color3(0.5, 0.5, 0.55); // Серый
+            } else {
+                material.diffuseColor = new Color3(0.55, 0.55, 0.6); // Светло-серый для жилых
+            }
+            
+            buildingMesh.material = material;
+            buildingMesh.parent = parent;
+            
+            // Добавляем физику
+            new PhysicsAggregate(buildingMesh, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        }
+        
+        // 3. Генерируем обычные POI для биома (меньше, чем на обычных картах)
+        const random = new SeededRandom(seed);
+        
+        // Меньше случайных POI, так как есть достопримечательности
+        const poiChance = 0.3; // Снижено с 0.7
+        const maxPOIs = 1;
+        
+        if (random.chance(poiChance)) {
+            const margin = 20;
+            const x = worldX + random.range(margin, chunkSize - margin);
+            const z = worldZ + random.range(margin, chunkSize - margin);
+            
+            // Проверяем, не находится ли POI в области гаража
+            if (this.isPositionInGarageArea && this.isPositionInGarageArea(x, z, 10)) {
+                // Пропускаем
+            } else {
+                const localPos = new Vector3(x - worldX, 0, z - worldZ);
+                const worldPos = new Vector3(x, 0, z);
+                const id = `poi_${chunkX}_${chunkZ}_${random.int(0, 9999)}`;
+                
+                let poi: POI;
+                if (biome === "city" || biome === "industrial") {
+                    const type = random.int(0, 2);
+                    if (type === 0) poi = this.createCapturePoint(localPos, id, parent, worldPos);
+                    else if (type === 1) poi = this.createRepairStation(localPos, id, parent, worldPos);
+                    else poi = this.createAmmoDepot(localPos, id, parent, worldPos);
+                } else if (biome === "park" || biome === "university") {
+                    poi = this.createCapturePoint(localPos, id, parent, worldPos);
+                } else {
+                    const type = random.int(0, 2);
+                    if (type === 0) poi = this.createRepairStation(localPos, id, parent, worldPos);
+                    else if (type === 1) poi = this.createFuelDepot(localPos, id, parent, worldPos);
+                    else poi = this.createCapturePoint(localPos, id, parent, worldPos);
+                }
+                
+                this.pois.set(id, poi);
+                poiIds.push(id);
+                createdPOIs.push(poi);
+            }
+        }
+        
+        this.chunkPOIs.set(key, poiIds);
+        return createdPOIs;
+    }
+    
+    /**
+     * Создает визуальное представление здания достопримечательности
+     */
+    private createTartuBuilding(landmark: TartuLandmark, parent: TransformNode): void {
+        // Создаем low-poly здание на основе данных достопримечательности
+        const building = MeshBuilder.CreateBox(
+            `tartu_building_${landmark.id}`,
+            {
+                width: landmark.size.width,
+                height: landmark.size.height || 8,
+                depth: landmark.size.depth
+            },
+            this.scene
+        );
+        
+        building.position = new Vector3(
+            landmark.position.x,
+            (landmark.size.height || 8) / 2,
+            landmark.position.z
+        );
+        
+        if (landmark.rotation !== undefined) {
+            building.rotation.y = landmark.rotation;
+        }
+        
+        // Материал зависит от типа
+        const material = new StandardMaterial(`building_${landmark.id}`, this.scene);
+        if (landmark.type === "university" || landmark.type === "government") {
+            material.diffuseColor = new Color3(0.6, 0.6, 0.65); // Светло-серый
+        } else if (landmark.type === "church") {
+            material.diffuseColor = new Color3(0.7, 0.7, 0.75); // Бежевый
+        } else if (landmark.type === "bridge") {
+            material.diffuseColor = new Color3(0.5, 0.5, 0.55); // Серый
+        } else {
+            material.diffuseColor = new Color3(0.5, 0.5, 0.55); // Серый
+        }
+        
+        building.material = material;
+        building.parent = parent;
+        
+        // Добавляем физику
+        new PhysicsAggregate(building, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
     }
     
     // ═══════════════════════════════════════════════════════════════════════

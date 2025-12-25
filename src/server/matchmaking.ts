@@ -1,6 +1,7 @@
 import type { GameMode } from "../shared/types";
 import { GameRoom } from "./room";
 import { ServerPlayer } from "./player";
+import { logger, LogLevel, loggingSettings } from "../client/utils/logger";
 
 export interface MatchmakingQueue {
     mode: GameMode;
@@ -44,7 +45,9 @@ export class MatchmakingSystem {
         }
         
         queue.players.push(player);
-        console.log(`[Matchmaking] Player ${player.id} added to queue: ${queueKey} (${queue.players.length} players)`);
+        if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+            logger.debug(`[Matchmaking] Player ${player.name} added to queue: ${queueKey} (${queue.players.length} players)`);
+        }
     }
     
     removeFromQueue(player: ServerPlayer, mode: GameMode, region?: string): boolean {
@@ -56,7 +59,9 @@ export class MatchmakingSystem {
         const index = queue.players.indexOf(player);
         if (index !== -1) {
             queue.players.splice(index, 1);
-            console.log(`[Matchmaking] Player ${player.id} removed from queue: ${queueKey}`);
+            if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+                logger.debug(`[Matchmaking] Player ${player.name} removed from queue: ${queueKey}`);
+            }
             return true;
         }
         
@@ -101,7 +106,9 @@ export class MatchmakingSystem {
         this.removeFromQueue(player, queue.mode, queue.region);
         this.removeFromQueue(otherPlayer, queue.mode, queue.region);
         
-        console.log(`[Matchmaking] Quick match found: ${player.id} vs ${otherPlayer.id}`);
+        if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+            logger.debug(`[Matchmaking] Quick match found: ${player.name} vs ${otherPlayer.name}`);
+        }
         
         return room;
     }
@@ -136,7 +143,9 @@ export class MatchmakingSystem {
         this.removeFromQueue(player, queue.mode, queue.region);
         this.removeFromQueue(match, queue.mode, queue.region);
         
-        console.log(`[Matchmaking] Skill-based match found: ${player.id} (skill: ${playerSkill}) vs ${match.id} (skill: ${this.getSkillLevel(match.id)})`);
+        if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+            logger.debug(`[Matchmaking] Skill-based match found: ${player.name} (skill ${playerSkill}) vs ${match.name} (skill ${this.getSkillLevel(match.id)})`);
+        }
         
         return room;
     }

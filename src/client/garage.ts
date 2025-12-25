@@ -2899,16 +2899,7 @@ export class Garage {
                 }
                 break;
         }
-        
-        // Antenna for medium/heavy/assault
-        if (chassisType.id === "medium" || chassisType.id === "heavy" || chassisType.id === "assault") {
-            const antenna = MeshBuilder.CreateBox("previewAntenna", { width: 0.025 , height: 0.35, depth: 0.025  }, scene);
-            antenna.position = new Vector3(w * 0.42, h * 0.65, -d * 0.42);
-            antenna.parent = chassis;
-            const antennaMat = new StandardMaterial("previewAntennaMat", scene);
-            antennaMat.diffuseColor = new Color3(0.25, 0.25, 0.25);
-            antenna.material = antennaMat;
-        }
+        */
     }
     
     // NOTE: createTurretPreview and createUniqueCannonPreview moved to garage/preview.ts
@@ -3167,9 +3158,7 @@ export class Garage {
         this.showNotification(`Пресет "${name}" сохранен!`, "success");
     }
     
-    /**
-     * Применить пресет танка
-     */
+    // Применить пресет танка
     private applyPreset(presetId: string): void {
         const preset = this.savedTankConfigurations.find(p => 
             (p.name || `preset_${p.chassisId}_${p.cannonId}`) === presetId
@@ -3215,9 +3204,7 @@ export class Garage {
         this.refreshItemList();
     }
     
-    /**
-     * Получить HTML информацию о пресете
-     */
+    // Получить HTML информацию о пресете
     private getPresetInfoHTML(item: TankPart): string {
         const preset = this.savedTankConfigurations.find(p => 
             (p.name || `preset_${p.chassisId}_${p.cannonId}`) === item.id
@@ -3278,9 +3265,7 @@ export class Garage {
         `;
     }
     
-    /**
-     * Переименовать пресет
-     */
+    // Переименовать пресет
     private renamePreset(presetId: string): void {
         const preset = this.savedTankConfigurations.find(p => 
             (p.name || `preset_${p.chassisId}_${p.cannonId}`) === presetId
@@ -3329,9 +3314,7 @@ export class Garage {
         }
     }
     
-    /**
-     * Удалить пресет
-     */
+    // Удалить пресет
     private deletePreset(presetId: string): void {
         if (!confirm(`Удалить пресет "${presetId}"?`)) return;
         
@@ -3350,9 +3333,7 @@ export class Garage {
         }
     }
     
-    /**
-     * Показать уведомление
-     */
+    // Показать уведомление
     private showNotification(message: string, type: "success" | "error" | "info" = "success"): void {
         // Создаем визуальное уведомление
         const notification = document.createElement("div");

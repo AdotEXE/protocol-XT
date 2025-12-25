@@ -61,96 +61,59 @@ export function getSkillCost(level: number, baseCost: number = 1): number {
     return baseCost + (level - 1);
 }
 
-// Функция для генерации детерминированного случайного числа из строки
-function hashString(str: string): number {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash; // Convert to 32bit integer
-    }
-    return Math.abs(hash);
+// Продвинутое структурированное размещение узлов дерева навыков
+// Центральный узел в центре, ветки по кругу с учётом их ширины и глубины
+// С автоматическим выравниванием и оптимизацией пространства
+
+// Константы для размещения
+const HUB_RADIUS = 750; // Расстояние от центра до веток (хабов) - увеличено для большего пространства
+const NODE_VERTICAL_STEP = 350; // Вертикальный шаг между узлами в ветке
+const NODE_HORIZONTAL_OFFSET = 280; // Горизонтальное смещение для узлов с несколькими детьми
+const NODE_WIDTH = 220; // Ширина узла (для расчёта перекрытий)
+const NODE_HEIGHT = 130; // Высота узла (для расчёта перекрытий)
+const MIN_NODE_SPACING = 50; // Минимальное расстояние между узлами (дополнительный отступ)
+const LEVEL_ALIGNMENT_TOLERANCE = 20; // Допуск для выравнивания узлов на одном уровне
+
+// Структура для хранения информации о ветке
+interface BranchInfo {
+    id: string;
+    depth: number;
+    width: number;
+    maxWidth: number; // Максимальная ширина на любом уровне
 }
 
-// Вычисление позиции узла в полярной системе с углом 135° от родителя
-function calculateNodePositionRecursive(
-    node: SkillNode,
-    parentNode: SkillNode | null,
-    branchIndex: number,
-    positions: Map<string, { x: number; y: number }>
-): { x: number; y: number } {
-    // Центральный узел в позиции (0, 0)
-    if (!parentNode || node.id === "commandCore") {
-        return { x: 0, y: 0 };
+// Вычисление глубины и ширины ветки
+function calculateBranchInfo(nodeId: string, visited: Set<string> = new Set()): BranchInfo {
+    if (visited.has(nodeId)) return { id: nodeId, depth: 0, width: 0, maxWidth: 0 };
+    visited.add(nodeId);
+    
+    const children = SKILL_TREE_NODES.filter(n => n.parentId === nodeId);
+    if (children.length === 0) {
+        return { id: nodeId, depth: 1, width: NODE_WIDTH, maxWidth: NODE_WIDTH };
     }
     
-    // Получаем позицию родителя (рекурсивно вычисляем если нужно)
-    let parentPos = positions.get(parentNode.id);
-    if (!parentPos) {
-        // Рекурсивно вычисляем позицию родителя
-        const grandParent = parentNode.parentId 
-            ? SKILL_TREE_NODES.find(n => n.id === parentNode.parentId) || null
-            : null;
-        const parentSiblings = SKILL_TREE_NODES.filter(n => n.parentId === parentNode.parentId);
-        const parentBranchIndex = parentSiblings.findIndex(n => n.id === parentNode.id);
-        parentPos = calculateNodePositionRecursive(parentNode, grandParent, parentBranchIndex, positions);
-        positions.set(parentNode.id, parentPos);
-    }
-    
-    // Генерируем детерминированный seed из ID узла
-    const seed = hashString(node.id);
-    const seed2 = hashString(node.id + (node.parentId || ""));
-    
-    // Базовый угол: 135° от родителя
-    // Вычисляем угол родителя относительно его родителя
-    let parentAngle = 0;
-    if (parentNode.id !== "commandCore" && parentNode.parentId) {
-        const grandParent = SKILL_TREE_NODES.find(n => n.id === parentNode.parentId);
-        if (grandParent && grandParent.id !== "commandCore") {
-            const grandParentPos = positions.get(grandParent.id);
-            if (grandParentPos) {
-                const dx = parentPos.x - grandParentPos.x;
-                const dy = parentPos.y - grandParentPos.y;
-                parentAngle = Math.atan2(dy, dx) * 180 / Math.PI;
-            }
+    if (children.length === 1) {
+        const childInfo = calculateBranchInfo(children[0]!.id, visited);
+        return {
+            id: nodeId,
+            depth: 1 + childInfo.depth,
+            width: childInfo.width,
+            maxWidth: Math.max(NODE_WIDTH, childInfo.maxWidth)
+        };
         } else {
-            // Если родитель от центрального узла, используем начальный угол
-            const dx = parentPos.x;
-            const dy = parentPos.y;
-            parentAngle = Math.atan2(dy, dx) * 180 / Math.PI;
-        }
-    } else if (parentNode.id === "commandCore") {
-        // Если родитель - центральный узел, начинаем с угла основанного на branchIndex
-        parentAngle = (branchIndex * 45) % 360; // Распределяем ветки по кругу
-    }
-    
-    // Определяем направление ветки: чередуем +135° и -135°
-    const angleDirection = branchIndex % 2 === 0 ? 135 : -135;
-    const baseAngle = parentAngle + angleDirection;
-    
-    // Добавляем случайное смещение угла: ±10-15°
-    const angleVariation = ((seed % 30) - 15); // ±15°
-    const finalAngle = (baseAngle + angleVariation) * Math.PI / 180;
-    
-    // Базовое расстояние
-    const baseDistance = 220; // Увеличено с 180 до 220
-    
-    // Расстояние с вариацией ±15% (0.85 - 1.15)
-    const distanceVariation = 0.85 + ((seed2 % 30) / 100); // 0.85 - 1.15 (вместо 0.7 - 1.3)
-    const distance = baseDistance * distanceVariation;
-    
-    // Вычисляем базовую позицию
-    let x = parentPos.x + Math.cos(finalAngle) * distance;
-    let y = parentPos.y + Math.sin(finalAngle) * distance;
-    
-    // Случайное смещение ±16px (уменьшено с ±40px)
-    const offsetX = ((seed % 40) - 20) * 0.8; // ±16px вместо ±40px
-    const offsetY = (((seed * 7) % 40) - 20) * 0.8; // ±16px вместо ±40px
+        // Если несколько детей, вычисляем общую ширину и максимальную глубину
+        const childrenInfo = children.map(child => calculateBranchInfo(child.id, visited));
+        const totalWidth = NODE_HORIZONTAL_OFFSET * (children.length - 1) + NODE_WIDTH;
+        const maxDepth = Math.max(...childrenInfo.map(info => info.depth));
+        const maxWidth = Math.max(NODE_WIDTH, totalWidth, ...childrenInfo.map(info => info.maxWidth));
     
     return { 
-        x: x + offsetX, 
-        y: y + offsetY 
-    };
+            id: nodeId,
+            depth: 1 + maxDepth,
+            width: totalWidth,
+            maxWidth: maxWidth
+        };
+    }
 }
 
 // Вычисление всех позиций узлов дерева
@@ -161,41 +124,193 @@ export function calculateAllNodePositions(): Map<string, { x: number; y: number 
     const coreNode = SKILL_TREE_NODES.find(n => n.id === "commandCore");
     if (!coreNode) return positions;
     
-    // Позиция центрального узла
+    // 1. Центральный узел в позиции (0, 0)
     positions.set(coreNode.id, { x: 0, y: 0 });
     
-    // Рекурсивно вычисляем позиции всех узлов
-    const processNode = (node: SkillNode) => {
-        if (positions.has(node.id)) return; // Уже обработан
-        
-        const parentNode = node.parentId 
-            ? SKILL_TREE_NODES.find(n => n.id === node.parentId) || null
-            : null;
-        
-        // Находим индекс ветки среди братьев
-        const siblings = SKILL_TREE_NODES.filter(n => n.parentId === node.parentId);
-        const branchIndex = siblings.findIndex(n => n.id === node.id);
-        
-        const pos = calculateNodePositionRecursive(node, parentNode, branchIndex, positions);
-        positions.set(node.id, pos);
-        
-        // Обрабатываем дочерние узлы
-        const children = SKILL_TREE_NODES.filter(n => n.parentId === node.id);
-        children.forEach((child) => {
-            processNode(child);
-        });
-    };
+    // 2. Находим все ветки (хабы) от центрального узла
+    const hubNodes = SKILL_TREE_NODES.filter(n => 
+        n.parentId === "commandCore" && n.type === "hub"
+    );
     
-    // Обрабатываем все узлы, начиная с прямых детей центрального узла
-    const coreChildren = SKILL_TREE_NODES.filter(n => n.parentId === "commandCore");
-    coreChildren.forEach((child) => {
-        processNode(child);
+    // 3. Вычисляем информацию о каждой ветке (глубина, ширина)
+    const hubInfo = new Map<string, BranchInfo>();
+    hubNodes.forEach(hub => {
+        hubInfo.set(hub.id, calculateBranchInfo(hub.id));
     });
     
-    // Обрабатываем остальные узлы (на случай если есть узлы без прямого родителя)
+    // Сортируем ветки по приоритету: сначала широкие и глубокие
+    const sortedHubs = [...hubNodes].sort((a, b) => {
+        const infoA = hubInfo.get(a.id)!;
+        const infoB = hubInfo.get(b.id)!;
+        // Приоритет: сначала более широкие, затем более глубокие
+        const priorityA = infoA.maxWidth * 1000 + infoA.depth;
+        const priorityB = infoB.maxWidth * 1000 + infoB.depth;
+        return priorityB - priorityA;
+    });
+    
+    // 4. Умное размещение веток по кругу с учётом их ширины
+    const hubAngles = new Map<string, number>();
+    const baseAngleStep = (360 / sortedHubs.length) * Math.PI / 180;
+    
+    sortedHubs.forEach((hub, index) => {
+        const info = hubInfo.get(hub.id)!;
+        
+        // Базовый угол для равномерного распределения
+        let angle = index * baseAngleStep;
+        
+        // Корректируем угол для широких веток, чтобы избежать перекрытий
+        if (info.maxWidth > NODE_WIDTH * 2) {
+            // Широкие ветки получают дополнительный отступ
+            const widthFactor = info.maxWidth / (NODE_WIDTH * 2);
+            angle += (widthFactor - 1) * 0.05; // Небольшой дополнительный угол
+        }
+        
+        hubAngles.set(hub.id, angle);
+        
+        const x = Math.cos(angle) * HUB_RADIUS;
+        const y = Math.sin(angle) * HUB_RADIUS;
+        positions.set(hub.id, { x, y });
+    });
+    
+    // 5. Для каждой ветки размещаем узлы вертикально вниз с оптимизированным алгоритмом
+    // Сначала собираем все узлы по уровням для выравнивания
+    const nodesByLevel = new Map<number, Array<{ nodeId: string; parentId: string; branchId: string }>>();
+    
+    sortedHubs.forEach((hub) => {
+        const hubPos = positions.get(hub.id);
+        if (!hubPos) return;
+        
+        const branchInfo = hubInfo.get(hub.id)!;
+        
+        // Рекурсивно размещаем все дочерние узлы ветки
+        const placeNodesInBranch = (
+            parentId: string, 
+            parentPos: { x: number; y: number }, 
+            depth: number,
+            branchCenterX: number, // Центр ветки для симметричного размещения
+            levelWidth: number = 0 // Ширина текущего уровня
+        ) => {
+            const children = SKILL_TREE_NODES.filter(n => n.parentId === parentId);
+            
+            if (children.length === 0) return;
+            
+            // Оптимальный шаг: адаптивный в зависимости от глубины
+            let adaptiveStep = NODE_VERTICAL_STEP;
+            if (depth > 5) {
+                adaptiveStep = NODE_VERTICAL_STEP * 0.90; // Компактнее для глубоких уровней
+            } else if (depth > 3) {
+                adaptiveStep = NODE_VERTICAL_STEP * 0.95;
+            }
+            
+            // Если у узла один ребёнок - размещаем вертикально вниз по центру
+            if (children.length === 1) {
+                const child = children[0]!;
+                const childPos = {
+                    x: branchCenterX, // Всегда по центру ветки для симметрии
+                    y: parentPos.y + adaptiveStep + MIN_NODE_SPACING
+                };
+                positions.set(child.id, childPos);
+                
+                // Сохраняем информацию о уровне для последующего выравнивания
+                if (!nodesByLevel.has(depth + 1)) {
+                    nodesByLevel.set(depth + 1, []);
+                }
+                nodesByLevel.get(depth + 1)!.push({ nodeId: child.id, parentId, branchId: hub.id });
+                
+                placeNodesInBranch(child.id, childPos, depth + 1, branchCenterX, NODE_WIDTH);
+            } else {
+                // Если несколько детей - размещаем их симметрично относительно центра ветки
+                // Вычисляем оптимальную ширину для размещения всех детей
+                const minSpacing = NODE_WIDTH + MIN_NODE_SPACING;
+                const totalWidth = Math.max(
+                    NODE_HORIZONTAL_OFFSET * (children.length - 1),
+                    minSpacing * (children.length - 1)
+                );
+                const startX = branchCenterX - totalWidth / 2;
+                
+                // Вычисляем оптимальное расстояние между детьми
+                const optimalSpacing = children.length > 1 ? totalWidth / (children.length - 1) : 0;
+                
+                children.forEach((child, childIndex) => {
+                    const childPos = {
+                        x: startX + childIndex * optimalSpacing,
+                        y: parentPos.y + adaptiveStep + MIN_NODE_SPACING
+                    };
+                    positions.set(child.id, childPos);
+                    
+                    // Сохраняем информацию о уровне
+                    if (!nodesByLevel.has(depth + 1)) {
+                        nodesByLevel.set(depth + 1, []);
+                    }
+                    nodesByLevel.get(depth + 1)!.push({ nodeId: child.id, parentId, branchId: hub.id });
+                    
+                    // Для каждого ребёнка вычисляем его центр (для симметричного размещения его детей)
+                    const childCenterX = childPos.x;
+                    placeNodesInBranch(child.id, childPos, depth + 1, childCenterX, NODE_WIDTH);
+                });
+            }
+        };
+        
+        // Начинаем размещение от центра ветки (позиция хаба)
+        placeNodesInBranch(hub.id, hubPos, 0, hubPos.x, branchInfo.maxWidth);
+    });
+    
+    // 6. Постобработка: выравнивание узлов на одном уровне для лучшей визуализации
+    // (опционально, можно закомментировать если не нужно)
+    nodesByLevel.forEach((nodes, level) => {
+        if (level <= 1 || nodes.length <= 1) return; // Не выравниваем первые уровни и одиночные узлы
+        
+        // Группируем узлы по веткам
+        const nodesByBranch = new Map<string, typeof nodes>();
+        nodes.forEach(node => {
+            if (!nodesByBranch.has(node.branchId)) {
+                nodesByBranch.set(node.branchId, []);
+            }
+            nodesByBranch.get(node.branchId)!.push(node);
+        });
+        
+        // Для каждой ветки выравниваем узлы на одном уровне
+        nodesByBranch.forEach((branchNodes) => {
+            if (branchNodes.length <= 1) return;
+            
+            // Находим среднюю Y координату для выравнивания
+            const avgY = branchNodes.reduce((sum, node) => {
+                const pos = positions.get(node.nodeId);
+                return sum + (pos?.y || 0);
+            }, 0) / branchNodes.length;
+            
+            // Выравниваем узлы, если они близки по Y
+            branchNodes.forEach(node => {
+                const pos = positions.get(node.nodeId);
+                if (pos && Math.abs(pos.y - avgY) < LEVEL_ALIGNMENT_TOLERANCE) {
+                    pos.y = avgY;
+                    positions.set(node.nodeId, pos);
+                }
+            });
+        });
+    });
+    
+    // 7. Обрабатываем мета-узел синергии (если есть)
+    const synergyNode = SKILL_TREE_NODES.find(n => n.id === "commandSynergy");
+    if (synergyNode && synergyNode.parentId === "commandCore") {
+        // Размещаем мета-узел ниже центрального узла
+        positions.set(synergyNode.id, { x: 0, y: -HUB_RADIUS - 400 });
+    }
+    
+    // 8. Обрабатываем любые оставшиеся узлы (на случай если есть узлы без прямого родителя)
     SKILL_TREE_NODES.forEach(node => {
         if (!positions.has(node.id) && node.id !== "commandCore") {
-            processNode(node);
+            // Если у узла есть parentId, пытаемся разместить его относительно родителя
+            if (node.parentId) {
+                const parentPos = positions.get(node.parentId);
+                if (parentPos) {
+                    // Размещаем вертикально вниз от родителя
+                    positions.set(node.id, {
+                        x: parentPos.x,
+                        y: parentPos.y + NODE_VERTICAL_STEP
+                    });
+                }
+            }
         }
     });
     

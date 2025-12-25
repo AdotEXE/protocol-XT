@@ -6,6 +6,7 @@ import { Game } from "./game";
 import { logger } from "./utils/logger";
 import { WorldManager } from "./worldManager";
 import { WaveEditor } from "./waveEditor";
+import { CommonStyles } from "./commonStyles";
 
 export interface SpawnZone {
     id: string;
@@ -150,67 +151,19 @@ export class SessionSettings {
     }
     
     private createUI(): void {
+        // Инжектируем общие стили если еще не инжектированы
+        CommonStyles.initialize();
+        
         this.container = document.createElement("div");
         this.container.id = "session-settings";
         this.container.className = "panel-overlay";
         
         const style = document.createElement("style");
+        style.id = "session-settings-styles";
         style.textContent = `
-            #session-settings {
-                position: fixed;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
+            #session-settings .panel {
                 width: min(600px, 90vw);
                 max-height: min(800px, 90vh);
-                background: rgba(0, 10, 0, 0.95);
-                border: 2px solid rgba(0, 255, 4, 0.6);
-                border-radius: 8px;
-                color: #0f0;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
-                z-index: 10001;
-                box-shadow: 0 0 20px rgba(0, 255, 0, 0.4);
-                display: flex;
-                flex-direction: column;
-                overflow: hidden;
-            }
-            #session-settings.hidden { display: none; }
-            .session-header {
-                background: linear-gradient(180deg, rgba(0, 20, 0, 0.9) 0%, rgba(0, 10, 0, 0.95) 100%);
-                padding: 12px 16px;
-                border-bottom: 2px solid rgba(0, 255, 4, 0.4);
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-            }
-            .session-title {
-                color: #0ff;
-                font-size: 16px;
-                font-weight: bold;
-                text-shadow: 0 0 4px rgba(0, 255, 255, 0.6);
-            }
-            .session-close {
-                background: rgba(0, 255, 4, 0.2);
-                border: 1px solid rgba(0, 255, 4, 0.6);
-                color: #0ff;
-                width: 28px;
-                height: 28px;
-                cursor: pointer;
-                border-radius: 4px;
-                font-size: 18px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                transition: all 0.3s ease;
-            }
-            .session-close:hover {
-                background: rgba(0, 255, 4, 0.4);
-                transform: scale(1.1);
-            }
-            .session-content {
-                padding: 16px;
-                overflow-y: auto;
-                flex: 1;
             }
             .session-section {
                 margin-bottom: 20px;
@@ -302,35 +255,16 @@ export class SessionSettings {
                 padding: 16px;
                 border-top: 2px solid rgba(0, 255, 4, 0.4);
             }
-            .session-btn {
-                flex: 1;
-                padding: 10px;
-                background: rgba(0, 255, 4, 0.2);
-                border: 1px solid rgba(0, 255, 4, 0.6);
-                border-radius: 4px;
-                color: #0f0;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
-                font-size: 12px;
-                font-weight: bold;
-                cursor: pointer;
-                transition: all 0.3s ease;
-            }
-            .session-btn:hover {
-                background: rgba(0, 255, 4, 0.4);
-                transform: scale(1.05);
-            }
-            .session-btn.primary {
-                background: rgba(0, 255, 4, 0.3);
-            }
         `;
         document.head.appendChild(style);
         
         this.container.innerHTML = `
-            <div class="session-header">
-                <div class="session-title">НАСТРОЙКИ СЕССИИ [Ctrl+6]</div>
-                <button class="session-close" id="session-close">✕</button>
-            </div>
-            <div class="session-content">
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">НАСТРОЙКИ СЕССИИ [Ctrl+6]</div>
+                    <button class="panel-close" id="session-close">×</button>
+                </div>
+                <div class="panel-content">
                 <div class="session-section">
                     <div class="session-section-title">ВРАГИ</div>
                     <div class="session-control">
@@ -406,10 +340,11 @@ export class SessionSettings {
                         <input type="number" class="session-input" id="world-seed" placeholder="Автоматически" value="${this.settings.worldSettings.seed || ""}">
                     </div>
                 </div>
-            </div>
-            <div class="session-buttons">
-                <button class="session-btn" id="session-reset">Сброс</button>
-                <button class="session-btn primary" id="session-apply">Применить</button>
+                </div>
+                <div class="session-buttons">
+                    <button class="panel-btn secondary" id="session-reset">Сброс</button>
+                    <button class="panel-btn primary" id="session-apply">Применить</button>
+                </div>
             </div>
         `;
         

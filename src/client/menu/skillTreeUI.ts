@@ -148,11 +148,14 @@ export function updateSkillTreeDisplay(
         });
     });
     
-    // ПРОВЕРКА НА ПЕРЕСЕЧЕНИЯ
-    const minNodeDistance = 250;
+    // Упрощённая проверка на пересечения (с новым структурированным алгоритмом коллизии должны быть редкими)
     const nodeSize = { width: 220, height: 130 };
+    const minNodeDistance = 250; // Минимальное расстояние между узлами
     
     const nodeIds: string[] = Array.from(nodePositions.keys());
+    let totalCollisions = 0;
+    
+    // Простая однопроходная проверка коллизий (для диагностики)
     for (let i = 0; i < nodeIds.length; i++) {
         for (let j = i + 1; j < nodeIds.length; j++) {
             const pos1 = nodePositions.get(nodeIds[i]!);
@@ -164,23 +167,20 @@ export function updateSkillTreeDisplay(
             const distance = Math.sqrt(dx * dx + dy * dy);
             
             if (distance < minNodeDistance) {
-                const angle = Math.atan2(dy, dx);
-                const pushDistance = (minNodeDistance - distance) / 2;
-                
-                pos1.left += Math.cos(angle + Math.PI) * pushDistance;
-                pos1.top += Math.sin(angle + Math.PI) * pushDistance;
-                pos1.centerX = pos1.left + nodeSize.width / 2;
-                pos1.centerY = pos1.top + nodeSize.height / 2;
-                
-                pos2.left += Math.cos(angle) * pushDistance;
-                pos2.top += Math.sin(angle) * pushDistance;
-                pos2.centerX = pos2.left + nodeSize.width / 2;
-                pos2.centerY = pos2.top + nodeSize.height / 2;
-                
-                nodePositions.set(nodeIds[i]!, pos1);
-                nodePositions.set(nodeIds[j]!, pos2);
+                totalCollisions++;
+                // С новым структурированным алгоритмом коллизии не должны возникать
+                // Но если они есть, просто логируем для диагностики
+                if (totalCollisions <= 5) {
+                    console.warn(`[Skills] Collision detected between ${nodeIds[i]} and ${nodeIds[j]} (distance: ${distance.toFixed(1)}px)`);
+                }
             }
         }
+    }
+    
+    if (totalCollisions > 0) {
+        console.warn(`[Skills] Found ${totalCollisions} potential collisions. This should not happen with structured layout.`);
+    } else {
+        console.log(`[Skills] No collisions detected - structured layout working correctly`);
     }
     
     skillTree.style.minWidth = `${treeWidth}px`;

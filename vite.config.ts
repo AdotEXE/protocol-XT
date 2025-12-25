@@ -204,66 +204,49 @@ export default defineConfig({
             return 'vendor';
           }
           
-          // Собственные модули - логическое разделение
+          // Собственные модули - АГРЕССИВНОЕ ОБЪЕДИНЕНИЕ для уменьшения количества chunks
           if (id.includes('/src/client/')) {
-            // Основной код игры
-            if (id.includes('/game.ts') || id.includes('/tankController.ts') || id.includes('/enemyTank.ts')) {
+            // Основной код игры + UI
+            if (id.includes('/game.ts') || id.includes('/tankController.ts') || id.includes('/enemyTank.ts') ||
+                id.includes('/menu.ts') || id.includes('/garage.ts') || id.includes('/hud.ts') || 
+                id.includes('/chatSystem.ts')) {
               return 'game-core';
             }
-            // UI компоненты - разделяем для лучшей загрузки
-            if (id.includes('/menu.ts')) {
-              return 'game-menu-main';
-            }
-            if (id.includes('/garage.ts')) {
-              return 'game-garage-main';
-            }
-            if (id.includes('/hud.ts') || id.includes('/chatSystem.ts')) {
-              return 'game-ui';
-            }
-            // Игровые системы
+            
+            // ВСЕ игровые системы в один chunk (включая Tartu модули)
             if (id.includes('/chunkSystem.ts') || id.includes('/effects.ts') || id.includes('/soundManager.ts') || 
                 id.includes('/consumables.ts') || id.includes('/experienceSystem.ts') || id.includes('/playerProgression.ts') ||
                 id.includes('/achievements.ts') || id.includes('/missionSystem.ts') || id.includes('/playerStats.ts') ||
-                id.includes('/aimingSystem.ts') || id.includes('/destructionSystem.ts')) {
+                id.includes('/aimingSystem.ts') || id.includes('/destructionSystem.ts') ||
+                id.includes('/tartuBiomes.ts') || id.includes('/tartuPOI.ts') || id.includes('/tartuBuildings.ts') ||
+                id.includes('/tartuRoads.ts') || id.includes('/tartuHeightmap.ts') || id.includes('/coverGenerator.ts') ||
+                id.includes('/poiSystem.ts') || id.includes('/roadNetwork.ts') || id.includes('/terrainGenerator.ts') ||
+                id.includes('/tank/') || id.includes('/garage/') || id.includes('/menu/') ||
+                id.includes('/utils/') || id.includes('/tankTypes.ts') || id.includes('/trackTypes.ts') || 
+                id.includes('/skillTreeConfig.ts') || id.includes('/jsfxr.ts')) {
               return 'game-systems';
             }
-            // Мультиплеер
-            if (id.includes('/multiplayer.ts') || id.includes('/networkPlayerTank.ts')) {
+            
+            // Мультиплеер + Firebase + режимы
+            if (id.includes('/multiplayer.ts') || id.includes('/networkPlayerTank.ts') ||
+                id.includes('/firebaseService.ts') || id.includes('/socialSystem.ts') || id.includes('/leaderboard.ts') ||
+                id.includes('/battleRoyale.ts') || id.includes('/ctfVisualizer.ts') || id.includes('/replaySystem.ts') || 
+                id.includes('/voiceChat.ts')) {
               return 'game-multiplayer';
             }
-            // Firebase интеграция
-            if (id.includes('/firebaseService.ts') || id.includes('/socialSystem.ts') || id.includes('/leaderboard.ts')) {
-              return 'game-firebase';
-            }
-            // Игровые режимы (lazy loaded)
-            if (id.includes('/battleRoyale.ts') || id.includes('/ctfVisualizer.ts') || id.includes('/replaySystem.ts') || 
-                id.includes('/voiceChat.ts')) {
-              return 'game-modes';
-            }
-            // Debug инструменты (lazy loaded - загружаются только при нажатии F3/F4/F7)
+            
+            // Debug инструменты (lazy loaded)
             if (id.includes('/debugDashboard.ts') || id.includes('/physicsPanel.ts') || id.includes('/cheatMenu.ts')) {
               return 'game-debug';
             }
-            // Утилиты
-            if (id.includes('/utils/') || id.includes('/tankTypes.ts') || id.includes('/trackTypes.ts') || 
-                id.includes('/skillTreeConfig.ts') || id.includes('/jsfxr.ts')) {
-              return 'game-utils';
-            }
-            // Танк модули
-            if (id.includes('/tank/')) {
-              return 'game-tank';
-            }
-            // Гараж модули
-            if (id.includes('/garage/')) {
-              return 'game-garage';
-            }
-            // Меню модули
-            if (id.includes('/menu/')) {
-              return 'game-menu';
-            }
           }
           
-          // Остальные файлы
+          // ВСЕ остальные файлы из src/client также идут в game-systems
+          if (id.includes('/src/client/')) {
+            return 'game-systems';
+          }
+          
+          // Остальные файлы (shared, server и т.д.)
           return null;
         },
         // Оптимизация для production

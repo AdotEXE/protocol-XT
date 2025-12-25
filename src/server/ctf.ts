@@ -2,6 +2,7 @@ import { Vector3 } from "@babylonjs/core";
 import { nanoid } from "nanoid";
 import { ServerPlayer } from "./player";
 import { GameRoom } from "./room";
+import { logger, LogLevel, loggingSettings } from "../client/utils/logger";
 
 export interface FlagData {
     id: string;
@@ -78,7 +79,9 @@ export class CTFSystem {
             // Pick up flag
             enemyFlag.isCarried = true;
             enemyFlag.carrierId = player.id;
-            console.log(`[CTF] Player ${player.id} picked up team ${enemyTeam} flag`);
+            if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+                logger.debug(`[CTF] Flag picked up by ${player.name} (team ${player.team})`);
+            }
             return true;
         }
         
@@ -128,7 +131,9 @@ export class CTFSystem {
             playerName: player?.name || "Unknown"
         };
         
-        console.log(`[CTF] Team ${capturingTeam} captured team ${capturedTeam} flag!`);
+        if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+            logger.debug(`[CTF] Flag captured by team ${capturingTeam} (player: ${player?.name || playerId})`);
+        }
     }
     
     returnFlagToBase(team: number): void {
@@ -139,7 +144,9 @@ export class CTFSystem {
         flag.carrierId = null;
         flag.position = flag.basePosition.clone();
         
-        console.log(`[CTF] Team ${team} flag returned to base`);
+        if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+            logger.debug(`[CTF] Flag returned to base (team ${team})`);
+        }
     }
     
     getFlags(): FlagData[] {

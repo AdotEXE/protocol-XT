@@ -2,6 +2,9 @@
 // NOISE GENERATOR - Simplex/Perlin noise for terrain generation
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Импортируем модуль высот Тарту для прямого использования
+import * as tartuHeightmapModule from "./tartuHeightmap";
+
 // Simplex noise implementation based on Stefan Gustavson's work
 // Optimized for 2D terrain generation
 
@@ -188,10 +191,25 @@ export class TerrainGenerator {
     private heightCache: Map<string, number> = new Map();
     private static readonly MAX_CACHE_SIZE = 200000;
     private isPositionInGarageArea?: (x: number, z: number, margin: number) => boolean;
+    private mapType?: string;
+    private seed: number;
     
-    constructor(seed: number, isPositionInGarageArea?: (x: number, z: number, margin: number) => boolean) {
+    constructor(seed: number, isPositionInGarageArea?: (x: number, z: number, margin: number) => boolean, mapType?: string) {
         this.noise = new NoiseGenerator(seed);
         this.isPositionInGarageArea = isPositionInGarageArea;
+        this.mapType = mapType;
+        this.seed = seed;
+        
+        // Инициализируем систему высот для Тарту, если это карта Тартария
+        // ЗАЩИТНАЯ ПРОВЕРКА: только явно "tartaria", не undefined и не другие значения
+        if (mapType !== undefined && mapType === "tartaria") {
+            // Динамический импорт для избежания циклических зависимостей
+            import("./tartuHeightmap").then(module => {
+                module.initTartuHeightmap(seed);
+            }).catch(() => {
+                // Игнорируем ошибки загрузки модуля
+            });
+        }
     }
     
     // Apply advanced thermal erosion simulation for more natural terrain
@@ -298,12 +316,99 @@ export class TerrainGenerator {
         }
     }
     
+    // Генерация высот в стиле Тарту (упрощённая версия, используется пока модуль загружается)
+    private generateTartuLikeHeight(worldX: number, worldZ: number): number {
+        // Параметры Тарту: мин 27м, макс 82м, среднее 53м
+        const minElevation = 27;
+        const maxElevation = 82;
+        const elevationRange = maxElevation - minElevation;
+        
+        // Используем шум для создания холмистой местности
+        const scale = 0.003;
+        const largeScale = this.noise.fbm(worldX * scale * 0.5, worldZ * scale * 0.5, 4, 2, 0.5);
+        const midScale = this.noise.fbm(worldX * scale * 1.5, worldZ * scale * 1.5, 3, 2, 0.5);
+        const fineScale = this.noise.fbm(worldX * scale * 4, worldZ * scale * 4, 2, 2, 0.5);
+        
+        const combinedNoise = largeScale * 0.6 + midScale * 0.3 + fineScale * 0.1;
+        const normalizedNoise = (combinedNoise + 1) / 2; // 0..1
+        
+        // Добавляем долину реки (река Эмайыги)
+        const centerX = 1000; // Центр карты
+        const centerZ = 1000;
+        const riverInfluence = Math.exp(-((worldX - centerX) ** 2 + (worldZ - centerZ) ** 2) / (2 * 500 ** 2));
+        const riverDepth = riverInfluence * 8;
+        
+        let height = minElevation + normalizedNoise * elevationRange - riverDepth;
+        height = Math.max(minElevation - 5, Math.min(maxElevation, height));
+        height = Math.round(height);
+        
+        // Масштабируем для игрового баланса
+        return height * 0.3;
+    }
+    
     // Get terrain height at world coordinates with dramatic variations and erosion
     getHeight(worldX: number, worldZ: number, biome: string): number {
-        // ИСПРАВЛЕНИЕ: Проверка гаража ПЕРЕД вычислением высоты
-        // Если точка в гараже, возвращаем высоту 0 (уровень пола гаража)
+        // ИСПРАВЛЕНИЕ: Для гаражей используем высоту террейна вокруг гаража, а не высоту самого гаража
+        // КРИТИЧНО: Если точка в гараже, получаем высоту террейна в небольшом радиусе от гаража
+        // Это нужно для правильного спавна танков НАД террейном, а не под ним
         if (this.isPositionInGarageArea && this.isPositionInGarageArea(worldX, worldZ, 25)) {
-            return 0; // Уровень пола гаража
+            // Получаем высоту террейна в небольшом радиусе от гаража (чтобы избежать высоты 0)
+            // Проверяем несколько точек вокруг гаража и берем максимальную высоту
+            const radius = 30; // Радиус проверки вокруг гаража
+            const checkPoints = [
+                { x: worldX + radius, z: worldZ },
+                { x: worldX - radius, z: worldZ },
+                { x: worldX, z: worldZ + radius },
+                { x: worldX, z: worldZ - radius },
+                { x: worldX + radius * 0.707, z: worldZ + radius * 0.707 },
+                { x: worldX - radius * 0.707, z: worldZ - radius * 0.707 },
+                { x: worldX + radius * 0.707, z: worldZ - radius * 0.707 },
+                { x: worldX - radius * 0.707, z: worldZ + radius * 0.707 }
+            ];
+            
+            let maxHeight = 0;
+            for (const point of checkPoints) {
+                // Рекурсивно вызываем getHeight, но с проверкой, чтобы избежать бесконечной рекурсии
+                // Используем флаг для отслеживания, что мы уже проверяем гараж
+                const height = this.getBaseHeight(point.x, point.z, biome);
+                if (height > maxHeight) {
+                    maxHeight = height;
+                }
+            }
+            
+            // Если не нашли высоту, используем минимальную безопасную высоту
+            const finalHeight = maxHeight > 0 ? maxHeight : 2.0;
+            return finalHeight;
+        }
+        
+        // Специальная обработка для карты Тартария (реальные данные высот Тарту)
+        // ТОЛЬКО для Тартарии используем специальную систему высот
+        if (this.mapType === "tartaria") {
+            // Используем прямой импорт модуля высот Тарту
+            try {
+                // Инициализируем модуль, если ещё не инициализирован
+                if (!tartuHeightmapModule.isTartuHeightmapInitialized()) {
+                    tartuHeightmapModule.initTartuHeightmap(this.seed);
+                }
+                
+                const height = tartuHeightmapModule.getTartuHeight(worldX, worldZ);
+                
+                const cacheKey = `${Math.floor(worldX)}_${Math.floor(worldZ)}_${biome}`;
+                this.heightCache.set(cacheKey, height);
+                if (this.heightCache.size > TerrainGenerator.MAX_CACHE_SIZE) {
+                    this.heightCache.clear();
+                }
+                return height;
+            } catch (e) {
+                // Если модуль не загружен, используем упрощённую генерацию
+                const tartuLikeHeight = this.generateTartuLikeHeight(worldX, worldZ);
+                const cacheKey = `${Math.floor(worldX)}_${Math.floor(worldZ)}_${biome}`;
+                this.heightCache.set(cacheKey, tartuLikeHeight);
+                if (this.heightCache.size > TerrainGenerator.MAX_CACHE_SIZE) {
+                    this.heightCache.clear();
+                }
+                return tartuLikeHeight;
+            }
         }
         
         // Check cache

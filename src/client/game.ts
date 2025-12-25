@@ -1,11 +1,13 @@
 import "@babylonjs/core/Debug/debugLayer";
-import { logger } from "./utils/logger";
+import { logger, LogLevel, loggingSettings } from "./utils/logger";
 // import { CommonStyles } from "./commonStyles"; // Не используется
 import { 
     Engine, 
     Scene, 
     Vector3, 
-    HemisphericLight, 
+    HemisphericLight,
+    DirectionalLight,
+    ShadowGenerator,
     MeshBuilder, 
     Mesh,
     HavokPlugin,
@@ -262,33 +264,38 @@ export class Game {
     private readonly _colorEmissiveEnemy = new Color3(0.5, 0.1, 0.1);
 
     constructor() {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:266',message:'Game constructor started, calling loadMainMenu',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         // MainMenu will be loaded lazily when needed
-        // Check for auto-start first
-        const autoStartMap = localStorage.getItem("autoStartMap");
-        if (autoStartMap) {
-            // Auto-start: load menu immediately but don't show it
-            this.currentMapType = autoStartMap as MapType;
-            logger.log(`[Game] Auto-starting on map: ${autoStartMap}`);
-            this.loadMainMenu().then(() => {
-                const menu = this.mainMenu;
-                if (menu) {
-                    localStorage.removeItem("autoStartMap");
-                    setTimeout(() => {
-                        menu.triggerStartGame(this.currentMapType);
-                    }, 100);
-                }
-            });
-        } else {
-            // Normal start: load and show menu
-            this.loadMainMenu().then(() => {
-                if (this.mainMenu) {
-                    this.mainMenu.show();
-                }
-            });
-        }
-        
-        // Setup menu callbacks after loading
-        this.setupMenuCallbacks();
+        this.loadMainMenu().then(() => {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:269',message:'loadMainMenu promise resolved',data:{mainMenuExists:!!this.mainMenu},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
+            if (this.mainMenu) {
+                logger.log("[Game] Menu loaded, setting up callbacks...");
+                this.setupMenuCallbacks();
+                logger.log("[Game] Callbacks set up, showing menu...");
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:273',message:'About to call mainMenu.show()',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+                // #endregion
+                this.mainMenu.show();
+                logger.log("[Game] Menu show() called");
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:275',message:'mainMenu.show() called',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+                // #endregion
+            } else {
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:277',message:'ERROR: mainMenu is null after load',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
+                logger.error("[Game] Menu loaded but mainMenu is null!");
+            }
+        }).catch((error) => {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:279',message:'ERROR: loadMainMenu failed',data:{error:error?.toString()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+            logger.error("[Game] Failed to load menu:", error);
+        });
         
         // Обработчик для возобновления игры
         window.addEventListener("resumeGame", () => {
@@ -304,17 +311,32 @@ export class Game {
     
     // Lazy load MainMenu
     private async loadMainMenu(): Promise<void> {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:295',message:'loadMainMenu started',data:{alreadyLoaded:!!this.mainMenu},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         if (this.mainMenu) return; // Already loaded
         
         try {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:299',message:'About to import MainMenu',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
             const { MainMenu } = await import("./menu");
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:300',message:'MainMenu imported, creating instance',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
             this.mainMenu = new MainMenu();
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:301',message:'MainMenu instance created',data:{mainMenuExists:!!this.mainMenu},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
             if (this.mainMenu) {
                 this.settings = this.mainMenu.getSettings();
                 this.setupMenuCallbacks();
                 logger.log("[Game] MainMenu loaded");
             }
         } catch (error) {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:308',message:'ERROR: Failed to load MainMenu',data:{error:error?.toString()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
             logger.error("[Game] Failed to load MainMenu:", error);
         }
     }
@@ -353,31 +375,50 @@ export class Game {
     
     // Setup menu callbacks after menu is loaded
     private setupMenuCallbacks(): void {
-        if (!this.mainMenu) return;
+        if (!this.mainMenu) {
+            logger.error("[Game] setupMenuCallbacks: mainMenu is null!");
+            return;
+        }
+        
+        logger.log("[Game] Setting up menu callbacks...");
         
         this.mainMenu.setOnRestartGame(() => {
+            logger.log("[Game] Restart game callback called");
             this.restartGame();
         });
         
         this.mainMenu.setOnExitBattle(() => {
+            logger.log("[Game] Exit battle callback called");
             this.exitBattle();
         });
         
         this.mainMenu.setOnStartGame(async (mapType?: MapType) => {
-            if (mapType) {
-                this.currentMapType = mapType;
-            }
-            
-            // Инициализируем игру, если еще не инициализирована
-            if (!this.gameInitialized) {
-                logger.debug(`[Game] Initializing game with map type: ${this.currentMapType}`);
-                await this.init();
-                this.gameInitialized = true;
-                logger.log("Game initialized successfully");
-            } else {
-                // Если игра уже инициализирована, но тип карты изменился, пересоздаем ChunkSystem
-                if (mapType && this.chunkSystem) {
+            logger.log(`[Game] ===== Start game callback called with mapType: ${mapType} =====`);
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:395',message:'onStartGame callback entry',data:{mapType:mapType,currentMapTypeBefore:this.currentMapType},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+            // #endregion
+            try {
+                if (mapType) {
+                    this.currentMapType = mapType;
+                    logger.log(`[Game] Map type set to: ${this.currentMapType}`);
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:399',message:'currentMapType set',data:{mapType:mapType,currentMapType:this.currentMapType},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+                    // #endregion
+                }
+                
+                // Инициализируем игру, если еще не инициализирована
+                if (!this.gameInitialized) {
+                    logger.log(`[Game] Game not initialized, initializing with map type: ${this.currentMapType}`);
+                    await this.init();
+                    this.gameInitialized = true;
+                    logger.log("[Game] Game initialized successfully");
+                } else {
+                    // Если игра уже инициализирована, но тип карты изменился, пересоздаем ChunkSystem
+                    if (mapType && this.chunkSystem) {
                     logger.log(`Recreating ChunkSystem for map type: ${mapType}`);
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:417',message:'Recreating ChunkSystem branch',data:{passedMapType:mapType,currentMapType:this.currentMapType},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
+                    // #endregion
                     
                     // Очищаем старые враги
                     this.enemyTanks.forEach(enemy => {
@@ -395,6 +436,16 @@ export class Game {
                         this.enemyManager.turrets = [];
                     }
                     
+                    // Очищаем кэши Тарту перед dispose, если новая карта не Тартария
+                    // Это предотвращает использование данных Тарту для других карт
+                    if (mapType !== "tartaria") {
+                        const { clearTartuHeightmapCache } = await import("./tartuHeightmap");
+                        const { clearBiomeCache } = await import("./tartuBiomes");
+                        clearTartuHeightmapCache();
+                        clearBiomeCache();
+                        logger.log(`[Game] Cleared Tartu caches before recreating ChunkSystem (new mapType: ${mapType})`);
+                    }
+                    
                     // ВАЖНО: Dispose старой карты перед созданием новой!
                     this.chunkSystem.dispose();
                     
@@ -405,12 +456,19 @@ export class Game {
                         newWorldSeed = Math.floor(Math.random() * 999999999);
                     }
                     
+                    // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: используем ПЕРЕДАННЫЙ mapType (параметр функции), а не this.currentMapType!
+                    // Ранее была ошибка: создавалась локальная переменная mapType, которая перезаписывала параметр
+                    const mapTypeForChunkSystem = mapType || this.currentMapType || "normal";
+                    logger.log(`[Game] Recreating ChunkSystem with mapType: ${mapTypeForChunkSystem} (passed mapType: ${mapType}, currentMapType: ${this.currentMapType})`);
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:447',message:'Recreating ChunkSystem',data:{passedMapType:mapType,currentMapType:this.currentMapType,mapTypeForChunkSystem:mapTypeForChunkSystem},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
+                    // #endregion
                     this.chunkSystem = new ChunkSystem(this.scene, {
                         chunkSize: 80,
                         renderDistance: 1.5,
                         unloadDistance: 4,
                         worldSeed: newWorldSeed,
-                        mapType: this.currentMapType
+                        mapType: mapTypeForChunkSystem
                     });
                     
                     // Обновляем ссылки
@@ -433,18 +491,52 @@ export class Game {
                 }
             }
             
-            // Убеждаемся, что canvas виден перед запуском игры
-            if (this.canvas) {
-                this.canvas.style.display = "block";
-                this.canvas.style.visibility = "visible";
-                this.canvas.style.opacity = "1";
+                // Убеждаемся, что canvas виден перед запуском игры
+                if (this.canvas) {
+                    this.canvas.style.display = "block";
+                    this.canvas.style.visibility = "visible";
+                    this.canvas.style.opacity = "1";
+                }
+                
+                // #region agent log
+                const menuBeforeStart = document.getElementById("main-menu");
+                const menuStateBefore = menuBeforeStart ? {
+                    hasHiddenClass: menuBeforeStart.classList.contains("hidden"),
+                    display: window.getComputedStyle(menuBeforeStart).display,
+                    zIndex: window.getComputedStyle(menuBeforeStart).zIndex
+                } : null;
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:477',message:'Before startGame()',data:{menuStateBefore,hasMainMenu:!!this.mainMenu},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+                // #endregion
+                logger.log("[Game] Calling startGame()...");
+                this.startGame();
+                // #region agent log
+                setTimeout(() => {
+                    const menuAfterStart = document.getElementById("main-menu");
+                    const menuStateAfter = menuAfterStart ? {
+                        hasHiddenClass: menuAfterStart.classList.contains("hidden"),
+                        display: window.getComputedStyle(menuAfterStart).display,
+                        zIndex: window.getComputedStyle(menuAfterStart).zIndex
+                    } : null;
+                    fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:479',message:'After startGame() (100ms)',data:{menuStateAfter},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+                }, 100);
+                // #endregion
+                logger.log("[Game] startGame() called successfully");
+            } catch (error) {
+                logger.error("[Game] Error in onStartGame callback:", error);
+                console.error("[Game] Error starting game:", error);
             }
-            
-            this.startGame();
         });
         
+        logger.log("[Game] Menu callbacks set up successfully");
+        
         // Setup canvas
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:489',message:'Creating canvas element',data:{bodyExists:!!document.body,bodyOwnerDocument:document.body?.ownerDocument?.location?.href},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         this.canvas = document.createElement("canvas");
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:491',message:'Canvas created, before appendChild',data:{canvasOwnerDocument:this.canvas.ownerDocument?.location?.href,canvasInBody:document.body.contains(this.canvas),bodyOwnerDocument:document.body?.ownerDocument?.location?.href},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         this.canvas.style.width = "100%";
         this.canvas.style.height = "100%";
         this.canvas.style.display = "block";
@@ -454,6 +546,9 @@ export class Game {
         this.canvas.style.zIndex = "0"; // Canvas должен быть ПОД GUI элементами
         this.canvas.id = "gameCanvas";
         document.body.appendChild(this.canvas);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:498',message:'Canvas appended to body',data:{canvasOwnerDocument:this.canvas.ownerDocument?.location?.href,canvasInBody:document.body.contains(this.canvas),isConnected:this.canvas.isConnected,bodyOwnerDocument:document.body?.ownerDocument?.location?.href},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         // Устанавливаем pointer-events в зависимости от видимости меню
         this.updateCanvasPointerEvents();
 
@@ -758,11 +853,14 @@ export class Game {
             // === КОМБИНАЦИИ КЛАВИШ CTRL+1-9,0 ===
             // Обрабатываем ПЕРЕД другими обработчиками чтобы не блокировались
             
-            // Ctrl+1: Help/Controls Menu (lazy loaded)
-            if (e.ctrlKey && (e.code === "Digit1" || e.code === "Numpad1") && this.gameStarted) {
+            // Ctrl+1: Help/Controls Menu (lazy loaded) - работает всегда
+            if (e.ctrlKey && (e.code === "Digit1" || e.code === "Numpad1")) {
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:762',message:'Ctrl+1 pressed',data:{hasHelpMenu:!!this.helpMenu},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
                 if (!this.helpMenu) {
                     // Lazy load help menu on first use
                     logger.log("[Game] Loading help menu (Ctrl+1)...");
@@ -792,22 +890,33 @@ export class Game {
                 return;
             }
             
-            // Ctrl+2: Screenshot Panel (lazy loaded)
-            if (e.ctrlKey && (e.code === "Digit2" || e.code === "Numpad2") && this.gameStarted) {
+            // Ctrl+2: Screenshot Panel (lazy loaded) - работает всегда
+            if (e.ctrlKey && (e.code === "Digit2" || e.code === "Numpad2")) {
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
+                // Debug: Ctrl+2 pressed for screenshot panel
                 this.openScreenshotPanel();
                 return;
             }
             
-            // Ctrl+3: Debug Dashboard (lazy loaded)
+            // Ctrl+3: Debug Dashboard (lazy loaded) - работает только в игре
             if (e.ctrlKey && (e.code === "Digit3" || e.code === "Numpad3") && this.gameStarted) {
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:804',message:'Ctrl+3 pressed',data:{hasDebugDashboard:!!this.debugDashboard,gameStarted:this.gameStarted},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
                 if (!this.debugDashboard) {
                     // Lazy load debug dashboard on first use
+                    if (!this.engine || !this.scene) {
+                        logger.warn("[Game] Cannot load debug dashboard: engine or scene not initialized");
+                        if (this.hud) {
+                            this.hud.showMessage("Debug Dashboard requires game to be started", "#f00", 3000);
+                        }
+                        return;
+                    }
                     logger.log("[Game] Loading debug dashboard (Ctrl+3)...");
                     import("./debugDashboard").then(({ DebugDashboard }) => {
                         this.debugDashboard = new DebugDashboard(this.engine, this.scene);
@@ -855,13 +964,23 @@ export class Game {
                 return;
             }
             
-            // Ctrl+4: Physics Panel (lazy loaded)
+            // Ctrl+4: Physics Panel (lazy loaded) - работает только в игре
             if (e.ctrlKey && (e.code === "Digit4" || e.code === "Numpad4") && this.gameStarted) {
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:886',message:'Ctrl+4 pressed',data:{hasPhysicsPanel:!!this.physicsPanel,hasTank:!!this.tank},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
                 if (!this.physicsPanel) {
                     // Lazy load physics panel on first use
+                    if (!this.tank) {
+                        logger.warn("[Game] Cannot load physics panel: tank not initialized");
+                        if (this.hud) {
+                            this.hud.showMessage("Physics Panel requires game to be started", "#f00", 3000);
+                        }
+                        return;
+                    }
                     logger.log("[Game] Loading physics panel (Ctrl+4)...");
                     import("./physicsPanel").then(({ PhysicsPanel }) => {
                         this.physicsPanel = new PhysicsPanel();
@@ -892,11 +1011,14 @@ export class Game {
                 return;
             }
             
-            // Ctrl+5: System Terminal
-            if (e.ctrlKey && (e.code === "Digit5" || e.code === "Numpad5") && this.gameStarted) {
+            // Ctrl+5: System Terminal - работает всегда
+            if (e.ctrlKey && (e.code === "Digit5" || e.code === "Numpad5")) {
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:930',message:'Ctrl+5 pressed',data:{hasChatSystem:!!this.chatSystem},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
                 // Убеждаемся что chatSystem инициализирован
                 this.ensureChatSystem().then(() => {
                     if (this.chatSystem && typeof this.chatSystem.toggleTerminal === 'function') {
@@ -917,11 +1039,14 @@ export class Game {
                 return;
             }
             
-            // Ctrl+6: Session Settings (lazy loaded)
-            if (e.ctrlKey && (e.code === "Digit6" || e.code === "Numpad6") && this.gameStarted) {
+            // Ctrl+6: Session Settings (lazy loaded) - работает всегда
+            if (e.ctrlKey && (e.code === "Digit6" || e.code === "Numpad6")) {
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:955',message:'Ctrl+6 pressed',data:{hasSessionSettings:!!this.sessionSettings},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
                 if (!this.sessionSettings) {
                     // Lazy load session settings on first use
                     logger.log("[Game] Loading session settings (Ctrl+6)...");
@@ -951,13 +1076,23 @@ export class Game {
                 return;
             }
             
-            // Ctrl+7: Cheat Menu (lazy loaded)
+            // Ctrl+7: Cheat Menu (lazy loaded) - работает только в игре
             if (e.ctrlKey && (e.code === "Digit7" || e.code === "Numpad7") && this.gameStarted) {
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:989',message:'Ctrl+7 pressed',data:{hasCheatMenu:!!this.cheatMenu,hasTank:!!this.tank},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
                 if (!this.cheatMenu) {
                     // Lazy load cheat menu on first use
+                    if (!this.tank) {
+                        logger.warn("[Game] Cannot load cheat menu: tank not initialized");
+                        if (this.hud) {
+                            this.hud.showMessage("Cheat Menu requires game to be started", "#f00", 3000);
+                        }
+                        return;
+                    }
                     logger.log("[Game] Loading cheat menu (Ctrl+7)...");
                     import("./cheatMenu").then(({ CheatMenu }) => {
                         this.cheatMenu = new CheatMenu();
@@ -988,11 +1123,14 @@ export class Game {
                 return;
             }
             
-            // Ctrl+8: Network Menu (lazy loaded)
-            if (e.ctrlKey && (e.code === "Digit8" || e.code === "Numpad8") && this.gameStarted) {
+            // Ctrl+8: Network Menu (lazy loaded) - работает всегда
+            if (e.ctrlKey && (e.code === "Digit8" || e.code === "Numpad8")) {
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:1033',message:'Ctrl+8 pressed',data:{hasNetworkMenu:!!this.networkMenu},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
                 if (!this.networkMenu) {
                     // Lazy load network menu on first use
                     logger.log("[Game] Loading network menu (Ctrl+8)...");
@@ -1022,18 +1160,21 @@ export class Game {
                 return;
             }
             
-            // Ctrl+0: Social Menu (Friends & Clans) (lazy loaded)
-            if (e.ctrlKey && (e.code === "Digit0" || e.code === "Numpad0") && this.gameStarted) {
+            // Ctrl+0: Social Menu (Friends & Clans) (lazy loaded) - работает всегда
+            if (e.ctrlKey && (e.code === "Digit0" || e.code === "Numpad0")) {
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:1046',message:'Ctrl+0 pressed',data:{hasSocialMenu:!!this.socialMenu},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
                 if (!this.socialMenu) {
                     // Lazy load social menu on first use
                     logger.log("[Game] Loading social menu (Ctrl+0)...");
                     import("./socialMenu").then(({ socialMenu }) => {
                         this.socialMenu = socialMenu;
                         // Toggle visibility after loading
-                        if (typeof this.socialMenu.toggle === 'function') {
+                        if (this.socialMenu && typeof this.socialMenu.toggle === 'function') {
                             this.socialMenu.toggle();
                         }
                         logger.log("[Game] Social menu loaded successfully");
@@ -1063,11 +1204,14 @@ export class Game {
                 return;
             }
             
-            // Ctrl+9: World Generation Menu (lazy loaded)
-            if (e.ctrlKey && (e.code === "Digit9" || e.code === "Numpad9") && this.gameStarted) {
+            // Ctrl+9: World Generation Menu (lazy loaded) - работает всегда
+            if (e.ctrlKey && (e.code === "Digit9" || e.code === "Numpad9")) {
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:1108',message:'Ctrl+9 pressed',data:{hasWorldGenMenu:!!this.worldGenerationMenu},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
                 if (!this.worldGenerationMenu) {
                     // Lazy load world generation menu on first use
                     logger.log("[Game] Loading world generation menu (Ctrl+9)...");
@@ -1092,6 +1236,9 @@ export class Game {
                     if (typeof this.worldGenerationMenu.toggle === 'function') {
                         this.worldGenerationMenu.toggle();
                         logger.log("[Game] World generation menu toggled");
+                    } else if (typeof (this.worldGenerationMenu as any).show === 'function') {
+                        (this.worldGenerationMenu as any).show();
+                        logger.log("[Game] World generation menu shown");
                     }
                 }
                 return;
@@ -1115,7 +1262,46 @@ export class Game {
             }
             
             
-            if (e.code === "Escape" && this.gameStarted) {
+            if (e.code === "Escape") {
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:1247',message:'ESC pressed in Game handler',data:{gameStarted:this.gameStarted,gamePaused:this.gamePaused,menuVisible:this.mainMenu?.isVisible?.()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+                // #endregion
+                logger.log(`[Game] ESC pressed - gameStarted: ${this.gameStarted}, mainMenu: ${!!this.mainMenu}`);
+                
+                // Если игра не запущена, показываем главное меню
+                if (!this.gameStarted) {
+                    // Убеждаемся, что меню загружено
+                    if (!this.mainMenu) {
+                        logger.log("[Game] Loading menu on ESC...");
+                        this.loadMainMenu().then(() => {
+                            if (this.mainMenu) {
+                                logger.log("[Game] Menu loaded, showing...");
+                                // #region agent log
+                                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:1260',message:'Calling mainMenu.show() from ESC handler (load)',data:{gameStarted:this.gameStarted,gamePaused:this.gamePaused},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                                // #endregion
+                                this.mainMenu.show();
+                            }
+                        }).catch((error) => {
+                            logger.error("[Game] Failed to load menu on ESC:", error);
+                        });
+                    } else {
+                        // Всегда показываем меню при ESC, даже если оно уже видимо
+                        logger.log("[Game] Showing menu on ESC...");
+                        logger.log("[Game] Menu state:", {
+                            exists: !!this.mainMenu,
+                            isVisible: this.mainMenu.isVisible()
+                        });
+                        // #region agent log
+                        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:1274',message:'Calling mainMenu.show() from ESC handler (existing)',data:{gameStarted:this.gameStarted,gamePaused:this.gamePaused},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                        // #endregion
+                        this.mainMenu.show();
+                    }
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                }
+                
+                // Если игра запущена, обрабатываем паузу
                 // Закрываем все открытые меню перед паузой
                 if (this.helpMenu && typeof this.helpMenu.isVisible === 'function' && this.helpMenu.isVisible()) {
                     this.helpMenu.hide();
@@ -1158,6 +1344,16 @@ export class Game {
                     this.worldGenerationMenu.hide();
                     return;
                 }
+                // Если меню видимо, не обрабатываем ESC здесь - меню само обработает
+                if (this.mainMenu && this.mainMenu.isVisible()) {
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:1329',message:'ESC: menu is visible, skipping togglePause',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+                    // #endregion
+                    return;
+                }
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:1335',message:'ESC: calling togglePause',data:{gamePaused:this.gamePaused},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+                // #endregion
                 this.togglePause();
             }
             
@@ -1199,26 +1395,43 @@ export class Game {
         // КРИТИЧЕСКИ ВАЖНО: Подписка на onAfterPhysicsObservable будет добавлена в init() после создания сцены и включения физики
         
         // Оптимизированный render loop с проверкой готовности
-        this.engine.runRenderLoop(() => {
-            if (this.scene && this.engine) {
-                // КРИТИЧЕСКИ ВАЖНО: Проверяем наличие активной камеры перед рендерингом
-                // Если камера не создана, создаем временную камеру по умолчанию
-                if (!this.scene.activeCamera) {
-                    if (this.camera) {
-                        this.scene.activeCamera = this.camera;
-                    } else if (this.scene && !this.gameInitialized) {
-                        // Создаем временную камеру по умолчанию только если игра еще не инициализирована
-                        // Это нормально - камера будет заменена на игровую после init()
-                        this.scene.createDefaultCamera(true);
-                        // Не логируем - это нормальное поведение до инициализации
-                    } else if (this.scene) {
-                        // Если игра инициализирована, но камеры нет - это проблема
-                        this.scene.createDefaultCamera(true);
-                        logger.warn("Created default camera - game camera missing");
-                    } else {
-                        // Если сцена еще не создана, пропускаем рендеринг
-                        return;
+        // ВАЖНО: Запускаем render loop только после создания engine и scene
+        if (this.engine && this.scene) {
+            this.engine.runRenderLoop(() => {
+                if (this.scene && this.engine) {
+                    // КРИТИЧЕСКИ ВАЖНО: Проверяем наличие активной камеры перед рендерингом
+                    // Если камера не создана, создаем временную камеру по умолчанию
+                    if (!this.scene.activeCamera) {
+                        if (this.camera) {
+                            this.scene.activeCamera = this.camera;
+                        } else if (this.scene && !this.gameInitialized) {
+                            // Создаем временную камеру по умолчанию только если игра еще не инициализирована
+                            // Это нормально - камера будет заменена на игровую после init()
+                            this.scene.createDefaultCamera(true);
+                            // Не логируем - это нормальное поведение до инициализации
+                        } else if (this.scene) {
+                            // Если игра инициализирована, но камеры нет - это проблема
+                            this.scene.createDefaultCamera(true);
+                            logger.warn("Created default camera - game camera missing");
+                        } else {
+                            // Если сцена еще не создана, пропускаем рендеринг
+                            return;
+                        }
                     }
+                    
+                // УБРАНО: Render loop больше не скрывает меню автоматически
+                // Меню должно управляться только через методы show() и hide()
+                // Это предотвращает конфликты при первой загрузке, когда gameStarted может быть true
+                // из предыдущей сессии, но меню должно быть видимо
+                // #region agent log
+                if (this.gameStarted && !this.gamePaused) {
+                    // Логируем состояние, но не скрываем меню автоматически
+                    fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:1390',message:'Render loop: game started, menu state',data:{gameStarted:this.gameStarted,gamePaused:this.gamePaused,menuExists:!!this.mainMenu,menuVisible:this.mainMenu?.isVisible?.()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+                    // #endregion
+                } else {
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:1412',message:'Render loop: game NOT started or paused, menu should be visible',data:{gameStarted:this.gameStarted,gamePaused:this.gamePaused},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                    // #endregion
                 }
                 
                 // Рендерим сцену всегда (даже если игра на паузе, чтобы видеть меню)
@@ -1235,6 +1448,9 @@ export class Game {
             }
             // Если сцена или engine не созданы, просто пропускаем рендеринг
         });
+        } else {
+            logger.error("[Game] Cannot start render loop - engine or scene not initialized!");
+        }
 
         window.addEventListener("resize", () => {
             this.engine.resize();
@@ -1936,15 +2152,9 @@ export class Game {
             logger.log("[Game] Scene active camera:", this.scene.activeCamera?.name);
         }
         
-        // Проверяем, что меню скрыто
-        const menu = document.getElementById("main-menu");
-        if (menu) {
-            logger.log("[Game] Menu element found, hidden:", menu.classList.contains("hidden"));
-            if (!menu.classList.contains("hidden")) {
-                menu.classList.add("hidden");
-                menu.style.display = "none"; // Принудительно скрываем
-                logger.log("[Game] Menu hidden manually");
-            }
+        // Скрываем меню при запуске игры
+        if (this.mainMenu) {
+            this.mainMenu.hide();
         }
         
         // Проверяем, что панель выбора карт скрыта
@@ -2032,9 +2242,15 @@ export class Game {
      * @returns {void}
      */
     togglePause(): void {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:2245',message:'togglePause called',data:{gameStarted:this.gameStarted,gamePausedBefore:this.gamePaused},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
         if (!this.gameStarted) return;
         
         this.gamePaused = !this.gamePaused;
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:2248',message:'togglePause: state changed',data:{gamePausedAfter:this.gamePaused},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
         
         if (this.gamePaused) {
             // Закрываем карту при паузе
@@ -2058,9 +2274,6 @@ export class Game {
      */
     restartGame(): void {
         logger.log("[Game] Restarting game on same map...");
-        // Сохраняем текущую карту для автозапуска после перезагрузки
-        localStorage.setItem("autoStartMap", this.currentMapType);
-        // Перезагружаем страницу
         window.location.reload();
     }
     
@@ -2070,9 +2283,6 @@ export class Game {
      */
     exitBattle(): void {
         logger.log("[Game] Exiting battle...");
-        // Полная перезагрузка страницы для чистого состояния
-        // Не сохраняем карту - просто возвращаемся в меню
-        localStorage.removeItem("autoStartMap");
         window.location.reload();
     }
     
@@ -2189,6 +2399,36 @@ export class Game {
             
             // Убеждаемся, что engine запущен
             logger.debug("Engine initialized:", !!this.engine);
+            logger.debug("Scene initialized:", !!this.scene);
+            
+            // Запускаем render loop если он еще не запущен
+            if (this.engine && this.scene && !(this.engine as any)._renderLoopRunning) {
+                logger.log("[Game] Starting render loop in init()");
+                this.engine.runRenderLoop(() => {
+                    if (this.scene && this.engine) {
+                        // КРИТИЧЕСКИ ВАЖНО: Проверяем наличие активной камеры перед рендерингом
+                        if (!this.scene.activeCamera) {
+                            if (this.camera) {
+                                this.scene.activeCamera = this.camera;
+                            } else {
+                                this.scene.createDefaultCamera(true);
+                            }
+                        }
+                        
+                        // Рендерим сцену всегда (даже если игра на паузе, чтобы видеть меню)
+                        if (!this.gamePaused) {
+                            this.scene.render();
+                            // Обновляем логику игры только если игра запущена
+                            if (this.gameStarted) {
+                                this.update();
+                            }
+                        } else {
+                            // Рендерим сцену даже на паузе, чтобы видеть игру за меню
+                            this.scene.render();
+                        }
+                    }
+                });
+            }
             
             // Принудительно обновляем размер canvas
             this.engine.resize();
@@ -2273,6 +2513,28 @@ export class Game {
             light.diffuse = new Color3(0.9, 0.9, 0.85); // Slightly warm
             light.groundColor = new Color3(0.25, 0.25, 0.28); // Ambient from below
             logger.log("Light created (balanced, no specular)");
+            
+            // Directional light for shadows (sun)
+            const sunLight = new DirectionalLight("sunLight", new Vector3(-0.5, -1, -0.3), this.scene);
+            sunLight.intensity = 0.8;
+            sunLight.diffuse = new Color3(1, 0.98, 0.95);
+            sunLight.specular = Color3.Black();
+            sunLight.position = new Vector3(50, 40, 50);
+            
+            // Shadow generator for terrain depth
+            const shadowGenerator = new ShadowGenerator(2048, sunLight);
+            shadowGenerator.useBlurExponentialShadowMap = true;
+            shadowGenerator.blurKernel = 32;
+            shadowGenerator.setDarkness(0.3); // Мягкие тени
+            shadowGenerator.bias = 0.00005;
+            
+            // Включаем тени в сцене
+            this.scene.shadowsEnabled = true;
+            
+            // Store shadow generator for terrain
+            (this.scene as any).terrainShadowGenerator = shadowGenerator;
+            
+            logger.log("Directional light and shadows configured");
 
             // Physics
             this.updateLoadingProgress(15, "Загрузка физического движка...");
@@ -2335,6 +2597,7 @@ export class Game {
             this.camera.upperRadiusLimit = 25;
             this.camera.lowerBetaLimit = 0.1;
             this.camera.upperBetaLimit = Math.PI / 2.1;
+            this.camera.minZ = 0.1; // Минимальное расстояние до камеры (предотвращает заход за текстуры)
             this.camera.inputs.clear();
             this.setupCameraInput();
             
@@ -2674,12 +2937,18 @@ export class Game {
                 maxDebrisPerObject: 4 // УМЕНЬШЕНО с 5 до 4 для оптимизации
             });
             
+            // ЗАЩИТНАЯ ПРОВЕРКА: убеждаемся, что mapType всегда установлен
+            const mapType = this.currentMapType || "normal";
+            logger.log(`[Game] Creating ChunkSystem with mapType: ${mapType} (currentMapType was: ${this.currentMapType})`);
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:2927',message:'Creating ChunkSystem',data:{currentMapType:this.currentMapType,mapTypeForChunkSystem:mapType},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+            // #endregion
             this.chunkSystem = new ChunkSystem(this.scene, {
                 chunkSize: 80,          // HUGE chunks = fewer chunks
                 renderDistance: isProduction ? 1.2 : 1.5,       // Еще меньше в production
                 unloadDistance: 4,       // Уменьшено с 5 до 4
                 worldSeed: worldSeed,
-                mapType: this.currentMapType
+                mapType: mapType
             });
             logger.log(`Chunk system created with ${this.chunkSystem.garagePositions.length} garages`);
             
@@ -2843,10 +3112,10 @@ export class Game {
             return;
         }
         
-        // ИСПРАВЛЕНИЕ: Проверка что игра запущена
+        // ИСПРАВЛЕНИЕ: Проверка что игра запущена (но не блокируем если вызываем явно)
         if (!this.gameStarted) {
-            logger.warn("[Game] Cannot spawn enemies: game not started yet");
-            return;
+            logger.warn("[Game] gameStarted is false, but continuing with spawn anyway (explicit call)");
+            // Не возвращаемся - продолжаем спавн даже если gameStarted еще не установлен
         }
         
         // Проверяем необходимые системы
@@ -2885,25 +3154,25 @@ export class Game {
         const maxDistance = 180; // Максимальное расстояние от центра
         
         // Динамическое количество ботов в зависимости от типа карты
-        let defaultEnemyCount = 12; // По умолчанию 12 для normal карты
+        let defaultEnemyCount = 3; // По умолчанию 3 для normal карты
         switch (this.currentMapType) {
             case "normal":
-                defaultEnemyCount = 12;
+                defaultEnemyCount = 3;
                 break;
             case "industrial":
             case "urban_warfare":
-                defaultEnemyCount = 10;
+                defaultEnemyCount = 3;
                 break;
             case "ruins":
             case "canyon":
-                defaultEnemyCount = 8;
+                defaultEnemyCount = 3;
                 break;
             case "underground":
             case "coastal":
-                defaultEnemyCount = 12;
+                defaultEnemyCount = 3;
                 break;
             default:
-                defaultEnemyCount = 12;
+                defaultEnemyCount = 3;
         }
         
         // Используем настройки из sessionSettings/главного меню, если доступны
@@ -2911,21 +3180,27 @@ export class Game {
         let aiDifficulty: "easy" | "medium" | "hard" = this.getCurrentEnemyDifficulty();
         let enemyCountOverridden = false;
         
+        logger.log(`[Game] Initial enemyCount from default: ${enemyCount}`);
+        
         if (this.sessionSettings) {
             const sessionSettings = this.sessionSettings.getSettings();
             // Используем настройки из sessionSettings только если они установлены и > 0
             const sessionEnemyCount = sessionSettings.enemyCount;
+            logger.log(`[Game] SessionSettings enemyCount: ${sessionEnemyCount}`);
             if (sessionEnemyCount && sessionEnemyCount > 0) {
                 enemyCount = sessionEnemyCount;
                 enemyCountOverridden = true;
+                logger.log(`[Game] Using sessionSettings enemyCount: ${enemyCount}`);
             }
         } else {
             // Если sessionSettings нет, используем настройки из меню или динамическое значение
             const menuSettings = this.mainMenu?.getSettings() as GameSettings & { enemyCount?: number };
             const menuEnemyCount = menuSettings?.enemyCount;
+            logger.log(`[Game] MenuSettings enemyCount: ${menuEnemyCount}`);
             if (menuEnemyCount && menuEnemyCount > 0) {
                 enemyCount = menuEnemyCount;
                 enemyCountOverridden = true;
+                logger.log(`[Game] Using menuSettings enemyCount: ${enemyCount}`);
             }
         }
         
@@ -2937,12 +3212,13 @@ export class Game {
             const minCount = Math.max(4, Math.floor(enemyCount * 0.6));
             const maxCount = Math.min(enemyCount + 8, Math.round(enemyCount * 1.6));
             enemyCount = Math.max(minCount, Math.min(scaledCount, maxCount));
+            logger.log(`[Game] Adaptive scaling: scale=${adaptiveScale}, scaledCount=${scaledCount}, final=${enemyCount}`);
         }
         
-        // ИСПРАВЛЕНИЕ: Проверка что enemyCount > 0
+        // ИСПРАВЛЕНИЕ: Гарантируем минимум 1 врага для одиночной игры
         if (enemyCount <= 0) {
-            logger.warn(`[Game] Cannot spawn enemies: enemyCount is ${enemyCount}`);
-            return;
+            logger.warn(`[Game] enemyCount was ${enemyCount}, forcing to minimum 3 for single player`);
+            enemyCount = 3; // Минимум 3 врага в одиночной игре
         }
         
         logger.log(`[Game] Enemy spawn settings: count=${enemyCount}, difficulty=${aiDifficulty}`);
@@ -2964,24 +3240,49 @@ export class Game {
                 const spawnZ = Math.sin(angle) * distance;
                 let spawnY = 0.6; // Fallback высота
                 
-                // Проверяем высоту земли через terrain generator
-                if (this.chunkSystem && this.chunkSystem.terrainGenerator) {
-                    const groundHeight = this.chunkSystem.terrainGenerator.getHeight(spawnX, spawnZ, "dirt");
-                    // Спавним на высоте земли + 2.0 единицы для предотвращения падения сквозь пол
-                    spawnY = Math.max(groundHeight, 0) + 2.0; // Увеличено с 1.5 до 2.0
-                } else {
-                    // Fallback: используем raycast для определения высоты
-                    const rayStart = new Vector3(spawnX, 50, spawnZ); // Начинаем сверху
-                    const rayDir = Vector3.Down();
-                    const ray = new Ray(rayStart, rayDir, 100);
-                    const hit = this.scene.pickWithRay(ray, (mesh) => {
-                        return mesh && mesh.isEnabled() && mesh.isPickable && 
-                               mesh.name.includes("ground");
-                    });
-                    if (hit && hit.pickedPoint) {
-                        spawnY = hit.pickedPoint.y + 1.5;
+                // КРИТИЧНО: Сначала пытаемся использовать raycast для получения реальной высоты меша террейна
+                let groundHeight = 0;
+                const rayStart = new Vector3(spawnX, 100, spawnZ); // Увеличена начальная высота для лучшего raycast
+                const rayDir = Vector3.Down();
+                const ray = new Ray(rayStart, rayDir, 200); // Увеличена длина луча
+                const hit = this.scene.pickWithRay(ray, (mesh) => {
+                    if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+                    // Проверяем все меши террейна
+                    return (mesh.name.startsWith("ground_") || 
+                            mesh.name.includes("terrain") || 
+                            mesh.name.includes("chunk")) && 
+                           mesh.isEnabled();
+                });
+                
+                if (hit && hit.hit && hit.pickedPoint) {
+                    groundHeight = hit.pickedPoint.y;
+                } else if (this.chunkSystem && this.chunkSystem.terrainGenerator) {
+                    // Fallback: используем terrain generator если raycast не нашел меш
+                    groundHeight = this.chunkSystem.terrainGenerator.getHeight(spawnX, spawnZ, "dirt");
+                }
+                
+                // КРИТИЧНО: Убеждаемся, что высота не отрицательная
+                // Если groundHeight < 0, значит что-то не так - используем 0
+                if (groundHeight < 0) {
+                    groundHeight = 0;
+                }
+                
+                // КРИТИЧНО: Если raycast не нашел меш и terrainGenerator вернул 0 или очень маленькое значение,
+                // это может означать, что террейн еще не загружен. Используем минимальную безопасную высоту.
+                if (groundHeight < 0.1 && this.chunkSystem && this.chunkSystem.terrainGenerator) {
+                    // Проверяем, есть ли меши террейна в сцене
+                    const terrainMeshes = this.scene.meshes.filter(m => 
+                        m.name.startsWith("ground_") && m.isEnabled()
+                    );
+                    
+                    // Если террейн не загружен, используем минимальную безопасную высоту
+                    if (terrainMeshes.length === 0) {
+                        groundHeight = 2.0; // Минимальная высота для спавна
                     }
                 }
+                
+                // Спавним на высоте земли + 3.0 единицы для предотвращения падения сквозь пол
+                spawnY = Math.max(groundHeight + 3.0, 5.0); // Минимум 5.0 для безопасности
                 
                 pos = new Vector3(spawnX, spawnY, spawnZ);
                 
@@ -3003,15 +3304,26 @@ export class Game {
         
         logger.log(`[Game] Generated ${spawnPositions.length} spawn positions, attempting to spawn ${enemyCount} enemies`);
         
+        logger.log(`[Game] === STARTING ENEMY SPAWN ===`);
+        logger.log(`[Game] Will spawn ${spawnPositions.length} enemies`);
+        
         spawnPositions.forEach((pos, index) => {
             try {
                 // Используем сложность из sessionSettings или настроек меню
                 const difficulty = aiDifficulty;
                 const difficultyScale = this.getAdaptiveEnemyDifficultyScale();
-                logger.log(`[Game] Spawning enemy ${index + 1}/${spawnPositions.length} at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`);
+                logger.log(`[Game] [${index + 1}/${spawnPositions.length}] Creating EnemyTank at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`);
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:3117',message:'Spawning EnemyTank',data:{index:index+1,total:spawnPositions.length,posX:pos.x.toFixed(2),posY:pos.y.toFixed(2),posZ:pos.z.toFixed(2),difficulty},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
                 const enemyTank = new EnemyTank(this.scene, pos, this.soundManager!, this.effectsManager!, difficulty, difficultyScale);
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:3119',message:'EnemyTank created',data:{index:index+1,hasChassis:!!enemyTank.chassis,chassisPosY:enemyTank.chassis?.position.y.toFixed(2),hasRotation:!!enemyTank.chassis?.rotationQuaternion},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+                // #endregion
+                logger.log(`[Game] [${index + 1}/${spawnPositions.length}] EnemyTank created successfully, chassis visible: ${enemyTank.chassis?.isVisible !== false}`);
                 if (this.tank) {
                     enemyTank.setTarget(this.tank);
+                    logger.log(`[Game] [${index + 1}/${spawnPositions.length}] Target set for enemy`);
                 }
             
             // On death
@@ -3092,14 +3404,28 @@ export class Game {
             });
             
                 this.enemyTanks.push(enemyTank);
-                logger.log(`[Game] Successfully spawned enemy ${index + 1}`);
+                logger.log(`[Game] [${index + 1}/${spawnPositions.length}] Enemy added to array. Total enemies: ${this.enemyTanks.length}`);
             } catch (error) {
-                logger.error(`[Game] Failed to spawn enemy ${index + 1}:`, error);
+                logger.error(`[Game] [${index + 1}/${spawnPositions.length}] FAILED to spawn enemy:`, error);
+                logger.error(`[Game] Error details:`, error instanceof Error ? error.stack : String(error));
             }
         });
         
-        logger.log(`[Game] Spawned ${this.enemyTanks.length} enemy tanks for map: ${this.currentMapType}`);
-        logger.log(`[Game] Enemy count requested: ${enemyCount}, Positions generated: ${spawnPositions.length}, Actually spawned: ${this.enemyTanks.length}`);
+        logger.log(`[Game] === ENEMY SPAWN COMPLETE ===`);
+        logger.log(`[Game] Total enemies in array: ${this.enemyTanks.length}`);
+        logger.log(`[Game] Requested: ${enemyCount}, Positions: ${spawnPositions.length}, Spawned: ${this.enemyTanks.length}`);
+        
+        // Проверяем видимость врагов
+        if (this.enemyTanks.length > 0) {
+            const visibleCount = this.enemyTanks.filter(e => e.chassis?.isVisible !== false).length;
+            logger.log(`[Game] Visible enemies: ${visibleCount}/${this.enemyTanks.length}`);
+            this.enemyTanks.forEach((enemy, idx) => {
+                const pos = enemy.chassis?.position;
+                logger.log(`[Game] Enemy ${idx + 1}: position=(${pos?.x.toFixed(1)}, ${pos?.y.toFixed(1)}, ${pos?.z.toFixed(1)}), visible=${enemy.chassis?.isVisible !== false}`);
+            });
+        } else {
+            logger.error(`[Game] ERROR: No enemies spawned! Check logs above for errors.`);
+        }
         
         // ИСПРАВЛЕНИЕ: Предупреждение если не все враги заспавнились
         if (this.enemyTanks.length < enemyCount) {
@@ -3134,22 +3460,28 @@ export class Game {
                 let spawnY = 2.0; // Fallback высота (увеличено с 1.2 до 2.0)
                 
                 // ИСПРАВЛЕНИЕ: Получаем высоту земли и спавним танк немного над поверхностью
-                if (this.chunkSystem && this.chunkSystem.terrainGenerator) {
-                    const groundHeight = this.chunkSystem.terrainGenerator.getHeight(spawnX, spawnZ, "dirt");
-                    spawnY = Math.max(groundHeight, 0) + 2.0; // Увеличено с 1.5 до 2.0
-                } else {
-                    // Fallback: используем raycast
-                    const rayStart = new Vector3(spawnX, 50, spawnZ);
-                    const rayDir = Vector3.Down();
-                    const ray = new Ray(rayStart, rayDir, 100);
-                    const hit = this.scene.pickWithRay(ray, (mesh) => {
-                        return mesh && mesh.isEnabled() && mesh.isPickable && 
-                               mesh.name.includes("ground");
-                    });
-                    if (hit && hit.pickedPoint) {
-                        spawnY = hit.pickedPoint.y + 1.5;
-                    }
+                // КРИТИЧНО: Сначала пытаемся использовать raycast для получения реальной высоты меша террейна
+                let groundHeight = 0;
+                const rayStart = new Vector3(spawnX, 100, spawnZ); // Увеличена начальная высота для лучшего raycast
+                const rayDir = Vector3.Down();
+                const ray = new Ray(rayStart, rayDir, 200); // Увеличена длина луча
+                const hit = this.scene.pickWithRay(ray, (mesh) => {
+                    if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+                    // Проверяем все меши террейна
+                    return (mesh.name.startsWith("ground_") || 
+                            mesh.name.includes("terrain") || 
+                            mesh.name.includes("chunk")) && 
+                           mesh.isEnabled();
+                });
+                
+                if (hit && hit.hit && hit.pickedPoint) {
+                    groundHeight = hit.pickedPoint.y;
+                } else if (this.chunkSystem && this.chunkSystem.terrainGenerator) {
+                    // Fallback: используем terrain generator если raycast не нашел меш
+                    groundHeight = this.chunkSystem.terrainGenerator.getHeight(spawnX, spawnZ, "dirt");
                 }
+                
+                spawnY = Math.max(groundHeight, 0) + 2.0;
                 
                 pos = new Vector3(spawnX, spawnY, spawnZ);
                 
@@ -3275,14 +3607,37 @@ export class Game {
         if (!this.soundManager || !this.effectsManager) return;
         
         // Позиции защитников на восточной стороне (x > 100)
-        const defenderPositions = [
-            new Vector3(180, 0.6, 50),
-            new Vector3(200, 0.6, -30),
-            new Vector3(220, 0.6, 80),
-            new Vector3(160, 0.6, -100),
+        const defenderPositionsRaw = [
+            { x: 180, z: 50 },
+            { x: 200, z: -30 },
+            { x: 220, z: 80 },
+            { x: 160, z: -100 },
         ];
         
-        defenderPositions.forEach((pos) => {
+        defenderPositionsRaw.forEach((rawPos) => {
+            // КРИТИЧНО: Получаем высоту террейна для спавна
+            let groundHeight = 0;
+            const rayStart = new Vector3(rawPos.x, 50, rawPos.z);
+            const rayDir = Vector3.Down();
+            const ray = new Ray(rayStart, rayDir, 200); // Увеличена длина луча
+            // КРИТИЧНО: Улучшенный фильтр для raycast - проверяем все меши террейна
+            const hit = this.scene.pickWithRay(ray, (mesh) => {
+                if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+                // Проверяем все меши террейна (ground_, terrain, и т.д.)
+                return (mesh.name.startsWith("ground_") || 
+                        mesh.name.includes("terrain") || 
+                        mesh.name.includes("chunk")) && 
+                       mesh.isEnabled();
+            });
+            
+            if (hit && hit.hit && hit.pickedPoint) {
+                groundHeight = hit.pickedPoint.y;
+            } else if (this.chunkSystem && this.chunkSystem.terrainGenerator) {
+                groundHeight = this.chunkSystem.terrainGenerator.getHeight(rawPos.x, rawPos.z, "dirt");
+            }
+            
+            const spawnY = Math.max(groundHeight, 0) + 2.0;
+            const pos = new Vector3(rawPos.x, spawnY, rawPos.z);
             // Защитники - сложность берём из текущих настроек (sessionSettings/меню)
             const difficulty = this.getCurrentEnemyDifficulty();
             const difficultyScale = this.getAdaptiveEnemyDifficultyScale();
@@ -3298,7 +3653,7 @@ export class Game {
             this.enemyTanks.push(defender);
         });
         
-        logger.log(`[Game] Frontline: Spawned ${defenderPositions.length} defenders`);
+        logger.log(`[Game] Frontline: Spawned ${defenderPositionsRaw.length} defenders`);
     }
     
     // Спавн волны атакующих врагов
@@ -3353,7 +3708,30 @@ export class Game {
         
         for (let i = 0; i < waveCount; i++) {
             const spawnZ = -200 + Math.random() * 400; // По всей ширине
-            const pos = new Vector3(spawnX, 0.6, spawnZ);
+            
+            // КРИТИЧНО: Получаем высоту террейна для спавна
+            let groundHeight = 0;
+            const rayStart = new Vector3(spawnX, 50, spawnZ);
+            const rayDir = Vector3.Down();
+            const ray = new Ray(rayStart, rayDir, 200); // Увеличена длина луча
+            // КРИТИЧНО: Улучшенный фильтр для raycast - проверяем все меши террейна
+            const hit = this.scene.pickWithRay(ray, (mesh) => {
+                if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+                // Проверяем все меши террейна (ground_, terrain, и т.д.)
+                return (mesh.name.startsWith("ground_") || 
+                        mesh.name.includes("terrain") || 
+                        mesh.name.includes("chunk")) && 
+                       mesh.isEnabled();
+            });
+            
+            if (hit && hit.hit && hit.pickedPoint) {
+                groundHeight = hit.pickedPoint.y;
+            } else if (this.chunkSystem && this.chunkSystem.terrainGenerator) {
+                groundHeight = this.chunkSystem.terrainGenerator.getHeight(spawnX, spawnZ, "dirt");
+            }
+            
+            const spawnY = Math.max(groundHeight, 0) + 2.0;
+            const pos = new Vector3(spawnX, spawnY, spawnZ);
             
             // Сложность растёт с волнами
             let difficulty: "easy" | "medium" | "hard" = "easy";
@@ -3476,11 +3854,17 @@ export class Game {
                 return;
             }
             
-            // Если гаражи есть (хотя бы 1), спавним игрока в гараже
-            if (this.chunkSystem.garagePositions.length >= 1) {
-                logger.log(`[Game] Found ${this.chunkSystem.garagePositions.length} garages, spawning player...`);
-                // Спавним игрока в гараже (ВСЕГДА в гараже!)
-                this.spawnPlayerInGarage();
+            // Для карты Тартария спавним в случайном месте, для остальных - в гараже
+            // ЗАЩИТНАЯ ПРОВЕРКА: только явно "tartaria", не undefined и не другие значения
+            if ((this.currentMapType !== undefined && this.currentMapType === "tartaria") || this.chunkSystem.garagePositions.length >= 1) {
+                if (this.currentMapType !== undefined && (this.currentMapType as string) === "tartaria") {
+                    logger.log(`[Game] Tartaria map: spawning player at random location...`);
+                    this.spawnPlayerRandom();
+                } else {
+                    logger.log(`[Game] Found ${this.chunkSystem.garagePositions.length} garages, spawning player...`);
+                    // Спавним игрока в гараже (ВСЕГДА в гараже!)
+                    this.spawnPlayerInGarage();
+                }
                 
                 // КРИТИЧЕСКИ ВАЖНО: Обновляем позицию камеры после спавна танка
                 if (this.camera && this.tank && this.tank.chassis) {
@@ -3511,22 +3895,60 @@ export class Game {
                 setTimeout(() => {
                     if (!this.playerGaragePosition) {
                         logger.error("[Game] Player garage not set!");
-                        return;
-                    }
-                    if (this.chunkSystem && this.chunkSystem.garagePositions.length >= 2) {
-                        logger.log("[Game] Spawning enemies in garages...");
-                        this.spawnEnemiesInGarages();
-                        if (this.tank) {
-                            this.tank.setEnemyTanks(this.enemyTanks);
+                        // ВСЕГДА спавним врагов, даже если гаража нет
+                        if (!this.gameStarted) {
+                            this.gameStarted = true;
                         }
-                    } else {
-                        // Fallback: спавним врагов на карте если гаражей недостаточно
-                        logger.log("[Game] Not enough garages, spawning enemies on map instead...");
+                        logger.log("[Game] Spawning enemies on map (no player garage)...");
                         this.spawnEnemyTanks();
                         if (this.tank) {
                             this.tank.setEnemyTanks(this.enemyTanks);
                         }
+                        return;
                     }
+                    
+                    // КРИТИЧЕСКИ ВАЖНО: ВСЕГДА спавним врагов на карте для всех режимов (кроме sandbox)
+                    // Для карты Тартария спавним только в случайных местах, без гаражей
+                    let enemiesSpawned = false;
+                    if (this.currentMapType !== "tartaria" && this.chunkSystem && this.chunkSystem.garagePositions.length >= 2) {
+                        logger.log("[Game] Attempting to spawn enemies in garages...");
+                        const beforeCount = this.enemyTanks.length;
+                        this.spawnEnemiesInGarages();
+                        enemiesSpawned = this.enemyTanks.length > beforeCount;
+                        logger.log(`[Game] Garage spawn result: ${this.enemyTanks.length - beforeCount} enemies spawned`);
+                    }
+                    
+                    // ВСЕГДА используем fallback спавн на карте для гарантии
+                    // Убеждаемся, что gameStarted установлен
+                    if (!this.gameStarted) {
+                        this.gameStarted = true;
+                        logger.log("[Game] gameStarted set to true for enemy spawn");
+                    }
+                    
+                    // Если в гаражах не спавнилось достаточно врагов, дополняем спавном на карте
+                    // Для Тартарии всегда спавним на карте
+                    // ЗАЩИТНАЯ ПРОВЕРКА: только явно "tartaria", не undefined и не другие значения
+                    if ((this.currentMapType !== undefined && this.currentMapType === "tartaria") || !enemiesSpawned || this.enemyTanks.length < 5) {
+                        logger.log(`[Game] Spawning enemies on map (current: ${this.enemyTanks.length}, mapType: ${this.currentMapType})...`);
+                        this.spawnEnemyTanks();
+                    }
+                    
+                    if (this.tank) {
+                        this.tank.setEnemyTanks(this.enemyTanks);
+                    }
+                    
+                    // Проверка через 5 секунд - если врагов нет, спавним снова
+                    setTimeout(() => {
+                        if (this.enemyTanks.length === 0) {
+                            logger.warn("[Game] No enemies spawned after 5s, retrying...");
+                            this.spawnEnemyTanks();
+                            if (this.tank) {
+                                this.tank.setEnemyTanks(this.enemyTanks);
+                            }
+                        } else {
+                            logger.log(`[Game] Enemy spawn verified: ${this.enemyTanks.length} enemies active`);
+                        }
+                    }, 5000);
                 }, 5000);
                 
                 // Connect enemy tanks to tank for hit detection
@@ -3539,38 +3961,43 @@ export class Game {
             } else if (attempts >= maxAttempts) {
                 // Таймаут - спавним игрока
                 logger.warn("[Game] Garage generation timeout");
-                this.spawnPlayerInGarage();
-                
-                // Враги спавнятся в гаражах или на карте
-                if (this.playerGaragePosition) {
-                    logger.log("[Game] (Timeout) Delaying enemy spawn by 5 seconds...");
-                    setTimeout(() => {
-                        if (this.playerGaragePosition) {
-                            if (this.chunkSystem && this.chunkSystem.garagePositions.length >= 2) {
-                                logger.log("[Game] (Timeout) Spawning enemies in garages...");
-                                this.spawnEnemiesInGarages();
-                            } else {
-                                // Fallback: спавним врагов на карте если гаражей недостаточно
-                                logger.log("[Game] (Timeout) Not enough garages, spawning enemies on map instead...");
-                                this.spawnEnemyTanks();
-                            }
-                            if (this.tank) {
-                                this.tank.setEnemyTanks(this.enemyTanks);
-                            }
-                        } else {
-                            logger.error("[Game] (Timeout) Player garage STILL not set!");
-                        }
-                    }, 5000);
+                // ЗАЩИТНАЯ ПРОВЕРКА: только явно "tartaria", не undefined и не другие значения
+                if (this.currentMapType !== undefined && (this.currentMapType as string) === "tartaria") {
+                    this.spawnPlayerRandom();
                 } else {
-                    logger.log("[Game] (Timeout) Player garage not set, spawning enemies on map...");
-                    // Если гаража игрока нет, спавним врагов на карте
-                    setTimeout(() => {
-                        this.spawnEnemyTanks();
-                        if (this.tank) {
-                            this.tank.setEnemyTanks(this.enemyTanks);
-                        }
-                    }, 5000);
+                    this.spawnPlayerInGarage();
                 }
+                
+                // ВСЕГДА спавним врагов на карте (кроме sandbox)
+                logger.log("[Game] (Timeout) Delaying enemy spawn by 5 seconds...");
+                setTimeout(() => {
+                    // Убеждаемся, что gameStarted установлен
+                    if (!this.gameStarted) {
+                        this.gameStarted = true;
+                        logger.log("[Game] (Timeout) gameStarted set to true for enemy spawn");
+                    }
+                    
+                    // Пытаемся спавнить в гаражах, если возможно (только не для Тартарии)
+                    let enemiesSpawned = false;
+                    if (this.currentMapType !== "tartaria" && this.playerGaragePosition && this.chunkSystem && this.chunkSystem.garagePositions.length >= 2) {
+                        logger.log("[Game] (Timeout) Attempting to spawn enemies in garages...");
+                        const beforeCount = this.enemyTanks.length;
+                        this.spawnEnemiesInGarages();
+                        enemiesSpawned = this.enemyTanks.length > beforeCount;
+                    }
+                    
+                    // ВСЕГДА используем fallback спавн на карте
+                    // Для Тартарии всегда спавним на карте
+                    // ЗАЩИТНАЯ ПРОВЕРКА: только явно "tartaria", не undefined и не другие значения
+                    if ((this.currentMapType !== undefined && this.currentMapType === "tartaria") || !enemiesSpawned || this.enemyTanks.length < 5) {
+                        logger.log(`[Game] (Timeout) Spawning enemies on map (current: ${this.enemyTanks.length}, mapType: ${this.currentMapType})...`);
+                        this.spawnEnemyTanks();
+                    }
+                    
+                    if (this.tank) {
+                        this.tank.setEnemyTanks(this.enemyTanks);
+                    }
+                }, 5000);
             } else {
                 // Продолжаем ждать
                 setTimeout(checkGarages, 100);
@@ -3579,6 +4006,78 @@ export class Game {
         
         // Начинаем проверку сразу (гараж уже создан в ChunkSystem)
         setTimeout(checkGarages, 100);
+    }
+    
+    /**
+     * Спавн игрока в случайном месте на карте (для карты Тартария)
+     * Использует raycast для определения высоты террейна и размещает танк над поверхностью
+     */
+    spawnPlayerRandom() {
+        if (!this.tank) {
+            logger.warn("[Game] Tank not initialized");
+            return;
+        }
+        
+        if (!this.chunkSystem) {
+            logger.warn("[Game] ChunkSystem not available, using default spawn at (0, 2, 0)");
+            if (this.tank.chassis && this.tank.physicsBody) {
+                const defaultPos = new Vector3(0, 2, 0);
+                this.tank.chassis.position.copyFrom(defaultPos);
+                this.tank.chassis.computeWorldMatrix(true);
+                if (this.tank.physicsBody) {
+                    this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                    this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                }
+            }
+            return;
+        }
+        
+        // Генерируем случайную позицию в пределах карты
+        const spawnRadius = 200;
+        const randomX = (Math.random() - 0.5) * spawnRadius * 2;
+        const randomZ = (Math.random() - 0.5) * spawnRadius * 2;
+        
+        // Получаем высоту террейна через raycast
+        let spawnY = 5.0; // Безопасная высота по умолчанию
+        const rayStart = new Vector3(randomX, 100, randomZ);
+        const ray = new Ray(rayStart, Vector3.Down(), 200);
+        const hit = this.scene.pickWithRay(ray, (mesh) => {
+            if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+            return (mesh.name.startsWith("ground_") || 
+                    mesh.name.includes("terrain") || 
+                    mesh.name.includes("chunk") ||
+                    mesh.name.includes("road")) && 
+                   mesh.isEnabled();
+        });
+        
+        if (hit && hit.hit && hit.pickedPoint) {
+            spawnY = Math.max(hit.pickedPoint.y + 3.0, 5.0);
+        } else if (this.chunkSystem.terrainGenerator) {
+            const terrainHeight = this.chunkSystem.terrainGenerator.getHeight(randomX, randomZ, "residential");
+            spawnY = Math.max(terrainHeight + 3.0, 5.0);
+        }
+        
+        const spawnPos = new Vector3(randomX, spawnY, randomZ);
+        this.playerGaragePosition = spawnPos.clone();
+        
+        logger.log(`[Game] Tartaria: Player spawned at random location (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
+        
+        // Устанавливаем позицию и состояние танка
+        if (this.tank.chassis && this.tank.physicsBody) {
+            this.tank.chassis.position.copyFrom(spawnPos);
+            this.tank.chassis.rotationQuaternion = Quaternion.Identity();
+            this.tank.chassis.rotation.set(0, 0, 0);
+            if (this.tank.turret) this.tank.turret.rotation.set(0, 0, 0);
+            if (this.tank.barrel) this.tank.barrel.rotation.set(0, 0, 0);
+            
+            this.tank.chassis.computeWorldMatrix(true);
+            if (this.tank.turret) this.tank.turret.computeWorldMatrix(true);
+            if (this.tank.barrel) this.tank.barrel.computeWorldMatrix(true);
+            
+            this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+            this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+            this.tank.physicsBody.setTargetTransform(spawnPos, Quaternion.Identity());
+        }
     }
     
     // Спавн игрока в случайном гараже
@@ -3610,22 +4109,92 @@ export class Game {
             return;
         }
         const playerGarages = this.chunkSystem.garagePositions;
-        let playerGarage: Vector3 = playerGarages[0]!;
+        if (!playerGarages || playerGarages.length === 0) {
+            logger.warn("[Game] No garage positions available");
+            return;
+        }
+        
+        let selectedGarage: { x: number; z: number } | null = null;
         let minDist = Infinity;
         
         for (const garage of playerGarages) {
+            // garage это GaragePosition с x, z (не Vector3)
             const dist = Math.sqrt(garage.x * garage.x + garage.z * garage.z);
             if (dist < minDist) {
                 minDist = dist;
-                playerGarage = garage;
+                selectedGarage = garage;
             }
         }
         
-        logger.log(`[Game] Selected player garage at (${playerGarage.x.toFixed(1)}, ${playerGarage.z.toFixed(1)}) - distance from center: ${minDist.toFixed(1)}`);
+        if (!selectedGarage) {
+            logger.warn("[Game] Could not select player garage");
+            return;
+        }
+        
+        logger.log(`[Game] Selected player garage at (${selectedGarage.x.toFixed(1)}, ${selectedGarage.z.toFixed(1)}) - distance from center: ${minDist.toFixed(1)}`);
         
         
         // Сохраняем позицию гаража для респавна (ВСЕГДА в этом же гараже!)
-        this.playerGaragePosition = playerGarage.clone(); // Клонируем чтобы избежать проблем с ссылками
+        // Создаем Vector3 из GaragePosition с правильной высотой террейна (используем raycast)
+        let garageY = 0;
+        let terrainHeight = 0;
+        const rayStart = new Vector3(selectedGarage.x, 100, selectedGarage.z); // Увеличена начальная высота для лучшего raycast
+        const rayDir = Vector3.Down();
+        const ray = new Ray(rayStart, rayDir, 100);
+        // КРИТИЧНО: Улучшенный фильтр для raycast - проверяем все меши террейна
+        const hit = this.scene.pickWithRay(ray, (mesh) => {
+            if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+            // Проверяем все меши террейна (ground_, terrain, и т.д.)
+            return (mesh.name.startsWith("ground_") || 
+                    mesh.name.includes("terrain") || 
+                    mesh.name.includes("chunk")) && 
+                   mesh.isEnabled();
+        });
+        
+        if (hit && hit.hit && hit.pickedPoint) {
+            terrainHeight = hit.pickedPoint.y;
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:3846',message:'Player garage raycast found terrain',data:{terrainHeight:terrainHeight.toFixed(2),garageX:selectedGarage.x.toFixed(2),garageZ:selectedGarage.z.toFixed(2)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+        } else if (this.chunkSystem && this.chunkSystem.terrainGenerator) {
+            terrainHeight = this.chunkSystem.terrainGenerator.getHeight(
+                selectedGarage.x,
+                selectedGarage.z,
+                "dirt"
+            );
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:3848',message:'Player garage using terrainGenerator',data:{terrainHeight:terrainHeight.toFixed(2),garageX:selectedGarage.x.toFixed(2),garageZ:selectedGarage.z.toFixed(2)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+        }
+        
+        // КРИТИЧНО: Убеждаемся, что высота не отрицательная
+        if (terrainHeight < 0) {
+            terrainHeight = 0;
+        }
+        
+        // КРИТИЧНО: Если terrainHeight очень маленький (< 0.1), это может означать, что террейн еще не загружен
+        // Проверяем, есть ли загруженные меши террейна
+        let hasLoadedTerrain = false;
+        if (this.chunkSystem) {
+            const terrainMeshes = this.scene.meshes.filter(m => 
+                m.name.startsWith("ground_") && m.isEnabled()
+            );
+            hasLoadedTerrain = terrainMeshes.length > 0;
+            
+            // Если террейн не загружен и высота очень маленькая, используем минимальную безопасную высоту
+            if (!hasLoadedTerrain && terrainHeight < 0.1) {
+                terrainHeight = 2.0; // Минимальная высота для спавна
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:3854',message:'Player garage using fallback height',data:{terrainHeight:2.0,hasLoadedTerrain:false},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
+            }
+        }
+        
+        garageY = Math.max(terrainHeight + 3.0, 5.0); // Минимум 5.0 для безопасности
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:3860',message:'Player garage final height',data:{terrainHeight:terrainHeight.toFixed(2),garageY:garageY.toFixed(2),hasLoadedTerrain},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+        this.playerGaragePosition = new Vector3(selectedGarage.x, garageY, selectedGarage.z);
         logger.log(`[Game] Garage position saved for respawn: (${this.playerGaragePosition.x.toFixed(2)}, ${this.playerGaragePosition.y.toFixed(2)}, ${this.playerGaragePosition.z.toFixed(2)})`);
         
         // Перемещаем танк в гараж
@@ -3636,24 +4205,94 @@ export class Game {
             }
             
             // ИСПРАВЛЕНИЕ: Получаем высоту земли и спавним танк немного над поверхностью
-            let spawnHeight = playerGarage.y;
-            if (this.chunkSystem && this.chunkSystem.terrainGenerator) {
-                // Получаем высоту земли в позиции гаража
-                const groundHeight = this.chunkSystem.terrainGenerator.getHeight(
-                    playerGarage.x, 
-                    playerGarage.z, 
-                    "dirt" // Используем базовый биом для проверки
+            let spawnHeight = 0; // GaragePosition не имеет y, используем 0
+            
+            // КРИТИЧНО: Сначала пытаемся использовать raycast для получения реальной высоты меша террейна
+            let groundHeight = 0;
+            const rayStart = new Vector3(selectedGarage.x, 100, selectedGarage.z); // Увеличена начальная высота для лучшего raycast
+            const rayDir = Vector3.Down();
+            const ray = new Ray(rayStart, rayDir, 200); // Увеличена длина луча
+            // КРИТИЧНО: Улучшенный фильтр для raycast - проверяем все меши террейна
+            const hit = this.scene.pickWithRay(ray, (mesh) => {
+                if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+                // Проверяем все меши террейна (ground_, terrain, и т.д.)
+                return (mesh.name.startsWith("ground_") || 
+                        mesh.name.includes("terrain") || 
+                        mesh.name.includes("chunk")) && 
+                       mesh.isEnabled();
+            });
+            
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:3870',message:'Player spawn raycast check',data:{garageX:selectedGarage.x.toFixed(2),garageZ:selectedGarage.z.toFixed(2),hitFound:!!(hit&&hit.hit&&hit.pickedPoint),hitY:hit?.pickedPoint?.y?.toFixed(2)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+            
+            if (hit && hit.hit && hit.pickedPoint) {
+                groundHeight = hit.pickedPoint.y;
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:3880',message:'Player spawn using raycast height',data:{groundHeight:groundHeight.toFixed(2)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
+            } else if (this.chunkSystem && this.chunkSystem.terrainGenerator) {
+                // Fallback: используем terrain generator если raycast не нашел меш
+                groundHeight = this.chunkSystem.terrainGenerator.getHeight(
+                    selectedGarage.x, 
+                    selectedGarage.z, 
+                    "dirt"
                 );
-                // Спавним на высоте земли + 2.0 единицы для предотвращения падения сквозь пол
-                spawnHeight = Math.max(groundHeight, 0) + 2.0; // Увеличено с 1.5 до 2.0
-                logger.log(`[Game] Ground height at garage: ${groundHeight.toFixed(2)}, spawn height: ${spawnHeight.toFixed(2)}`);
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:3883',message:'Player spawn using terrainGenerator height',data:{groundHeight:groundHeight.toFixed(2),hasTerrainGen:!!this.chunkSystem.terrainGenerator},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
             } else {
-                // Fallback: если нет terrain generator, используем позицию гаража + 2.0
-                spawnHeight = playerGarage.y + 2.0; // Увеличено с 1.5 до 2.0
+                // КРИТИЧНО: Если оба метода не работают, используем минимальную высоту
+                groundHeight = 0;
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:3890',message:'Player spawn using fallback height',data:{groundHeight:0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
             }
             
+            // КРИТИЧНО: Убеждаемся, что высота не отрицательная
+            // Если groundHeight < 0, значит что-то не так - используем 0
+            if (groundHeight < 0) {
+                groundHeight = 0;
+            }
+            
+            // КРИТИЧНО: Если raycast не нашел меш и terrainGenerator вернул 0 или очень маленькое значение,
+            // это может означать, что террейн еще не загружен. Используем минимальную безопасную высоту.
+            // Проверяем, есть ли загруженные чанки с террейном
+            let hasLoadedTerrain = false;
+            if (this.chunkSystem) {
+                // Проверяем, есть ли меши террейна в сцене
+                const terrainMeshes = this.scene.meshes.filter(m => 
+                    m.name.startsWith("ground_") && m.isEnabled()
+                );
+                hasLoadedTerrain = terrainMeshes.length > 0;
+                
+                // Если террейн не загружен, используем минимальную высоту из terrainGenerator
+                if (!hasLoadedTerrain && this.chunkSystem.terrainGenerator) {
+                    // Пробуем получить высоту еще раз, но с более широким поиском
+                    const testHeight = this.chunkSystem.terrainGenerator.getHeight(
+                        selectedGarage.x, 
+                        selectedGarage.z, 
+                        "dirt"
+                    );
+                    // Если получили разумную высоту (не 0 и не отрицательную), используем её
+                    if (testHeight > 0.1) {
+                        groundHeight = testHeight;
+                    } else {
+                        // Если все еще 0, используем минимальную безопасную высоту
+                        groundHeight = 2.0; // Минимальная высота для спавна
+                    }
+                }
+            }
+            
+            // Спавним на высоте земли + 2.0 единицы для предотвращения падения сквозь пол
+            spawnHeight = Math.max(groundHeight + 3.0, 5.0); // Минимум 5.0 для безопасности
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:3891',message:'Player spawn height calculated',data:{groundHeight:groundHeight.toFixed(2),spawnHeight:spawnHeight.toFixed(2),hasLoadedTerrain,raycastFound:!!(hit&&hit.hit&&hit.pickedPoint)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+            logger.log(`[Game] Ground height at garage: ${groundHeight.toFixed(2)}, spawn height: ${spawnHeight.toFixed(2)}`);
+            
             // Устанавливаем позицию с правильной высотой
-            const spawnPos = new Vector3(playerGarage.x, spawnHeight, playerGarage.z);
+            const spawnPos = new Vector3(selectedGarage.x, spawnHeight, selectedGarage.z);
             this.tank.chassis.position.copyFrom(spawnPos);
             
             // КРИТИЧЕСКИ ВАЖНО: Сбрасываем вращение корпуса (чтобы танк не был наклонён!)
@@ -3679,7 +4318,7 @@ export class Game {
             this.setPlayerGarageWallsTransparent();
         }, 100);
         
-        logger.log(`[Game] Player spawned in garage at ${playerGarage.x.toFixed(1)}, ${playerGarage.z.toFixed(1)}`);
+        logger.log(`[Game] Player spawned in garage at ${selectedGarage.x.toFixed(1)}, ${selectedGarage.z.toFixed(1)}`);
     }
     
     // Получить позицию БЛИЖАЙШЕГО гаража для респавна игрока
@@ -3701,17 +4340,43 @@ export class Game {
             let nearestDistance = Infinity;
             
             for (const garage of this.chunkSystem.garagePositions) {
+                const garagePos = new Vector3(garage.x, 0, garage.z);
                 const dist = Vector3.Distance(
                     new Vector3(playerPos.x, 0, playerPos.z), 
-                    new Vector3(garage.x, 0, garage.z)
+                    garagePos
                 );
                 if (dist < nearestDistance) {
                     nearestDistance = dist;
-                    nearestGarage = garage;
+                    nearestGarage = garagePos;
                 }
             }
             
             if (nearestGarage) {
+                // КРИТИЧНО: Получаем высоту террейна для респавна (используем raycast для реальной высоты меша)
+                let terrainHeight = 0;
+                const rayStart = new Vector3(nearestGarage.x, 50, nearestGarage.z);
+                const rayDir = Vector3.Down();
+                const ray = new Ray(rayStart, rayDir, 200); // Увеличена длина луча
+                const hit = this.scene.pickWithRay(ray, (mesh) => {
+                    if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+                    // Проверяем все меши террейна
+                    return (mesh.name.startsWith("ground_") || 
+                            mesh.name.includes("terrain") || 
+                            mesh.name.includes("chunk")) && 
+                           mesh.isEnabled();
+                });
+                
+                if (hit && hit.hit && hit.pickedPoint) {
+                    terrainHeight = hit.pickedPoint.y;
+                } else if (this.chunkSystem && this.chunkSystem.terrainGenerator) {
+                    terrainHeight = this.chunkSystem.terrainGenerator.getHeight(
+                        nearestGarage.x,
+                        nearestGarage.z,
+                        "dirt"
+                    );
+                }
+                
+                nearestGarage.y = Math.max(terrainHeight, 0) + 2.0;
                 logger.log(`[Game] Found nearest garage at distance ${nearestDistance.toFixed(1)}m: (${nearestGarage.x.toFixed(2)}, ${nearestGarage.y.toFixed(2)}, ${nearestGarage.z.toFixed(2)})`);
                 return nearestGarage.clone();
             }
@@ -3744,16 +4409,18 @@ export class Game {
                 continue; // Гараж занят таймером
             }
             
+            const garagePos = new Vector3(garage.x, 0, garage.z);
+            
             // Исключаем гараж игрока и близлежащие гаражи (минимум 100 единиц!)
             if (this.playerGaragePosition) {
-                const distToPlayerGarage = Vector3.Distance(garage, this.playerGaragePosition);
+                const distToPlayerGarage = Vector3.Distance(garagePos, this.playerGaragePosition);
                 if (distToPlayerGarage < 100) continue; // Минимум 100 единиц от гаража игрока
             }
             
-            const dist = Vector3.Distance(fromPos, garage);
+            const dist = Vector3.Distance(fromPos, garagePos);
             if (dist < nearestDistance) {
                 nearestDistance = dist;
-                nearestGarage = garage;
+                nearestGarage = garagePos;
             }
         }
         
@@ -3768,16 +4435,18 @@ export class Game {
         let nearestDistance = Infinity;
         
         for (const garage of this.chunkSystem.garagePositions) {
+            const garagePos = new Vector3(garage.x, 0, garage.z);
+            
             // Исключаем гараж игрока и близлежащие гаражи (минимум 100 единиц!)
             if (this.playerGaragePosition) {
-                const distToPlayerGarage = Vector3.Distance(garage, this.playerGaragePosition);
+                const distToPlayerGarage = Vector3.Distance(garagePos, this.playerGaragePosition);
                 if (distToPlayerGarage < 100) continue; // Минимум 100 единиц от гаража игрока
             }
             
-            const dist = Vector3.Distance(fromPos, garage);
+            const dist = Vector3.Distance(fromPos, garagePos);
             if (dist < nearestDistance) {
                 nearestDistance = dist;
-                nearestGarage = garage;
+                nearestGarage = garagePos;
             }
         }
         
@@ -3791,8 +4460,9 @@ export class Game {
             return;
         }
         if (!this.chunkSystem || !this.chunkSystem.garagePositions.length) {
-            logger.warn("No garages available, NOT spawning enemies!");
-            return; // НЕ используем fallback - враги НЕ спавнятся без гаражей!
+            logger.warn("No garages available for garage spawn, will use map spawn instead");
+            // НЕ возвращаемся - вызывающий код должен использовать spawnEnemyTanks() как fallback
+            return;
         }
         
         // КРИТИЧЕСКИ ВАЖНО: Если гараж игрока ещё не определён, НЕ СПАВНИМ врагов!
@@ -3853,14 +4523,99 @@ export class Game {
         
         // Спавним врагов в первых N гаражах
         for (let i = 0; i < enemyCount; i++) {
-            const garagePos = availableGarages[i];
-            if (!garagePos) {
+            const garage = availableGarages[i];
+            if (!garage) {
                 continue;
             }
+            
+            // КРИТИЧНО: Получаем высоту террейна для спавна
+            let groundHeight = 0;
+            const rayStart = new Vector3(garage.x, 50, garage.z);
+            const rayDir = Vector3.Down();
+            const ray = new Ray(rayStart, rayDir, 200); // Увеличена длина луча
+            // КРИТИЧНО: Улучшенный фильтр для raycast - проверяем все меши террейна
+            const hit = this.scene.pickWithRay(ray, (mesh) => {
+                if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+                // Проверяем все меши террейна (ground_, terrain, и т.д.)
+                return (mesh.name.startsWith("ground_") || 
+                        mesh.name.includes("terrain") || 
+                        mesh.name.includes("chunk")) && 
+                       mesh.isEnabled();
+            });
+            
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:4126',message:'Enemy spawn raycast check',data:{garageX:garage.x.toFixed(2),garageZ:garage.z.toFixed(2),hitFound:!!(hit&&hit.hit&&hit.pickedPoint),hitY:hit?.pickedPoint?.y?.toFixed(2)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+            
+            if (hit && hit.hit && hit.pickedPoint) {
+                groundHeight = hit.pickedPoint.y;
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:4136',message:'Enemy spawn using raycast height',data:{groundHeight:groundHeight.toFixed(2)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
+            } else if (this.chunkSystem && this.chunkSystem.terrainGenerator) {
+                groundHeight = this.chunkSystem.terrainGenerator.getHeight(garage.x, garage.z, "dirt");
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:4138',message:'Enemy spawn using terrainGenerator height',data:{groundHeight:groundHeight.toFixed(2),hasTerrainGen:!!this.chunkSystem.terrainGenerator},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
+            } else {
+                // КРИТИЧНО: Если оба метода не работают, используем минимальную высоту
+                groundHeight = 0;
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:4141',message:'Enemy spawn using fallback height',data:{groundHeight:0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
+            }
+            
+            // КРИТИЧНО: Убеждаемся, что высота не отрицательная
+            // Если groundHeight < 0, значит что-то не так - используем 0
+            if (groundHeight < 0) {
+                groundHeight = 0;
+            }
+            
+            // КРИТИЧНО: Если raycast не нашел меш и terrainGenerator вернул 0 или очень маленькое значение,
+            // это может означать, что террейн еще не загружен. Используем минимальную безопасную высоту.
+            // Проверяем, есть ли загруженные чанки с террейном
+            let hasLoadedTerrain = false;
+            if (this.chunkSystem) {
+                // Проверяем, есть ли меши террейна в сцене
+                const terrainMeshes = this.scene.meshes.filter(m => 
+                    m.name.startsWith("ground_") && m.isEnabled()
+                );
+                hasLoadedTerrain = terrainMeshes.length > 0;
+                
+                // Если террейн не загружен, используем минимальную высоту из terrainGenerator
+                if (!hasLoadedTerrain && this.chunkSystem.terrainGenerator) {
+                    // Пробуем получить высоту еще раз, но с более широким поиском
+                    const testHeight = this.chunkSystem.terrainGenerator.getHeight(
+                        garage.x, 
+                        garage.z, 
+                        "dirt"
+                    );
+                    // Если получили разумную высоту (не 0 и не отрицательную), используем её
+                    if (testHeight > 0.1) {
+                        groundHeight = testHeight;
+                    } else {
+                        // Если все еще 0, используем минимальную безопасную высоту
+                        groundHeight = 2.0; // Минимальная высота для спавна
+                    }
+                }
+            }
+            
+            const spawnY = Math.max(groundHeight + 3.0, 5.0); // Минимум 5.0 для безопасности
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:4141',message:'Enemy spawn height calculated',data:{groundHeight:groundHeight.toFixed(2),spawnY:spawnY.toFixed(2),hasLoadedTerrain,raycastFound:!!(hit&&hit.hit&&hit.pickedPoint)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+            const garagePos = new Vector3(garage.x, spawnY, garage.z);
+            
             // Используем сложность из текущих настроек (sessionSettings/меню)
             const difficulty = this.getCurrentEnemyDifficulty();
             const difficultyScale = adaptiveScale;
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:4141',message:'Spawning EnemyTank in garage',data:{garageX:garage.x.toFixed(2),spawnY:spawnY.toFixed(2),garageZ:garage.z.toFixed(2),groundHeight:groundHeight.toFixed(2)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
             const enemyTank = new EnemyTank(this.scene, garagePos, this.soundManager, this.effectsManager, difficulty, difficultyScale);
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:4147',message:'EnemyTank created in garage',data:{hasChassis:!!enemyTank.chassis,chassisPosY:enemyTank.chassis?.position.y.toFixed(2),hasRotation:!!enemyTank.chassis?.rotationQuaternion},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
             if (this.tank) {
                 enemyTank.setTarget(this.tank);
             }
@@ -3991,9 +4746,10 @@ export class Game {
         if (!this.chunkSystem || !this.playerGaragePosition) return null;
         
         for (const garage of this.chunkSystem.garagePositions) {
-            const dist = Vector3.Distance(garage, this.playerGaragePosition);
+            const garagePos = new Vector3(garage.x, 0, garage.z);
+            const dist = Vector3.Distance(garagePos, this.playerGaragePosition);
             if (dist >= 100) {
-                return garage.clone();
+                return garagePos.clone();
             }
         }
         return null;
@@ -4122,11 +4878,15 @@ export class Game {
             
             // Если это гараж игрока (близко к позиции спавна), сразу устанавливаем прозрачность
             if (distance < 5.0) { // Гараж игрока должен быть очень близко
-                garageData.walls.forEach(wall => {
-                    if (wall) {
-                        wall.visibility = 0.3; // 70% прозрачность (сразу, без интерполяции)
-                    }
-                });
+                // garageData это GarageWall, но мы ищем все стены с таким же garageId
+                const garageId = (garageData as any).garageId;
+                if (garageId && this.chunkSystem) {
+                    this.chunkSystem.garageWalls.forEach((wall: any) => {
+                        if ((wall as any).garageId === garageId && (wall as any).mesh) {
+                            (wall as any).mesh.visibility = 0.3; // 70% прозрачность (сразу, без интерполяции)
+                        }
+                    });
+                }
                 logger.log(`[Game] Player garage walls set to 70% transparency immediately`);
             }
         });
@@ -4138,10 +4898,10 @@ export class Game {
         
         const playerPos = this.tank.chassis.absolutePosition;
         
-        this.chunkSystem.garageWalls.forEach(garageData => {
+        this.chunkSystem.garageWalls.forEach((garageData: any) => {
             const garagePos = garageData.position;
-            const garageWidth = garageData.width;
-            const garageDepth = garageData.depth;
+            const garageWidth = (garageData as any).width || 10;
+            const garageDepth = (garageData as any).depth || 10;
             
             // Проверяем, находится ли игрок внутри гаража
             const halfWidth = garageWidth / 2;
@@ -4164,7 +4924,13 @@ export class Game {
             // Устанавливаем прозрачность стен (70% прозрачность = 0.3 видимость)
             const targetVisibility = isInside ? 0.3 : 1.0;
             
-            garageData.walls.forEach(wall => {
+            // Проверяем наличие walls перед итерацией
+            const walls = (garageData as any).walls;
+            if (!walls || !Array.isArray(walls)) {
+                return; // Пропускаем если walls отсутствует или не массив
+            }
+            
+            walls.forEach((wall: any) => {
                 if (wall) {
                     // Если это гараж игрока и игрок внутри, сразу устанавливаем прозрачность (без интерполяции)
                     if (isPlayerGarage && isInside) {
@@ -4187,8 +4953,8 @@ export class Game {
         // Обновляем каждые ворота
         const doorSpeed = 0.18; // УВЕЛИЧЕНА скорость открытия/закрытия для более отзывчивого управления
         
-        this.chunkSystem.garageDoors.forEach(doorData => {
-            if (!doorData.frontDoor || !doorData.backDoor) return;
+        this.chunkSystem.garageDoors.forEach((doorData: any) => {
+            if (!(doorData as any).frontDoor || !(doorData as any).backDoor) return;
             
             // === АВТООТКРЫТИЕ ВОРОТ ДЛЯ БОТОВ ===
             // Проверяем приближение вражеских танков к воротам
@@ -4249,7 +5015,10 @@ export class Game {
             // Обновляем физическое тело ворот (ANIMATED тип позволяет обновлять позицию)
             if (doorData.frontDoorPhysics && doorData.frontDoorPhysics.body) {
                 doorData.frontDoor.computeWorldMatrix(true);
-                doorData.frontDoorPhysics.body.setTargetTransform(doorData.frontDoor.position.clone(), Quaternion.Identity());
+                doorData.frontDoorPhysics.body.setTargetTransform(
+                    doorData.frontDoor.position.clone(), 
+                    Quaternion.Identity()
+                );
             }
             
             // Задние ворота - плавная интерполяция
@@ -4266,7 +5035,10 @@ export class Game {
             // Обновляем физическое тело ворот (ANIMATED тип позволяет обновлять позицию)
             if (doorData.backDoorPhysics && doorData.backDoorPhysics.body) {
                 doorData.backDoor.computeWorldMatrix(true);
-                doorData.backDoorPhysics.body.setTargetTransform(doorData.backDoor.position.clone(), Quaternion.Identity());
+                doorData.backDoorPhysics.body.setTargetTransform(
+                    doorData.backDoor.position.clone(), 
+                    Quaternion.Identity()
+                );
             }
         });
     }
@@ -4291,7 +5063,7 @@ export class Game {
         // Проверяем каждую точку захвата
         this.chunkSystem.garageCapturePoints.forEach(capturePoint => {
             const garageKey = `${capturePoint.position.x.toFixed(1)}_${capturePoint.position.z.toFixed(1)}`;
-            const ownership = this.chunkSystem!.garageOwnership.get(garageKey);
+            const ownership = ((this.chunkSystem as any).garageOwnership || new Map()).get(garageKey);
             if (!ownership) return;
             
             // Проверяем состояние ворот - если закрыты, захват невозможен
@@ -4300,7 +5072,8 @@ export class Game {
                 Math.abs(door.position.z - capturePoint.position.z) < 0.1
             );
             
-            if (garageDoor && !garageDoor.frontDoorOpen && !garageDoor.backDoorOpen) {
+            const garageDoorAny = garageDoor as any;
+            if (garageDoor && !garageDoorAny.frontDoorOpen && !garageDoorAny.backDoorOpen) {
                 // Ворота закрыты - захват невозможен, но прогресс НЕ сбрасываем
                 // Просто скрываем прогресс-бар и не накапливаем прогресс
                 if (this.hud) {
@@ -4308,11 +5081,11 @@ export class Game {
                 }
                 // Обновляем цвет по владельцу (захват невозможен пока ворота закрыты)
                 if (ownership.ownerId === null) {
-                    this.updateWrenchColor(capturePoint.wrench, "neutral");
+                    this.updateWrenchColor((capturePoint as any).wrench, "neutral");
                 } else if (ownership.ownerId === playerId) {
-                    this.updateWrenchColor(capturePoint.wrench, "player");
+                    this.updateWrenchColor((capturePoint as any).wrench, "player");
                 } else {
-                    this.updateWrenchColor(capturePoint.wrench, "enemy");
+                    this.updateWrenchColor((capturePoint as any).wrench, "enemy");
                 }
                 return;
             }
@@ -4344,7 +5117,7 @@ export class Game {
                     this.hud.setGarageCaptureProgress(null, 0, 0);
                 }
                 // Обновляем цвет на зелёный (игрок владеет)
-                this.updateWrenchColor(capturePoint.wrench, "player");
+                this.updateWrenchColor((capturePoint as any).wrench, "player");
                 return;
             }
             
@@ -4391,7 +5164,7 @@ export class Game {
                 this.garageCaptureProgress.delete(garageKey);
                 
                 // Обновляем цвет гаечного ключа на зелёный
-                this.updateWrenchColor(capturePoint.wrench, "player");
+                this.updateWrenchColor((capturePoint as any).wrench, "player");
                 
                 // Скрываем прогресс-бар
                 if (this.hud) {
@@ -4402,24 +5175,24 @@ export class Game {
                 logger.log(`[Game] Garage ${wasEnemy ? 'captured from enemy' : 'captured'} at (${capturePoint.position.x.toFixed(1)}, ${capturePoint.position.z.toFixed(1)})`);
             } else {
                 // Обновляем цвет на жёлтый (захват в процессе)
-                this.updateWrenchColor(capturePoint.wrench, "capturing");
+                this.updateWrenchColor((capturePoint as any).wrench, "capturing");
             }
         });
         
         // Обновляем цвет гаечных ключей для гаражей, которые не захватываются
         this.chunkSystem.garageCapturePoints.forEach(capturePoint => {
             const garageKey = `${capturePoint.position.x.toFixed(1)}_${capturePoint.position.z.toFixed(1)}`;
-            const ownership = this.chunkSystem!.garageOwnership.get(garageKey);
+            const ownership = ((this.chunkSystem as any).garageOwnership || new Map()).get(garageKey);
             if (!ownership) return;
             
             // Если не в процессе захвата, обновляем цвет по владельцу
             if (!this.garageCaptureProgress.has(garageKey)) {
                 if (ownership.ownerId === null) {
-                    this.updateWrenchColor(capturePoint.wrench, "neutral");
+                    this.updateWrenchColor((capturePoint as any).wrench, "neutral");
                 } else if (ownership.ownerId === this.PLAYER_ID) {
-                    this.updateWrenchColor(capturePoint.wrench, "player");
+                    this.updateWrenchColor((capturePoint as any).wrench, "player");
                 } else {
-                    this.updateWrenchColor(capturePoint.wrench, "enemy");
+                    this.updateWrenchColor((capturePoint as any).wrench, "enemy");
                 }
             }
         });
@@ -4973,7 +5746,11 @@ export class Game {
         if (this._updateTick % 6 === 0 && this.statsOverlayVisible && this.statsOverlay) {
             this.updateStatsOverlay();
             // Логирование для отладки (только каждые 60 кадров)
-            // Debug logging removed for performance
+            const frameCount = (this as any).frameCount || 0;
+            if (loggingSettings.getLevel() >= LogLevel.DEBUG && frameCount % 60 === 0) {
+                logger.debug(`[GAME] Frame ${frameCount} | FPS: ${this.engine.getFps().toFixed(1)}`);
+            }
+            (this as any).frameCount = (frameCount + 1);
         }
         
         // 4.9. Периодическое обновление центральной шкалы опыта в HUD (каждые 2 кадра для оптимизации)
@@ -5342,13 +6119,14 @@ export class Game {
         // Проверяем все припасы
         for (let i = this.chunkSystem.consumablePickups.length - 1; i >= 0; i--) {
             const pickup = this.chunkSystem.consumablePickups[i];
-            if (!pickup || !pickup.mesh || pickup.mesh.isDisposed()) {
+            const pickupAny = pickup as any;
+            if (!pickup || !pickupAny.mesh || pickupAny.mesh.isDisposed()) {
                 this.chunkSystem.consumablePickups.splice(i, 1);
                 continue;
             }
             
             // Используем позицию МЕША, а не сохранённую позицию
-            const pickupPos = pickup.mesh.absolutePosition || pickup.position;
+            const pickupPos = pickupAny.mesh.absolutePosition || pickup.position;
             // Используем квадрат расстояния для избежания sqrt
             const dx = pickupPos.x - tankPos.x;
             const dz = pickupPos.z - tankPos.z;
@@ -5370,12 +6148,12 @@ export class Game {
                     if (slot > 0) {
                         // In multiplayer, request pickup from server
                         if (this.isMultiplayer && this.multiplayerManager) {
-                            const consumableId = (pickup.mesh.metadata as any)?.consumableId || 
-                                                 `consumable_${pickup.mesh.position.x}_${pickup.mesh.position.z}`;
+                            const consumableId = (pickupAny.mesh.metadata as any)?.consumableId || 
+                                                 `consumable_${pickupAny.mesh.position.x}_${pickupAny.mesh.position.z}`;
                             this.multiplayerManager.requestConsumablePickup(
                                 consumableId,
                                 pickup.type,
-                                { x: pickup.mesh.position.x, y: pickup.mesh.position.y, z: pickup.mesh.position.z }
+                                { x: pickupAny.mesh.position.x, y: pickupAny.mesh.position.y, z: pickupAny.mesh.position.z }
                             );
                             // Wait for server confirmation before picking up
                             continue;
@@ -5386,7 +6164,7 @@ export class Game {
                         this.consumablesManager.pickUp(consumableType, slot);
                         
                         // Удаляем припас с карты
-                        pickup.mesh.dispose();
+                        pickupAny.mesh.dispose();
                         this.chunkSystem.consumablePickups.splice(i, 1);
                         
                         // Обновляем HUD и System Terminal
@@ -5419,19 +6197,19 @@ export class Game {
                         // Все слоты заняты - заменяем первый
                         // In multiplayer, request pickup from server
                         if (this.isMultiplayer && this.multiplayerManager) {
-                            const consumableId = (pickup.mesh.metadata as any)?.consumableId || 
-                                                 `consumable_${pickup.mesh.position.x}_${pickup.mesh.position.z}`;
+                            const consumableId = (pickupAny.mesh.metadata as any)?.consumableId || 
+                                                 `consumable_${pickupAny.mesh.position.x}_${pickupAny.mesh.position.z}`;
                             this.multiplayerManager.requestConsumablePickup(
                                 consumableId,
                                 pickup.type,
-                                { x: pickup.mesh.position.x, y: pickup.mesh.position.y, z: pickup.mesh.position.z }
+                                { x: pickupAny.mesh.position.x, y: pickupAny.mesh.position.y, z: pickupAny.mesh.position.z }
                             );
                             continue;
                         }
                         
                         // Single player: pick up immediately
                         this.consumablesManager.pickUp(consumableType, 1);
-                        pickup.mesh.dispose();
+                        pickupAny.mesh.dispose();
                         this.chunkSystem.consumablePickups.splice(i, 1);
                         
                         if (this.chatSystem) {
@@ -5526,8 +6304,8 @@ export class Game {
     // Находит максимальный угол прицеливания для заданной дальности
     private findMaxPitchForRange(targetRange: number, projectileSpeed: number, barrelHeight: number): number {
         // Бинарный поиск максимального угла
-        let minPitch = -Math.PI / 3; // -60 градусов
-        let maxPitch = Math.PI / 6;   // +30 градусов
+        let minPitch = -Math.PI / 12; // -15 градусов
+        let maxPitch = 0;               // 0 градусов (горизонтально)
         let bestPitch = 0;
         
         // Ищем угол, при котором дальность максимально близка к targetRange, но не превышает её
@@ -5567,9 +6345,15 @@ export class Game {
                     evt.stopPropagation(); // Предотвращаем всплытие события
                     const canvas = this.scene.getEngine().getRenderingCanvas() as HTMLCanvasElement;
                     if (canvas && document.pointerLockElement !== canvas) {
+                        // #region agent log
+                        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:6254',message:'Before requestPointerLock (Alt key)',data:{canvasExists:!!canvas,canvasOwnerDocument:canvas.ownerDocument?.location?.href,canvasInBody:document.body.contains(canvas),isConnected:canvas.isConnected,currentLockElement:document.pointerLockElement?.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+                        // #endregion
                         try {
                             // requestPointerLock может вернуть Promise или void в зависимости от браузера
                             const lockResult: any = canvas.requestPointerLock();
+                            // #region agent log
+                            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:6257',message:'requestPointerLock called',data:{hasResult:!!lockResult,isPromise:lockResult?.then !== undefined},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+                            // #endregion
                             if (lockResult && typeof lockResult === 'object' && typeof lockResult.then === 'function') {
                                 lockResult.then(() => {
                                     logger.log("[Game] Pointer lock activated via Alt key");
@@ -5578,6 +6362,9 @@ export class Game {
                                         this.hud.showMessage("🖱️ Игровой курсор включен (Alt)", "#0f0", 2000);
                                     }
                                 }).catch((err: Error) => {
+                                    // #region agent log
+                                    fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:6265',message:'Pointer lock promise rejected',data:{errorName:err.name,errorMessage:err.message,errorStack:err.stack?.substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+                                    // #endregion
                                     logger.warn("[Game] Failed to request pointer lock on Alt:", err);
                                     if (this.hud) {
                                         this.hud.showMessage("⚠️ Не удалось включить курсор", "#f00", 2000);
@@ -5588,6 +6375,9 @@ export class Game {
                                 logger.log("[Game] Pointer lock requested via Alt key");
                             }
                         } catch (err) {
+                            // #region agent log
+                            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:6275',message:'Pointer lock exception caught',data:{errorName:(err as Error).name,errorMessage:(err as Error).message,errorStack:(err as Error).stack?.substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+                            // #endregion
                             logger.warn("[Game] Failed to request pointer lock on Alt:", err);
                         }
                     } else if (canvas && document.pointerLockElement === canvas) {
@@ -5782,8 +6572,8 @@ export class Game {
                             }
                         }
                         
-                        // Также применяем стандартные ограничения угла к целевому углу
-                        this.targetAimPitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 6, newPitch));
+                        // Также применяем стандартные ограничения угла к целевому углу (-10° до +5°)
+                        this.targetAimPitch = Math.max(-Math.PI / 18, Math.min(Math.PI / 36, newPitch));
                     }
                     
                     // ИСПРАВЛЕНИЕ: Плавная интерполяция aimPitch и передача в TankController
@@ -5983,8 +6773,8 @@ export class Game {
                         }
                     }
                     
-                    // Применяем стандартные ограничения угла
-                    this.targetAimPitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 6, newPitch));
+                    // Применяем стандартные ограничения угла (-10° до +5°)
+                    this.targetAimPitch = Math.max(-Math.PI / 18, Math.min(Math.PI / 36, newPitch));
                 }
             } else {
                 // Вне режима прицеливания: Q/E управляют наклоном камеры (как раньше)
@@ -5994,8 +6784,8 @@ export class Game {
                 this.normalBeta = Math.max(0.2, Math.min(Math.PI / 2.2, this.normalBeta));
             }
             
-            // Camera collision ОТКЛЮЧЕНО - вызывает дёрганье
-            // this.adjustCameraForCollision();
+            // Camera collision - предотвращаем заход камеры за текстуры
+            this.adjustCameraForCollision();
 
             // === ПЛАВНЫЙ ПЕРЕХОД В РЕЖИМ ПРИЦЕЛИВАНИЯ ===
             // Обновляем прогресс перехода
@@ -6364,6 +7154,60 @@ export class Game {
     // Добавить тряску камеры
     addCameraShake(intensity: number, _duration: number = 0.3): void {
         this.cameraShakeIntensity = Math.max(this.cameraShakeIntensity, intensity);
+    }
+    
+    // Предотвращение захода камеры за текстуры/стены
+    private adjustCameraForCollision(): void {
+        if (!this.camera || !this.tank || !this.tank.chassis) return;
+        
+        // Только для обычной камеры (не в режиме прицеливания)
+        const t = this.aimingTransitionProgress || 0;
+        if (t > 0.01) return; // В режиме прицеливания не применяем
+        
+        const tankPos = this.tank.chassis.getAbsolutePosition();
+        const cameraPos = this.camera.position;
+        
+        // Направление от танка к камере
+        const direction = cameraPos.subtract(tankPos.add(new Vector3(0, 1.0, 0)));
+        const distance = direction.length();
+        direction.normalize();
+        
+        // Минимальное расстояние до камеры (чтобы не заходить за текстуры)
+        const minDistance = 2.0;
+        
+        // Проверяем коллизию с мешами (игнорируем танк и другие исключения)
+        const ray = new Ray(tankPos.add(new Vector3(0, 1.0, 0)), direction);
+        const hit = this.scene.pickWithRay(ray, (mesh) => {
+            if (!mesh || !mesh.isEnabled() || 
+                mesh === this.tank?.chassis || 
+                mesh === this.tank?.turret || 
+                mesh === this.tank?.barrel) {
+                return false;
+            }
+            // Игнорируем эффекты, частицы и другие невидимые объекты
+            if (mesh.name.includes("particle") || mesh.name.includes("effect") || 
+                mesh.name.includes("trail") || mesh.name.includes("bullet")) {
+                return false;
+            }
+            return true;
+        });
+        
+        if (hit && hit.hit && hit.distance !== null && hit.distance < distance) {
+            // Есть коллизия - перемещаем камеру ближе к танку
+            const safeDistance = Math.max(minDistance, hit.distance - 0.5);
+            const newCameraPos = tankPos.add(new Vector3(0, 1.0, 0)).add(direction.clone().scale(safeDistance));
+            
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:6869',message:'Camera collision detected',data:{hitDistance:hit.distance,originalDistance:distance,safeDistance:safeDistance,cameraPosX:cameraPos.x,cameraPosY:cameraPos.y,cameraPosZ:cameraPos.z,newPosX:newCameraPos.x,newPosY:newCameraPos.y,newPosZ:newCameraPos.z,hitMeshName:hit.pickedMesh?.name||'unknown'},timestamp:Date.now(),sessionId:'debug-session',runId:'run3-camera',hypothesisId:'C'})}).catch(()=>{});
+            // #endregion
+            
+            // Плавно перемещаем камеру к безопасной позиции
+            this.camera.position = Vector3.Lerp(cameraPos, newCameraPos, 0.3);
+        } else {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:6875',message:'Camera no collision',data:{cameraPosX:cameraPos.x,cameraPosY:cameraPos.y,cameraPosZ:cameraPos.z,distance:distance},timestamp:Date.now(),sessionId:'debug-session',runId:'run3-camera',hypothesisId:'C'})}).catch(()=>{});
+            // #endregion
+        }
     }
     
     // ПОКАЗАТЬ stats overlay (Tab ЗАЖАТ - пункт 13: K/D, убийства, смерти, credits)
@@ -7660,12 +8504,12 @@ export class Game {
             // Remove consumable from map (for all players)
             if (this.chunkSystem && data.consumableId) {
                 const pickup = this.chunkSystem.consumablePickups.find(
-                    p => (p.mesh.metadata as any)?.consumableId === data.consumableId ||
-                         (data.position && Math.abs(p.mesh.position.x - data.position.x) < 1 &&
-                          Math.abs(p.mesh.position.z - data.position.z) < 1)
+                    p => ((p as any).mesh.metadata as any)?.consumableId === data.consumableId ||
+                         (data.position && Math.abs((p as any).mesh.position.x - data.position.x) < 1 &&
+                          Math.abs((p as any).mesh.position.z - data.position.z) < 1)
                 );
                 if (pickup) {
-                    pickup.mesh.dispose();
+                    (pickup as any).mesh.dispose();
                     const index = this.chunkSystem.consumablePickups.indexOf(pickup);
                     if (index !== -1) {
                         this.chunkSystem.consumablePickups.splice(index, 1);
@@ -8087,10 +8931,16 @@ export class Game {
     }
     
     private async openScreenshotPanel(): Promise<void> {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:8257',message:'openScreenshotPanel called',data:{hasScreenshotManager:!!this.screenshotManager,hasScreenshotPanel:!!this.screenshotPanel},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         try {
             // Ленивая загрузка ScreenshotManager и панели
             if (!this.screenshotManager) {
                 logger.log("[Game] Loading screenshot manager (Ctrl+2)...");
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:8260',message:'Loading ScreenshotManager',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
                 const { ScreenshotManager } = await import("./screenshotManager");
                 this.screenshotManager = new ScreenshotManager(this.engine, this.scene, this.hud || null);
                 logger.log("[Game] Screenshot manager loaded successfully");
@@ -8098,14 +8948,23 @@ export class Game {
             
             if (!this.screenshotPanel) {
                 logger.log("[Game] Loading screenshot panel (Ctrl+2)...");
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:8267',message:'Loading ScreenshotPanel',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
                 const { ScreenshotPanel } = await import("./screenshotPanel");
                 this.screenshotPanel = new ScreenshotPanel(this.screenshotManager, this);
                 logger.log("[Game] Screenshot panel loaded successfully");
             }
             
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:8274',message:'Calling screenshotPanel.toggle',data:{hasToggle:typeof this.screenshotPanel.toggle==='function'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
             this.screenshotPanel.toggle();
             logger.log("[Game] Screenshot panel toggled");
         } catch (error) {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'game.ts:8276',message:'ScreenshotPanel error',data:{error:String(error)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
             logger.error("[Game] Failed to open screenshot panel:", error);
             if (this.hud) {
                 this.hud.showMessage("Failed to load Screenshot Panel", "#f00", 3000);
@@ -8352,4 +9211,5 @@ export class Game {
         }
     }
 }
+
 

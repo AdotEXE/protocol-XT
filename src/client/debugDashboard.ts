@@ -300,7 +300,12 @@ export class DebugDashboard {
         const fps = this.engine.getFps();
         const deltaTime = this.engine.getDeltaTime();
         const perf = (this.scene.getEngine() as any).getInfo?.() || { triangles: 0, drawCalls: 0 };
-        const chunkStats = this.chunkSystem?.getStats();
+        const chunkStats = this.chunkSystem ? {
+            loadedChunks: (this.chunkSystem as any).loadedChunks?.size || 0,
+            garageCount: this.chunkSystem.garagePositions?.length || 0,
+            totalChunksInMemory: (this.chunkSystem as any).loadedChunks?.size || 0,
+            lastUpdateTime: 0
+        } : null;
         
         const set = (id: string, value: string) => {
             const el = document.getElementById(id);

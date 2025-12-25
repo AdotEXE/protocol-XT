@@ -99,10 +99,16 @@ export class HelpMenu {
     private createUI(): void {
         // Инжектируем общие стили если еще не инжектированы
         CommonStyles.initialize();
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'helpMenu.ts:101',message:'CommonStyles initialized',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
         
         this.container = document.createElement("div");
         this.container.id = "help-menu";
         this.container.className = "panel-overlay";
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'helpMenu.ts:105',message:'HelpMenu container created',data:{className:this.container.className,id:this.container.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
         
         const html = `
             <div class="panel" style="width: min(800px, 90vw); max-height: min(700px, 90vh);">
@@ -225,6 +231,9 @@ export class HelpMenu {
     }
     
     toggle(): void {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'helpMenu.ts:227',message:'HelpMenu toggle called',data:{visible:this.visible,hasContainer:!!this.container},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         if (this.visible) {
             this.hide();
         } else {
@@ -233,11 +242,17 @@ export class HelpMenu {
     }
     
     show(): void {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'helpMenu.ts:235',message:'HelpMenu show called',data:{hasContainer:!!this.container},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
         if (!this.container) return;
         
         this.visible = true;
         this.container.classList.remove("hidden");
         this.container.style.display = "flex";
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'helpMenu.ts:240',message:'HelpMenu shown',data:{display:this.container.style.display,hasHidden:this.container.classList.contains('hidden')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
         
         // Reset search
         if (this.searchInput) {

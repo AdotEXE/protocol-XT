@@ -59,6 +59,7 @@ export interface ITankController {
     smoothSteer: number;
     turretTurnTarget: number;
     turretTurnSmooth: number;
+    barrelPitchTarget: number;
     aimPitch: number;
     
     // Стрельба

@@ -4,6 +4,7 @@
  */
 
 import { socialSystem, Friend, FriendRequest, Clan } from "./socialSystem";
+import { CommonStyles } from "./commonStyles";
 
 export class SocialMenu {
     private container: HTMLDivElement | null = null;
@@ -47,6 +48,9 @@ export class SocialMenu {
      * Переключить меню (открыть/закрыть)
      */
     async toggle(): Promise<void> {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'socialMenu.ts:50',message:'SocialMenu toggle called',data:{isOpen:this._isOpen,hasContainer:!!this.container},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         if (this._isOpen) {
             this.close();
         } else {
@@ -58,13 +62,22 @@ export class SocialMenu {
      * Создать UI
      */
     private createUI(): void {
+        // Инжектируем общие стили если еще не инжектированы
+        CommonStyles.initialize();
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'socialMenu.ts:63',message:'CommonStyles initialized',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
+        
         this.container = document.createElement("div");
-        this.container.className = "social-menu-overlay";
+        this.container.className = "panel-overlay";
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'socialMenu.ts:66',message:'SocialMenu container created',data:{className:this.container.className},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
         this.container.innerHTML = `
-            <div class="social-menu-container">
-                <div class="social-menu-header">
-                    <div class="social-menu-title">СОЦИАЛЬНЫЕ ФУНКЦИИ</div>
-                    <button class="social-menu-close" id="social-close">×</button>
+            <div class="panel" style="width: min(90vw, 800px); max-height: min(85vh, 700px);">
+                <div class="panel-header">
+                    <div class="panel-title">СОЦИАЛЬНЫЕ ФУНКЦИИ [Ctrl+0]</div>
+                    <button class="panel-close" id="social-close">×</button>
                 </div>
                 <div class="social-menu-tabs">
                     <div class="social-tab ${this.currentTab === 'friends' ? 'active' : ''}" data-tab="friends">
@@ -74,7 +87,7 @@ export class SocialMenu {
                         [2] КЛАНЫ
                     </div>
                 </div>
-                <div class="social-menu-content" id="social-content">
+                <div class="panel-content" id="social-content">
                     <!-- Контент будет загружен динамически -->
                 </div>
                 <div class="social-menu-footer">
@@ -97,50 +110,6 @@ export class SocialMenu {
         const style = document.createElement("style");
         style.id = "social-menu-styles";
         style.textContent = `
-            .social-menu-overlay {
-                position: fixed;
-                top: 0; left: 0; right: 0; bottom: 0;
-                background: rgba(0, 10, 0, 0.95);
-                z-index: 10000;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                font-family: 'Consolas', 'Monaco', monospace;
-            }
-            .social-menu-container {
-                width: min(90vw, 800px);
-                height: min(85vh, 700px);
-                background: rgba(5, 15, 5, 0.98);
-                border: 2px solid #0f0;
-                display: flex;
-                flex-direction: column;
-                box-shadow: 0 0 30px rgba(0, 255, 0, 0.3);
-            }
-            .social-menu-header {
-                height: 50px;
-                background: rgba(0, 30, 0, 0.9);
-                border-bottom: 2px solid #0f0;
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                padding: 0 20px;
-            }
-            .social-menu-title {
-                color: #0f0;
-                font-size: 20px;
-                font-weight: bold;
-            }
-            .social-menu-close {
-                color: #f00;
-                font-size: 24px;
-                background: transparent;
-                border: 1px solid #f00;
-                padding: 5px 10px;
-                cursor: pointer;
-            }
-            .social-menu-close:hover {
-                background: rgba(255, 0, 0, 0.3);
-            }
             .social-menu-tabs {
                 height: 40px;
                 background: rgba(0, 20, 0, 0.8);
@@ -162,12 +131,6 @@ export class SocialMenu {
             }
             .social-tab:hover {
                 background: rgba(0, 40, 0, 0.8);
-                color: #0f0;
-            }
-            .social-menu-content {
-                flex: 1;
-                overflow-y: auto;
-                padding: 20px;
                 color: #0f0;
             }
             .social-menu-footer {

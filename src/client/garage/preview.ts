@@ -305,8 +305,8 @@ function createUniqueChassisPreview(chassisType: ChassisType, scene: Scene): Mes
     mat.specularColor = Color3.Black();
     chassis.material = mat;
     
-    // Add visual details
-    addChassisDetailsPreview(chassis, chassisType, scene, color);
+    // Add visual details - ОТКЛЮЧЕНО по требованию
+    // addChassisDetailsPreview(chassis, chassisType, scene, color);
     
     return chassis;
 }
@@ -2568,6 +2568,28 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
     const barrelLength = cannonType.barrelLength;
     const cannonColor = Color3.FromHexString(cannonType.color);
     
+    // ОТКЛЮЧЕНО: Все детали удалены, создаём только простой ствол
+    const barrel = MeshBuilder.CreateBox("previewBarrel", { 
+        width: barrelWidth, 
+        height: barrelWidth, 
+        depth: barrelLength 
+    }, scene);
+    
+    const barrelMat = new StandardMaterial("previewBarrelMat", scene);
+    barrelMat.diffuseColor = cannonColor;
+    barrelMat.specularColor = Color3.Black();
+    barrel.material = barrelMat;
+    
+    const baseBarrelZ = barrelLength / 2;
+    barrel.position.z = baseBarrelZ;
+    barrel.position.y = 0;
+    barrel.rotation.x = 0;
+    barrel.rotation.y = 0;
+    barrel.rotation.z = 0;
+    
+    return barrel;
+    
+    /* ОТКЛЮЧЕНО - весь код деталей удалён
     let barrel: Mesh;
     
     // Use EXACT same proportions and details as TankController
@@ -3814,5 +3836,6 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
     barrel.material = barrelMat;
     
     return barrel;
+    */
 }
 

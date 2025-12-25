@@ -7,7 +7,7 @@ import { createSkillsPanelHTML, updateSkillTreeDisplay, type PlayerStats, type S
 import { Scene, Engine } from "@babylonjs/core";
 // Garage is lazy loaded - imported dynamically when needed
 import { CurrencyManager } from "./currencyManager";
-import { logger } from "./utils/logger";
+import { logger, LogLevel, loggingSettings, LogCategory } from "./utils/logger";
 import { CHASSIS_TYPES, CANNON_TYPES } from "./tankTypes";
 import { authUI } from "./menu/authUI";
 import { firebaseService } from "./firebaseService";
@@ -116,6 +116,8 @@ const LANG = {
         undergroundMapDesc: "Система пещер, шахт и туннелей под землёй",
         coastalMap: "Побережье",
         coastalMapDesc: "Береговая линия с портом, маяками, пляжами и утёсами",
+        tartariaMap: "Тартария",
+        tartariaMapDesc: "Город Тарту на основе реальных данных высот (27-82м)",
         // Controls
         movement: "Движение",
         combat: "Бой",
@@ -217,6 +219,8 @@ const LANG = {
         undergroundMapDesc: "Cave system, mines and tunnels underground",
         coastalMap: "Coastal",
         coastalMapDesc: "Coastline with port, lighthouses, beaches and cliffs",
+        tartariaMap: "Tartaria",
+        tartariaMapDesc: "City of Tartu based on real elevation data (27-82m)",
         // Controls
         movement: "Movement",
         combat: "Combat",
@@ -309,7 +313,7 @@ const DEFAULT_TANK: TankConfig = {
     firepower: 2
 };
 
-export type MapType = "normal" | "sandbox" | "polygon" | "frontline" | "ruins" | "canyon" | "industrial" | "urban_warfare" | "underground" | "coastal";
+export type MapType = "normal" | "sandbox" | "polygon" | "frontline" | "ruins" | "canyon" | "industrial" | "urban_warfare" | "underground" | "coastal" | "tartaria";
 
 export class MainMenu {
     private container!: HTMLDivElement;
@@ -347,6 +351,9 @@ export class MainMenu {
     private buttonHandlersAttached = false; // Флаг для предотвращения множественной привязки обработчиков
     
     constructor() {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:353',message:'MainMenu constructor started',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         this.settings = this.loadSettings();
         this.tankConfig = this.loadTankConfig();
         this.ownedChassisIds = this.loadOwnedIds("ownedChassis", ["medium"]);
@@ -355,7 +362,13 @@ export class MainMenu {
         // Garage will be loaded lazily when needed (when user opens garage from menu)
         // This reduces initial bundle size
         
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:362',message:'About to call createMenuUI',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         this.createMenuUI();
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:363',message:'createMenuUI completed',data:{containerExists:!!this.container,containerInDOM:this.container?document.body.contains(this.container):false},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         this.createSettingsUI();
         this.createStatsPanel();
         this.createSkillsPanel();
@@ -664,8 +677,16 @@ export class MainMenu {
     }
     
     private createMenuUI(): void {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:670',message:'createMenuUI started',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         this.container = document.createElement("div");
         this.container.id = "main-menu";
+        // ВАЖНО: НЕ добавляем класс "hidden" по умолчанию - меню должно быть видимо при создании
+        // this.container.classList.add("hidden"); // УДАЛЕНО - меню должно быть видимо
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:672',message:'Container created',data:{containerId:this.container.id,hasHiddenClass:this.container.classList.contains('hidden')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         const L = getLang(this.settings);
         this.container.innerHTML = `
             <div class="menu-bg"></div>
@@ -1026,6 +1047,9 @@ export class MainMenu {
                 gap: clamp(8px, 1.5vh, 15px);
                 overflow: hidden; /* Убрали scroll с основного контента */
                 pointer-events: auto !important;
+                margin: 0 auto; /* Центрирование по горизонтали */
+                left: auto; /* Убираем смещение влево */
+                right: auto; /* Убираем смещение вправо */
             }
             
             /* Scrollable область: от блока опыта до блока управления */
@@ -2240,6 +2264,19 @@ export class MainMenu {
         
         document.head.appendChild(style);
         document.body.appendChild(this.container);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:2251',message:'Container added to DOM',data:{inDOM:document.body.contains(this.container),hasHiddenClass:this.container.classList.contains('hidden')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+        
+        // ВАЖНО: Убеждаемся, что меню видимо при создании (не добавляем класс hidden)
+        // Меню будет показано через show() при загрузке игры
+        this.container.classList.remove("hidden");
+        // НЕ устанавливаем display/visibility здесь - CSS уже задает display: flex и visibility: visible
+        // Полагаемся на CSS стили из #main-menu { display: flex; ... }
+        // #region agent log
+        const computedStyle = window.getComputedStyle(this.container);
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:2260',message:'Container styles set',data:{display:computedStyle.display,visibility:computedStyle.visibility,zIndex:computedStyle.zIndex,hasHiddenClass:this.container.classList.contains('hidden')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         
         // Инициализация auth UI
         const authContainer = authUI.createContainer();
@@ -2294,7 +2331,9 @@ export class MainMenu {
     private attachDirectButtonHandlers(): void {
         // Предотвращаем множественную привязку обработчиков
         if (this.buttonHandlersAttached) {
-            console.log("[Menu] Button handlers already attached, skipping...");
+            if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
+                logger.debug("[Menu] Button handlers already attached");
+            }
             return;
         }
         
@@ -2325,7 +2364,9 @@ export class MainMenu {
                         console.warn(`[Menu] Button ${id} not found!`);
                         return;
                     }
-                    console.log(`[Menu] Attaching handler to button: ${id}`, btn);
+                    if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
+                        logger.verbose(`[Menu] Attaching handler to button ${id}`);
+                    }
                     
                     // Удаляем все старые обработчики через клонирование
                     const parent = btn.parentNode;
@@ -2353,7 +2394,9 @@ export class MainMenu {
                     if (id === "btn-login" || id === "btn-register") {
                         // Обработчик mousedown - срабатывает первым
                         newBtn.addEventListener("mousedown", (e) => {
-                            console.log(`[Menu] Button ${id} mousedown`, e);
+                            if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
+                                logger.verbose(`[Menu] Button ${id} mousedown`);
+                            }
                             
                             try {
                                 // Блокируем canvas
@@ -2367,9 +2410,10 @@ export class MainMenu {
                                 e.stopImmediatePropagation();
                                 
                                 // Вызываем handler сразу
-                                console.log(`[Menu] Calling handler for ${id} from mousedown`);
+                                if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
+                                    logger.verbose(`[Menu] Handler called/completed for ${id}`);
+                                }
                                 handler();
-                                console.log(`[Menu] Handler for ${id} completed from mousedown`);
                             } catch (error) {
                                 console.error(`[Menu] Error in mousedown handler for ${id}:`, error);
                                 debugError(`[Menu] Error in mousedown handler for ${id}:`, error);
@@ -2378,7 +2422,9 @@ export class MainMenu {
                         
                         // Обработчик click - резервный, на случай если mousedown не сработал
                         newBtn.addEventListener("click", (e) => {
-                            console.log(`[Menu] Button ${id} click (backup)`, e);
+                            if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
+                                logger.verbose(`[Menu] Button ${id} click (backup)`);
+                            }
                             
                             try {
                                 // Блокируем canvas
@@ -2392,9 +2438,8 @@ export class MainMenu {
                                 e.stopImmediatePropagation();
                                 
                                 // Вызываем handler
-                                console.log(`[Menu] Calling handler for ${id} from click (backup)`);
+                                // Handler called/completed (backup) - logging removed
                                 handler();
-                                console.log(`[Menu] Handler for ${id} completed from click (backup)`);
                             } catch (error) {
                                 console.error(`[Menu] Error in click handler for ${id}:`, error);
                                 debugError(`[Menu] Error in click handler for ${id}:`, error);
@@ -2429,9 +2474,10 @@ export class MainMenu {
                                 e.stopPropagation();
                                 e.stopImmediatePropagation();
                                 
-                                console.log(`[Menu] Calling handler for ${id}`);
+                                if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
+                                    logger.verbose(`[Menu] Handler called/completed for ${id}`);
+                                }
                                 handler();
-                                console.log(`[Menu] Handler for ${id} completed`);
                             } catch (error) {
                                 console.error(`[Menu] Error in button handler for ${id}:`, error);
                                 debugError(`[Menu] Error in button handler for ${id}:`, error);
@@ -3481,6 +3527,13 @@ export class MainMenu {
                         </div>
                         <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.coastalMapDesc}</div>
                     </button>
+                    <button class="menu-btn" id="btn-map-tartaria" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="btn-icon">🏛</span>
+                            <span class="btn-label">${L.tartariaMap}</span>
+                        </div>
+                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.tartariaMapDesc}</div>
+                    </button>
                 </div>
                 
                 <div class="panel-buttons" style="margin-top: 20px;">
@@ -3491,65 +3544,35 @@ export class MainMenu {
         
         document.body.appendChild(this.mapSelectionPanel);
         
-        document.getElementById("btn-map-normal")?.addEventListener("click", () => {
-            this.hide();
-            this.hideMapSelection();
-            this.onStartGame("normal");
-        });
+        const addMapButtonHandler = (mapId: string, mapType: MapType) => {
+            document.getElementById(mapId)?.addEventListener("click", () => {
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:3547',message:'Map selection panel button clicked',data:{mapId:mapId,mapType:mapType,hasCallback:!!this.onStartGame},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+                // #endregion
+                this.hide();
+                this.hideMapSelection();
+                if (this.onStartGame && typeof this.onStartGame === 'function') {
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:3552',message:'Calling onStartGame from map panel',data:{mapType:mapType},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+                    // #endregion
+                    this.onStartGame(mapType);
+                } else {
+                    console.error("[Menu] onStartGame callback is not set!");
+                }
+            });
+        };
         
-        document.getElementById("btn-map-sandbox")?.addEventListener("click", () => {
-            this.hide();
-            this.hideMapSelection();
-            this.onStartGame("sandbox");
-        });
-        
-        document.getElementById("btn-map-polygon")?.addEventListener("click", () => {
-            this.hide();
-            this.hideMapSelection();
-            this.onStartGame("polygon");
-        });
-        
-        document.getElementById("btn-map-frontline")?.addEventListener("click", () => {
-            this.hide();
-            this.hideMapSelection();
-            this.onStartGame("frontline");
-        });
-        
-        document.getElementById("btn-map-ruins")?.addEventListener("click", () => {
-            this.hide();
-            this.hideMapSelection();
-            this.onStartGame("ruins");
-        });
-        
-        document.getElementById("btn-map-canyon")?.addEventListener("click", () => {
-            this.hide();
-            this.hideMapSelection();
-            this.onStartGame("canyon");
-        });
-        
-        document.getElementById("btn-map-industrial")?.addEventListener("click", () => {
-            this.hide();
-            this.hideMapSelection();
-            this.onStartGame("industrial");
-        });
-        
-        document.getElementById("btn-map-urban_warfare")?.addEventListener("click", () => {
-            this.hide();
-            this.hideMapSelection();
-            this.onStartGame("urban_warfare");
-        });
-        
-        document.getElementById("btn-map-underground")?.addEventListener("click", () => {
-            this.hide();
-            this.hideMapSelection();
-            this.onStartGame("underground");
-        });
-        
-        document.getElementById("btn-map-coastal")?.addEventListener("click", () => {
-            this.hide();
-            this.hideMapSelection();
-            this.onStartGame("coastal");
-        });
+        addMapButtonHandler("btn-map-normal", "normal");
+        addMapButtonHandler("btn-map-sandbox", "sandbox");
+        addMapButtonHandler("btn-map-polygon", "polygon");
+        addMapButtonHandler("btn-map-frontline", "frontline");
+        addMapButtonHandler("btn-map-ruins", "ruins");
+        addMapButtonHandler("btn-map-canyon", "canyon");
+        addMapButtonHandler("btn-map-industrial", "industrial");
+        addMapButtonHandler("btn-map-urban_warfare", "urban_warfare");
+        addMapButtonHandler("btn-map-underground", "underground");
+        addMapButtonHandler("btn-map-coastal", "coastal");
+        addMapButtonHandler("btn-map-tartaria", "tartaria");
         
         this.setupCloseButton("map-selection-close", () => this.hideMapSelection());
         this.setupCloseButton("map-selection-back", () => this.hideMapSelection());
@@ -3875,6 +3898,10 @@ export class MainMenu {
                             <span class="btn-icon">🌊</span>
                             <span class="btn-label">${L.coastalMap}</span>
                         </button>
+                        <button class="menu-btn" id="play-btn-map-tartaria" data-map="tartaria">
+                            <span class="btn-icon">🏛</span>
+                            <span class="btn-label">${L.tartariaMap}</span>
+                        </button>
                     </div>
                 </div>
                 
@@ -3955,9 +3982,21 @@ export class MainMenu {
         document.getElementById("btn-mode-ctf")?.addEventListener("click", () => this.selectGameMode("ctf"));
         
         // Обработчики выбора карты
-        const mapButtons = ["normal", "sandbox", "polygon", "frontline", "ruins", "canyon", "industrial", "urban_warfare", "underground", "coastal"];
+        const mapButtons = ["normal", "sandbox", "polygon", "frontline", "ruins", "canyon", "industrial", "urban_warfare", "underground", "coastal", "tartaria"];
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:4027',message:'Setting up map button handlers',data:{mapButtons:mapButtons,buttonCount:mapButtons.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+        // #endregion
         mapButtons.forEach(map => {
-            document.getElementById(`play-btn-map-${map}`)?.addEventListener("click", () => this.selectMap(map as MapType));
+            const button = document.getElementById(`play-btn-map-${map}`);
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:4029',message:'Setting up map button',data:{map:map,buttonExists:!!button,buttonId:`play-btn-map-${map}`},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+            // #endregion
+            button?.addEventListener("click", () => {
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:4030',message:'Map button clicked',data:{map:map,selectedMapType:this.selectedMapType},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+                // #endregion
+                this.selectMap(map as MapType);
+            });
         });
         
         // Обработчики навигации окон-терминалов
@@ -4511,6 +4550,9 @@ export class MainMenu {
     private selectMap(map: MapType): void {
         this.selectedMapType = map;
         debugLog("[Menu] Selected map:", map);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:4580',message:'selectMap called',data:{selectedMap:map,selectedMapType:this.selectedMapType},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         
         // Обновляем визуал
         document.querySelectorAll("[data-map]").forEach(btn => {
@@ -4712,7 +4754,8 @@ export class MainMenu {
             "industrial": "industrial",
             "urban_warfare": "urban_warfare",
             "underground": "underground",
-            "coastal": "coastal"
+            "coastal": "coastal",
+            "tartaria": "tartaria"
         };
         return mapNames[map] || map;
     }
@@ -4788,13 +4831,22 @@ export class MainMenu {
         if (this.selectedCannon) localStorage.setItem("selectedCannon", this.selectedCannon);
         
         // Закрываем меню
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:4840',message:'startSelectedGame - calling hide()',data:{selectedMapType:this.selectedMapType,hasContainer:!!this.container},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+        // #endregion
         this.hide();
         this.hidePlayMenu();
         
         // Если выбран мультиплеер, запускаем игру и подключаемся к матчмейкингу
         if (this.selectedGameMode === "multiplayer") {
             // Запускаем игру в одиночном режиме (карта нужна для генерации мира)
-            this.onStartGame(this.selectedMapType);
+            console.log("[Menu] startSelectedGame (multiplayer): calling onStartGame with map:", this.selectedMapType);
+            console.log("[Menu] startSelectedGame: onStartGame callback:", typeof this.onStartGame);
+            if (this.onStartGame && typeof this.onStartGame === 'function') {
+                this.onStartGame(this.selectedMapType);
+            } else {
+                console.error("[Menu] startSelectedGame (multiplayer): onStartGame callback is not set!");
+            }
             
             // После запуска игры подключаемся к мультиплееру
             // Используем задержку чтобы игра успела инициализироваться и MultiplayerManager создался
@@ -4818,7 +4870,16 @@ export class MainMenu {
             }, 3000);
         } else {
             // Обычный старт для одиночной игры
-            this.onStartGame(this.selectedMapType);
+            console.log("[Menu] Starting game with mapType:", this.selectedMapType);
+            console.log("[Menu] onStartGame callback:", typeof this.onStartGame);
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:4900',message:'startSelectedGame calling onStartGame',data:{selectedMapType:this.selectedMapType,hasCallback:!!this.onStartGame},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
+            if (this.onStartGame && typeof this.onStartGame === 'function') {
+                this.onStartGame(this.selectedMapType);
+            } else {
+                console.error("[Menu] onStartGame callback is not set!");
+            }
         }
     }
     
@@ -4837,7 +4898,13 @@ export class MainMenu {
         
         this.hide();
         this.hidePlayMenu();
-        this.onStartGame(savedMap);
+        console.log("[Menu] quickStart: calling onStartGame with map:", savedMap);
+        console.log("[Menu] quickStart: onStartGame callback:", typeof this.onStartGame);
+        if (this.onStartGame && typeof this.onStartGame === 'function') {
+            this.onStartGame(savedMap);
+        } else {
+            console.error("[Menu] quickStart: onStartGame callback is not set!");
+        }
     }
     
     private showPlayMenu(): void {
@@ -5551,14 +5618,9 @@ export class MainMenu {
     }
     
     setOnStartGame(callback: (mapType?: MapType) => void): void {
+        console.log("[Menu] setOnStartGame called, callback type:", typeof callback);
         this.onStartGame = callback;
-    }
-    
-    // Метод для программного запуска игры (используется для автозапуска после рестарта)
-    triggerStartGame(mapType: MapType): void {
-        debugLog(`[Menu] Triggering start game with map: ${mapType}`);
-        this.hide();
-        this.onStartGame(mapType);
+        console.log("[Menu] onStartGame set:", typeof this.onStartGame);
     }
     
     setOnRestartGame(callback: () => void): void {
@@ -5582,9 +5644,26 @@ export class MainMenu {
     }
     
     show(isPaused: boolean = false): void {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:5654',message:'show() called',data:{isPaused,containerExists:!!this.container,containerInDOM:this.container?document.body.contains(this.container):false},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         debugLog("[Menu] show() called");
+        if (!this.container) {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:5658',message:'show() ERROR: container is null',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+            console.error("[Menu] Container not initialized in show()!");
+            return;
+        }
         this.container.classList.remove("hidden");
+        // Убираем inline стили display/visibility - CSS уже задает display: flex
+        this.container.style.removeProperty("display");
+        this.container.style.removeProperty("visibility");
         document.body.classList.add("menu-visible");
+        // #region agent log
+        const computedStyleBefore = window.getComputedStyle(this.container);
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:5660',message:'After removing hidden class',data:{hasHiddenClass:this.container.classList.contains('hidden'),display:computedStyleBefore.display,visibility:computedStyleBefore.visibility},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         // Немедленное обновление при показе меню (без анимации для первой загрузки)
         this.updatePlayerInfo(true);
         // Также обновляем через небольшую задержку для гарантии
@@ -5632,14 +5711,10 @@ export class MainMenu {
         this.enforceCanvasPointerEvents();
         setTimeout(() => this.enforceCanvasPointerEvents(), 0);
         setTimeout(() => this.enforceCanvasPointerEvents(), 10);
-        setTimeout(() => this.enforceCanvasPointerEvents(), 50);
-        setTimeout(() => this.enforceCanvasPointerEvents(), 100);
-        setTimeout(() => this.enforceCanvasPointerEvents(), 200);
-        
-        // Также отправляем событие для Game класса
-        window.dispatchEvent(new CustomEvent("menuVisibilityChanged", { detail: { visible: true } }));
-        
-        debugLog("[Menu] Menu shown, handlers reinstalled, canvas should be blocked");
+        // #region agent log
+        const computedStyleAfter = window.getComputedStyle(this.container);
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:5710',message:'show() completed',data:{hasHiddenClass:this.container.classList.contains('hidden'),display:computedStyleAfter.display,visibility:computedStyleAfter.visibility,zIndex:computedStyleAfter.zIndex,opacity:computedStyleAfter.opacity},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
     }
     
     private updatePauseButtons(isPaused: boolean): void {
@@ -5718,7 +5793,17 @@ export class MainMenu {
     }
     
     private resumeGame(): void {
-        window.dispatchEvent(new CustomEvent("resumeGame"));
+        console.log("[Menu] resumeGame() called");
+        // Если игра запущена и на паузе, возобновляем игру
+        const game = (window as any).gameInstance;
+        if (game && game.gameStarted && game.gamePaused) {
+            console.log("[Menu] Resuming game via togglePause()");
+            game.togglePause();
+        } else {
+            // Fallback: отправляем событие
+            console.log("[Menu] Dispatching resumeGame event");
+            window.dispatchEvent(new CustomEvent("resumeGame"));
+        }
         this.hide();
     }
     
@@ -5836,6 +5921,48 @@ export class MainMenu {
         return !this.container.classList.contains("hidden");
     }
     
+    /**
+     * Настройка обработчика ESC для возврата в игру
+     */
+    private setupEscHandler(): void {
+        // Удаляем старый обработчик если есть
+        const oldEscHandler = (this.container as any)._escHandler;
+        if (oldEscHandler) {
+            window.removeEventListener("keydown", oldEscHandler, true);
+        }
+        
+        // Создаем новый обработчик
+        const escHandler = (e: KeyboardEvent) => {
+            if (e.code === "Escape" && this.isVisible()) {
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:5959',message:'ESC pressed in Menu handler',data:{isVisible:this.isVisible()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+                // #endregion
+                const game = (window as any).gameInstance;
+                // Если игра запущена и на паузе, возобновляем игру
+                if (game && game.gameStarted && game.gamePaused) {
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:5963',message:'Menu ESC: resuming game',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+                    // #endregion
+                    console.log("[Menu] ESC pressed - resuming game");
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    this.resumeGame();
+                } else {
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:5970',message:'Menu ESC: not resuming (conditions not met)',data:{gameExists:!!game,gameStarted:game?.gameStarted,gamePaused:game?.gamePaused},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+                    // #endregion
+                }
+            }
+        };
+        
+        // Сохраняем ссылку на обработчик
+        (this.container as any)._escHandler = escHandler;
+        
+        // Добавляем обработчик на window для перехвата ESC
+        window.addEventListener("keydown", escHandler, true); // Используем capture phase для приоритета
+    }
+    
     hide(): void {
         this.container.classList.add("hidden");
         document.body.classList.remove("menu-visible");
@@ -5855,3 +5982,55 @@ export class MainMenu {
         window.dispatchEvent(new CustomEvent("menuVisibilityChanged", { detail: { visible: false } }));
     }
 }
+
+// Глобальная функция для показа меню (можно вызвать из консоли)
+(window as any).showMainMenu = async function() {
+    const game = (window as any).gameInstance;
+    if (!game) {
+        console.error("Game instance not found!");
+        return;
+    }
+    
+    // Если меню не загружено, загружаем его
+    if (!game.mainMenu) {
+        console.log("Menu not loaded, loading...");
+        if (game.loadMainMenu) {
+            await game.loadMainMenu();
+        } else {
+            console.error("loadMainMenu method not found!");
+            return;
+        }
+    }
+    
+    if (game.mainMenu) {
+        console.log("Showing menu...");
+        game.mainMenu.show();
+        console.log("Главное меню показано");
+        
+        // Проверяем состояние через небольшую задержку
+        setTimeout(() => {
+            const menu = document.getElementById("main-menu");
+            console.log("Menu state check:", {
+                menuElement: !!menu,
+                inDOM: menu ? document.body.contains(menu) : false,
+                hasHiddenClass: menu ? menu.classList.contains("hidden") : false,
+                computedDisplay: menu ? window.getComputedStyle(menu).display : "N/A",
+                computedVisibility: menu ? window.getComputedStyle(menu).visibility : "N/A",
+                computedZIndex: menu ? window.getComputedStyle(menu).zIndex : "N/A"
+            });
+        }, 100);
+    } else {
+        console.error("Главное меню не найдено после загрузки.");
+    }
+};
+
+// Глобальная функция для скрытия меню
+(window as any).hideMainMenu = function() {
+    const game = (window as any).gameInstance;
+    if (game && game.mainMenu) {
+        game.mainMenu.hide();
+        console.log("Главное меню скрыто");
+    } else {
+        console.error("Главное меню не найдено.");
+    }
+};

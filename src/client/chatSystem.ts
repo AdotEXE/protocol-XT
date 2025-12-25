@@ -2,6 +2,7 @@
 import { Scene } from "@babylonjs/core";
 import { AdvancedDynamicTexture, Rectangle, TextBlock, Control, ScrollViewer } from "@babylonjs/gui";
 import { CommandSystem } from "./commandSystem";
+import { LogLevel, loggingSettings } from "./utils/logger";
 
 export type MessageType = "system" | "info" | "warning" | "error" | "success" | "log" | "combat" | "economy";
 
@@ -130,10 +131,10 @@ export class ChatSystem {
                 
                 // Если размеры больше 80% экрана - это некорректно, очищаем
                 if (data.width && (data.width > screenWidth * 0.8 || data.width > 1200)) {
-                    console.warn("[ChatSystem] Clearing invalid terminal width:", data.width);
+                    // Clearing invalid terminal width
                     localStorage.removeItem(key);
                 } else if (data.height && (data.height > screenHeight * 0.8 || data.height > 800)) {
-                    console.warn("[ChatSystem] Clearing invalid terminal height:", data.height);
+                    // Clearing invalid terminal height
                     localStorage.removeItem(key);
                 }
             }
@@ -320,20 +321,26 @@ export class ChatSystem {
             if (e.key === "Enter") {
                 const command = commandInput.value.trim();
                 if (command) {
+                    // Добавляем команду в историю
+                    this.addToHistory(command);
                     commandInput.value = "";
                     await this.executeCommand(command);
                 }
             } else if (e.key === "ArrowUp") {
                 e.preventDefault();
-                const history = this.commandSystem?.getHistory('up');
-                if (history) {
+                // Используем собственную историю команд
+                const history = this.getHistory('up');
+                if (history !== null) {
                     commandInput.value = history;
                 }
             } else if (e.key === "ArrowDown") {
                 e.preventDefault();
-                const history = this.commandSystem?.getHistory('down');
+                // Используем собственную историю команд
+                const history = this.getHistory('down');
                 if (history !== null) {
-                    commandInput.value = history || "";
+                    commandInput.value = history;
+                } else {
+                    commandInput.value = "";
                 }
             } else if (e.key === "Tab") {
                 e.preventDefault();
@@ -825,7 +832,9 @@ export class ChatSystem {
             const key = `window_position_${windowId}`;
             localStorage.setItem(key, JSON.stringify(position));
         } catch (e) {
-            console.warn("[ChatSystem] Failed to save window position:", e);
+            if (loggingSettings?.getLevel() >= LogLevel.DEBUG) {
+                console.debug("[Chat] Failed to save window position:", e);
+            }
         }
     }
     
@@ -843,7 +852,9 @@ export class ChatSystem {
                 
                 // Если размеры слишком большие (больше 80% экрана), сбрасываем
                 if (data.width && (data.width > maxWidth || data.width > window.innerWidth * 0.8)) {
-                    console.warn("[ChatSystem] Invalid saved width, resetting");
+                    if (loggingSettings?.getLevel() >= LogLevel.DEBUG) {
+                        console.debug("[Chat] Invalid saved width, resetting");
+                    }
                     localStorage.removeItem(key);
                     return null;
                 }
@@ -957,6 +968,12 @@ export class ChatSystem {
         }
         
         try {
+            // Проверка на специальные команды тем
+            if (command.startsWith('theme ')) {
+                await this._handleThemeCommand(command);
+                return;
+            }
+            
             // Проверка на специальные команды скриптов
             if (command.startsWith('script ')) {
                 await this.handleScriptCommand(command);
@@ -1112,6 +1129,53 @@ export class ChatSystem {
                 
             default:
                 this.addMessage("Usage: theme [list|set <name>]", "error");
+        }
+    }
+    
+    /**
+     * Добавление команды в историю
+     */
+    private addToHistory(command: string): void {
+        if (!command.trim()) return;
+        
+        // Не добавляем дубликаты подряд
+        if (this._commandHistory.length > 0 && 
+            this._commandHistory[this._commandHistory.length - 1] === command) {
+            return;
+        }
+        
+        this._commandHistory.push(command);
+        this._commandHistoryIndex = this._commandHistory.length;
+        
+        // Ограничиваем размер истории (максимум 100 команд)
+        if (this._commandHistory.length > 100) {
+            this._commandHistory.shift();
+            this._commandHistoryIndex--;
+        }
+    }
+    
+    /**
+     * Получение команды из истории для навигации
+     */
+    private getHistory(direction: 'up' | 'down'): string | null {
+        if (this._commandHistory.length === 0) return null;
+        
+        if (direction === 'up') {
+            // Перемещаемся назад по истории
+            if (this._commandHistoryIndex > 0) {
+                this._commandHistoryIndex--;
+            }
+            return this._commandHistory[this._commandHistoryIndex] || null;
+        } else {
+            // Перемещаемся вперед по истории
+            if (this._commandHistoryIndex < this._commandHistory.length - 1) {
+                this._commandHistoryIndex++;
+                return this._commandHistory[this._commandHistoryIndex] || null;
+            } else {
+                // Выход за пределы истории - возвращаемся к пустой строке
+                this._commandHistoryIndex = this._commandHistory.length;
+                return null;
+            }
         }
     }
     

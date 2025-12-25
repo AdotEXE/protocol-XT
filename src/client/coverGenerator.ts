@@ -38,6 +38,7 @@ export interface CoverObject {
 
 interface CoverGeneratorConfig {
     worldSeed: number;
+    mapType?: string;
 }
 
 export class CoverGenerator {
@@ -418,6 +419,12 @@ export class CoverGenerator {
         parent: TransformNode,
         roadNetwork?: any
     ): CoverObject[] {
+        // Специальная обработка для Тарту
+        // ЗАЩИТНАЯ ПРОВЕРКА: только явно "tartaria", не undefined и не другие значения
+        if (this.config.mapType !== undefined && this.config.mapType === "tartaria") {
+            return this.generateTartuCoversForChunk(chunkX, chunkZ, chunkSize, biome, parent, roadNetwork);
+        }
+        
         const key = `${chunkX}_${chunkZ}`;
         
         if (this.covers.has(key)) {
@@ -512,6 +519,108 @@ export class CoverGenerator {
                 } else {
                     cover = this.createWreckedCar(localPos, rotation, parent, random);
                 }
+            }
+            
+            covers.push(cover);
+        }
+        
+        this.covers.set(key, covers);
+        return covers;
+    }
+    
+    /**
+     * Генерирует укрытия для карты Тарту с учетом биомов
+     */
+    private generateTartuCoversForChunk(
+        chunkX: number,
+        chunkZ: number,
+        chunkSize: number,
+        biome: string,
+        parent: TransformNode,
+        roadNetwork?: any
+    ): CoverObject[] {
+        const key = `${chunkX}_${chunkZ}`;
+        
+        if (this.covers.has(key)) {
+            return this.covers.get(key)!;
+        }
+        
+        const seed = this.config.worldSeed + chunkX * 10000 + chunkZ;
+        const random = new SeededRandom(seed);
+        const covers: CoverObject[] = [];
+        
+        const worldX = chunkX * chunkSize;
+        const worldZ = chunkZ * chunkSize;
+        
+        // Меньше укрытий в городе (здания уже обеспечивают укрытие)
+        // Больше в парках (деревья, скамейки)
+        // Промышленные зоны - контейнеры, барьеры
+        
+        let coverCount = 0;
+        switch (biome) {
+            case "city":
+                coverCount = random.int(2, 4); // Меньше, так как есть здания
+                break;
+            case "park":
+            case "university":
+                coverCount = random.int(4, 8); // Больше деревьев
+                break;
+            case "industrial":
+                coverCount = random.int(3, 6); // Контейнеры, барьеры
+                break;
+            case "residential":
+                coverCount = random.int(2, 5); // Среднее количество
+                break;
+            case "river":
+                coverCount = 0; // Нет укрытий в реке
+                break;
+            default:
+                coverCount = random.int(2, 4);
+        }
+        
+        for (let i = 0; i < coverCount; i++) {
+            const x = random.range(8, chunkSize - 8);
+            const z = random.range(8, chunkSize - 8);
+            const localPos = new Vector3(x, 0, z);
+            const rotation = random.range(0, Math.PI * 2);
+            const worldX_pos = worldX + x;
+            const worldZ_pos = worldZ + z;
+            
+            // Check if position is on a road (skip if so)
+            if (roadNetwork && roadNetwork.isOnRoad(worldX_pos, worldZ_pos)) {
+                continue;
+            }
+            
+            // Проверяем, не находится ли объект в области гаража
+            if (this.isPositionInGarageArea && this.isPositionInGarageArea(worldX_pos, worldZ_pos, 3)) {
+                continue;
+            }
+            
+            // Choose cover type based on biome
+            let cover: CoverObject;
+            
+            if (biome === "city" || biome === "industrial") {
+                const type = random.int(0, 3);
+                if (type === 0) {
+                    cover = this.createContainer(localPos, rotation, parent, random);
+                } else if (type === 1) {
+                    cover = this.createBarrier(localPos, rotation, parent, random);
+                } else {
+                    cover = this.createWreckedCar(localPos, rotation, parent, random);
+                }
+            } else if (biome === "park" || biome === "university") {
+                // В парках - только растительность
+                cover = this.createVegetation(localPos, parent, random);
+            } else if (biome === "residential") {
+                const type = random.int(0, 2);
+                if (type === 0) {
+                    cover = this.createVegetation(localPos, parent, random);
+                } else {
+                    cover = this.createWreckedCar(localPos, rotation, parent, random);
+                }
+            } else {
+                // По умолчанию
+                cover = this.createVegetation(localPos, parent, random);
             }
             
             covers.push(cover);

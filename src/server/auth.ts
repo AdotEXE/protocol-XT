@@ -28,7 +28,7 @@ export function initializeFirebaseAdmin(): boolean {
         const existingApps = getApps();
         if (existingApps.length > 0) {
             adminApp = existingApps[0] || null;
-            console.log("[Auth] Firebase Admin already initialized");
+            // Firebase Admin already initialized
             return true;
         }
 
@@ -72,14 +72,12 @@ export function initializeFirebaseAdmin(): boolean {
                 });
 
                 console.log("[Auth] ✅ Firebase Admin initialized from service account JSON file");
-                console.log("[Auth] Service account:", serviceAccount.client_email);
-                console.log("[Auth] JSON file:", serviceAccountPath);
                 return true;
             } catch (error: any) {
                 console.warn("[Auth] Failed to load from JSON file, trying environment variables:", error.message);
             }
         } else {
-            console.log("[Auth] Service account JSON file not found, trying environment variables...");
+            // Service account JSON file not found, trying environment variables
         }
 
         // Способ 2: Загрузка из переменных окружения

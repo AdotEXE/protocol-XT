@@ -3,7 +3,7 @@
  */
 
 import { Vector3 } from "@babylonjs/core";
-import { logger } from "./utils/logger";
+import { logger, LogLevel, loggingSettings, LogCategory } from "./utils/logger";
 
 export interface Command {
     name: string;
@@ -55,7 +55,7 @@ export class CommandSystem {
         const command = this.commands.get(cmd.toLowerCase());
         
         if (!command) {
-            return `Command not found: ${cmd}. Type 'help' for available commands.`;
+            return `Command not found: ${cmd || 'unknown'}. Type 'help' for available commands.`;
         }
         
         try {
@@ -311,7 +311,7 @@ export class CommandSystem {
             description: 'Show current FPS',
             usage: 'fps',
             category: 'info',
-            execute: (_args, game) => {
+            execute: (_args: string[], game) => {
                 if (!game || !game.engine) return 'Engine not available';
                 const fps = game.engine.getFps();
                 return `FPS: ${fps.toFixed(1)}`;
@@ -324,7 +324,7 @@ export class CommandSystem {
             description: 'Show player position',
             usage: 'pos',
             category: 'info',
-            execute: (_args, game) => {
+            execute: (_args: string[], game) => {
                 if (!game || !game.tank || !game.tank.chassis) {
                     return 'Tank not available';
                 }
@@ -341,7 +341,7 @@ export class CommandSystem {
             description: 'Show player health',
             usage: 'health',
             category: 'info',
-            execute: (_args, game) => {
+            execute: (_args: string[], game) => {
                 if (!game || !game.tank) {
                     return 'Tank not available';
                 }
@@ -370,7 +370,7 @@ export class CommandSystem {
             description: 'Manage scripts',
             usage: 'script [list|run|save] <name> [content]',
             category: 'system',
-            execute: async (_args) => {
+            execute: async (_args: string[]) => {
                 // Обработка будет в chatSystem
                 return 'Use script command in terminal';
             }
@@ -382,7 +382,7 @@ export class CommandSystem {
             description: 'Manage macros',
             usage: 'macro [list|run] <name>',
             category: 'system',
-            execute: async (_args) => {
+            execute: async (_args: string[]) => {
                 // Обработка будет в chatSystem
                 return 'Use macro command in terminal';
             }
@@ -416,6 +416,112 @@ export class CommandSystem {
         });
         
         // Schedule command
+        this.registerCommand({
+            name: 'schedule',
+            description: 'Manage scheduled tasks',
+            usage: 'schedule [list|add|remove]',
+            category: 'system',
+            execute: async (_args) => {
+                return 'Schedule management not implemented yet';
+            }
+        });
+
+        // Logging commands
+        this.registerCommand({
+            name: 'log',
+            description: 'Manage logging settings',
+            usage: 'log [level|category|status] [value]',
+            category: 'system',
+            aliases: ['logging', 'logs'],
+            execute: async (args) => {
+                if (args.length === 0) {
+                    const level = loggingSettings.getLevel();
+                    const levelNames = ['NONE', 'ERROR', 'WARN', 'INFO', 'DEBUG', 'VERBOSE'];
+                    const enabledCategories = Object.values(LogCategory).filter(cat => 
+                        loggingSettings.isCategoryEnabled(cat as LogCategory)
+                    );
+                    return `Logging Level: ${levelNames[level]} (${level})\nEnabled Categories: ${enabledCategories.join(', ') || 'none'}`;
+                }
+
+                const subcommand = args[0]?.toLowerCase();
+                if (!subcommand) {
+                    return 'Invalid subcommand. Use: log [level|category|status] [value]';
+                }
+                
+                if (subcommand === 'level' || subcommand === 'lvl') {
+                    if (args.length < 2) {
+                        const level = loggingSettings.getLevel();
+                        const levelNames = ['NONE', 'ERROR', 'WARN', 'INFO', 'DEBUG', 'VERBOSE'];
+                        return `Current level: ${levelNames[level]} (${level})\nUsage: log level <NONE|ERROR|WARN|INFO|DEBUG|VERBOSE>`;
+                    }
+                    
+                    const levelName = args[1]?.toUpperCase();
+                    if (!levelName) {
+                        return 'Invalid level argument';
+                    }
+                    const levelMap: Record<string, LogLevel> = {
+                        'NONE': LogLevel.NONE,
+                        'ERROR': LogLevel.ERROR,
+                        'WARN': LogLevel.WARN,
+                        'INFO': LogLevel.INFO,
+                        'DEBUG': LogLevel.DEBUG,
+                        'VERBOSE': LogLevel.VERBOSE
+                    };
+                    
+                    const newLevel = levelMap[levelName];
+                    if (newLevel === undefined) {
+                        return `Invalid level: ${args[1]}. Valid levels: NONE, ERROR, WARN, INFO, DEBUG, VERBOSE`;
+                    }
+                    
+                    loggingSettings.setLevel(newLevel);
+                    return `Logging level set to: ${levelName} (${newLevel})`;
+                }
+                
+                if (subcommand === 'category' || subcommand === 'cat') {
+                    if (args.length < 3) {
+                        const categories = Object.values(LogCategory);
+                        const enabled = categories.filter(cat => loggingSettings.isCategoryEnabled(cat));
+                        const disabled = categories.filter(cat => !loggingSettings.isCategoryEnabled(cat));
+                        return `Enabled: ${enabled.join(', ') || 'none'}\nDisabled: ${disabled.join(', ') || 'none'}\nUsage: log category <enable|disable> <category>`;
+                    }
+                    
+                    const action = args[1]?.toLowerCase();
+                    const categoryName = args[2]?.toUpperCase();
+                    if (!action || !categoryName) {
+                        return 'Invalid category arguments';
+                    }
+                    
+                    const category = Object.values(LogCategory).find(c => c.toUpperCase() === categoryName);
+                    if (!category) {
+                        const validCategories = Object.values(LogCategory).join(', ');
+                        return `Invalid category: ${categoryName}. Valid categories: ${validCategories}`;
+                    }
+                    
+                    if (action === 'enable' || action === 'on') {
+                        loggingSettings.enableCategory(category);
+                        return `Category ${category} enabled`;
+                    } else if (action === 'disable' || action === 'off') {
+                        loggingSettings.disableCategory(category);
+                        return `Category ${category} disabled`;
+                    } else {
+                        return `Invalid action: ${action}. Use 'enable' or 'disable'`;
+                    }
+                }
+                
+                if (subcommand === 'status' || subcommand === 'info') {
+                    const level = loggingSettings.getLevel();
+                    const levelNames = ['NONE', 'ERROR', 'WARN', 'INFO', 'DEBUG', 'VERBOSE'];
+                    const categories = Object.values(LogCategory);
+                    const enabled = categories.filter(cat => loggingSettings.isCategoryEnabled(cat));
+                    const disabled = categories.filter(cat => !loggingSettings.isCategoryEnabled(cat));
+                    
+                    return `Logging Status:\n  Level: ${levelNames[level]} (${level})\n  Enabled Categories: ${enabled.join(', ') || 'none'}\n  Disabled Categories: ${disabled.join(', ') || 'none'}`;
+                }
+                
+                return `Unknown subcommand: ${subcommand}. Use 'level', 'category', or 'status'`;
+            }
+        });
+
         this.registerCommand({
             name: 'schedule',
             description: 'Manage scheduled tasks',

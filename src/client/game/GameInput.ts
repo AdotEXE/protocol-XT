@@ -588,9 +588,15 @@ export class GameInput {
                     evt.preventDefault();
                     evt.stopPropagation();
                     const canvas = this.scene?.getEngine().getRenderingCanvas() as HTMLCanvasElement;
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GameInput.ts:591',message:'Before requestPointerLock (Alt key)',data:{canvasExists:!!canvas,canvasOwnerDocument:canvas?.ownerDocument?.location?.href,canvasInBody:canvas ? document.body.contains(canvas) : false,isConnected:canvas?.isConnected,currentLockElement:document.pointerLockElement?.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+                    // #endregion
                     if (canvas && document.pointerLockElement !== canvas) {
                         try {
                             const lockResult: any = canvas.requestPointerLock();
+                            // #region agent log
+                            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GameInput.ts:593',message:'requestPointerLock called',data:{hasResult:!!lockResult,isPromise:lockResult?.then !== undefined},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+                            // #endregion
                             if (lockResult && typeof lockResult === 'object' && typeof lockResult.then === 'function') {
                                 lockResult.then(() => {
                                     logger.log("[GameInput] Pointer lock activated via Alt key");
@@ -598,6 +604,9 @@ export class GameInput {
                                         this.hud.showMessage("🖱️ Игровой курсор включен (Alt)", "#0f0", 2000);
                                     }
                                 }).catch((err: Error) => {
+                                    // #region agent log
+                                    fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GameInput.ts:600',message:'Pointer lock promise rejected',data:{errorName:err.name,errorMessage:err.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+                                    // #endregion
                                     logger.warn("[GameInput] Failed to request pointer lock on Alt:", err);
                                     if (this.hud) {
                                         this.hud.showMessage("⚠️ Не удалось включить курсор", "#f00", 2000);
@@ -605,6 +614,9 @@ export class GameInput {
                                 });
                             }
                         } catch (err) {
+                            // #region agent log
+                            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GameInput.ts:607',message:'Pointer lock exception caught',data:{errorName:(err as Error).name,errorMessage:(err as Error).message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+                            // #endregion
                             logger.warn("[GameInput] Failed to request pointer lock on Alt:", err);
                         }
                     }

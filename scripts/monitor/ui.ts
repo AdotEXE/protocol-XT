@@ -91,6 +91,8 @@ export class UIManager {
     private grid: contrib.grid;
     private core: MonitorCore;
     private theme: Theme;
+    // Reserved for future widget management
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private _widgets: Map<string, blessed.Widgets.Node> = new Map();
     
     // Widgets
@@ -104,7 +106,7 @@ export class UIManager {
     private metricsHistoryBox: blessed.Widgets.Box;
     private logsBox: blessed.Widgets.Box;
     
-    // Charts
+    // Charts (using blessed-contrib line charts)
     private _cpuChart: any = null;
     private _ramChart: any = null;
     private _fpsChart: any = null;
@@ -267,7 +269,69 @@ export class UIManager {
             }
         });
         
-        // Metrics History (row 7-8, full width)
+        // Metrics History (row 7-8, full width) - Create charts
+        // Split into 3 columns for CPU, RAM, FPS charts
+        this._cpuChart = this.grid.set(7, 0, 2, 4, contrib.line, {
+            style: {
+                line: this.theme.colors.fg,
+                text: this.theme.colors.fg,
+                baseline: this.theme.colors.border,
+                focus: {
+                    border: {
+                        fg: this.theme.colors.border
+                    }
+                }
+            },
+            label: ' CPU % ',
+            showLegend: false,
+            wholeNumbersOnly: false,
+            xLabelPadding: 0,
+            xPadding: 0,
+            maxY: 100,
+            minY: 0
+        });
+        
+        this._ramChart = this.grid.set(7, 4, 2, 4, contrib.line, {
+            style: {
+                line: this.theme.colors.fg,
+                text: this.theme.colors.fg,
+                baseline: this.theme.colors.border,
+                focus: {
+                    border: {
+                        fg: this.theme.colors.border
+                    }
+                }
+            },
+            label: ' RAM % ',
+            showLegend: false,
+            wholeNumbersOnly: false,
+            xLabelPadding: 0,
+            xPadding: 0,
+            maxY: 100,
+            minY: 0
+        });
+        
+        this._fpsChart = this.grid.set(7, 8, 2, 4, contrib.line, {
+            style: {
+                line: this.theme.colors.fg,
+                text: this.theme.colors.fg,
+                baseline: this.theme.colors.border,
+                focus: {
+                    border: {
+                        fg: this.theme.colors.border
+                    }
+                }
+            },
+            label: ' FPS ',
+            showLegend: false,
+            wholeNumbersOnly: false,
+            xLabelPadding: 0,
+            xPadding: 0,
+            maxY: 60,
+            minY: 0
+        });
+        
+        // Keep metricsHistoryBox as a container for text fallback
         this.metricsHistoryBox = this.grid.set(7, 0, 2, 12, blessed.box, {
             label: ' METRICS HISTORY ',
             tags: true,
@@ -282,6 +346,7 @@ export class UIManager {
                 type: 'line'
             }
         });
+        this.metricsHistoryBox.hide(); // Hide text box, use charts instead
         
         // Logs (row 9-11, full width) - use scrollable box instead of log widget
         this.logsBox = this.grid.set(9, 0, 3, 12, blessed.box, {
@@ -502,13 +567,13 @@ export class UIManager {
         this.gameStateBox.setContent(content);
     }
     
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private updateMetricsHistory(_metrics: MetricsSnapshot): void {
-        if (!this.metricsHistoryBox || typeof this.metricsHistoryBox.setContent !== 'function') return;
-        
         const totalHistory = this.core.getHistoryManager().getLatest(this.chartHistorySize * this.chartZoom);
         if (totalHistory.length < 2) {
-            this.metricsHistoryBox.setContent('Collecting metrics...');
+            // Show text fallback if charts not ready
+            if (this.metricsHistoryBox && typeof this.metricsHistoryBox.setContent === 'function') {
+                this.metricsHistoryBox.setContent('Collecting metrics...');
+            }
             return;
         }
         
@@ -519,6 +584,42 @@ export class UIManager {
         const cpuData = history.map(h => h.performance.cpu.usage);
         const ramData = history.map(h => h.performance.ram.percent);
         const fpsData = history.map(h => h.performance.serverFps);
+        
+        // Update CPU chart
+        if (this._cpuChart && typeof this._cpuChart.setData === 'function') {
+            this._cpuChart.setData([{
+                title: 'CPU',
+                x: Array.from({ length: cpuData.length }, (_, i) => i.toString()),
+                y: cpuData,
+                style: {
+                    line: 'green'
+                }
+            }]);
+        }
+        
+        // Update RAM chart
+        if (this._ramChart && typeof this._ramChart.setData === 'function') {
+            this._ramChart.setData([{
+                title: 'RAM',
+                x: Array.from({ length: ramData.length }, (_, i) => i.toString()),
+                y: ramData,
+                style: {
+                    line: 'cyan'
+                }
+            }]);
+        }
+        
+        // Update FPS chart
+        if (this._fpsChart && typeof this._fpsChart.setData === 'function') {
+            this._fpsChart.setData([{
+                title: 'FPS',
+                x: Array.from({ length: fpsData.length }, (_, i) => i.toString()),
+                y: fpsData,
+                style: {
+                    line: 'yellow'
+                }
+            }]);
+        }
         const clientFpsData = history.map(h => h.performance.clientFps || 0).filter(v => v > 0);
         
         const cpuSpark = this.createSparkline(cpuData);
@@ -704,6 +805,7 @@ export class UIManager {
         });
         
         // Allow scrolling logs with arrow keys
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         this.screen.key(['up', 'down'], (_ch: unknown, key: { name: string }) => {
             if (!this.currentModal && this.logsBox && typeof (this.logsBox as any).scroll === 'function') {
                 if (key.name === 'up') {
@@ -928,7 +1030,8 @@ Press [ESC] to close`;
     
     private showPlayers(): void {
         // Get player stats from server collector
-        (this.core.getMetricsManager() as any).serverCollector;
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const _serverCollector = (this.core.getMetricsManager() as any).serverCollector; void _serverCollector;
         let playersContent = `
 ╔═══════════════════════════════════════════════════════════════════════╗
 ║                      PLAYER STATISTICS                                ║

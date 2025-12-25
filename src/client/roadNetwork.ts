@@ -13,6 +13,9 @@ import {
     PhysicsShapeType
 } from "@babylonjs/core";
 import { TerrainGenerator, NoiseGenerator } from "./noiseGenerator";
+// Прямой импорт модуля дорог Тарту
+import * as tartuRoadsModule from "./tartuRoads";
+import { debugLogger } from "./debugLogger";
 
 // Seeded random for consistent generation
 class SeededRandom {
@@ -46,6 +49,7 @@ interface RoadNetworkConfig {
     highwaySpacing: number;  // Distance between main highways
     streetSpacing: number;   // Distance between streets
     terrainGenerator?: TerrainGenerator | null; // Optional terrain generator for following terrain
+    mapType?: string; // Type of map (for real roads support)
 }
 
 export class RoadNetwork {
@@ -64,31 +68,48 @@ export class RoadNetwork {
             highwaySpacing: 200,
             streetSpacing: 30, // Уменьшено с 40 до 30 для сложной дорожной сети
             terrainGenerator: null,
+            mapType: undefined,
             ...config
         };
         this.createMaterials();
         // Create noise generator for curved road generation
         this.noise = new NoiseGenerator(this.config.worldSeed + 54321);
+        
+        // Сохраняем модуль дорог Тарту в window cache для быстрого доступа
+        // ЗАЩИТНАЯ ПРОВЕРКА: только явно "tartaria", не undefined и не другие значения
+        if (this.config.mapType !== undefined && this.config.mapType === "tartaria") {
+            (window as any).__tartuRoads = tartuRoadsModule;
+            console.log("[RoadNetwork] Tartu roads module loaded for tartaria map");
+        }
+    }
+    
+    /**
+     * Установить тип карты (для поддержки реальных дорог)
+     */
+    setMapType(mapType: string): void {
+        this.config.mapType = mapType;
+        // Очищаем кэш дорог при смене типа карты
+        this.roads.clear();
     }
     
     private createMaterials(): void {
-        // Asphalt for highways
+        // Asphalt for highways - более светлый и заметный
         const highwayMat = new StandardMaterial("roadHighway", this.scene);
-        highwayMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
-        highwayMat.specularColor = new Color3(0.05, 0.05, 0.05);
+        highwayMat.diffuseColor = new Color3(0.25, 0.25, 0.25); // Светлее для лучшей видимости
+        highwayMat.specularColor = new Color3(0.1, 0.1, 0.1);
         highwayMat.freeze();
         this.materials.set("highway", highwayMat);
         
-        // Darker asphalt for streets
+        // Darker asphalt for streets - более заметный
         const streetMat = new StandardMaterial("roadStreet", this.scene);
-        streetMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
-        streetMat.specularColor = new Color3(0.03, 0.03, 0.03);
+        streetMat.diffuseColor = new Color3(0.2, 0.2, 0.2); // Светлее для лучшей видимости
+        streetMat.specularColor = new Color3(0.05, 0.05, 0.05);
         streetMat.freeze();
         this.materials.set("street", streetMat);
         
         // Dirt path
         const pathMat = new StandardMaterial("roadPath", this.scene);
-        pathMat.diffuseColor = new Color3(0.35, 0.28, 0.2);
+        pathMat.diffuseColor = new Color3(0.45, 0.38, 0.3); // Светлее
         pathMat.specularColor = Color3.Black();
         pathMat.freeze();
         this.materials.set("path", pathMat);
@@ -252,7 +273,14 @@ export class RoadNetwork {
         const key = `${chunkX}_${chunkZ}`;
         
         if (this.roads.has(key)) {
-            return this.roads.get(key)!;
+            const cached = this.roads.get(key)!;
+            return cached;
+        }
+        
+        // Специальная обработка для карты Тартария - используем реальные дороги
+        // ТОЛЬКО для Тартарии используем специальную систему дорог
+        if (this.config.mapType === "tartaria") {
+            return this.generateTartuRoadsForChunk(chunkX, chunkZ, biome);
         }
         
         const seed = this.config.worldSeed + chunkX * 10000 + chunkZ;
@@ -365,19 +393,61 @@ export class RoadNetwork {
     // Create road meshes for a chunk
     createRoadMeshes(chunkX: number, chunkZ: number, biome: string, parentNode: any): Mesh[] {
         const roads = this.generateRoadsForChunk(chunkX, chunkZ, biome);
+        
+        // #region agent log
+        debugLogger.log({location:'roadNetwork.ts:401',message:'createRoadMeshes entry',data:{chunkX,chunkZ,biome,roadsCount:roads.length,hasParentNode:!!parentNode,parentPosition:parentNode?parentNode.position:null},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'A'});
+        // #endregion
+        
         const meshes: Mesh[] = [];
+        
+        // Если parentNode задан, вычисляем его позицию для корректировки координат дорог
+        const parentOffset = parentNode ? parentNode.position.clone() : Vector3.Zero();
         
         for (let i = 0; i < roads.length; i++) {
             const road: RoadSegment = roads[i]!;
+            
+            // #region agent log
+            // Removed excessive logging in hot loop - only log first and last segment
+            if (i === 0 || i === roads.length - 1) {
+                debugLogger.log({location:'roadNetwork.ts:415',message:'Processing road segment',data:{i,roadStart:road.start,roadEnd:road.end,roadType:road.type,parentOffset},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'A'});
+            }
+            // #endregion
+            
             const mesh = this.createRoadMesh(road, `road_${chunkX}_${chunkZ}_${i}`);
             if (mesh) {
-                mesh.parent = parentNode;
+                // #region agent log
+                // Removed excessive logging in hot loop
+                // #endregion
+                
+                // Если есть parentNode, корректируем позицию относительно него
+                if (parentNode) {
+                    const beforePos = mesh.position.clone();
+                    mesh.position = mesh.position.subtract(parentOffset);
+                    mesh.parent = parentNode;
+                    
+                    // #region agent log
+                    // Removed excessive logging in hot loop
+                    // #endregion
+                }
                 meshes.push(mesh);
                 
-                // Add road markings
-                const markings = this.createRoadMarkings(road, `marking_${chunkX}_${chunkZ}_${i}`);
+                // Add road markings - передаем высоту дороги
+                const avgHeight = (road.start.y + road.end.y) / 2;
+                const markings = this.createRoadMarkings(road, `marking_${chunkX}_${chunkZ}_${i}`, avgHeight);
                 for (const marking of markings) {
-                    marking.parent = parentNode;
+                    // #region agent log
+                    // Removed excessive logging in hot loop
+                    // #endregion
+                    
+                    if (parentNode) {
+                        const beforePos = marking.position.clone();
+                        marking.position = marking.position.subtract(parentOffset);
+                        marking.parent = parentNode;
+                        
+                        // #region agent log
+                        // Removed excessive logging in hot loop
+                        // #endregion
+                    }
                     meshes.push(marking);
                 }
             }
@@ -389,41 +459,79 @@ export class RoadNetwork {
     private createRoadMesh(road: RoadSegment, name: string): Mesh | null {
         const direction = road.end.subtract(road.start);
         const length = direction.length();
-        if (length < 1) return null;
+        if (length < 0.5) return null; // Пропускаем очень короткие сегменты
         
         const center = road.start.add(direction.scale(0.5));
         const angle = Math.atan2(direction.x, direction.z);
         
+        // Вычисляем среднюю высоту для наклона дороги
+        const avgHeight = (road.start.y + road.end.y) / 2;
+        
+        // Вычисляем высоту дороги более точно - учитываем наклон
+        const roadHeight = 0.12; // Немного увеличена для лучшей видимости
+        
+        // Вычисляем наклон дороги для правильного позиционирования
+        const heightDiff = road.end.y - road.start.y;
+        const slopeAngle = Math.atan2(heightDiff, length);
+        
         const mesh = MeshBuilder.CreateBox(name, {
             width: road.width,
-            height: 0.1,
+            height: roadHeight,
             depth: length
         }, this.scene);
         
         mesh.position = center;
-        // Дороги должны быть немного выше ground, чтобы избежать z-fighting
-        mesh.position.y = 0.08; // Увеличено с 0.05 до 0.08 для предотвращения наложения
+        // Используем высоту из road segment (уже скорректированную по террейну)
+        // Дороги должны быть точно на уровне террейна для правильной физики
+        mesh.position.y = avgHeight;
         mesh.rotation.y = angle;
+        
+        // Немного наклоняем дорогу по склону для плавности
+        if (Math.abs(slopeAngle) > 0.01) {
+            mesh.rotation.x = slopeAngle * 0.5; // Увеличен наклон для лучшей плавности
+        }
+        
+        // #region agent log
+        debugLogger.log({location:'roadNetwork.ts:485',message:'Road mesh created',data:{name,position:mesh.position,startHeight:road.start.y,endHeight:road.end.y,avgHeight,length,width:road.width,slopeAngle},timestamp:Date.now(),sessionId:'debug-session',runId:'run4',hypothesisId:'E'});
+        // #endregion
         
         const mat = this.materials.get(road.type);
         if (mat) {
             mesh.material = mat;
+        } else {
+            // Fallback материал если тип не найден
+            const fallbackMat = new StandardMaterial(`${name}_fallback`, this.scene);
+            fallbackMat.diffuseColor = new Color3(0.3, 0.3, 0.3);
+            mesh.material = fallbackMat;
         }
         
-        // Add physics (static ground)
-        const roadPhysics = new PhysicsAggregate(mesh, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
-        if (roadPhysics.shape) {
-            roadPhysics.shape.filterMembershipMask = 2; // Environment group
-            roadPhysics.shape.filterCollideMask = 1 | 8 | 16; // Player (1), enemies (8), enemy bullets (16)
-        }
+        // Add physics (static ground) - только если дорога достаточно большая
+        // ВАЖНО: Дороги не должны иметь физику, так как танк использует ground clamping
+        // Физика дорог может создавать конфликты и застревания
+        // Вместо этого дороги должны быть визуальными и использоваться только для определения isOnRoad
+        // if (length > 0.5) {
+        //     try {
+        //         const roadPhysics = new PhysicsAggregate(mesh, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        //         if (roadPhysics.shape) {
+        //             roadPhysics.shape.filterMembershipMask = 2; // Environment group
+        //             roadPhysics.shape.filterCollideMask = 1 | 8 | 16; // Player (1), enemies (8), enemy bullets (16)
+        //             if (roadPhysics.body) {
+        //                 roadPhysics.body.setFriction(0.8);
+        //             }
+        //         }
+        //     } catch (e) {
+        //         console.warn(`[RoadNetwork] Failed to add physics to road ${name}:`, e);
+        //     }
+        // }
         
         mesh.receiveShadows = true;
-        mesh.isPickable = false;
+        mesh.isPickable = true; // ВАЖНО: Дороги должны быть pickable для ground raycast танка!
+        mesh.setEnabled(true); // Убеждаемся, что меш включен
         
         return mesh;
     }
     
-    private createRoadMarkings(road: RoadSegment, baseName: string): Mesh[] {
+    private createRoadMarkings(road: RoadSegment, baseName: string, roadHeight: number = 0.12): Mesh[] {
         const markings: Mesh[] = [];
         
         if (road.type === "path") return markings; // No markings on paths
@@ -445,7 +553,7 @@ export class RoadNetwork {
             }, this.scene);
             
             const center = road.start.add(direction.scale(0.5));
-            centerLine.position = new Vector3(center.x, 0.12, center.z);
+            centerLine.position = new Vector3(center.x, roadHeight + 0.02, center.z);
             centerLine.rotation.y = angle;
             centerLine.material = this.materials.get("markingYellow")!;
             centerLine.isPickable = false;
@@ -463,7 +571,7 @@ export class RoadNetwork {
                 }, this.scene);
                 
                 const edgePos = center.add(perpendicular.scale(offset));
-                edgeLine.position = new Vector3(edgePos.x, 0.12, edgePos.z);
+                edgeLine.position = new Vector3(edgePos.x, roadHeight + 0.02, edgePos.z);
                 edgeLine.rotation.y = angle;
                 edgeLine.material = this.materials.get("marking")!;
                 edgeLine.isPickable = false;
@@ -485,7 +593,7 @@ export class RoadNetwork {
                     depth: dashLength
                 }, this.scene);
                 
-                dash.position = new Vector3(dashPos.x, 0.12, dashPos.z);
+                dash.position = new Vector3(dashPos.x, roadHeight + 0.02, dashPos.z);
                 dash.rotation.y = angle;
                 dash.material = this.materials.get("marking")!;
                 dash.isPickable = false;
@@ -552,11 +660,256 @@ export class RoadNetwork {
         return 0;
     }
     
+    // Generate real Tartu roads for a chunk
+    private generateTartuRoadsForChunk(chunkX: number, chunkZ: number, biome: string): RoadSegment[] {
+        const key = `${chunkX}_${chunkZ}`;
+        
+        try {
+            // Используем прямой импорт модуля
+            const tartuRoads = tartuRoadsModule;
+            
+            if (!tartuRoads || !tartuRoads.getTartuRoadsInChunk) {
+                console.warn("[RoadNetwork] Tartu roads module not available");
+                this.roads.set(key, []);
+                return [];
+            }
+            
+            const worldX = chunkX * this.config.chunkSize;
+            const worldZ = chunkZ * this.config.chunkSize;
+            const chunkMinX = worldX;
+            const chunkMaxX = worldX + this.config.chunkSize;
+            const chunkMinZ = worldZ;
+            const chunkMaxZ = worldZ + this.config.chunkSize;
+            
+            const tartuRoadSegments = tartuRoads.getTartuRoadsInChunk(
+                chunkX,
+                chunkZ,
+                this.config.chunkSize
+            );
+            
+            // #region agent log
+            debugLogger.log({location:'roadNetwork.ts:648',message:'Got tartu roads for chunk',data:{chunkX,chunkZ,count:tartuRoadSegments.length,chunkBounds:{minX:chunkMinX,maxX:chunkMaxX,minZ:chunkMinZ,maxZ:chunkMaxZ}},timestamp:Date.now(),sessionId:'debug-session',runId:'run4',hypothesisId:'D'});
+            // #endregion
+            
+            const roads: RoadSegment[] = [];
+            
+            for (const tartuRoad of tartuRoadSegments) {
+                const converted = tartuRoads.convertTartuRoadToSegment(tartuRoad);
+                
+                // #region agent log
+                // Removed excessive logging in hot loop - only log first road
+                if (roads.length === 0) {
+                    debugLogger.log({location:'roadNetwork.ts:661',message:'Processing tartu road',data:{chunkX,chunkZ,roadName:tartuRoad.name,start:converted.start,end:converted.end},timestamp:Date.now(),sessionId:'debug-session',runId:'run4',hypothesisId:'D'});
+                }
+                // #endregion
+                
+                // Разбиваем длинные дороги на более мелкие сегменты для плавного следования террейну
+                if (this.config.terrainGenerator) {
+                    const roadLength = Vector3.Distance(converted.start, converted.end);
+                    const segmentLength = 10; // Уменьшена длина сегмента для большей плавности
+                    const numSegments = Math.max(1, Math.ceil(roadLength / segmentLength));
+                    
+                    const direction = converted.end.subtract(converted.start);
+                    const normalizedDir = direction.normalize();
+                    
+                    // Вычисляем высоты для всех точек заранее для плавной интерполяции
+                    const points: Vector3[] = [];
+                    const heights: number[] = [];
+                    
+                    for (let i = 0; i <= numSegments; i++) {
+                        const t = i / numSegments;
+                        const point = converted.start.add(direction.scale(t));
+                        const height = this.config.terrainGenerator.getHeight(
+                            point.x,
+                            point.z,
+                            biome
+                        );
+                        points.push(point);
+                        heights.push(height);
+                    }
+                    
+                    // Создаем сегменты с плавной интерполяцией высот
+                    // Дороги должны быть на уровне террейна или чуть выше для видимости
+                    const roadOffset = 0.02; // Уменьшен offset для лучшей физики
+                    for (let i = 0; i < numSegments; i++) {
+                        const segStart = points[i]!.clone();
+                        const segEnd = points[i + 1]!.clone();
+                        
+                        // Используем предвычисленные высоты
+                        segStart.y = heights[i]! + roadOffset;
+                        segEnd.y = heights[i + 1]! + roadOffset;
+                        
+                        // Убеждаемся, что соседние сегменты имеют одинаковую высоту в точке соединения
+                        if (i > 0 && roads.length > 0) {
+                            const prevSegment = roads[roads.length - 1]!;
+                            // Синхронизируем высоту начала текущего сегмента с концом предыдущего
+                            const prevEndHeight = prevSegment.end.y;
+                            segStart.y = prevEndHeight;
+                        }
+                        
+                        // #region agent log
+                        // Removed excessive logging in hot loop
+                        // #endregion
+                        
+                        roads.push({
+                            start: segStart,
+                            end: segEnd,
+                            width: converted.width,
+                            type: converted.type
+                        });
+                    }
+                } else {
+                    // Если нет terrainGenerator, используем базовую высоту
+                    converted.start.y = 0.05;
+                    converted.end.y = 0.05;
+                    roads.push(converted);
+                }
+            }
+            
+            if (roads.length > 0) {
+                console.log(`[RoadNetwork] Generated ${roads.length} Tartu roads for chunk ${key}`);
+            }
+            
+            this.roads.set(key, roads);
+            return roads;
+        } catch (e) {
+            // Если модуль не загружен, возвращаем пустой массив
+            console.warn("[RoadNetwork] Tartu roads module not available:", e);
+            this.roads.set(key, []);
+            return [];
+        }
+    }
+    
     // Clear roads for a chunk (when unloading)
     clearChunk(chunkX: number, chunkZ: number): void {
         const key = `${chunkX}_${chunkZ}`;
         this.roads.delete(key);
         this.intersections.delete(key);
+    }
+    
+    // Обрезать дорогу до границ чанка
+    private clipRoadToChunk(
+        road: RoadSegment,
+        chunkMinX: number,
+        chunkMaxX: number,
+        chunkMinZ: number,
+        chunkMaxZ: number
+    ): RoadSegment | null {
+        const start = road.start;
+        const end = road.end;
+        
+        // Если обе точки внутри чанка, возвращаем дорогу как есть
+        if (start.x >= chunkMinX && start.x <= chunkMaxX &&
+            start.z >= chunkMinZ && start.z <= chunkMaxZ &&
+            end.x >= chunkMinX && end.x <= chunkMaxX &&
+            end.z >= chunkMinZ && end.z <= chunkMaxZ) {
+            return road;
+        }
+        
+        // Вычисляем точки пересечения с границами чанка
+        const clippedStart = this.clipPointToChunk(start, end, chunkMinX, chunkMaxX, chunkMinZ, chunkMaxZ);
+        const clippedEnd = this.clipPointToChunk(end, start, chunkMinX, chunkMaxX, chunkMinZ, chunkMaxZ);
+        
+        // Если точки не найдены или совпадают, дорога не пересекает чанк
+        if (!clippedStart || !clippedEnd || 
+            (clippedStart.x === clippedEnd.x && clippedStart.z === clippedEnd.z)) {
+            return null;
+        }
+        
+        return {
+            start: clippedStart,
+            end: clippedEnd,
+            width: road.width,
+            type: road.type
+        };
+    }
+    
+    // Обрезать точку до границ чанка (найти точку пересечения линии с границей чанка)
+    private clipPointToChunk(
+        point: Vector3,
+        otherPoint: Vector3,
+        chunkMinX: number,
+        chunkMaxX: number,
+        chunkMinZ: number,
+        chunkMaxZ: number
+    ): Vector3 | null {
+        // Если точка уже внутри чанка, возвращаем её
+        if (point.x >= chunkMinX && point.x <= chunkMaxX &&
+            point.z >= chunkMinZ && point.z <= chunkMaxZ) {
+            return point.clone();
+        }
+        
+        // Вычисляем направление линии
+        const dx = otherPoint.x - point.x;
+        const dz = otherPoint.z - point.z;
+        const length = Math.sqrt(dx * dx + dz * dz);
+        
+        if (length < 0.001) return null;
+        
+        const dirX = dx / length;
+        const dirZ = dz / length;
+        
+        // Находим пересечения с каждой границей
+        const intersections: Vector3[] = [];
+        
+        // Левая граница (x = chunkMinX)
+        if (dirX !== 0) {
+            const t = (chunkMinX - point.x) / dirX;
+            if (t >= 0 && t <= length) {
+                const z = point.z + dirZ * t;
+                if (z >= chunkMinZ && z <= chunkMaxZ) {
+                    intersections.push(new Vector3(chunkMinX, point.y, z));
+                }
+            }
+        }
+        
+        // Правая граница (x = chunkMaxX)
+        if (dirX !== 0) {
+            const t = (chunkMaxX - point.x) / dirX;
+            if (t >= 0 && t <= length) {
+                const z = point.z + dirZ * t;
+                if (z >= chunkMinZ && z <= chunkMaxZ) {
+                    intersections.push(new Vector3(chunkMaxX, point.y, z));
+                }
+            }
+        }
+        
+        // Нижняя граница (z = chunkMinZ)
+        if (dirZ !== 0) {
+            const t = (chunkMinZ - point.z) / dirZ;
+            if (t >= 0 && t <= length) {
+                const x = point.x + dirX * t;
+                if (x >= chunkMinX && x <= chunkMaxX) {
+                    intersections.push(new Vector3(x, point.y, chunkMinZ));
+                }
+            }
+        }
+        
+        // Верхняя граница (z = chunkMaxZ)
+        if (dirZ !== 0) {
+            const t = (chunkMaxZ - point.z) / dirZ;
+            if (t >= 0 && t <= length) {
+                const x = point.x + dirX * t;
+                if (x >= chunkMinX && x <= chunkMaxX) {
+                    intersections.push(new Vector3(x, point.y, chunkMaxZ));
+                }
+            }
+        }
+        
+        // Находим ближайшую точку пересечения
+        if (intersections.length === 0) return null;
+        
+        let closest = intersections[0]!;
+        let minDist = Vector3.Distance(point, closest);
+        for (let i = 1; i < intersections.length; i++) {
+            const dist = Vector3.Distance(point, intersections[i]!);
+            if (dist < minDist) {
+                minDist = dist;
+                closest = intersections[i]!;
+            }
+        }
+        
+        return closest;
     }
 }
 

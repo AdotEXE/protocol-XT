@@ -5,6 +5,7 @@
 import { Game } from "./game";
 import { ChunkSystem } from "./chunkSystem";
 import { MapType } from "./menu";
+import { CommonStyles } from "./commonStyles";
 
 export interface WorldGenSettings {
     // Chunk settings
@@ -165,7 +166,8 @@ export class WorldGenerationMenu {
                 industrial: "Промышленная",
                 urban_warfare: "Городские бои",
                 underground: "Подземная",
-                coastal: "Прибрежная"
+                coastal: "Прибрежная",
+                tartaria: "Тартария"
             };
             const key = mapType as MapType;
             const mapName = mapNames[key] ?? mapType;
@@ -174,79 +176,53 @@ export class WorldGenerationMenu {
     }
     
     private createUI(): void {
+        // Инжектируем общие стили если еще не инжектированы
+        CommonStyles.initialize();
+        
         // Создаём контейнер
         this.container = document.createElement("div");
         this.container.id = "world-generation-menu";
-        this.container.style.cssText = `
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
+        this.container.className = "panel-overlay";
+        
+        // Создаём панель
+        const panel = document.createElement("div");
+        panel.className = "panel";
+        panel.style.cssText = `
             width: 95%;
             max-width: 1200px;
             max-height: 95vh;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            border: 2px solid #0f3460;
-            border-radius: 12px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
-            z-index: 10000;
             display: flex;
             flex-direction: column;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            color: #e0e0e0;
             overflow: hidden;
         `;
         
         // Заголовок
         const header = document.createElement("div");
-        header.style.cssText = `
-            background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
-            padding: 20px;
-            border-bottom: 2px solid #0f3460;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        `;
+        header.className = "panel-header";
+        header.style.cssText = `display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;`;
         
         const titleGroup = document.createElement("div");
         titleGroup.style.cssText = `display: flex; flex-direction: column; gap: 5px;`;
         
-        const title = document.createElement("h2");
-        title.textContent = "⚙️ Настройки генерации мира [Ctrl+9]";
-        title.style.cssText = `
-            margin: 0;
-            font-size: 24px;
-            color: #4a9eff;
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
-        `;
+        const title = document.createElement("div");
+        title.className = "panel-title";
+        title.textContent = "ГЕНЕРАЦИЯ МИРА [Ctrl+9]";
         
         const mapInfo = document.createElement("div");
         mapInfo.id = "current-map-info";
         mapInfo.textContent = "Текущая карта: Загрузка...";
         mapInfo.style.cssText = `
-            font-size: 14px;
-            color: #88ccff;
+            font-size: 12px;
+            color: #7f7;
+            font-family: Consolas, Monaco, 'Courier New', monospace;
         `;
         
         titleGroup.appendChild(title);
         titleGroup.appendChild(mapInfo);
         
         const closeBtn = document.createElement("button");
-        closeBtn.textContent = "✕";
-        closeBtn.style.cssText = `
-            background: #ff4444;
-            border: none;
-            color: white;
-            width: 36px;
-            height: 36px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 20px;
-            font-weight: bold;
-            transition: all 0.2s;
-        `;
-        closeBtn.onmouseover = () => closeBtn.style.background = "#ff6666";
-        closeBtn.onmouseout = () => closeBtn.style.background = "#ff4444";
+        closeBtn.className = "panel-close";
+        closeBtn.textContent = "×";
         closeBtn.onclick = () => this.toggle();
         
         header.appendChild(titleGroup);
@@ -278,23 +254,26 @@ export class WorldGenerationMenu {
             tabBtn.textContent = tab.label;
             tabBtn.style.cssText = `
                 padding: 10px 20px;
-                background: ${this.currentTab === tab.id ? "#4a9eff" : "rgba(15, 52, 96, 0.5)"};
-                border: 1px solid ${this.currentTab === tab.id ? "#4a9eff" : "#0f3460"};
-                border-radius: 6px;
-                color: white;
-                font-size: 14px;
+                background: ${this.currentTab === tab.id ? "rgba(0, 255, 4, 0.3)" : "rgba(0, 5, 0, 0.5)"};
+                border: 1px solid ${this.currentTab === tab.id ? "rgba(0, 255, 4, 0.6)" : "rgba(0, 255, 4, 0.4)"};
+                border-radius: 4px;
+                color: ${this.currentTab === tab.id ? "#0f0" : "#7f7"};
+                font-size: 12px;
+                font-family: Consolas, Monaco, 'Courier New', monospace;
                 cursor: pointer;
-                transition: all 0.2s;
+                transition: all 0.3s ease;
                 white-space: nowrap;
             `;
             tabBtn.onmouseover = () => {
                 if (this.currentTab !== tab.id) {
-                    tabBtn.style.background = "rgba(74, 158, 255, 0.3)";
+                    tabBtn.style.background = "rgba(0, 255, 4, 0.2)";
+                    tabBtn.style.color = "#0f0";
                 }
             };
             tabBtn.onmouseout = () => {
                 if (this.currentTab !== tab.id) {
-                    tabBtn.style.background = "rgba(15, 52, 96, 0.5)";
+                    tabBtn.style.background = "rgba(0, 5, 0, 0.5)";
+                    tabBtn.style.color = "#7f7";
                 }
             };
             tabBtn.onclick = () => this.switchTab(tab.id);
@@ -304,32 +283,33 @@ export class WorldGenerationMenu {
         // Контент с прокруткой
         const content = document.createElement("div");
         content.id = "menu-content";
+        content.className = "panel-content";
         content.style.cssText = `
             flex: 1;
-            overflow-y: auto;
-            padding: 20px;
         `;
         
         // Футер с кнопками
         const footer = document.createElement("div");
         footer.style.cssText = `
-            background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+            background: rgba(0, 20, 0, 0.8);
             padding: 20px;
-            border-top: 2px solid #0f3460;
+            border-top: 2px solid rgba(0, 255, 4, 0.4);
             display: flex;
             justify-content: space-between;
             align-items: center;
             gap: 10px;
             flex-wrap: wrap;
+            font-family: Consolas, Monaco, 'Courier New', monospace;
         `;
         
         const infoText = document.createElement("div");
         infoText.textContent = "⚠️ Изменения применяются при следующей генерации чанков или перезапуске игры";
         infoText.style.cssText = `
-            color: #ffaa44;
+            color: #ff0;
             font-size: 12px;
             display: flex;
             align-items: center;
+            font-family: Consolas, Monaco, 'Courier New', monospace;
         `;
         
         const buttonGroup = document.createElement("div");
@@ -352,11 +332,11 @@ export class WorldGenerationMenu {
         footer.appendChild(infoText);
         footer.appendChild(buttonGroup);
         
-        this.container.appendChild(header);
-        this.container.appendChild(tabsContainer);
-        this.container.appendChild(content);
-        this.container.appendChild(footer);
+        panel.appendChild(tabsContainer);
+        panel.appendChild(content);
+        panel.appendChild(footer);
         
+        this.container.appendChild(panel);
         document.body.appendChild(this.container);
         
         // Инициализируем первую вкладку
@@ -1251,9 +1231,18 @@ export class WorldGenerationMenu {
             
             // Применяем к подсистемам если они есть
             const roadNetwork = (this.chunkSystem as any).roadNetwork;
-            if (roadNetwork && roadNetwork.config) {
-                roadNetwork.config.highwaySpacing = this.settings.highwaySpacing;
-                roadNetwork.config.streetSpacing = this.settings.streetSpacing;
+            if (roadNetwork) {
+                if (roadNetwork.config) {
+                    roadNetwork.config.highwaySpacing = this.settings.highwaySpacing;
+                    roadNetwork.config.streetSpacing = this.settings.streetSpacing;
+                }
+                // Устанавливаем тип карты для поддержки реальных дорог
+                const mapType = (this.game as any).currentMapType || "normal";
+                if (roadNetwork.setMapType) {
+                    roadNetwork.setMapType(mapType);
+                } else if (roadNetwork.config) {
+                    roadNetwork.config.mapType = mapType;
+                }
             }
             
             const poiSystem = (this.chunkSystem as any).poiSystem;

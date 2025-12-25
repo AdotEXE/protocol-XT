@@ -6,6 +6,7 @@ import { TankController } from "./tankController";
 import { Game } from "./game";
 import { Vector3 } from "@babylonjs/core";
 import { EnemyTank } from "./enemyTank";
+import { CommonStyles } from "./commonStyles";
 
 export interface Cheat {
     id: string;
@@ -28,7 +29,7 @@ export class CheatMenu {
         this.setupToggle();
         this.initializeCheats();
         this.visible = false;
-        this.container.classList.add("hidden");
+        this.container.classList.remove("visible");
         this.container.style.display = "none";
     }
     
@@ -152,13 +153,20 @@ export class CheatMenu {
         this.addCheat({
             id: "addCredits",
             name: "Добавить кредиты",
-            description: "Добавляет 10000 кредитов",
+            description: "Добавляет 100000 кредитов",
             enabled: false,
             category: "resources",
             toggle: () => {
-                if (this.game && (this.game as any).currencyManager) {
-                    (this.game as any).currencyManager.addCurrency(10000);
-                    alert("Добавлено 10000 кредитов!");
+                if (this.game) {
+                    // Добавляем кредиты в currencyManager
+                    if ((this.game as any).currencyManager) {
+                        (this.game as any).currencyManager.addCurrency(100000);
+                    }
+                    // Добавляем кредиты в playerProgression
+                    if ((this.game as any).playerProgression) {
+                        (this.game as any).playerProgression.addCredits(100000);
+                    }
+                    alert("Добавлено 100000 кредитов!");
                 }
             }
         });
@@ -555,9 +563,18 @@ export class CheatMenu {
     }
     
     private createUI(): void {
+        // Инжектируем общие стили если еще не инжектированы
+        CommonStyles.initialize();
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'cheatMenu.ts:560',message:'CommonStyles initialized',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
+        
         this.container = document.createElement("div");
         this.container.id = "cheat-menu";
         this.container.className = "panel-overlay";
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'cheatMenu.ts:564',message:'CheatMenu container created',data:{className:this.container.className},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
         
         const categories = ["combat", "movement", "resources", "debug", "world", "time", "visual", "other"];
         const categoryNames: { [key: string]: string } = {
@@ -626,22 +643,27 @@ export class CheatMenu {
         this.container.innerHTML = html;
         
         const style = document.createElement("style");
+        style.id = "cheat-menu-styles";
         style.textContent = `
-            #cheat-menu {
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(0, 0, 0, 0.8);
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                z-index: 10001;
+            /* Принудительные стили для меню читов */
+            #cheat-menu.panel-overlay {
+                position: fixed !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+                background: rgba(0, 0, 0, 0.95) !important;
+                display: none !important;
+                justify-content: center !important;
+                align-items: center !important;
+                z-index: 100002 !important;
+                pointer-events: auto !important;
             }
             
-            #cheat-menu.hidden {
-                display: none;
+            #cheat-menu.panel-overlay.visible {
+                display: flex !important;
+                visibility: visible !important;
+                opacity: 1 !important;
             }
             
             .cheat-category {
@@ -650,10 +672,11 @@ export class CheatMenu {
             
             .cheat-category-title {
                 font-size: 14px;
-                color: #0f0;
+                color: #0ff;
                 margin-bottom: 10px;
                 padding-bottom: 5px;
-                border-bottom: 1px solid #0f04;
+                border-bottom: 1px solid rgba(0, 255, 4, 0.3);
+                font-weight: bold;
             }
             
             .cheat-item {
@@ -662,8 +685,8 @@ export class CheatMenu {
                 align-items: center;
                 padding: 10px;
                 margin-bottom: 8px;
-                background: rgba(0, 255, 0, 0.05);
-                border: 1px solid #0f04;
+                background: rgba(0, 5, 0, 0.3);
+                border: 1px solid rgba(0, 255, 4, 0.2);
                 border-radius: 4px;
             }
             
@@ -676,11 +699,13 @@ export class CheatMenu {
                 color: #0f0;
                 font-weight: bold;
                 margin-bottom: 4px;
+                font-family: Consolas, Monaco, 'Courier New', monospace;
             }
             
             .cheat-desc {
                 font-size: 10px;
                 color: #7f7;
+                font-family: Consolas, Monaco, 'Courier New', monospace;
             }
             
             .cheat-toggle {
@@ -703,10 +728,10 @@ export class CheatMenu {
                 left: 0;
                 right: 0;
                 bottom: 0;
-                background-color: #333;
+                background-color: rgba(0, 5, 0, 0.5);
                 transition: 0.3s;
                 border-radius: 24px;
-                border: 1px solid #0f0;
+                border: 1px solid rgba(0, 255, 4, 0.4);
             }
             
             .cheat-slider:before {
@@ -716,18 +741,19 @@ export class CheatMenu {
                 width: 18px;
                 left: 2px;
                 bottom: 2px;
-                background-color: #0f0;
+                background-color: rgba(0, 255, 4, 0.6);
                 transition: 0.3s;
                 border-radius: 50%;
             }
             
             .cheat-toggle input:checked + .cheat-slider {
-                background-color: #0f0;
+                background-color: rgba(0, 255, 4, 0.3);
+                border-color: rgba(0, 255, 4, 0.6);
             }
             
             .cheat-toggle input:checked + .cheat-slider:before {
                 transform: translateX(26px);
-                background-color: #000;
+                background-color: #0f0;
             }
         `;
         
@@ -773,13 +799,22 @@ export class CheatMenu {
     }
     
     toggle(): void {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'cheatMenu.ts:775',message:'CheatMenu toggle called',data:{hasContainer:!!this.container,visible:this.visible},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         if (!this.container) {
             console.warn("[CheatMenu] Cannot toggle: container not initialized");
             return;
         }
         
+        // Проверяем, что контейнер в DOM
+        if (!document.body.contains(this.container)) {
+            console.warn("[CheatMenu] Container not in DOM, re-adding...");
+            document.body.appendChild(this.container);
+        }
+        
         this.visible = !this.visible;
-        console.log(`[CheatMenu] Toggle: ${this.visible ? 'show' : 'hide'}`);
+        console.log(`[CheatMenu] Toggle: ${this.visible ? 'show' : 'hide'}, container classes:`, this.container.className);
         
         if (this.visible) {
             this.show();
@@ -789,15 +824,32 @@ export class CheatMenu {
     }
     
     show(): void {
+        if (!this.container) {
+            console.warn("[CheatMenu] Cannot show: container not initialized");
+            return;
+        }
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'cheatMenu.ts:783',message:'CheatMenu show called',data:{hasContainer:!!this.container},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
         this.visible = true;
-        this.container.classList.remove("hidden");
+        this.container.classList.add("visible");
         this.container.style.display = "flex";
+        this.container.style.visibility = "visible";
+        this.container.style.opacity = "1";
+        this.container.style.zIndex = "100002";
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'cheatMenu.ts:787',message:'CheatMenu shown',data:{display:this.container.style.display},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
+        console.log("[CheatMenu] Menu shown, container:", this.container);
     }
     
     hide(): void {
+        if (!this.container) return;
         this.visible = false;
-        this.container.classList.add("hidden");
+        this.container.classList.remove("visible");
         this.container.style.display = "none";
+        this.container.style.visibility = "hidden";
+        this.container.style.opacity = "0";
     }
     
     /**

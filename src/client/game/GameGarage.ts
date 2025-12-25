@@ -73,13 +73,14 @@ export class GameGarage {
             let nearestDistance = Infinity;
             
             for (const garage of this.chunkSystem.garagePositions) {
+                const garageVec = new Vector3(garage.x, 0, garage.z);
                 const dist = Vector3.Distance(
                     new Vector3(playerPos.x, 0, playerPos.z), 
-                    new Vector3(garage.x, 0, garage.z)
+                    garageVec
                 );
                 if (dist < nearestDistance) {
                     nearestDistance = dist;
-                    nearestGarage = garage;
+                    nearestGarage = garageVec;
                 }
             }
             
@@ -112,6 +113,7 @@ export class GameGarage {
         let nearestDistance = Infinity;
         
         for (const garage of this.chunkSystem.garagePositions) {
+            const garageVec = new Vector3(garage.x, 0, garage.z);
             // Проверяем, не занят ли гараж таймером респавна
             const key = `${garage.x.toFixed(1)},${garage.z.toFixed(1)}`;
             if (this.garageRespawnTimers.has(key)) {
@@ -120,14 +122,14 @@ export class GameGarage {
             
             // Исключаем гараж игрока и близлежащие гаражи (минимум 100 единиц!)
             if (this.playerGaragePosition) {
-                const distToPlayerGarage = Vector3.Distance(garage, this.playerGaragePosition);
+                const distToPlayerGarage = Vector3.Distance(garageVec, this.playerGaragePosition);
                 if (distToPlayerGarage < 100) continue; // Минимум 100 единиц от гаража игрока
             }
             
-            const dist = Vector3.Distance(fromPos, garage);
+            const dist = Vector3.Distance(fromPos, garageVec);
             if (dist < nearestDistance) {
                 nearestDistance = dist;
-                nearestGarage = garage;
+                nearestGarage = garageVec;
             }
         }
         
@@ -144,16 +146,17 @@ export class GameGarage {
         let nearestDistance = Infinity;
         
         for (const garage of this.chunkSystem.garagePositions) {
+            const garageVec = new Vector3(garage.x, 0, garage.z);
             // Исключаем гараж игрока и близлежащие гаражи (минимум 100 единиц!)
             if (this.playerGaragePosition) {
-                const distToPlayerGarage = Vector3.Distance(garage, this.playerGaragePosition);
+                const distToPlayerGarage = Vector3.Distance(garageVec, this.playerGaragePosition);
                 if (distToPlayerGarage < 100) continue; // Минимум 100 единиц от гаража игрока
             }
             
-            const dist = Vector3.Distance(fromPos, garage);
+            const dist = Vector3.Distance(fromPos, garageVec);
             if (dist < nearestDistance) {
                 nearestDistance = dist;
-                nearestGarage = garage;
+                nearestGarage = garageVec;
             }
         }
         
@@ -173,14 +176,15 @@ export class GameGarage {
         let farthestDistance = 0;
         
         for (const garage of this.chunkSystem.garagePositions) {
+            const garageVec = new Vector3(garage.x, 0, garage.z);
             const dist = Vector3.Distance(
                 new Vector3(playerPos.x, 0, playerPos.z),
-                new Vector3(garage.x, 0, garage.z)
+                garageVec
             );
             
             if (dist > farthestDistance) {
                 farthestDistance = dist;
-                farthestGarage = garage;
+                farthestGarage = garageVec;
             }
         }
         
@@ -207,9 +211,10 @@ export class GameGarage {
         
         // Проверяем каждый гараж
         for (const garagePos of this.chunkSystem.garagePositions) {
-            const garageKey = `${garagePos.x},${garagePos.y},${garagePos.z}`;
+            const garageKey = `${garagePos.x},0,${garagePos.z}`;
+            const garageVec = new Vector3(garagePos.x, 0, garagePos.z);
             const distance = Vector3.Distance(
-                new Vector3(garagePos.x, 0, garagePos.z),
+                garageVec,
                 new Vector3(playerPos.x, 0, playerPos.z)
             );
             
@@ -221,7 +226,7 @@ export class GameGarage {
                 
                 if (captureData.progress >= 1.0) {
                     // Гараж захвачен
-                    this.onGarageCaptured(garageKey, garagePos);
+                    this.onGarageCaptured(garageKey, garageVec);
                     captureData.progress = 1.0;
                 }
                 

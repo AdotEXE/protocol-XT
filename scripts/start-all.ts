@@ -67,9 +67,9 @@ async function positionWindowByTitle(title: string, position: WindowPosition, st
                 const lines = result.split('\n').filter(l => l.trim());
                 for (const line of lines) {
                     const [pid, windowTitle] = line.split('|');
-                    if (windowTitle && windowTitle.includes(title.split(' - ')[1] || title)) {
+                    if (pid && windowTitle && windowTitle.includes(title.split(' - ')[1] || title)) {
                         const processId = parseInt(pid.trim());
-                        if (processId && !isNaN(processId)) {
+                        if (!isNaN(processId) && processId > 0) {
                             await positionWindow(processId, position);
                             return;
                         }

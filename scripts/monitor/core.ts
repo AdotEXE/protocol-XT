@@ -2,7 +2,6 @@
  * Monitor Core - Ядро системы мониторинга
  */
 
-// Reserved for future filesystem operations
 import { ConfigManager } from './config';
 import { MetricsManager } from './metrics';
 import { HistoryManager } from './history';
