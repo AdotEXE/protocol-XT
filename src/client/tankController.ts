@@ -3448,7 +3448,9 @@ export class TankController {
                 const clampedPitch = Math.max(-Math.PI / 18, Math.min(Math.PI / 36, this.aimPitch));
                 if (isFinite(clampedPitch)) {
                     const oldRotationX = this.barrel.rotation.x;
-                    this.barrel.rotation.x = clampedPitch;
+                    // ИСПРАВЛЕНИЕ: В Babylon.js rotation.x положительный = вниз, отрицательный = вверх
+                    // Поэтому инвертируем знак, чтобы визуал ствола соответствовал направлению снаряда
+                    this.barrel.rotation.x = -clampedPitch;
                     // #region agent log
                     if (Math.abs(oldRotationX - clampedPitch) > 0.001) {
                         fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tankController.ts:3296',message:'Barrel rotation.x updated',data:{oldRotationX:oldRotationX,newRotationX:clampedPitch,aimPitch:this.aimPitch,rotationXDeg:clampedPitch*180/Math.PI,aimPitchDeg:this.aimPitch*180/Math.PI},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
