@@ -223,26 +223,73 @@ if (this._updateTick % 10 === 0) {
 }
 ```
 
-## Модульная архитектура (2024-12-XX)
+## Модульная архитектура (2024-12-25)
 
 ### Рефакторинг больших файлов
 
 Проект был рефакторирован для улучшения модульности:
 
-- ✅ **tank/tankChassis.ts** - Создание корпусов (~3300 строк)
-- ✅ **tank/tankCannon.ts** - Создание пушек (~1812 строк)
-- ✅ **tank/tankSpecialAbilities.ts** - Специальные способности (~377 строк)
+#### Модули танка (`src/client/tank/`)
+- ✅ **tankChassis.ts** - Создание корпусов (~3300 строк)
+- ✅ **tankCannon.ts** - Создание пушек (~1812 строк)
+- ✅ **tankSpecialAbilities.ts** - Специальные способности (~377 строк)
+- ✅ **movement/TankMovementConfig.ts** - Конфигурация движения
+- ✅ **combat/TankWeaponConfig.ts** - Конфигурация оружия
+- ✅ **combat/TankAiming.ts** - Логика прицеливания
+- ✅ **combat/TankDamage.ts** - Расчёт урона
+
+#### Модули карт (`src/client/maps/`)
+- ✅ **shared/BaseMapGenerator.ts** - Базовый класс генераторов
+- ✅ **shared/ChunkHelpers.ts** - Вспомогательные методы (водопады, мосты, скалы)
+- ✅ **polygon/PolygonGenerator.ts** - Генератор карты Polygon
+- ✅ **frontline/FrontlineGenerator.ts** - Генератор карты Frontline
+- ✅ **ruins/RuinsGenerator.ts** - Генератор карты Ruins
+- ✅ **canyon/CanyonGenerator.ts** - Генератор карты Canyon
+- ✅ **industrial/IndustrialGenerator.ts** - Генератор карты Industrial
+- ✅ **urban_warfare/UrbanWarfareGenerator.ts** - Генератор карты Urban Warfare
+- ✅ **underground/UndergroundGenerator.ts** - Генератор карты Underground
+- ✅ **coastal/CoastalGenerator.ts** - Генератор карты Coastal
+
+#### Модули игры (`src/client/game/`)
+- ✅ **LoadingScreen.ts** - Экран загрузки
+- ✅ **SettingsManager.ts** - Управление настройками
+- ✅ **FrontlineMode.ts** - Режим игры Frontline
+
+#### Компоненты HUD (`src/client/hud/components/`)
+- ✅ **Crosshair.ts** - Компонент прицела
+- ✅ **HealthBar.ts** - Компонент полосы здоровья
+- ✅ **Minimap.ts** - Компонент миникарты
+- ✅ **Compass.ts** - Компонент компаса
+- ✅ **ConsumablesBar.ts** - Компонент панели расходников
+
+#### Экраны меню (`src/client/menu/screens/`)
+- ✅ **MainMenuScreen.ts** - Главный экран меню
+- ✅ **SettingsScreen.ts** - Экран настроек
+
+#### Модули гаража
 - ✅ **garage/ui.ts** - UI логика гаража (~825 строк)
 - ✅ **garage/preview.ts** - 3D превью логика
+- ✅ **garage/materials.ts** - Фабрика материалов
+- ✅ **garage/chassisDetails.ts** - Генератор деталей корпусов
+- ✅ **garage/cannonDetails.ts** - Генератор деталей пушек
+
+#### Модули меню
 - ✅ **menu/settings.ts** - Настройки игры (~558 строк)
 - ✅ **menu/skillTreeUI.ts** - UI дерева навыков
 
-Результат: `tankController.ts` уменьшен с ~9660 до ~7774 строк.
+### Результаты рефакторинга
+
+| Метрика | До | После |
+|---------|-----|-------|
+| tankController.ts | ~9660 строк | ~7774 строк |
+| Новые модули | 0 | 30+ файлов |
+| Генераторы карт | 1 файл | 10 модулей |
+| Компоненты HUD | 0 | 5 компонентов |
 
 ## Будущие улучшения
 
-- [ ] Сетевая синхронизация
-- [ ] Система реплеев
+- [x] Сетевая синхронизация (реализовано 85-90%)
+- [x] Система реплеев (базовая реализация)
 - [x] Рефакторинг больших файлов
 - [ ] Профилирование производительности
 - [ ] Автоматические тесты
