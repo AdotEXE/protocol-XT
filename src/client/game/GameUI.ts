@@ -53,8 +53,8 @@ export class GameUI {
         // Show ammo counter
         // showAmmo не существует в GameSettings, пропускаем
         // if (this.settings.showAmmo !== undefined) {
-            // this.hud.setAmmoVisible(this.settings.showAmmo);
-        }
+        //     this.hud.setAmmoVisible(this.settings.showAmmo);
+        // }
         
         // Crosshair style
         if (this.settings.crosshairStyle !== undefined) {

@@ -15,7 +15,7 @@ import { firebaseService } from "./firebaseService";
 // Version tracking
 // Версия генерируется во время сборки и одинакова для всех пользователей
 const VERSION_MAJOR = 0;
-const VERSION_MINOR = 3;
+const VERSION_MINOR = 4;
 
 // Время сборки и commit hash внедряются во время сборки через Vite define
 // В dev режиме используем текущее время
@@ -381,9 +381,7 @@ export class MainMenu {
     private buttonHandlersAttached = false; // Флаг для предотвращения множественной привязки обработчиков
     
     constructor() {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:353',message:'MainMenu constructor started',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
+        
         this.settings = this.loadSettings();
         this.tankConfig = this.loadTankConfig();
         this.ownedChassisIds = this.loadOwnedIds("ownedChassis", ["medium"]);
@@ -392,13 +390,9 @@ export class MainMenu {
         // Garage will be loaded lazily when needed (when user opens garage from menu)
         // This reduces initial bundle size
         
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:362',message:'About to call createMenuUI',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
+        
         this.createMenuUI();
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:363',message:'createMenuUI completed',data:{containerExists:!!this.container,containerInDOM:this.container?document.body.contains(this.container):false},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
+        
         this.createSettingsUI();
         this.createStatsPanel();
         this.createSkillsPanel();
@@ -694,12 +688,22 @@ export class MainMenu {
                 if (this.garage.isGarageOpen()) {
                     this.garage.close(); // Close if open
                 }
-                this.garageScene.dispose();
-                if (this.garageScene.getEngine()) {
-                    this.garageScene.getEngine().dispose();
+                
+                // ИСПРАВЛЕНО: Получаем engine ПЕРЕД dispose сцены
+                const engine = this.garageScene?.getEngine();
+                
+                // ИСПРАВЛЕНО: Безопасный dispose с проверками на isDisposed
+                if (this.garageScene && !this.garageScene.isDisposed) {
+                    this.garageScene.dispose();
+                }
+                
+                // ИСПРАВЛЕНО: Dispose engine ПОСЛЕ dispose сцены
+                if (engine && !engine.isDisposed) {
+                    engine.dispose();
                 }
             } catch (e) {
                 // Ignore cleanup errors
+                console.warn("[Menu] Error during garage cleanup:", e);
             }
         }
         this.garage = garage;
@@ -707,22 +711,23 @@ export class MainMenu {
     }
     
     private createMenuUI(): void {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:670',message:'createMenuUI started',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
+        
         this.container = document.createElement("div");
         this.container.id = "main-menu";
         // ВАЖНО: НЕ добавляем класс "hidden" по умолчанию - меню должно быть видимо при создании
         // this.container.classList.add("hidden"); // УДАЛЕНО - меню должно быть видимо
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:672',message:'Container created',data:{containerId:this.container.id,hasHiddenClass:this.container.classList.contains('hidden')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
+        
         const L = getLang(this.settings);
         this.container.innerHTML = `
             <div class="menu-bg"></div>
             <div class="menu-content">
                 <div class="menu-header">
-                    <div class="logo-text">PROTOCOL <span class="accent">TX</span></div>
+                    <div class="logo-text logo-hoverable">
+                        PROTOCOL <span class="accent">TX</span>
+                        <div class="logo-construction-overlay">
+                            <span class="logo-construction-text">UNDER CONSTRUCTION</span>
+                        </div>
+                    </div>
                     <div class="menu-subtitle">${L.tankCombat}</div>
                     <div class="version">${VERSION}</div>
                 </div>
@@ -824,13 +829,19 @@ export class MainMenu {
                         </button>
                     </div>
                     <div class="btn-row">
-                        <button class="menu-btn secondary" id="btn-map-editor">
+                        <button class="menu-btn secondary under-construction-btn" id="btn-map-editor">
                             <span class="btn-icon">🗺</span>
                             <span class="btn-label">РЕДАКТОР КАРТ</span>
+                            <div class="under-construction-overlay">
+                                <span class="under-construction-text">UNDER CONSTRUCTION</span>
+                            </div>
                         </button>
-                        <button class="menu-btn secondary" id="btn-tank-editor">
+                        <button class="menu-btn secondary under-construction-btn" id="btn-tank-editor">
                             <span class="btn-icon">🔧</span>
                             <span class="btn-label">РЕДАКТОР ТАНКОВ</span>
+                            <div class="under-construction-overlay">
+                                <span class="under-construction-text">UNDER CONSTRUCTION</span>
+                            </div>
                         </button>
                     </div>
                     <button class="menu-btn fullscreen-btn" id="btn-fullscreen">
@@ -969,56 +980,32 @@ export class MainMenu {
                             <div class="control-category">
                                 <div class="category-header">🛠 ${L.admin}</div>
                                 <div class="control-item">
-                                    <span class="key">F2</span>
-                                    <span class="control-desc">Скриншот</span>
-                                </div>
-                                <div class="control-item">
-                                    <span class="key">F3</span>
-                                    <span class="control-desc">Debug Dashboard</span>
-                                </div>
-                                <div class="control-item">
-                                    <span class="key">F4</span>
-                                    <span class="control-desc">Physics Panel</span>
-                                </div>
-                                <div class="control-item">
-                                    <span class="key">F5</span>
-                                    <span class="control-desc">System Terminal</span>
-                                </div>
-                                <div class="control-item">
-                                    <span class="key">F6</span>
-                                    <span class="control-desc">Session Settings</span>
-                                </div>
-                                <div class="control-item">
-                                    <span class="key">F7</span>
-                                    <span class="control-desc">Cheat Menu</span>
-                                </div>
-                                <div class="control-item">
-                                    <span class="key">Ctrl+1</span>
+                                    <span class="key">F1 / Ctrl+1</span>
                                     <span class="control-desc">Помощь / Управление</span>
                                 </div>
                                 <div class="control-item">
-                                    <span class="key">Ctrl+2</span>
-                                    <span class="control-desc">${L.adminF2}</span>
+                                    <span class="key">F2 / Ctrl+2</span>
+                                    <span class="control-desc">Скриншот</span>
                                 </div>
                                 <div class="control-item">
-                                    <span class="key">Ctrl+3</span>
-                                    <span class="control-desc">${L.adminF3}</span>
+                                    <span class="key">F3 / Ctrl+3</span>
+                                    <span class="control-desc">Debug Dashboard</span>
                                 </div>
                                 <div class="control-item">
-                                    <span class="key">Ctrl+4</span>
-                                    <span class="control-desc">${L.adminF4}</span>
+                                    <span class="key">F4 / Ctrl+4</span>
+                                    <span class="control-desc">Physics Panel</span>
                                 </div>
                                 <div class="control-item">
-                                    <span class="key">Ctrl+5</span>
+                                    <span class="key">F5 / Ctrl+5</span>
                                     <span class="control-desc">System Terminal</span>
                                 </div>
                                 <div class="control-item">
-                                    <span class="key">Ctrl+6</span>
-                                    <span class="control-desc">${L.adminF6}</span>
+                                    <span class="key">F6 / Ctrl+6</span>
+                                    <span class="control-desc">Session Settings</span>
                                 </div>
                                 <div class="control-item">
-                                    <span class="key">Ctrl+7</span>
-                                    <span class="control-desc">${L.adminF7}</span>
+                                    <span class="key">F7 / Ctrl+7</span>
+                                    <span class="control-desc">Cheat Menu</span>
                                 </div>
                             </div>
                         </div>
@@ -1052,6 +1039,15 @@ export class MainMenu {
                 overflow: hidden;
                 pointer-events: auto !important;
                 touch-action: auto !important;
+            }
+            
+            /* Прозрачность фона меню когда игра запущена (в битве) */
+            #main-menu.in-battle {
+                background: rgba(0, 0, 0, 0.5) !important;
+            }
+            
+            #main-menu.in-battle .menu-bg {
+                background: rgba(0, 0, 0, 0.5) !important;
             }
             
             /* КРИТИЧЕСКИ ВАЖНО: Все элементы меню должны иметь pointer-events: auto */
@@ -1200,6 +1196,61 @@ export class MainMenu {
             
             .logo-text .accent {
                 color: #0f0;
+            }
+            
+            /* === LOGO HOVER ANIMATION (как у кнопок редакторов) === */
+            .logo-hoverable {
+                position: relative;
+                display: inline-block;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+            
+            .logo-construction-overlay {
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: repeating-linear-gradient(
+                    -45deg,
+                    rgba(255, 204, 0, 0.9),
+                    rgba(255, 204, 0, 0.9) 10px,
+                    rgba(0, 0, 0, 0.9) 10px,
+                    rgba(0, 0, 0, 0.9) 20px
+                );
+                background-size: 28.28px 28.28px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                opacity: 0;
+                transition: opacity 0.3s ease;
+                pointer-events: none;
+                z-index: 10;
+            }
+            
+            .logo-hoverable:hover .logo-construction-overlay {
+                opacity: 1;
+                animation: construction-slide 0.5s linear infinite;
+            }
+            
+            .logo-hoverable:hover {
+                text-shadow: 0 0 15px #ffcc00, 0 0 25px #ffcc00;
+                color: #ffcc00;
+            }
+            
+            .logo-construction-text {
+                background: rgba(0, 0, 0, 0.85);
+                color: #ffcc00;
+                padding: 6px 12px;
+                font-family: 'Press Start 2P', monospace;
+                font-size: clamp(6px, 0.9vw, 9px);
+                text-align: center;
+                text-shadow: 0 0 5px #ffcc00, 0 0 10px #ffcc00;
+                border: 2px solid #ffcc00;
+                box-shadow: 0 0 10px rgba(255, 204, 0, 0.5);
+                letter-spacing: 1px;
+                animation: construction-pulse 0.8s ease-in-out infinite;
             }
             
             .menu-subtitle {
@@ -1412,6 +1463,78 @@ export class MainMenu {
                 box-shadow: 0 0 20px #0f0;
             }
             
+            /* === UNDER CONSTRUCTION ANIMATION === */
+            .under-construction-btn {
+                position: relative;
+                overflow: hidden;
+            }
+            
+            .under-construction-overlay {
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: repeating-linear-gradient(
+                    -45deg,
+                    rgba(255, 204, 0, 0.9),
+                    rgba(255, 204, 0, 0.9) 10px,
+                    rgba(0, 0, 0, 0.9) 10px,
+                    rgba(0, 0, 0, 0.9) 20px
+                );
+                background-size: 28.28px 28.28px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                opacity: 0;
+                transition: opacity 0.3s ease;
+                pointer-events: none;
+                z-index: 10;
+            }
+            
+            .under-construction-btn:hover .under-construction-overlay {
+                opacity: 1;
+                animation: construction-slide 0.5s linear infinite;
+            }
+            
+            @keyframes construction-slide {
+                0% { background-position: 0 0; }
+                100% { background-position: 28.28px 0; }
+            }
+            
+            .under-construction-text {
+                background: rgba(0, 0, 0, 0.85);
+                color: #ffcc00;
+                padding: 6px 12px;
+                font-family: 'Press Start 2P', monospace;
+                font-size: clamp(6px, 0.9vw, 9px);
+                text-align: center;
+                text-shadow: 0 0 5px #ffcc00, 0 0 10px #ffcc00;
+                border: 2px solid #ffcc00;
+                box-shadow: 0 0 10px rgba(255, 204, 0, 0.5);
+                letter-spacing: 1px;
+                animation: construction-pulse 0.8s ease-in-out infinite;
+            }
+            
+            @keyframes construction-pulse {
+                0%, 100% { 
+                    opacity: 1; 
+                    transform: scale(1);
+                }
+                50% { 
+                    opacity: 0.8; 
+                    transform: scale(1.02);
+                }
+            }
+            
+            /* Убираем стандартный hover для кнопок "under construction" */
+            .under-construction-btn:hover {
+                background: #000 !important;
+                color: #0f0 !important;
+                box-shadow: 0 0 15px #ffcc00 !important;
+                border-color: #ffcc00 !important;
+            }
+            
             .menu-btn.play-btn {
                 /* Размеры такие же как у других кнопок для симметрии */
                 box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
@@ -1485,6 +1608,7 @@ export class MainMenu {
             @media (max-width: 900px) {
                 .controls-grid { grid-template-columns: repeat(2, minmax(min(150px, 30vw), 1fr)); }
                 .logo-text { font-size: clamp(18px, 4vw, 24px); }
+                .construction-text { font-size: clamp(5px, 0.7vw, 8px); }
                 .menu-content { padding: clamp(8px, 1.5vh, 10px); }
             }
             
@@ -1553,6 +1677,16 @@ export class MainMenu {
                 pointer-events: auto !important;
             }
             
+            /* Прозрачность фона меню когда игра запущена (в битве) */
+            .panel-overlay.in-battle,
+            #main-menu.in-battle {
+                background: rgba(0, 0, 0, 0.5) !important;
+            }
+            
+            #main-menu.in-battle .menu-bg {
+                background: rgba(0, 0, 0, 0.5) !important;
+            }
+            
             .panel-overlay.visible {
                 display: flex !important;
                 visibility: visible !important;
@@ -1619,6 +1753,8 @@ export class MainMenu {
                 top: 40px;
                 left: 40px;
                 right: 40px;
+                bottom: auto;
+                max-height: calc(100vh - 80px);
                 padding: 0 20px 20px 20px;
                 background: rgba(0, 0, 0, 0.92);
                 border: 2px solid #0f0;
@@ -1629,7 +1765,8 @@ export class MainMenu {
                 gap: 12px;
                 z-index: 100002;
                 pointer-events: auto;
-                overflow: hidden;
+                overflow-y: auto;
+                overflow-x: hidden;
             }
 
             .play-window.visible {
@@ -2346,19 +2483,14 @@ export class MainMenu {
         
         document.head.appendChild(style);
         document.body.appendChild(this.container);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:2251',message:'Container added to DOM',data:{inDOM:document.body.contains(this.container),hasHiddenClass:this.container.classList.contains('hidden')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
+        
         
         // ВАЖНО: Убеждаемся, что меню видимо при создании (не добавляем класс hidden)
         // Меню будет показано через show() при загрузке игры
         this.container.classList.remove("hidden");
         // НЕ устанавливаем display/visibility здесь - CSS уже задает display: flex и visibility: visible
         // Полагаемся на CSS стили из #main-menu { display: flex; ... }
-        // #region agent log
-        const computedStyle = window.getComputedStyle(this.container);
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:2260',message:'Container styles set',data:{display:computedStyle.display,visibility:computedStyle.visibility,zIndex:computedStyle.zIndex,hasHiddenClass:this.container.classList.contains('hidden')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
+        
         
         // Инициализация auth UI
         const authContainer = authUI.createContainer();
@@ -3628,15 +3760,11 @@ export class MainMenu {
         
         const addMapButtonHandler = (mapId: string, mapType: MapType) => {
             document.getElementById(mapId)?.addEventListener("click", () => {
-                // #region agent log
-                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:3547',message:'Map selection panel button clicked',data:{mapId:mapId,mapType:mapType,hasCallback:!!this.onStartGame},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
-                // #endregion
+                
                 this.hide();
                 this.hideMapSelection();
                 if (this.onStartGame && typeof this.onStartGame === 'function') {
-                    // #region agent log
-                    fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:3552',message:'Calling onStartGame from map panel',data:{mapType:mapType},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
-                    // #endregion
+                    
                     this.onStartGame(mapType);
                 } else {
                     console.error("[Menu] onStartGame callback is not set!");
@@ -3674,7 +3802,7 @@ export class MainMenu {
         this.selectedCannon = savedCannon;
         
         this.playMenuPanel.innerHTML = `
-                <div class="panel-content" style="position: relative; min-height: 70vh;">
+                <div class="panel-content" style="position: relative; min-height: 100vh; height: 100%;">
                 <div class="panel-title">${L.play || "ИГРАТЬ"}</div>
                 
                 <!-- 1. Выбор режима игры -->
@@ -3740,13 +3868,23 @@ export class MainMenu {
                             </div>
                             <span id="mp-ping" style="font-size: 11px; color: #666; font-family: monospace; display: none;">---ms</span>
                         </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div id="mp-server-info" style="font-size: 11px; color: #666; font-family: monospace;">
-                                ws://localhost:8080
+                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                <div id="mp-server-info" style="font-size: 11px; color: #666; font-family: monospace;">
+                                    ws://localhost:8000
+                                </div>
+                                <div id="mp-server-hint" style="font-size: 9px; color: #888; font-style: italic; max-width: 300px;">
+                                    Для подключения с другого ПК используйте IP-адрес сервера вместо localhost
+                                </div>
                             </div>
-                            <button id="mp-btn-reconnect" class="panel-btn" style="padding: 4px 12px; font-size: 11px; display: none;">
-                                🔄 Переподключиться
-                            </button>
+                            <div style="display: flex; gap: 8px;">
+                                <button id="mp-btn-test-connection" class="panel-btn" style="padding: 4px 12px; font-size: 11px; display: inline-block;" title="Проверить подключение к серверу">
+                                    🔍 Проверить
+                                </button>
+                                <button id="mp-btn-reconnect" class="panel-btn" style="padding: 4px 12px; font-size: 11px; display: none;">
+                                    🔄 Переподключиться
+                                </button>
+                            </div>
                         </div>
                     </div>
                     
@@ -3824,8 +3962,8 @@ export class MainMenu {
                     </div>
                     
                     <!-- Модальное окно для присоединения к комнате -->
-                    <div id="mp-join-room-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.8); z-index: 10000; align-items: center; justify-content: center;">
-                        <div style="background: linear-gradient(135deg, rgba(20, 20, 30, 0.95) 0%, rgba(30, 30, 40, 0.95) 100%); border: 2px solid #667eea; border-radius: 12px; padding: 30px; max-width: 400px; width: 90%; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);">
+                    <div id="mp-join-room-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.8); z-index: 100005 !important; align-items: center; justify-content: center; pointer-events: auto;">
+                        <div style="background: linear-gradient(135deg, rgba(20, 20, 30, 0.95) 0%, rgba(30, 30, 40, 0.95) 100%); border: 2px solid #667eea; border-radius: 12px; padding: 30px; max-width: 400px; width: 90%; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); position: relative; z-index: 100006;">
                             <div style="font-size: 18px; font-weight: bold; margin-bottom: 20px; color: #fff;">Присоединиться к комнате</div>
                             <div style="margin-bottom: 20px;">
                                 <label style="display: block; font-size: 12px; color: #aaa; margin-bottom: 8px;">ID комнаты:</label>
@@ -3838,6 +3976,73 @@ export class MainMenu {
                                 </button>
                                 <button id="mp-modal-cancel-btn" class="panel-btn" style="flex: 1; padding: 12px; background: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #ef4444;">
                                     Отмена
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Модальное окно с детальной информацией о комнате -->
+                    <div id="mp-room-details-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); z-index: 100007 !important; align-items: center; justify-content: center; pointer-events: auto; overflow-y: auto;">
+                        <div style="background: linear-gradient(135deg, rgba(20, 20, 30, 0.98) 0%, rgba(30, 30, 40, 0.98) 100%); border: 2px solid #667eea; border-radius: 16px; padding: 30px; max-width: 500px; width: 90%; max-height: 90vh; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6); position: relative; z-index: 100008; margin: 20px 0;">
+                            <!-- Заголовок -->
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 2px solid rgba(102, 126, 234, 0.3);">
+                                <div style="font-size: 20px; font-weight: bold; color: #fff; display: flex; align-items: center; gap: 10px;">
+                                    <span>🏠</span>
+                                    <span>Детали комнаты</span>
+                                </div>
+                                <button id="mp-room-details-close" style="width: 32px; height: 32px; background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; border-radius: 6px; color: #ef4444; cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; transition: all 0.2s;" title="Закрыть">
+                                    ×
+                                </button>
+                            </div>
+                            
+                            <!-- Основная информация -->
+                            <div style="margin-bottom: 20px;">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px;">
+                                    <div style="background: rgba(0, 0, 0, 0.3); padding: 12px; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.2);">
+                                        <div style="font-size: 11px; color: #888; margin-bottom: 4px;">ID комнаты</div>
+                                        <div id="mp-room-details-id" style="font-size: 16px; font-weight: bold; color: #a78bfa; font-family: monospace;">-</div>
+                                    </div>
+                                    <div style="background: rgba(0, 0, 0, 0.3); padding: 12px; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.2);">
+                                        <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Режим</div>
+                                        <div id="mp-room-details-mode" style="font-size: 16px; font-weight: bold; color: #667eea;">-</div>
+                                    </div>
+                                </div>
+                                
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px;">
+                                    <div style="background: rgba(0, 0, 0, 0.3); padding: 12px; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.2);">
+                                        <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Игроков</div>
+                                        <div id="mp-room-details-players" style="font-size: 16px; font-weight: bold; color: #4ade80;">-</div>
+                                    </div>
+                                    <div style="background: rgba(0, 0, 0, 0.3); padding: 12px; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.2);">
+                                        <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Статус</div>
+                                        <div id="mp-room-details-status" style="font-size: 16px; font-weight: bold; color: #a78bfa;">-</div>
+                                    </div>
+                                </div>
+                                
+                                <div style="background: rgba(0, 0, 0, 0.3); padding: 12px; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.2); margin-bottom: 15px;">
+                                    <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Время игры</div>
+                                    <div id="mp-room-details-time" style="font-size: 14px; color: #aaa; font-family: monospace;">-</div>
+                                </div>
+                            </div>
+                            
+                            <!-- Прогресс-бар заполненности -->
+                            <div style="margin-bottom: 20px;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                    <span style="font-size: 12px; color: #aaa;">Заполненность</span>
+                                    <span id="mp-room-details-progress-text" style="font-size: 12px; color: #4ade80; font-weight: 600;">-</span>
+                                </div>
+                                <div style="width: 100%; height: 8px; background: rgba(0, 0, 0, 0.4); border-radius: 4px; overflow: hidden;">
+                                    <div id="mp-room-details-progress-bar" style="height: 100%; background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); width: 0%; transition: width 0.3s; border-radius: 4px;"></div>
+                                </div>
+                            </div>
+                            
+                            <!-- Кнопки действий -->
+                            <div style="display: flex; gap: 10px; margin-top: 25px;">
+                                <button id="mp-room-details-join" class="panel-btn primary" style="flex: 1; padding: 14px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; font-size: 14px; font-weight: 600;">
+                                    🎮 Присоединиться
+                                </button>
+                                <button id="mp-room-details-copy-id" class="panel-btn" style="padding: 14px; background: rgba(102, 126, 234, 0.2); border-color: #667eea; color: #a78bfa; min-width: 50px;" title="Копировать ID">
+                                    📋
                                 </button>
                             </div>
                         </div>
@@ -3862,6 +4067,19 @@ export class MainMenu {
                         </button>
                     </div>
                     
+                    <!-- Список доступных комнат -->
+                    <div id="mp-rooms-list" style="margin: 15px 0; padding: 15px; background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%); border-radius: 8px; border: 1px solid #667eea; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                            <div style="font-weight: bold; color: #667eea; font-size: 14px;">📋 Доступные комнаты</div>
+                            <button id="mp-btn-refresh-rooms" style="padding: 4px 8px; font-size: 10px; background: rgba(102, 126, 234, 0.3); border: 1px solid #667eea; border-radius: 4px; color: #a78bfa; cursor: pointer; transition: all 0.2s;" title="Обновить список">
+                                🔄
+                            </button>
+                        </div>
+                        <div id="mp-rooms-items" style="display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #667eea rgba(0, 0, 0, 0.3);">
+                            <div style="text-align: center; padding: 20px; color: #888; font-size: 12px;">Загрузка списка комнат...</div>
+                        </div>
+                    </div>
+                    
                     <!-- Информация о текущей комнате -->
                     <div id="mp-room-info" style="display: none; margin: 15px 0; padding: 15px; background: linear-gradient(135deg, rgba(118, 75, 162, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%); border-radius: 8px; border: 1px solid #764ba2; box-shadow: 0 2px 8px rgba(118, 75, 162, 0.3);">
                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
@@ -3881,6 +4099,20 @@ export class MainMenu {
                                 <span id="mp-room-status-text" style="color: #4ade80;">Ожидание игроков...</span>
                             </div>
                         </div>
+                        
+                        <!-- Список игроков в комнате -->
+                        <div id="mp-room-players-list" style="margin-top: 12px; margin-bottom: 12px; max-height: 200px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #764ba2 rgba(0, 0, 0, 0.3);">
+                            <div style="font-size: 11px; color: #888; margin-bottom: 6px; font-weight: 600;">Игроки в комнате:</div>
+                            <div id="mp-room-players-items" style="display: flex; flex-direction: column; gap: 4px;">
+                                <!-- Игроки будут добавлены динамически -->
+                            </div>
+                        </div>
+                        
+                        <button class="panel-btn primary battle-btn" id="mp-btn-start-game" style="display: none; width: 100%; padding: 12px; font-size: 16px; font-weight: bold; margin-bottom: 10px; position: relative; overflow: hidden;">
+                            <span class="battle-btn-text">⚔️ В БОЙ!</span>
+                            <span class="battle-btn-shine"></span>
+                        </button>
+                        
                         <button class="panel-btn" id="mp-btn-leave-room" style="width: 100%; padding: 10px; font-size: 14px; background: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #ef4444;">
                             🚪 Покинуть комнату
                         </button>
@@ -3905,6 +4137,145 @@ export class MainMenu {
                             from { opacity: 0; transform: translateY(-10px); }
                             to { opacity: 1; transform: translateY(0); }
                         }
+                        
+                        /* Анимации для кнопки "В БОЙ!" */
+                        @keyframes battlePulse {
+                            0%, 100% { 
+                                box-shadow: 0 0 20px rgba(74, 222, 128, 0.6),
+                                           0 0 40px rgba(74, 222, 128, 0.4),
+                                           0 0 60px rgba(74, 222, 128, 0.2);
+                                transform: scale(1);
+                            }
+                            50% { 
+                                box-shadow: 0 0 30px rgba(74, 222, 128, 0.8),
+                                           0 0 60px rgba(74, 222, 128, 0.6),
+                                           0 0 90px rgba(74, 222, 128, 0.4);
+                                transform: scale(1.02);
+                            }
+                        }
+                        
+                        @keyframes battleShine {
+                            0% {
+                                transform: translateX(-100%) translateY(-100%) rotate(45deg);
+                            }
+                            100% {
+                                transform: translateX(200%) translateY(200%) rotate(45deg);
+                            }
+                        }
+                        
+                        @keyframes battleGradient {
+                            0% {
+                                background-position: 0% 50%;
+                            }
+                            50% {
+                                background-position: 100% 50%;
+                            }
+                            100% {
+                                background-position: 0% 50%;
+                            }
+                        }
+                        
+                        @keyframes battleConstruction {
+                            0% {
+                                background-position: -100% 0;
+                            }
+                            100% {
+                                background-position: 200% 0;
+                            }
+                        }
+                        
+                        @keyframes battleTextGlow {
+                            0%, 100% {
+                                text-shadow: 0 0 10px rgba(74, 222, 128, 0.8),
+                                            0 0 20px rgba(74, 222, 128, 0.6),
+                                            0 0 30px rgba(74, 222, 128, 0.4);
+                            }
+                            50% {
+                                text-shadow: 0 0 15px rgba(74, 222, 128, 1),
+                                            0 0 30px rgba(74, 222, 128, 0.8),
+                                            0 0 45px rgba(74, 222, 128, 0.6);
+                            }
+                        }
+                        
+                        /* Стили кнопки "В БОЙ!" */
+                        .battle-btn {
+                            background: linear-gradient(135deg, 
+                                rgba(74, 222, 128, 0.4) 0%, 
+                                rgba(34, 197, 94, 0.4) 50%,
+                                rgba(74, 222, 128, 0.4) 100%);
+                            background-size: 200% 200%;
+                            border: 2px solid #4ade80;
+                            color: #4ade80;
+                            cursor: pointer;
+                            position: relative;
+                            overflow: hidden;
+                            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                            animation: battleGradient 3s ease infinite, battlePulse 2s ease-in-out infinite;
+                        }
+                        
+                        .battle-btn::before {
+                            content: '';
+                            position: absolute;
+                            top: 0;
+                            left: -100%;
+                            width: 100%;
+                            height: 100%;
+                            background: repeating-linear-gradient(
+                                45deg,
+                                transparent,
+                                transparent 10px,
+                                rgba(255, 255, 255, 0.1) 10px,
+                                rgba(255, 255, 255, 0.1) 20px
+                            );
+                            animation: battleConstruction 3s linear infinite;
+                            pointer-events: none;
+                        }
+                        
+                        .battle-btn-text {
+                            position: relative;
+                            z-index: 2;
+                            display: block;
+                            animation: battleTextGlow 2s ease-in-out infinite;
+                        }
+                        
+                        .battle-btn-shine {
+                            position: absolute;
+                            top: -50%;
+                            left: -50%;
+                            width: 200%;
+                            height: 200%;
+                            background: linear-gradient(
+                                45deg,
+                                transparent 30%,
+                                rgba(255, 255, 255, 0.3) 50%,
+                                transparent 70%
+                            );
+                            animation: battleShine 3s ease-in-out infinite;
+                            pointer-events: none;
+                            z-index: 1;
+                        }
+                        
+                        .battle-btn:hover {
+                            transform: scale(1.05) translateY(-2px);
+                            box-shadow: 0 0 40px rgba(74, 222, 128, 0.8),
+                                       0 0 80px rgba(74, 222, 128, 0.6),
+                                       0 0 120px rgba(74, 222, 128, 0.4);
+                            border-color: #22c55e;
+                            background: linear-gradient(135deg, 
+                                rgba(74, 222, 128, 0.6) 0%, 
+                                rgba(34, 197, 94, 0.6) 50%,
+                                rgba(74, 222, 128, 0.6) 100%);
+                            background-size: 200% 200%;
+                        }
+                        
+                        .battle-btn:active {
+                            transform: scale(0.98) translateY(0);
+                            animation: none;
+                        }
+                        
+                        .battle-btn-ready {
+                            animation: battleGradient 3s ease infinite, battlePulse 2s ease-in-out infinite;
+                        }
                         .mp-mode-btn {
                             transition: all 0.2s ease;
                             text-align: left;
@@ -3920,10 +4291,53 @@ export class MainMenu {
                         }
                         #mp-join-room-modal {
                             animation: fadeIn 0.2s ease;
+                            z-index: 100005 !important;
+                            position: fixed !important;
+                            pointer-events: auto !important;
+                        }
+                        #mp-join-room-modal > div {
+                            position: relative;
+                            z-index: 100006;
+                            pointer-events: auto;
                         }
                         #mp-join-room-modal input:focus {
                             border-color: #667eea;
                             box-shadow: 0 0 8px rgba(102, 126, 234, 0.4);
+                        }
+                        
+                        /* Стили для детального меню комнаты */
+                        #mp-room-details-modal {
+                            animation: fadeIn 0.3s ease;
+                        }
+                        
+                        #mp-room-details-modal > div {
+                            animation: slideUp 0.3s ease;
+                        }
+                        
+                        #mp-room-details-close:hover {
+                            background: rgba(239, 68, 68, 0.4) !important;
+                            transform: scale(1.1);
+                        }
+                        
+                        #mp-room-details-join:hover {
+                            transform: translateY(-2px);
+                            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+                        }
+                        
+                        #mp-room-details-copy-id:hover {
+                            background: rgba(102, 126, 234, 0.3) !important;
+                            transform: scale(1.1);
+                        }
+                        
+                        @keyframes slideUp {
+                            from {
+                                opacity: 0;
+                                transform: translateY(20px);
+                            }
+                            to {
+                                opacity: 1;
+                                transform: translateY(0);
+                            }
                         }
                     </style>
                 </div>
@@ -3939,7 +4353,7 @@ export class MainMenu {
                         </div>
                     </div>
                     <div class="section-title">2. Выбор карты</div>
-                    <div class="map-buttons" style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px; max-height: 50vh; overflow-y: auto; scrollbar-width: thin;">
+                    <div class="map-buttons" style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px;">
                         <button class="menu-btn play-btn" id="play-btn-map-normal" data-map="normal">
                             <span class="btn-icon">🗺</span>
                             <span class="btn-label">${L.normalMap}</span>
@@ -4065,18 +4479,12 @@ export class MainMenu {
         
         // Обработчики выбора карты
         const mapButtons = ["normal", "sandbox", "polygon", "frontline", "ruins", "canyon", "industrial", "urban_warfare", "underground", "coastal", "tartaria"];
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:4027',message:'Setting up map button handlers',data:{mapButtons:mapButtons,buttonCount:mapButtons.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-        // #endregion
+        
         mapButtons.forEach(map => {
             const button = document.getElementById(`play-btn-map-${map}`);
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:4029',message:'Setting up map button',data:{map:map,buttonExists:!!button,buttonId:`play-btn-map-${map}`},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-            // #endregion
+            
             button?.addEventListener("click", () => {
-                // #region agent log
-                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:4030',message:'Map button clicked',data:{map:map,selectedMapType:this.selectedMapType},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                // #endregion
+                
                 this.selectMap(map as MapType);
             });
         });
@@ -4233,6 +4641,83 @@ export class MainMenu {
             }
         }
         
+        // Запрашиваем список комнат при открытии меню
+        const game = (window as any).gameInstance as any;
+        let multiplayerManager = game?.multiplayerManager;
+        
+        // Если MultiplayerManager не найден, пытаемся создать его
+        if (!multiplayerManager && game) {
+            console.log(`[Menu] MultiplayerManager не найден, пытаемся создать...`);
+            try {
+                // Импортируем и создаем MultiplayerManager
+                import("./multiplayer").then(({ MultiplayerManager }) => {
+                    multiplayerManager = new MultiplayerManager(undefined, true);
+                    game.multiplayerManager = multiplayerManager;
+                    
+                    // Настраиваем колбэки если gameMultiplayerCallbacks существует
+                    if (game.gameMultiplayerCallbacks) {
+                        try {
+                            const gameInstance = (window as any).gameInstance;
+                            game.gameMultiplayerCallbacks.updateDependencies({
+                                multiplayerManager: multiplayerManager,
+                                mainMenu: this,
+                                // Добавляем callbacks для запуска игры через gameInstance
+                                startGame: async () => {
+                                    if (gameInstance && typeof gameInstance.startGame === 'function') {
+                                        try {
+                                            // Проверяем инициализацию
+                                            if (!gameInstance.gameInitialized) {
+                                                console.log("[Menu] Game not initialized, initializing...");
+                                                await gameInstance.init();
+                                                gameInstance.gameInitialized = true;
+                                            }
+                                            // Убеждаемся, что canvas виден
+                                            if (gameInstance.canvas) {
+                                                gameInstance.canvas.style.display = "block";
+                                                gameInstance.canvas.style.visibility = "visible";
+                                                gameInstance.canvas.style.opacity = "1";
+                                            }
+                                            // Запускаем игру
+                                            gameInstance.startGame();
+                                        } catch (error) {
+                                            console.error("[Menu] Error starting game:", error);
+                                        }
+                                    }
+                                },
+                                isGameInitialized: () => {
+                                    return gameInstance ? gameInstance.gameInitialized : false;
+                                },
+                                isGameStarted: () => {
+                                    return gameInstance ? gameInstance.gameStarted : false;
+                                }
+                            });
+                            game.gameMultiplayerCallbacks.setup();
+                            console.log(`[Menu] ✅ MultiplayerManager создан и настроен`);
+                        } catch (callbackError) {
+                            console.warn(`[Menu] ⚠️ Не удалось настроить callbacks:`, callbackError);
+                        }
+                    }
+                    
+                    // Настраиваем список комнат после создания
+                    this.setupRoomListUpdates(multiplayerManager);
+                }).catch(error => {
+                    console.error(`[Menu] ❌ Ошибка создания MultiplayerManager:`, error);
+                });
+            } catch (error) {
+                console.error(`[Menu] ❌ Ошибка импорта MultiplayerManager:`, error);
+            }
+        }
+        
+        // Если MultiplayerManager доступен, настраиваем обновление списка комнат
+        if (multiplayerManager) {
+            this.setupRoomListUpdates(multiplayerManager);
+        } else if (!game) {
+            // Игра еще не инициализирована - это нормально, просто не показываем предупреждение
+            console.log(`[Menu] Игра еще не инициализирована, список комнат будет настроен позже`);
+        } else {
+            console.warn(`[Menu] ⚠️ MultiplayerManager не найден и не удалось создать`);
+        }
+        
         // Quick Play
         document.getElementById("mp-btn-quick-play")?.addEventListener("click", () => {
             const activeBtn = document.querySelector(".mp-mode-btn.active") as HTMLElement;
@@ -4241,11 +4726,18 @@ export class MainMenu {
         });
         
         // Create Room
-        document.getElementById("mp-btn-create-room")?.addEventListener("click", () => {
-            const activeBtn = document.querySelector(".mp-mode-btn.active") as HTMLElement;
-            const mode = activeBtn?.dataset.mpMode || selectedMpMode;
-            this.createMultiplayerRoom(mode);
-        });
+        const createRoomBtn = document.getElementById("mp-btn-create-room");
+        if (createRoomBtn) {
+            createRoomBtn.addEventListener("click", async () => {
+                debugLog("[Menu] Create room button clicked");
+                const activeBtn = document.querySelector(".mp-mode-btn.active") as HTMLElement;
+                const mode = activeBtn?.dataset.mpMode || selectedMpMode;
+                debugLog("[Menu] Selected mode for room creation:", mode);
+                await this.createMultiplayerRoom(mode);
+            });
+        } else {
+            debugError("[Menu] Create room button not found!");
+        }
         
         // Join Room - показываем модальное окно
         document.getElementById("mp-btn-join-room")?.addEventListener("click", () => {
@@ -4271,9 +4763,9 @@ export class MainMenu {
                 if (joinBtn) {
                     joinBtn.onclick = () => {
                         const roomId = input.value.trim();
-                        if (roomId.length < 6) {
+                        if (roomId.length === 0) {
                             if (errorEl) {
-                                errorEl.textContent = "ID комнаты должен быть не менее 6 символов";
+                                errorEl.textContent = "Введите ID комнаты";
                                 errorEl.style.display = "block";
                             }
                             return;
@@ -4297,6 +4789,53 @@ export class MainMenu {
             this.cancelMultiplayerQueue();
         });
         
+        // Test connection button
+        document.getElementById("mp-btn-test-connection")?.addEventListener("click", () => {
+            const game = (window as any).gameInstance as any;
+            const multiplayerManager = game?.multiplayerManager;
+            if (multiplayerManager) {
+                const serverUrl = multiplayerManager.getServerUrl();
+                const hintEl = document.getElementById("mp-server-hint");
+                
+                if (hintEl) {
+                    hintEl.textContent = "⏳ Проверка подключения...";
+                    hintEl.style.color = "#fbbf24";
+                }
+                
+                // Проверяем подключение
+                if (multiplayerManager.isConnected()) {
+                    const ping = Math.round(multiplayerManager.getRTT());
+                    if (hintEl) {
+                        hintEl.textContent = `✅ Подключено! Пинг: ${ping}ms`;
+                        hintEl.style.color = "#4ade80";
+                    }
+                } else {
+                    // Пытаемся подключиться
+                    try {
+                        multiplayerManager.connect(serverUrl);
+                        setTimeout(() => {
+                            if (multiplayerManager.isConnected()) {
+                                if (hintEl) {
+                                    hintEl.textContent = "✅ Подключение успешно!";
+                                    hintEl.style.color = "#4ade80";
+                                }
+                            } else {
+                                if (hintEl) {
+                                    hintEl.textContent = "❌ Не удалось подключиться. Проверьте адрес сервера и убедитесь, что сервер запущен.";
+                                    hintEl.style.color = "#ef4444";
+                                }
+                            }
+                        }, 2000);
+                    } catch (error) {
+                        if (hintEl) {
+                            hintEl.textContent = `❌ Ошибка подключения: ${error}`;
+                            hintEl.style.color = "#ef4444";
+                        }
+                    }
+                }
+            }
+        });
+        
         // Reconnect button
         document.getElementById("mp-btn-reconnect")?.addEventListener("click", () => {
             const game = (window as any).gameInstance as any;
@@ -4305,6 +4844,11 @@ export class MainMenu {
                 const serverUrl = multiplayerManager.getServerUrl();
                 multiplayerManager.connect(serverUrl);
             }
+        });
+        
+        // Start Game (only for room creator)
+        document.getElementById("mp-btn-start-game")?.addEventListener("click", () => {
+            this.startMultiplayerGame();
         });
         
         // Leave Room
@@ -4412,10 +4956,22 @@ export class MainMenu {
             indicatorEl.style.background = isFirebaseConnected ? "#4ade80" : "#fa0";
             indicatorEl.style.boxShadow = isFirebaseConnected ? "0 0 8px rgba(74, 222, 128, 0.6)" : "0 0 8px rgba(255, 170, 0, 0.6)";
             
-            // Показываем пинг (TODO: реализовать измерение пинга)
+            // Показываем пинг с цветовой индикацией
             if (pingEl) {
                 pingEl.style.display = "inline-block";
-                // pingEl.textContent = `${ping}ms`; // Когда будет реализовано измерение пинга
+                const ping = Math.round(multiplayerManager.getRTT());
+                pingEl.textContent = `${ping}ms`;
+                
+                // Цвет пинга в зависимости от значения
+                if (ping < 50) {
+                    pingEl.style.color = "#4ade80"; // Зеленый - отлично
+                } else if (ping < 100) {
+                    pingEl.style.color = "#fbbf24"; // Желтый - хорошо
+                } else if (ping < 200) {
+                    pingEl.style.color = "#fb923c"; // Оранжевый - приемлемо
+                } else {
+                    pingEl.style.color = "#ef4444"; // Красный - плохо
+                }
             }
             
             if (reconnectBtn) reconnectBtn.style.display = "none";
@@ -4423,7 +4979,20 @@ export class MainMenu {
             // Обновляем адрес сервера
             if (serverInfoEl) {
                 const serverUrl = multiplayerManager.getServerUrl();
-                serverInfoEl.textContent = serverUrl.replace("ws://", "").replace("wss://", "");
+                const cleanUrl = serverUrl.replace("ws://", "").replace("wss://", "");
+                serverInfoEl.textContent = cleanUrl;
+                
+                // Обновляем подсказку с инструкциями
+                const hintEl = document.getElementById("mp-server-hint");
+                if (hintEl) {
+                    if (cleanUrl.includes("localhost") || cleanUrl.includes("127.0.0.1")) {
+                        hintEl.textContent = "⚠️ Для подключения с другого ПК используйте IP-адрес сервера (например: ws://192.168.1.100:8000)";
+                        hintEl.style.color = "#fa0";
+                    } else {
+                        hintEl.textContent = `✅ Адрес сервера: ${cleanUrl} (можно использовать с других ПК в той же сети)`;
+                        hintEl.style.color = "#4ade80";
+                    }
+                }
             }
             
             // Показываем информацию о комнате если есть
@@ -4443,6 +5012,72 @@ export class MainMenu {
                 if (playersCountEl) {
                     playersCountEl.textContent = `${playersCount}/32`;
                 }
+                
+                // Обновляем статус комнаты
+                const roomStatusTextEl = document.getElementById("mp-room-status-text");
+                if (roomStatusTextEl) {
+                    const isActive = multiplayerManager.isRoomActive ? multiplayerManager.isRoomActive() : false;
+                    if (isActive) {
+                        roomStatusTextEl.textContent = "⚔️ Игра идет - присоединяйтесь!";
+                        roomStatusTextEl.style.color = "#ef4444";
+                    } else {
+                        roomStatusTextEl.textContent = "Ожидание игроков...";
+                        roomStatusTextEl.style.color = "#4ade80";
+                    }
+                }
+                
+                // Показываем кнопку "В БОЙ!" в двух случаях:
+                // 1. Создатель комнаты и >= 2 игрока (для запуска игры)
+                // 2. Комната активна (для присоединения к идущей игре)
+                const startGameBtn = document.getElementById("mp-btn-start-game");
+                if (startGameBtn) {
+                    try {
+                        const isCreator = multiplayerManager.isRoomCreator ? multiplayerManager.isRoomCreator() : false;
+                        const isActive = multiplayerManager.isRoomActive ? multiplayerManager.isRoomActive() : false;
+                        const debugInfo = `[Menu] Кнопка "В БОЙ!": isCreator=${isCreator}, isActive=${isActive}, playersCount=${playersCount}, roomId=${roomId}`;
+                        
+                        // Показываем кнопку если:
+                        // - Создатель и >= 2 игрока (запуск новой игры)
+                        // - ИЛИ комната активна (присоединение к идущей игре)
+                        const shouldShow = (isCreator && playersCount >= 2) || isActive;
+                        
+                        if (shouldShow) {
+                            console.log(`${debugInfo} -> ПОКАЗЫВАЕМ кнопку`);
+                            startGameBtn.style.display = "block";
+                            startGameBtn.classList.add("battle-btn-ready");
+                            
+                            // Обновляем текст кнопки в зависимости от ситуации
+                            const textElement = startGameBtn.querySelector(".battle-btn-text");
+                            if (textElement) {
+                                if (isActive) {
+                                    textElement.textContent = `⚔️ ПРИСОЕДИНИТЬСЯ К БИТВЕ!`;
+                                } else {
+                                    textElement.textContent = `⚔️ В БОЙ! (${playersCount} игроков)`;
+                                }
+                            } else {
+                                // Если структура нарушена, восстанавливаем её
+                                const buttonText = isActive ? `⚔️ ПРИСОЕДИНИТЬСЯ К БИТВЕ!` : `⚔️ В БОЙ! (${playersCount} игроков)`;
+                                startGameBtn.innerHTML = `<span class="battle-btn-text">${buttonText}</span><span class="battle-btn-shine"></span>`;
+                            }
+                        } else {
+                            if (roomId) {
+                                // Логируем только если мы в комнате, чтобы не засорять консоль
+                                if (!isCreator && !isActive) {
+                                    console.log(`${debugInfo} -> СКРЫВАЕМ: вы не создатель и игра не идет`);
+                                } else if (isCreator && playersCount < 2) {
+                                    console.log(`${debugInfo} -> СКРЫВАЕМ: нужно минимум 2 игрока (сейчас: ${playersCount})`);
+                                }
+                            }
+                            startGameBtn.style.display = "none";
+                            startGameBtn.classList.remove("battle-btn-ready");
+                        }
+                    } catch (error) {
+                        console.error("[Menu] Error checking room status:", error);
+                        startGameBtn.style.display = "none";
+                    }
+                }
+                
+                // Список игроков обновляется автоматически через другие механизмы
             } else {
                 if (roomInfoEl) roomInfoEl.style.display = "none";
             }
@@ -4464,6 +5099,13 @@ export class MainMenu {
             if (reconnectBtn) reconnectBtn.style.display = "inline-block";
             if (queueInfoEl) queueInfoEl.style.display = "none";
             if (roomInfoEl) roomInfoEl.style.display = "none";
+            
+            // Обновляем подсказку при отключении
+            const hintEl = document.getElementById("mp-server-hint");
+            if (hintEl) {
+                hintEl.textContent = "❌ Не подключено. Проверьте адрес сервера и убедитесь, что сервер запущен.";
+                hintEl.style.color = "#ef4444";
+            }
         }
     }
     
@@ -4513,14 +5155,119 @@ export class MainMenu {
         }, 3000);
     }
     
-    private createMultiplayerRoom(mode: string): void {
+    private async createMultiplayerRoom(mode: string): Promise<void> {
         debugLog("[Menu] Creating multiplayer room for mode:", mode);
         const game = (window as any).gameInstance as any;
-        if (game && game.createMultiplayerRoom) {
-            game.createMultiplayerRoom(mode);
-            alert(`Комната создана для режима ${mode.toUpperCase()}. ID комнаты будет показан после подключения.`);
-        } else {
-            alert("Игра еще не инициализирована. Запустите игру сначала.");
+        if (!game) {
+            this.showMultiplayerError("Игра еще не инициализирована. Запустите игру сначала.");
+            return;
+        }
+        
+        // Проверяем и инициализируем multiplayerManager если нужно
+        let multiplayerManager = game?.multiplayerManager;
+        
+        // Если multiplayerManager не существует, пытаемся создать его
+        if (!multiplayerManager) {
+            debugLog("[Menu] MultiplayerManager not found, attempting to initialize...");
+            
+            // Создаем новый MultiplayerManager
+            try {
+                const { MultiplayerManager } = await import("./multiplayer");
+                multiplayerManager = new MultiplayerManager(undefined, true);
+                game.multiplayerManager = multiplayerManager;
+                
+                // Настраиваем колбэки если gameMultiplayerCallbacks существует
+                if (game.gameMultiplayerCallbacks) {
+                    try {
+                        game.gameMultiplayerCallbacks.updateDependencies({
+                            multiplayerManager: multiplayerManager,
+                            scene: game.scene,
+                            tank: game.tank,
+                            hud: game.hud,
+                            mainMenu: this,
+                            achievementsSystem: game.achievementsSystem,
+                            chunkSystem: game.chunkSystem
+                        });
+                        game.gameMultiplayerCallbacks.setupCallbacks();
+                        debugLog("[Menu] Multiplayer callbacks configured");
+                    } catch (callbackError) {
+                        debugWarn("[Menu] Failed to setup multiplayer callbacks:", callbackError);
+                    }
+                }
+                
+                debugLog("[Menu] MultiplayerManager created successfully");
+            } catch (error) {
+                debugError("[Menu] Failed to create MultiplayerManager:", error);
+                this.showMultiplayerError("Не удалось инициализировать менеджер мультиплеера. Попробуйте перезапустить игру или подождите, пока игра полностью загрузится.");
+                return;
+            }
+        }
+        
+        if (!multiplayerManager) {
+            this.showMultiplayerError("Менеджер мультиплеера не инициализирован.");
+            return;
+        }
+        
+        // Проверяем подключение к WebSocket и ждем подключения если нужно
+        if (!multiplayerManager.isConnected()) {
+            // Ждем подключения до 5 секунд
+            let attempts = 0;
+            const maxAttempts = 10;
+            while (!multiplayerManager.isConnected() && attempts < maxAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+                attempts++;
+            }
+            
+            if (!multiplayerManager.isConnected()) {
+                this.showMultiplayerError("Не подключено к серверу. Пожалуйста, подключитесь к WebSocket серверу сначала.");
+                debugLog("[Menu] WebSocket not connected after waiting, cannot create room");
+                return;
+            }
+        }
+        
+        // Устанавливаем временный callback для показа ID сразу после создания
+        // Сохраняем старый callback (если он есть)
+        const existingCallback = (multiplayerManager as any).onRoomCreatedCallback;
+        
+        // Устанавливаем новый callback, который покажет ID и вызовет существующий
+        multiplayerManager.onRoomCreated((data: any) => {
+            debugLog("[Menu] Room created callback triggered, roomId:", data.roomId);
+            
+            // Вызываем существующий callback (который обновляет UI через GameMultiplayerCallbacks)
+            if (existingCallback && existingCallback !== (multiplayerManager as any).onRoomCreatedCallback) {
+                existingCallback(data);
+            }
+            
+            // Немедленно обновляем UI для показа ID
+            setTimeout(() => {
+                this._updateMultiplayerStatus();
+            }, 100);
+            
+            // Показываем уведомление с ID комнаты
+            const roomId = data.roomId || multiplayerManager.getRoomId();
+            if (roomId) {
+                this.showMultiplayerNotification(
+                    `✅ Комната создана! ID: ${roomId.substring(0, 12)}`,
+                    "#4ade80"
+                );
+            } else {
+                debugWarn("[Menu] Room created but no roomId in data");
+            }
+        });
+        
+        // Используем прямой вызов метода multiplayerManager для большей надежности
+        try {
+            // Вызываем createRoom напрямую
+            const success = multiplayerManager.createRoom(mode as any, 32, false);
+            if (success) {
+                debugLog("[Menu] Room creation request sent for mode:", mode);
+            } else {
+                debugError("[Menu] Failed to send room creation request");
+                this.showMultiplayerError("Не удалось отправить запрос на создание комнаты. Проверьте подключение к серверу.");
+            }
+        } catch (error: any) {
+            debugError("[Menu] Error creating room:", error);
+            this.showMultiplayerError(`Ошибка при создании комнаты: ${error.message || "Неизвестная ошибка"}`);
         }
     }
     
@@ -4540,7 +5287,9 @@ export class MainMenu {
         const game = (window as any).gameInstance as any;
         const multiplayerManager = game?.multiplayerManager;
         if (multiplayerManager) {
-            // TODO: Реализовать cancel queue в MultiplayerManager
+            // Отправляем запрос на отмену очереди
+            multiplayerManager.cancelQueue();
+            
             const queueInfoEl = document.getElementById("mp-queue-info");
             if (queueInfoEl) {
                 queueInfoEl.style.display = "none";
@@ -4553,6 +5302,218 @@ export class MainMenu {
             this.queueTimer = 0;
             const timerEl = document.getElementById("mp-queue-timer");
             if (timerEl) timerEl.textContent = "00:00";
+        }
+    }
+    
+    /**
+     * Настроить обновление списка комнат
+     */
+    private setupRoomListUpdates(multiplayerManager: any): void {
+        if (!multiplayerManager) return;
+        
+        if (multiplayerManager.isConnected()) {
+            // ВСЕГДА настраиваем callback при открытии меню (перезаписываем для надежности)
+            console.log(`[Menu] ✅ Настройка callback для списка комнат при открытии меню`);
+            multiplayerManager.onRoomList((rooms: any[]) => {
+                console.log(`[Menu] 📋 Callback вызван: ${rooms.length} комнат`);
+                this.updateRoomList(rooms);
+            });
+            
+            // Запрашиваем список комнат сразу
+            console.log(`[Menu] 📡 Запрос списка комнат при открытии меню`);
+            multiplayerManager.requestRoomList();
+            
+            // Обновляем список каждые 3 секунды (улучшено для более быстрого обновления)
+            // Очищаем предыдущий интервал если есть
+            const intervalKey = 'mp-room-list-interval';
+            if ((window as any)[intervalKey]) {
+                clearInterval((window as any)[intervalKey]);
+            }
+            (window as any)[intervalKey] = setInterval(() => {
+                if (multiplayerManager.isConnected()) {
+                    multiplayerManager.requestRoomList();
+                }
+            }, 3000);
+        } else {
+            console.warn(`[Menu] ⚠️ Не подключено к серверу, список комнат не будет обновляться`);
+        }
+    }
+    
+    updateRoomList(rooms: any[]): void {
+        const roomsContainer = document.getElementById("mp-rooms-items");
+        if (!roomsContainer) {
+            console.warn("[Menu] ⚠️ Контейнер mp-rooms-items не найден!");
+            return;
+        }
+        
+        console.log(`[Menu] 📋 Обновление списка комнат: ${rooms.length} комнат`);
+        
+        roomsContainer.innerHTML = "";
+        
+        if (rooms.length === 0) {
+            roomsContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #888; font-size: 12px;">Нет доступных комнат</div>';
+            return;
+        }
+        
+        rooms.forEach(room => {
+            const roomItem = document.createElement("div");
+            roomItem.style.cssText = `
+                padding: 10px;
+                background: rgba(0, 0, 0, 0.3);
+                border: 1px solid rgba(102, 126, 234, 0.3);
+                border-radius: 6px;
+                cursor: pointer;
+                transition: all 0.2s;
+            `;
+            roomItem.onmouseenter = () => {
+                roomItem.style.background = "rgba(102, 126, 234, 0.2)";
+                roomItem.style.borderColor = "#667eea";
+            };
+            roomItem.onmouseleave = () => {
+                roomItem.style.background = "rgba(0, 0, 0, 0.3)";
+                roomItem.style.borderColor = "rgba(102, 126, 234, 0.3)";
+            };
+            roomItem.onclick = () => {
+                // Открываем детальное меню комнаты
+                this.showRoomDetails(room);
+            };
+            
+            const statusColor = room.isActive ? "#4ade80" : "#a78bfa";
+            const statusText = room.isActive ? "Игра идет" : "Ожидание";
+            
+            roomItem.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <div style="font-weight: bold; color: #fff; font-size: 13px;">Комната ${room.id}</div>
+                    <div style="font-size: 11px; color: ${statusColor}; background: rgba(0, 0, 0, 0.3); padding: 2px 6px; border-radius: 4px;">${statusText}</div>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 11px; color: #aaa;">
+                    <span>Режим: <span style="color: #fff;">${room.mode.toUpperCase()}</span></span>
+                    <span>Игроков: <span style="color: #4ade80;">${room.players}/${room.maxPlayers}</span></span>
+                </div>
+            `;
+            
+            roomsContainer.appendChild(roomItem);
+        });
+    }
+    
+    /**
+     * Показать детальное меню выбранной комнаты
+     */
+    showRoomDetails(room: any): void {
+        const modal = document.getElementById("mp-room-details-modal");
+        if (!modal) {
+            console.warn("[Menu] ⚠️ Модальное окно деталей комнаты не найдено");
+            return;
+        }
+        
+        // Заполняем информацию о комнате
+        const roomIdEl = document.getElementById("mp-room-details-id");
+        const roomModeEl = document.getElementById("mp-room-details-mode");
+        const roomPlayersEl = document.getElementById("mp-room-details-players");
+        const roomStatusEl = document.getElementById("mp-room-details-status");
+        const roomTimeEl = document.getElementById("mp-room-details-time");
+        const progressBarEl = document.getElementById("mp-room-details-progress-bar");
+        const progressTextEl = document.getElementById("mp-room-details-progress-text");
+        
+        if (roomIdEl) roomIdEl.textContent = room.id;
+        if (roomModeEl) roomModeEl.textContent = room.mode.toUpperCase();
+        if (roomPlayersEl) roomPlayersEl.textContent = `${room.players}/${room.maxPlayers}`;
+        
+        // Статус
+        if (roomStatusEl) {
+            if (room.isActive) {
+                roomStatusEl.textContent = "Игра идет";
+                roomStatusEl.style.color = "#4ade80";
+            } else {
+                roomStatusEl.textContent = "Ожидание";
+                roomStatusEl.style.color = "#a78bfa";
+            }
+        }
+        
+        // Время игры
+        if (roomTimeEl) {
+            if (room.isActive && room.gameTime) {
+                const minutes = Math.floor(room.gameTime / 60);
+                const seconds = Math.floor(room.gameTime % 60);
+                roomTimeEl.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            } else {
+                roomTimeEl.textContent = "Не начата";
+            }
+        }
+        
+        // Прогресс-бар
+        const fillPercent = (room.players / room.maxPlayers) * 100;
+        if (progressBarEl) {
+            progressBarEl.style.width = `${fillPercent}%`;
+        }
+        if (progressTextEl) {
+            progressTextEl.textContent = `${Math.round(fillPercent)}%`;
+        }
+        
+        // Настраиваем кнопки
+        const joinBtn = document.getElementById("mp-room-details-join");
+        const copyBtn = document.getElementById("mp-room-details-copy-id");
+        const closeBtn = document.getElementById("mp-room-details-close");
+        
+        // Удаляем старые обработчики
+        if (joinBtn) {
+            joinBtn.onclick = null;
+            joinBtn.onclick = () => {
+                const game = (window as any).gameInstance as any;
+                if (game?.multiplayerManager) {
+                    console.log(`[Menu] Присоединение к комнате ${room.id}`);
+                    game.multiplayerManager.joinRoom(room.id);
+                    this.hideRoomDetails();
+                }
+            };
+        }
+        
+        if (copyBtn) {
+            copyBtn.onclick = null;
+            copyBtn.onclick = () => {
+                navigator.clipboard.writeText(room.id).then(() => {
+                    console.log(`[Menu] ✅ ID комнаты ${room.id} скопирован в буфер обмена`);
+                    // Визуальная обратная связь
+                    if (copyBtn) {
+                        const originalText = copyBtn.innerHTML;
+                        copyBtn.innerHTML = "✓";
+                        copyBtn.style.color = "#4ade80";
+                        setTimeout(() => {
+                            copyBtn.innerHTML = originalText;
+                            copyBtn.style.color = "#a78bfa";
+                        }, 1000);
+                    }
+                }).catch(err => {
+                    console.error("[Menu] Ошибка копирования ID:", err);
+                });
+            };
+        }
+        
+        if (closeBtn) {
+            closeBtn.onclick = null;
+            closeBtn.onclick = () => {
+                this.hideRoomDetails();
+            };
+        }
+        
+        // Закрытие по клику вне модального окна
+        modal.onclick = (e) => {
+            if (e.target === modal) {
+                this.hideRoomDetails();
+            }
+        };
+        
+        // Показываем модальное окно
+        modal.style.display = "flex";
+    }
+    
+    /**
+     * Скрыть детальное меню комнаты
+     */
+    hideRoomDetails(): void {
+        const modal = document.getElementById("mp-room-details-modal");
+        if (modal) {
+            modal.style.display = "none";
         }
     }
     
@@ -4598,6 +5559,37 @@ export class MainMenu {
         }
     }
     
+    private startMultiplayerGame(): void {
+        debugLog("[Menu] Starting multiplayer game");
+        const game = (window as any).gameInstance as any;
+        const multiplayerManager = game?.multiplayerManager;
+        if (!multiplayerManager) {
+            this.showMultiplayerError("Менеджер мультиплеера не инициализирован.");
+            return;
+        }
+        
+        // Проверяем количество игроков
+        const networkPlayers = multiplayerManager.getNetworkPlayers();
+        const playersCount = networkPlayers ? networkPlayers.size + 1 : 1;
+        if (playersCount < 2) {
+            this.showMultiplayerError("Для начала игры нужно минимум 2 игрока!");
+            return;
+        }
+        
+        // Отправляем запрос на начало игры
+        const success = multiplayerManager.startGame();
+        if (success) {
+            debugLog("[Menu] Start game request sent");
+            // Скрываем кнопку после нажатия
+            const startGameBtn = document.getElementById("mp-btn-start-game");
+            if (startGameBtn) {
+                startGameBtn.style.display = "none";
+            }
+        } else {
+            this.showMultiplayerError("Не удалось начать игру. Проверьте подключение.");
+        }
+    }
+    
     private leaveMultiplayerRoom(): void {
         debugLog("[Menu] Leaving multiplayer room");
         const game = (window as any).gameInstance as any;
@@ -4607,6 +5599,11 @@ export class MainMenu {
             const roomInfoEl = document.getElementById("mp-room-info");
             if (roomInfoEl) {
                 roomInfoEl.style.display = "none";
+            }
+            // Скрываем кнопку "В БОЙ!"
+            const startGameBtn = document.getElementById("mp-btn-start-game");
+            if (startGameBtn) {
+                startGameBtn.style.display = "none";
             }
             // Обновляем статус
             this._updateMultiplayerStatus();
@@ -4629,12 +5626,34 @@ export class MainMenu {
         }
     }
     
+    // Метод для отображения уведомлений (успешных сообщений) в меню
+    showMultiplayerNotification(message: string, color: string = "#4ade80"): void {
+        const errorEl = document.getElementById("mp-error-message");
+        const errorTextEl = document.getElementById("mp-error-text");
+        if (errorEl && errorTextEl) {
+            // Меняем стиль на успешное уведомление
+            errorEl.style.borderColor = color;
+            errorEl.style.background = `linear-gradient(135deg, ${color}20 0%, ${color}10 100%)`;
+            errorTextEl.textContent = message;
+            errorTextEl.style.color = color;
+            errorEl.style.display = "block";
+            errorEl.style.animation = "fadeIn 0.3s ease";
+            
+            // Автоматически скрываем через 4 секунды
+            setTimeout(() => {
+                errorEl.style.display = "none";
+                // Восстанавливаем стиль ошибки
+                errorEl.style.borderColor = "#ef4444";
+                errorEl.style.background = "rgba(239, 68, 68, 0.2)";
+                errorTextEl.style.color = "#ffaaaa";
+            }, 4000);
+        }
+    }
+    
     private selectMap(map: MapType): void {
         this.selectedMapType = map;
         debugLog("[Menu] Selected map:", map);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:4580',message:'selectMap called',data:{selectedMap:map,selectedMapType:this.selectedMapType},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
+        
         
         // Обновляем визуал
         document.querySelectorAll("[data-map]").forEach(btn => {
@@ -4886,6 +5905,26 @@ export class MainMenu {
         el.classList.add("visible");
         el.style.zIndex = (100002 + order).toString();
         el.style.transform = `translate(${order * 12}px, ${order * 12}px)`;
+        
+        // Автоматически подстраиваем высоту под контент
+        // Сбрасываем любые фиксированные высоты
+        el.style.height = "auto";
+        el.style.bottom = "auto";
+        
+        // Применяем стили после небольшой задержки, чтобы контент успел отрендериться
+        setTimeout(() => {
+            const contentHeight = el.scrollHeight;
+            const maxHeight = window.innerHeight - 80; // 40px сверху + 40px снизу
+            if (contentHeight < maxHeight) {
+                // Если контент меньше экрана, используем его высоту
+                el.style.height = `${contentHeight}px`;
+            } else {
+                // Если контент больше экрана, ограничиваем максимальной высотой
+                el.style.height = `${maxHeight}px`;
+                el.style.overflowY = "auto";
+            }
+        }, 10);
+        
         if (typeof step === "number") {
             this.currentPlayStep = step;
         }
@@ -4913,9 +5952,7 @@ export class MainMenu {
         if (this.selectedCannon) localStorage.setItem("selectedCannon", this.selectedCannon);
         
         // Закрываем меню
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:4840',message:'startSelectedGame - calling hide()',data:{selectedMapType:this.selectedMapType,hasContainer:!!this.container},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-        // #endregion
+        
         this.hide();
         this.hidePlayMenu();
         
@@ -4954,9 +5991,7 @@ export class MainMenu {
             // Обычный старт для одиночной игры
             console.log("[Menu] Starting game with mapType:", this.selectedMapType);
             console.log("[Menu] onStartGame callback:", typeof this.onStartGame);
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:4900',message:'startSelectedGame calling onStartGame',data:{selectedMapType:this.selectedMapType,hasCallback:!!this.onStartGame},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-            // #endregion
+            
             if (this.onStartGame && typeof this.onStartGame === 'function') {
                 this.onStartGame(this.selectedMapType);
             } else {
@@ -5726,14 +6761,10 @@ export class MainMenu {
     }
     
     show(isPaused: boolean = false): void {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:5654',message:'show() called',data:{isPaused,containerExists:!!this.container,containerInDOM:this.container?document.body.contains(this.container):false},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
+        
         debugLog("[Menu] show() called");
         if (!this.container) {
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:5658',message:'show() ERROR: container is null',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-            // #endregion
+            
             console.error("[Menu] Container not initialized in show()!");
             return;
         }
@@ -5742,10 +6773,15 @@ export class MainMenu {
         this.container.style.removeProperty("display");
         this.container.style.removeProperty("visibility");
         document.body.classList.add("menu-visible");
-        // #region agent log
-        const computedStyleBefore = window.getComputedStyle(this.container);
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:5660',message:'After removing hidden class',data:{hasHiddenClass:this.container.classList.contains('hidden'),display:computedStyleBefore.display,visibility:computedStyleBefore.visibility},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
+        
+        // Добавляем класс "in-battle" если игра запущена (для 50% прозрачности фона)
+        const game = (window as any).gameInstance;
+        if (game && game.gameStarted) {
+            this.container.classList.add("in-battle");
+        } else {
+            this.container.classList.remove("in-battle");
+        }
+        
         // Немедленное обновление при показе меню (без анимации для первой загрузки)
         this.updatePlayerInfo(true);
         // Также обновляем через небольшую задержку для гарантии
@@ -5793,10 +6829,7 @@ export class MainMenu {
         this.enforceCanvasPointerEvents();
         setTimeout(() => this.enforceCanvasPointerEvents(), 0);
         setTimeout(() => this.enforceCanvasPointerEvents(), 10);
-        // #region agent log
-        const computedStyleAfter = window.getComputedStyle(this.container);
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:5710',message:'show() completed',data:{hasHiddenClass:this.container.classList.contains('hidden'),display:computedStyleAfter.display,visibility:computedStyleAfter.visibility,zIndex:computedStyleAfter.zIndex,opacity:computedStyleAfter.opacity},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
+        
     }
     
     private updatePauseButtons(isPaused: boolean): void {
@@ -6013,27 +7046,39 @@ export class MainMenu {
             window.removeEventListener("keydown", oldEscHandler, true);
         }
         
-        // Создаем новый обработчик
+        // ИСПРАВЛЕНО: ESC теперь работает как переключатель (toggle)
+        // Обработчик в menu.ts только закрывает меню, переключение обрабатывается в game.ts
         const escHandler = (e: KeyboardEvent) => {
             if (e.code === "Escape" && this.isVisible()) {
-                // #region agent log
-                fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:5959',message:'ESC pressed in Menu handler',data:{isVisible:this.isVisible()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-                // #endregion
                 const game = (window as any).gameInstance;
-                // Если игра запущена и на паузе, возобновляем игру
-                if (game && game.gameStarted && game.gamePaused) {
-                    // #region agent log
-                    fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:5963',message:'Menu ESC: resuming game',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-                    // #endregion
-                    console.log("[Menu] ESC pressed - resuming game");
+                // Если игра запущена, закрываем меню и возобновляем игру
+                if (game && game.gameStarted) {
+                    console.log("[Menu] ESC pressed - closing menu and resuming game");
                     e.preventDefault();
                     e.stopPropagation();
                     e.stopImmediatePropagation();
-                    this.resumeGame();
+                    
+                    // КРИТИЧНО: Блокируем движение мыши ПЕРЕД закрытием меню через флаг
+                    if (game.pointerMoveBlocked !== undefined) {
+                        game.pointerMoveBlocked = true;
+                        
+                        // Разблокируем через задержку
+                        setTimeout(() => {
+                            game.pointerMoveBlocked = false;
+                        }, 400);
+                    }
+                    
+                    this.hide();
+                    if (game.gamePaused) {
+                        game.togglePause();
+                    }
                 } else {
-                    // #region agent log
-                    fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'menu.ts:5970',message:'Menu ESC: not resuming (conditions not met)',data:{gameExists:!!game,gameStarted:game?.gameStarted,gamePaused:game?.gamePaused},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-                    // #endregion
+                    // Если игра не запущена, просто закрываем меню
+                    console.log("[Menu] ESC pressed - closing menu");
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    this.hide();
                 }
             }
         };
@@ -6047,6 +7092,7 @@ export class MainMenu {
     
     hide(): void {
         this.container.classList.add("hidden");
+        this.container.classList.remove("in-battle");
         document.body.classList.remove("menu-visible");
         // Разрешаем pointer-events на canvas и восстанавливаем видимость
         this.enforceCanvasPointerEvents();

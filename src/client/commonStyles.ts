@@ -29,6 +29,11 @@ export class CommonStyles {
                 animation: fadeIn 0.2s ease;
             }
             
+            /* Полупрозрачный фон для панелей во время боя */
+            .panel-overlay.in-battle {
+                background: rgba(0, 0, 0, 0.5) !important;
+            }
+            
             @keyframes fadeIn {
                 from { opacity: 0; }
                 to { opacity: 1; }

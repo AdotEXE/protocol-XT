@@ -81,8 +81,9 @@ export class SettingsManager {
     applyGraphics(): void {
         if (!this.engine || !this.scene || !this.settings) return;
         
-        // Shadow quality
-        this.scene.shadowsEnabled = this.settings.shadowQuality > 0;
+        // Shadow quality - ОПТИМИЗАЦИЯ: Отключаем в production независимо от настроек
+        const isProduction = (import.meta as any).env?.PROD || false;
+        this.scene.shadowsEnabled = !isProduction && this.settings.shadowQuality > 0;
         
         // Particle quality
         this.scene.particlesEnabled = this.settings.particleQuality > 0;
@@ -133,10 +134,12 @@ export class SettingsManager {
     applyControls(): void {
         if (!this.tank || !this.settings) return;
         
-        // TODO: Apply control settings to tank controller
-        // - Invert mouse Y
-        // - Auto reload
-        // - Hold to aim
+        // Применяем настройки управления к tank controller
+        this.tank.setControlSettings({
+            invertMouseY: this.settings.invertMouseY,
+            autoReload: this.settings.autoReload,
+            holdToAim: this.settings.holdToAim
+        });
         
         logger.debug("Control settings applied");
     }
@@ -169,11 +172,13 @@ export class SettingsManager {
     applyUI(): void {
         if (!this.hud || !this.settings) return;
         
-        // TODO: Apply UI settings to HUD
-        // - Show crosshair
-        // - Show health bar
-        // - Show ammo counter
-        // - Crosshair style
+        // Применяем настройки UI к HUD
+        this.hud.setUISettings({
+            showCrosshair: this.settings.showCrosshair,
+            showHealthBar: this.settings.showHealthBar,
+            showAmmoCounter: this.settings.showAmmoCounter,
+            crosshairStyle: this.settings.crosshairStyle
+        });
         
         logger.debug("UI settings applied");
     }

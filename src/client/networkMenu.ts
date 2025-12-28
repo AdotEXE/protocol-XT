@@ -64,7 +64,7 @@ export class NetworkMenu {
             multiplayerEnabled: false,
             autoConnect: false,
             serverAddress: "localhost",
-            port: 8080,
+            port: 8000,
             reconnectAttempts: 5,
             reconnectDelay: 3000,
             pingInterval: 1000,
@@ -367,8 +367,17 @@ export class NetworkMenu {
         // Применяем настройки перед подключением
         this.applySettings();
         
-        // Формируем URL сервера
-        const serverUrl = `ws://${this.settings.serverAddress}:${this.settings.port}`;
+        // Формируем URL сервера (убеждаемся, что используется правильный протокол)
+        let serverAddress = this.settings.serverAddress.trim();
+        
+        // Убираем протокол, если он указан (ws://, wss://, http://, https://)
+        serverAddress = serverAddress.replace(/^(ws|wss|http|https):\/\//i, '');
+        
+        // Убираем слэш в конце, если есть
+        serverAddress = serverAddress.replace(/\/$/, '');
+        
+        // Формируем правильный WebSocket URL
+        const serverUrl = `ws://${serverAddress}:${this.settings.port}`;
         
         logger.log(`[NetworkMenu] Connecting to server: ${serverUrl}`);
         

@@ -65,7 +65,27 @@ export function initializeFirebaseAdmin(): boolean {
         
         if (serviceAccountPath && fs.existsSync(serviceAccountPath)) {
             try {
-                const serviceAccount = require(serviceAccountPath);
+                console.log(`[Auth] Attempting to load service account from: ${serviceAccountPath}`);
+                
+                // Используем fs.readFileSync вместо require() для более надежной загрузки
+                const fileContent = fs.readFileSync(serviceAccountPath, 'utf8');
+                const serviceAccount = JSON.parse(fileContent);
+                
+                // Валидация структуры JSON
+                if (!serviceAccount.type || serviceAccount.type !== 'service_account') {
+                    throw new Error('Invalid service account file: missing or invalid "type" field');
+                }
+                if (!serviceAccount.project_id) {
+                    throw new Error('Invalid service account file: missing "project_id" field');
+                }
+                if (!serviceAccount.private_key) {
+                    throw new Error('Invalid service account file: missing "private_key" field');
+                }
+                if (!serviceAccount.client_email) {
+                    throw new Error('Invalid service account file: missing "client_email" field');
+                }
+                
+                console.log(`[Auth] Service account loaded: project_id=${serviceAccount.project_id}, client_email=${serviceAccount.client_email}`);
                 
                 adminApp = initializeApp({
                     credential: cert(serviceAccount)
@@ -74,28 +94,60 @@ export function initializeFirebaseAdmin(): boolean {
                 console.log("[Auth] ✅ Firebase Admin initialized from service account JSON file");
                 return true;
             } catch (error: any) {
-                console.warn("[Auth] Failed to load from JSON file, trying environment variables:", error.message);
+                console.error("[Auth] ❌ Failed to load from JSON file:", error.message);
+                if (error instanceof SyntaxError) {
+                    console.error("[Auth] JSON parsing error - file may be corrupted or invalid");
+                }
+                console.warn("[Auth] Trying environment variables as fallback...");
             }
         } else {
-            // Service account JSON file not found, trying environment variables
+            console.log("[Auth] Service account JSON file not found, trying environment variables...");
         }
 
         // Способ 2: Загрузка из переменных окружения
         const projectId = process.env.FIREBASE_PROJECT_ID;
-        const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+        const privateKeyRaw = process.env.FIREBASE_PRIVATE_KEY;
         const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 
-        if (projectId && privateKey && clientEmail) {
-            adminApp = initializeApp({
-                credential: cert({
-                    projectId,
-                    privateKey,
-                    clientEmail
-                })
-            });
+        // Проверяем наличие всех необходимых переменных
+        if (!projectId) {
+            console.warn("[Auth] FIREBASE_PROJECT_ID environment variable not set");
+        }
+        if (!privateKeyRaw) {
+            console.warn("[Auth] FIREBASE_PRIVATE_KEY environment variable not set");
+        }
+        if (!clientEmail) {
+            console.warn("[Auth] FIREBASE_CLIENT_EMAIL environment variable not set");
+        }
 
-            console.log("[Auth] ✅ Firebase Admin initialized from environment variables");
-            return true;
+        if (projectId && privateKeyRaw && clientEmail) {
+            try {
+                // Обрабатываем переносы строк в приватном ключе
+                const privateKey = privateKeyRaw.replace(/\\n/g, '\n');
+                
+                // Валидация приватного ключа
+                if (!privateKey.includes('BEGIN PRIVATE KEY') || !privateKey.includes('END PRIVATE KEY')) {
+                    throw new Error('Invalid private key format: missing BEGIN/END markers');
+                }
+                
+                console.log(`[Auth] Attempting to initialize with environment variables: project_id=${projectId}, client_email=${clientEmail}`);
+                
+                adminApp = initializeApp({
+                    credential: cert({
+                        projectId,
+                        privateKey,
+                        clientEmail
+                    })
+                });
+
+                console.log("[Auth] ✅ Firebase Admin initialized from environment variables");
+                return true;
+            } catch (error: any) {
+                console.error("[Auth] ❌ Failed to initialize from environment variables:", error.message);
+                if (error.message.includes('private key')) {
+                    console.error("[Auth] Check that FIREBASE_PRIVATE_KEY is properly formatted with \\n for newlines");
+                }
+            }
         }
 
         // Если оба способа не сработали
@@ -116,8 +168,15 @@ export function initializeFirebaseAdmin(): boolean {
  * @returns Decoded token или null если невалидный
  */
 export async function verifyIdToken(idToken: string): Promise<DecodedIdToken | null> {
+    // Проверяем инициализацию перед использованием
     if (!adminApp) {
         console.warn("[Auth] Firebase Admin not initialized, skipping token verification");
+        return null;
+    }
+
+    // Проверяем, что токен не пустой
+    if (!idToken || typeof idToken !== 'string' || idToken.trim().length === 0) {
+        console.warn("[Auth] Empty or invalid token provided");
         return null;
     }
 
@@ -126,7 +185,23 @@ export async function verifyIdToken(idToken: string): Promise<DecodedIdToken | n
         const decodedToken = await auth.verifyIdToken(idToken);
         return decodedToken;
     } catch (error: any) {
-        console.error("[Auth] Token verification failed:", error.message);
+        // Более детальная обработка различных типов ошибок
+        const errorCode = error?.code || 'unknown';
+        const errorMessage = error?.message || 'Unknown error';
+        
+        if (errorCode === 'auth/argument-error') {
+            console.error("[Auth] Token verification failed: Invalid token format");
+        } else if (errorCode === 'auth/id-token-expired') {
+            console.warn("[Auth] Token verification failed: Token expired");
+        } else if (errorCode === 'auth/id-token-revoked') {
+            console.warn("[Auth] Token verification failed: Token revoked");
+        } else if (errorMessage.includes('api-keys-are-not-supported')) {
+            console.error("[Auth] ❌ CRITICAL: Admin SDK not properly initialized - API keys are not supported");
+            console.error("[Auth] This error indicates that Firebase Admin SDK is trying to use API keys instead of service account credentials");
+            console.error("[Auth] Please check that service account JSON file or environment variables are correctly configured");
+        } else {
+            console.error(`[Auth] Token verification failed: ${errorMessage} (code: ${errorCode})`);
+        }
         return null;
     }
 }
@@ -135,7 +210,15 @@ export async function verifyIdToken(idToken: string): Promise<DecodedIdToken | n
  * Получение информации о пользователе по UID
  */
 export async function getUserById(uid: string): Promise<UserRecord | null> {
+    // Проверяем инициализацию перед использованием
     if (!adminApp) {
+        console.warn("[Auth] Firebase Admin not initialized, cannot get user");
+        return null;
+    }
+
+    // Проверяем, что UID не пустой
+    if (!uid || typeof uid !== 'string' || uid.trim().length === 0) {
+        console.warn("[Auth] Empty or invalid UID provided");
         return null;
     }
 
@@ -144,7 +227,17 @@ export async function getUserById(uid: string): Promise<UserRecord | null> {
         const user = await auth.getUser(uid);
         return user;
     } catch (error: any) {
-        console.error("[Auth] Failed to get user:", error.message);
+        const errorCode = error?.code || 'unknown';
+        const errorMessage = error?.message || 'Unknown error';
+        
+        if (errorCode === 'auth/user-not-found') {
+            console.warn(`[Auth] User not found: ${uid}`);
+        } else if (errorMessage.includes('api-keys-are-not-supported')) {
+            console.error("[Auth] ❌ CRITICAL: Admin SDK not properly initialized - API keys are not supported");
+            console.error("[Auth] Please check that service account JSON file or environment variables are correctly configured");
+        } else {
+            console.error(`[Auth] Failed to get user: ${errorMessage} (code: ${errorCode})`);
+        }
         return null;
     }
 }

@@ -14,6 +14,7 @@ export class GameRoom {
     mode: GameMode;
     maxPlayers: number;
     isPrivate: boolean;
+    creatorId: string | null = null; // ID создателя комнаты
     players: Map<string, ServerPlayer> = new Map();
     projectiles: Map<string, ServerProjectile> = new Map();
     consumables: Map<string, ConsumableData> = new Map();
@@ -45,8 +46,15 @@ export class GameRoom {
     // World seed for deterministic generation
     worldSeed: number;
     
-    constructor(mode: GameMode, maxPlayers: number = 32, isPrivate: boolean = false, worldSeed?: number) {
-        this.id = nanoid();
+    constructor(mode: GameMode, maxPlayers: number = 32, isPrivate: boolean = false, worldSeed?: number, roomId?: string) {
+        // ВСЕГДА используем переданный roomId (простой формат 0001, 0002...)
+        // Если roomId не передан, это ошибка - используем fallback, но логируем предупреждение
+        if (!roomId) {
+            console.warn(`[Room] ВНИМАНИЕ: комната создана без roomId! Используется fallback nanoid.`);
+            this.id = nanoid();
+        } else {
+            this.id = roomId;
+        }
         this.mode = mode;
         this.maxPlayers = maxPlayers;
         this.isPrivate = isPrivate;
@@ -135,8 +143,9 @@ export class GameRoom {
             player.respawn(spawnPos, 100);
         });
         
-        // Spawn enemies for Co-op mode
-        if (this.mode === "coop") {
+        // Spawn enemies for multiplayer modes (синхронизированные боты для всех режимов)
+        // В мультиплеере боты должны быть синхронизированы между всеми клиентами
+        if (this.mode === "coop" || this.mode === "ffa" || this.mode === "tdm") {
             this.spawnEnemies();
         }
     }
@@ -159,12 +168,20 @@ export class GameRoom {
     }
     
     private spawnEnemies(): void {
+        // Используем детерминированный спавн на основе worldSeed для синхронизации между клиентами
         const enemyCount = Math.min(8, this.players.size * 2);
         const spawnRadius = 50;
         
+        // Используем простой генератор случайных чисел на основе worldSeed для детерминированности
+        let seed = this.worldSeed || 12345;
+        const random = () => {
+            seed = (seed * 9301 + 49297) % 233280;
+            return seed / 233280;
+        };
+        
         for (let i = 0; i < enemyCount; i++) {
             const angle = (i / enemyCount) * Math.PI * 2;
-            const radius = spawnRadius + Math.random() * 20;
+            const radius = spawnRadius + random() * 20;
             const position = new Vector3(
                 Math.cos(angle) * radius,
                 5,
@@ -176,9 +193,17 @@ export class GameRoom {
             this.enemies.set(enemy.id, enemy);
         }
         
+        console.log(`[Room] Spawned ${enemyCount} synchronized enemies for room ${this.id}`);
         if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
             logger.debug(`[Room] Enemies spawned: ${enemyCount} enemies`);
         }
+    }
+    
+    /**
+     * Get all enemy data for synchronization
+     */
+    getEnemyData(): Array<import("../shared/types").EnemyData> {
+        return Array.from(this.enemies.values()).map(enemy => enemy.toEnemyData());
     }
     
     endMatch(): void {

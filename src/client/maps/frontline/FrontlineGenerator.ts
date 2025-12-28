@@ -55,7 +55,7 @@ export interface FrontlineConfig {
  * Конфигурация по умолчанию
  */
 export const DEFAULT_FRONTLINE_CONFIG: FrontlineConfig = {
-    arenaSize: 800,
+    arenaSize: 1000,  // Ограничено для тестов
     noMansLandWidth: 100,
     trenchDensity: 0.6,
     craterDensity: 0.8,

@@ -23,6 +23,9 @@ export { GameProjectile } from "./GameProjectile";
 export { GameVisibility } from "./GameVisibility";
 export { GamePersistence } from "./GamePersistence";
 export { GameLoaders } from "./GameLoaders";
+export { GamePOI } from "./GamePOI";
+export { GameStatsOverlay } from "./GameStatsOverlay";
+export { GameMultiplayerCallbacks } from "./GameMultiplayerCallbacks";
 
 // UI modules
 export { LoadingScreen } from "./LoadingScreen";

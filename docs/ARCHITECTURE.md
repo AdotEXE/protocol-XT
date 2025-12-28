@@ -39,9 +39,10 @@ this.tank.setCameraShakeCallback((intensity: number) => {
 
 ### 3. Оптимизация производительности
 - Lazy loading компонентов
-- Кэширование вычислений
+- Кэширование вычислений (биомы, высоты террейна, позиции гаража)
 - Оптимизированный рендеринг (frustum culling)
 - Обновление систем с разной частотой
+- LOD группы для объектов на дальних расстояниях
 
 ## Основные системы
 
@@ -81,7 +82,12 @@ this.tank.setCameraShakeCallback((intensity: number) => {
 - Система гаражей
 - Оптимизация рендеринга
 
-**Зависимости**: Scene (Babylon.js)
+**Улучшения (2025-12-28)**:
+- Увеличенный кэш биомов: `MAX_BIOME_CACHE_SIZE = 50000`
+- Кэш для проверки позиций гаража: `garageAreaCache`
+- Улучшена постобработка чанков: `edgeSmoothingRadius = 3`
+
+**Зависимости**: Scene (Babylon.js), TerrainGenerator, NoiseGenerator
 
 ### EnemyManager (enemy.ts)
 **Ответственность**: Управление врагами
@@ -167,6 +173,9 @@ this.tank.setCameraShakeCallback((intensity: number) => {
 - Кэширование позиции танка
 - Кэширование результатов raycast
 - Переиспользование векторов и матриц
+- **Кэш биомов** (2025-12-28): `MAX_BIOME_CACHE_SIZE = 50000` для оптимизации генерации
+- **Кэш позиций гаража** (2025-12-28): `garageAreaCache` для быстрой проверки
+- **Кэш высот террейна** (2025-12-28): `MAX_CACHE_SIZE = 200000` в TerrainGenerator
 
 ## Синхронизация
 

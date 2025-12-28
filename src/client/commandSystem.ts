@@ -2,7 +2,7 @@
  * Command System - Система команд для терминала с автодополнением и историей
  */
 
-import { Vector3 } from "@babylonjs/core";
+import { Vector3, Quaternion } from "@babylonjs/core";
 import { logger, LogLevel, loggingSettings, LogCategory } from "./utils/logger";
 
 export interface Command {
@@ -227,24 +227,46 @@ export class CommandSystem {
         // Teleport
         this.registerCommand({
             name: 'teleport',
-            description: 'Teleport player to position',
-            usage: 'teleport <x> <y> <z>',
+            description: 'Teleport player to position (Y is auto-calculated from terrain)',
+            usage: 'teleport <x> <z> [y]',
             category: 'game',
             execute: (args, game) => {
                 if (!game) return 'Game not available';
-                if (args.length < 3) return 'Usage: teleport <x> <y> <z>';
+                if (args.length < 2) return 'Usage: teleport <x> <z> [y]';
                 
                 const x = parseFloat(args[0] ?? "0");
-                const y = parseFloat(args[1] ?? "0");
-                const z = parseFloat(args[2] ?? "0");
+                const z = parseFloat(args[1] ?? "0");
+                const customY = args.length >= 3 ? parseFloat(args[2] ?? "0") : null;
                 
-                if (isNaN(x) || isNaN(y) || isNaN(z)) {
+                if (isNaN(x) || isNaN(z)) {
                     return 'Invalid coordinates';
                 }
                 
                 if (game.tank && game.tank.chassis) {
-                    game.tank.chassis.position = new Vector3(x, y, z);
-                    return `Teleported to (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)})`;
+                    // КРИТИЧНО: Вычисляем высоту террейна автоматически
+                    const groundHeight = (game as any).getGroundHeight ? (game as any).getGroundHeight(x, z) : 2.0;
+                    // ОБЯЗАТЕЛЬНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
+                    // Игнорируем customY если он указан - всегда используем высоту над террейном
+                    const targetY = Math.max(groundHeight + 5.0, 7.0);
+                    
+                    const targetPos = new Vector3(x, targetY, z);
+                    game.tank.chassis.position = targetPos;
+                    
+                    // КРИТИЧНО: Синхронизируем физику с визуальной позицией
+                    if (game.tank.physicsBody) {
+                        game.tank.physicsBody.setTargetTransform(
+                            targetPos,
+                            game.tank.chassis.rotationQuaternion || Quaternion.Identity()
+                        );
+                        // Сбрасываем скорости
+                        game.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                        game.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                    }
+                    
+                    // Обновляем матрицы
+                    game.tank.chassis.computeWorldMatrix(true);
+                    
+                    return `Teleported to (${x.toFixed(1)}, ${targetY.toFixed(1)}, ${z.toFixed(1)}) - terrain: ${(targetY - 3).toFixed(1)}m`;
                 }
                 
                 return 'Tank not available';

@@ -131,15 +131,17 @@ export class CoverGenerator {
         this.materials.set("foliage", foliage);
     }
     
-    // Create a shipping container
+    // УЛУЧШЕНО: Create a shipping container с вариациями размера
     createContainer(position: Vector3, rotation: number, parent: TransformNode, random: SeededRandom): CoverObject {
         const containerColors = ["containerRed", "containerBlue", "containerGreen", "containerYellow", "containerGray", "containerRust"];
         const colorName = random.pick(containerColors);
         
-        // Standard container dimensions
-        const width = random.chance(0.3) ? 12 : 6; // 20ft or 40ft container
-        const height = 2.6;
-        const depth = 2.4;
+        // УЛУЧШЕНО: Standard container dimensions с вариациями
+        const baseWidth = random.chance(0.3) ? 12 : 6; // 20ft or 40ft container
+        const sizeVariation = random.range(0.9, 1.1); // ±10% вариация
+        const width = baseWidth * sizeVariation;
+        const height = 2.6 * sizeVariation;
+        const depth = 2.4 * sizeVariation;
         
         const container = MeshBuilder.CreateBox("container", {
             width: width,
@@ -479,19 +481,23 @@ export class CoverGenerator {
                 continue; // Пропускаем этот объект
             }
             
-            // Choose cover type based on biome
+            // УЛУЧШЕНО: Choose cover type based on biome с большим разнообразием
             let cover: CoverObject;
             
             if (biome === "city" || biome === "industrial") {
-                const type = random.int(0, 4);
+                // УЛУЧШЕНО: Больше вариантов укрытий
+                const type = random.int(0, 5);
                 if (type === 0) {
                     cover = this.createContainer(localPos, rotation, parent, random);
                 } else if (type === 1) {
                     cover = this.createWreckedCar(localPos, rotation, parent, random);
                 } else if (type === 2) {
                     cover = this.createBarrier(localPos, rotation, parent, random);
-                } else {
+                } else if (type === 3) {
                     cover = this.createRubble(localPos, parent, random);
+                } else {
+                    // Дополнительные контейнеры для разнообразия
+                    cover = this.createContainer(localPos, rotation, parent, random);
                 }
             } else if (biome === "military") {
                 const type = random.int(0, 3);

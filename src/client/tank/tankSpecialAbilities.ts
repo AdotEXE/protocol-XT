@@ -68,10 +68,25 @@ function updateStealthAnimation(chassis: Mesh, time: number): void {
 }
 
 function updateHoverAnimation(thrusters: Mesh[], time: number): void {
-    // TODO: Переместить логику из tankController.ts
+    // Логика анимации hover - пульсация и свечение двигателей
+    // Полная версия в tankController.updateChassisAnimations() использует более сложную анимацию
     thrusters.forEach((thruster, index) => {
+        if (thruster.isDisposed()) return;
+        
+        // Пульсация позиции
         const offset = Math.sin(time * 3 + index) * 0.1;
         thruster.position.y = offset;
+        
+        // Пульсация масштаба
+        const pulse = Math.sin(time * 3 + index * 0.5) * 0.15 + 1.0;
+        thruster.scaling.setAll(pulse);
+        
+        // Свечение материала
+        const mat = thruster.material as StandardMaterial;
+        if (mat?.emissiveColor) {
+            const intensity = (Math.sin(time * 3 + index * 0.5) + 1) * 0.5;
+            mat.emissiveColor.set(0, 0.3 * intensity, 0.6 * intensity);
+        }
     });
 }
 

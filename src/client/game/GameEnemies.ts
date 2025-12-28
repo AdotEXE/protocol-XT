@@ -38,6 +38,7 @@ export interface GameSystemsAccess {
     currentMapType: MapType;
     gameStarted: boolean;
     survivalStartTime: number;
+    isMultiplayer?: boolean; // Флаг мультиплеера - в мультиплеере не спавним ботов
 }
 
 /**
@@ -87,6 +88,48 @@ export class GameEnemies {
      */
     updateSystems(systems: GameSystemsAccess): void {
         this.systems = systems;
+    }
+    
+    /**
+     * Создать ботов из сетевых данных (синхронизированные с сервером)
+     */
+    spawnNetworkEnemies(enemies: Array<import("../../shared/types").EnemyData>): void {
+        if (!this.systems?.scene || !this.systems.soundManager || !this.systems.effectsManager) {
+            logger.warn("[GameEnemies] Cannot spawn network enemies: systems not initialized");
+            return;
+        }
+        
+        logger.log(`[GameEnemies] Spawning ${enemies.length} network-synchronized enemies`);
+        
+        // Очищаем существующих врагов перед созданием сетевых
+        this.clearEnemies();
+        
+        for (const enemyData of enemies) {
+            if (!enemyData.isAlive) continue;
+            
+            const position = new Vector3(
+                enemyData.position.x,
+                enemyData.position.y,
+                enemyData.position.z
+            );
+            
+            // Определяем сложность на основе здоровья (можно улучшить)
+            const difficulty: "easy" | "medium" | "hard" = 
+                enemyData.maxHealth >= 120 ? "hard" :
+                enemyData.maxHealth >= 100 ? "medium" : "easy";
+            
+            const difficultyScale = 1.0; // Базовый масштаб для сетевых ботов
+            
+            const enemy = this.createEnemy(position, difficulty, difficultyScale);
+            if (enemy) {
+                // Устанавливаем ID врага для синхронизации
+                (enemy as any).networkId = enemyData.id;
+                this.enemyTanks.push(enemy);
+                logger.log(`[GameEnemies] Created network enemy ${enemyData.id} at (${position.x.toFixed(1)}, ${position.y.toFixed(1)}, ${position.z.toFixed(1)})`);
+            }
+        }
+        
+        logger.log(`[GameEnemies] ✅ Spawned ${this.enemyTanks.length} network-synchronized enemies`);
     }
     
     /**
@@ -213,31 +256,97 @@ export class GameEnemies {
     
     /**
      * Получение высоты террейна в точке через raycast
+     * Улучшенная версия с множественными fallback стратегиями
      */
     private getGroundHeight(x: number, z: number): number {
-        if (!this.systems?.scene) return 0;
+        if (!this.systems?.scene) {
+            logger.warn(`[GameEnemies] getGroundHeight: No scene available at (${x.toFixed(1)}, ${z.toFixed(1)})`);
+            return 2.0; // Минимальная безопасная высота вместо 0
+        }
         
-        const rayStart = new Vector3(x, 100, z);
-        const ray = new Ray(rayStart, Vector3.Down(), 200);
+        // Улучшенный raycast: начинаем выше и с большим диапазоном
+        const rayStart = new Vector3(x, 150, z); // Увеличено с 100 до 150
+        const ray = new Ray(rayStart, Vector3.Down(), 300); // Увеличено с 200 до 300
         
+        // Улучшенный фильтр мешей: проверяем больше паттернов
         const hit = this.systems.scene.pickWithRay(ray, (mesh) => {
             if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
-            return (mesh.name.startsWith("ground_") || 
-                    mesh.name.includes("terrain") || 
-                    mesh.name.includes("chunk")) && 
+            const name = mesh.name.toLowerCase();
+            // Расширенный список паттернов для поиска террейна
+            return (name.startsWith("ground_") || 
+                    name.includes("terrain") || 
+                    name.includes("chunk") ||
+                    name.includes("road") ||
+                    (name.includes("floor") && !name.includes("garage"))) && 
                    mesh.isEnabled();
         });
         
         if (hit?.hit && hit.pickedPoint) {
-            return hit.pickedPoint.y;
+            const height = hit.pickedPoint.y;
+            if (height > -10 && height < 200) { // Разумные пределы
+                return height;
+            } else {
+                logger.warn(`[GameEnemies] getGroundHeight: Raycast returned suspicious height ${height.toFixed(2)} at (${x.toFixed(1)}, ${z.toFixed(1)})`);
+            }
         }
         
-        // Fallback: используем terrain generator
+        // Fallback 1: используем terrain generator с несколькими биомами
         if (this.systems.chunkSystem?.terrainGenerator) {
-            return this.systems.chunkSystem.terrainGenerator.getHeight(x, z, "dirt");
+            const biomes = ["dirt", "city", "residential", "park", "industrial", "concrete"];
+            let maxHeight = 0;
+            
+            for (const biome of biomes) {
+                try {
+                    const height = this.systems.chunkSystem.terrainGenerator.getHeight(x, z, biome);
+                    if (height > maxHeight && height > -10 && height < 200) {
+                        maxHeight = height;
+                    }
+                } catch (e) {
+                    // Игнорируем ошибки для конкретного биома
+                }
+            }
+            
+            if (maxHeight > 0) {
+                logger.debug(`[GameEnemies] getGroundHeight: TerrainGenerator returned ${maxHeight.toFixed(2)} at (${x.toFixed(1)}, ${z.toFixed(1)})`);
+                return maxHeight;
+            }
         }
         
-        return 0;
+        // Fallback 2: пытаемся найти ближайший загруженный чанк
+        if (this.systems.chunkSystem) {
+            // Ищем ближайшие чанки и проверяем их меши
+            const chunkSize = 50; // Примерный размер чанка
+            const chunkX = Math.floor(x / chunkSize);
+            const chunkZ = Math.floor(z / chunkSize);
+            
+            // Проверяем текущий чанк и соседние
+            for (let dx = -1; dx <= 1; dx++) {
+                for (let dz = -1; dz <= 1; dz++) {
+                    const checkX = (chunkX + dx) * chunkSize;
+                    const checkZ = (chunkZ + dz) * chunkSize;
+                    
+                    // Raycast в центре соседнего чанка
+                    const checkRayStart = new Vector3(checkX, 150, checkZ);
+                    const checkRay = new Ray(checkRayStart, Vector3.Down(), 300);
+                    const checkHit = this.systems.scene.pickWithRay(checkRay, (mesh) => {
+                        if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+                        return mesh.name.startsWith("ground_") && mesh.isEnabled();
+                    });
+                    
+                    if (checkHit?.hit && checkHit.pickedPoint) {
+                        const height = checkHit.pickedPoint.y;
+                        if (height > 0 && height < 200) {
+                            logger.debug(`[GameEnemies] getGroundHeight: Found terrain in nearby chunk at ${height.toFixed(2)}`);
+                            return height;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Последний fallback: минимальная безопасная высота
+        logger.warn(`[GameEnemies] getGroundHeight: All methods failed at (${x.toFixed(1)}, ${z.toFixed(1)}), using safe default 2.0`);
+        return 2.0; // Минимальная безопасная высота вместо 0
     }
     
     /**
@@ -345,6 +454,12 @@ export class GameEnemies {
             return;
         }
         
+        // В мультиплеере не спавним ботов - их заменяют реальные игроки
+        if (this.systems.isMultiplayer) {
+            logger.log("[GameEnemies] Multiplayer mode: enemy bots disabled, using real players instead");
+            return;
+        }
+        
         logger.log(`[GameEnemies] Spawning enemies for map: ${this.systems.currentMapType}`);
         
         // Sandbox - без врагов
@@ -394,7 +509,9 @@ export class GameEnemies {
                 const spawnX = combatZone.minX + Math.random() * (combatZone.maxX - combatZone.minX);
                 const spawnZ = combatZone.minZ + Math.random() * (combatZone.maxZ - combatZone.minZ);
                 const groundHeight = this.getGroundHeight(spawnX, spawnZ);
-                const spawnY = Math.max(groundHeight, 0) + 1.2;
+                // Безопасный отступ: минимум 1.5 единицы над террейном, минимум 2.0 если groundHeight = 0
+                // КРИТИЧНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
+                const spawnY = Math.max(groundHeight + 5.0, 7.0);
                 
                 pos = new Vector3(spawnX, spawnY, spawnZ);
                 
@@ -449,11 +566,13 @@ export class GameEnemies {
             if (this.systems?.currentMapType === "polygon" && 
                 this.systems.soundManager && this.systems.effectsManager) {
                 
-                const newPos = new Vector3(
-                    combatZone.minX + Math.random() * (combatZone.maxX - combatZone.minX),
-                    1.2,
-                    combatZone.minZ + Math.random() * (combatZone.maxZ - combatZone.minZ)
-                );
+                const spawnX = combatZone.minX + Math.random() * (combatZone.maxX - combatZone.minX);
+                const spawnZ = combatZone.minZ + Math.random() * (combatZone.maxZ - combatZone.minZ);
+                const groundHeight = this.getGroundHeight(spawnX, spawnZ);
+                // КРИТИЧНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
+                const spawnY = Math.max(groundHeight + 5.0, 7.0); // Используем getGroundHeight + безопасный отступ
+                
+                const newPos = new Vector3(spawnX, spawnY, spawnZ);
                 
                 const newBot = this.createEnemy(newPos, "easy", 1, () => {
                     this.handlePolygonBotDeath(newBot!, combatZone);
@@ -461,7 +580,7 @@ export class GameEnemies {
                 
                 if (newBot) {
                     this.enemyTanks.push(newBot);
-                    logger.log("[GameEnemies] Training bot respawned");
+                    logger.log(`[GameEnemies] Training bot respawned at (${spawnX.toFixed(1)}, ${spawnY.toFixed(1)}, ${spawnZ.toFixed(1)})`);
                 }
             }
         }, 30000);
@@ -504,7 +623,9 @@ export class GameEnemies {
         
         for (const rawPos of defenderPositions) {
             const groundHeight = this.getGroundHeight(rawPos.x, rawPos.z);
-            const spawnY = Math.max(groundHeight, 0) + 1.2;
+            // Безопасный отступ: минимум 1.5 единицы над террейном, минимум 2.0 если groundHeight = 0
+            // КРИТИЧНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
+            const spawnY = Math.max(groundHeight + 5.0, 7.0);
             const pos = new Vector3(rawPos.x, spawnY, rawPos.z);
             
             const difficulty = this.getCurrentDifficulty();
@@ -562,7 +683,9 @@ export class GameEnemies {
         for (let i = 0; i < waveCount; i++) {
             const spawnZ = -200 + Math.random() * 400;
             const groundHeight = this.getGroundHeight(spawnX, spawnZ);
-            const spawnY = Math.max(groundHeight, 0) + 1.2;
+            // Безопасный отступ: минимум 1.5 единицы над террейном, минимум 2.0 если groundHeight = 0
+            // КРИТИЧНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
+            const spawnY = Math.max(groundHeight + 5.0, 7.0);
             const pos = new Vector3(spawnX, spawnY, spawnZ);
             
             // Сложность растёт с волнами
@@ -607,7 +730,10 @@ export class GameEnemies {
                     
                     const newX = 150 + Math.random() * 100;
                     const newZ = -150 + Math.random() * 300;
-                    const newPos = new Vector3(newX, 0.6, newZ);
+                    const groundHeight = this.getGroundHeight(newX, newZ);
+                    // КРИТИЧНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
+                const spawnY = Math.max(groundHeight + 5.0, 7.0); // Используем getGroundHeight + безопасный отступ
+                    const newPos = new Vector3(newX, spawnY, newZ);
                     
                     const difficulty = this.getCurrentDifficulty();
                     const scale = this.getAdaptiveDifficultyScale();
@@ -618,7 +744,7 @@ export class GameEnemies {
                     
                     if (newDefender) {
                         this.enemyTanks.push(newDefender);
-                        logger.log("[GameEnemies] Frontline: Defender respawned");
+                        logger.log(`[GameEnemies] Frontline: Defender respawned at (${newX.toFixed(1)}, ${spawnY.toFixed(1)}, ${newZ.toFixed(1)})`);
                     }
                 }
             }, 60000);
@@ -681,7 +807,9 @@ export class GameEnemies {
                 const spawnX = Math.cos(angle) * distance;
                 const spawnZ = Math.sin(angle) * distance;
                 const groundHeight = this.getGroundHeight(spawnX, spawnZ);
-                const spawnY = Math.max(groundHeight, 0) + 1.2;
+                // Безопасный отступ: минимум 1.5 единицы над террейном, минимум 2.0 если groundHeight = 0
+                // КРИТИЧНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
+                const spawnY = Math.max(groundHeight + 5.0, 7.0);
                 
                 pos = new Vector3(spawnX, spawnY, spawnZ);
                 
@@ -760,6 +888,177 @@ export class GameEnemies {
      */
     getEnemies(): EnemyTank[] {
         return this.enemyTanks;
+    }
+    
+    /**
+     * Спавн врагов в гаражах
+     * @param getPlayerGaragePosition Callback для получения позиции гаража игрока
+     * @param onEnemyDeath Callback при смерти врага (для награды)
+     */
+    spawnEnemiesInGarages(
+        getPlayerGaragePosition: () => Vector3 | null,
+        onEnemyDeath?: (enemy: EnemyTank, reward: number) => void
+    ): void {
+        if (!this.systems?.soundManager || !this.systems.effectsManager) {
+            logger.warn("[GameEnemies] Sound/Effects not ready, skipping garage spawn");
+            return;
+        }
+        
+        if (!this.systems.chunkSystem || !this.systems.chunkSystem.garagePositions.length) {
+            logger.warn("[GameEnemies] No garages available for garage spawn");
+            return;
+        }
+        
+        const playerGaragePos = getPlayerGaragePosition();
+        if (!playerGaragePos) {
+            logger.error("[GameEnemies] Player garage NOT SET! Aborting enemy spawn!");
+            return;
+        }
+        
+        logger.log(`[GameEnemies] Spawning enemies in garages. Player garage: (${playerGaragePos.x.toFixed(1)}, ${playerGaragePos.z.toFixed(1)})`);
+        
+        const playerGarageX = playerGaragePos.x;
+        const playerGarageZ = playerGaragePos.z;
+        
+        // Фильтруем гаражи, исключая гаражи близко к игроку
+        const availableGarages = this.systems.chunkSystem.garagePositions.filter(garage => {
+            const distToPlayer = Math.sqrt(
+                Math.pow(garage.x - playerGarageX, 2) + 
+                Math.pow(garage.z - playerGarageZ, 2)
+            );
+            return distToPlayer >= 100; // Минимум 100 единиц от гаража игрока
+        });
+        
+        if (availableGarages.length === 0) {
+            logger.log("[GameEnemies] No available garages for enemy spawn");
+            return;
+        }
+        
+        // Количество врагов
+        let enemyCount = Math.min(8, availableGarages.length);
+        const adaptiveScale = this.getAdaptiveDifficultyScale();
+        const scaledCount = Math.round(enemyCount * (0.7 + (adaptiveScale - 1) * 0.6));
+        const minCount = Math.min(enemyCount, Math.max(1, Math.floor(enemyCount * 0.6)));
+        const maxCount = Math.min(availableGarages.length, Math.min(10, enemyCount + 2));
+        enemyCount = Math.max(minCount, Math.min(scaledCount, maxCount));
+        
+        // Перемешиваем гаражи
+        for (let i = availableGarages.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            const tmp = availableGarages[i]!;
+            availableGarages[i] = availableGarages[j]!;
+            availableGarages[j] = tmp;
+        }
+        
+        // Спавним врагов
+        for (let i = 0; i < enemyCount; i++) {
+            const garage = availableGarages[i];
+            if (!garage) continue;
+            
+            const groundHeight = this.getGroundHeight(garage.x, garage.z);
+            // КРИТИЧНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
+            const spawnY = Math.max(groundHeight + 5.0, 7.0);
+            const garagePos = new Vector3(garage.x, spawnY, garage.z);
+            
+            const difficulty = this.getCurrentDifficulty();
+            const difficultyScale = adaptiveScale;
+            
+            const enemyTank = new EnemyTank(
+                this.systems.scene, 
+                garagePos, 
+                this.systems.soundManager, 
+                this.systems.effectsManager, 
+                difficulty, 
+                difficultyScale
+            );
+            
+            if (this.systems.tank) {
+                enemyTank.setTarget(this.systems.tank);
+            }
+            
+            const enemyGaragePos = garagePos.clone();
+            
+            // On death callback
+            enemyTank.onDeathObservable.add(() => {
+                const baseReward = 100;
+                const reward = Math.round(baseReward * this.getDifficultyRewardMultiplier());
+                
+                if (onEnemyDeath) {
+                    onEnemyDeath(enemyTank, reward);
+                } else {
+                    // Default reward handling
+                    this.giveKillReward(reward);
+                }
+                
+                // Remove from array
+                const idx = this.enemyTanks.indexOf(enemyTank);
+                if (idx !== -1) this.enemyTanks.splice(idx, 1);
+            });
+            
+            this.enemyTanks.push(enemyTank);
+            logger.log(`[GameEnemies] Enemy spawned in garage (${garagePos.x.toFixed(1)}, ${garagePos.z.toFixed(1)})`);
+        }
+        
+        logger.log(`[GameEnemies] Spawned ${enemyCount} enemies in garages`);
+    }
+    
+    /**
+     * Респавн врага в гараже
+     * @param garagePos Позиция гаража
+     * @param getPlayerGaragePosition Callback для получения позиции гаража игрока
+     * @param onEnemyDeath Callback при смерти врага (для награды)
+     */
+    respawnEnemyTank(
+        garagePos: Vector3,
+        getPlayerGaragePosition: () => Vector3 | null,
+        onEnemyDeath?: (enemy: EnemyTank, reward: number) => void
+    ): void {
+        if (!this.systems?.soundManager || !this.systems.effectsManager) return;
+        
+        // Проверяем расстояние до гаража игрока
+        const playerGaragePos = getPlayerGaragePosition();
+        if (playerGaragePos) {
+            const distToPlayer = Vector3.Distance(garagePos, playerGaragePos);
+            if (distToPlayer < 100) {
+                logger.log(`[GameEnemies] BLOCKED: Enemy respawn too close to player garage (${distToPlayer.toFixed(1)}m)`);
+                return;
+            }
+        }
+        
+        const difficulty = this.getCurrentDifficulty();
+        const difficultyScale = this.getAdaptiveDifficultyScale();
+        
+        const enemyTank = new EnemyTank(
+            this.systems.scene, 
+            garagePos, 
+            this.systems.soundManager, 
+            this.systems.effectsManager, 
+            difficulty, 
+            difficultyScale
+        );
+        
+        if (this.systems.tank) {
+            enemyTank.setTarget(this.systems.tank);
+        }
+        
+        const spawnGaragePos = garagePos.clone();
+        
+        enemyTank.onDeathObservable.add(() => {
+            const baseReward = 100;
+            const reward = Math.round(baseReward * this.getDifficultyRewardMultiplier());
+            
+            if (onEnemyDeath) {
+                onEnemyDeath(enemyTank, reward);
+            } else {
+                this.giveKillReward(reward);
+            }
+            
+            const idx = this.enemyTanks.indexOf(enemyTank);
+            if (idx !== -1) this.enemyTanks.splice(idx, 1);
+        });
+        
+        this.enemyTanks.push(enemyTank);
+        logger.log(`[GameEnemies] Enemy respawned at garage (${garagePos.x.toFixed(1)}, ${garagePos.z.toFixed(1)})`);
     }
     
     /**

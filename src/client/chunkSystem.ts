@@ -11,13 +11,30 @@ import {
     TransformNode,
     VertexBuffer,
     Animation,
-    PointLight
+    PointLight,
+    EdgesRenderer
 } from "@babylonjs/core";
 import { MapType } from "./menu";
 import { RoadNetwork } from "./roadNetwork";
 import { TerrainGenerator, NoiseGenerator } from "./noiseGenerator";
 import { CoverGenerator } from "./coverGenerator";
 import { POISystem, POI } from "./poiSystem";
+import { logger } from "./utils/logger";
+// Импорт генераторов карт и фабрики
+import {
+    MapGeneratorFactory,
+    PolygonGenerator,
+    FrontlineGenerator,
+    RuinsGenerator,
+    CanyonGenerator,
+    IndustrialGenerator,
+    UrbanWarfareGenerator,
+    UndergroundGenerator,
+    CoastalGenerator,
+    SeededRandom as MapsSeededRandom,
+    GenerationContext,
+    ChunkGenerationContext
+} from "./maps";
 
 // Seeded random for consistent generation
 class SeededRandom {
@@ -62,6 +79,9 @@ export class ChunkSystem {
     private chunks: Map<string, ChunkData> = new Map();
     private materials: Map<string, StandardMaterial> = new Map();
     private lastPlayerChunk = { x: 0, z: 0 };
+    
+    // ОПТИМИЗАЦИЯ: Пулы базовых мешей для инстансинга
+    private meshPools: Map<string, Mesh> = new Map();
     
     // Позиции гаражей для спавна
     public garagePositions: Vector3[] = [];
@@ -128,8 +148,19 @@ export class ChunkSystem {
     // Noise generator for biome transitions
     private biomeNoise: NoiseGenerator | null = null;
     
-    // Biome cache for optimization
+    // УЛУЧШЕНО: Biome cache for optimization с увеличенным размером
     private biomeCache: Map<string, BiomeType> = new Map();
+    private static readonly MAX_BIOME_CACHE_SIZE = 50000; // УВЕЛИЧЕНО для лучшего кэширования
+    
+    // УЛУЧШЕНО: Кэш для проверки позиций гаража
+    private garageAreaCache: Map<string, boolean> = new Map();
+    private static readonly MAX_GARAGE_CACHE_SIZE = 10000;
+    
+    // Кеш для материалов с модификациями по высоте
+    private heightTintedMaterials: Map<string, StandardMaterial> = new Map();
+    
+    // Кеш для контрастных цветов краев
+    private contrastEdgeColors: Map<string, Color3> = new Map();
     
     public stats = {
         loadedChunks: 0,
@@ -150,25 +181,30 @@ export class ChunkSystem {
         // ChunkSystem constructor called
         this.createMaterials();
         
+        // КРИТИЧНО: Создаём terrain generator для ВСЕХ типов карт, не только для "normal"!
+        // Это необходимо для генерации террейна (ground mesh) во всех типах карт
+        this.terrainGenerator = new TerrainGenerator(
+            this.config.worldSeed,
+            (x: number, z: number, margin: number) => this.isPositionInGarageArea(x, z, margin),
+            this.config.mapType // Передаем mapType для специальной обработки (например, tartaria)
+        );
+        
         // Initialize road network and terrain generator for normal map
         if (this.config.mapType === "normal") {
-            // Create terrain generator FIRST, so it can be passed to road network
-            // Передаем callback для проверки гаража
-            this.terrainGenerator = new TerrainGenerator(
-                this.config.worldSeed,
-                (x: number, z: number, margin: number) => this.isPositionInGarageArea(x, z, margin)
-            );
-            
             // Create separate noise generator for biome transitions (different seed offset)
             this.biomeNoise = new NoiseGenerator(this.config.worldSeed + 12345);
             
-            this.roadNetwork = new RoadNetwork(this.scene, {
-                worldSeed: this.config.worldSeed,
-                chunkSize: this.config.chunkSize,
-                highwaySpacing: 200,
-                streetSpacing: 40,
-                terrainGenerator: this.terrainGenerator
-            });
+            this.roadNetwork = new RoadNetwork(
+                this.scene, 
+                {
+                    worldSeed: this.config.worldSeed,
+                    chunkSize: this.config.chunkSize,
+                    highwaySpacing: 200,
+                    streetSpacing: 40,
+                    terrainGenerator: this.terrainGenerator
+                },
+                (x: number, z: number, margin: number) => this.isPositionInGarageArea(x, z, margin)
+            );
             
             this.coverGenerator = new CoverGenerator(
                 this.scene, 
@@ -193,7 +229,84 @@ export class ChunkSystem {
         // СРАЗУ создаём гаражи для спавна!
         this.createAllGarages();
         
+        // Инициализируем генераторы карт
+        this.initializeMapGenerators();
+        
         // ChunkSystem initialized
+    }
+    
+    /**
+     * Создать контекст генерации для генераторов карт
+     */
+    private createGenerationContext(): GenerationContext {
+        // Преобразуем garagePositions в формат { x, z }
+        const garagePositionsArray = this.garagePositions.map(pos => ({
+            x: pos.x,
+            z: pos.z
+        }));
+        
+        return {
+            scene: this.scene,
+            config: {
+                chunkSize: this.config.chunkSize,
+                renderDistance: this.config.renderDistance,
+                unloadDistance: this.config.unloadDistance,
+                worldSeed: this.config.worldSeed,
+                mapType: this.config.mapType
+            },
+            materials: this.materials,
+            garagePositions: garagePositionsArray,
+            isPositionInGarageArea: (x: number, z: number, margin: number) => 
+                this.isPositionInGarageArea(x, z, margin),
+            isPositionNearRoad: (x: number, z: number, distance: number) => 
+                this.isPositionNearRoad(x, z, distance),
+            getTerrainHeight: (x: number, z: number, biome: string) => {
+                if (!this.terrainGenerator) return 0;
+                return this.terrainGenerator.getHeight(x, z, biome);
+            },
+            getMat: (name: string) => this.getMat(name)
+        };
+    }
+    
+    /**
+     * Инициализировать и зарегистрировать все генераторы карт
+     */
+    private initializeMapGenerators(): void {
+        const genContext = this.createGenerationContext();
+        
+        // Создаём и регистрируем генераторы
+        const polygonGen = new PolygonGenerator();
+        polygonGen.initialize(genContext);
+        MapGeneratorFactory.register(polygonGen);
+        logger.log(`[ChunkSystem] Registered PolygonGenerator, mapType: ${polygonGen.mapType}`);
+        
+        const frontlineGen = new FrontlineGenerator();
+        frontlineGen.initialize(genContext);
+        MapGeneratorFactory.register(frontlineGen);
+        
+        const ruinsGen = new RuinsGenerator();
+        ruinsGen.initialize(genContext);
+        MapGeneratorFactory.register(ruinsGen);
+        
+        const canyonGen = new CanyonGenerator();
+        canyonGen.initialize(genContext);
+        MapGeneratorFactory.register(canyonGen);
+        
+        const industrialGen = new IndustrialGenerator();
+        industrialGen.initialize(genContext);
+        MapGeneratorFactory.register(industrialGen);
+        
+        const urbanGen = new UrbanWarfareGenerator();
+        urbanGen.initialize(genContext);
+        MapGeneratorFactory.register(urbanGen);
+        
+        const undergroundGen = new UndergroundGenerator();
+        undergroundGen.initialize(genContext);
+        MapGeneratorFactory.register(undergroundGen);
+        
+        const coastalGen = new CoastalGenerator();
+        coastalGen.initialize(genContext);
+        MapGeneratorFactory.register(coastalGen);
     }
     
     private createMaterials(): void {
@@ -290,6 +403,173 @@ export class ChunkSystem {
         return def;
     }
     
+    /**
+     * Получить контрастный цвет краев на основе яркости материала
+     * Использует кеш для оптимизации
+     */
+    private getContrastEdgeColor(materialName: string): Color3 {
+        // Проверяем кеш
+        const cached = this.contrastEdgeColors.get(materialName);
+        if (cached) return cached;
+        
+        // Получаем базовый материал
+        const baseMat = this.getMat(materialName);
+        const baseColor = baseMat.diffuseColor;
+        
+        // Вычисляем яркость по формуле: 0.299*R + 0.587*G + 0.114*B
+        const luminance = 0.299 * baseColor.r + 0.587 * baseColor.g + 0.114 * baseColor.b;
+        
+        // Определяем контрастный цвет на основе яркости
+        let edgeColor: Color3;
+        if (luminance < 0.3) {
+            // Темные материалы - светлые края
+            edgeColor = new Color3(0.7, 0.7, 0.7);
+        } else if (luminance > 0.5) {
+            // Светлые материалы - темные края
+            edgeColor = new Color3(0.15, 0.15, 0.15);
+        } else {
+            // Средние материалы - нейтральные края
+            edgeColor = new Color3(0.4, 0.4, 0.4);
+        }
+        
+        // Сохраняем в кеш
+        this.contrastEdgeColors.set(materialName, edgeColor);
+        return edgeColor;
+    }
+    
+    /**
+     * Получить материал с модификацией цвета по высоте
+     * Использует кеш для оптимизации (диапазоны высот: 0-2, 2-5, 5-10, 10+)
+     */
+    private getHeightTintedMaterial(baseMatName: string, height: number): StandardMaterial {
+        // Определяем диапазон высоты для кеширования
+        let heightRange: string;
+        const absHeight = Math.abs(height);
+        if (absHeight < 2) {
+            heightRange = "0-2";
+        } else if (absHeight < 5) {
+            heightRange = "2-5";
+        } else if (absHeight < 10) {
+            heightRange = "5-10";
+        } else {
+            heightRange = "10+";
+        }
+        
+        const cacheKey = `${baseMatName}_h${heightRange}`;
+        
+        // Проверяем кеш
+        const cached = this.heightTintedMaterials.get(cacheKey);
+        if (cached) return cached;
+        
+        // Получаем базовый материал и клонируем его
+        const baseMat = this.getMat(baseMatName);
+        const tintedMat = baseMat.clone(`${baseMatName}_tinted_${heightRange}`);
+        
+        // Вычисляем множитель для изменения яркости/насыщенности
+        // УСИЛЕНО: Максимум +40% для очень высоких блоков (было +15%)
+        const heightMultiplier = 0.85 + Math.min(absHeight / 15, 0.40);
+        
+        // Применяем модификацию цвета
+        const baseColor = baseMat.diffuseColor;
+        const tintedColor = baseColor.scale(heightMultiplier);
+        
+        // Для насыщенности: УСИЛЕНО - значительно увеличиваем различия между каналами RGB
+        // Это делает цвет более насыщенным для высоких блоков
+        const maxChannel = Math.max(tintedColor.r, tintedColor.g, tintedColor.b);
+        const minChannel = Math.min(tintedColor.r, tintedColor.g, tintedColor.b);
+        const saturationBoost = Math.min((absHeight / 15) * 0.25, 0.25); // УСИЛЕНО: До +25% насыщенности (было +10%)
+        
+        if (maxChannel > 0) {
+            const currentSaturation = (maxChannel - minChannel) / maxChannel;
+            const targetSaturation = Math.min(currentSaturation + saturationBoost, 1.0);
+            
+            // Применяем насыщенность
+            const gray = maxChannel * (1 - targetSaturation);
+            tintedMat.diffuseColor = new Color3(
+                gray + (tintedColor.r - gray) * targetSaturation,
+                gray + (tintedColor.g - gray) * targetSaturation,
+                gray + (tintedColor.b - gray) * targetSaturation
+            );
+        } else {
+            tintedMat.diffuseColor = tintedColor;
+        }
+        
+        // Сохраняем настройки материала
+        tintedMat.specularColor = Color3.Black();
+        tintedMat.specularPower = 0;
+        tintedMat.freeze();
+        
+        // Сохраняем в кеш
+        this.heightTintedMaterials.set(cacheKey, tintedMat);
+        return tintedMat;
+    }
+    
+    /**
+     * Вычислить среднюю высоту вершин для определения оттенка материала
+     */
+    private calculateAverageHeight(positions: Float32Array | number[] | null, _vertsPerSide: number): number {
+        if (!positions || positions.length === 0) return 0;
+        
+        let totalHeight = 0;
+        let count = 0;
+        
+        for (let i = 1; i < positions.length; i += 3) {
+            const height = positions[i]; // Y координата
+            if (height !== undefined && isFinite(height)) {
+                totalHeight += height;
+                count++;
+            }
+        }
+        
+        return count > 0 ? totalHeight / count : 0;
+    }
+    
+    /**
+     * Применить vertex colors на основе высоты вершин для визуализации высот
+     */
+    private applyHeightVertexColors(ground: Mesh, positions: Float32Array | number[] | null, _vertsPerSide: number): void {
+        if (!positions || positions.length === 0) return;
+        
+        // Находим минимальную и максимальную высоту для нормализации
+        let minHeight = Infinity;
+        let maxHeight = -Infinity;
+        
+        for (let i = 1; i < positions.length; i += 3) {
+            const height = positions[i];
+            if (height !== undefined && isFinite(height)) {
+                minHeight = Math.min(minHeight, height);
+                maxHeight = Math.max(maxHeight, height);
+            }
+        }
+        
+        // Если все высоты одинаковые, не применяем vertex colors
+        if (maxHeight - minHeight < 0.1) return;
+        
+        const heightRange = maxHeight - minHeight;
+        const colors: number[] = [];
+        
+        // Создаем цвета на основе высоты: низкие - темнее, высокие - светлее
+        for (let i = 1; i < positions.length; i += 3) {
+            const height = positions[i];
+            if (height !== undefined && isFinite(height)) {
+                // Нормализуем высоту от 0 до 1
+                const normalizedHeight = heightRange > 0 ? (height - minHeight) / heightRange : 0;
+                
+                // УСИЛЕНО: Создаем цвет с большим контрастом - низкие высоты намного темнее, высокие намного светлее
+                // От 0.5 (темные низкие) до 1.3 (очень светлые высокие) - было 0.75-1.0
+                const brightness = 0.5 + normalizedHeight * 0.8; // От 0.5 до 1.3
+                // Ограничиваем максимальную яркость для избежания пересвета
+                const clampedBrightness = Math.min(brightness, 1.2);
+                colors.push(clampedBrightness, clampedBrightness, clampedBrightness, 1.0); // RGBA
+            } else {
+                colors.push(1.0, 1.0, 1.0, 1.0); // Белый по умолчанию
+            }
+        }
+        
+        // Применяем vertex colors
+        ground.setVerticesData(VertexBuffer.ColorKind, colors);
+    }
+    
     private getChunkKey(cx: number, cz: number): string {
         return `${cx},${cz}`;
     }
@@ -361,11 +641,11 @@ export class ChunkSystem {
             { x: -350, z: 150 },   // Запад-северо-запад
             { x: 350, z: -150 },   // Восток-юго-восток
             { x: -350, z: -150 },  // Запад-юго-запад
-            // Очень дальнее кольцо (400 единиц) - 4 гаража
-            { x: 150, z: 400 },    // Дальний север-восток
-            { x: -150, z: 400 },   // Дальний север-запад
-            { x: 150, z: -400 },   // Дальний юг-восток
-            { x: -150, z: -400 },  // Дальний юг-запад
+            // Очень дальнее кольцо (500 единиц для карты 1000x1000) - 4 гаража
+            { x: 150, z: 500 },    // Дальний север-восток
+            { x: -150, z: 500 },   // Дальний север-запад
+            { x: 150, z: -500 },   // Дальний юг-восток
+            { x: -150, z: -500 },  // Дальний юг-запад
         ];
         
         garageLocations.forEach((loc, index) => {
@@ -385,12 +665,14 @@ export class ChunkSystem {
         const wallThickness = 0.4;
         const doorWidth = 8;      // Ширина проёма (танк ~4 единицы)
         
-        // Используем существующие материалы или создаём новые
+        // ОПТИМИЗАЦИЯ: Используем материалы из пула для переиспользования
         let garageMat = this.materials.get("building");
         if (!garageMat) {
             garageMat = new StandardMaterial("garageMat", this.scene);
             garageMat.diffuseColor = new Color3(0.35, 0.35, 0.4);
             garageMat.specularColor = Color3.Black();
+            garageMat.freeze();
+            this.materials.set("building", garageMat); // Сохраняем в пул
         }
         
         let floorMat = this.materials.get("concrete");
@@ -398,6 +680,8 @@ export class ChunkSystem {
             floorMat = new StandardMaterial("garageFloorMat", this.scene);
             floorMat.diffuseColor = new Color3(0.25, 0.25, 0.28);
             floorMat.specularColor = Color3.Black();
+            floorMat.freeze();
+            this.materials.set("concrete", floorMat); // Сохраняем в пул
         }
         
         // Материал для дверей с прозрачностью 50%
@@ -432,8 +716,14 @@ export class ChunkSystem {
         collisionFloor.position = new Vector3(garageX, 0.075, garageZ);
         collisionFloor.isVisible = false;
         collisionFloor.visibility = 0;
-        const collisionMat = new StandardMaterial(`garageFloorCollisionMat_${index}`, this.scene);
-        collisionMat.alpha = 0;
+        // ОПТИМИЗАЦИЯ: Переиспользуем материал для collision полов
+        let collisionMat = this.materials.get("collision");
+        if (!collisionMat) {
+            collisionMat = new StandardMaterial("collisionMat", this.scene);
+            collisionMat.alpha = 0;
+            collisionMat.freeze();
+            this.materials.set("collision", collisionMat);
+        }
         collisionFloor.material = collisionMat;
         collisionFloor.name = `garageFloorCollision_${index}`;
         new PhysicsAggregate(collisionFloor, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
@@ -639,10 +929,10 @@ export class ChunkSystem {
         const spawnPos = new Vector3(garageX, 1.2, garageZ);
         this.garagePositions.push(spawnPos);
         
-        // Сохраняем область гаража (с запасом чтобы ничего не спавнилось внутри)
-        // УВЕЛИЧЕННЫЙ ЗАПАС для 100% гарантированного исключения зоны гаража
-        // ИСПРАВЛЕНИЕ: Увеличен запас для предотвращения рельефа вокруг гаража
-        const garageMargin = 15; // Увеличен запас до 15 единиц для полной гарантии отсутствия препятствий
+        // КРИТИЧНО: Сохраняем область гаража с УВЕЛИЧЕННЫМ запасом для 100% гарантии
+        // КРИТИЧНО: Адаптивный запас - для специальных карт (полигон, фронтлайн) используем меньший запас
+        const isSpecialMap = this.config.mapType === "polygon" || this.config.mapType === "frontline";
+        const garageMargin = isSpecialMap ? 15 : 30; // Меньший запас для специальных карт, чтобы не блокировать генерацию
         this.garageAreas.push({
             x: garageX - garageWidth / 2 - garageMargin,
             z: garageZ - garageDepth / 2 - garageMargin,
@@ -663,13 +953,14 @@ export class ChunkSystem {
         // Высота верхней столешницы (на верху ножек)
         const topTopY = legHeight + topThickness / 2; // Верхняя столешница на верху ножек
         
-        // Материал для верстака (дерево - коричневый)
+        // ОПТИМИЗАЦИЯ: Материал для верстака из пула
         let workbenchMat = this.materials.get("workbench");
         if (!workbenchMat) {
             workbenchMat = new StandardMaterial("workbenchMat", this.scene);
             workbenchMat.diffuseColor = new Color3(0.4, 0.25, 0.15); // Коричневый цвет дерева
             workbenchMat.specularColor = new Color3(0.1, 0.1, 0.1); // Немного блеска
             workbenchMat.emissiveColor = new Color3(0.05, 0.05, 0.05); // Легкое свечение
+            workbenchMat.freeze();
             this.materials.set("workbench", workbenchMat);
         }
         
@@ -1443,6 +1734,9 @@ export class ChunkSystem {
             if (dist > unloadDistance * 2) this.destroyChunk(key);
         });
         
+        // ОПТИМИЗАЦИЯ: Принудительная выгрузка при нехватке памяти
+        this.forceUnloadIfNeeded(playerCx, playerCz);
+        
         this.updateStats();
     }
     
@@ -1459,6 +1753,9 @@ export class ChunkSystem {
         };
         
         this.generateChunkContent(cx, cz, worldX, worldZ, chunkParent);
+        
+        // ОПТИМИЗАЦИЯ: Объединяем статичные меши для уменьшения draw calls
+        this.mergeStaticMeshesInChunk(chunkParent);
         
         // Сохраняем chunkParent для последующего использования
         this.chunks.set(key, chunk);
@@ -1770,48 +2067,78 @@ export class ChunkSystem {
             return;
         }
         
-        // В режиме полигона генерируем арену с тренировочными элементами
-        if (this.config.mapType === "polygon") {
-            this.generatePolygonContent(chunkX, chunkZ, worldX, worldZ, size, random, chunkParent);
-            return;
+        // Используем новую систему генераторов через MapGeneratorFactory
+        // Проверяем, есть ли зарегистрированный генератор для этого типа карты
+        const mapType = this.config.mapType || "normal";
+        
+        // Для специальных карт (polygon, frontline и т.д.) используем новую систему генераторов
+        const specialMaps = ["polygon", "frontline", "ruins", "canyon", "industrial", "urban_warfare", "underground", "coastal"];
+        if (specialMaps.includes(mapType)) {
+            const generator = MapGeneratorFactory.get(mapType);
+            
+            // Отладочное логирование
+            if (mapType === "polygon") {
+                logger.log(`[ChunkSystem] Polygon map detected, generator found: ${generator !== undefined}`);
+                if (!generator) {
+                    const available = MapGeneratorFactory.getAvailableMapTypes();
+                    logger.error(`[ChunkSystem] Polygon generator not found! Available generators: ${available.join(", ")}`);
+                    // Fallback на старую логику если генератор не найден
+                } else {
+                    logger.log(`[ChunkSystem] Using PolygonGenerator for chunk (${chunkX}, ${chunkZ})`);
+                }
+            }
+            
+            if (generator) {
+                // КРИТИЧНО: Создаём базовый ground mesh с heightmap ПЕРЕД вызовом генератора
+                // Это гарантирует, что террейн правильно обходит гаражи на всех картах
+                // Для polygon используем "military" биом, для других карт - соответствующий
+                const groundBiome = this.config.mapType === "polygon" ? "military" : 
+                                   this.config.mapType === "frontline" ? "wasteland" :
+                                   this.config.mapType === "ruins" ? "wasteland" :
+                                   this.config.mapType === "canyon" ? "park" :
+                                   this.config.mapType === "industrial" ? "industrial" :
+                                   this.config.mapType === "urban_warfare" ? "city" :
+                                   this.config.mapType === "underground" ? "wasteland" :
+                                   this.config.mapType === "coastal" ? "park" : "military";
+                
+                this.createGround(chunkX, chunkZ, worldX, worldZ, size, groundBiome, random, chunkParent);
+                
+                // Создаём контекст генерации чанка
+                const chunkContext: ChunkGenerationContext = {
+                    scene: this.scene,
+                    chunkX,
+                    chunkZ,
+                    worldX,
+                    worldZ,
+                    size,
+                    random: new MapsSeededRandom(seed), // Используем SeededRandom из maps
+                    chunkParent,
+                    biome: groundBiome
+                };
+                
+                // Генерируем контент через генератор (холмы, здания, препятствия и т.д.)
+                try {
+                    generator.generateContent(chunkContext);
+                } catch (error) {
+                    logger.error(`[ChunkSystem] Error generating content for ${mapType}:`, error);
+                    // Fallback на старую логику при ошибке
+                    if (mapType === "polygon") {
+                        this.generatePolygonContent(chunkX, chunkZ, worldX, worldZ, size, random, chunkParent);
+                    }
+                }
+                return;
+            } else {
+                // Генератор не найден - используем старую логику как fallback
+                logger.warn(`[ChunkSystem] Generator for ${mapType} not found, using fallback`);
+                if (mapType === "polygon") {
+                    this.generatePolygonContent(chunkX, chunkZ, worldX, worldZ, size, random, chunkParent);
+                    return;
+                }
+            }
         }
         
-        // В режиме передовой генерируем военную карту с тремя зонами
-        if (this.config.mapType === "frontline") {
-            this.generateFrontlineContent(chunkX, chunkZ, worldX, worldZ, size, random, chunkParent);
-            return;
-        }
-        
-        // Новые карты
-        if (this.config.mapType === "ruins") {
-            this.generateRuinsContent(chunkX, chunkZ, worldX, worldZ, size, random, chunkParent);
-            return;
-        }
-        
-        if (this.config.mapType === "canyon") {
-            this.generateCanyonContent(chunkX, chunkZ, worldX, worldZ, size, random, chunkParent);
-            return;
-        }
-        
-        if (this.config.mapType === "industrial") {
-            this.generateIndustrialMapContent(chunkX, chunkZ, worldX, worldZ, size, random, chunkParent);
-            return;
-        }
-        
-        if (this.config.mapType === "urban_warfare") {
-            this.generateUrbanWarfareContent(chunkX, chunkZ, worldX, worldZ, size, random, chunkParent);
-            return;
-        }
-        
-        if (this.config.mapType === "underground") {
-            this.generateUndergroundContent(chunkX, chunkZ, worldX, worldZ, size, random, chunkParent);
-            return;
-        }
-        
-        if (this.config.mapType === "coastal") {
-            this.generateCoastalContent(chunkX, chunkZ, worldX, worldZ, size, random, chunkParent);
-            return;
-        }
+        // Fallback для старых карт (normal, tartaria) или если генератор не найден
+        // Для normal карты используем старую логику
         
         // For normal map, use completely random biomes (no distance dependency)
         let biome: BiomeType;
@@ -1912,19 +2239,10 @@ export class ChunkSystem {
                         const neighborX = sampleX + dir.dx;
                         const neighborZ = sampleZ + dir.dz;
                         
-                        // Проверяем что соседняя точка не в гараже
-                        let inGarage = false;
-                        for (const garagePos of this.garagePositions) {
-                            const garageRadius = 15;
-                            const dx = Math.abs(neighborX - garagePos.x);
-                            const dz = Math.abs(neighborZ - garagePos.z);
-                            if (dx < garageRadius && dz < garageRadius) {
-                                inGarage = true;
-                                break;
-                            }
-                        }
+                        // КРИТИЧНО: Используем isPositionInGarageArea для проверки соседних точек
+                        const neighborInGarage = this.isPositionInGarageArea(neighborX, neighborZ, 0);
                         
-                        if (!inGarage) {
+                        if (!neighborInGarage) {
                             const neighborHeight = this.terrainGenerator.getHeight(neighborX, neighborZ, typeof biome === "string" ? biome : "dirt");
                             if (isFinite(neighborHeight)) {
                                 neighborHeights.push(neighborHeight);
@@ -1957,6 +2275,18 @@ export class ChunkSystem {
                         }
                     }
                 }
+            }
+        }
+        
+        // КРИТИЧНО: Финальная проверка всех вершин на валидность перед обновлением
+        // Это предотвращает появление дыр из-за некорректных значений
+        for (let i = 1; i < positions.length; i += 3) {
+            const height = positions[i];
+            // Проверяем на undefined, NaN, Infinity и слишком низкие значения
+            if (height === undefined || !isFinite(height) || isNaN(height)) {
+                positions[i] = 0.0; // Безопасная высота по умолчанию
+            } else if (height < 0.0) {
+                positions[i] = 0.0; // Минимальная высота для предотвращения дыр
             }
         }
         
@@ -1995,9 +2325,10 @@ export class ChunkSystem {
             
             // Sample heights from terrain generator
             const positions = ground.getVerticesData(VertexBuffer.PositionKind);
+            const vertsPerSide = subdivisions + 1;
             if (positions) {
-                const vertsPerSide = subdivisions + 1;
-                const garageRadius = 15; // УВЕЛИЧЕННЫЙ радиус гаража для проверки высоты (было 12)
+                // КРИТИЧНО: Используем isPositionInGarageArea для точной проверки
+                // Это гарантирует, что террейн не будет внутри гаража
                 
                 for (let gz = 0; gz < vertsPerSide; gz++) {
                     for (let gx = 0; gx < vertsPerSide; gx++) {
@@ -2005,36 +2336,47 @@ export class ChunkSystem {
                         const sampleX = worldX + (gx / subdivisions) * size;
                         const sampleZ = worldZ + (gz / subdivisions) * size;
                         
-                        // Проверяем, не находится ли эта точка в области гаража
-                        let inGarage = false;
-                        for (const garagePos of this.garagePositions) {
-                            const dx = Math.abs(sampleX - garagePos.x);
-                            const dz = Math.abs(sampleZ - garagePos.z);
-                            if (dx < garageRadius && dz < garageRadius) {
-                                inGarage = true;
-                                break;
-                            }
-                        }
+                        // КРИТИЧНО: Используем isPositionInGarageArea с адаптивным запасом
+                        // Для специальных карт (полигон, фронтлайн) используем меньший запас, чтобы не блокировать генерацию
+                        // Для обычных карт используем больший запас для полной защиты
+                        const isSpecialMap = this.config.mapType === "polygon" || this.config.mapType === "frontline";
+                        const garageCheckMargin = isSpecialMap ? 10 : 25; // Меньший запас для специальных карт
+                        const inGarage = this.isPositionInGarageArea(sampleX, sampleZ, garageCheckMargin);
                         
-                        // Если точка в гараже, устанавливаем высоту на уровень пола гаража (0)
-                        // ИСПРАВЛЕНИЕ: Также сглаживаем область вокруг гаража для плавного выезда
+                        // Если точка в гараже или очень близко к нему, устанавливаем высоту на уровень пола гаража (0)
+                        // КРИТИЧНО: Это гарантирует, что террейн не будет внутри гаража
                         if (inGarage) {
                             positions[idx + 1] = 0; // Пол гаража на уровне 0
                         } else {
-                            // ИСПРАВЛЕНИЕ: Проверяем расстояние до гаража для плавного перехода
+                            // КРИТИЧНО: Проверяем расстояние до гаража для плавного перехода
+                            // Используем isPositionInGarageArea с разными margin для определения расстояния
                             let minGarageDist = Infinity;
-                            for (const garagePos of this.garagePositions) {
-                                const dx = Math.abs(sampleX - garagePos.x);
-                                const dz = Math.abs(sampleZ - garagePos.z);
-                                const dist = Math.sqrt(dx * dx + dz * dz);
-                                minGarageDist = Math.min(minGarageDist, dist);
+                            let closestGarageArea: { x: number; z: number; width: number; depth: number } | null = null;
+                            
+                            for (const area of this.garageAreas) {
+                                // Вычисляем расстояние до ближайшей точки области гаража
+                                const areaCenterX = area.x + area.width / 2;
+                                const areaCenterZ = area.z + area.depth / 2;
+                                const dx = Math.abs(sampleX - areaCenterX);
+                                const dz = Math.abs(sampleZ - areaCenterZ);
+                                // Расстояние до края области гаража
+                                const distToEdge = Math.max(0, Math.sqrt(dx * dx + dz * dz) - Math.max(area.width, area.depth) / 2);
+                                if (distToEdge < minGarageDist) {
+                                    minGarageDist = distToEdge;
+                                    closestGarageArea = area;
+                                }
                             }
                             
-                            // Если точка близко к гаражу (в пределах 20 единиц), сглаживаем высоту
-                            const garageSmoothingRadius = 20;
+                            // Если точка близко к гаражу (в пределах 30 единиц), сглаживаем высоту
+                            const garageSmoothingRadius = 30; // Увеличено для плавного перехода
                             let height = this.terrainGenerator.getHeight(sampleX, sampleZ, typeof biome === "string" ? biome : "dirt");
                             
-                            if (minGarageDist < garageSmoothingRadius) {
+                            // КРИТИЧНО: Дополнительная проверка - если точка в области гаража с margin, устанавливаем 0
+                            const smoothingMargin = isSpecialMap ? 8 : 15; // Меньший запас для специальных карт
+                            if (this.isPositionInGarageArea(sampleX, sampleZ, smoothingMargin)) {
+                                // Если точка в расширенной области гаража, устанавливаем 0
+                                height = 0;
+                            } else if (minGarageDist < garageSmoothingRadius && closestGarageArea) {
                                 // Плавный переход от гаража (высота 0) к нормальной высоте
                                 const smoothingFactor = 1.0 - (minGarageDist / garageSmoothingRadius);
                                 // Используем smoothstep для более плавного перехода
@@ -2042,43 +2384,48 @@ export class ChunkSystem {
                                 // Смешиваем высоту с нулём (уровень гаража) для плавного выезда
                                 height = height * (1 - smoothFactor * 0.8) + 0 * (smoothFactor * 0.8);
                                 // Ограничиваем максимальную высоту вблизи гаража
-                                if (minGarageDist < 15) {
-                                    height = Math.min(height, 1.0); // Максимум 1 единица высоты вблизи гаража
+                                if (minGarageDist < 20) {
+                                    height = Math.min(height, 0.5); // Максимум 0.5 единицы высоты вблизи гаража
                                 }
                             }
                             
-                            // ИСПРАВЛЕНИЕ: Сглаживание границ чанков для предотвращения дыр
+                            // ИСПРАВЛЕНИЕ: Улучшенное сглаживание границ чанков для предотвращения дыр
                             // Проверяем точки на границах чанка и сглаживаем их с соседними чанками
-                            const isOnEdge = (gx === 0 || gx === subdivisions || gz === 0 || gz === subdivisions);
+                            const edgeThreshold = 2; // Расстояние от края для сглаживания (в вершинах)
+                            const isOnEdge = (gx <= edgeThreshold || gx >= subdivisions - edgeThreshold || 
+                                             gz <= edgeThreshold || gz >= subdivisions - edgeThreshold);
+                            
                             if (isOnEdge && this.terrainGenerator) {
                                 // Получаем высоты соседних точек из соседних чанков
-                                const neighborDist = 0.5;
+                                // Используем несколько точек для более точного усреднения
+                                const neighborDistances = [0.1, 0.5, 1.0, 2.0]; // Разные расстояния для лучшего усреднения
                                 const neighborHeights: number[] = [];
                                 
-                                // Проверяем 4 соседние точки (север, юг, восток, запад)
-                                const neighbors = [
-                                    { x: sampleX, z: sampleZ + neighborDist },
-                                    { x: sampleX, z: sampleZ - neighborDist },
-                                    { x: sampleX + neighborDist, z: sampleZ },
-                                    { x: sampleX - neighborDist, z: sampleZ }
+                                // Проверяем 8 направлений (север, юг, восток, запад, диагонали)
+                                const directions = [
+                                    { x: 0, z: 1 },   // Север
+                                    { x: 0, z: -1 },  // Юг
+                                    { x: 1, z: 0 },   // Восток
+                                    { x: -1, z: 0 },  // Запад
+                                    { x: 1, z: 1 },   // Северо-восток
+                                    { x: -1, z: 1 },  // Северо-запад
+                                    { x: 1, z: -1 },  // Юго-восток
+                                    { x: -1, z: -1 }  // Юго-запад
                                 ];
                                 
-                                for (const neighbor of neighbors) {
-                                    // Проверяем что соседняя точка не в гараже
-                                    let neighborInGarage = false;
-                                    for (const garagePos of this.garagePositions) {
-                                        const dx = Math.abs(neighbor.x - garagePos.x);
-                                        const dz = Math.abs(neighbor.z - garagePos.z);
-                                        if (dx < garageRadius && dz < garageRadius) {
-                                            neighborInGarage = true;
-                                            break;
-                                        }
-                                    }
-                                    
-                                    if (!neighborInGarage) {
-                                        const neighborHeight = this.terrainGenerator.getHeight(neighbor.x, neighbor.z, typeof biome === "string" ? biome : "dirt");
-                                        if (isFinite(neighborHeight)) {
-                                            neighborHeights.push(neighborHeight);
+                                for (const dir of directions) {
+                                    for (const dist of neighborDistances) {
+                                        const neighborX = sampleX + dir.x * dist;
+                                        const neighborZ = sampleZ + dir.z * dist;
+                                        
+                                        // КРИТИЧНО: Используем isPositionInGarageArea для проверки соседних точек
+                                        const neighborInGarage = this.isPositionInGarageArea(neighborX, neighborZ, 0);
+                                        
+                                        if (!neighborInGarage) {
+                                            const neighborHeight = this.terrainGenerator.getHeight(neighborX, neighborZ, typeof biome === "string" ? biome : "dirt");
+                                            if (isFinite(neighborHeight) && !isNaN(neighborHeight) && neighborHeight >= 0) {
+                                                neighborHeights.push(neighborHeight);
+                                            }
                                         }
                                     }
                                 }
@@ -2088,22 +2435,105 @@ export class ChunkSystem {
                                     const avgNeighborHeight = neighborHeights.reduce((a, b) => a + b, 0) / neighborHeights.length;
                                     const heightDiff = Math.abs(height - avgNeighborHeight);
                                     
-                                    // Если разница большая (более 3 единиц), сглаживаем
-                                    if (heightDiff > 3.0) {
-                                        height = height * 0.7 + avgNeighborHeight * 0.3; // 70% текущая, 30% соседняя
+                                    // УЛУЧШЕНО: Более агрессивное сглаживание для предотвращения дыр
+                                    // Вычисляем расстояние до края для плавного сглаживания
+                                    const distToEdgeX = Math.min(gx, subdivisions - gx);
+                                    const distToEdgeZ = Math.min(gz, subdivisions - gz);
+                                    const distToEdge = Math.min(distToEdgeX, distToEdgeZ);
+                                    
+                                    // Более агрессивное сглаживание на самых краях
+                                    let smoothingStrength = 0.3; // Базовая сила сглаживания
+                                    if (distToEdge <= 1) {
+                                        smoothingStrength = 0.7; // Очень агрессивное на краю
+                                    } else if (distToEdge <= 2) {
+                                        smoothingStrength = 0.5; // Среднее сглаживание
+                                    }
+                                    
+                                    // Если разница большая (более 1.5 единиц), сглаживаем более агрессивно
+                                    if (heightDiff > 1.5) {
+                                        // Используем более сильное сглаживание
+                                        height = height * (1 - smoothingStrength) + avgNeighborHeight * smoothingStrength;
+                                    } else if (heightDiff > 0.5) {
+                                        // Умеренное сглаживание для средних разниц
+                                        height = height * (1 - smoothingStrength * 0.6) + avgNeighborHeight * (smoothingStrength * 0.6);
+                                    }
+                                    
+                                    // КРИТИЧНО: ДОПОЛНИТЕЛЬНАЯ ЗАЩИТА ОТ ДЫР
+                                    // Если текущая высота намного ниже соседних, поднимаем её
+                                    if (height < avgNeighborHeight - 2.5) {
+                                        // Ограничиваем глубину дыр - не допускаем разницу более 2 единиц
+                                        height = Math.max(height, avgNeighborHeight - 2.0);
+                                    }
+                                    
+                                    // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Если высота отрицательная, поднимаем до минимума
+                                    if (height < 0) {
+                                        height = Math.max(0, avgNeighborHeight * 0.5);
                                     }
                                 }
                             }
                             
-                            // ИСПРАВЛЕНИЕ: Минимальная высота для предотвращения глубоких дыр
-                            if (height < -2.0) {
-                                height = -2.0;
+                            // КРИТИЧНО: Минимальная высота для предотвращения глубоких дыр
+                            // УВЕЛИЧЕНА минимальная высота с -2.0 до 0.0 для предотвращения дыр
+                            if (height < 0.0) {
+                                height = 0.0;
+                            }
+                            
+                            // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Если высота NaN или Infinity, устанавливаем безопасное значение
+                            if (!isFinite(height) || isNaN(height)) {
+                                height = 0.5; // Безопасная высота по умолчанию
                             }
                             
                             positions[idx + 1] = height;
                         }
                     }
                 }
+                // КРИТИЧНО: Финальная проверка всех вершин на валидность перед обновлением
+                // Это предотвращает появление дыр из-за некорректных значений
+                for (let i = 1; i < positions.length; i += 3) {
+                    const height = positions[i];
+                    // Проверяем на undefined, NaN, Infinity и слишком низкие значения
+                    if (height === undefined || !isFinite(height) || isNaN(height)) {
+                        positions[i] = 0.5; // Безопасная высота по умолчанию (не 0, чтобы избежать дыр)
+                    } else if (height < 0.0) {
+                        positions[i] = 0.0; // Минимальная высота для предотвращения дыр
+                    }
+                }
+                
+                // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Сглаживание резких перепадов высот для предотвращения визуальных дыр
+                // Проверяем соседние вершины и сглаживаем слишком большие перепады
+                for (let gz = 1; gz < vertsPerSide - 1; gz++) {
+                    for (let gx = 1; gx < vertsPerSide - 1; gx++) {
+                        const idx = (gz * vertsPerSide + gx) * 3;
+                        const currentHeight = positions[idx + 1];
+                        
+                        // Проверяем 4 соседние вершины
+                        const neighbors = [
+                            positions[((gz - 1) * vertsPerSide + gx) * 3 + 1], // Север
+                            positions[((gz + 1) * vertsPerSide + gx) * 3 + 1], // Юг
+                            positions[(gz * vertsPerSide + (gx - 1)) * 3 + 1], // Запад
+                            positions[(gz * vertsPerSide + (gx + 1)) * 3 + 1]  // Восток
+                        ];
+                        
+                        // Вычисляем среднюю высоту соседей
+                        const validNeighbors = neighbors.filter(h => isFinite(h) && !isNaN(h) && h >= 0);
+                        if (validNeighbors.length > 0) {
+                            const avgNeighborHeight = validNeighbors.reduce((a, b) => a + b, 0) / validNeighbors.length;
+                            const heightDiff = Math.abs(currentHeight - avgNeighborHeight);
+                            
+                            // Если перепад слишком большой (более 3 единиц), сглаживаем
+                            if (heightDiff > 3.0) {
+                                const smoothingFactor = 0.4;
+                                positions[idx + 1] = currentHeight * (1 - smoothingFactor) + avgNeighborHeight * smoothingFactor;
+                            }
+                            
+                            // КРИТИЧНО: Если текущая высота намного ниже соседей (дыра), поднимаем её
+                            if (currentHeight < avgNeighborHeight - 2.5) {
+                                positions[idx + 1] = Math.max(currentHeight, avgNeighborHeight - 2.0);
+                            }
+                        }
+                    }
+                }
+                
                 ground.updateVerticesData(VertexBuffer.PositionKind, positions, true);
                 ground.refreshBoundingInfo(true);
             }
@@ -2111,8 +2541,30 @@ export class ChunkSystem {
             // Позиция относительно chunkParent (который уже позиционирован в worldX, worldZ)
             // Ground должен начинаться с (0, 0, 0) относительно chunkParent
             ground.position = new Vector3(0, 0, 0);
-            ground.material = this.getMat(groundMat);
+            
+            // Применяем материал с модификацией цвета по высоте
+            // Для heightmap используем среднюю высоту чанка для определения оттенка
+            if (positions) {
+                const avgHeight = this.calculateAverageHeight(positions, vertsPerSide);
+                const tintedMaterial = this.getHeightTintedMaterial(groundMat, avgHeight);
+                ground.material = tintedMaterial;
+                
+                // Добавляем vertex colors для визуализации высот
+                this.applyHeightVertexColors(ground, positions, vertsPerSide);
+            } else {
+                ground.material = this.getMat(groundMat);
+            }
+            
             ground.parent = chunkParent;
+            
+            // Включаем рендеринг краев для визуализации границ и высот
+            ground.enableEdgesRendering();
+            const edgeColor = this.getContrastEdgeColor(groundMat);
+            const edgesRenderer = (ground as any)._edgesRenderer;
+            if (edgesRenderer) {
+                edgesRenderer.edgesWidth = 2.0; // УСИЛЕНО: Толще для лучшей видимости (было 1.5)
+                edgesRenderer.edgesColor = edgeColor;
+            }
             
             // Устанавливаем renderOrder для правильного рендеринга (ground должен рендериться первым)
             ground.renderingGroupId = 0;
@@ -2314,7 +2766,8 @@ export class ChunkSystem {
             const dWorldX = chunkX * this.config.chunkSize + dx;
             const dWorldZ = chunkZ * this.config.chunkSize + dz;
             
-            if (this.isPositionInGarageArea(dWorldX, dWorldZ, 2)) continue;
+            // КРИТИЧНО: УВЕЛИЧЕННЫЙ запас проверки гаражей (30 единиц для полной защиты)
+            if (this.isPositionInGarageArea(dWorldX, dWorldZ, 30)) continue;
             if (this.isPositionNearRoad(dWorldX, dWorldZ, 2)) continue;
             
             const terrainHeight = this.getTerrainHeight(dWorldX, dWorldZ, biome);
@@ -2581,10 +3034,12 @@ export class ChunkSystem {
             const bx = buildingPos.x;
             const bz = buildingPos.z;
             
-            // Проверяем, не находится ли здание внутри гаража
+            // КРИТИЧНО: Проверяем, не находится ли здание внутри гаража с УВЕЛИЧЕННЫМ запасом
             const worldX = chunkX * this.config.chunkSize + bx;
             const worldZ = chunkZ * this.config.chunkSize + bz;
-            if (this.isPositionInGarageArea(worldX, worldZ, Math.max(type.w, type.d) / 2)) {
+            const buildingSize = Math.max(type.w, type.d);
+            // Используем размер здания + дополнительный запас 20 единиц для полной защиты
+            if (this.isPositionInGarageArea(worldX, worldZ, buildingSize / 2 + 20)) {
                 continue; // Пропускаем это здание
             }
             
@@ -2863,7 +3318,9 @@ export class ChunkSystem {
             
             const worldX = chunkX * this.config.chunkSize + bx;
             const worldZ = chunkZ * this.config.chunkSize + bz;
-            if (this.isPositionInGarageArea(worldX, worldZ, Math.max(type.w, type.d) / 2)) {
+            // КРИТИЧНО: Проверяем с УВЕЛИЧЕННЫМ запасом для полной защиты
+            const buildingSize = Math.max(type.w, type.d);
+            if (this.isPositionInGarageArea(worldX, worldZ, buildingSize / 2 + 20)) {
                 continue;
             }
             
@@ -5788,8 +6245,20 @@ export class ChunkSystem {
                         else if (biome === "wasteland") matName = random.chance(0.5) ? "gravel" : "dirt";
                         else if (biome === "city" || biome === "industrial") matName = "concrete";
                         
-                        hillBlock.material = this.getMat(matName);
+                        // Используем материал с модификацией по высоте
+                        hillBlock.material = this.getHeightTintedMaterial(matName, blockHeight);
                         hillBlock.parent = chunkParent;
+                        
+                        // Включаем рендеринг краев для визуализации высот
+                        hillBlock.enableEdgesRendering();
+                        const edgeColor = this.getContrastEdgeColor(matName);
+                        // Устанавливаем цвет и толщину краев через EdgesRenderer
+                        const edgesRenderer = (hillBlock as any)._edgesRenderer;
+                        if (edgesRenderer) {
+                            edgesRenderer.edgesWidth = 1.0;
+                            edgesRenderer.edgesColor = edgeColor;
+                        }
+                        
                         this.optimizeMesh(hillBlock);
                         // chunk.meshes.push(hillBlock);
                         
@@ -5813,8 +6282,20 @@ export class ChunkSystem {
                         if (biome === "park") matName = "grassDark";
                         else if (biome === "wasteland") matName = random.chance(0.6) ? "gravel" : "dirt";
                         
-                        depBlock.material = this.getMat(matName);
+                        // Используем материал с модификацией по высоте (учитываем отрицательную высоту)
+                        depBlock.material = this.getHeightTintedMaterial(matName, -depDepth);
                         depBlock.parent = chunkParent;
+                        
+                        // Включаем рендеринг краев для визуализации высот
+                        depBlock.enableEdgesRendering();
+                        const edgeColor = this.getContrastEdgeColor(matName);
+                        // Устанавливаем цвет и толщину краев через EdgesRenderer
+                        const edgesRenderer = (depBlock as any)._edgesRenderer;
+                        if (edgesRenderer) {
+                            edgesRenderer.edgesWidth = 1.0;
+                            edgesRenderer.edgesColor = edgeColor;
+                        }
+                        
                         this.optimizeMesh(depBlock);
                         // chunk.meshes.push(depBlock);
                     }
@@ -5838,8 +6319,8 @@ export class ChunkSystem {
             const worldX_pos = worldX + x;
             const worldZ_pos = worldZ + z;
             
-            // Расширенный радиус исключения для гаражей (15 единиц вместо стандартных 12)
-            if (this.isPositionInGarageArea(worldX_pos, worldZ_pos, 15)) {
+            // КРИТИЧНО: УВЕЛИЧЕННЫЙ радиус исключения для гаражей (30 единиц для полной защиты)
+            if (this.isPositionInGarageArea(worldX_pos, worldZ_pos, 30)) {
                 continue; // Пропускаем генерацию terrain feature на этом месте
             }
             
@@ -6497,6 +6978,106 @@ export class ChunkSystem {
         this.stats.totalMeshes = totalMeshes;
     }
     
+    /**
+     * ОПТИМИЗАЦИЯ: Объединение статичных мешей в чанке для уменьшения draw calls
+     * Объединяет меши с одинаковым материалом и без физики
+     */
+    private mergeStaticMeshesInChunk(chunkParent: TransformNode): void {
+        try {
+            // Собираем все статичные меши из чанка
+            const staticMeshes: Mesh[] = [];
+            const children = chunkParent.getChildren();
+            
+            for (const child of children) {
+                if (child instanceof Mesh) {
+                    const mesh = child as Mesh;
+                    // Проверяем, что меш статичный (нет физики, не двигается)
+                    const meta = mesh.metadata;
+                    if (meta && (meta.type === "dynamic" || meta.type === "garageDoor" || meta.type === "physics")) {
+                        continue; // Пропускаем динамичные меши
+                    }
+                    // Пропускаем меши с физикой
+                    if ((mesh as any).physicsBody || (mesh as any).physicsImpostor) {
+                        continue;
+                    }
+                    // Пропускаем меши, которые уже заморожены (могут быть частью другого объединения)
+                    if (mesh.isWorldMatrixFrozen && mesh.getChildren().length === 0) {
+                        staticMeshes.push(mesh);
+                    }
+                }
+            }
+            
+            if (staticMeshes.length < 2) return; // Нечего объединять
+            
+            // Группируем меши по материалу
+            const meshesByMaterial = new Map<StandardMaterial | null, Mesh[]>();
+            for (const mesh of staticMeshes) {
+                const mat = mesh.material as StandardMaterial | null;
+                if (!meshesByMaterial.has(mat)) {
+                    meshesByMaterial.set(mat, []);
+                }
+                meshesByMaterial.get(mat)!.push(mesh);
+            }
+            
+            // Объединяем меши с одинаковым материалом (максимум 50 мешей за раз для производительности)
+            for (const [material, meshes] of meshesByMaterial) {
+                if (meshes.length < 2) continue;
+                
+                // Разбиваем на батчи по 50 мешей
+                for (let i = 0; i < meshes.length; i += 50) {
+                    const batch = meshes.slice(i, i + 50);
+                    if (batch.length < 2) continue;
+                    
+                    try {
+                        const merged = Mesh.MergeMeshes(batch, true, true, undefined, false, true);
+                        if (merged) {
+                            merged.parent = chunkParent;
+                            merged.material = material;
+                            merged.freezeWorldMatrix();
+                        }
+                    } catch (e) {
+                        // Если объединение не удалось, оставляем меши как есть
+                        logger.debug(`[ChunkSystem] Failed to merge meshes: ${e}`);
+                    }
+                }
+            }
+        } catch (e) {
+            logger.debug(`[ChunkSystem] Error merging static meshes: ${e}`);
+        }
+    }
+    
+    /**
+     * ОПТИМИЗАЦИЯ: Принудительная выгрузка дальних чанков при нехватке памяти
+     */
+    private forceUnloadIfNeeded(playerCx: number, playerCz: number): void {
+        const maxLoadedChunks = 25; // Максимум загруженных чанков
+        let loadedCount = 0;
+        const chunksByDistance: Array<{ key: string; dist: number }> = [];
+        
+        // Подсчитываем загруженные чанки и сортируем по расстоянию
+        this.chunks.forEach((chunk, key) => {
+            if (chunk.loaded) {
+                loadedCount++;
+                const dist = Math.max(Math.abs(chunk.x - playerCx), Math.abs(chunk.z - playerCz));
+                chunksByDistance.push({ key, dist });
+            }
+        });
+        
+        // Если слишком много загруженных чанков, выгружаем дальние
+        if (loadedCount > maxLoadedChunks) {
+            chunksByDistance.sort((a, b) => b.dist - a.dist); // Сортируем по убыванию расстояния
+            
+            // Выгружаем самые дальние чанки
+            const toUnload = loadedCount - maxLoadedChunks;
+            for (let i = 0; i < toUnload && i < chunksByDistance.length; i++) {
+                const chunk = this.chunks.get(chunksByDistance[i]!.key);
+                if (chunk && chunk.loaded) {
+                    this.hideChunk(chunk);
+                }
+            }
+        }
+    }
+    
     getStats() {
         return { ...this.stats, totalChunksInMemory: this.chunks.size };
     }
@@ -6716,12 +7297,14 @@ export class ChunkSystem {
         new PhysicsAggregate(collisionFloor, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         
         // Сохраняем область гаража для исключения из генерации других объектов
-        // УВЕЛИЧЕННЫЙ ЗАПАС чтобы ничего не спавнилось внутри или рядом с гаражом
+        // КРИТИЧНО: Адаптивный запас - для специальных карт используем меньший запас
+        const isSpecialMap = this.config.mapType === "polygon" || this.config.mapType === "frontline";
+        const garageExclusionMargin = isSpecialMap ? 15 : 30; // Меньший запас для специальных карт
         const garageArea = {
-            x: worldGarageX - garageWidth / 2 - 5, // Увеличен запас до 5 единиц
-            z: worldGarageZ - garageDepth / 2 - 5,
-            width: garageWidth + 10, // Увеличен запас до 10 единиц
-            depth: garageDepth + 10
+            x: worldGarageX - garageWidth / 2 - garageExclusionMargin,
+            z: worldGarageZ - garageDepth / 2 - garageExclusionMargin,
+            width: garageWidth + garageExclusionMargin * 2, // Запас с обеих сторон
+            depth: garageDepth + garageExclusionMargin * 2
         };
         this.garageAreas.push(garageArea);
         
@@ -6735,13 +7318,15 @@ export class ChunkSystem {
     
     // Проверить, не попадает ли позиция в область гаража
     isPositionInGarageArea(x: number, z: number, margin: number = 0): boolean {
-        // ИСПРАВЛЕНИЕ: Увеличенный радиус по умолчанию для лучшей защиты важных объектов
-        const defaultMargin = 12; // Увеличен с 0 до 12 для защиты от terrain generation
-        const effectiveMargin = margin > 0 ? margin : defaultMargin;
+        // КРИТИЧНО: Проверка позиции в области гаража
+        // margin = 0 означает проверку точно внутри области гаража
+        // margin > 0 расширяет область проверки на указанное расстояние
+        // КРИТИЧНО: Не используем defaultMargin здесь, чтобы можно было точно контролировать проверку
         
         for (const area of this.garageAreas) {
-            if (x >= area.x - effectiveMargin && x <= area.x + area.width + effectiveMargin &&
-                z >= area.z - effectiveMargin && z <= area.z + area.depth + effectiveMargin) {
+            // Проверяем, находится ли точка внутри прямоугольной области гаража с учетом margin
+            if (x >= area.x - margin && x <= area.x + area.width + margin &&
+                z >= area.z - margin && z <= area.z + area.depth + margin) {
                 return true;
             }
         }

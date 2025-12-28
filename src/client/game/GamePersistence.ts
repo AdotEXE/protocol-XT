@@ -203,7 +203,7 @@ export class GamePersistence {
             
             // Сохраняем миссии
             if (this.missionSystem) {
-                const missions = this.missionSystem.getAllMissions();
+                const missions = this.missionSystem.getActiveMissions();
                 localStorage.setItem("playerMissions", JSON.stringify(missions));
             }
             

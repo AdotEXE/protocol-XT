@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { nanoid } from "nanoid";
 import { Vector3 } from "@babylonjs/core";
+import * as os from "os";
 import { ServerPlayer } from "./player";
 import { GameRoom } from "./room";
 import { ServerProjectile } from "./projectile";
@@ -30,9 +31,45 @@ export class GameServer {
     private monitoringAPI: MonitoringAPI;
     private monitoringClients: Set<WebSocket> = new Set();
     
-    constructor(port: number = 8080) {
-        this.wss = new WebSocketServer({ port });
-        console.log(`[Server] WebSocket server started on port ${port}`);
+    // Счетчики для простой системы наименований
+    private guestPlayerCounter: number = 0; // Счетчик для гостей (ID и имя: 0001, 0002...)
+    private roomCounter: number = 0; // Счетчик для комнат (0001, 0002...)
+    
+    constructor(port: number = 8000, host: string = "0.0.0.0") {
+        // ИСПРАВЛЕНО: Настройка WebSocketServer с правильной обработкой upgrade
+        this.wss = new WebSocketServer({ 
+            port, 
+            host,
+            perMessageDeflate: false, // Отключаем сжатие для совместимости
+            clientTracking: true // Отслеживание клиентов
+        });
+        
+        // Настраиваем генератор ID комнат для matchmaking
+        this.matchmaking.setRoomIdGenerator(() => {
+            this.roomCounter++;
+            return String(this.roomCounter).padStart(4, '0');
+        });
+        
+        // Обработка ошибок сервера (включая EADDRINUSE)
+        this.wss.on("error", (error: Error & { code?: string }) => {
+            if (error.code === 'EADDRINUSE') {
+                console.error(`[Server] ❌ Порт ${port} уже занят!`);
+                console.error(`[Server] Попробуйте:`);
+                console.error(`[Server]   1. Закрыть процесс, использующий порт ${port}`);
+                console.error(`[Server]   2. Или установить переменную окружения PORT=<другой_порт>`);
+                console.error(`[Server]   3. Windows: netstat -ano | findstr :${port} - найти процесс`);
+                console.error(`[Server]   4. Windows: taskkill /PID <PID> /F - закрыть процесс`);
+            } else {
+                console.error(`[Server] ❌ WebSocket server error:`, error);
+            }
+        });
+        
+        this.wss.on("listening", () => {
+            console.log(`[Server] ✅ WebSocket server started on ${host}:${port}`);
+        });
+        
+        // Выводим информацию о доступных адресах для подключения
+        this.printNetworkInfo(port);
         
         // Инициализация Firebase Admin для валидации токенов
         initializeFirebaseAdmin();
@@ -43,11 +80,54 @@ export class GameServer {
         this.setupWebSocket();
         this.startGameLoop();
         this.startMonitoringBroadcast();
+        this.startPeriodicStats();
+        
+        console.log(`[Server] ✅ Сервер готов к работе. Активных комнат: 0, подключенных игроков: 0`);
+    }
+    
+    private printNetworkInfo(port: number): void {
+        const interfaces = os.networkInterfaces();
+        
+        console.log(`\n[Server] Доступные адреса для подключения:`);
+        console.log(`  - localhost: ws://localhost:${port} (только на этой машине)`);
+        console.log(`  - 127.0.0.1: ws://127.0.0.1:${port} (только на этой машине)`);
+        
+        // Выводим все локальные IP-адреса
+        const addresses: string[] = [];
+        Object.keys(interfaces).forEach((iface) => {
+            interfaces[iface]?.forEach((addr: any) => {
+                if (addr.family === 'IPv4' && !addr.internal) {
+                    addresses.push(addr.address);
+                    console.log(`  - ${iface}: ws://${addr.address}:${port} (для подключения с других ПК)`);
+                }
+            });
+        });
+        
+        if (addresses.length === 0) {
+            console.log(`  ⚠️  Локальные IP-адреса не найдены. Используйте localhost для подключения на этой машине.`);
+        } else {
+            console.log(`\n[Server] Для подключения с другого ПК используйте один из адресов выше.`);
+        }
+        console.log(``);
     }
     
     private setupWebSocket(): void {
-        this.wss.on("connection", (ws: WebSocket) => {
-            console.log("[Server] New client connected");
+        // Обработка ошибок сервера
+        this.wss.on("error", (error: Error) => {
+            console.error("[Server] WebSocket server error:", error);
+        });
+        
+        // Обработка HTTP запросов (для отладки)
+        this.wss.on("headers", (headers: string[], req: any) => {
+            // Логируем заголовки для отладки
+            if (req.url && !req.url.includes('/socket.io')) {
+                console.log("[Server] Upgrade request from:", req.socket.remoteAddress, "URL:", req.url);
+            }
+        });
+        
+        // Обработка подключений
+        this.wss.on("connection", (ws: WebSocket, req: any) => {
+            console.log("[Server] New client connected from:", req.socket.remoteAddress || "unknown");
             
             ws.on("message", (data: Buffer) => {
                 try {
@@ -129,12 +209,20 @@ export class GameServer {
                 if (player) this.handleLeaveRoom(player);
                 break;
                 
+            case ClientMessageType.LIST_ROOMS:
+                if (player) this.handleListRooms(player, message.data);
+                break;
+                
             case ClientMessageType.QUICK_PLAY:
                 if (player) this.handleQuickPlay(player, message.data);
                 break;
                 
             case ClientMessageType.CANCEL_QUEUE:
                 if (player) this.handleCancelQueue(player, message.data);
+                break;
+                
+            case ClientMessageType.START_GAME:
+                if (player) this.handleStartGame(player, message.data);
                 break;
                 
             case ClientMessageType.PLAYER_INPUT:
@@ -175,7 +263,6 @@ export class GameServer {
     
     private async handleConnect(ws: WebSocket, data: any): Promise<void> {
         const playerId = data.playerId;
-        const playerName = data.playerName || `Player_${playerId?.substring(0, 6) || "Unknown"}`;
         const idToken = data.idToken; // Firebase ID токен
         
         // Валидация токена, если предоставлен
@@ -197,20 +284,40 @@ export class GameServer {
             }
         }
         
-        // Используем verifiedUserId если токен валиден, иначе используем переданный playerId
-        const finalPlayerId = verifiedUserId || playerId;
+        // Простая система наименований: для гостей генерируем простой ID и имя anon_ID:XXXX
+        // Для авторизованных используем Firebase UID
+        let finalPlayerId: string;
+        let finalPlayerName: string;
+        
+        if (verifiedUserId) {
+            // Авторизованный игрок - используем Firebase UID как ID
+            finalPlayerId = verifiedUserId;
+            finalPlayerName = data.playerName || `User_${verifiedUserId.substring(0, 6)}`;
+        } else {
+            // Гость - генерируем простой ID (0001, 0002, 0003...) и имя anon_ID:XXXX
+            // Используем ОДИН счетчик для согласованности ID и имени
+            this.guestPlayerCounter++;
+            const guestNumber = String(this.guestPlayerCounter).padStart(4, '0');
+            finalPlayerId = guestNumber; // ID = 0001, 0002, 0003...
+            finalPlayerName = `anon_ID:${guestNumber}`; // Имя = anon_ID:0001, anon_ID:0002, anon_ID:0003...
+            console.log(`[Server] Гость подключился: ID=${finalPlayerId}, имя=${finalPlayerName} (игнорировано имя от клиента: ${data.playerName || 'не указано'})`);
+        }
         
         let player = this.players.get(finalPlayerId);
         
         if (!player) {
-            player = new ServerPlayer(ws, finalPlayerId, playerName);
+            // Новое подключение - создаем игрока с правильным ID и именем
+            player = new ServerPlayer(ws, finalPlayerId, finalPlayerName);
             this.players.set(player.id, player);
-            console.log(`[Server] Player connected: ${player.id} (${player.name})${verifiedUserId ? ' [AUTHENTICATED]' : ' [GUEST]'}`);
+            console.log(`[Server] Игрок подключен: ID=${player.id}, имя=${player.name}${verifiedUserId ? ' [AUTHENTICATED]' : ' [GUEST]'}`);
         } else {
-            // Reconnection
+            // Reconnection - обновляем сокет и имя
+            if (!verifiedUserId) {
+                player.name = finalPlayerName; // Обновляем имя для гостей
+            }
             player.socket = ws;
             player.connected = true;
-            console.log(`[Server] Player reconnected: ${player.id}${verifiedUserId ? ' [AUTHENTICATED]' : ' [GUEST]'}`);
+            console.log(`[Server] Игрок переподключен: ID=${player.id}, имя=${player.name}${verifiedUserId ? ' [AUTHENTICATED]' : ' [GUEST]'}`);
         }
         
         this.send(ws, createServerMessage(ServerMessageType.CONNECTED, {
@@ -222,19 +329,38 @@ export class GameServer {
     
     private handleCreateRoom(player: ServerPlayer, data: any): void {
         const { mode, maxPlayers, isPrivate, settings, worldSeed } = data;
-        const room = new GameRoom(mode, maxPlayers, isPrivate, worldSeed);
+        
+        // Генерируем простой ID комнаты (0001, 0002, и т.д.)
+        this.roomCounter++;
+        const roomId = String(this.roomCounter).padStart(4, '0');
+        console.log(`[Server] 🔧 Генерация ID комнаты: roomCounter=${this.roomCounter}, roomId=${roomId}`);
+        
+        const room = new GameRoom(mode, maxPlayers, isPrivate, worldSeed, roomId);
         room.settings = settings || {};
+        
+        // Проверяем, что ID комнаты правильный
+        if (room.id !== roomId) {
+            console.error(`[Server] ❌ ОШИБКА: ID комнаты не совпадает! Ожидалось: ${roomId}, получено: ${room.id}`);
+        } else {
+            console.log(`[Server] ✅ ID комнаты подтвержден: ${room.id}`);
+        }
         
         if (room.addPlayer(player)) {
             this.rooms.set(room.id, room);
-            console.log(`[Server] Room created: ${room.id} by ${player.id}, seed: ${room.worldSeed}`);
+            room.creatorId = player.id; // Сохраняем ID создателя
+            console.log(`[Server] Комната создана: ID=${room.id}, режим=${mode}, игроков=1/${maxPlayers}, создатель=${player.id} (${player.name}), seed=${room.worldSeed}`);
             
             this.send(player.socket, createServerMessage(ServerMessageType.ROOM_CREATED, {
                 roomId: room.id,
                 mode: room.mode,
-                worldSeed: room.worldSeed
+                worldSeed: room.worldSeed,
+                isCreator: true
             }));
+            
+            // Отправляем обновленный список комнат всем подключенным клиентам
+            this.broadcastRoomListToAll();
         } else {
+            console.error(`[Server] Ошибка создания комнаты: не удалось добавить игрока ${player.id}`);
             this.sendError(player.socket, "ROOM_CREATE_FAILED", "Failed to create room");
         }
     }
@@ -259,15 +385,29 @@ export class GameServer {
         }
         
         if (room.addPlayer(player)) {
-            console.log(`[Server] Player ${player.id} joined room ${room.id}`);
+            console.log(`[Server] Игрок ${player.id} (${player.name}) присоединился к комнате ${room.id}, игроков в комнате: ${room.players.size}/${room.maxPlayers}`);
             
             // Notify player
             this.send(player.socket, createServerMessage(ServerMessageType.ROOM_JOINED, {
                 roomId: room.id,
                 mode: room.mode,
                 worldSeed: room.worldSeed,
-                players: room.getPlayerData()
+                players: room.getPlayerData(),
+                isCreator: room.creatorId === player.id,
+                isActive: room.isActive // Добавляем информацию о статусе игры
             }));
+            
+            // Если комната активна, сразу отправляем GAME_START для присоединения к идущей игре
+            if (room.isActive) {
+                console.log(`[Server] Комната ${room.id} активна, отправляем GAME_START новому игроку ${player.id}`);
+                this.send(player.socket, createServerMessage(ServerMessageType.GAME_START, {
+                    roomId: room.id,
+                    mode: room.mode,
+                    worldSeed: room.worldSeed,
+                    players: room.getPlayerData(),
+                    enemies: room.getEnemyData() // Отправляем данные о ботах для синхронизации
+                }));
+            }
             
             // Notify other players
             this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_JOINED, {
@@ -291,17 +431,106 @@ export class GameServer {
             // Clean up empty rooms
             if (room.isEmpty()) {
                 this.rooms.delete(room.id);
-                console.log(`[Server] Room ${room.id} deleted (empty)`);
+                console.log(`[Server] Комната ${room.id} удалена (пустая)`);
+                // Отправляем обновленный список комнат всем подключенным клиентам
+                this.broadcastRoomListToAll();
             }
         }
         
         player.roomId = null;
     }
     
+    private handleStartGame(player: ServerPlayer, _data: any): void {
+        if (!player.roomId) {
+            this.sendError(player.socket, "NOT_IN_ROOM", "You are not in a room");
+            return;
+        }
+        
+        const room = this.rooms.get(player.roomId);
+        if (!room) {
+            this.sendError(player.socket, "ROOM_NOT_FOUND", "Room not found");
+            return;
+        }
+        
+        // Проверяем, что игрок является создателем комнаты
+        if (room.creatorId !== player.id) {
+            this.sendError(player.socket, "NOT_CREATOR", "Only room creator can start the game");
+            return;
+        }
+        
+        // Проверяем минимальное количество игроков (минимум 2)
+        if (room.players.size < 2) {
+            this.sendError(player.socket, "NOT_ENOUGH_PLAYERS", "Need at least 2 players to start the game");
+            return;
+        }
+        
+        // Проверяем, что игра еще не началась
+        if (room.isActive) {
+            this.sendError(player.socket, "GAME_ALREADY_STARTED", "Game is already in progress");
+            return;
+        }
+        
+        // Запускаем игру
+        room.startMatch();
+        console.log(`[Server] Игра запущена в комнате ${room.id} создателем ${player.id} (${player.name}), игроков: ${room.players.size}`);
+        
+        // Отправляем всем игрокам в комнате
+        this.broadcastToRoom(room, createServerMessage(ServerMessageType.GAME_START, {
+            roomId: room.id,
+            mode: room.mode,
+            worldSeed: room.worldSeed,
+            players: room.getPlayerData(),
+            enemies: room.getEnemyData() // Отправляем данные о ботах для синхронизации
+        }));
+    }
+    
     private handleQuickPlay(player: ServerPlayer, data: any): void {
         const { mode, region, skillBased } = data;
         
-        // Add to matchmaking queue
+        // СНАЧАЛА ищем существующие комнаты с таким же режимом
+        const availableRooms = Array.from(this.rooms.values()).filter(room => {
+            return room.mode === mode && 
+                   !room.isPrivate && 
+                   !room.isActive && 
+                   room.players.size < room.maxPlayers;
+        });
+        
+        if (availableRooms.length > 0) {
+            // Нашли существующую комнату - присоединяемся к ней
+            const room = availableRooms[0]; // Берем первую доступную
+            console.log(`[Server] Quick play: присоединение к существующей комнате ${room.id} (режим: ${mode})`);
+            
+            if (player.roomId) {
+                this.handleLeaveRoom(player);
+            }
+            
+            if (room.addPlayer(player)) {
+                player.roomId = room.id;
+                
+                this.send(player.socket, createServerMessage(ServerMessageType.ROOM_JOINED, {
+                    roomId: room.id,
+                    mode: room.mode,
+                    worldSeed: room.worldSeed,
+                    players: room.getPlayerData(),
+                    maxPlayers: room.maxPlayers
+                }));
+                
+                // Уведомляем других игроков в комнате
+                room.getAllPlayers().forEach(p => {
+                    if (p.id !== player.id) {
+                        this.send(p.socket, createServerMessage(ServerMessageType.PLAYER_JOINED, {
+                            player: room.getPlayerData().find(pd => pd.id === player.id)
+                        }));
+                    }
+                });
+                
+                // Не запускаем игру автоматически - ждем команды от создателя комнаты
+                
+                return; // Успешно присоединились, выходим
+            }
+        }
+        
+        // Если не нашли существующую комнату, добавляем в очередь матчмейкинга
         this.matchmaking.addToQueue(player, mode, region);
         
         // Try to find match
@@ -331,16 +560,7 @@ export class GameServer {
                 }));
             }
             
-            // Start match if enough players
-            if (room.players.size >= 2) {
-                room.startMatch();
-                this.broadcastToRoom(room, createServerMessage(ServerMessageType.GAME_START, {
-                    roomId: room.id,
-                    mode: room.mode,
-                    worldSeed: room.worldSeed,
-                    players: room.getPlayerData()
-                }));
-            }
+            // Не запускаем игру автоматически - ждем команды от создателя комнаты
         } else {
             // No match found, send queue update
             const queueSize = this.matchmaking.getQueueSize(mode, region);
@@ -350,6 +570,34 @@ export class GameServer {
                 estimatedWait: queueSize * 5 // Rough estimate
             }));
         }
+    }
+    
+    private handleListRooms(player: ServerPlayer, data: any): void {
+        const { mode } = data || {};
+        
+        // Получаем список всех доступных комнат
+        const allRooms = Array.from(this.rooms.values());
+        
+        // Фильтруем по режиму если указан
+        const filteredRooms = mode 
+            ? allRooms.filter(room => room.mode === mode && !room.isPrivate)
+            : allRooms.filter(room => !room.isPrivate);
+        
+        // Формируем данные о комнатах
+        const roomsList = filteredRooms.map(room => ({
+            id: room.id,
+            mode: room.mode,
+            players: room.players.size,
+            maxPlayers: room.maxPlayers,
+            isActive: room.isActive,
+            gameTime: room.gameTime
+        }));
+        
+        console.log(`[Server] Запрос списка комнат от ${player.id} (${player.name}): найдено ${filteredRooms.length} комнат${mode ? ` (режим: ${mode})` : ''}`);
+        
+        this.send(player.socket, createServerMessage(ServerMessageType.ROOM_LIST, {
+            rooms: roomsList
+        }));
     }
     
     private handlePlayerInput(player: ServerPlayer, data: any): void {
@@ -592,6 +840,18 @@ export class GameServer {
         }, 1000);
     }
     
+    private startPeriodicStats(): void {
+        // Выводим статистику каждые 30 секунд
+        setInterval(() => {
+            const activeRooms = Array.from(this.rooms.values()).filter(r => r.isActive).length;
+            const totalRooms = this.rooms.size;
+            const totalPlayers = this.players.size;
+            const connectedPlayers = Array.from(this.players.values()).filter(p => p.connected).length;
+            
+            console.log(`[Server] 📊 Статистика: комнат=${totalRooms} (активных=${activeRooms}), игроков=${totalPlayers} (подключено=${connectedPlayers})`);
+        }, 30000); // 30 секунд
+    }
+    
     private broadcastMonitoringStats(): void {
         if (this.monitoringClients.size === 0) return;
         
@@ -717,7 +977,11 @@ export class GameServer {
                     
                     // Use prioritization to limit players sent (delta compression is internal optimization)
                     // For now, send full prioritized list (quantization happens in compression, but we use full data for compatibility)
-                    // TODO: In the future, implement full delta compression with client-side delta application
+                    // NOTE: Full delta compression would require:
+                    // 1. Store previous state on client (lastState Map)
+                    // 2. Send only changed fields: { id, delta: { position?, rotation?, health? } }
+                    // 3. Client applies delta to cached state
+                    // This is a significant protocol change - implement when bandwidth optimization is critical
                     const statesData = {
                         players: prioritizedPlayers, // Send prioritized players (full data with quantization in serialization)
                         gameTime: room.gameTime,
@@ -785,6 +1049,38 @@ export class GameServer {
                 player.socket.send(serialized);
             }
         }
+    }
+    
+    private broadcastRoomListToAll(): void {
+        // Получаем список всех доступных комнат (не приватных)
+        const allRooms = Array.from(this.rooms.values());
+        const publicRooms = allRooms.filter(room => !room.isPrivate);
+        
+        const roomsList = publicRooms.map(room => ({
+            id: room.id,
+            mode: room.mode,
+            players: room.players.size,
+            maxPlayers: room.maxPlayers,
+            isActive: room.isActive,
+            gameTime: room.gameTime
+        }));
+        
+        console.log(`[Server] 📢 Отправка списка комнат всем подключенным клиентам: ${roomsList.length} публичных комнат, всего подключено ${this.players.size} игроков`);
+        
+        const message = createServerMessage(ServerMessageType.ROOM_LIST, {
+            rooms: roomsList
+        });
+        const serialized = serializeMessage(message);
+        
+        // Отправляем всем подключенным игрокам
+        let sentCount = 0;
+        for (const player of this.players.values()) {
+            if (player.socket.readyState === WebSocket.OPEN) {
+                player.socket.send(serialized);
+                sentCount++;
+            }
+        }
+        console.log(`[Server] ✅ Список комнат отправлен ${sentCount} клиентам`);
     }
     
     private send(ws: WebSocket, message: ServerMessage): void {

@@ -2,8 +2,30 @@
  * Утилита для логирования с поддержкой production/dev режимов и настройками
  */
 
-const isDevelopment = import.meta.env.DEV;
-const isProduction = import.meta.env.PROD;
+// ИСПРАВЛЕНО: Проверка на доступность import.meta.env (может быть undefined в Node.js)
+// В Node.js import.meta может быть доступен, но env может быть undefined
+let isDevelopment: boolean;
+let isProduction: boolean;
+
+try {
+    // Пытаемся использовать Vite env (для клиента)
+    const metaEnv = (typeof import.meta !== 'undefined' && (import.meta as any).env) 
+        ? (import.meta as any).env 
+        : null;
+    
+    if (metaEnv) {
+        isDevelopment = metaEnv.DEV ?? false;
+        isProduction = metaEnv.PROD ?? false;
+    } else {
+        // Fallback для Node.js (сервер)
+        isDevelopment = process.env.NODE_ENV !== 'production';
+        isProduction = process.env.NODE_ENV === 'production';
+    }
+} catch (e) {
+    // Fallback для Node.js (сервер) при ошибке
+    isDevelopment = process.env.NODE_ENV !== 'production';
+    isProduction = process.env.NODE_ENV === 'production';
+}
 
 /**
  * Уровни логирования

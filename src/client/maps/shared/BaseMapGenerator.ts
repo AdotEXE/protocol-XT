@@ -280,6 +280,116 @@ export abstract class BaseMapGenerator implements IMapGenerator {
     }
     
     /**
+     * УЛУЧШЕНО: Создать группу объектов с вариациями размера и позиции
+     * @param count - Количество объектов
+     * @param createFn - Функция создания объекта
+     * @param context - Контекст генерации
+     * @param minDistance - Минимальное расстояние между объектами
+     */
+    protected createObjectGroup<T>(
+        count: number,
+        createFn: (pos: Vector3, random: SeededRandom) => T,
+        context: ChunkGenerationContext,
+        minDistance: number = 5
+    ): T[] {
+        const objects: T[] = [];
+        const positions = this.generatePositions(
+            count,
+            context.size,
+            2,
+            minDistance,
+            context.random,
+            context.chunkX,
+            context.chunkZ,
+            context.size
+        );
+        
+        for (const pos of positions) {
+            const worldPos = new Vector3(
+                pos.x - context.size / 2,
+                this.getTerrainHeight(context.worldX + pos.x, context.worldZ + pos.z, context.biome),
+                pos.z - context.size / 2
+            );
+            objects.push(createFn(worldPos, context.random));
+        }
+        
+        return objects;
+    }
+    
+    /**
+     * УЛУЧШЕНО: Создать объект с случайным поворотом
+     * @param mesh - Меш для поворота
+     * @param random - Генератор случайных чисел
+     * @param allowFullRotation - Разрешить полный поворот (360°) или только 90° шаги
+     */
+    protected applyRandomRotation(mesh: Mesh, random: SeededRandom, allowFullRotation: boolean = false): void {
+        if (allowFullRotation) {
+            mesh.rotation.y = random.range(0, Math.PI * 2);
+        } else {
+            const angles = [0, Math.PI / 2, Math.PI, Math.PI * 1.5];
+            mesh.rotation.y = random.pick(angles);
+        }
+    }
+    
+    /**
+     * УЛУЧШЕНО: Создать объект с вариацией размера
+     * @param baseSize - Базовый размер
+     * @param variation - Вариация (0.0 - 1.0)
+     * @param random - Генератор случайных чисел
+     */
+    protected getVariedSize(baseSize: number, variation: number, random: SeededRandom): number {
+        return baseSize * (1 + random.range(-variation, variation));
+    }
+    
+    /**
+     * УЛУЧШЕНО: Проверить, можно ли разместить объект в позиции
+     * @param x - Мировая X координата
+     * @param z - Мировая Z координата
+     * @param radius - Радиус объекта
+     */
+    protected canPlaceObject(x: number, z: number, radius: number): boolean {
+        if (this.isPositionInGarageArea(x, z, radius)) {
+            return false;
+        }
+        if (this.isPositionNearRoad(x, z, radius)) {
+            return false;
+        }
+        return true;
+    }
+    
+    /**
+     * УЛУЧШЕНО: Создать материал с вариацией цвета
+     * @param baseColor - Базовый цвет
+     * @param variation - Вариация цвета (0.0 - 1.0)
+     * @param random - Генератор случайных чисел
+     */
+    protected createVariedMaterial(
+        name: string,
+        baseColor: Color3,
+        variation: number,
+        random: SeededRandom
+    ): StandardMaterial {
+        const r = Math.max(0, Math.min(1, baseColor.r + random.range(-variation, variation)));
+        const g = Math.max(0, Math.min(1, baseColor.g + random.range(-variation, variation)));
+        const b = Math.max(0, Math.min(1, baseColor.b + random.range(-variation, variation)));
+        return this.createMaterial(name, new Color3(r, g, b));
+    }
+    
+    /**
+     * УЛУЧШЕНО: Создать LOD группу объектов (разные уровни детализации)
+     * @param nearObjects - Объекты для близкого расстояния
+     * @param farObjects - Объекты для дальнего расстояния
+     * @param distance - Расстояние переключения LOD
+     */
+    protected createLODGroup(
+        nearObjects: Mesh[],
+        farObjects: Mesh[],
+        distance: number = 100
+    ): { near: Mesh[]; far: Mesh[]; distance: number } {
+        return { near: nearObjects, far: farObjects, distance };
+    }
+    
+    /**
      * Основной метод генерации контента чанка
      * Должен быть реализован в конкретных генераторах
      */

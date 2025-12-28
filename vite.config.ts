@@ -5,13 +5,25 @@ import { visualizer } from 'rollup-plugin-visualizer';
 import viteCompression from 'vite-plugin-compression';
 import fs from 'fs';
 
+// Импортируем функцию для получения версии
+function getVersionFromFile(): { major: number; minor: number; build: number } {
+  const VERSION_FILE = path.resolve(__dirname, '.version.json');
+  if (fs.existsSync(VERSION_FILE)) {
+    const content = fs.readFileSync(VERSION_FILE, 'utf-8');
+    return JSON.parse(content);
+  }
+  // Дефолтная версия v0.4.20000
+  return { major: 0, minor: 4, build: 20000 };
+}
+
 // Плагин для вывода версии при сборке
 function versionPlugin() {
   return {
     name: 'version-plugin',
     buildStart() {
       const buildInfo = getBuildVersion();
-      const version = `v0.3.${buildInfo.buildNumber} ${buildInfo.buildTime}`;
+      const versionInfo = getVersionFromFile();
+      const version = `v${versionInfo.major}.${versionInfo.minor}.${buildInfo.buildNumber} ${buildInfo.buildTime}`;
       console.log(`> tx@${version} build`);
     },
   };
@@ -103,11 +115,9 @@ function getBuildVersion() {
     // Git не доступен (например, в CI/CD)
   }
   
-  // Генерируем build number из commit hash
-  let buildNumber = 0;
-  if (commitHash !== 'unknown' && commitHash.length >= 4) {
-    buildNumber = parseInt(commitHash.substring(0, 4), 16) % 10000;
-  }
+  // Используем build number из .version.json
+  const version = getVersionFromFile();
+  const buildNumber = version.build;
   
   return {
     buildTime,
@@ -160,7 +170,15 @@ export default defineConfig({
   server: {
     port: 5000,
     host: '0.0.0.0', // Доступен для других устройств в сети
+    headers: {
+      // Правильный MIME type для WASM файлов
+      '*.wasm': {
+        'Content-Type': 'application/wasm',
+      },
+    },
   },
+  // Правильная обработка WASM файлов
+  assetsInclude: ['**/*.wasm'],
   publicDir: 'public',
   build: {
     target: 'esnext',

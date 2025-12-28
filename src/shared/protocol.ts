@@ -8,7 +8,9 @@ import type { ClientMessage, ServerMessage } from "./messages";
  */
 
 // Configuration flag - set to true to enable binary serialization
-const USE_BINARY_SERIALIZATION = false; // TODO: Enable after testing
+// Требует: npm install @msgpack/msgpack
+// После установки раскомментировать import и установить true
+const USE_BINARY_SERIALIZATION = false;
 
 /**
  * Convert message to plain object with Vector3 handling

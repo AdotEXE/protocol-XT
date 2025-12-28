@@ -57,7 +57,7 @@ export class GameLoaders {
     /**
      * Загрузка гаража
      */
-    async loadGarage(): Promise<Garage | null> {
+    async loadGarage(scene?: any, currencyManager?: any): Promise<Garage | null> {
         // Если уже загружено, возвращаем из кэша
         if (this.garageCache) {
             return this.garageCache;
@@ -67,9 +67,11 @@ export class GameLoaders {
             logger.log("[GameLoaders] Loading Garage...");
             const { Garage } = await import("../garage");
             
-            // Создаём экземпляр (требует параметры, которые будут переданы из Game)
-            // Garage может быть создан без параметров или с минимальными
-            const garage = new Garage();
+            // Создаём экземпляр с параметрами (обязательны)
+            if (!scene || !currencyManager) {
+                throw new Error("Garage requires scene and currencyManager");
+            }
+            const garage = new Garage(scene, currencyManager);
             this.garageCache = garage;
             
             if (this.onGarageLoaded) {

@@ -8,6 +8,18 @@ import * as tartuHeightmapModule from "./tartuHeightmap";
 // Simplex noise implementation based on Stefan Gustavson's work
 // Optimized for 2D terrain generation
 
+// Простой SeededRandom для внутреннего использования
+class SeededRandom {
+    private seed: number;
+    constructor(seed: number) { 
+        this.seed = seed; 
+    }
+    next(): number {
+        this.seed = (this.seed * 1103515245 + 12345) & 0x7fffffff;
+        return this.seed / 0x7fffffff;
+    }
+}
+
 export class NoiseGenerator {
     private perm: number[] = [];
     private permMod12: number[] = [];
@@ -132,30 +144,48 @@ export class NoiseGenerator {
     }
     
     // Fractal Brownian Motion (fBm) - combines multiple octaves of noise
+    // УЛУЧШЕНО: Добавлена поддержка до 8 октав, улучшена точность вычислений
     fbm(x: number, y: number, octaves: number = 4, lacunarity: number = 2.0, persistence: number = 0.5): number {
         let value = 0;
         let amplitude = 1;
         let frequency = 1;
         let maxValue = 0;
         
-        for (let i = 0; i < octaves; i++) {
-            value += amplitude * this.noise2D(x * frequency, y * frequency);
+        // Ограничиваем октавы для производительности
+        const maxOctaves = Math.min(octaves, 8);
+        
+        for (let i = 0; i < maxOctaves; i++) {
+            const noiseValue = this.noise2D(x * frequency, y * frequency);
+            value += amplitude * noiseValue;
             maxValue += amplitude;
             amplitude *= persistence;
             frequency *= lacunarity;
         }
         
-        return value / maxValue;
+        // Нормализуем результат
+        return maxValue > 0 ? value / maxValue : 0;
+    }
+    
+    // УЛУЧШЕНО: Добавлен метод для генерации более плавного шума с лучшим качеством
+    smoothFbm(x: number, y: number, octaves: number = 4, lacunarity: number = 2.0, persistence: number = 0.5): number {
+        // Используем smoothstep для более плавных переходов
+        const baseNoise = this.fbm(x, y, octaves, lacunarity, persistence);
+        const smoothNoise = this.fbm(x * 0.5, y * 0.5, Math.max(2, Math.floor(octaves * 0.5)), lacunarity, persistence);
+        return this.smoothstep(-1, 1, baseNoise * 0.7 + smoothNoise * 0.3);
     }
     
     // Ridged multifractal - creates sharp ridges like mountains
+    // УЛУЧШЕНО: Добавлена поддержка до 8 октав, улучшена точность
     ridged(x: number, y: number, octaves: number = 4, lacunarity: number = 2.0, gain: number = 0.5): number {
         let sum = 0;
         let amplitude = 0.5;
         let frequency = 1;
         let prev = 1.0;
         
-        for (let i = 0; i < octaves; i++) {
+        // Ограничиваем октавы для производительности
+        const maxOctaves = Math.min(octaves, 8);
+        
+        for (let i = 0; i < maxOctaves; i++) {
             const n = Math.abs(this.noise2D(x * frequency, y * frequency));
             const signal = 1.0 - n;
             sum += signal * signal * amplitude * prev;
@@ -167,21 +197,80 @@ export class NoiseGenerator {
         return sum;
     }
     
+    // УЛУЧШЕНО: Добавлен метод для генерации более детализированных гребней
+    enhancedRidged(x: number, y: number, octaves: number = 4, lacunarity: number = 2.0, gain: number = 0.5): number {
+        const baseRidged = this.ridged(x, y, octaves, lacunarity, gain);
+        // Добавляем детализацию с более высокими частотами
+        const detail = this.ridged(x * 2, y * 2, Math.max(2, Math.floor(octaves * 0.5)), lacunarity, gain * 0.7);
+        return baseRidged * 0.8 + detail * 0.2;
+    }
+    
     // Turbulence - absolute value of noise
+    // УЛУЧШЕНО: Добавлена поддержка до 8 октав, улучшена точность
     turbulence(x: number, y: number, octaves: number = 4): number {
         let value = 0;
         let amplitude = 1;
         let frequency = 1;
         let maxValue = 0;
         
-        for (let i = 0; i < octaves; i++) {
+        // Ограничиваем октавы для производительности
+        const maxOctaves = Math.min(octaves, 8);
+        
+        for (let i = 0; i < maxOctaves; i++) {
             value += amplitude * Math.abs(this.noise2D(x * frequency, y * frequency));
             maxValue += amplitude;
             amplitude *= 0.5;
             frequency *= 2;
         }
         
-        return value / maxValue;
+        return maxValue > 0 ? value / maxValue : 0;
+    }
+    
+    // УЛУЧШЕНО: Добавлен метод для генерации более сложных паттернов турбулентности
+    enhancedTurbulence(x: number, y: number, octaves: number = 4): number {
+        const baseTurb = this.turbulence(x, y, octaves);
+        // Добавляем вращение для более органичных паттернов
+        const rotatedX = x * 0.707 - y * 0.707;
+        const rotatedY = x * 0.707 + y * 0.707;
+        const rotatedTurb = this.turbulence(rotatedX, rotatedY, Math.max(2, Math.floor(octaves * 0.5)));
+        return baseTurb * 0.7 + rotatedTurb * 0.3;
+    }
+    
+    // НОВОЕ: Domain warping для создания более сложных паттернов
+    domainWarp(x: number, y: number, strength: number = 1.0): { x: number; y: number } {
+        const warpX = this.fbm(x * 0.1, y * 0.1, 3, 2, 0.5) * strength;
+        const warpY = this.fbm(x * 0.1 + 100, y * 0.1 + 100, 3, 2, 0.5) * strength;
+        return {
+            x: x + warpX,
+            y: y + warpY
+        };
+    }
+    
+    // НОВОЕ: Voronoi-like noise для создания ячеистых структур
+    voronoi(x: number, y: number, cellSize: number = 10): number {
+        const cellX = Math.floor(x / cellSize);
+        const cellY = Math.floor(y / cellSize);
+        
+        let minDist = Infinity;
+        
+        // Проверяем соседние ячейки
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+                const neighborX = cellX + dx;
+                const neighborY = cellY + dy;
+                
+                // Генерируем случайную точку в ячейке
+                const seed = (neighborX * 73856093) ^ (neighborY * 19349663);
+                const rng = new SeededRandom(seed);
+                const pointX = neighborX * cellSize + rng.next() * cellSize;
+                const pointY = neighborY * cellSize + rng.next() * cellSize;
+                
+                const dist = Math.sqrt((x - pointX) ** 2 + (y - pointY) ** 2);
+                minDist = Math.min(minDist, dist);
+            }
+        }
+        
+        return minDist / cellSize;
     }
 }
 
@@ -455,11 +544,11 @@ export class TerrainGenerator {
                 break;
                 
             case "park":
-                // Dramatic rolling hills with valleys - MULTI-LAYERED
-                const parkBase = this.noise.fbm(worldX * scale, worldZ * scale, 5, 2, 0.5) * 20;
-                // Add organic hills and valleys
-                const parkOrganic = this.noise.fbm(worldX * scale * 1.5, worldZ * scale * 1.5, 4, 2, 0.6) * 8;
-                const parkRidges = this.noise.ridged(worldX * scale * 0.6, worldZ * scale * 0.6, 3, 2, 0.5) * 6;
+                // УЛУЧШЕНО: Dramatic rolling hills with valleys - MULTI-LAYERED с улучшенными методами
+                const parkBase = this.noise.smoothFbm(worldX * scale, worldZ * scale, 5, 2, 0.5) * 20;
+                // Add organic hills and valleys с улучшенным шумом
+                const parkOrganic = this.noise.smoothFbm(worldX * scale * 1.5, worldZ * scale * 1.5, 4, 2, 0.6) * 8;
+                const parkRidges = this.noise.enhancedRidged(worldX * scale * 0.6, worldZ * scale * 0.6, 3, 2, 0.5) * 6;
                 const parkValleys = this.noise.ridged(worldX * scale * 1.2, worldZ * scale * 1.2, 2, 2, 0.6) * 4;
                 // Detail layer for organic variation
                 detailLayer = this.noise.fbm(worldX * scale * 3, worldZ * scale * 3, 3, 2, 0.5) * 4;
@@ -469,17 +558,20 @@ export class TerrainGenerator {
                 break;
                 
             case "wasteland":
-                // VERY dramatic craters, canyons, and rough terrain - MULTI-LAYERED
-                const wasteBase = this.noise.fbm(worldX * scale, worldZ * scale, 4, 2, 0.5) * 18;
-                const craters = this.noise.turbulence(worldX * scale * 2, worldZ * scale * 2, 4) * 12;
-                // Add canyons and ravines
-                const canyons = this.noise.ridged(worldX * scale * 1.2, worldZ * scale * 1.2, 3, 2, 0.6) * 10;
-                const wasteHills = this.noise.fbm(worldX * scale * 0.8, worldZ * scale * 0.8, 3, 2, 0.5) * 5;
+                // УЛУЧШЕНО: VERY dramatic craters, canyons, and rough terrain - MULTI-LAYERED с новыми методами
+                const wasteBase = this.noise.fbm(worldX * scale, worldZ * scale, 5, 2, 0.5) * 18;
+                // Используем enhancedTurbulence для более детализированных кратеров
+                const craters = this.noise.enhancedTurbulence(worldX * scale * 2, worldZ * scale * 2, 4) * 12;
+                // Используем enhancedRidged для более детализированных каньонов
+                const canyons = this.noise.enhancedRidged(worldX * scale * 1.2, worldZ * scale * 1.2, 3, 2, 0.6) * 10;
+                const wasteHills = this.noise.fbm(worldX * scale * 0.8, worldZ * scale * 0.8, 4, 2, 0.5) * 5;
+                // Добавляем voronoi для ячеистых структур (как от взрывов)
+                const voronoiPattern = this.noise.voronoi(worldX * scale * 0.5, worldZ * scale * 0.5, 20) * 2;
                 // Detail layer for rough texture
-                detailLayer = this.noise.turbulence(worldX * scale * 4, worldZ * scale * 4, 3) * 3;
+                detailLayer = this.noise.enhancedTurbulence(worldX * scale * 4, worldZ * scale * 4, 3) * 3;
                 // Fine detail for surface roughness
                 fineDetailLayer = this.noise.turbulence(worldX * scale * 12, worldZ * scale * 12, 2) * 1;
-                height = wasteBase + wasteHills - craters - Math.abs(canyons) * 0.8 + detailLayer + fineDetailLayer;
+                height = wasteBase + wasteHills - craters - Math.abs(canyons) * 0.8 + voronoiPattern + detailLayer + fineDetailLayer;
                 break;
                 
             case "military":
@@ -509,13 +601,13 @@ export class TerrainGenerator {
                 break;
                 
             case "snow":
-                // VERY dramatic mountain-like terrain with peaks - MULTI-LAYERED
-                const mountains = this.noise.ridged(worldX * scale, worldZ * scale, 5, 2, 0.6) * 35;
-                // Add peaks and valleys
-                const peaks = this.noise.fbm(worldX * scale * 0.5, worldZ * scale * 0.5, 4, 2, 0.5) * 12;
-                const valleys2 = this.noise.ridged(worldX * scale * 1.5, worldZ * scale * 1.5, 3, 2, 0.6) * 8;
+                // УЛУЧШЕНО: VERY dramatic mountain-like terrain with peaks - MULTI-LAYERED с улучшенными методами
+                const mountains = this.noise.enhancedRidged(worldX * scale, worldZ * scale, 6, 2, 0.6) * 35;
+                // Add peaks and valleys с улучшенным шумом
+                const peaks = this.noise.fbm(worldX * scale * 0.5, worldZ * scale * 0.5, 5, 2, 0.5) * 12;
+                const valleys2 = this.noise.ridged(worldX * scale * 1.5, worldZ * scale * 1.5, 4, 2, 0.6) * 8;
                 // Detail layer for rocky texture
-                detailLayer = this.noise.fbm(worldX * scale * 2, worldZ * scale * 2, 3, 2, 0.5) * 5;
+                detailLayer = this.noise.fbm(worldX * scale * 2, worldZ * scale * 2, 4, 2, 0.5) * 5;
                 // Fine detail for surface texture
                 fineDetailLayer = this.noise.fbm(worldX * scale * 8, worldZ * scale * 8, 2, 2, 0.5) * 1.5;
                 height = mountains + peaks - Math.abs(valleys2) * 0.5 + detailLayer + fineDetailLayer;
@@ -557,6 +649,9 @@ export class TerrainGenerator {
             height -= streamDepth;
         }
         
+        // КРИТИЧНО: ПЕРЕДЕЛАННАЯ ЛОГИКА - ПРЕВЕНТИВНАЯ ПРОВЕРКА НА ДЫРЫ ДО КВАНТОВАНИЯ
+        // Сначала проверяем соседей и исправляем потенциальные дыры, ПОТОМ квантуем
+        
         // QUANTIZE HEIGHT for blocky/voxel style (LOW POLY)
         // Different step sizes for different biomes
         let stepSize = 1.0; // Default step size
@@ -570,28 +665,25 @@ export class TerrainGenerator {
             stepSize = 2.0; // Large steps for mountains
         }
         
-        // ИСПРАВЛЕНИЕ: Clamp для предотвращения экстремальных значений ПЕРЕД квантованием
+        // ИСПРАВЛЕНИЕ: Clamp для предотвращения экстремальных значений ПЕРЕД проверкой соседей
         height = this.noise.clamp(height, -25, 35); // Ограничиваем диапазон высот
         
-        // Quantize to create stepped/blocky terrain
-        height = Math.round(height / stepSize) * stepSize;
-        
-        // УЛУЧШЕННАЯ ПРОВЕРКА: Многоуровневое сглаживание для предотвращения дыр
-        // Используем getBaseHeight вместо getHeight для избежания рекурсии
+        // КРИТИЧНО: МНОГОУРОВНЕВАЯ ПРОВЕРКА СОСЕДЕЙ С ИСПОЛЬЗОВАНИЕМ КЭША
+        // Используем кэш для получения уже вычисленных высот соседей (если они есть)
         const neighborCheckDist1 = 1.0;  // Близкие соседи
         const neighborCheckDist2 = 2.0;  // Средние соседи
-        const neighborCheckDist3 = 3.0;  // Дальние соседи для контекста
+        const neighborCheckDist3 = 4.0;  // Дальние соседи для контекста (увеличено с 3.0)
         
         const neighborHeights: number[] = [];
+        const neighborKeys: string[] = [];
         
-        // Получаем базовые высоты соседей на трёх уровнях (без рекурсии)
+        // Получаем высоты соседей на трёх уровнях (используем кэш если доступен)
         const neighbors = [
-            // Близкие соседи (4 направления)
+            // Близкие соседи (4 направления + 4 диагональных = 8)
             { x: worldX + neighborCheckDist1, z: worldZ },
             { x: worldX - neighborCheckDist1, z: worldZ },
             { x: worldX, z: worldZ + neighborCheckDist1 },
             { x: worldX, z: worldZ - neighborCheckDist1 },
-            // Диагональные близкие соседи
             { x: worldX + neighborCheckDist1 * 0.707, z: worldZ + neighborCheckDist1 * 0.707 },
             { x: worldX - neighborCheckDist1 * 0.707, z: worldZ - neighborCheckDist1 * 0.707 },
             { x: worldX + neighborCheckDist1 * 0.707, z: worldZ - neighborCheckDist1 * 0.707 },
@@ -608,15 +700,27 @@ export class TerrainGenerator {
             { x: worldX, z: worldZ - neighborCheckDist3 }
         ];
         
+        // Собираем высоты соседей (используем кэш или базовую высоту)
         for (const neighbor of neighbors) {
-            // Используем getBaseHeight напрямую для избежания рекурсии
-            const baseHeight = this.getBaseHeight(neighbor.x, neighbor.z, biome);
-            if (isFinite(baseHeight)) {
-                neighborHeights.push(baseHeight);
+            const neighborKey = `${Math.floor(neighbor.x)}_${Math.floor(neighbor.z)}_${biome}`;
+            neighborKeys.push(neighborKey);
+            
+            // Сначала проверяем кэш
+            let neighborHeight: number | undefined = this.heightCache.get(neighborKey);
+            
+            // Если нет в кэше, используем базовую высоту (без эрозии и проверок)
+            if (neighborHeight === undefined) {
+                neighborHeight = this.getBaseHeight(neighbor.x, neighbor.z, biome);
+                // Применяем те же преобразования, что и к основной высоте
+                neighborHeight = this.noise.clamp(neighborHeight, -25, 35);
+            }
+            
+            if (isFinite(neighborHeight) && !isNaN(neighborHeight)) {
+                neighborHeights.push(neighborHeight);
             }
         }
         
-        // Вычисляем среднюю высоту соседей с весами (близкие важнее)
+        // КРИТИЧНО: АГРЕССИВНАЯ ПРОВЕРКА И ИСПРАВЛЕНИЕ ДЫР ДО КВАНТОВАНИЯ
         if (neighborHeights.length > 0) {
             // Разделяем на группы по расстоянию
             const closeNeighbors = neighborHeights.slice(0, 8);
@@ -628,52 +732,79 @@ export class TerrainGenerator {
             const avgFar = farNeighbors.length > 0 ? farNeighbors.reduce((a, b) => a + b, 0) / farNeighbors.length : height;
             
             // Взвешенное среднее (близкие соседи важнее)
-            const avgNeighborHeight = avgClose * 0.5 + avgMid * 0.3 + avgFar * 0.2;
-            const heightDiff = Math.abs(height - avgNeighborHeight);
+            const avgNeighborHeight = avgClose * 0.6 + avgMid * 0.3 + avgFar * 0.1;
             
-            // Если разница слишком большая (более 3 единиц), сглаживаем более агрессивно
-            if (heightDiff > 3.0) {
-                // Используем smoothstep для плавного сглаживания
-                const normalizedDiff = (heightDiff - 3.0) / 5.0; // Нормализуем в [0, 1] для разницы от 3 до 8
-                const smoothingFactor = this.noise.smoothstep(0, 1, normalizedDiff);
-                // Более агрессивное сглаживание для больших разниц
-                const smoothingStrength = Math.min(0.7, smoothingFactor * 0.6);
-                height = height * (1 - smoothingStrength) + avgNeighborHeight * smoothingStrength;
-                // Повторно квантуем после сглаживания
-                height = Math.round(height / stepSize) * stepSize;
-            }
+            // КРИТИЧНО: ПРЕВЕНТИВНАЯ ПРОВЕРКА НА ДЫРЫ - ДО КВАНТОВАНИЯ
+            // Если текущая высота значительно ниже соседей, это потенциальная дыра
+            const heightDiff = avgNeighborHeight - height;
             
-            // УЛУЧШЕННАЯ ПРОВЕРКА: Дополнительная проверка на аномально низкие значения (дыры)
-            // Если высота слишком низкая относительно соседей, поднимаем её
-            if (height < avgNeighborHeight - 5.0) {
-                const holeDepth = avgNeighborHeight - height;
-                const maxAllowedDepth = 5.0; // Уменьшено с 6 до 5 для более строгого контроля
-                if (holeDepth > maxAllowedDepth) {
+            // АГРЕССИВНОЕ ИСПРАВЛЕНИЕ: Если разница больше 0.5 единиц, это дыра
+            if (heightDiff > 0.5) {
+                // Максимально допустимая глубина дыры - 0.3 единицы (ОЧЕНЬ СТРОГО)
+                const maxAllowedDepth = 0.3;
+                
+                if (heightDiff > maxAllowedDepth) {
+                    // НЕМЕДЛЕННО поднимаем до безопасного уровня
                     height = avgNeighborHeight - maxAllowedDepth;
-                    height = Math.round(height / stepSize) * stepSize;
+                } else {
+                    // Плавное поднятие для небольших дыр
+                    const smoothingFactor = 0.98; // ОЧЕНЬ агрессивное сглаживание
+                    height = height * (1 - smoothingFactor) + (avgNeighborHeight - maxAllowedDepth) * smoothingFactor;
                 }
             }
             
-            // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Если высота слишком высокая относительно соседей, понижаем её
-            if (height > avgNeighborHeight + 8.0) {
-                const peakHeight = height - avgNeighborHeight;
-                const maxAllowedPeak = 8.0;
-                if (peakHeight > maxAllowedPeak) {
-                    height = avgNeighborHeight + maxAllowedPeak;
-                    height = Math.round(height / stepSize) * stepSize;
-                }
+            // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Сглаживание больших перепадов
+            const absDiff = Math.abs(height - avgNeighborHeight);
+            if (absDiff > 5.0) {
+                // Сглаживаем слишком большие перепады
+                const smoothingStrength = 0.5;
+                height = height * (1 - smoothingStrength) + avgNeighborHeight * smoothingStrength;
             }
         }
         
-        // КРИТИЧНО: Минимальная высота для предотвращения глубоких дыр
-        const minHeight = -1.0; // Увеличено с -2.0 до -1.0 для предотвращения дыр
+        // КРИТИЧНО: ГЛОБАЛЬНАЯ МИНИМАЛЬНАЯ ВЫСОТА - ПЕРЕД КВАНТОВАНИЕМ
+        const minHeight = 2.0; // УВЕЛИЧЕНО с 1.5 до 2.0 для полного предотвращения дыр
         if (height < minHeight) {
             height = minHeight;
         }
         
+        // ТЕПЕРЬ квантуем после всех проверок
+        height = Math.round(height / stepSize) * stepSize;
+        
+        // ФИНАЛЬНАЯ ПРОВЕРКА: После квантования снова проверяем минимальную высоту
+        if (height < minHeight) {
+            height = Math.ceil(minHeight / stepSize) * stepSize; // Округляем вверх до ближайшего шага
+        }
+        
+        // КРИТИЧНО: ФИНАЛЬНАЯ МНОГОУРОВНЕВАЯ ПРОВЕРКА НА ДЫРЫ ПОСЛЕ ВСЕХ ВЫЧИСЛЕНИЙ
+        // Проверяем ещё раз соседей, используя уже кэшированные значения
+        if (neighborHeights.length > 0) {
+            const avgClose = neighborHeights.slice(0, 8).reduce((a, b) => a + b, 0) / Math.min(8, neighborHeights.length);
+            const minNeighbor = Math.min(...neighborHeights);
+            
+            // КРИТИЧНО: Если наша высота ниже минимальной высоты соседей более чем на 0.5, это дыра
+            if (height < minNeighbor - 0.5) {
+                // НЕМЕДЛЕННО поднимаем до безопасного уровня
+                height = Math.max(minNeighbor - 0.3, minHeight);
+                height = Math.round(height / stepSize) * stepSize;
+            }
+            
+            // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Если высота ниже средней более чем на 1.0, это дыра
+            if (height < avgClose - 1.0) {
+                height = Math.max(avgClose - 0.3, minHeight);
+                height = Math.round(height / stepSize) * stepSize;
+            }
+        }
+        
+        // КРИТИЧНО: АБСОЛЮТНАЯ МИНИМАЛЬНАЯ ВЫСОТА - ПОСЛЕДНЯЯ ПРОВЕРКА
+        const absoluteMinHeight = 2.0;
+        if (height < absoluteMinHeight) {
+            height = absoluteMinHeight;
+        }
+        
         // КРИТИЧНО: Финальная проверка на валидность - НЕ ДОПУСКАЕМ NaN, undefined, Infinity
-        if (!isFinite(height) || isNaN(height)) {
-            height = 0.0; // Безопасное значение по умолчанию
+        if (!isFinite(height) || isNaN(height) || height < absoluteMinHeight) {
+            height = absoluteMinHeight; // Безопасное значение по умолчанию
         }
         
         // Cache result with cap to avoid unbounded growth

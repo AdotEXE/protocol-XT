@@ -57,9 +57,17 @@ export class GamePhysics {
         this.scene = scene;
         
         try {
-            // Загружаем Havok WASM
+            // Загружаем Havok WASM с указанием пути
             logger.log("[GamePhysics] Loading Havok WASM...");
-            this.havokInstance = await HavokPhysics();
+            this.havokInstance = await HavokPhysics({
+                locateFile: (file: string) => {
+                    // WASM файл находится в public/ папке
+                    if (file.endsWith('.wasm')) {
+                        return '/HavokPhysics.wasm';
+                    }
+                    return file;
+                }
+            });
             logger.log("[GamePhysics] Havok WASM loaded");
             
             // Создаём плагин

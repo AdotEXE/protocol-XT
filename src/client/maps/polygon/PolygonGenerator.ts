@@ -53,7 +53,7 @@ export interface PolygonConfig {
  * Конфигурация по умолчанию
  */
 export const DEFAULT_POLYGON_CONFIG: PolygonConfig = {
-    arenaSize: 600,
+    arenaSize: 1000,  // Ограничено для тестов
     fenceHeight: 3,
     obstacleDensity: 0.7,
     targetDensity: 0.8

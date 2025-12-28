@@ -78,12 +78,15 @@ export class SystemCollector {
         }
         
         // Get disk usage (current directory)
+        // Note: Full disk usage check requires platform-specific implementation
+        // For now, we skip this metric as it's not critical for monitoring
         let diskUsage: number | undefined;
         try {
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const __stats = fs.statSync(process.cwd()); void __stats;
-            // This is a simplified check - in production you'd want to check actual disk space
-            diskUsage = undefined; // TODO: Implement proper disk usage check
+            // Disk usage check would require platform-specific code (Windows vs Linux)
+            // and additional dependencies. Skipped for now.
+            diskUsage = undefined;
         } catch (error) {
             // Ignore errors
         }

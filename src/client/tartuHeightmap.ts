@@ -29,7 +29,7 @@ const DEFAULT_TARTU_PARAMS: TartuElevationParams = {
     minElevation: 27,
     maxElevation: 82,
     avgElevation: 53,
-    mapSize: 2000,  // 2000 игровых единиц
+    mapSize: 1000,  // 1000 игровых единиц (ограничено для тестов)
     scale: 0.003    // Масштаб для создания холмистой местности
 };
 

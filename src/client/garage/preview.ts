@@ -141,8 +141,14 @@ export function cleanupPreviewScene(previewScene: PreviewScene | null): void {
         }
         
         // 3. Удалить canvas из DOM ПЕРЕД dispose engine
+        // ИСПРАВЛЕНО: Безопасное удаление canvas с обработкой ошибок
         if (previewScene.canvas && previewScene.canvas.parentNode) {
-            previewScene.canvas.parentNode.removeChild(previewScene.canvas);
+            try {
+                previewScene.canvas.parentNode.removeChild(previewScene.canvas);
+            } catch (e) {
+                // Игнорируем ошибки при удалении canvas (может быть уже удален)
+                console.warn("[Garage Preview] Error removing canvas:", e);
+            }
         }
         
         // 4. Dispose сцены (это также dispose все меши, материалы, камеры, свет)
@@ -180,8 +186,10 @@ export function createPreviewTank(
     const trackType = getTrackById(trackId);
     
     // Use unique models with all details
+    // Получаем фактические размеры корпуса (они могут отличаться от chassisType для уникальных моделей)
+    const actualChassisSize = getActualChassisSize(chassisType);
     const chassis = createUniqueChassisPreview(chassisType, scene);
-    const turret = createTurretPreview(chassisType, scene);
+    const turret = createTurretPreview(chassisType, actualChassisSize, scene);
     const barrel = createUniqueCannonPreview(cannonType, scene);
     
     barrel.parent = turret;
@@ -219,6 +227,51 @@ export function updatePreviewTank(
 }
 
 // ============ INTERNAL FUNCTIONS ============
+
+/**
+ * Получить фактические размеры корпуса для уникальных моделей
+ * Должно совпадать с createUniqueChassisPreview!
+ */
+function getActualChassisSize(chassisType: ChassisType): { width: number, height: number, depth: number } {
+    const w = chassisType.width;
+    const h = chassisType.height;
+    const d = chassisType.depth;
+    
+    switch (chassisType.id) {
+        case "light": 
+            return { width: w * 0.75, height: h * 0.7, depth: d * 1.2 };
+        case "scout": 
+            return { width: w * 0.7, height: h * 0.65, depth: d * 0.85 };
+        case "heavy": 
+            return { width: w * 1.08, height: h * 1.2, depth: d * 1.08 };
+        case "assault": 
+            return { width: w * 1.12, height: h * 1.1, depth: d * 1.05 };
+        case "stealth": 
+            return { width: w * 1.05, height: h * 0.7, depth: d * 1.15 };
+        case "hover": 
+            const hoverSize = Math.max(w, d) * 1.1;
+            return { width: hoverSize, height: h * 0.95, depth: hoverSize };
+        case "siege": 
+            return { width: w * 1.25, height: h * 1.35, depth: d * 1.2 };
+        case "racer": 
+            return { width: w * 0.75, height: h * 0.55, depth: d * 1.3 };
+        case "amphibious": 
+            return { width: w * 1.15, height: h * 1.1, depth: d * 1.1 };
+        case "shield": 
+            const shieldSize = Math.max(w, d) * 1.2;
+            return { width: shieldSize, height: h * 1.1, depth: shieldSize };
+        case "drone": 
+            return { width: w * 1.1, height: h * 1.12, depth: d * 1.05 };
+        case "artillery": 
+            return { width: w * 1.2, height: h * 1.25, depth: d * 1.15 };
+        case "destroyer": 
+            return { width: w * 0.85, height: h * 0.75, depth: d * 1.4 };
+        case "command": 
+            return { width: w * 1.1, height: h * 1.2, depth: d * 1.1 };
+        default: 
+            return { width: w, height: h, depth: d };
+    }
+}
 
 /**
  * Create unique chassis using same logic as TankController
@@ -356,16 +409,19 @@ function createPreviewTracks(chassis: Mesh, chassisType: ChassisType, trackType:
 
 /**
  * Create turret preview
+ * Использует ФАКТИЧЕСКИЕ размеры корпуса для правильного позиционирования
  */
-function createTurretPreview(chassisType: ChassisType, scene: Scene): Mesh {
-    const w = chassisType.width;
-    const h = chassisType.height;
-    const d = chassisType.depth;
+function createTurretPreview(chassisType: ChassisType, actualSize: { width: number, height: number, depth: number }, scene: Scene): Mesh {
+    // Используем ФАКТИЧЕСКИЕ размеры корпуса, а не оригинальные из chassisType!
+    const w = actualSize.width;
+    const h = actualSize.height;
+    const d = actualSize.depth;
     const turretWidth = w * 0.65;
     const turretHeight = h * 0.75;
     const turretDepth = d * 0.6;
     
     const turret = MeshBuilder.CreateBox("previewTurret", { width: turretWidth, height: turretHeight, depth: turretDepth }, scene);
+    // Позиционируем башню на основе ФАКТИЧЕСКОЙ высоты корпуса
     turret.position.y = h / 2 + turretHeight / 2;
     
     // Убеждаемся, что башня не повёрнута

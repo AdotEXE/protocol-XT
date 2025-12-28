@@ -1364,6 +1364,15 @@ export class WorldGenerationMenu {
         if (this.visible) {
             this.container.classList.remove("hidden");
             this.container.style.display = "flex";
+            
+            // Добавляем класс "in-battle" если игра запущена (для полупрозрачного фона)
+            const game = (window as any).gameInstance;
+            if (game && game.gameStarted) {
+                this.container.classList.add("in-battle");
+            } else {
+                this.container.classList.remove("in-battle");
+            }
+            
             this.loadCurrentSettings();
             this.updateMapInfo();
             // Обновляем статистику если открыта вкладка stats

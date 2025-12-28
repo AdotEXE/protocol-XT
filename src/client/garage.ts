@@ -3029,8 +3029,15 @@ export class Garage {
     private setupEventListeners(): void {
         if (!this.overlay) return;
         
-        // Close button
-        this.overlay.querySelector('.garage-close')?.addEventListener('click', () => this.close());
+        // ИСПРАВЛЕНО: Кнопка закрытия работает так же, как ESC
+        const closeButton = this.overlay.querySelector('.garage-close');
+        if (closeButton) {
+            closeButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.close();
+            });
+        }
         
         // Кнопка сохранения пресета
         this.overlay.querySelector('#save-preset-btn')?.addEventListener('click', () => {

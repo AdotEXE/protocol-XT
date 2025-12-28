@@ -1,5 +1,5 @@
 // Модуль управления здоровьем, топливом и неуязвимостью танка
-import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, PhysicsBody, PhysicsMotionType, PhysicsShape, PhysicsShapeType, Quaternion } from "@babylonjs/core";
+import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, PhysicsBody, PhysicsMotionType, PhysicsShape, PhysicsShapeType, PhysicsShapeContainer, Quaternion } from "@babylonjs/core";
 import type { ITankController } from "./types";
 import { TANK_CONSTANTS } from "./constants";
 
@@ -77,11 +77,11 @@ export class TankHealthModule {
             this.tank.soundManager.playHit(hitType, hitPos);
         }
         
-        // Тряска камеры при получении урона
-        if (this.tank.cameraShakeCallback) {
-            const intensity = Math.min(0.5, finalDamage / 50); // Интенсивность зависит от урона
-            this.tank.cameraShakeCallback(intensity);
-        }
+        // ОТКЛЮЧЕНО: Тряска камеры при получении урона (аркадный стиль)
+        // if (this.tank.cameraShakeCallback) {
+        //     const intensity = Math.min(0.5, finalDamage / 50);
+        //     this.tank.cameraShakeCallback(intensity);
+        // }
         
         // Записываем полученный урон для опыта корпуса (оригинальный урон)
         if (this.tank.experienceSystem) {
@@ -338,9 +338,14 @@ export class TankHealthModule {
             parts.push({ mesh: (tank as any).rightTrack, name: "rightTrack", mass: 300 });
         }
         
-        // Разбрасываем каждую часть
+        // Разбрасываем каждую часть - ТОЛЬКО ВИЗУАЛЬНАЯ АНИМАЦИЯ БЕЗ ФИЗИКИ
         for (const part of parts) {
             const mesh = part.mesh;
+            
+            // ВАЖНО: Сохраняем родителя ДО отсоединения!
+            const originalParent = mesh.parent as Mesh | null;
+            const originalLocalPos = mesh.position.clone();
+            const originalLocalRot = mesh.rotationQuaternion ? mesh.rotationQuaternion.clone() : null;
             
             // Отделяем от родителя, сохраняя мировую позицию
             const worldPos = mesh.absolutePosition.clone();
@@ -351,76 +356,33 @@ export class TankHealthModule {
                 mesh.rotationQuaternion = worldRot;
             }
             
-            // Создаем физическое тело для части
-            try {
-                // Определяем форму в зависимости от типа части
-                let shapeType: PhysicsShapeType;
-                let shapeParams: any;
-                
-                if (part.name === "barrel") {
-                    // Пушка - цилиндр
-                    shapeType = PhysicsShapeType.CYLINDER;
-                    shapeParams = {
-                        radius: 0.15,
-                        height: 2.5
-                    };
-                } else {
-                    // Остальное - бокс
-                    shapeType = PhysicsShapeType.BOX;
-                    const boundingInfo = mesh.getBoundingInfo();
-                    const size = boundingInfo.boundingBox.extendSizeWorld.scale(2);
-                    shapeParams = {
-                        center: Vector3.Zero(),
-                        size: size
-                    };
-                }
-                
-                const shape = new PhysicsShape({
-                    type: shapeType,
-                    parameters: shapeParams
-                }, scene);
-                
-                const partBody = new PhysicsBody(mesh, PhysicsMotionType.DYNAMIC, false, scene);
-                partBody.shape = shape;
-                partBody.setMassProperties({ mass: part.mass });
-                partBody.setLinearDamping(0.3);
-                partBody.setAngularDamping(0.5);
-                
-                // Применяем случайную силу разброса
-                const direction = new Vector3(
-                    (Math.random() - 0.5) * 2,
-                    Math.random() * 0.5 + 0.5, // Вверх
-                    (Math.random() - 0.5) * 2
-                ).normalize();
-                
-                const force = direction.scale(8000 + Math.random() * 4000); // Сила разброса
-                const torque = new Vector3(
-                    (Math.random() - 0.5) * 5000,
-                    (Math.random() - 0.5) * 5000,
-                    (Math.random() - 0.5) * 5000
-                );
-                
-                partBody.applyImpulse(force, mesh.absolutePosition);
-                // Применяем вращение через угловую скорость
-                partBody.setAngularVelocity(torque.scale(0.01));
-                
-                // Сохраняем информацию о части для последующей сборки
-                const originalParent = mesh.parent as Mesh | null;
-                const originalLocalPos = originalParent ? mesh.position.clone() : Vector3.Zero();
-                const originalLocalRot = mesh.rotationQuaternion ? mesh.rotationQuaternion.clone() : null;
-                
-                this.destroyedParts.push({
-                    mesh: mesh,
-                    name: part.name,
-                    originalParent: originalParent,
-                    originalLocalPos: originalLocalPos,
-                    originalLocalRot: originalLocalRot,
-                    physicsBody: partBody
-                });
-                
-            } catch (error) {
-                console.error(`[TankHealth] Failed to create destruction physics for ${part.name}:`, error);
-            }
+            // === ВИЗУАЛЬНАЯ АНИМАЦИЯ РАЗБРОСА (без физики!) ===
+            // Рассчитываем направление и скорость разброса
+            const direction = new Vector3(
+                (Math.random() - 0.5) * 2,
+                Math.random() * 0.5 + 0.5, // Вверх
+                (Math.random() - 0.5) * 2
+            ).normalize();
+            
+            const velocity = direction.scale(15 + Math.random() * 10); // Скорость разброса
+            const angularVelocity = new Vector3(
+                (Math.random() - 0.5) * 5,
+                (Math.random() - 0.5) * 5,
+                (Math.random() - 0.5) * 5
+            );
+            
+            // Запускаем визуальную анимацию разброса
+            this.animatePartScatter(mesh, velocity, angularVelocity, 2000);
+            
+            // Сохраняем информацию о части для последующей сборки (БЕЗ physicsBody)
+            this.destroyedParts.push({
+                mesh: mesh,
+                name: part.name,
+                originalParent: originalParent,
+                originalLocalPos: originalLocalPos,
+                originalLocalRot: originalLocalRot,
+                physicsBody: null as any // Нет физики!
+            });
         }
         
         // Отключаем основное физическое тело танка (но не удаляем, нужно для респавна)
@@ -431,7 +393,62 @@ export class TankHealthModule {
     }
     
     /**
-     * Анимирует сборку танка обратно - возвращает все части на места за 1 секунду
+     * Визуальная анимация разброса части (без физики)
+     */
+    private animatePartScatter(mesh: Mesh, velocity: Vector3, angularVelocity: Vector3, duration: number): void {
+        const startTime = Date.now();
+        const startPos = mesh.position.clone();
+        const gravity = -15; // Гравитация
+        
+        const animate = () => {
+            if (mesh.isDisposed()) return;
+            
+            const elapsed = (Date.now() - startTime) / 1000; // в секундах
+            const progress = Math.min(elapsed / (duration / 1000), 1.0);
+            
+            // Позиция с гравитацией: pos = startPos + vel*t + 0.5*g*t^2
+            const newPos = startPos.add(velocity.scale(elapsed));
+            newPos.y += 0.5 * gravity * elapsed * elapsed;
+            
+            // Не даём уйти под землю
+            if (newPos.y < 0.1) {
+                newPos.y = 0.1;
+                velocity.y = 0;
+                velocity.x *= 0.9; // Затухание при касании земли
+                velocity.z *= 0.9;
+            }
+            
+            mesh.position.copyFrom(newPos);
+            
+            // Вращение
+            if (mesh.rotationQuaternion) {
+                const rotDelta = Quaternion.FromEulerAngles(
+                    angularVelocity.x * 0.016,
+                    angularVelocity.y * 0.016,
+                    angularVelocity.z * 0.016
+                );
+                mesh.rotationQuaternion = mesh.rotationQuaternion.multiply(rotDelta);
+            }
+            
+            // Затухание угловой скорости
+            angularVelocity.scaleInPlace(0.98);
+            
+            // Прозрачность в конце (плавное исчезновение)
+            if (progress > 0.7 && mesh.material) {
+                const fadeProgress = (progress - 0.7) / 0.3;
+                mesh.material.alpha = 1 - fadeProgress * 0.3; // Немного прозрачнее
+            }
+            
+            if (progress < 1.0) {
+                requestAnimationFrame(animate);
+            }
+        };
+        
+        requestAnimationFrame(animate);
+    }
+    
+    /**
+     * Анимирует сборку танка обратно - телепортирует части в гараж и собирает за 1 секунду
      */
     public animateReassembly(respawnPos: Vector3, onComplete?: () => void): void {
         if (this.destroyedParts.length === 0) {
@@ -442,10 +459,53 @@ export class TankHealthModule {
         }
         
         const tank = this.tank;
-        const duration = 1000; // 1 секунда
+        const duration = 1000; // 1 секунда анимации сборки
+        
+        // === ШАГ 1: ТЕЛЕПОРТИРУЕМ ВСЕ ЧАСТИ К ГАРАЖУ (разбросанные вокруг) ===
+        const spreadRadius = 8; // Радиус разброса частей вокруг гаража
+        const spreadHeight = 4; // Высота разброса
+        
+        for (let i = 0; i < this.destroyedParts.length; i++) {
+            const part = this.destroyedParts[i]!;
+            
+            // Отключаем физику частей для анимации
+            if (part.physicsBody) {
+                part.physicsBody.setLinearVelocity(Vector3.Zero());
+                part.physicsBody.setAngularVelocity(Vector3.Zero());
+            }
+            
+            // Телепортируем часть к гаражу (случайное положение вокруг)
+            const angle = (i / this.destroyedParts.length) * Math.PI * 2;
+            const radius = spreadRadius * (0.5 + Math.random() * 0.5);
+            const teleportPos = new Vector3(
+                respawnPos.x + Math.cos(angle) * radius,
+                respawnPos.y + spreadHeight + Math.random() * 2,
+                respawnPos.z + Math.sin(angle) * radius
+            );
+            
+            part.mesh.position.copyFrom(teleportPos);
+            
+            // Случайное начальное вращение
+            part.mesh.rotationQuaternion = Quaternion.FromEulerAngles(
+                Math.random() * Math.PI * 2,
+                Math.random() * Math.PI * 2,
+                Math.random() * Math.PI * 2
+            );
+        }
+        
+        // === ШАГ 2: НЕБОЛЬШАЯ ЗАДЕРЖКА ПЕРЕД СБОРКОЙ (визуальный эффект) ===
+        setTimeout(() => {
+            this.startAssemblyAnimation(respawnPos, duration, onComplete);
+        }, 200); // 200мс задержка для драматичности
+    }
+    
+    /**
+     * Запускает анимацию сборки частей
+     */
+    private startAssemblyAnimation(respawnPos: Vector3, duration: number, onComplete?: () => void): void {
         const startTime = Date.now();
         
-        // Сохраняем начальные позиции всех частей
+        // Сохраняем начальные позиции всех частей (после телепортации)
         const startPositions = this.destroyedParts.map(part => part.mesh.position.clone());
         const startRotations = this.destroyedParts.map(part => 
             part.mesh.rotationQuaternion ? part.mesh.rotationQuaternion.clone() : Quaternion.Identity()
@@ -468,13 +528,15 @@ export class TankHealthModule {
             targetRotations.push(part.originalLocalRot || Quaternion.Identity());
         }
         
-        // Анимация
+        // Анимация сборки с эффектом "притягивания"
         const animate = () => {
             const elapsed = Date.now() - startTime;
             const progress = Math.min(elapsed / duration, 1.0);
             
-            // Используем ease-out для плавности
-            const easedProgress = 1 - Math.pow(1 - progress, 3);
+            // Используем ease-in-out для плавности (медленный старт, быстрая середина, плавный конец)
+            const easedProgress = progress < 0.5 
+                ? 4 * progress * progress * progress 
+                : 1 - Math.pow(-2 * progress + 2, 3) / 2;
             
             // Анимируем каждую часть
             for (let i = 0; i < this.destroyedParts.length; i++) {
@@ -484,8 +546,20 @@ export class TankHealthModule {
                 const startRot = startRotations[i]!;
                 const targetRot = targetRotations[i]!;
                 
-                // Интерполируем позицию
+                // Интерполируем позицию с небольшим "притягиванием" к центру
                 const currentPos = Vector3.Lerp(startPos, targetPos, easedProgress);
+                
+                // Добавляем эффект "вращения" к центру в начале анимации
+                if (progress < 0.3) {
+                    const swirl = (0.3 - progress) * 0.5;
+                    const offset = new Vector3(
+                        Math.sin(elapsed * 0.01 + i) * swirl,
+                        Math.cos(elapsed * 0.015 + i * 2) * swirl * 0.5,
+                        Math.cos(elapsed * 0.01 + i) * swirl
+                    );
+                    currentPos.addInPlace(offset);
+                }
+                
                 part.mesh.position.copyFrom(currentPos);
                 
                 // Интерполируем вращение
@@ -511,24 +585,66 @@ export class TankHealthModule {
     private finishReassembly(respawnPos: Vector3): void {
         const tank = this.tank;
         
-        // Восстанавливаем родительские связи и позиции
-        for (const part of this.destroyedParts) {
-            // Удаляем временное физическое тело
-            if (part.physicsBody) {
-                part.physicsBody.dispose();
+        // ВАЖНО: Сначала восстанавливаем chassis (корневой элемент)
+        const chassisPart = this.destroyedParts.find(p => p.name === "chassis");
+        if (chassisPart && chassisPart.mesh && !chassisPart.mesh.isDisposed()) {
+            chassisPart.mesh.position.copyFrom(respawnPos);
+            chassisPart.mesh.rotationQuaternion = Quaternion.Identity();
+            
+            // Восстанавливаем прозрачность
+            if (chassisPart.mesh.material) {
+                chassisPart.mesh.material.alpha = 1;
+            }
+        }
+        
+        // Затем восстанавливаем turret (привязан к chassis)
+        const turretPart = this.destroyedParts.find(p => p.name === "turret");
+        if (turretPart && turretPart.mesh && !turretPart.mesh.isDisposed()) {
+            turretPart.mesh.setParent(tank.chassis);
+            turretPart.mesh.position.copyFrom(turretPart.originalLocalPos);
+            if (turretPart.originalLocalRot) {
+                turretPart.mesh.rotationQuaternion = turretPart.originalLocalRot.clone();
+            } else {
+                turretPart.mesh.rotationQuaternion = Quaternion.Identity();
             }
             
-            // Восстанавливаем родительскую связь
-            if (part.originalParent && !part.originalParent.isDisposed()) {
-                part.mesh.setParent(part.originalParent);
+            // Восстанавливаем прозрачность
+            if (turretPart.mesh.material) {
+                turretPart.mesh.material.alpha = 1;
+            }
+        }
+        
+        // Затем barrel (привязан к turret)
+        const barrelPart = this.destroyedParts.find(p => p.name === "barrel");
+        if (barrelPart && barrelPart.mesh && !barrelPart.mesh.isDisposed()) {
+            barrelPart.mesh.setParent(tank.turret);
+            barrelPart.mesh.position.copyFrom(barrelPart.originalLocalPos);
+            if (barrelPart.originalLocalRot) {
+                barrelPart.mesh.rotationQuaternion = barrelPart.originalLocalRot.clone();
+            } else {
+                barrelPart.mesh.rotationQuaternion = Quaternion.Identity();
+            }
+            
+            // Восстанавливаем прозрачность
+            if (barrelPart.mesh.material) {
+                barrelPart.mesh.material.alpha = 1;
+            }
+        }
+        
+        // Гусеницы (привязаны к chassis)
+        for (const part of this.destroyedParts) {
+            if ((part.name === "leftTrack" || part.name === "rightTrack") && 
+                part.mesh && !part.mesh.isDisposed()) {
+                part.mesh.setParent(tank.chassis);
                 part.mesh.position.copyFrom(part.originalLocalPos);
                 if (part.originalLocalRot) {
                     part.mesh.rotationQuaternion = part.originalLocalRot.clone();
                 }
-            } else if (part.name === "chassis") {
-                // Chassis - корневой элемент, устанавливаем позицию респавна
-                part.mesh.position.copyFrom(respawnPos);
-                part.mesh.rotationQuaternion = Quaternion.Identity();
+                
+                // Восстанавливаем прозрачность
+                if (part.mesh.material) {
+                    part.mesh.material.alpha = 1;
+                }
             }
         }
         
@@ -540,25 +656,71 @@ export class TankHealthModule {
     }
     
     /**
-     * Восстанавливает физическое тело танка
+     * Восстанавливает физическое тело танка с РЕАЛИСТИЧНЫМ ГУСЕНИЧНЫМ ХИТБОКСОМ
      */
     private restoreTankPhysics(respawnPos: Vector3): void {
         const tank = this.tank;
         
         // Восстанавливаем физическое тело, если его нет
         if (!tank.physicsBody && tank.chassis) {
-            // Создаем новое физическое тело (используем ту же логику, что и при создании танка)
-            const chassisShape = new PhysicsShape({
+            // Используем размеры из типа шасси танка
+            const chassisWidth = tank.chassisType.width;
+            const chassisHeight = tank.chassisType.height;
+            const chassisDepth = tank.chassisType.depth;
+            
+            // Compound shape: центральный BOX + скруглённые CYLINDER спереди и сзади
+            const chassisShape = new PhysicsShapeContainer(tank.scene);
+            
+            // Размеры для скруглённых краёв гусениц
+            const cylinderRadius = chassisHeight * 0.45;
+            const cylinderOffset = chassisDepth * 0.42;
+            const chassisLowering = -chassisHeight * 0.1;
+            
+            // 1. Центральный BOX (укороченный, без острых углов)
+            const centerBox = new PhysicsShape({
                 type: PhysicsShapeType.BOX,
                 parameters: {
-                    center: Vector3.Zero(),
-                    extents: new Vector3(2, 1, 3)
+                    center: new Vector3(0, chassisLowering, 0),
+                    rotation: Quaternion.Identity(),
+                    extents: new Vector3(chassisWidth, chassisHeight * 0.7, chassisDepth * 0.7)
                 }
             }, tank.scene);
+            centerBox.material = { friction: 0.1, restitution: 0.0 };
+            chassisShape.addChildFromParent(tank.chassis, centerBox, tank.chassis);
+            
+            // 2. Передний CYLINDER (скруглённый край)
+            const frontCylinder = new PhysicsShape({
+                type: PhysicsShapeType.CYLINDER,
+                parameters: {
+                    pointA: new Vector3(-chassisWidth * 0.5, chassisLowering, cylinderOffset),
+                    pointB: new Vector3(chassisWidth * 0.5, chassisLowering, cylinderOffset),
+                    radius: cylinderRadius
+                }
+            }, tank.scene);
+            frontCylinder.material = { friction: 0.15, restitution: 0.0 };
+            chassisShape.addChildFromParent(tank.chassis, frontCylinder, tank.chassis);
+            
+            // 3. Задний CYLINDER (скруглённый край)
+            const backCylinder = new PhysicsShape({
+                type: PhysicsShapeType.CYLINDER,
+                parameters: {
+                    pointA: new Vector3(-chassisWidth * 0.5, chassisLowering, -cylinderOffset),
+                    pointB: new Vector3(chassisWidth * 0.5, chassisLowering, -cylinderOffset),
+                    radius: cylinderRadius
+                }
+            }, tank.scene);
+            backCylinder.material = { friction: 0.15, restitution: 0.0 };
+            chassisShape.addChildFromParent(tank.chassis, backCylinder, tank.chassis);
+            
+            chassisShape.filterMembershipMask = 1;
+            chassisShape.filterCollideMask = 2 | 32;
             
             tank.physicsBody = new PhysicsBody(tank.chassis, PhysicsMotionType.DYNAMIC, false, tank.scene);
             tank.physicsBody.shape = chassisShape;
-            tank.physicsBody.setMassProperties({ mass: 3000 });
+            tank.physicsBody.setMassProperties({ 
+                mass: tank.chassisType.mass || 3000, 
+                centerOfMass: new Vector3(0, -0.55, -0.3) 
+            });
             tank.physicsBody.setLinearDamping(0.8);
             tank.physicsBody.setAngularDamping(4.0);
         }

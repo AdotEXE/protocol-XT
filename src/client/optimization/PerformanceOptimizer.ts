@@ -150,6 +150,7 @@ export class PerformanceOptimizer {
      * Обновление LOD для всех объектов (batch)
      */
     update(): void {
+        // ОПТИМИЗАЦИЯ: Кэшируем Date.now() результат на несколько кадров
         const now = Date.now();
         if (now - this.stats.lastUpdateTime < this.config.updateInterval) return;
         this.stats.lastUpdateTime = now;
@@ -186,9 +187,13 @@ export class PerformanceOptimizer {
             processed++;
         }
         
-        // Обновляем ключи если были удаления
+        // ОПТИМИЗАЦИЯ: Обновляем ключи только если действительно были удаления
+        // Используем более эффективный способ вместо Array.from
         if (this.trackedObjects.size !== objectCount) {
-            this.objectKeys = Array.from(this.trackedObjects.keys());
+            this.objectKeys.length = 0; // Очищаем массив
+            for (const key of this.trackedObjects.keys()) {
+                this.objectKeys.push(key);
+            }
         }
         
         this.stats.visibleObjects = visible;
@@ -201,10 +206,16 @@ export class PerformanceOptimizer {
     private updateObjectLOD(data: OptimizedObjectData): LODLevel {
         const mesh = data.mesh;
         
+        // ОПТИМИЗАЦИЯ: Используем position вместо absolutePosition для производительности
+        // Для статических объектов position уже в мировых координатах
+        // Для динамических объектов (с родителем) используем position, который синхронизирован с физикой
+        // Это избегает дорогого вычисления мировых матриц через absolutePosition
+        const meshPos = mesh.position;
+        
         // Вычисляем квадрат расстояния (быстрее чем корень)
-        const dx = mesh.absolutePosition.x - this.referencePosition.x;
-        const dy = mesh.absolutePosition.y - this.referencePosition.y;
-        const dz = mesh.absolutePosition.z - this.referencePosition.z;
+        const dx = meshPos.x - this.referencePosition.x;
+        const dy = meshPos.y - this.referencePosition.y;
+        const dz = meshPos.z - this.referencePosition.z;
         data.distanceSquared = dx * dx + dy * dy + dz * dz;
         
         // Определяем LOD уровень

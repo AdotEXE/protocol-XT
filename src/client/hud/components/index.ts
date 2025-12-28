@@ -54,3 +54,41 @@ export type { TankStatusConfig, TankStatusData } from './TankStatus';
 export { ScreenFlashEffect } from './ScreenFlashEffect';
 export type { FlashDirection } from './ScreenFlashEffect';
 
+// Экран смерти
+export { DeathScreen, DEFAULT_DEATH_SCREEN_CONFIG } from './DeathScreen';
+export type { DeathScreenConfig } from './DeathScreen';
+
+// Панель арсенала
+export { ArsenalBar, DEFAULT_ARSENAL_CONFIG } from './ArsenalBar';
+export type { ArsenalBarConfig, ArsenalSlotData } from './ArsenalBar';
+
+// Индикатор скорости
+export { SpeedIndicator, DEFAULT_SPEED_CONFIG } from './SpeedIndicator';
+export type { SpeedIndicatorConfig } from './SpeedIndicator';
+
+// Полоса перезарядки
+export { ReloadBar, DEFAULT_RELOAD_CONFIG } from './ReloadBar';
+export type { ReloadBarConfig } from './ReloadBar';
+
+// Лента уничтожений
+export { KillFeed, DEFAULT_KILLFEED_CONFIG } from './KillFeed';
+export type { KillFeedConfig, KillFeedEntry } from './KillFeed';
+
+// Полоса опыта
+export { ExperienceBar, DEFAULT_EXPERIENCE_BAR_CONFIG } from './ExperienceBar';
+export type { ExperienceBarConfig } from './ExperienceBar';
+
+// Полоса здоровья цели
+export { TargetHealthBar } from './TargetHealthBar';
+export type { TargetInfo } from './TargetHealthBar';
+
+// Layout и темы
+export { HUDLayout, DEFAULT_LAYOUT_CONFIG } from './HUDLayout';
+export type { ComponentPosition, ComponentSize, LayoutConfig } from './HUDLayout';
+
+export { HUDThemeManager, DEFAULT_THEME, DARK_THEME, LIGHT_THEME } from './HUDTheme';
+export type { HUDTheme, HUDColorScheme } from './HUDTheme';
+
+export { HUDManager } from './HUDManager';
+export type { HUDManagerConfig } from './HUDManager';
+

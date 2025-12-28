@@ -270,6 +270,45 @@ export class DebugDashboard {
         // Этот метод оставлен для возможного будущего использования
     }
     
+    /**
+     * Переключить видимость панели
+     */
+    toggle(): void {
+        this.visible = !this.visible;
+        if (this.visible) {
+            this.container.classList.remove("hidden");
+            this.container.style.display = "";
+        } else {
+            this.container.classList.add("hidden");
+            this.container.style.display = "none";
+        }
+    }
+    
+    /**
+     * Показать панель
+     */
+    show(): void {
+        this.visible = true;
+        this.container.classList.remove("hidden");
+        this.container.style.display = "";
+    }
+    
+    /**
+     * Скрыть панель
+     */
+    hide(): void {
+        this.visible = false;
+        this.container.classList.add("hidden");
+        this.container.style.display = "none";
+    }
+    
+    /**
+     * Проверить видимость
+     */
+    isVisible(): boolean {
+        return this.visible;
+    }
+    
     update(playerPos: { x: number, y: number, z: number }): void {
         // Обновляем только если dashboard видим
         if (!this.visible) return;

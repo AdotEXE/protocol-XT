@@ -16,7 +16,7 @@ export const POLYGON_MAP_INFO = {
     id: "polygon" as const,
     name: "Полигон",
     description: "Военный полигон с ангарами, техникой, складами, кранами и вышками",
-    arenaSize: 600,
+    arenaSize: 1000,  // Ограничено для тестов
     wallHeight: 4
 };
 

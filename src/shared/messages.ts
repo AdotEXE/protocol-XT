@@ -17,10 +17,15 @@ export enum ClientMessageType {
     CREATE_ROOM = "create_room",
     JOIN_ROOM = "join_room",
     LEAVE_ROOM = "leave_room",
+    LIST_ROOMS = "list_rooms",
+    START_GAME = "start_game",
     
     // Matchmaking
     QUICK_PLAY = "quick_play",
     CANCEL_QUEUE = "cancel_queue",
+    
+    // Social
+    GAME_INVITE = "game_invite",
     
     // Gameplay
     PLAYER_INPUT = "player_input",
@@ -62,6 +67,7 @@ export enum ServerMessageType {
     ROOM_CREATED = "room_created",
     ROOM_JOINED = "room_joined",
     ROOM_LEFT = "room_left",
+    ROOM_LIST = "room_list",
     PLAYER_JOINED = "player_joined",
     PLAYER_LEFT = "player_left",
     

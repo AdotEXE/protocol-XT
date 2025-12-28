@@ -62,15 +62,24 @@ export class NetworkPlayerTank {
         mat.specularColor = Color3.Black();
         chassis.material = mat;
         
+        // КРИТИЧНО: Убеждаемся, что меш видим и добавлен в сцену
+        chassis.isVisible = true;
+        chassis.setEnabled(true);
+        if (!this.scene.meshes.includes(chassis)) {
+            this.scene.addMesh(chassis);
+        }
+        
         return chassis;
     }
     
     private createTurret(): Mesh {
-        const turret = MeshBuilder.CreateCylinder(
+        // ИСПРАВЛЕНИЕ: Используем Box вместо Cylinder (НИКОГДА НЕ ИСПОЛЬЗОВАТЬ КРУГЛЫЕ ФОРМЫ)
+        const turret = MeshBuilder.CreateBox(
             `networkPlayer_turret_${this.playerId}`,
             {
+                width: 1.2,
                 height: 0.8,
-                diameter: 1.2
+                depth: 1.2
             },
             this.scene
         );
@@ -86,26 +95,36 @@ export class NetworkPlayerTank {
         mat.emissiveColor = color.scale(0.3);
         turret.material = mat;
         
+        // КРИТИЧНО: Убеждаемся, что меш видим
+        turret.isVisible = true;
+        turret.setEnabled(true);
+        
         return turret;
     }
     
     private createBarrel(): Mesh {
-        const barrel = MeshBuilder.CreateCylinder(
+        // ИСПРАВЛЕНИЕ: Используем Box вместо Cylinder (НИКОГДА НЕ ИСПОЛЬЗОВАТЬ КРУГЛЫЕ ФОРМЫ)
+        const barrel = MeshBuilder.CreateBox(
             `networkPlayer_barrel_${this.playerId}`,
             {
-                height: 2.5,
-                diameter: 0.3
+                width: 0.3,
+                height: 0.3,
+                depth: 2.5
             },
             this.scene
         );
         
         barrel.position.set(0, 0.4, 1.25);
-        barrel.rotation.x = Math.PI / 2;
+        // Для Box не нужно поворачивать по X, так как он уже ориентирован правильно
         barrel.parent = this.turret;
         
         const mat = new StandardMaterial(`networkPlayer_barrel_mat_${this.playerId}`, this.scene);
         mat.diffuseColor = new Color3(0.3, 0.3, 0.3);
         barrel.material = mat;
+        
+        // КРИТИЧНО: Убеждаемся, что меш видим
+        barrel.isVisible = true;
+        barrel.setEnabled(true);
         
         return barrel;
     }
@@ -199,11 +218,38 @@ export class NetworkPlayerTank {
     }
     
     private updateVisuals(extrapolate: boolean = false, deltaTime: number = 0): void {
-        if (!this.networkPlayer) return;
+        if (!this.networkPlayer) {
+            console.warn(`[NetworkPlayerTank] updateVisuals: networkPlayer is null for ${this.playerId}`);
+            return;
+        }
         
         // Interpolate position
         const targetPos = this.networkPlayer.position;
         const currentPos = this.chassis.position;
+        
+        // Проверяем валидность позиции
+        if (!targetPos || !Number.isFinite(targetPos.x) || !Number.isFinite(targetPos.y) || !Number.isFinite(targetPos.z)) {
+            console.warn(`[NetworkPlayerTank] Invalid position for ${this.playerId}:`, targetPos);
+            return;
+        }
+        
+        // ИСПРАВЛЕНО: Убеждаемся, что меши видимы и добавлены в сцену
+        if (this.chassis) {
+            this.chassis.isVisible = true;
+            this.chassis.setEnabled(true);
+            // КРИТИЧНО: Убеждаемся, что меш добавлен в сцену
+            if (!this.scene.meshes.includes(this.chassis)) {
+                this.scene.addMesh(this.chassis);
+            }
+        }
+        if (this.turret) {
+            this.turret.isVisible = true;
+            this.turret.setEnabled(true);
+        }
+        if (this.barrel) {
+            this.barrel.isVisible = true;
+            this.barrel.setEnabled(true);
+        }
         
         if (extrapolate && this.estimatedVelocity.length() > 0.1) {
             // Dead reckoning: extrapolate based on estimated velocity
@@ -266,7 +312,7 @@ export class NetworkPlayerTank {
         
         this.turret.rotation.y = currentTurretRotation;
         
-        // Update barrel pitch
+        // Update barrel pitch (для Box поворачиваем по X для вертикального наклона)
         this.barrel.rotation.x = Math.PI / 2 - this.networkPlayer.aimPitch;
         
         // Update visibility based on status

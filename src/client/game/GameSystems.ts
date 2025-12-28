@@ -276,7 +276,7 @@ export class GameSystems implements Partial<IGameSystems> {
             this.chunkSystem = new ChunkSystem(scene, {
                 chunkSize: 80,
                 renderDistance: isProduction ? 1.2 : 1.5,
-                unloadDistance: 4,
+                unloadDistance: 3,  // ОПТИМИЗАЦИЯ: Уменьшено с 4 до 3
                 worldSeed: worldSeed,
                 mapType: currentMapType as any
             });
@@ -285,9 +285,9 @@ export class GameSystems implements Partial<IGameSystems> {
             const initialPos = new Vector3(0, 2, 0);
             this.chunkSystem.update(initialPos);
             
-            // Initialize Multiplayer Manager
-            const serverUrl = (import.meta as any).env?.VITE_WS_SERVER_URL || "ws://localhost:8080";
-            this.multiplayerManager = new MultiplayerManager(serverUrl);
+            // Initialize Multiplayer Manager with auto-connect
+            // URL будет автоматически определен в конструкторе MultiplayerManager
+            this.multiplayerManager = new MultiplayerManager(undefined, true); // autoConnect = true
             
             logger.log("[GameSystems] All systems initialized successfully");
         } catch (error) {

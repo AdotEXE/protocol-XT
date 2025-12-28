@@ -312,8 +312,9 @@ export class AimingSystem {
             const toEnemy = enemyPos.subtract(barrelPos).normalize();
             const angle = Math.acos(Vector3.Dot(barrelDir, toEnemy));
             
-            // Wide detection angle when not aiming, narrow when aiming
-            const maxAngle = this.isAiming ? 0.1 : 0.3;
+            // ИСПРАВЛЕНИЕ: Узкий угол определения цели - только когда враг строго на линии огня
+            // Уменьшено для предотвращения показа HP когда танк не может попасть
+            const maxAngle = this.isAiming ? 0.08 : 0.15; // ~4.5° при прицеливании, ~8.6° обычно
             
             if (angle < maxAngle && dist < closestDist) {
                 closestDist = dist;
@@ -345,7 +346,8 @@ export class AimingSystem {
             const toTurret = turretPos.subtract(barrelPos).normalize();
             const angle = Math.acos(Vector3.Dot(barrelDir, toTurret));
             
-            const maxAngle = this.isAiming ? 0.15 : 0.35;
+            // ИСПРАВЛЕНИЕ: Узкий угол для турелей тоже
+            const maxAngle = this.isAiming ? 0.1 : 0.18; // ~5.7° при прицеливании, ~10.3° обычно
             
             if (angle < maxAngle && dist < closestDist) {
                 closestDist = dist;

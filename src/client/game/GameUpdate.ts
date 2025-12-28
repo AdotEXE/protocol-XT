@@ -3,7 +3,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { logger } from "../utils/logger";
-import type { Engine, Scene } from "@babylonjs/core";
+import type { Engine, Scene, Vector3 } from "@babylonjs/core";
+import { Vector3 as Vector3Impl } from "@babylonjs/core";
 import type { TankController } from "../tankController";
 import type { HUD } from "../hud";
 import type { EnemyManager } from "../enemy";
@@ -14,6 +15,8 @@ import type { AchievementsSystem } from "../achievements";
 import type { ExperienceSystem } from "../experienceSystem";
 import type { PlayerProgressionSystem } from "../playerProgression";
 import type { MultiplayerManager } from "../multiplayer";
+import type { AICoordinator } from "../ai/AICoordinator";
+import type { PerformanceOptimizer } from "../optimization/PerformanceOptimizer";
 
 /**
  * GameUpdate - Основной игровой цикл
@@ -26,6 +29,22 @@ import type { MultiplayerManager } from "../multiplayer";
 export class GameUpdate {
     // Счётчик кадров для оптимизации
     private _updateTick = 0;
+    
+    // ОПТИМИЗАЦИЯ: Кэш позиции танка для избежания дорогих вызовов absolutePosition
+    private _cachedTankPosition: Vector3 = Vector3Impl.Zero();
+    private _tankPositionCacheFrame = -1;
+    
+    // ОПТИМИЗАЦИЯ: Адаптивные интервалы обновления на основе FPS
+    private _adaptiveIntervals = {
+        chunkSystem: 8,
+        enemyManager: 5,
+        turrets: 10,
+        garage: 2,
+        multiplayer: 2,
+        consumables: 10
+    };
+    private _lastFPS = 60;
+    private _fpsUpdateCounter = 0;
     
     // Ссылки на системы
     protected engine: Engine | undefined;
@@ -40,6 +59,8 @@ export class GameUpdate {
     protected experienceSystem: ExperienceSystem | undefined;
     protected playerProgression: PlayerProgressionSystem | undefined;
     protected multiplayerManager: MultiplayerManager | undefined;
+    protected aiCoordinator: AICoordinator | undefined;
+    protected performanceOptimizer: PerformanceOptimizer | undefined;
     
     // Callbacks для обновлений (будут переданы из Game)
     protected onUpdateCamera: (() => void) | null = null;
@@ -75,6 +96,8 @@ export class GameUpdate {
             experienceSystem?: ExperienceSystem;
             playerProgression?: PlayerProgressionSystem;
             multiplayerManager?: MultiplayerManager;
+            aiCoordinator?: AICoordinator;
+            performanceOptimizer?: PerformanceOptimizer;
             gameStarted?: boolean;
             gamePaused?: boolean;
             isAiming?: boolean;
@@ -93,6 +116,8 @@ export class GameUpdate {
         this.experienceSystem = callbacks.experienceSystem;
         this.playerProgression = callbacks.playerProgression;
         this.multiplayerManager = callbacks.multiplayerManager;
+        this.aiCoordinator = callbacks.aiCoordinator;
+        this.performanceOptimizer = callbacks.performanceOptimizer;
         this.gameStarted = callbacks.gameStarted || false;
         this.gamePaused = callbacks.gamePaused || false;
         this.isAiming = callbacks.isAiming || false;
@@ -115,6 +140,7 @@ export class GameUpdate {
         const deltaTime = this.engine.getDeltaTime() / 1000;
         
         // === ОБНОВЛЕНИЕ FPS КАЖДЫЙ КАДР ===
+        let currentFPS = 60;
         if (this.hud) {
             const deltaTimeMs = this.engine.getDeltaTime();
             let fps = this.engine.getFps();
@@ -125,8 +151,17 @@ export class GameUpdate {
                     fps = 0;
                 }
             }
+            currentFPS = fps;
             this.hud.updateFPS(fps, deltaTimeMs);
         }
+        
+        // ОПТИМИЗАЦИЯ: Адаптивные интервалы обновления на основе FPS
+        this._fpsUpdateCounter++;
+        if (this._fpsUpdateCounter >= 60) { // Обновляем интервалы каждые 60 кадров (~1 секунда)
+            this.updateAdaptiveIntervals(currentFPS);
+            this._fpsUpdateCounter = 0;
+        }
+        this._lastFPS = currentFPS;
         
         // === ЦЕНТРАЛИЗОВАННЫЕ ОБНОВЛЕНИЯ АНИМАЦИЙ ===
         // Обновляем анимации с разной частотой для оптимизации
@@ -199,8 +234,8 @@ export class GameUpdate {
             this.onUpdateCamera();
         }
         
-        // Обновление гаражей (каждые 2 кадра)
-        if (this._updateTick % 2 === 0) {
+        // Обновление гаражей (адаптивный интервал)
+        if (this._updateTick % this._adaptiveIntervals.garage === 0) {
             if (this.onUpdateGarageDoors) {
                 this.onUpdateGarageDoors();
             }
@@ -214,8 +249,8 @@ export class GameUpdate {
             }
         }
         
-        // Обновление мультиплеера (каждые 2 кадра)
-        if (this._updateTick % 2 === 0 && this.onUpdateMultiplayer) {
+        // Обновление мультиплеера (адаптивный интервал)
+        if (this._updateTick % this._adaptiveIntervals.multiplayer === 0 && this.onUpdateMultiplayer) {
             this.onUpdateMultiplayer(deltaTime);
         }
         
@@ -224,13 +259,13 @@ export class GameUpdate {
             this.onUpdateFrontlineWaves(deltaTime);
         }
         
-        // Обновление видимости турелей (каждые 6 кадров)
-        if (this._updateTick % 6 === 0 && this.onUpdateEnemyTurretsVisibility) {
+        // Обновление видимости турелей (адаптивный интервал) - ОПТИМИЗАЦИЯ: адаптивная частота
+        if (this._updateTick % this._adaptiveIntervals.turrets === 0 && this.onUpdateEnemyTurretsVisibility) {
             this.onUpdateEnemyTurretsVisibility();
         }
         
-        // Проверка подбора расходников (каждые 10 кадров)
-        if (this._updateTick % 10 === 0 && this.onCheckConsumablePickups) {
+        // Проверка подбора расходников (адаптивный интервал)
+        if (this._updateTick % this._adaptiveIntervals.consumables === 0 && this.onCheckConsumablePickups) {
             this.onCheckConsumablePickups();
         }
         
@@ -239,12 +274,28 @@ export class GameUpdate {
             this.onCheckSpectatorMode();
         }
         
-        // Обновление чанков (каждые 5 кадров)
-        if (this._updateTick % 5 === 0 && this.chunkSystem && this.tank) {
-            const tankPos = this.tank.chassis?.absolutePosition;
-            if (tankPos) {
-                this.chunkSystem.update(tankPos);
+        // Обновление чанков (адаптивный интервал) - ОПТИМИЗАЦИЯ: адаптивная частота
+        if (this._updateTick % this._adaptiveIntervals.chunkSystem === 0 && this.chunkSystem && this.tank) {
+            // ОПТИМИЗАЦИЯ: Используем кэшированную позицию вместо absolutePosition
+            if (this._tankPositionCacheFrame !== this._updateTick && this.tank.chassis) {
+                this._cachedTankPosition.copyFrom(this.tank.chassis.position);
+                this._tankPositionCacheFrame = this._updateTick;
             }
+            this.chunkSystem.update(this._cachedTankPosition);
+        }
+        
+        // Обновление AI Coordinator (каждые 2 кадра)
+        if (this._updateTick % 2 === 0 && this.aiCoordinator && this.tank && this.tank.chassis) {
+            const cachedPos = this.tank.getCachedChassisPosition();
+            this.aiCoordinator.updatePlayerPosition(cachedPos);
+            this.aiCoordinator.update();
+        }
+        
+        // Обновление Performance Optimizer (каждые 4 кадра)
+        if (this._updateTick % 4 === 0 && this.performanceOptimizer && this.tank && this.tank.chassis) {
+            const cachedPos = this.tank.getCachedChassisPosition();
+            this.performanceOptimizer.setReferencePosition(cachedPos);
+            this.performanceOptimizer.update();
         }
     }
     
@@ -261,8 +312,10 @@ export class GameUpdate {
         onUpdateEnemyTurretsVisibility?: () => void;
         onCheckConsumablePickups?: () => void;
         onCheckSpectatorMode?: () => void;
+        onUpdateCompass?: () => void;
     }): void {
         if (callbacks.onUpdateCamera !== undefined) this.onUpdateCamera = callbacks.onUpdateCamera;
+        if (callbacks.onUpdateCompass !== undefined) this.onUpdateCompass = callbacks.onUpdateCompass;
         if (callbacks.onUpdateGarageDoors !== undefined) this.onUpdateGarageDoors = callbacks.onUpdateGarageDoors;
         if (callbacks.onUpdateGarageCapture !== undefined) this.onUpdateGarageCapture = callbacks.onUpdateGarageCapture;
         if (callbacks.onUpdateGarageRespawnTimers !== undefined) this.onUpdateGarageRespawnTimers = callbacks.onUpdateGarageRespawnTimers;
@@ -271,6 +324,7 @@ export class GameUpdate {
         if (callbacks.onUpdateEnemyTurretsVisibility !== undefined) this.onUpdateEnemyTurretsVisibility = callbacks.onUpdateEnemyTurretsVisibility;
         if (callbacks.onCheckConsumablePickups !== undefined) this.onCheckConsumablePickups = callbacks.onCheckConsumablePickups;
         if (callbacks.onCheckSpectatorMode !== undefined) this.onCheckSpectatorMode = callbacks.onCheckSpectatorMode;
+        if (callbacks.onUpdateCompass !== undefined) this.onUpdateCompass = callbacks.onUpdateCompass;
     }
     
     /**
@@ -306,6 +360,54 @@ export class GameUpdate {
         if (callbacks.gamePaused !== undefined) this.gamePaused = callbacks.gamePaused;
         if (callbacks.isAiming !== undefined) this.isAiming = callbacks.isAiming;
         if (callbacks.survivalStartTime !== undefined) this.survivalStartTime = callbacks.survivalStartTime;
+    }
+    
+    /**
+     * ОПТИМИЗАЦИЯ: Обновление адаптивных интервалов на основе FPS
+     * Если FPS падает ниже 50, увеличиваем интервалы для снижения нагрузки
+     */
+    private updateAdaptiveIntervals(fps: number): void {
+        if (fps >= 55) {
+            // Высокий FPS - используем стандартные интервалы
+            this._adaptiveIntervals = {
+                chunkSystem: 8,
+                enemyManager: 5,
+                turrets: 10,
+                garage: 2,
+                multiplayer: 2,
+                consumables: 10
+            };
+        } else if (fps >= 45) {
+            // Средний FPS - немного увеличиваем интервалы
+            this._adaptiveIntervals = {
+                chunkSystem: 10,
+                enemyManager: 6,
+                turrets: 12,
+                garage: 3,
+                multiplayer: 3,
+                consumables: 12
+            };
+        } else if (fps >= 35) {
+            // Низкий FPS - значительно увеличиваем интервалы
+            this._adaptiveIntervals = {
+                chunkSystem: 12,
+                enemyManager: 8,
+                turrets: 15,
+                garage: 4,
+                multiplayer: 4,
+                consumables: 15
+            };
+        } else {
+            // Очень низкий FPS - максимальные интервалы
+            this._adaptiveIntervals = {
+                chunkSystem: 16,
+                enemyManager: 10,
+                turrets: 20,
+                garage: 5,
+                multiplayer: 5,
+                consumables: 20
+            };
+        }
     }
     
     /**

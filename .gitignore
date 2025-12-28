@@ -143,3 +143,6 @@ tsc_*.txt
 *findstr*
 *Select-String*
 *ion generation*
+
+# Version file (each developer has their own version)
+.version.json

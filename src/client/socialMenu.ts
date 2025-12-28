@@ -29,6 +29,17 @@ export class SocialMenu {
         
         this._isOpen = true;
         this.createUI();
+        
+        // Добавляем класс "in-battle" если игра запущена (для полупрозрачного фона)
+        if (this.container) {
+            const game = (window as any).gameInstance;
+            if (game && game.gameStarted) {
+                this.container.classList.add("in-battle");
+            } else {
+                this.container.classList.remove("in-battle");
+            }
+        }
+        
         await this.refreshData();
     }
     
@@ -48,9 +59,7 @@ export class SocialMenu {
      * Переключить меню (открыть/закрыть)
      */
     async toggle(): Promise<void> {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'socialMenu.ts:50',message:'SocialMenu toggle called',data:{isOpen:this._isOpen,hasContainer:!!this.container},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
+        
         if (this._isOpen) {
             this.close();
         } else {
@@ -64,15 +73,11 @@ export class SocialMenu {
     private createUI(): void {
         // Инжектируем общие стили если еще не инжектированы
         CommonStyles.initialize();
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'socialMenu.ts:63',message:'CommonStyles initialized',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
+        
         
         this.container = document.createElement("div");
         this.container.className = "panel-overlay";
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'socialMenu.ts:66',message:'SocialMenu container created',data:{className:this.container.className},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-        // #endregion
+        
         this.container.innerHTML = `
             <div class="panel" style="width: min(90vw, 800px); max-height: min(85vh, 700px);">
                 <div class="panel-header">
@@ -579,8 +584,18 @@ export class SocialMenu {
         const message = prompt(`Отправить сообщение ${friendName}:`);
         if (!message || message.trim() === "") return;
         
-        // TODO: Интеграция с системой сообщений/чата
-        // Пока что просто показываем уведомление
+        // Интеграция с ChatSystem через gameInstance
+        const game = (window as any).gameInstance;
+        if (game?.chatSystem) {
+            // Отправляем сообщение через ChatSystem (локальный лог)
+            game.chatSystem.addMessage(`📤 → ${friendName}: ${message}`, "info", 1);
+            
+            // Если есть multiplayerManager, отправляем через сервер
+            if (game.multiplayerManager?.isConnected()) {
+                game.multiplayerManager.sendChatMessage(`[DM to ${friendName}] ${message}`);
+            }
+        }
+        
         this.showNotification(`Сообщение отправлено ${friendName}: "${message}"`);
         console.log(`[Social] Message to ${friendName} (${friendId}): ${message}`);
     }
@@ -589,13 +604,25 @@ export class SocialMenu {
      * Пригласить друга в игру
      */
     private async inviteFriendToGame(friendId: string, friendName: string): Promise<void> {
-        // TODO: Интеграция с системой мультиплеера
-        // Можно использовать multiplayerManager для отправки приглашения
-        this.showNotification(`Приглашение отправлено ${friendName}`);
-        console.log(`[Social] Game invite sent to ${friendName} (${friendId})`);
+        const game = (window as any).gameInstance;
+        const multiplayerManager = game?.multiplayerManager;
         
-        // В реальной реализации здесь должна быть интеграция с multiplayerManager
-        // Например: multiplayerManager.sendInvite(friendId, gameMode, roomId)
+        if (multiplayerManager?.isConnected()) {
+            // Отправляем приглашение через MultiplayerManager
+            multiplayerManager.sendGameInvite(friendId);
+            
+            // Добавляем сообщение в чат
+            if (game.chatSystem) {
+                game.chatSystem.addMessage(`🎮 Приглашение отправлено ${friendName}`, "success", 1);
+            }
+            
+            this.showNotification(`Приглашение отправлено ${friendName}`);
+        } else {
+            // Офлайн режим - показываем уведомление что нужно подключиться
+            this.showNotification(`Для приглашения необходимо подключиться к серверу`);
+        }
+        
+        console.log(`[Social] Game invite sent to ${friendName} (${friendId})`);
     }
     
     /**

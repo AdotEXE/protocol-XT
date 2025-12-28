@@ -28,16 +28,12 @@ export class ScreenshotPanel {
     private createUI(): void {
         // Инжектируем общие стили если еще не инжектированы
         CommonStyles.initialize();
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'screenshotPanel.ts:30',message:'CommonStyles initialized',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
+        
         
         this.container = document.createElement('div');
         this.container.id = 'screenshot-panel';
         this.container.className = 'panel-overlay';
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'screenshotPanel.ts:34',message:'ScreenshotPanel container created',data:{className:this.container.className},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-        // #endregion
+        
         
         this.container.innerHTML = `
             <div class="panel" style="width: min(600px, 90vw); max-height: min(800px, 90vh);">
@@ -427,9 +423,7 @@ export class ScreenshotPanel {
      * Переключить видимость
      */
     toggle(): void {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'screenshotPanel.ts:423',message:'ScreenshotPanel toggle called',data:{isVisible:this._isVisible,hasContainer:!!this.container},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
+        
         if (this._isVisible) {
             this.hide();
         } else {

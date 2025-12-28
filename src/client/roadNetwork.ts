@@ -59,8 +59,9 @@ export class RoadNetwork {
     private intersections: Map<string, Intersection[]> = new Map();
     private materials: Map<string, StandardMaterial> = new Map();
     private noise: NoiseGenerator;
+    private isPositionInGarageArea?: (x: number, z: number, margin: number) => boolean;
     
-    constructor(scene: Scene, config?: Partial<RoadNetworkConfig>) {
+    constructor(scene: Scene, config?: Partial<RoadNetworkConfig>, isPositionInGarageArea?: (x: number, z: number, margin: number) => boolean) {
         this.scene = scene;
         this.config = {
             worldSeed: Date.now(),
@@ -74,6 +75,9 @@ export class RoadNetwork {
         this.createMaterials();
         // Create noise generator for curved road generation
         this.noise = new NoiseGenerator(this.config.worldSeed + 54321);
+        
+        // Сохраняем callback для проверки зон гаражей
+        this.isPositionInGarageArea = isPositionInGarageArea;
         
         // Сохраняем модуль дорог Тарту в window cache для быстрого доступа
         // ЗАЩИТНАЯ ПРОВЕРКА: только явно "tartaria", не undefined и не другие значения
@@ -131,7 +135,7 @@ export class RoadNetwork {
         this.materials.set("markingYellow", yellowMarkingMat);
     }
     
-    // Generate curved road path following terrain
+    // Generate curved road path following terrain (avoids garages)
     private generateCurvedRoad(
         start: Vector3, 
         end: Vector3, 
@@ -149,40 +153,99 @@ export class RoadNetwork {
         // Add curvature using noise for organic feel
         const perpDir = new Vector3(-normalizedDir.z, 0, normalizedDir.x);
         
+        // Определяем запас для проверки гаражей (используем средний запас для curved дорог)
+        const garageMargin = 10;
+        
         for (let i = 1; i < segments; i++) {
             const t = i / segments;
             const basePoint = start.add(direction.scale(t));
             
-            // Add perpendicular offset using noise for organic curves
-            const noiseScale = 0.02;
-            const offsetNoise = this.noise.fbm(
-                basePoint.x * noiseScale, 
-                basePoint.z * noiseScale, 
-                2, 2, 0.5
-            );
+            // Пробуем несколько вариантов смещения для обхода гаражей
+            let curvedPoint: Vector3 | null = null;
+            const maxAttempts = 5; // Максимальное количество попыток найти точку не в гараже
             
-            // Apply curvature with noise variation
-            const offsetAmount = (Math.sin(t * Math.PI) * curvature + offsetNoise * 0.2) * length * 0.15;
-            const offset = perpDir.scale(offsetAmount);
-            
-            let curvedPoint = basePoint.add(offset);
-            
-            // Adjust height based on terrain if terrain generator is available
-            if (this.config.terrainGenerator) {
-                const terrainHeight = this.config.terrainGenerator.getHeight(curvedPoint.x, curvedPoint.z, biome);
-                curvedPoint.y = terrainHeight + 0.02;
-            } else {
-                curvedPoint.y = 0.02;
+            for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                // Add perpendicular offset using noise for organic curves
+                const noiseScale = 0.02;
+                const offsetNoise = this.noise.fbm(
+                    basePoint.x * noiseScale + attempt * 0.1, 
+                    basePoint.z * noiseScale + attempt * 0.1, 
+                    2, 2, 0.5
+                );
+                
+                // Применяем кривизну с вариацией шума, увеличиваем смещение при попытках обхода
+                const offsetMultiplier = attempt === 0 ? 1.0 : 1.0 + attempt * 0.3;
+                const offsetAmount = (Math.sin(t * Math.PI) * curvature + offsetNoise * 0.2) * length * 0.15 * offsetMultiplier;
+                const offset = perpDir.scale(offsetAmount);
+                
+                let candidatePoint = basePoint.add(offset);
+                
+                // Проверяем, не находится ли точка в гараже
+                if (this.isPositionInGarageArea) {
+                    if (this.isPositionInGarageArea(candidatePoint.x, candidatePoint.z, garageMargin)) {
+                        // Точка в гараже, пробуем другую
+                        continue;
+                    }
+                }
+                
+                // Adjust height based on terrain if terrain generator is available
+                if (this.config.terrainGenerator) {
+                    const terrainHeight = this.config.terrainGenerator.getHeight(candidatePoint.x, candidatePoint.z, biome);
+                    candidatePoint.y = terrainHeight + 0.02;
+                } else {
+                    candidatePoint.y = 0.02;
+                }
+                
+                curvedPoint = candidatePoint;
+                break; // Нашли валидную точку
             }
             
-            points.push(curvedPoint);
+            // Если не удалось найти точку не в гараже, используем базовую точку (но проверяем её тоже)
+            if (!curvedPoint) {
+                // Последняя попытка - используем базовую точку без смещения
+                if (this.isPositionInGarageArea && 
+                    this.isPositionInGarageArea(basePoint.x, basePoint.z, garageMargin)) {
+                    // Даже базовая точка в гараже - пропускаем эту точку
+                    continue;
+                }
+                
+                curvedPoint = basePoint.clone();
+                if (this.config.terrainGenerator) {
+                    const terrainHeight = this.config.terrainGenerator.getHeight(curvedPoint.x, curvedPoint.z, biome);
+                    curvedPoint.y = terrainHeight + 0.02;
+                } else {
+                    curvedPoint.y = 0.02;
+                }
+            }
+            
+            if (curvedPoint) {
+                points.push(curvedPoint);
+            }
         }
         
-        points.push(end);
+        // Проверяем конечную точку
+        if (this.isPositionInGarageArea && this.isPositionInGarageArea(end.x, end.z, garageMargin)) {
+            // Если конечная точка в гараже, используем последнюю валидную точку
+            if (points.length > 1) {
+                points.push(points[points.length - 1]!.clone());
+            } else {
+                points.push(start.clone());
+            }
+        } else {
+            // Adjust height for end point
+            if (this.config.terrainGenerator) {
+                const terrainHeight = this.config.terrainGenerator.getHeight(end.x, end.z, biome);
+                end.y = terrainHeight + 0.02;
+            } else {
+                end.y = 0.02;
+            }
+            points.push(end);
+        }
+        
         return points;
     }
     
-    // Generate road path that follows terrain (avoids steep slopes, follows valleys)
+    // Generate road path that follows terrain (avoids steep slopes, follows valleys, avoids garages)
     private generateTerrainFollowingRoad(
         start: Vector3,
         end: Vector3,
@@ -203,6 +266,9 @@ export class RoadNetwork {
         const steps = Math.ceil(totalLength / stepSize);
         let currentPos = start.clone();
         
+        // Определяем запас для проверки гаражей (используем средний запас для terrain-following дорог)
+        const garageMargin = 12;
+        
         for (let i = 0; i < steps; i++) {
             const t = (i + 1) / steps;
             const targetPos = start.add(direction.scale(t));
@@ -210,8 +276,8 @@ export class RoadNetwork {
             // Sample terrain in front and to the sides to find best path
             const samples: Array<{ pos: Vector3, cost: number }> = [];
             
-            // Sample center and sides
-            for (let sideOffset = -1; sideOffset <= 1; sideOffset++) {
+            // Sample center and sides (расширяем диапазон для обхода гаражей)
+            for (let sideOffset = -2; sideOffset <= 2; sideOffset++) {
                 const samplePos = targetPos.add(perpDir.scale(sideOffset * stepSize * 0.5));
                 const height = this.config.terrainGenerator!.getHeight(samplePos.x, samplePos.z, biome);
                 
@@ -226,9 +292,17 @@ export class RoadNetwork {
                 const heightCost = height * 0.1; // Slightly prefer lower elevations
                 const deviationCost = Math.abs(sideOffset) * 2; // Prefer straight paths
                 
+                // КРИТИЧНО: Добавляем большую стоимость для точек в гаражах
+                let garageCost = 0;
+                if (this.isPositionInGarageArea) {
+                    if (this.isPositionInGarageArea(samplePos.x, samplePos.z, garageMargin)) {
+                        garageCost = 10000; // Очень большая стоимость - избегаем гаражей
+                    }
+                }
+                
                 samples.push({
                     pos: new Vector3(samplePos.x, height + 0.02, samplePos.z),
-                    cost: slopeCost + heightCost + deviationCost
+                    cost: slopeCost + heightCost + deviationCost + garageCost
                 });
             }
             
@@ -237,26 +311,82 @@ export class RoadNetwork {
                 samples.sort((a, b) => a.cost - b.cost);
                 const bestSample = samples[0];
                 if (bestSample) {
-                    currentPos = bestSample.pos;
-                    points.push(currentPos.clone());
+                    // Дополнительная проверка: если лучший вариант всё ещё в гараже, пробуем другие варианты
+                    if (this.isPositionInGarageArea && 
+                        this.isPositionInGarageArea(bestSample.pos.x, bestSample.pos.z, garageMargin)) {
+                        // Ищем первый вариант не в гараже
+                        let found = false;
+                        for (let j = 1; j < samples.length; j++) {
+                            const altSample = samples[j];
+                            if (altSample && !this.isPositionInGarageArea(altSample.pos.x, altSample.pos.z, garageMargin)) {
+                                currentPos = altSample.pos;
+                                points.push(currentPos.clone());
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            // Если все варианты в гараже, пропускаем эту точку (дорога будет разорвана)
+                            continue;
+                        }
+                    } else {
+                        currentPos = bestSample.pos;
+                        points.push(currentPos.clone());
+                    }
                 }
             }
         }
         
-        // Ensure we end at the target
+        // Ensure we end at the target (проверяем, не в гараже ли конечная точка)
         const finalHeight = this.config.terrainGenerator.getHeight(end.x, end.z, biome);
-        points[points.length - 1] = new Vector3(end.x, finalHeight + 0.02, end.z);
+        if (this.isPositionInGarageArea && this.isPositionInGarageArea(end.x, end.z, garageMargin)) {
+            // Если конечная точка в гараже, используем последнюю валидную точку
+            if (points.length > 1) {
+                points[points.length - 1] = points[points.length - 2]!.clone();
+            }
+        } else {
+            points[points.length - 1] = new Vector3(end.x, finalHeight + 0.02, end.z);
+        }
         
         return points;
     }
     
-    // Convert point list to road segments
+    // Convert point list to road segments, filtering out segments that pass through garages
     private pointsToSegments(points: Vector3[], width: number, type: "highway" | "street" | "path"): RoadSegment[] {
         const segments: RoadSegment[] = [];
+        
+        // Определяем запас для проверки гаражей в зависимости от типа дороги
+        const garageMargin = type === "highway" ? 18 : type === "street" ? 12 : 8;
         
         for (let i = 0; i < points.length - 1; i++) {
             const startPoint = points[i]!;
             const endPoint = points[i + 1]!;
+            
+            // Проверяем, не проходит ли сегмент через гараж
+            if (this.isPositionInGarageArea) {
+                // Проверяем начальную и конечную точки
+                const startInGarage = this.isPositionInGarageArea(startPoint.x, startPoint.z, garageMargin);
+                const endInGarage = this.isPositionInGarageArea(endPoint.x, endPoint.z, garageMargin);
+                
+                // Если обе точки в гараже, пропускаем сегмент
+                if (startInGarage && endInGarage) {
+                    continue;
+                }
+                
+                // Проверяем среднюю точку сегмента
+                const midPoint = new Vector3(
+                    (startPoint.x + endPoint.x) / 2,
+                    (startPoint.y + endPoint.y) / 2,
+                    (startPoint.z + endPoint.z) / 2
+                );
+                const midInGarage = this.isPositionInGarageArea(midPoint.x, midPoint.z, garageMargin);
+                
+                // Если средняя точка в гараже, пропускаем сегмент
+                if (midInGarage) {
+                    continue;
+                }
+            }
+            
             segments.push({
                 start: startPoint,
                 end: endPoint,
@@ -300,18 +430,46 @@ export class RoadNetwork {
             const start = new Vector3(worldX, 0.02, worldZ + size / 2);
             const end = new Vector3(worldX + size, 0.02, worldZ + size / 2);
             
-            // Highways follow terrain but with less curvature (straighter)
-            const highwayPoints = this.generateTerrainFollowingRoad(start, end, biome, 8);
-            roads.push(...this.pointsToSegments(highwayPoints, 12, "highway"));
+            // Проверяем начальную и конечную точки перед генерацией дороги
+            if (this.isPositionInGarageArea) {
+                const startInGarage = this.isPositionInGarageArea(start.x, start.z, 20);
+                const endInGarage = this.isPositionInGarageArea(end.x, end.z, 20);
+                // Если обе точки в гараже, пропускаем дорогу
+                if (startInGarage && endInGarage) {
+                    // Пропускаем генерацию этой дороги
+                } else {
+                    // Highways follow terrain but with less curvature (straighter)
+                    const highwayPoints = this.generateTerrainFollowingRoad(start, end, biome, 8);
+                    roads.push(...this.pointsToSegments(highwayPoints, 12, "highway"));
+                }
+            } else {
+                // Highways follow terrain but with less curvature (straighter)
+                const highwayPoints = this.generateTerrainFollowingRoad(start, end, biome, 8);
+                roads.push(...this.pointsToSegments(highwayPoints, 12, "highway"));
+            }
         }
         
         if (hasVerticalHighway && biome !== "wasteland" && biome !== "park") {
             const start = new Vector3(worldX + size / 2, 0.02, worldZ);
             const end = new Vector3(worldX + size / 2, 0.02, worldZ + size);
             
-            // Highways follow terrain but with less curvature (straighter)
-            const highwayPoints = this.generateTerrainFollowingRoad(start, end, biome, 8);
-            roads.push(...this.pointsToSegments(highwayPoints, 12, "highway"));
+            // Проверяем начальную и конечную точки перед генерацией дороги
+            if (this.isPositionInGarageArea) {
+                const startInGarage = this.isPositionInGarageArea(start.x, start.z, 20);
+                const endInGarage = this.isPositionInGarageArea(end.x, end.z, 20);
+                // Если обе точки в гараже, пропускаем дорогу
+                if (startInGarage && endInGarage) {
+                    // Пропускаем генерацию этой дороги
+                } else {
+                    // Highways follow terrain but with less curvature (straighter)
+                    const highwayPoints = this.generateTerrainFollowingRoad(start, end, biome, 8);
+                    roads.push(...this.pointsToSegments(highwayPoints, 12, "highway"));
+                }
+            } else {
+                // Highways follow terrain but with less curvature (straighter)
+                const highwayPoints = this.generateTerrainFollowingRoad(start, end, biome, 8);
+                roads.push(...this.pointsToSegments(highwayPoints, 12, "highway"));
+            }
         }
         
         // Generate streets based on biome with realistic hierarchy
@@ -326,6 +484,16 @@ export class RoadNetwork {
                     const start = new Vector3(worldX, 0.02, z);
                     const end = new Vector3(worldX + size, 0.02, z);
                     
+                    // Проверяем начальную и конечную точки перед генерацией дороги
+                    if (this.isPositionInGarageArea) {
+                        const startInGarage = this.isPositionInGarageArea(start.x, start.z, 12);
+                        const endInGarage = this.isPositionInGarageArea(end.x, end.z, 12);
+                        // Если обе точки в гараже, пропускаем дорогу
+                        if (startInGarage && endInGarage) {
+                            continue;
+                        }
+                    }
+                    
                     // Streets have moderate curvature
                     const streetPoints = this.generateCurvedRoad(start, end, biome, 0.2);
                     roads.push(...this.pointsToSegments(streetPoints, 8, "street"));
@@ -334,6 +502,16 @@ export class RoadNetwork {
                     const x = worldX + random.range(10, size - 10);
                     const start = new Vector3(x, 0.02, worldZ);
                     const end = new Vector3(x, 0.02, worldZ + size);
+                    
+                    // Проверяем начальную и конечную точки перед генерацией дороги
+                    if (this.isPositionInGarageArea) {
+                        const startInGarage = this.isPositionInGarageArea(start.x, start.z, 12);
+                        const endInGarage = this.isPositionInGarageArea(end.x, end.z, 12);
+                        // Если обе точки в гараже, пропускаем дорогу
+                        if (startInGarage && endInGarage) {
+                            continue;
+                        }
+                    }
                     
                     // Streets have moderate curvature
                     const streetPoints = this.generateCurvedRoad(start, end, biome, 0.2);
@@ -351,23 +529,61 @@ export class RoadNetwork {
                 const start = new Vector3(startX, 0.02, startZ);
                 const end = new Vector3(endX, 0.02, endZ);
                 
-                // Paths follow terrain and have high curvature
-                const pathPoints = this.generateTerrainFollowingRoad(start, end, biome, 4);
-                roads.push(...this.pointsToSegments(pathPoints, 4, "path"));
+                // Проверяем начальную и конечную точки перед генерацией дороги
+                if (this.isPositionInGarageArea) {
+                    const startInGarage = this.isPositionInGarageArea(start.x, start.z, 10);
+                    const endInGarage = this.isPositionInGarageArea(end.x, end.z, 10);
+                    // Если обе точки в гараже, пропускаем дорогу
+                    if (startInGarage && endInGarage) {
+                        // Пропускаем генерацию этой дороги
+                    } else {
+                        // Paths follow terrain and have high curvature
+                        const pathPoints = this.generateTerrainFollowingRoad(start, end, biome, 4);
+                        roads.push(...this.pointsToSegments(pathPoints, 4, "path"));
+                    }
+                } else {
+                    // Paths follow terrain and have high curvature
+                    const pathPoints = this.generateTerrainFollowingRoad(start, end, biome, 4);
+                    roads.push(...this.pointsToSegments(pathPoints, 4, "path"));
+                }
             }
         } else if (biome === "military") {
             // Military base has organized roads with slight curves
             if (random.chance(0.6)) {
                 const start = new Vector3(worldX, 0.02, worldZ + size / 2);
                 const end = new Vector3(worldX + size, 0.02, worldZ + size / 2);
-                const roadPoints = this.generateCurvedRoad(start, end, biome, 0.15);
-                roads.push(...this.pointsToSegments(roadPoints, 10, "street"));
+                
+                // Проверяем начальную и конечную точки перед генерацией дороги
+                if (this.isPositionInGarageArea) {
+                    const startInGarage = this.isPositionInGarageArea(start.x, start.z, 12);
+                    const endInGarage = this.isPositionInGarageArea(end.x, end.z, 12);
+                    // Если обе точки в гараже, пропускаем дорогу
+                    if (!(startInGarage && endInGarage)) {
+                        const roadPoints = this.generateCurvedRoad(start, end, biome, 0.15);
+                        roads.push(...this.pointsToSegments(roadPoints, 10, "street"));
+                    }
+                } else {
+                    const roadPoints = this.generateCurvedRoad(start, end, biome, 0.15);
+                    roads.push(...this.pointsToSegments(roadPoints, 10, "street"));
+                }
             }
             if (random.chance(0.6)) {
                 const start = new Vector3(worldX + size / 2, 0.02, worldZ);
                 const end = new Vector3(worldX + size / 2, 0.02, worldZ + size);
-                const roadPoints = this.generateCurvedRoad(start, end, biome, 0.15);
-                roads.push(...this.pointsToSegments(roadPoints, 10, "street"));
+                
+                // Проверяем начальную и конечную точки перед генерацией дороги
+                if (this.isPositionInGarageArea) {
+                    const startInGarage = this.isPositionInGarageArea(start.x, start.z, 12);
+                    const endInGarage = this.isPositionInGarageArea(end.x, end.z, 12);
+                    // Если обе точки в гараже, пропускаем дорогу
+                    if (!(startInGarage && endInGarage)) {
+                        const roadPoints = this.generateCurvedRoad(start, end, biome, 0.15);
+                        roads.push(...this.pointsToSegments(roadPoints, 10, "street"));
+                    }
+                } else {
+                    const roadPoints = this.generateCurvedRoad(start, end, biome, 0.15);
+                    roads.push(...this.pointsToSegments(roadPoints, 10, "street"));
+                }
             }
         } else if (biome === "wasteland") {
             // Wasteland has rare, winding paths
@@ -380,9 +596,23 @@ export class RoadNetwork {
                 const start = new Vector3(startX, 0.02, startZ);
                 const end = new Vector3(endX, 0.02, endZ);
                 
-                // Winding paths following terrain
-                const pathPoints = this.generateTerrainFollowingRoad(start, end, biome, 3);
-                roads.push(...this.pointsToSegments(pathPoints, 3, "path"));
+                // Проверяем начальную и конечную точки перед генерацией дороги
+                if (this.isPositionInGarageArea) {
+                    const startInGarage = this.isPositionInGarageArea(start.x, start.z, 10);
+                    const endInGarage = this.isPositionInGarageArea(end.x, end.z, 10);
+                    // Если обе точки в гараже, пропускаем дорогу
+                    if (startInGarage && endInGarage) {
+                        // Пропускаем генерацию этой дороги
+                    } else {
+                        // Winding paths following terrain
+                        const pathPoints = this.generateTerrainFollowingRoad(start, end, biome, 3);
+                        roads.push(...this.pointsToSegments(pathPoints, 3, "path"));
+                    }
+                } else {
+                    // Winding paths following terrain
+                    const pathPoints = this.generateTerrainFollowingRoad(start, end, biome, 3);
+                    roads.push(...this.pointsToSegments(pathPoints, 3, "path"));
+                }
             }
         }
         
@@ -394,9 +624,7 @@ export class RoadNetwork {
     createRoadMeshes(chunkX: number, chunkZ: number, biome: string, parentNode: any): Mesh[] {
         const roads = this.generateRoadsForChunk(chunkX, chunkZ, biome);
         
-        // #region agent log
-        debugLogger.log({location:'roadNetwork.ts:401',message:'createRoadMeshes entry',data:{chunkX,chunkZ,biome,roadsCount:roads.length,hasParentNode:!!parentNode,parentPosition:parentNode?parentNode.position:null},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'A'});
-        // #endregion
+        
         
         const meshes: Mesh[] = [];
         
@@ -406,18 +634,11 @@ export class RoadNetwork {
         for (let i = 0; i < roads.length; i++) {
             const road: RoadSegment = roads[i]!;
             
-            // #region agent log
-            // Removed excessive logging in hot loop - only log first and last segment
-            if (i === 0 || i === roads.length - 1) {
-                debugLogger.log({location:'roadNetwork.ts:415',message:'Processing road segment',data:{i,roadStart:road.start,roadEnd:road.end,roadType:road.type,parentOffset},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'A'});
-            }
-            // #endregion
+            
             
             const mesh = this.createRoadMesh(road, `road_${chunkX}_${chunkZ}_${i}`);
             if (mesh) {
-                // #region agent log
-                // Removed excessive logging in hot loop
-                // #endregion
+                
                 
                 // Если есть parentNode, корректируем позицию относительно него
                 if (parentNode) {
@@ -425,9 +646,7 @@ export class RoadNetwork {
                     mesh.position = mesh.position.subtract(parentOffset);
                     mesh.parent = parentNode;
                     
-                    // #region agent log
-                    // Removed excessive logging in hot loop
-                    // #endregion
+                    
                 }
                 meshes.push(mesh);
                 
@@ -435,18 +654,14 @@ export class RoadNetwork {
                 const avgHeight = (road.start.y + road.end.y) / 2;
                 const markings = this.createRoadMarkings(road, `marking_${chunkX}_${chunkZ}_${i}`, avgHeight);
                 for (const marking of markings) {
-                    // #region agent log
-                    // Removed excessive logging in hot loop
-                    // #endregion
+                    
                     
                     if (parentNode) {
                         const beforePos = marking.position.clone();
                         marking.position = marking.position.subtract(parentOffset);
                         marking.parent = parentNode;
                         
-                        // #region agent log
-                        // Removed excessive logging in hot loop
-                        // #endregion
+                        
                     }
                     meshes.push(marking);
                 }
@@ -491,9 +706,7 @@ export class RoadNetwork {
             mesh.rotation.x = slopeAngle * 0.5; // Увеличен наклон для лучшей плавности
         }
         
-        // #region agent log
-        debugLogger.log({location:'roadNetwork.ts:485',message:'Road mesh created',data:{name,position:mesh.position,startHeight:road.start.y,endHeight:road.end.y,avgHeight,length,width:road.width,slopeAngle},timestamp:Date.now(),sessionId:'debug-session',runId:'run4',hypothesisId:'E'});
-        // #endregion
+        
         
         const mat = this.materials.get(road.type);
         if (mat) {
@@ -687,21 +900,14 @@ export class RoadNetwork {
                 this.config.chunkSize
             );
             
-            // #region agent log
-            debugLogger.log({location:'roadNetwork.ts:648',message:'Got tartu roads for chunk',data:{chunkX,chunkZ,count:tartuRoadSegments.length,chunkBounds:{minX:chunkMinX,maxX:chunkMaxX,minZ:chunkMinZ,maxZ:chunkMaxZ}},timestamp:Date.now(),sessionId:'debug-session',runId:'run4',hypothesisId:'D'});
-            // #endregion
+            
             
             const roads: RoadSegment[] = [];
             
             for (const tartuRoad of tartuRoadSegments) {
                 const converted = tartuRoads.convertTartuRoadToSegment(tartuRoad);
                 
-                // #region agent log
-                // Removed excessive logging in hot loop - only log first road
-                if (roads.length === 0) {
-                    debugLogger.log({location:'roadNetwork.ts:661',message:'Processing tartu road',data:{chunkX,chunkZ,roadName:tartuRoad.name,start:converted.start,end:converted.end},timestamp:Date.now(),sessionId:'debug-session',runId:'run4',hypothesisId:'D'});
-                }
-                // #endregion
+                
                 
                 // Разбиваем длинные дороги на более мелкие сегменты для плавного следования террейну
                 if (this.config.terrainGenerator) {
@@ -747,9 +953,7 @@ export class RoadNetwork {
                             segStart.y = prevEndHeight;
                         }
                         
-                        // #region agent log
-                        // Removed excessive logging in hot loop
-                        // #endregion
+                        
                         
                         roads.push({
                             start: segStart,

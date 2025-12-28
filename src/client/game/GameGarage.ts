@@ -41,6 +41,10 @@ export class GameGarage {
     protected hud: HUD | undefined;
     protected enemyTanks: EnemyTank[] = [];
     
+    // Таймер для проверки готовности террейна
+    private terrainReadyTime: number = 0;
+    private readonly TERRAIN_READY_DELAY = 5000; // УВЕЛИЧЕНО: 5 секунд задержки для полной загрузки террейна (было 2)
+    
     // Кэшированные цвета для оптимизации
     private readonly _colorNeutral = new Color3(0.9, 0.9, 0.9);
     private readonly _colorPlayer = new Color3(0.0, 1.0, 0.0);
@@ -84,37 +88,95 @@ export class GameGarage {
                 playerPos = new Vector3(0, 0, 0);
             }
             
-            // Ищем ближайший гараж
-            let nearestGarage: Vector3 | null = null;
+            // Ищем ближайший гараж (только для определения X и Z)
+            let nearestGarageX = 0;
+            let nearestGarageZ = 0;
             let nearestDistance = Infinity;
             
             for (const garage of this.chunkSystem.garagePositions) {
-                const garageVec = new Vector3(garage.x, 0, garage.z);
                 const dist = Vector3.Distance(
                     new Vector3(playerPos.x, 0, playerPos.z), 
-                    garageVec
+                    new Vector3(garage.x, 0, garage.z)
                 );
                 if (dist < nearestDistance) {
                     nearestDistance = dist;
-                    nearestGarage = garageVec;
+                    nearestGarageX = garage.x;
+                    nearestGarageZ = garage.z;
                 }
             }
             
-            if (nearestGarage) {
-                logger.log(`[GameGarage] Found nearest garage at distance ${nearestDistance.toFixed(1)}m: (${nearestGarage.x.toFixed(2)}, ${nearestGarage.y.toFixed(2)}, ${nearestGarage.z.toFixed(2)})`);
-                return nearestGarage.clone();
+            // Если найден ближайший гараж, используем сохраненную позицию или вычисляем высоту
+            if (nearestDistance < Infinity) {
+                // КРИТИЧНО: ВСЕГДА пересчитываем высоту террейна, даже если есть сохраненная позиция
+                let groundHeight = 2.0;
+                
+                // Вычисляем высоту террейна через game instance (более надёжный метод)
+                const game = (window as any).gameInstance;
+                if (game && typeof game.getGroundHeight === 'function') {
+                    groundHeight = game.getGroundHeight(nearestGarageX, nearestGarageZ);
+                } else if (this.chunkSystem?.terrainGenerator) {
+                    // Fallback: используем terrainGenerator
+                    const biomes = ["dirt", "city", "residential", "park", "industrial", "concrete"];
+                    let maxHeight = 0;
+                    for (const biome of biomes) {
+                        try {
+                            const height = this.chunkSystem.terrainGenerator.getHeight(nearestGarageX, nearestGarageZ, biome);
+                            if (height > maxHeight && height > -10 && height < 200) {
+                                maxHeight = height;
+                            }
+                        } catch (e) {
+                            // Игнорируем ошибки
+                        }
+                    }
+                    groundHeight = maxHeight > 0 ? maxHeight : 2.0;
+                }
+                
+                // ОБЯЗАТЕЛЬНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
+                const garageY = Math.max(groundHeight + 5.0, 7.0);
+                const correctedGaragePos = new Vector3(nearestGarageX, garageY, nearestGarageZ);
+                
+                logger.log(`[GameGarage] Garage position: (${correctedGaragePos.x.toFixed(2)}, ${correctedGaragePos.y.toFixed(2)}, ${correctedGaragePos.z.toFixed(2)}) - ground: ${groundHeight.toFixed(2)}`);
+                return correctedGaragePos;
             }
         }
         
-        // Fallback: используем сохранённую позицию
+        // Fallback: используем сохранённую позицию, но ВСЕГДА пересчитываем высоту
         if (this.playerGaragePosition) {
-            logger.log(`[GameGarage] Using saved garage position: (${this.playerGaragePosition.x.toFixed(2)}, ${this.playerGaragePosition.y.toFixed(2)}, ${this.playerGaragePosition.z.toFixed(2)})`);
-            return this.playerGaragePosition.clone();
+            const savedX = this.playerGaragePosition.x;
+            const savedZ = this.playerGaragePosition.z;
+            
+            // КРИТИЧНО: Пересчитываем высоту террейна для сохранённой позиции
+            let groundHeight = 2.0;
+            const game = (window as any).gameInstance;
+            if (game && typeof game.getGroundHeight === 'function') {
+                groundHeight = game.getGroundHeight(savedX, savedZ);
+            } else if (this.chunkSystem?.terrainGenerator) {
+                const biomes = ["dirt", "city", "residential", "park", "industrial", "concrete"];
+                let maxHeight = 0;
+                for (const biome of biomes) {
+                    try {
+                        const height = this.chunkSystem.terrainGenerator.getHeight(savedX, savedZ, biome);
+                        if (height > maxHeight && height > -10 && height < 200) {
+                            maxHeight = height;
+                        }
+                    } catch (e) {
+                        // Игнорируем ошибки
+                    }
+                }
+                groundHeight = maxHeight > 0 ? maxHeight : 2.0;
+            }
+            
+            // ОБЯЗАТЕЛЬНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
+            const correctedY = Math.max(groundHeight + 5.0, 7.0);
+            const correctedPos = new Vector3(savedX, correctedY, savedZ);
+            
+            logger.log(`[GameGarage] Using saved garage position (corrected): (${correctedPos.x.toFixed(2)}, ${correctedPos.y.toFixed(2)}, ${correctedPos.z.toFixed(2)}) - ground: ${groundHeight.toFixed(2)}`);
+            return correctedPos;
         }
         
-        // Последний fallback: центр гаража по умолчанию
-        logger.warn(`[GameGarage] No garage found, using default position (0, 2, 0)`);
-        const defaultPos = new Vector3(0, 2.0, 0);
+        // Последний fallback: центр гаража по умолчанию с безопасной высотой
+        logger.warn(`[GameGarage] No garage found, using default position (0, 7, 0)`);
+        const defaultPos = new Vector3(0, 7.0, 0);
         this.playerGaragePosition = defaultPos.clone();
         return defaultPos;
     }
@@ -209,86 +271,263 @@ export class GameGarage {
     
     /**
      * Обновление ворот гаражей
+     * ПРОСТАЯ ЛОГИКА: Ворота просто двигаются вверх/вниз к целевой позиции
+     * КРИТИЧНО: Ворота не открываются до загрузки террейна
      */
     updateGarageDoors(): void {
         if (!this.chunkSystem || !this.chunkSystem.garageDoors) return;
         
-        const doorSpeed = 0.18;
+        // КРИТИЧНО: Проверяем, загружен ли террейн перед открытием ворот
+        // Используем комбинированный подход: проверка чанков + таймер для надежности
+        // УСИЛЕНО: Требуем больше чанков для полной загрузки террейна вокруг игрока
+        // renderDistance обычно 1.5, что означает 3x3 = 9 чанков вокруг игрока
+        const minLoadedChunks = 9; // УВЕЛИЧЕНО: Требуем минимум 9 чанков (3x3 вокруг игрока) вместо 1
+        const loadedChunks = this.chunkSystem.stats?.loadedChunks || 0;
+        const currentTime = Date.now();
         
-        this.chunkSystem.garageDoors.forEach((doorData: any) => {
-            if (!doorData.frontDoor || !doorData.backDoor) return;
+        // Инициализируем таймер при первом вызове
+        if (this.terrainReadyTime === 0) {
+            this.terrainReadyTime = currentTime;
+        }
+        
+        // Террейн готов если:
+        // 1. Загружено достаточно чанков (минимум 9 для полной загрузки вокруг игрока) И
+        // 2. Прошло достаточно времени (5 секунд) для гарантированной загрузки
+        const timeElapsed = currentTime - this.terrainReadyTime;
+        const terrainReady = loadedChunks >= minLoadedChunks && timeElapsed >= this.TERRAIN_READY_DELAY;
+        
+        // Если террейн не загружен, не открываем ворота автоматически
+        if (!terrainReady) {
+            // Закрываем все ворота, если они были открыты
+            const doors = this.chunkSystem.garageDoors;
+            const doorCount = doors.length;
+            for (let i = 0; i < doorCount; i++) {
+                const doorData = doors[i];
+                if (!doorData) continue;
+                // Закрываем только если не ручное управление
+                if (!doorData.manualControl) {
+                    doorData.frontDoorOpen = false;
+                    doorData.backDoorOpen = false;
+                }
+            }
+            // Двигаем ворота к закрытому состоянию
+            this.moveDoorsToClosedState();
+            return;
+        }
+        
+        const doorSpeed = 0.18; // Скорость движения ворот
+        
+        // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach для лучшей производительности
+        const doors = this.chunkSystem.garageDoors;
+        const doorCount = doors.length;
+        for (let i = 0; i < doorCount; i++) {
+            const doorData = doors[i];
+            if (!doorData || !doorData.frontDoor || !doorData.backDoor) continue;
             
             // Автооткрытие ворот для ботов
             const doorOpenDistance = 18;
+            const doorOpenDistanceSq = doorOpenDistance * doorOpenDistance;
+            const doorCloseDistanceSq = (doorOpenDistance + 5) * (doorOpenDistance + 5);
             const garagePos = doorData.position;
             const garageDepth = doorData.garageDepth || 20;
             
             const frontDoorPos = new Vector3(garagePos.x, 0, garagePos.z + garageDepth / 2);
             const backDoorPos = new Vector3(garagePos.x, 0, garagePos.z - garageDepth / 2);
             
-            // Проверяем всех вражеских танков
-            for (const enemy of this.enemyTanks) {
-                if (!enemy || !enemy.isAlive || !enemy.chassis) continue;
+            // ИСПРАВЛЕНО: Проверяем ручное управление ДО изменения состояния ворот
+            const currentTime = Date.now();
+            const manualControlTimeout = 5000; // 5 секунд
+            const timeSinceManualControl = currentTime - (doorData.manualControlTime || 0);
+            const allowAutoControl = !doorData.manualControl || timeSinceManualControl > manualControlTimeout;
+            
+            // Если ручное управление истекло, сбрасываем флаг
+            if (doorData.manualControl && timeSinceManualControl > manualControlTimeout) {
+                doorData.manualControl = false;
+            }
+            
+            // КРИТИЧНО: Проверяем игрока для автооткрытия ворот (ТОЛЬКО если разрешено автоматическое управление)
+            if (allowAutoControl && this.tank && this.tank.chassis && this.tank.isAlive) {
+                // КРИТИЧНО: Используем getAbsolutePosition() для получения мировой позиции
+                // position может быть локальной позицией относительно родителя
+                const playerPos = this.tank.chassis.getAbsolutePosition();
                 
-                const enemyPos = enemy.chassis.absolutePosition;
+                // ОПТИМИЗАЦИЯ: Используем квадраты расстояний вместо Vector3.Distance (избегаем sqrt)
                 
-                const distToFront = Vector3.Distance(
-                    new Vector3(enemyPos.x, 0, enemyPos.z),
-                    frontDoorPos
-                );
-                if (distToFront < doorOpenDistance && !doorData.frontDoorOpen) {
+                const dxFront = playerPos.x - frontDoorPos.x;
+                const dzFront = playerPos.z - frontDoorPos.z;
+                const distToFrontSq = dxFront * dxFront + dzFront * dzFront;
+                
+                // Открываем ворота если игрок близко, закрываем если далеко
+                if (distToFrontSq < doorOpenDistanceSq) {
                     doorData.frontDoorOpen = true;
+                } else if (distToFrontSq > doorCloseDistanceSq) {
+                    // Закрываем только если игрок достаточно далеко (гистерезис)
+                    doorData.frontDoorOpen = false;
                 }
+                // Если игрок между порогами - сохраняем текущее состояние (гистерезис)
                 
-                const distToBack = Vector3.Distance(
-                    new Vector3(enemyPos.x, 0, enemyPos.z),
-                    backDoorPos
-                );
-                if (distToBack < doorOpenDistance && !doorData.backDoorOpen) {
+                const dxBack = playerPos.x - backDoorPos.x;
+                const dzBack = playerPos.z - backDoorPos.z;
+                const distToBackSq = dxBack * dxBack + dzBack * dzBack;
+                
+                // Открываем ворота если игрок близко, закрываем если далеко
+                if (distToBackSq < doorOpenDistanceSq) {
                     doorData.backDoorOpen = true;
+                } else if (distToBackSq > doorCloseDistanceSq) {
+                    // Закрываем только если игрок достаточно далеко (гистерезис)
+                    doorData.backDoorOpen = false;
+                }
+                // Если игрок между порогами - сохраняем текущее состояние (гистерезис)
+            } else if (allowAutoControl) {
+                // ИСПРАВЛЕНО: Если игрок не существует или не жив - закрываем ворота (ТОЛЬКО если разрешено автоматическое управление)
+                doorData.frontDoorOpen = false;
+                doorData.backDoorOpen = false;
+            }
+            
+            // ИСПРАВЛЕНО: Проверяем всех вражеских танков (ТОЛЬКО если разрешено автоматическое управление)
+            if (allowAutoControl) {
+                // ОПТИМИЗАЦИЯ: Используем квадраты расстояний и переиспользуем вычисления
+                const enemyCount = this.enemyTanks.length;
+                for (let j = 0; j < enemyCount; j++) {
+                    const enemy = this.enemyTanks[j];
+                    if (!enemy || !enemy.isAlive || !enemy.chassis) continue;
+                    
+                    // ОПТИМИЗАЦИЯ: Используем position вместо absolutePosition для производительности
+                    const enemyPos = enemy.chassis.position;
+                    
+                    const dxFront = enemyPos.x - frontDoorPos.x;
+                    const dzFront = enemyPos.z - frontDoorPos.z;
+                    const distToFrontSq = dxFront * dxFront + dzFront * dzFront;
+                    
+                    if (distToFrontSq < doorOpenDistanceSq && !doorData.frontDoorOpen) {
+                        doorData.frontDoorOpen = true;
+                    }
+                    
+                    const dxBack = enemyPos.x - backDoorPos.x;
+                    const dzBack = enemyPos.z - backDoorPos.z;
+                    const distToBackSq = dxBack * dxBack + dzBack * dzBack;
+                    
+                    if (distToBackSq < doorOpenDistanceSq && !doorData.backDoorOpen) {
+                        doorData.backDoorOpen = true;
+                    }
                 }
             }
             
+            // Определяем целевые позиции
+            
+            // Определяем целевое состояние ворот
             const targetFrontOpen = doorData.frontDoorOpen !== undefined ? doorData.frontDoorOpen : false;
             const targetBackOpen = doorData.backDoorOpen !== undefined ? doorData.backDoorOpen : false;
             
             const targetFrontY = targetFrontOpen ? doorData.frontOpenY : doorData.frontClosedY;
             const targetBackY = targetBackOpen ? doorData.backOpenY : doorData.backClosedY;
             
-            // Передние ворота
+            // ПРОСТАЯ ЛОГИКА: Передние ворота - просто двигаем к целевой позиции
             const currentFrontY = doorData.frontDoor.position.y;
-            const frontDiff = Math.abs(currentFrontY - targetFrontY);
-            if (frontDiff > 0.01) {
-                const newFrontY = currentFrontY + (targetFrontY - currentFrontY) * doorSpeed;
+            const frontDiff = targetFrontY - currentFrontY;
+            
+            if (Math.abs(frontDiff) > 0.01) {
+                // ИСПРАВЛЕНО: Плавное движение ворот без дёргания - используем фиксированную скорость
+                const doorSpeed = 0.25; // Фиксированная скорость движения (было lerp factor)
+                const moveAmount = Math.min(Math.abs(frontDiff), doorSpeed); // Ограничиваем максимальное движение за кадр
+                const newFrontY = currentFrontY + Math.sign(frontDiff) * moveAmount;
                 doorData.frontDoor.position.y = newFrontY;
+                
+                // ИСПРАВЛЕНО: НЕ обновляем физику во время движения - это вызывает дёргание
+                // Физика будет обновлена только когда ворота достигнут цели
             } else {
+                // Ворота достигли цели - фиксируем позицию
                 doorData.frontDoor.position.y = targetFrontY;
-            }
-            if (doorData.frontDoorPhysics && doorData.frontDoorPhysics.body) {
-                doorData.frontDoor.computeWorldMatrix(true);
-                doorData.frontDoorPhysics.body.setTargetTransform(
-                    doorData.frontDoor.position.clone(),
-                    Quaternion.Identity()
-                );
+                
+                // ИСПРАВЛЕНО: Обновляем физику ТОЛЬКО когда ворота достигли цели
+                if (doorData.frontDoorPhysics && doorData.frontDoorPhysics.body) {
+                    doorData.frontDoor.getWorldMatrix(); // Обновляем матрицу
+                    
+                    // Если ворота полностью открыты - отключаем коллизию (перемещаем физику далеко вверх)
+                    if (targetFrontOpen) {
+                        doorData.frontDoorPhysics.body.setTargetTransform(
+                            new Vector3(doorData.frontDoor.position.x, 100, doorData.frontDoor.position.z),
+                            Quaternion.Identity()
+                        );
+                    } else {
+                        // Если ворота закрыты - синхронизируем с мешем
+                        doorData.frontDoorPhysics.body.setTargetTransform(
+                            doorData.frontDoor.position.clone(),
+                            Quaternion.Identity()
+                        );
+                    }
+                }
             }
             
-            // Задние ворота
+            // ПРОСТАЯ ЛОГИКА: Задние ворота - просто двигаем к целевой позиции
             const currentBackY = doorData.backDoor.position.y;
-            const backDiff = Math.abs(currentBackY - targetBackY);
-            if (backDiff > 0.01) {
-                const newBackY = currentBackY + (targetBackY - currentBackY) * doorSpeed;
+            const backDiff = targetBackY - currentBackY;
+            
+            if (Math.abs(backDiff) > 0.01) {
+                // ИСПРАВЛЕНО: Плавное движение ворот без дёргания - используем фиксированную скорость
+                const doorSpeed = 0.25; // Фиксированная скорость движения (было lerp factor)
+                const moveAmount = Math.min(Math.abs(backDiff), doorSpeed); // Ограничиваем максимальное движение за кадр
+                const newBackY = currentBackY + Math.sign(backDiff) * moveAmount;
                 doorData.backDoor.position.y = newBackY;
+                
+                // ИСПРАВЛЕНО: НЕ обновляем физику во время движения - это вызывает дёргание
+                // Физика будет обновлена только когда ворота достигнут цели
             } else {
+                // Ворота достигли цели - фиксируем позицию
                 doorData.backDoor.position.y = targetBackY;
+                
+                // ИСПРАВЛЕНО: Обновляем физику ТОЛЬКО когда ворота достигли цели
+                if (doorData.backDoorPhysics && doorData.backDoorPhysics.body) {
+                    doorData.backDoor.getWorldMatrix(); // Обновляем матрицу
+                    
+                    // Если ворота полностью открыты - отключаем коллизию (перемещаем физику далеко вверх)
+                    if (targetBackOpen) {
+                        doorData.backDoorPhysics.body.setTargetTransform(
+                            new Vector3(doorData.backDoor.position.x, 100, doorData.backDoor.position.z),
+                            Quaternion.Identity()
+                        );
+                    } else {
+                        // Если ворота закрыты - синхронизируем с мешем
+                        doorData.backDoorPhysics.body.setTargetTransform(
+                            doorData.backDoor.position.clone(),
+                            Quaternion.Identity()
+                        );
+                    }
+                }
             }
-            if (doorData.backDoorPhysics && doorData.backDoorPhysics.body) {
-                doorData.backDoor.computeWorldMatrix(true);
-                doorData.backDoorPhysics.body.setTargetTransform(
-                    doorData.backDoor.position.clone(),
-                    Quaternion.Identity()
+        }
+        
+        // ОБНОВЛЕНИЕ ПРОЗРАЧНОСТИ СТЕН: Делаем стены прозрачными когда игрок внутри гаража
+        if (this.chunkSystem && this.chunkSystem.garageWalls && this.tank && this.tank.chassis && this.tank.isAlive) {
+            const playerPos = this.tank.chassis.position;
+            
+            // Проверяем каждый гараж
+            for (const wallData of this.chunkSystem.garageWalls) {
+                if (!wallData || !wallData.walls) continue;
+                
+                // Проверяем, находится ли игрок внутри этого гаража
+                const garageWidth = wallData.width || 20;
+                const garageDepth = wallData.depth || 20;
+                const garagePos = wallData.position;
+                
+                const isInside = (
+                    playerPos.x >= garagePos.x - garageWidth / 2 &&
+                    playerPos.x <= garagePos.x + garageWidth / 2 &&
+                    playerPos.z >= garagePos.z - garageDepth / 2 &&
+                    playerPos.z <= garagePos.z + garageDepth / 2
                 );
+                
+                // Устанавливаем прозрачность стен (как у ворот - 50%)
+                const targetVisibility = isInside ? 0.5 : 1.0;
+                
+                // Обновляем видимость всех стен гаража
+                for (const wall of wallData.walls) {
+                    if (wall && !wall.isDisposed()) {
+                        wall.visibility = targetVisibility;
+                    }
+                }
             }
-        });
+        }
     }
     
     /**
@@ -301,17 +540,25 @@ export class GameGarage {
         const playerId = this.PLAYER_ID;
         
         // Собираем позиции всех танков
+        // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach
         const tankPositions: Vector3[] = [playerPos];
         if (this.enemyTanks) {
-            this.enemyTanks.forEach(enemy => {
+            const enemyCount = this.enemyTanks.length;
+            for (let i = 0; i < enemyCount; i++) {
+                const enemy = this.enemyTanks[i];
                 if (enemy && enemy.isAlive && enemy.chassis) {
                     tankPositions.push(enemy.chassis.absolutePosition);
                 }
-            });
+            }
         }
         
         // Проверяем каждую точку захвата
-        this.chunkSystem.garageCapturePoints.forEach(capturePoint => {
+        // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach
+        const capturePoints = this.chunkSystem.garageCapturePoints;
+        const capturePointCount = capturePoints.length;
+        for (let i = 0; i < capturePointCount; i++) {
+            const capturePoint = capturePoints[i];
+            if (!capturePoint) continue;
             const garageKey = `${capturePoint.position.x.toFixed(1)}_${capturePoint.position.z.toFixed(1)}`;
             const ownership = ((this.chunkSystem as any).garageOwnership || new Map()).get(garageKey);
             if (!ownership) return;
@@ -339,22 +586,34 @@ export class GameGarage {
             }
             
             // Проверяем расстояние до точки захвата
+            // ОПТИМИЗАЦИЯ: Используем for цикл и квадраты расстояний вместо Vector3.Distance
             const nearbyTanks: Vector3[] = [];
-            tankPositions.forEach(tankPos => {
-                const distance = Vector3.Distance(
-                    new Vector3(capturePoint.position.x, 0, capturePoint.position.z),
-                    new Vector3(tankPos.x, 0, tankPos.z)
-                );
-                if (distance <= this.CAPTURE_RADIUS) {
+            const captureRadiusSq = this.CAPTURE_RADIUS * this.CAPTURE_RADIUS;
+            const captureX = capturePoint.position.x;
+            const captureZ = capturePoint.position.z;
+            const tankCount = tankPositions.length;
+            for (let j = 0; j < tankCount; j++) {
+                const tankPos = tankPositions[j];
+                if (!tankPos) continue;
+                const dx = captureX - tankPos.x;
+                const dz = captureZ - tankPos.z;
+                const distanceSq = dx * dx + dz * dz;
+                if (distanceSq <= captureRadiusSq) {
                     nearbyTanks.push(tankPos);
                 }
-            });
+            }
             
             const capturingCount = nearbyTanks.length;
-            const isPlayerNearby = nearbyTanks.some(tankPos => 
-                Math.abs(tankPos.x - playerPos.x) < 0.1 && 
-                Math.abs(tankPos.z - playerPos.z) < 0.1
-            );
+            let isPlayerNearby = false;
+            for (let j = 0; j < nearbyTanks.length; j++) {
+                const tankPos = nearbyTanks[j];
+                if (!tankPos) continue;
+                if (Math.abs(tankPos.x - playerPos.x) < 0.1 && 
+                    Math.abs(tankPos.z - playerPos.z) < 0.1) {
+                    isPlayerNearby = true;
+                    break;
+                }
+            }
             
             // Если гараж уже принадлежит игроку
             if (ownership.ownerId === playerId) {
@@ -410,10 +669,13 @@ export class GameGarage {
             } else {
                 this.updateWrenchColor((capturePoint as any).wrench, "capturing");
             }
-        });
+        }
         
         // Обновляем цвет гаечных ключей для гаражей, которые не захватываются
-        this.chunkSystem.garageCapturePoints.forEach(capturePoint => {
+        // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach
+        for (let i = 0; i < capturePointCount; i++) {
+            const capturePoint = capturePoints[i];
+            if (!capturePoint) continue;
             const garageKey = `${capturePoint.position.x.toFixed(1)}_${capturePoint.position.z.toFixed(1)}`;
             const ownership = ((this.chunkSystem as any).garageOwnership || new Map()).get(garageKey);
             if (!ownership) return;
@@ -427,7 +689,7 @@ export class GameGarage {
                     this.updateWrenchColor((capturePoint as any).wrench, "enemy");
                 }
             }
-        });
+        }
     }
     
     /**
@@ -462,7 +724,8 @@ export class GameGarage {
      * Обновление таймеров респавна гаражей
      */
     updateGarageRespawnTimers(deltaTime: number, onRespawnEnemy?: (pos: Vector3) => void): void {
-        this.garageRespawnTimers.forEach((data, key) => {
+        // ОПТИМИЗАЦИЯ: Используем for...of для Map вместо forEach
+        for (const [key, data] of this.garageRespawnTimers.entries()) {
             data.timer -= deltaTime * 1000; // deltaTime в секундах, timer в миллисекундах
             
             if (data.timer <= 0) {
@@ -522,7 +785,7 @@ export class GameGarage {
                     }
                 }
             }
-        });
+        }
     }
     
     /**
@@ -585,6 +848,79 @@ export class GameGarage {
     isGarageRespawnTimerActive(garagePos: Vector3): boolean {
         const key = `${garagePos.x.toFixed(1)},${garagePos.z.toFixed(1)}`;
         return this.garageRespawnTimers.has(key);
+    }
+    
+    /**
+     * Переместить все ворота в закрытое состояние (когда террейн не загружен)
+     */
+    private moveDoorsToClosedState(): void {
+        if (!this.chunkSystem || !this.chunkSystem.garageDoors) return;
+        
+        const doorSpeed = 0.18; // Скорость движения ворот
+        const doors = this.chunkSystem.garageDoors;
+        const doorCount = doors.length;
+        
+        for (let i = 0; i < doorCount; i++) {
+            const doorData = doors[i];
+            if (!doorData || !doorData.frontDoor || !doorData.backDoor) continue;
+            
+            // Игнорируем ворота с ручным управлением
+            if (doorData.manualControl) continue;
+            
+            // Передние ворота - двигаем к закрытому состоянию
+            const currentFrontY = doorData.frontDoor.position.y;
+            const frontDiff = doorData.frontClosedY - currentFrontY;
+            
+            if (Math.abs(frontDiff) > 0.01) {
+                const newFrontY = currentFrontY + frontDiff * doorSpeed;
+                doorData.frontDoor.position.y = newFrontY;
+                
+                // Обновляем физику ворот
+                if (doorData.frontDoorPhysics && doorData.frontDoorPhysics.body && Math.abs(frontDiff) > 0.1) {
+                    doorData.frontDoor.getWorldMatrix();
+                    doorData.frontDoorPhysics.body.setTargetTransform(
+                        doorData.frontDoor.position.clone(),
+                        Quaternion.Identity()
+                    );
+                }
+            } else {
+                doorData.frontDoor.position.y = doorData.frontClosedY;
+                if (doorData.frontDoorPhysics && doorData.frontDoorPhysics.body) {
+                    doorData.frontDoor.getWorldMatrix();
+                    doorData.frontDoorPhysics.body.setTargetTransform(
+                        doorData.frontDoor.position.clone(),
+                        Quaternion.Identity()
+                    );
+                }
+            }
+            
+            // Задние ворота - двигаем к закрытому состоянию
+            const currentBackY = doorData.backDoor.position.y;
+            const backDiff = doorData.backClosedY - currentBackY;
+            
+            if (Math.abs(backDiff) > 0.01) {
+                const newBackY = currentBackY + backDiff * doorSpeed;
+                doorData.backDoor.position.y = newBackY;
+                
+                // Обновляем физику ворот
+                if (doorData.backDoorPhysics && doorData.backDoorPhysics.body && Math.abs(backDiff) > 0.1) {
+                    doorData.backDoor.getWorldMatrix();
+                    doorData.backDoorPhysics.body.setTargetTransform(
+                        doorData.backDoor.position.clone(),
+                        Quaternion.Identity()
+                    );
+                }
+            } else {
+                doorData.backDoor.position.y = doorData.backClosedY;
+                if (doorData.backDoorPhysics && doorData.backDoorPhysics.body) {
+                    doorData.backDoor.getWorldMatrix();
+                    doorData.backDoorPhysics.body.setTargetTransform(
+                        doorData.backDoor.position.clone(),
+                        Quaternion.Identity()
+                    );
+                }
+            }
+        }
     }
     
     /**

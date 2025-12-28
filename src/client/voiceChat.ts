@@ -71,25 +71,45 @@ export class VoiceChatManager {
             };
 
             // Request microphone access
-            this.localStream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true,
-                    sampleRate: 48000
+            try {
+                this.localStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        sampleRate: 48000
+                    }
+                });
+
+                // Mute local audio (we don't want to hear ourselves)
+                this.localStream.getAudioTracks().forEach(track => {
+                    track.enabled = !this.config.mute;
+                });
+
+                this.config.enabled = true;
+                console.log("[VoiceChat] Initialized successfully");
+                return true;
+            } catch (mediaError: any) {
+                // Handle different types of media errors
+                if (mediaError.name === 'NotAllowedError' || mediaError.name === 'PermissionDeniedError') {
+                    console.warn("[VoiceChat] Microphone permission denied. Voice chat will be disabled.");
+                    console.warn("[VoiceChat] To enable voice chat, please allow microphone access in your browser settings.");
+                    console.warn("[VoiceChat] You can grant permission by clicking the microphone icon in the browser's address bar.");
+                } else if (mediaError.name === 'NotFoundError' || mediaError.name === 'DevicesNotFoundError') {
+                    console.warn("[VoiceChat] No microphone found. Voice chat will be disabled.");
+                } else if (mediaError.name === 'NotReadableError' || mediaError.name === 'TrackStartError') {
+                    console.warn("[VoiceChat] Microphone is already in use by another application. Voice chat will be disabled.");
+                } else {
+                    console.warn("[VoiceChat] Failed to access microphone:", mediaError.name, mediaError.message);
                 }
-            });
-
-            // Mute local audio (we don't want to hear ourselves)
-            this.localStream.getAudioTracks().forEach(track => {
-                track.enabled = !this.config.mute;
-            });
-
-            this.config.enabled = true;
-            console.log("[VoiceChat] Initialized successfully");
-            return true;
+                
+                // Voice chat will work in receive-only mode (can hear others but can't speak)
+                this.config.enabled = false;
+                return false;
+            }
         } catch (error) {
             console.error("[VoiceChat] Initialization error:", error);
+            this.config.enabled = false;
             return false;
         }
     }

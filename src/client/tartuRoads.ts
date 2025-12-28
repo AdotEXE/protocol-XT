@@ -448,9 +448,7 @@ export function getTartuRoadsInChunk(
     const chunkMinZ = worldZ;
     const chunkMaxZ = worldZ + chunkSize;
     
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tartuRoads.ts:230',message:'getTartuRoadsInChunk called',data:{chunkX,chunkZ,chunkSize,worldX,worldZ,chunkMinX,chunkMaxX,chunkMinZ,chunkMaxZ,totalRoads:TARTU_ROADS.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-    // #endregion
+    
     
     const filtered = TARTU_ROADS.filter(road => {
         // Проверяем, пересекается ли дорога с чанком
@@ -470,11 +468,7 @@ export function getTartuRoadsInChunk(
                  expandedMaxZ < chunkMinZ || expandedMinZ > chunkMaxZ);
     });
     
-    // #region agent log
-    if (filtered.length > 0) {
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tartuRoads.ts:250',message:'Found roads in chunk',data:{chunkX,chunkZ,filteredCount:filtered.length,roads:filtered.map(r=>({name:r.name,start:r.start,end:r.end}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-    }
-    // #endregion
+    
     
     return filtered;
 }

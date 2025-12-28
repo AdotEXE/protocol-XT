@@ -8,6 +8,7 @@ import type { Scene } from "@babylonjs/core";
 import type { TankController } from "../tankController";
 import type { HUD } from "../hud";
 import type { AimingSystem } from "../aimingSystem";
+import { GameProjectile } from "./GameProjectile";
 
 /**
  * GameCamera - Управление камерами и режимами обзора
@@ -46,23 +47,25 @@ export class GameCamera {
     normalFOV = 0.8;
     aimFOV = 0.4;
     
-    // Mouse control for aiming
+    // Mouse control for aiming (УЛУЧШЕНА ПЛАВНОСТЬ)
     aimMouseSensitivity = 0.00015;
     aimMouseSensitivityVertical = 0.00015;
     aimMaxMouseSpeed = 25;
-    aimPitchSmoothing = 0.12;
-    aimYawSmoothing = 0.18;
+    aimPitchSmoothing = 0.08; // УМЕНЬШЕНО с 0.12 для более плавного прицеливания
+    aimYawSmoothing = 0.10;   // УМЕНЬШЕНО с 0.18 для более плавного прицеливания
     targetAimPitch = 0;
     targetAimYaw = 0;
     isPointerLocked = false;
     aimYaw = 0;
     aimPitch = 0;
     
-    // Zoom
+    // Zoom (ПЛАВНЫЙ ЗУМ)
     aimZoom = 0;
+    targetAimZoom = 0; // Целевой зум для плавной интерполяции
     minZoom = 0;
     maxZoom = 4.0;
     zoomStep = 0.5;
+    zoomSmoothSpeed = 0.12; // Скорость плавной интерполяции зума
     
     // Camera control
     cameraYaw = 0;
@@ -85,6 +88,7 @@ export class GameCamera {
     protected aimingSystem: AimingSystem | undefined;
     protected isSpectating = false;
     protected spectatingPlayerId: string | null = null;
+    protected gameProjectile: GameProjectile | undefined;
     
     // Callbacks
     protected onSwitchSpectatorTarget: ((forward: boolean) => void) | null = null;
@@ -97,12 +101,14 @@ export class GameCamera {
         scene: Scene,
         tank: TankController | undefined,
         hud: HUD | undefined,
-        aimingSystem: AimingSystem | undefined
+        aimingSystem: AimingSystem | undefined,
+        gameProjectile?: GameProjectile
     ): void {
         this.scene = scene;
         this.tank = tank;
         this.hud = hud;
         this.aimingSystem = aimingSystem;
+        this.gameProjectile = gameProjectile || new GameProjectile();
         
         // Создаем основную камеру
         const cameraPos = tank?.chassis?.position || new Vector3(0, 2, 0);
@@ -198,6 +204,7 @@ export class GameCamera {
     
     /**
      * Обновление режима прицеливания
+     * УЛУЧШЕНО: Плавная интерполяция прицеливания и зума
      */
     private updateAimingMode(): void {
         if (!this.camera || !this.tank) return;
@@ -205,28 +212,41 @@ export class GameCamera {
         // Плавно переходим в режим прицеливания
         this.aimingTransitionProgress = Math.min(1.0, this.aimingTransitionProgress + this.aimingTransitionSpeed);
         
-        // Плавная интерполяция горизонтального прицеливания
+        // УЛУЧШЕНО: Более плавная интерполяция горизонтального прицеливания
         let yawDiff = this.targetAimYaw - this.aimYaw;
         while (yawDiff > Math.PI) yawDiff -= Math.PI * 2;
         while (yawDiff < -Math.PI) yawDiff += Math.PI * 2;
-        this.aimYaw += yawDiff * this.aimYawSmoothing;
+        // Плавное торможение при приближении к цели (easing)
+        const yawEasing = Math.min(1.0, Math.abs(yawDiff) * 2);
+        this.aimYaw += yawDiff * this.aimYawSmoothing * (0.5 + yawEasing * 0.5);
         
         // Нормализуем aimYaw
         while (this.aimYaw > Math.PI) this.aimYaw -= Math.PI * 2;
         while (this.aimYaw < -Math.PI) this.aimYaw += Math.PI * 2;
         
-        // Плавная интерполяция вертикального прицеливания
+        // УЛУЧШЕНО: Более плавная интерполяция вертикального прицеливания
         const pitchDiff = this.targetAimPitch - this.aimPitch;
-        this.aimPitch += pitchDiff * this.aimPitchSmoothing;
+        // Плавное торможение при приближении к цели
+        const pitchEasing = Math.min(1.0, Math.abs(pitchDiff) * 10);
+        this.aimPitch += pitchDiff * this.aimPitchSmoothing * (0.3 + pitchEasing * 0.7);
         
         // Синхронизируем aimPitch с танком для стрельбы
         this.tank.aimPitch = this.aimPitch;
+        
+        // НОВОЕ: Плавная интерполяция зума
+        const zoomDiff = this.targetAimZoom - this.aimZoom;
+        this.aimZoom += zoomDiff * this.zoomSmoothSpeed;
+        
+        // Обновляем HUD с текущим зумом при изменении
+        if (this.hud && Math.abs(zoomDiff) > 0.01) {
+            this.hud.setZoomLevel(this.aimZoom);
+        }
         
         // Обновляем индикатор дальности в HUD
         if (this.hud && this.tank.barrel) {
             const barrelHeight = this.tank.barrel.getAbsolutePosition().y;
             const projectileSpeed = this.tank.projectileSpeed;
-            const range = this.calculateProjectileRange(this.aimPitch, projectileSpeed, barrelHeight);
+            const range = this.gameProjectile?.calculateProjectileRange(this.aimPitch, projectileSpeed, barrelHeight) ?? 0;
             // HUD updateAimRange method is optional
             if (typeof (this.hud as any).updateAimRange === 'function') {
                 (this.hud as any).updateAimRange(range);
@@ -241,7 +261,7 @@ export class GameCamera {
         this.cameraBeta = this.cameraBeta + (targetBeta - this.cameraBeta) * 0.1;
         this.camera.beta = this.cameraBeta;
         
-        // Применяем зум
+        // Применяем плавный зум к FOV
         if (this.aimZoom > 0 && this.aimCamera) {
             const zoomFOV = this.aimFOV / (1 + this.aimZoom);
             this.aimCamera.fov = zoomFOV;

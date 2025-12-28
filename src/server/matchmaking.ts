@@ -14,12 +14,18 @@ export interface MatchmakingQueue {
 export class MatchmakingSystem {
     private queues: Map<string, MatchmakingQueue> = new Map();
     private skillLevels: Map<string, number> = new Map(); // playerId -> skill level
+    private roomIdGenerator: (() => string) | null = null; // Функция для генерации ID комнат
     
     constructor() {
         // Clean up empty queues periodically
         setInterval(() => {
             this.cleanupQueues();
         }, 30000); // Every 30 seconds
+    }
+    
+    // Устанавливаем функцию генерации ID комнат
+    setRoomIdGenerator(generator: () => string): void {
+        this.roomIdGenerator = generator;
     }
     
     private getQueueKey(mode: GameMode, region?: string): string {
@@ -97,7 +103,9 @@ export class MatchmakingSystem {
         if (!otherPlayer) {
             return null;
         }
-        const room = new GameRoom(queue.mode, 32, false);
+        // Генерируем простой ID комнаты
+        const roomId = this.roomIdGenerator ? this.roomIdGenerator() : undefined;
+        const room = new GameRoom(queue.mode, 32, false, undefined, roomId);
         
         room.addPlayer(player);
         room.addPlayer(otherPlayer);
@@ -134,7 +142,9 @@ export class MatchmakingSystem {
         if (!match) {
             return this.findQuickMatch(player, queue);
         }
-        const room = new GameRoom(queue.mode, 32, false);
+        // Генерируем простой ID комнаты
+        const roomId = this.roomIdGenerator ? this.roomIdGenerator() : undefined;
+        const room = new GameRoom(queue.mode, 32, false, undefined, roomId);
         
         room.addPlayer(player);
         room.addPlayer(match);

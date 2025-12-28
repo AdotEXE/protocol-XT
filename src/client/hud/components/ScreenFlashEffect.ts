@@ -100,6 +100,7 @@ export class ScreenFlashEffect {
     
     /**
      * Создание прямоугольника градиента
+     * ИЗМЕНЕНО: Вспышка только по краям экрана (15% от края), не на весь экран
      */
     private createGradientRect(direction: FlashDirection, step: number): Rectangle {
         const rect = new Rectangle(`flash_${direction}_${step}`);
@@ -107,35 +108,36 @@ export class ScreenFlashEffect {
         rect.background = this.config.color;
         rect.cornerRadius = 0;
         
-        // Настройка размера и позиции в зависимости от направления
-        const stepSize = 100 / this.config.gradientSteps; // Процент на шаг
+        // ИЗМЕНЕНО: Фиксированный небольшой размер - только по краям экрана
+        // Каждый шаг градиента занимает 5% экрана, максимум 15% при 3 шагах
+        const stepSize = 5; // Фиксированный размер шага (5% экрана)
         
         switch (direction) {
             case "top":
                 rect.width = "100%";
                 rect.height = `${stepSize}%`;
-                rect.top = `${-step * stepSize}%`;
+                rect.top = `${step * stepSize}%`; // Исправлено: положительное смещение от края
                 rect.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
                 rect.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
                 break;
             case "bottom":
                 rect.width = "100%";
                 rect.height = `${stepSize}%`;
-                rect.top = `${step * stepSize}%`;
+                rect.top = `${-step * stepSize}%`; // Исправлено: отрицательное смещение от края
                 rect.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
                 rect.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
                 break;
             case "left":
                 rect.width = `${stepSize}%`;
                 rect.height = "100%";
-                rect.left = `${-step * stepSize}%`;
+                rect.left = `${step * stepSize}%`; // Исправлено: положительное смещение от края
                 rect.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
                 rect.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
                 break;
             case "right":
                 rect.width = `${stepSize}%`;
                 rect.height = "100%";
-                rect.left = `${step * stepSize}%`;
+                rect.left = `${-step * stepSize}%`; // Исправлено: отрицательное смещение от края
                 rect.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
                 rect.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
                 break;

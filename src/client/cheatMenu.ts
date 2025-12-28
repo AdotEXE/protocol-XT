@@ -4,7 +4,7 @@
 
 import { TankController } from "./tankController";
 import { Game } from "./game";
-import { Vector3 } from "@babylonjs/core";
+import { Vector3, Ray } from "@babylonjs/core";
 import { EnemyTank } from "./enemyTank";
 import { CommonStyles } from "./commonStyles";
 
@@ -15,6 +15,8 @@ export interface Cheat {
     enabled: boolean;
     toggle: () => void;
     category: "combat" | "movement" | "resources" | "debug" | "world" | "time" | "visual" | "other";
+    type?: "toggle" | "action"; // toggle = переключатель, action = кнопка
+    buttonText?: string; // Текст на кнопке для action типа
 }
 
 export class CheatMenu {
@@ -25,9 +27,10 @@ export class CheatMenu {
     private cheats: Map<string, Cheat> = new Map();
     
     constructor() {
+        // ИСПРАВЛЕНО: Сначала инициализируем читы, потом создаем UI
+        this.initializeCheats();
         this.createUI();
         this.setupToggle();
-        this.initializeCheats();
         this.visible = false;
         this.container.classList.remove("visible");
         this.container.style.display = "none";
@@ -149,38 +152,156 @@ export class CheatMenu {
             }
         });
         
-        // РЕСУРСЫ
+        // РЕСУРСЫ - БЫСТРЫЕ КНОПКИ
         this.addCheat({
-            id: "addCredits",
-            name: "Добавить кредиты",
-            description: "Добавляет 100000 кредитов",
+            id: "addCredits1k",
+            name: "+1,000 кредитов",
+            description: "Добавляет 1,000 кредитов",
             enabled: false,
             category: "resources",
+            type: "action",
+            buttonText: "+1K 💰",
             toggle: () => {
                 if (this.game) {
-                    // Добавляем кредиты в currencyManager
                     if ((this.game as any).currencyManager) {
-                        (this.game as any).currencyManager.addCurrency(100000);
+                        (this.game as any).currencyManager.addCurrency(1000);
                     }
-                    // Добавляем кредиты в playerProgression
                     if ((this.game as any).playerProgression) {
-                        (this.game as any).playerProgression.addCredits(100000);
+                        (this.game as any).playerProgression.addCredits(1000);
                     }
-                    alert("Добавлено 100000 кредитов!");
+                    this.showCheatNotification("+1,000 кредитов! 💰");
                 }
             }
         });
         
         this.addCheat({
-            id: "addXP",
-            name: "Добавить опыт",
-            description: "Добавляет 1000 опыта",
+            id: "addCredits10k",
+            name: "+10,000 кредитов",
+            description: "Добавляет 10,000 кредитов",
             enabled: false,
             category: "resources",
+            type: "action",
+            buttonText: "+10K 💰",
+            toggle: () => {
+                if (this.game) {
+                    if ((this.game as any).currencyManager) {
+                        (this.game as any).currencyManager.addCurrency(10000);
+                    }
+                    if ((this.game as any).playerProgression) {
+                        (this.game as any).playerProgression.addCredits(10000);
+                    }
+                    this.showCheatNotification("+10,000 кредитов! 💰");
+                }
+            }
+        });
+        
+        this.addCheat({
+            id: "addCredits100k",
+            name: "+100,000 кредитов",
+            description: "Добавляет 100,000 кредитов",
+            enabled: false,
+            category: "resources",
+            type: "action",
+            buttonText: "+100K 💰",
+            toggle: () => {
+                if (this.game) {
+                    if ((this.game as any).currencyManager) {
+                        (this.game as any).currencyManager.addCurrency(100000);
+                    }
+                    if ((this.game as any).playerProgression) {
+                        (this.game as any).playerProgression.addCredits(100000);
+                    }
+                    this.showCheatNotification("+100,000 кредитов! 💰");
+                }
+            }
+        });
+        
+        this.addCheat({
+            id: "addCredits1m",
+            name: "+1,000,000 кредитов",
+            description: "Добавляет 1,000,000 кредитов",
+            enabled: false,
+            category: "resources",
+            type: "action",
+            buttonText: "+1M 💰",
+            toggle: () => {
+                if (this.game) {
+                    if ((this.game as any).currencyManager) {
+                        (this.game as any).currencyManager.addCurrency(1000000);
+                    }
+                    if ((this.game as any).playerProgression) {
+                        (this.game as any).playerProgression.addCredits(1000000);
+                    }
+                    this.showCheatNotification("+1,000,000 кредитов! 💰💰💰");
+                }
+            }
+        });
+        
+        this.addCheat({
+            id: "addXP100",
+            name: "+100 опыта",
+            description: "Добавляет 100 опыта",
+            enabled: false,
+            category: "resources",
+            type: "action",
+            buttonText: "+100 XP",
+            toggle: () => {
+                if (this.game && (this.game as any).playerProgression) {
+                    (this.game as any).playerProgression.addExperience(100, "cheat");
+                    this.showCheatNotification("+100 XP! ⭐");
+                }
+            }
+        });
+        
+        this.addCheat({
+            id: "addXP1000",
+            name: "+1,000 опыта",
+            description: "Добавляет 1,000 опыта",
+            enabled: false,
+            category: "resources",
+            type: "action",
+            buttonText: "+1K XP",
             toggle: () => {
                 if (this.game && (this.game as any).playerProgression) {
                     (this.game as any).playerProgression.addExperience(1000, "cheat");
-                    alert("Добавлено 1000 опыта!");
+                    this.showCheatNotification("+1,000 XP! ⭐");
+                }
+            }
+        });
+        
+        this.addCheat({
+            id: "addXP10000",
+            name: "+10,000 опыта",
+            description: "Добавляет 10,000 опыта",
+            enabled: false,
+            category: "resources",
+            type: "action",
+            buttonText: "+10K XP",
+            toggle: () => {
+                if (this.game && (this.game as any).playerProgression) {
+                    (this.game as any).playerProgression.addExperience(10000, "cheat");
+                    this.showCheatNotification("+10,000 XP! ⭐⭐");
+                }
+            }
+        });
+        
+        this.addCheat({
+            id: "levelUp",
+            name: "Повысить уровень",
+            description: "Мгновенно повышает уровень",
+            enabled: false,
+            category: "resources",
+            type: "action",
+            buttonText: "LEVEL UP! 📈",
+            toggle: () => {
+                if (this.game && (this.game as any).playerProgression) {
+                    const prog = (this.game as any).playerProgression;
+                    if (prog.levelUp) {
+                        prog.levelUp();
+                    } else {
+                        prog.addExperience(prog.experienceToNextLevel || 5000, "cheat");
+                    }
+                    this.showCheatNotification("LEVEL UP! 📈");
                 }
             }
         });
@@ -191,31 +312,105 @@ export class CheatMenu {
             description: "Восстанавливает здоровье до максимума",
             enabled: false,
             category: "resources",
+            type: "action",
+            buttonText: "❤️ HEAL",
             toggle: () => {
                 if (this.tank) {
                     this.tank.currentHealth = this.tank.maxHealth;
-                    alert("Здоровье восстановлено!");
+                    this.showCheatNotification("Здоровье восстановлено! ❤️");
                 }
             }
         });
         
-        // ОТЛАДКА
         this.addCheat({
-            id: "spawnEnemy",
-            name: "Заспавнить врага",
-            description: "Создаёт врага рядом с игроком",
+            id: "fullFuel",
+            name: "Полный бак",
+            description: "Заполняет топливо до максимума",
+            enabled: false,
+            category: "resources",
+            type: "action",
+            buttonText: "⛽ FUEL",
+            toggle: () => {
+                if (this.tank) {
+                    (this.tank as any).fuel = (this.tank as any).maxFuel || 100;
+                    this.showCheatNotification("Топливо заполнено! ⛽");
+                }
+            }
+        });
+        
+        this.addCheat({
+            id: "fullAmmo",
+            name: "Полный боезапас",
+            description: "Восстанавливает все снаряды",
+            enabled: false,
+            category: "resources",
+            type: "action",
+            buttonText: "🔫 AMMO",
+            toggle: () => {
+                if (this.tank) {
+                    (this.tank as any).ammo = (this.tank as any).maxAmmo || 50;
+                    (this.tank as any).specialAmmo = (this.tank as any).maxSpecialAmmo || 10;
+                    this.showCheatNotification("Боезапас восстановлен! 🔫");
+                }
+            }
+        });
+        
+        this.addCheat({
+            id: "repairTank",
+            name: "Полный ремонт",
+            description: "Ремонт + здоровье + топливо + боезапас",
+            enabled: false,
+            category: "resources",
+            type: "action",
+            buttonText: "🔧 FULL REPAIR",
+            toggle: () => {
+                if (this.tank) {
+                    this.tank.currentHealth = this.tank.maxHealth;
+                    (this.tank as any).fuel = (this.tank as any).maxFuel || 100;
+                    (this.tank as any).ammo = (this.tank as any).maxAmmo || 50;
+                    (this.tank as any).specialAmmo = (this.tank as any).maxSpecialAmmo || 10;
+                    this.showCheatNotification("Полный ремонт! 🔧❤️⛽🔫");
+                }
+            }
+        });
+        
+        // ОТЛАДКА - КНОПКИ
+        this.addCheat({
+            id: "spawnEnemy1",
+            name: "Спавн 1 врага",
+            description: "Создаёт 1 врага рядом",
             enabled: false,
             category: "debug",
+            type: "action",
+            buttonText: "+1 🤖",
             toggle: async () => {
-                if (this.game && this.tank) {
-                    const { Vector3 } = await import("@babylonjs/core");
-                    const pos = this.tank.chassis.absolutePosition;
-                    const spawnPos = pos.add(new Vector3(10, 0, 10));
-                    if ((this.game as any).enemyManager) {
-                        (this.game as any).enemyManager.spawnEnemyTank(spawnPos);
-                        alert("Враг заспавнен!");
-                    }
-                }
+                await this.spawnEnemiesNear(1);
+            }
+        });
+        
+        this.addCheat({
+            id: "spawnEnemy5",
+            name: "Спавн 5 врагов",
+            description: "Создаёт 5 врагов рядом",
+            enabled: false,
+            category: "debug",
+            type: "action",
+            buttonText: "+5 🤖",
+            toggle: async () => {
+                await this.spawnEnemiesNear(5);
+            }
+        });
+        
+        this.addCheat({
+            id: "spawnEnemy10",
+            name: "Спавн 10 врагов",
+            description: "Создаёт 10 врагов рядом",
+            enabled: false,
+            category: "debug",
+            type: "action",
+            buttonText: "+10 🤖",
+            toggle: async () => {
+                await this.spawnEnemiesNear(10);
             }
         });
         
@@ -225,14 +420,229 @@ export class CheatMenu {
             description: "Уничтожает всех врагов на карте",
             enabled: false,
             category: "debug",
+            type: "action",
+            buttonText: "💀 KILL ALL",
             toggle: () => {
                 if (this.game && (this.game as any).enemyTanks) {
-                    (this.game as any).enemyTanks.forEach((enemy: any) => {
-                        if (enemy.takeDamage) {
-                            enemy.takeDamage(99999);
+                    const enemies = (this.game as any).enemyTanks;
+                    const count = enemies.length;
+                    let killed = 0;
+                    
+                    // Создаем копию массива, так как он может изменяться во время итерации
+                    const enemiesCopy = [...enemies];
+                    enemiesCopy.forEach((enemy: any) => {
+                        if (enemy && enemy.takeDamage) {
+                            try {
+                                enemy.takeDamage(99999);
+                                killed++;
+                            } catch (e) {
+                                // Игнорируем ошибки
+                            }
+                        } else if (enemy && enemy.chassis) {
+                            // Альтернативный способ - удаляем напрямую
+                            try {
+                                if (enemy.chassis.dispose) {
+                                    enemy.chassis.dispose();
+                                }
+                                killed++;
+                            } catch (e) {
+                                // Игнорируем ошибки
+                            }
                         }
                     });
-                    alert("Все враги уничтожены!");
+                    
+                    // Очищаем массив врагов
+                    if ((this.game as any).enemyTanks) {
+                        (this.game as any).enemyTanks = [];
+                    }
+                    
+                    this.showCheatNotification(`${killed} врагов уничтожено! 💀`);
+                } else {
+                    this.showCheatNotification("Враги не найдены! ❌");
+                }
+            }
+        });
+        
+        this.addCheat({
+            id: "teleportCenter",
+            name: "ТП в центр",
+            description: "Телепорт в центр карты",
+            enabled: false,
+            category: "debug",
+            type: "action",
+            buttonText: "🎯 CENTER",
+            toggle: () => {
+                if (this.tank) {
+                    // Получаем высоту террейна в центре
+                    const groundHeight = this.getGroundHeight(0, 0);
+                    // ОБЯЗАТЕЛЬНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
+                    const safeHeight = Math.max(groundHeight + 5.0, 7.0);
+                    
+                    const targetPos = new Vector3(0, safeHeight, 0);
+                    this.tank.chassis.position = targetPos;
+                    if (this.tank.physicsBody) {
+                        this.tank.physicsBody.setTargetTransform(
+                            this.tank.chassis.position,
+                            this.tank.chassis.rotationQuaternion!
+                        );
+                        this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                        this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                    }
+                    this.showCheatNotification(`ТП в центр! 🎯 (${safeHeight.toFixed(1)}м)`);
+                }
+            }
+        });
+        
+        this.addCheat({
+            id: "teleportRandom",
+            name: "ТП случайный",
+            description: "Телепорт в случайную точку",
+            enabled: false,
+            category: "debug",
+            type: "action",
+            buttonText: "🎲 RANDOM",
+            toggle: () => {
+                if (this.tank) {
+                    const x = (Math.random() - 0.5) * 400;
+                    const z = (Math.random() - 0.5) * 400;
+                    
+                    // Получаем высоту террейна
+                    const groundHeight = this.getGroundHeight(x, z);
+                    // ОБЯЗАТЕЛЬНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
+                    const safeHeight = Math.max(groundHeight + 5.0, 7.0);
+                    
+                    const targetPos = new Vector3(x, safeHeight, z);
+                    this.tank.chassis.position = targetPos;
+                    if (this.tank.physicsBody) {
+                        this.tank.physicsBody.setTargetTransform(
+                            this.tank.chassis.position,
+                            this.tank.chassis.rotationQuaternion!
+                        );
+                        this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                        this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                    }
+                    this.showCheatNotification(`ТП: ${x.toFixed(0)}, ${z.toFixed(0)} 🎲 (${safeHeight.toFixed(1)}м)`);
+                }
+            }
+        });
+        
+        this.addCheat({
+            id: "teleportGarage",
+            name: "ТП в гараж",
+            description: "Телепорт к своему гаражу",
+            enabled: false,
+            category: "debug",
+            type: "action",
+            buttonText: "🏠 GARAGE",
+            toggle: () => {
+                if (this.tank && this.game) {
+                    const garagePos = (this.game as any).gameGarage?.playerGaragePosition;
+                    if (garagePos) {
+                        // Получаем высоту террейна под гаражем
+                        const groundHeight = this.getGroundHeight(garagePos.x, garagePos.z);
+                        // ОБЯЗАТЕЛЬНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
+                        const safeHeight = Math.max(groundHeight + 5.0, 7.0);
+                        
+                        const targetPos = new Vector3(garagePos.x, safeHeight, garagePos.z);
+                        this.tank.chassis.position = targetPos;
+                        if (this.tank.physicsBody) {
+                            this.tank.physicsBody.setTargetTransform(
+                                this.tank.chassis.position,
+                                this.tank.chassis.rotationQuaternion!
+                            );
+                            this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                            this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                        }
+                        this.showCheatNotification(`ТП в гараж! 🏠 (${safeHeight.toFixed(1)}м)`);
+                    } else {
+                        this.showCheatNotification("Гараж не найден! ❌");
+                    }
+                }
+            }
+        });
+        
+        // Телепорт на случайный спавн (гараж)
+        this.addCheat({
+            id: "teleportRandomSpawn",
+            name: "ТП на случайный спавн",
+            description: "Телепорт на случайное место спавна",
+            enabled: false,
+            category: "debug",
+            type: "action",
+            buttonText: "🎲 SPAWN",
+            toggle: () => {
+                if (this.tank && this.game) {
+                    const chunkSystem = (this.game as any).chunkSystem;
+                    if (chunkSystem && chunkSystem.garagePositions && chunkSystem.garagePositions.length > 0) {
+                        const randomIndex = Math.floor(Math.random() * chunkSystem.garagePositions.length);
+                        const spawnPos = chunkSystem.garagePositions[randomIndex];
+                        
+                        // Получаем высоту террейна
+                        const groundHeight = this.getGroundHeight(spawnPos.x, spawnPos.z);
+                        // ОБЯЗАТЕЛЬНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
+                        const safeHeight = Math.max(groundHeight + 5.0, 7.0);
+                        
+                        const targetPos = new Vector3(spawnPos.x, safeHeight, spawnPos.z);
+                        this.tank.chassis.position = targetPos;
+                        if (this.tank.physicsBody) {
+                            this.tank.physicsBody.setTargetTransform(
+                                this.tank.chassis.position,
+                                this.tank.chassis.rotationQuaternion!
+                            );
+                            this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                            this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                        }
+                        this.showCheatNotification(`ТП на спавн #${randomIndex + 1}! 🎲 (${safeHeight.toFixed(1)}м)`);
+                    } else {
+                        this.showCheatNotification("Спавны не найдены! ❌");
+                    }
+                }
+            }
+        });
+        
+        // Телепорт на следующий спавн (циклический)
+        this.addCheat({
+            id: "teleportNextSpawn",
+            name: "ТП на следующий спавн",
+            description: "Телепорт на следующий спавн по порядку",
+            enabled: false,
+            category: "debug",
+            type: "action",
+            buttonText: "➡️ NEXT",
+            toggle: () => {
+                if (this.tank && this.game) {
+                    const chunkSystem = (this.game as any).chunkSystem;
+                    if (chunkSystem && chunkSystem.garagePositions && chunkSystem.garagePositions.length > 0) {
+                        // Сохраняем текущий индекс в game для циклического переключения
+                        if (!(this.game as any)._currentSpawnIndex) {
+                            (this.game as any)._currentSpawnIndex = 0;
+                        }
+                        
+                        (this.game as any)._currentSpawnIndex = 
+                            ((this.game as any)._currentSpawnIndex + 1) % chunkSystem.garagePositions.length;
+                        
+                        const spawnIndex = (this.game as any)._currentSpawnIndex;
+                        const spawnPos = chunkSystem.garagePositions[spawnIndex];
+                        
+                        // Получаем высоту террейна
+                        const groundHeight = this.getGroundHeight(spawnPos.x, spawnPos.z);
+                        // ОБЯЗАТЕЛЬНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
+                        const safeHeight = Math.max(groundHeight + 5.0, 7.0);
+                        
+                        const targetPos = new Vector3(spawnPos.x, safeHeight, spawnPos.z);
+                        this.tank.chassis.position = targetPos;
+                        if (this.tank.physicsBody) {
+                            this.tank.physicsBody.setTargetTransform(
+                                this.tank.chassis.position,
+                                this.tank.chassis.rotationQuaternion!
+                            );
+                            this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                            this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                        }
+                        this.showCheatNotification(`ТП на спавн #${spawnIndex + 1}! ➡️ (${safeHeight.toFixed(1)}м)`);
+                    } else {
+                        this.showCheatNotification("Спавны не найдены! ❌");
+                    }
                 }
             }
         });
@@ -243,7 +653,7 @@ export class CheatMenu {
         this.addCheat({
             id: "teleport",
             name: "Телепорт",
-            description: "Телепортирует танк в указанные координаты",
+            description: "Телепортирует танк в указанные координаты (Y вычисляется автоматически)",
             enabled: false,
             category: "debug",
             toggle: () => {
@@ -253,24 +663,33 @@ export class CheatMenu {
                 }
                 
                 const x = prompt("X координата:", "0");
-                const y = prompt("Y координата:", "2");
                 const z = prompt("Z координата:", "0");
                 
-                if (x !== null && y !== null && z !== null) {
+                if (x !== null && z !== null) {
                     const posX = parseFloat(x);
-                    const posY = parseFloat(y);
                     const posZ = parseFloat(z);
                     
-                    if (!isNaN(posX) && !isNaN(posY) && !isNaN(posZ)) {
-                        this.tank.chassis.position = new Vector3(posX, posY, posZ);
+                    if (!isNaN(posX) && !isNaN(posZ)) {
+                        // КРИТИЧНО: Вычисляем высоту террейна автоматически
+                        const groundHeight = this.getGroundHeight(posX, posZ);
+                        // ОБЯЗАТЕЛЬНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
+                        const safeHeight = Math.max(groundHeight + 5.0, 7.0);
+                        
+                        const targetPos = new Vector3(posX, safeHeight, posZ);
+                        this.tank.chassis.position = targetPos;
                         if (this.tank.physicsBody) {
                             this.tank.physicsBody.setTargetTransform(
-                                this.tank.chassis.position,
+                                targetPos,
                                 this.tank.chassis.rotationQuaternion!
                             );
+                            // КРИТИЧНО: Сбрасываем скорости при телепортации
+                            this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                            this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
                         }
+                        // Обновляем матрицы
+                        this.tank.chassis.computeWorldMatrix(true);
                         if (this.game.hud) {
-                            this.game.hud.showMessage(`Телепорт: (${posX.toFixed(1)}, ${posY.toFixed(1)}, ${posZ.toFixed(1)})`, "#0f0", 2000);
+                            this.game.hud.showMessage(`Телепорт: (${posX.toFixed(1)}, ${safeHeight.toFixed(1)}, ${posZ.toFixed(1)}) - террейн: ${groundHeight.toFixed(1)}м`, "#0f0", 2000);
                         }
                     } else {
                         alert("Неверные координаты!");
@@ -339,20 +758,20 @@ export class CheatMenu {
             description: "Разблокирует все улучшения и оружие",
             enabled: false,
             category: "resources",
+            type: "action",
+            buttonText: "🔓 UNLOCK ALL",
             toggle: () => {
                 if (!this.game) {
-                    alert("Игра не инициализирована!");
+                    this.showCheatNotification("Игра не инициализирована!");
                     return;
                 }
                 
                 // Разблокируем все через playerProgression
                 if ((this.game as any).playerProgression) {
                     const progression = (this.game as any).playerProgression;
-                    // Разблокируем все уровни и улучшения
                     if (progression.unlockAll) {
                         progression.unlockAll();
                     } else {
-                        // Fallback: устанавливаем высокий уровень
                         progression.level = 50;
                         progression.experience = 999999;
                     }
@@ -366,12 +785,7 @@ export class CheatMenu {
                     }
                 }
                 
-                // Обновляем HUD
-                if (this.game.hud) {
-                    this.game.hud.showMessage("Всё разблокировано!", "#0f0", 3000);
-                }
-                
-                alert("Все улучшения и оружие разблокированы!");
+                this.showCheatNotification("Всё разблокировано! 🔓");
             }
         });
         
@@ -423,31 +837,85 @@ export class CheatMenu {
         
         // === МИР ===
         this.addCheat({
-            id: "teleport",
-            name: "Телепортация",
-            description: "Телепортироваться к координатам",
+            id: "teleportCustom",
+            name: "Телепорт (координаты)",
+            description: "Телепортироваться к координатам (Y вычисляется автоматически)",
             enabled: false,
             category: "world",
+            type: "action",
+            buttonText: "📍 XZ",
             toggle: () => {
-                const x = prompt("X:");
-                const y = prompt("Y:");
-                const z = prompt("Z:");
-                if (x && y && z && this.tank && this.tank.chassis) {
-                    const posX = parseFloat(x);
-                    const posY = parseFloat(y);
-                    const posZ = parseFloat(z);
-                    if (!isNaN(posX) && !isNaN(posY) && !isNaN(posZ)) {
-                        this.tank.chassis.position = new Vector3(posX, posY, posZ);
+                const coords = prompt("Введите X, Z через запятую (Y вычисляется автоматически):", "0, 0");
+                if (coords && this.tank && this.tank.chassis) {
+                    const parts = coords.split(",").map(s => parseFloat(s.trim()));
+                    if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+                        const posX = parts[0];
+                        const posZ = parts[1];
+                        
+                        // КРИТИЧНО: Вычисляем высоту террейна автоматически
+                        const groundHeight = this.getGroundHeight(posX, posZ);
+                        // ОБЯЗАТЕЛЬНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
+                        const safeHeight = Math.max(groundHeight + 5.0, 7.0);
+                        
+                        const targetPos = new Vector3(posX, safeHeight, posZ);
+                        this.tank.chassis.position = targetPos;
                         if (this.tank.physicsBody) {
                             this.tank.physicsBody.setTargetTransform(
-                                this.tank.chassis.position,
+                                targetPos,
                                 this.tank.chassis.rotationQuaternion!
                             );
+                            // КРИТИЧНО: Сбрасываем скорости при телепортации
+                            this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                            this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
                         }
-                        if (this.game?.hud) {
-                            this.game.hud.showMessage(`Телепорт: (${posX.toFixed(1)}, ${posY.toFixed(1)}, ${posZ.toFixed(1)})`, "#0f0", 2000);
-                        }
+                        // Обновляем матрицы
+                        this.tank.chassis.computeWorldMatrix(true);
+                        this.showCheatNotification(`ТП: ${posX.toFixed(1)}, ${safeHeight.toFixed(1)}, ${posZ.toFixed(1)} 📍 (террейн: ${groundHeight.toFixed(1)}м)`);
+                    } else {
+                        alert("Неверные координаты! Используйте формат: X, Z");
                     }
+                }
+            }
+        });
+        
+        this.addCheat({
+            id: "clearAllObjects",
+            name: "Очистить карту",
+            description: "Удаляет все декорации и объекты",
+            enabled: false,
+            category: "world",
+            type: "action",
+            buttonText: "🧹 CLEAR",
+            toggle: () => {
+                if (this.game?.scene) {
+                    let removed = 0;
+                    this.game.scene.meshes.forEach(mesh => {
+                        if (mesh.name.includes("decoration") || mesh.name.includes("debris") || 
+                            mesh.name.includes("prop") || mesh.name.includes("bush") ||
+                            mesh.name.includes("tree") || mesh.name.includes("rock")) {
+                            mesh.dispose();
+                            removed++;
+                        }
+                    });
+                    this.showCheatNotification(`Удалено ${removed} объектов 🧹`);
+                }
+            }
+        });
+        
+        this.addCheat({
+            id: "resetWeather",
+            name: "Сбросить погоду",
+            description: "Сбрасывает погодные эффекты",
+            enabled: false,
+            category: "world",
+            type: "action",
+            buttonText: "☀️ CLEAR SKY",
+            toggle: () => {
+                if (this.game) {
+                    if ((this.game as any).weatherSystem) {
+                        (this.game as any).weatherSystem.setWeather("clear");
+                    }
+                    this.showCheatNotification("Погода сброшена! ☀️");
                 }
             }
         });
@@ -556,25 +1024,209 @@ export class CheatMenu {
                 this.updateCheatUI("showBounds");
             }
         });
+        
+        // === ПРОЧЕЕ ===
+        this.addCheat({
+            id: "screenshot",
+            name: "Скриншот",
+            description: "Сделать скриншот игры",
+            enabled: false,
+            category: "other",
+            type: "action",
+            buttonText: "📷 SCREENSHOT",
+            toggle: () => {
+                if (this.game?.scene?.getEngine()) {
+                    const engine = this.game.scene.getEngine();
+                    const canvas = engine.getRenderingCanvas();
+                    if (canvas) {
+                        const dataUrl = canvas.toDataURL("image/png");
+                        const link = document.createElement("a");
+                        link.download = `tank_screenshot_${Date.now()}.png`;
+                        link.href = dataUrl;
+                        link.click();
+                        this.showCheatNotification("Скриншот сохранён! 📷");
+                    }
+                }
+            }
+        });
+        
+        this.addCheat({
+            id: "resetStats",
+            name: "Сбросить статистику",
+            description: "Обнуляет убийства и смерти",
+            enabled: false,
+            category: "other",
+            type: "action",
+            buttonText: "🔄 RESET STATS",
+            toggle: () => {
+                if (this.game) {
+                    (this.game as any).kills = 0;
+                    (this.game as any).deaths = 0;
+                    (this.game as any).totalDamageDealt = 0;
+                    (this.game as any).totalDamageTaken = 0;
+                    this.showCheatNotification("Статистика сброшена! 🔄");
+                }
+            }
+        });
+        
+        this.addCheat({
+            id: "showFPS",
+            name: "Показать FPS",
+            description: "Отображает FPS на экране",
+            enabled: false,
+            category: "other",
+            toggle: () => {
+                const cheat = this.cheats.get("showFPS")!;
+                cheat.enabled = !cheat.enabled;
+                if (this.game?.scene) {
+                    const engine = this.game.scene.getEngine();
+                    if (engine) {
+                        (engine as any).displayLoadingUI = cheat.enabled;
+                    }
+                }
+                this.updateCheatUI("showFPS");
+            }
+        });
+        
+        this.addCheat({
+            id: "pauseGame",
+            name: "Пауза игры",
+            description: "Приостанавливает все действия",
+            enabled: false,
+            category: "other",
+            toggle: () => {
+                const cheat = this.cheats.get("pauseGame")!;
+                cheat.enabled = !cheat.enabled;
+                if (this.game?.scene) {
+                    if (cheat.enabled) {
+                        (this.game.scene as any)._paused = true;
+                        this.game.scene.getEngine().stopRenderLoop();
+                    } else {
+                        (this.game.scene as any)._paused = false;
+                        const scene = this.game.scene;
+                        this.game.scene.getEngine().runRenderLoop(() => scene.render());
+                    }
+                    if (this.game.hud) {
+                        this.game.hud.showMessage(cheat.enabled ? "ПАУЗА" : "ИГРА", cheat.enabled ? "#ff0" : "#0f0", 2000);
+                    }
+                }
+                this.updateCheatUI("pauseGame");
+            }
+        });
+        
+        this.addCheat({
+            id: "copyPosition",
+            name: "Копировать позицию",
+            description: "Копирует координаты танка",
+            enabled: false,
+            category: "other",
+            type: "action",
+            buttonText: "📋 COPY POS",
+            toggle: () => {
+                if (this.tank?.chassis) {
+                    const pos = this.tank.chassis.absolutePosition;
+                    const coords = `${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)}`;
+                    navigator.clipboard.writeText(coords);
+                    this.showCheatNotification(`Скопировано: ${coords} 📋`);
+                }
+            }
+        });
     }
     
     private addCheat(cheat: Cheat): void {
+        // По умолчанию тип toggle
+        if (!cheat.type) cheat.type = "toggle";
         this.cheats.set(cheat.id, cheat);
+    }
+    
+    // Показывает уведомление о применении чита
+    private showCheatNotification(message: string): void {
+        if (this.game?.hud) {
+            this.game.hud.showMessage(message, "#0f0", 2000);
+        }
+        // Также показываем в UI меню
+        const notification = document.createElement("div");
+        notification.className = "cheat-notification";
+        notification.textContent = message;
+        notification.style.cssText = `
+            position: fixed;
+            top: 20%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 255, 0, 0.9);
+            color: #000;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            z-index: 200000;
+            animation: cheatNotificationAnim 1.5s ease-out forwards;
+            pointer-events: none;
+            text-shadow: none;
+        `;
+        document.body.appendChild(notification);
+        setTimeout(() => notification.remove(), 1500);
+    }
+    
+    // Спавн нескольких врагов рядом
+    private async spawnEnemiesNear(count: number): Promise<void> {
+        if (!this.game || !this.tank) {
+            this.showCheatNotification("Игра не инициализирована!");
+            return;
+        }
+        
+        const pos = this.tank.chassis.absolutePosition;
+        let spawned = 0;
+        
+        for (let i = 0; i < count; i++) {
+            const angle = (Math.PI * 2 / count) * i;
+            const distance = 20 + Math.random() * 30;
+            const spawnX = pos.x + Math.cos(angle) * distance;
+            const spawnZ = pos.z + Math.sin(angle) * distance;
+            
+            // КРИТИЧНО: Вычисляем высоту террейна и спавним НАД террейном
+            const groundHeight = (this.game as any).getGroundHeight ? (this.game as any).getGroundHeight(spawnX, spawnZ) : 2.0;
+            // КРИТИЧНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
+            const spawnY = Math.max(groundHeight + 5.0, 7.0);
+            
+            const spawnPos = new Vector3(spawnX, spawnY, spawnZ);
+            
+            if (this.game.scene && this.game.soundManager && this.game.effectsManager) {
+                const difficulty = (this.game as any).getCurrentEnemyDifficulty?.() || "medium";
+                const difficultyScale = (this.game as any).getAdaptiveEnemyDifficultyScale?.() || 1;
+                
+                const enemyTank = new EnemyTank(
+                    this.game.scene,
+                    spawnPos,
+                    this.game.soundManager,
+                    this.game.effectsManager,
+                    difficulty,
+                    difficultyScale
+                );
+                
+                if (this.tank) {
+                    enemyTank.setTarget(this.tank);
+                }
+                
+                if ((this.game as any).enemyTanks) {
+                    (this.game as any).enemyTanks.push(enemyTank);
+                }
+                spawned++;
+            }
+        }
+        
+        this.showCheatNotification(`Заспавнено ${spawned} врагов! 🤖`);
     }
     
     private createUI(): void {
         // Инжектируем общие стили если еще не инжектированы
         CommonStyles.initialize();
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'cheatMenu.ts:560',message:'CommonStyles initialized',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
+        
         
         this.container = document.createElement("div");
         this.container.id = "cheat-menu";
         this.container.className = "panel-overlay";
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'cheatMenu.ts:564',message:'CheatMenu container created',data:{className:this.container.className},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-        // #endregion
+        
         
         const categories = ["combat", "movement", "resources", "debug", "world", "time", "visual", "other"];
         const categoryNames: { [key: string]: string } = {
@@ -589,47 +1241,66 @@ export class CheatMenu {
         };
         
         let html = `
-            <div class="panel" style="max-width: 600px; max-height: 80vh; overflow-y: auto;">
+            <div class="panel" style="max-width: 600px; width: 600px; height: 600px; max-height: 600px; overflow: hidden; box-sizing: border-box; display: flex; flex-direction: column; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);">
                 <div class="panel-header">
                     <div class="panel-title">МЕНЮ ЧИТОВ [Ctrl+7]</div>
                     <button class="panel-close" id="cheat-menu-close">✕</button>
                 </div>
                 <div class="panel-content">
-                    <div class="cheat-profiles" style="margin-bottom: 15px; padding: 10px; background: rgba(0, 20, 0, 0.3); border: 1px solid rgba(0, 255, 4, 0.3); border-radius: 4px;">
-                        <div style="color: #ff0; font-weight: bold; margin-bottom: 8px;">ПРОФИЛИ ЧИТОВ</div>
-                        <div style="display: flex; gap: 5px; margin-bottom: 8px;">
-                            <button id="cheat-save-profile" style="padding: 4px 8px; background: rgba(0, 255, 4, 0.2); border: 1px solid rgba(0, 255, 4, 0.6); color: #0f0; cursor: pointer; font-size: 11px;">Сохранить</button>
-                            <button id="cheat-load-profile" style="padding: 4px 8px; background: rgba(0, 255, 4, 0.2); border: 1px solid rgba(0, 255, 4, 0.6); color: #0f0; cursor: pointer; font-size: 11px;">Загрузить</button>
-                            <button id="cheat-export-profile" style="padding: 4px 8px; background: rgba(0, 255, 4, 0.2); border: 1px solid rgba(0, 255, 4, 0.6); color: #0f0; cursor: pointer; font-size: 11px;">Экспорт</button>
-                            <button id="cheat-import-profile" style="padding: 4px 8px; background: rgba(0, 255, 4, 0.2); border: 1px solid rgba(0, 255, 4, 0.6); color: #0f0; cursor: pointer; font-size: 11px;">Импорт</button>
-                        </div>
-                        <select id="cheat-profiles-list" style="width: 100%; padding: 4px; background: rgba(0, 5, 0, 0.5); border: 1px solid rgba(0, 255, 4, 0.4); color: #0f0; font-size: 11px;">
-                            <option value="">Выберите профиль...</option>
-                        </select>
-                    </div>
+                    <!-- Вкладки категорий -->
+                    <div class="cheat-tabs">
         `;
         
-        categories.forEach(category => {
+        categories.forEach((category, index) => {
             const categoryCheats = Array.from(this.cheats.values()).filter(c => c.category === category);
             if (categoryCheats.length === 0) return;
             
-            html += `<div class="cheat-category">
-                <div class="cheat-category-title">${categoryNames[category]}</div>
-            `;
+            html += `<button class="cheat-tab ${index === 0 ? 'active' : ''}" data-category="${category}">
+                ${categoryNames[category]}
+            </button>`;
+        });
+        
+        html += `
+                    </div>
+                    
+                    <!-- Контент категорий -->
+        `;
+        
+        categories.forEach((category, index) => {
+            const categoryCheats = Array.from(this.cheats.values()).filter(c => c.category === category);
+            if (categoryCheats.length === 0) return;
+            
+            html += `<div class="cheat-tab-content ${index === 0 ? 'active' : ''}" data-category="${category}">`;
             
             categoryCheats.forEach(cheat => {
-                html += `
-                    <div class="cheat-item" data-cheat-id="${cheat.id}">
-                        <div class="cheat-info">
-                            <div class="cheat-name">${cheat.name}</div>
-                            <div class="cheat-desc">${cheat.description}</div>
+                if (cheat.type === "action") {
+                    // Кнопка для мгновенного действия
+                    html += `
+                        <div class="cheat-item cheat-action" data-cheat-id="${cheat.id}">
+                            <div class="cheat-info">
+                                <div class="cheat-name">${cheat.name}</div>
+                                <div class="cheat-desc">${cheat.description}</div>
+                            </div>
+                            <button class="cheat-action-btn" id="cheat-btn-${cheat.id}">
+                                ${cheat.buttonText || "ACTIVATE"}
+                            </button>
                         </div>
-                        <label class="cheat-toggle">
-                            <input type="checkbox" id="cheat-${cheat.id}" ${cheat.enabled ? "checked" : ""}>
-                            <span class="cheat-slider"></span>
-                        </label>
-                    </div>
-                `;
+                    `;
+                } else {
+                    // Переключатель (toggle)
+                    html += `
+                        <div class="cheat-item" data-cheat-id="${cheat.id}">
+                            <div class="cheat-info">
+                                <div class="cheat-name">${cheat.name}</div>
+                                <div class="cheat-desc">${cheat.description}</div>
+                            </div>
+                            <label class="cheat-toggle">
+                                <input type="checkbox" id="cheat-${cheat.id}" ${cheat.enabled ? "checked" : ""}>
+                                <span class="cheat-slider"></span>
+                            </label>
+                        </div>
+                    `;
+                }
             });
             
             html += `</div>`;
@@ -652,12 +1323,17 @@ export class CheatMenu {
                 left: 0 !important;
                 width: 100% !important;
                 height: 100% !important;
-                background: rgba(0, 0, 0, 0.95) !important;
+                background: rgba(0, 0, 0, 0.8) !important;
                 display: none !important;
                 justify-content: center !important;
                 align-items: center !important;
                 z-index: 100002 !important;
                 pointer-events: auto !important;
+            }
+            
+            /* Полупрозрачный фон для меню читов во время боя */
+            #cheat-menu.panel-overlay.in-battle {
+                background: rgba(0, 0, 0, 0.5) !important;
             }
             
             #cheat-menu.panel-overlay.visible {
@@ -666,17 +1342,83 @@ export class CheatMenu {
                 opacity: 1 !important;
             }
             
-            .cheat-category {
-                margin-bottom: 20px;
+            /* ИСПРАВЛЕНО: Предотвращение горизонтальной прокрутки и двойного скроллбара */
+            #cheat-menu .panel {
+                max-width: 600px !important;
+                width: 600px !important;
+                height: 600px !important;
+                max-height: 600px !important;
+                overflow: hidden !important; /* Убираем скролл с панели */
+                box-sizing: border-box !important;
+                display: flex !important;
+                flex-direction: column !important;
+                position: fixed !important;
+                top: 50% !important;
+                left: 50% !important;
+                transform: translate(-50%, -50%) !important;
             }
             
-            .cheat-category-title {
-                font-size: 14px;
-                color: #0ff;
-                margin-bottom: 10px;
-                padding-bottom: 5px;
+            #cheat-menu .panel-content {
+                padding: 15px !important;
+                box-sizing: border-box !important;
+                overflow-x: hidden !important;
+                overflow-y: auto !important; /* Скролл только на контенте */
+                width: 100% !important;
+                height: calc(600px - 60px) !important; /* Фиксированная высота минус заголовок */
+                min-height: calc(600px - 60px) !important;
+                max-height: calc(600px - 60px) !important;
+                flex: 1 !important; /* Занимает оставшееся пространство */
+            }
+            
+            /* Вкладки категорий */
+            .cheat-tabs {
+                display: flex;
+                gap: 5px;
+                margin-bottom: 15px;
                 border-bottom: 1px solid rgba(0, 255, 4, 0.3);
+                flex-wrap: wrap;
+                padding-bottom: 5px;
+            }
+            
+            .cheat-tab {
+                padding: 8px 12px;
+                background: rgba(0, 20, 0, 0.3);
+                border: 1px solid rgba(0, 255, 4, 0.3);
+                border-bottom: none;
+                color: #7f7;
+                cursor: pointer;
+                font-size: 11px;
                 font-weight: bold;
+                font-family: Consolas, Monaco, 'Courier New', monospace;
+                transition: all 0.2s;
+                border-radius: 4px 4px 0 0;
+                white-space: nowrap;
+            }
+            
+            .cheat-tab:hover {
+                background: rgba(0, 40, 0, 0.5);
+                color: #0f0;
+                border-color: rgba(0, 255, 4, 0.6);
+            }
+            
+            .cheat-tab.active {
+                background: rgba(0, 255, 4, 0.2);
+                color: #0f0;
+                border-color: rgba(0, 255, 4, 0.8);
+                border-bottom: 2px solid rgba(0, 255, 4, 0.8);
+            }
+            
+            .cheat-tab-content {
+                display: none;
+                height: 100%;
+                overflow-y: auto;
+                overflow-x: hidden;
+                min-height: 0;
+            }
+            
+            .cheat-tab-content.active {
+                display: block;
+                height: 100%;
             }
             
             .cheat-item {
@@ -688,10 +1430,15 @@ export class CheatMenu {
                 background: rgba(0, 5, 0, 0.3);
                 border: 1px solid rgba(0, 255, 4, 0.2);
                 border-radius: 4px;
+                box-sizing: border-box;
+                min-width: 0; /* Позволяет flex-элементам сжиматься */
+                gap: 10px; /* Отступ между элементами */
             }
             
             .cheat-info {
                 flex: 1;
+                min-width: 0; /* Позволяет тексту переноситься */
+                overflow: hidden; /* Скрывает переполнение */
             }
             
             .cheat-name {
@@ -700,12 +1447,16 @@ export class CheatMenu {
                 font-weight: bold;
                 margin-bottom: 4px;
                 font-family: Consolas, Monaco, 'Courier New', monospace;
+                word-wrap: break-word; /* Перенос длинных слов */
+                overflow-wrap: break-word; /* Перенос длинных слов */
             }
             
             .cheat-desc {
                 font-size: 10px;
                 color: #7f7;
                 font-family: Consolas, Monaco, 'Courier New', monospace;
+                word-wrap: break-word; /* Перенос длинных слов */
+                overflow-wrap: break-word; /* Перенос длинных слов */
             }
             
             .cheat-toggle {
@@ -755,18 +1506,87 @@ export class CheatMenu {
                 transform: translateX(26px);
                 background-color: #0f0;
             }
+            
+            /* Стили для кнопок-действий */
+            .cheat-action-btn {
+                padding: 8px 12px;
+                background: linear-gradient(180deg, rgba(0, 255, 4, 0.3), rgba(0, 255, 4, 0.1));
+                border: 2px solid rgba(0, 255, 4, 0.8);
+                border-radius: 6px;
+                color: #0f0;
+                font-size: 11px;
+                font-weight: bold;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                font-family: Consolas, Monaco, 'Courier New', monospace;
+                text-shadow: 0 0 5px rgba(0, 255, 4, 0.5);
+                min-width: 80px;
+                max-width: 120px;
+                flex-shrink: 0; /* Не сжимается */
+                white-space: nowrap; /* Текст не переносится */
+                overflow: hidden;
+                text-overflow: ellipsis; /* Многоточие при переполнении */
+            }
+            
+            .cheat-action-btn:hover {
+                background: linear-gradient(180deg, rgba(0, 255, 4, 0.5), rgba(0, 255, 4, 0.3));
+                border-color: #0f0;
+                box-shadow: 0 0 15px rgba(0, 255, 4, 0.5), inset 0 0 10px rgba(0, 255, 4, 0.2);
+                transform: scale(1.05);
+            }
+            
+            .cheat-action-btn:active {
+                background: rgba(0, 255, 4, 0.6);
+                transform: scale(0.95);
+                box-shadow: 0 0 20px rgba(0, 255, 4, 0.8);
+            }
+            
+            .cheat-item.cheat-action {
+                background: rgba(0, 30, 0, 0.4);
+                border-color: rgba(0, 255, 4, 0.3);
+            }
+            
+            /* Анимация уведомления */
+            @keyframes cheatNotificationAnim {
+                0% {
+                    opacity: 0;
+                    transform: translateX(-50%) translateY(-20px) scale(0.8);
+                }
+                20% {
+                    opacity: 1;
+                    transform: translateX(-50%) translateY(0) scale(1.1);
+                }
+                40% {
+                    transform: translateX(-50%) translateY(0) scale(1);
+                }
+                100% {
+                    opacity: 0;
+                    transform: translateX(-50%) translateY(-30px) scale(0.9);
+                }
+            }
         `;
         
         document.head.appendChild(style);
         document.body.appendChild(this.container);
         
-        // Обработчики для чекбоксов
+        // Обработчики для чекбоксов (toggle)
         this.cheats.forEach((cheat, id) => {
-            const checkbox = document.getElementById(`cheat-${id}`) as HTMLInputElement;
-            if (checkbox) {
-                checkbox.addEventListener("change", () => {
-                    cheat.toggle();
-                });
+            if (cheat.type === "action") {
+                // Обработчик для кнопки-действия
+                const button = document.getElementById(`cheat-btn-${id}`) as HTMLButtonElement;
+                if (button) {
+                    button.addEventListener("click", () => {
+                        cheat.toggle();
+                    });
+                }
+            } else {
+                // Обработчик для переключателя
+                const checkbox = document.getElementById(`cheat-${id}`) as HTMLInputElement;
+                if (checkbox) {
+                    checkbox.addEventListener("change", () => {
+                        cheat.toggle();
+                    });
+                }
             }
         });
         
@@ -782,14 +1602,24 @@ export class CheatMenu {
             this.hide();
         });
         
-        // Обработчики профилей
-        document.getElementById("cheat-save-profile")?.addEventListener("click", () => this.saveProfile());
-        document.getElementById("cheat-load-profile")?.addEventListener("click", () => this.loadProfile());
-        document.getElementById("cheat-export-profile")?.addEventListener("click", () => this.exportProfile());
-        document.getElementById("cheat-import-profile")?.addEventListener("click", () => this.importProfile());
-        
-        // Загрузка списка профилей
-        this.updateProfilesList();
+        // Обработчики вкладок
+        document.querySelectorAll(".cheat-tab").forEach(tab => {
+            tab.addEventListener("click", () => {
+                const category = (tab as HTMLElement).dataset.category;
+                if (!category) return;
+                
+                // Убираем активный класс со всех вкладок и контента
+                document.querySelectorAll(".cheat-tab").forEach(t => t.classList.remove("active"));
+                document.querySelectorAll(".cheat-tab-content").forEach(c => c.classList.remove("active"));
+                
+                // Добавляем активный класс к выбранной вкладке и контенту
+                tab.classList.add("active");
+                const content = document.querySelector(`.cheat-tab-content[data-category="${category}"]`);
+                if (content) {
+                    content.classList.add("active");
+                }
+            });
+        });
     }
     
     
@@ -799,9 +1629,7 @@ export class CheatMenu {
     }
     
     toggle(): void {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'cheatMenu.ts:775',message:'CheatMenu toggle called',data:{hasContainer:!!this.container,visible:this.visible},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
+        
         if (!this.container) {
             console.warn("[CheatMenu] Cannot toggle: container not initialized");
             return;
@@ -828,18 +1656,22 @@ export class CheatMenu {
             console.warn("[CheatMenu] Cannot show: container not initialized");
             return;
         }
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'cheatMenu.ts:783',message:'CheatMenu show called',data:{hasContainer:!!this.container},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
+        
         this.visible = true;
         this.container.classList.add("visible");
         this.container.style.display = "flex";
         this.container.style.visibility = "visible";
         this.container.style.opacity = "1";
         this.container.style.zIndex = "100002";
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7699192a-02e9-4db6-a827-ba7abbb7e466',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'cheatMenu.ts:787',message:'CheatMenu shown',data:{display:this.container.style.display},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
+        
+        // Добавляем класс "in-battle" если игра запущена (для полупрозрачного фона)
+        const game = (window as any).gameInstance;
+        if (game && game.gameStarted) {
+            this.container.classList.add("in-battle");
+        } else {
+            this.container.classList.remove("in-battle");
+        }
+        
         console.log("[CheatMenu] Menu shown, container:", this.container);
     }
     
@@ -850,178 +1682,6 @@ export class CheatMenu {
         this.container.style.display = "none";
         this.container.style.visibility = "hidden";
         this.container.style.opacity = "0";
-    }
-    
-    /**
-     * Сохранение профиля читов
-     */
-    private saveProfile(): void {
-        const name = prompt("Имя профиля:", `Profile_${Date.now()}`);
-        if (!name || name.trim() === "") return;
-        
-        const profile: { [key: string]: boolean } = {};
-        this.cheats.forEach((cheat, id) => {
-            profile[id] = cheat.enabled;
-        });
-        
-        const profiles = this.loadProfiles();
-        profiles[name.trim()] = profile;
-        this.saveProfiles(profiles);
-        
-        this.updateProfilesList();
-        if (this.game?.hud) {
-            this.game.hud.showMessage(`Профиль "${name}" сохранён`, "#0f0", 2000);
-        }
-    }
-    
-    /**
-     * Загрузка профиля читов
-     */
-    private loadProfile(): void {
-        const select = document.getElementById("cheat-profiles-list") as HTMLSelectElement;
-        if (!select || !select.value) {
-            alert("Выберите профиль из списка");
-            return;
-        }
-        
-        const profileName = select.value;
-        const profiles = this.loadProfiles();
-        const profile = profiles[profileName];
-        
-        if (!profile) {
-            alert("Профиль не найден");
-            return;
-        }
-        
-        // Применяем профиль
-        Object.entries(profile).forEach(([cheatId, enabled]) => {
-            const cheat = this.cheats.get(cheatId);
-            if (cheat && cheat.enabled !== enabled) {
-                cheat.toggle();
-            }
-        });
-        
-        this.updateCheatUI();
-        if (this.game?.hud) {
-            this.game.hud.showMessage(`Профиль "${profileName}" загружен`, "#0f0", 2000);
-        }
-    }
-    
-    /**
-     * Экспорт профиля
-     */
-    private exportProfile(): void {
-        const select = document.getElementById("cheat-profiles-list") as HTMLSelectElement;
-        if (!select || !select.value) {
-            alert("Выберите профиль для экспорта");
-            return;
-        }
-        
-        const profileName = select.value;
-        const profiles = this.loadProfiles();
-        const profile = profiles[profileName];
-        
-        if (!profile) {
-            alert("Профиль не найден");
-            return;
-        }
-        
-        const data = {
-            name: profileName,
-            cheats: profile,
-            version: "1.0",
-            timestamp: Date.now()
-        };
-        
-        const json = JSON.stringify(data, null, 2);
-        const blob = new Blob([json], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `cheat_profile_${profileName}_${Date.now()}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-    }
-    
-    /**
-     * Импорт профиля
-     */
-    private importProfile(): void {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = '.json';
-        input.onchange = (e) => {
-            const file = (e.target as HTMLInputElement).files?.[0];
-            if (!file) return;
-            
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                try {
-                    const data = JSON.parse(event.target?.result as string);
-                    if (!data.name || !data.cheats) {
-                        alert('Неверный формат файла');
-                        return;
-                    }
-                    
-                    const profiles = this.loadProfiles();
-                    profiles[data.name] = data.cheats;
-                    this.saveProfiles(profiles);
-                    
-                    this.updateProfilesList();
-                    if (this.game?.hud) {
-                        this.game.hud.showMessage(`Профиль "${data.name}" импортирован`, "#0f0", 2000);
-                    }
-                } catch (error) {
-                    alert('Ошибка при импорте: ' + error);
-                }
-            };
-            reader.readAsText(file);
-        };
-        input.click();
-    }
-    
-    /**
-     * Загрузка профилей из localStorage
-     */
-    private loadProfiles(): { [key: string]: { [key: string]: boolean } } {
-        try {
-            const saved = localStorage.getItem('ptx_cheat_profiles');
-            if (saved) {
-                return JSON.parse(saved);
-            }
-        } catch (error) {
-            console.warn("[CheatMenu] Failed to load profiles:", error);
-        }
-        return {};
-    }
-    
-    /**
-     * Сохранение профилей в localStorage
-     */
-    private saveProfiles(profiles: { [key: string]: { [key: string]: boolean } }): void {
-        try {
-            localStorage.setItem('ptx_cheat_profiles', JSON.stringify(profiles));
-        } catch (error) {
-            console.warn("[CheatMenu] Failed to save profiles:", error);
-        }
-    }
-    
-    /**
-     * Обновление списка профилей
-     */
-    private updateProfilesList(): void {
-        const select = document.getElementById("cheat-profiles-list") as HTMLSelectElement;
-        if (!select) return;
-        
-        const profiles = this.loadProfiles();
-        select.innerHTML = '<option value="">Выберите профиль...</option>';
-        
-        Object.keys(profiles).forEach(name => {
-            const option = document.createElement('option');
-            option.value = name;
-            option.textContent = name;
-            select.appendChild(option);
-        });
     }
     
     /**
@@ -1045,6 +1705,54 @@ export class CheatMenu {
                 }
             });
         }
+    }
+    
+    /**
+     * Получить высоту террейна в указанной точке
+     */
+    private getGroundHeight(x: number, z: number): number {
+        if (!this.game || !this.game.scene) {
+            return 2.0; // Минимальная безопасная высота
+        }
+        
+        // Используем метод из game.ts если доступен
+        if ((this.game as any).getGroundHeight) {
+            return (this.game as any).getGroundHeight(x, z);
+        }
+        
+        // Fallback: используем raycast
+        const rayStart = new Vector3(x, 150, z);
+        const ray = new Ray(rayStart, Vector3.Down(), 300);
+        
+        const hit = this.game.scene.pickWithRay(ray, (mesh) => {
+            if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+            const name = mesh.name.toLowerCase();
+            return (name.startsWith("ground_") || 
+                    name.includes("terrain") || 
+                    name.includes("chunk") ||
+                    name.includes("road") ||
+                    (name.includes("floor") && !name.includes("garage"))) && 
+                   mesh.isEnabled();
+        });
+        
+        if (hit?.hit && hit.pickedPoint) {
+            const height = hit.pickedPoint.y;
+            if (height > -10 && height < 200) {
+                return height;
+            }
+        }
+        
+        // Fallback: используем terrain generator если доступен
+        const chunkSystem = (this.game as any).chunkSystem;
+        if (chunkSystem && chunkSystem.terrainGenerator) {
+            try {
+                return chunkSystem.terrainGenerator.getHeight(x, z, "dirt") || 2.0;
+            } catch (e) {
+                // Игнорируем ошибки
+            }
+        }
+        
+        return 2.0; // Минимальная безопасная высота
     }
     
     isVisible(): boolean {
