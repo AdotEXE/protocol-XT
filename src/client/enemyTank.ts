@@ -21,6 +21,7 @@ import { EffectsManager } from "./effects";
 import { logger } from "./utils/logger";
 import { AIPathfinding } from "./ai/AIPathfinding";
 import type { RoadNetwork } from "./roadNetwork";
+import { PHYSICS_CONFIG } from "./config/physicsConfig";
 
 // === AI States ===
 type AIState = "idle" | "patrol" | "chase" | "attack" | "flank" | "retreat" | "evade" | "capturePOI" | "ambush" | "bait";
@@ -40,24 +41,24 @@ export class EnemyTank {
     // === Physics (SAME AS PLAYER!) ===
     physicsBody!: PhysicsBody;
     
-    // Physics Config (ТАНКОВАЯ ПРОХОДИМОСТЬ - синхронизировано с TankController)
-    private mass = 3000; // Масса бота
-    private hoverHeight = 1.0;
-    private hoverStiffness = 7000; // ТАНКОВАЯ ПРОХОДИМОСТЬ: Согласовано с игроком
-    private hoverDamping = 18000; // ТАНКОВАЯ ПРОХОДИМОСТЬ: Уменьшено для лучшего подъёма
+    // Physics Config (HEAVY & RESPONSIVE - синхронизировано с TankController)
+    private mass = PHYSICS_CONFIG.enemyTank.basic.mass; // HEAVY & RESPONSIVE: Масса бота из конфига
+    private hoverHeight = PHYSICS_CONFIG.enemyTank.basic.hoverHeight;
+    private hoverStiffness = PHYSICS_CONFIG.enemyTank.stability.hoverStiffness; // HEAVY & RESPONSIVE: Жесткость подвески
+    private hoverDamping = PHYSICS_CONFIG.enemyTank.stability.hoverDamping; // HEAVY & RESPONSIVE: Демпфирование подвески
     
-    // Movement (СКРУГЛЁННЫЕ ГУСЕНИЦЫ - синхронизировано с TankController)
-    private moveSpeed = 20;        // Slightly slower than player
-    private turnSpeed = 2.2;
-    private acceleration = 40000; // СКРУГЛЁННЫЕ ГУСЕНИЦЫ: Согласовано с игроком для преодоления ЛЮБЫХ препятствий
+    // Movement (HEAVY TANK - из конфига)
+    private moveSpeed = PHYSICS_CONFIG.enemyTank.basic.moveSpeed; // Из конфига (11 м/с)
+    private turnSpeed = PHYSICS_CONFIG.enemyTank.basic.turnSpeed; // Из конфига (2.3 рад/с)
+    private acceleration = PHYSICS_CONFIG.enemyTank.basic.acceleration; // Из конфига (58000 Н)
     
-    // СИСТЕМА "СКРУГЛЁННЫЕ ГУСЕНИЦЫ" - МАКСИМАЛЬНАЯ ПРОХОДИМОСТЬ (как у игрока)
-    private climbAssistForce = 120000;   // УСИЛЕНО x2.7 - мощный автоподъём
-    private maxClimbHeight = 3.0;        // УСИЛЕНО x2.5 - до 3 метров высоты!
-    private slopeBoostMax = 2.5;         // УСИЛЕНО x1.4 - больше тяги на склонах
-    private frontClimbForce = 180000;    // NEW: Сила подъёма передней части
-    private wallPushForce = 80000;       // NEW: Сила проталкивания через стену
-    private climbTorque = 25000;         // NEW: Момент для наклона вперёд при подъёме
+    // СИСТЕМА "СКРУГЛЁННЫЕ ГУСЕНИЦЫ" - СИНХРОНИЗИРОВАНО С ИГРОКОМ из PHYSICS_CONFIG
+    private climbAssistForce = PHYSICS_CONFIG.enemyTank.climbing.climbAssistForce;
+    private maxClimbHeight = PHYSICS_CONFIG.enemyTank.climbing.maxClimbHeight;
+    private slopeBoostMax = PHYSICS_CONFIG.enemyTank.climbing.slopeBoostMax;
+    private frontClimbForce = PHYSICS_CONFIG.enemyTank.climbing.frontClimbForce;
+    private wallPushForce = PHYSICS_CONFIG.enemyTank.climbing.wallPushForce;
+    private climbTorque = PHYSICS_CONFIG.enemyTank.climbing.climbTorque;
     
     // Smooth inputs (like player)
     private throttleTarget = 0;
@@ -100,8 +101,8 @@ export class EnemyTank {
     // УЛУЧШЕНО: Групповое поведение
     private nearbyEnemies: EnemyTank[] = []; // Близкие союзники для координации
     private lastGroupCheckTime = 0;
-    private readonly GROUP_CHECK_INTERVAL = 1500; // УЛУЧШЕНО: Увеличено с 1000 до 1500мс для лучшей производительности
-    private readonly GROUP_COORDINATION_RANGE = 80; // Радиус координации
+    private readonly GROUP_CHECK_INTERVAL = 1000; // УЛУЧШЕНО: Уменьшено для более быстрой координации между ботами
+    private readonly GROUP_COORDINATION_RANGE = 100; // УЛУЧШЕНО: Увеличен радиус координации с 80 до 100 для лучшей координации между ботами
     
     // УЛУЧШЕНО: Система укрытий и тактического позиционирования
     private lastCoverCheckTime = 0;
@@ -118,7 +119,7 @@ export class EnemyTank {
     private playerStyle: "aggressive" | "defensive" | "balanced" = "balanced";
     private playerStyleSamples: number[] = []; // История расстояний до игрока
     private lastStyleUpdateTime = 0;
-    private readonly STYLE_UPDATE_INTERVAL = 6000; // УЛУЧШЕНО: Увеличено с 5000 до 6000мс для лучшей производительности
+    private readonly STYLE_UPDATE_INTERVAL = 4000; // УЛУЧШЕНО: Уменьшено для более быстрой адаптации к стилю игры игрока
     
     // УЛУЧШЕНО: Реакция на урон
     private lastDamageTime = 0;
@@ -176,12 +177,35 @@ export class EnemyTank {
     private aimAccuracy = 0.98;   // УЛУЧШЕНО: Увеличена с 0.95 до 0.98 для более точной стрельбы
     
     // УЛУЧШЕНО: Адаптивная точность в зависимости от дистанции и сложности
+    // HARD режим: почти идеальная точность!
     private getAdaptiveAccuracy(distance: number): number {
         const baseAccuracy = this.aimAccuracy;
-        const difficultyMultiplier = this.difficulty === "hard" ? 1.0 : (this.difficulty === "medium" ? 0.95 : 0.90);
-        const distancePenalty = Math.min(0.15, distance / 200); // До 15% штраф на дальних дистанциях
-        const healthPenalty = (1.0 - this.currentHealth / this.maxHealth) * 0.1; // До 10% штраф при низком HP
-        return Math.max(0.75, baseAccuracy * difficultyMultiplier - distancePenalty - healthPenalty);
+        
+        // СЛОЖНЫЙ РЕЖИМ: минимальный штраф, почти идеальная точность
+        let difficultyMultiplier: number;
+        let distancePenaltyMax: number;
+        let healthPenaltyMax: number;
+        
+        if (this.difficulty === "hard") {
+            difficultyMultiplier = 1.0;
+            distancePenaltyMax = 0.08; // Только 8% штраф на дистанции (было 15%)
+            healthPenaltyMax = 0.05; // Только 5% штраф при низком HP (было 10%)
+        } else if (this.difficulty === "medium") {
+            difficultyMultiplier = 0.92;
+            distancePenaltyMax = 0.12;
+            healthPenaltyMax = 0.08;
+        } else {
+            difficultyMultiplier = 0.85;
+            distancePenaltyMax = 0.15;
+            healthPenaltyMax = 0.10;
+        }
+        
+        const distancePenalty = Math.min(distancePenaltyMax, distance / 300);
+        const healthPenalty = (1.0 - this.currentHealth / this.maxHealth) * healthPenaltyMax;
+        
+        // HARD режим: минимум 0.90 точность (было 0.75)
+        const minAccuracy = this.difficulty === "hard" ? 0.90 : (this.difficulty === "medium" ? 0.80 : 0.75);
+        return Math.max(minAccuracy, baseAccuracy * difficultyMultiplier - distancePenalty - healthPenalty);
     }
     
     // === Difficulty ===
@@ -214,14 +238,22 @@ export class EnemyTank {
     
     // Raycast caching для оптимизации
     private raycastCache: { result: boolean, frame: number } | null = null;
-    private readonly RAYCAST_CACHE_FRAMES = 6; // УЛУЧШЕНО: Увеличено с 4 до 6 кадров для лучшей производительности
+    private readonly RAYCAST_CACHE_FRAMES = 4; // УЛУЧШЕНО: Уменьшено для более частых проверок видимости ближних целей
     
     // Ground raycast cache для hover системы
     private _groundRaycastCache: { groundHeight: number; frame: number } | null = null;
     
+    // КРИТИЧНО: Кэш для проверки проваливания (чтобы не проверять каждый кадр)
+    private _fallCheckCache: { lastCheck: number; lastCorrectedY: number } | null = null;
+    private readonly FALL_CHECK_INTERVAL = 100; // Проверяем проваливание раз в 100мс (10 раз в секунду)
+    private _fallCheckFrame = 0; // Кадр последней проверки проваливания
+    
     // Переиспользуемые векторы для оптимизации памяти
     private _tmpPos?: Vector3;
     private _tmpForward?: Vector3;
+    
+    // КРИТИЧНО: Кэш для getWorldMatrix() - очень дорогая операция
+    private _cachedWorldMatrix?: Matrix;
     private _tmpRight?: Vector3;
     private _tmpUp?: Vector3;
     
@@ -232,7 +264,7 @@ export class EnemyTank {
     
     // Для отслеживания застревания в воздухе
     private _airStuckTimer = 0;
-    private readonly AIR_STUCK_RESET_TIME = 2000; // 2 секунды в воздухе = принудительная телепортация
+    private readonly AIR_STUCK_RESET_TIME = 1000; // ИСПРАВЛЕНО: 1 секунда в воздухе = принудительная телепортация (было 2)
     
     // === ANTI-STUCK SYSTEM (УЛУЧШЕНО) ===
     private stuckTimer = 0;
@@ -296,9 +328,12 @@ export class EnemyTank {
         this.createHpBillboard();
         
         // КРИТИЧНО: Предотвращаем исчезновение при frustum culling (когда камера за стеной)
+        // FIX: alwaysSelectAsActiveMesh только для корневого меша (chassis)!
+        // Дочерние меши (turret, barrel) наследуют видимость от родителя
+        // Установка alwaysSelectAsActiveMesh на дочерних мешах вызывает ДВОЙНОЙ РЕНДЕРИНГ
         this.chassis.alwaysSelectAsActiveMesh = true;
-        this.turret.alwaysSelectAsActiveMesh = true;
-        this.barrel.alwaysSelectAsActiveMesh = true;
+        // this.turret.alwaysSelectAsActiveMesh = true; // УБРАНО - причина дублирования!
+        // this.barrel.alwaysSelectAsActiveMesh = true; // УБРАНО - причина дублирования!
         
         // Setup physics (SAME AS PLAYER!)
         this.setupPhysics();
@@ -312,8 +347,10 @@ export class EnemyTank {
         // Random flank direction
         this.flankDirection = Math.random() > 0.5 ? 1 : -1;
         
-        // Register physics update
-        scene.onBeforePhysicsObservable.add(() => this.updatePhysics());
+        // КРИТИЧНО: НЕ регистрируем onBeforePhysicsObservable здесь!
+        // Это вызывало updatePhysics() для ВСЕХ врагов каждый кадр, убивая FPS
+        // Физика врагов теперь обновляется централизованно через GameUpdate
+        // только для ближних врагов с оптимизацией по расстоянию
         
         // УЛУЧШЕННАЯ стабилизация спавна: более быстрая и надёжная
         this._spawnStabilizing = true;
@@ -330,8 +367,8 @@ export class EnemyTank {
                 // Если позиция подозрительно низкая, пересчитываем высоту террейна
                 if (game && typeof game.getGroundHeight === 'function') {
                     const groundHeight = game.getGroundHeight(currentPos.x, currentPos.z);
-                    // КРИТИЧНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
-                    const safeY = Math.max(groundHeight + 5.0, 7.0);
+                    // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
+                    const safeY = Math.max(groundHeight + 2.0, 3.0);
                     if (targetY < safeY) {
                         targetY = safeY;
                         logger.warn(`[EnemyTank] Corrected spawn height from ${position.y.toFixed(2)} to ${targetY.toFixed(2)} (ground: ${groundHeight.toFixed(2)})`);
@@ -422,8 +459,8 @@ export class EnemyTank {
                 this.detectRange = 150; // Радиус обнаружения
                 this.range = 50;
                 this.optimalRange = 28;
-                this.decisionInterval = 800; // Решения каждые 800мс (было 1000)
-                this.moveSpeed = 10; // Медленнее (было 8)
+                this.decisionInterval = 600; // Решения каждые 600мс (улучшено для более быстрой реакции)
+                this.moveSpeed = 12; // Быстрее для более бодрого поведения (было 10)
                 // Менее толстые и бьют слабее
                 this.maxHealth = 80;
                 break;
@@ -434,8 +471,8 @@ export class EnemyTank {
                 this.detectRange = 180;
                 this.range = 60;
                 this.optimalRange = 32;
-                this.decisionInterval = 500; // Решения каждые 500мс (было 700)
-                this.moveSpeed = 14; // Быстрее (было 10)
+                this.decisionInterval = 350; // Решения каждые 350мс (улучшено для более быстрой реакции)
+                this.moveSpeed = 18; // Быстрее для более бодрого поведения (было 14)
                 this.maxHealth = 100;
                 break;
             case "hard":
@@ -445,8 +482,8 @@ export class EnemyTank {
                 this.detectRange = 220; // Увеличенный радиус обнаружения (было 200)
                 this.range = 70;
                 this.optimalRange = 38;
-                this.decisionInterval = 300; // Решения каждые 300мс (было 500)
-                this.moveSpeed = 18; // Значительно быстрее (было 12)
+                this.decisionInterval = 200; // Решения каждые 200мс (улучшено для максимально быстрой реакции)
+                this.moveSpeed = 24; // Максимальная скорость (как у игрока!) (было 18)
                 // Толще и живучее на сложной
                 this.maxHealth = 130;
                 break;
@@ -793,7 +830,8 @@ export class EnemyTank {
                 extents: new Vector3(chassisWidth, chassisHeight * 0.7, chassisDepth * 0.7)
             }
         }, this.scene);
-        centerBox.material = { friction: 0.1, restitution: 0.0 };
+        // HEAVY & RESPONSIVE: Отключено трение Havok, используется только Custom Force
+        centerBox.material = { friction: 0, restitution: 0.0 };
         chassisShape.addChildFromParent(this.chassis, centerBox, this.chassis);
         
         // 2. Передний CYLINDER (скруглённый край - позволяет заезжать на препятствия)
@@ -805,7 +843,8 @@ export class EnemyTank {
                 radius: cylinderRadius
             }
         }, this.scene);
-        frontCylinder.material = { friction: 0.15, restitution: 0.0 };
+        // HEAVY & RESPONSIVE: Отключено трение Havok, используется только Custom Force
+        frontCylinder.material = { friction: 0, restitution: 0.0 };
         chassisShape.addChildFromParent(this.chassis, frontCylinder, this.chassis);
         
         // 3. Задний CYLINDER (скруглённый край)
@@ -817,7 +856,8 @@ export class EnemyTank {
                 radius: cylinderRadius
             }
         }, this.scene);
-        backCylinder.material = { friction: 0.15, restitution: 0.0 };
+        // HEAVY & RESPONSIVE: Отключено трение Havok, используется только Custom Force
+        backCylinder.material = { friction: 0, restitution: 0.0 };
         chassisShape.addChildFromParent(this.chassis, backCylinder, this.chassis);
         
         // Настройки фильтрации столкновений
@@ -831,12 +871,13 @@ export class EnemyTank {
         
         this.physicsBody = new PhysicsBody(this.chassis, PhysicsMotionType.DYNAMIC, false, this.scene);
         this.physicsBody.shape = chassisShape;
+        // HEAVY & RESPONSIVE: Центр масс смещен ниже для предотвращения опрокидывания
         this.physicsBody.setMassProperties({
             mass: this.mass,
-            centerOfMass: new Vector3(0, -0.55, -0.3) // Центр тяжести: немного ниже (Y) и сзади (Z)
+            centerOfMass: PHYSICS_CONFIG.enemyTank.centerOfMass.clone()
         });
-        this.physicsBody.setLinearDamping(0.5);
-        this.physicsBody.setAngularDamping(3.0);
+        this.physicsBody.setLinearDamping(PHYSICS_CONFIG.enemyTank.stability.linearDamping);
+        this.physicsBody.setAngularDamping(PHYSICS_CONFIG.enemyTank.stability.angularDamping);
         
         // КРИТИЧНО: Сбрасываем скорости сразу после создания физического тела
         this.physicsBody.setLinearVelocity(Vector3.Zero());
@@ -875,13 +916,13 @@ export class EnemyTank {
         // До 500м (250000 в квадрате) - каждые 2 кадра
         // 500-700м (250000-490000) - каждые 3 кадра
         // Дальше - каждые 5 кадров
-        let aiUpdateInterval = 2;
+        let aiUpdateInterval = 1; // УЛУЧШЕНО: Ближние боты обновляются каждый кадр для максимальной реактивности
         if (distSq > 490000) { // 700м в квадрате
-            aiUpdateInterval = 5;
+            aiUpdateInterval = 5; // Дальние - каждые 5 кадров
         } else if (distSq > 250000) { // 500м в квадрате
-            aiUpdateInterval = 3;
+            aiUpdateInterval = 2; // УЛУЧШЕНО: Средние - каждые 2 кадра (было 3)
         } else {
-            aiUpdateInterval = 2; // До 500м - каждые 2 кадра
+            aiUpdateInterval = 1; // УЛУЧШЕНО: До 500м - каждый кадр для быстрой реакции (было 2)
         }
         
         // Обновляем AI логику (принятие решений) реже
@@ -889,13 +930,18 @@ export class EnemyTank {
             this.updateAI();
         }
         
-        // КРИТИЧНО: Обновляем движение КАЖДЫЙ КАДР для плавности!
-        // Это гарантирует, что throttleTarget и steerTarget обновляются плавно
-        // Вызываем executeState каждый кадр для плавного обновления движения
+        // ИСПРАВЛЕНО: Обновляем движение и башню каждый кадр для всех ботов
+        // Это критично для работающего AI
         this.executeState();
         
-        // Turret always updates (smooth)
+        // ИСПРАВЛЕНО: Башня ВСЕГДА обновляется каждый кадр
         this.updateTurret();
+        
+        // ИСПРАВЛЕНО: Активное наведение на игрока если он в радиусе обнаружения
+        // Даже во время патруля башня должна следить за игроком
+        if (this.target && this.target.isAlive && this.target.chassis && distSq < this.detectRange * this.detectRange) {
+            this.aimAtTarget();
+        }
         
         // УЛУЧШЕНО: Обновляем эскалацию сложности и использование высот
         if (this.target && this.target.isAlive) {
@@ -921,49 +967,68 @@ export class EnemyTank {
         }
     }
     
-    // === PHYSICS UPDATE (SAME AS PLAYER!) ===
+    // === PHYSICS UPDATE (ИДЕНТИЧНО ИГРОКУ!) ===
+    // КРИТИЧНО: Физика ботов теперь работает ТОЧНО ТАК ЖЕ как у игрока!
+    // Используем ТОЛЬКО силы и моменты - НИКАКИХ прямых изменений position/rotation!
     
-    private updatePhysics(): void {
+    public updatePhysics(): void {
         if (!this.isAlive || !this.chassis || this.chassis.isDisposed() || !this.physicsBody) return;
         
-        // КРИТИЧНО: Skip physics during spawn stabilization - полностью блокируем физику
+        // Skip physics during spawn stabilization
         if (this._spawnStabilizing) {
-            // Принудительно сбрасываем все скорости и ориентацию во время стабилизации
             this.physicsBody.setLinearVelocity(Vector3.Zero());
             this.physicsBody.setAngularVelocity(Vector3.Zero());
-            if (this.chassis && !this.chassis.isDisposed()) {
-                this.chassis.rotationQuaternion = Quaternion.Identity();
-                this.physicsBody.setTargetTransform(this.chassis.position, Quaternion.Identity());
-            }
             return;
         }
         
-        // КРИТИЧНО: Убеждаемся, что иерархия мешей НЕ сломана!
-        // Башня ДОЛЖНА быть дочерним элементом корпуса
+        // Убеждаемся, что иерархия мешей корректна
         if (this.turret && this.turret.parent !== this.chassis) {
             this.turret.parent = this.chassis;
         }
-        // Ствол ДОЛЖЕН быть дочерним элементом башни
         if (this.barrel && this.turret && this.barrel.parent !== this.turret) {
             this.barrel.parent = this.turret;
         }
         
         try {
             const body = this.physicsBody;
-            // Используем переиспользуемый вектор вместо clone() для оптимизации
             if (!this._tmpPos) this._tmpPos = new Vector3();
             const pos = this._tmpPos;
             pos.copyFrom(this.chassis.position);
+            
             const vel = body.getLinearVelocity();
             const angVel = body.getAngularVelocity();
-            
             if (!vel || !angVel) return;
             
-            // Get orientation - используем переиспользуемые векторы
-            const rotMatrix = this.chassis.getWorldMatrix();
+            // === ЗАЩИТА ОТ NaN/INFINITY (как у игрока) ===
+            if (!isFinite(vel.x) || !isFinite(vel.y) || !isFinite(vel.z)) {
+                body.setLinearVelocity(Vector3.Zero());
+                return;
+            }
+            if (!isFinite(angVel.x) || !isFinite(angVel.y) || !isFinite(angVel.z)) {
+                body.setAngularVelocity(Vector3.Zero());
+                return;
+            }
+            
+            // === ОГРАНИЧЕНИЕ СКОРОСТЕЙ (как у игрока) ===
+            const maxLinearSpeed = 50;
+            const maxAngularSpeed = 8;
+            if (vel.length() > maxLinearSpeed) {
+                body.setLinearVelocity(vel.normalize().scale(maxLinearSpeed));
+            }
+            if (angVel.length() > maxAngularSpeed) {
+                body.setAngularVelocity(angVel.normalize().scale(maxAngularSpeed));
+            }
+            
+            // Получаем ориентацию танка
+            if (!this._cachedWorldMatrix || (this._tick % 2 === 0)) {
+                this._cachedWorldMatrix = this.chassis.getWorldMatrix();
+            }
+            const rotMatrix = this._cachedWorldMatrix;
+            
             if (!this._tmpForward) this._tmpForward = new Vector3();
             if (!this._tmpRight) this._tmpRight = new Vector3();
             if (!this._tmpUp) this._tmpUp = new Vector3();
+            
             const forward = Vector3.TransformNormalToRef(Vector3.Forward(), rotMatrix, this._tmpForward);
             forward.normalize();
             const right = Vector3.TransformNormalToRef(Vector3.Right(), rotMatrix, this._tmpRight);
@@ -971,527 +1036,215 @@ export class EnemyTank {
             const up = Vector3.TransformNormalToRef(Vector3.Up(), rotMatrix, this._tmpUp);
             up.normalize();
             
-            // Объявляем переиспользуемые векторы для сил один раз
-            let forceVec = this._tmpForward!;
+            const fwdSpeed = Vector3.Dot(vel, forward);
+            const absFwdSpeed = Math.abs(fwdSpeed);
             
-            // --- GROUND CLAMPING (определение высоты земли) ---
-            // СНАЧАЛА определяем высоту земли, чтобы hover система работала относительно неё
-            // Raycast вниз для определения высоты земли (кэшируем каждые 8 кадров для оптимизации)
-            let groundHeight = pos.y - this.hoverHeight; // Значение по умолчанию
-            // ОПТИМИЗАЦИЯ: Увеличено кэш-время raycast с 6 до 8 кадров для лучшей производительности
+            // === GROUND HEIGHT (raycast каждые 8 кадров как у игрока) ===
+            let groundHeight = pos.y - this.hoverHeight;
+            
             if (!this._groundRaycastCache || (this._tick - this._groundRaycastCache.frame) >= 8) {
-                // ОПТИМИЗАЦИЯ: Переиспользуем Vector3 вместо clone()
-                if (!this._tmpPos) this._tmpPos = new Vector3();
-                const groundRayStart = this._tmpPos;
-                groundRayStart.copyFrom(pos);
-                groundRayStart.y += 0.5; // Немного выше танка
-                const groundRayDir = Vector3.Down();
-                const groundRayLength = 10.0; // Достаточно для любой высоты
-                const groundRay = new Ray(groundRayStart, groundRayDir, groundRayLength);
+                const groundRayStart = new Vector3(pos.x, pos.y + 0.5, pos.z);
+                const groundRay = new Ray(groundRayStart, Vector3.Down(), 10.0);
                 
                 const groundFilter = (mesh: any) => {
                     if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
                     const meta = mesh.metadata;
-                    if (meta && (meta.type === "bullet" || meta.type === "consumable" || meta.type === "enemyTank")) return false;
+                    if (meta && (meta.type === "bullet" || meta.type === "consumable" || meta.type === "enemyTank" || meta.type === "playerTank")) return false;
                     if (mesh === this.chassis || mesh === this.turret || mesh === this.barrel) return false;
-                    // Приоритет для ground мешей - всегда проверяем их
-                    if (mesh.name.startsWith("ground_") || mesh.name.includes("road") || mesh.name.includes("garageFloorCollision")) {
-                        return true;
-                    }
                     return true;
                 };
                 
                 const groundPick = this.scene.pickWithRay(groundRay, groundFilter);
                 if (groundPick && groundPick.hit && groundPick.pickedPoint) {
                     groundHeight = groundPick.pickedPoint.y;
-                    this._groundRaycastCache = {
-                        groundHeight: groundHeight,
-                        frame: this._tick
-                    };
                 } else {
-                    // УЛУЧШЕНО: Если не нашли землю через raycast, используем game.getGroundHeight как fallback
-                    const game = (window as any).gameInstance;
-                    if (game && typeof game.getGroundHeight === 'function') {
-                        const fallbackHeight = game.getGroundHeight(pos.x, pos.z);
-                        if (fallbackHeight > -10 && fallbackHeight < 200) {
-                            groundHeight = fallbackHeight;
-                            this._groundRaycastCache = {
-                                groundHeight: groundHeight,
-                                frame: this._tick
-                            };
-                        } else {
-                            // Если и fallback не сработал, используем текущую высоту минус hoverHeight
-                            this._groundRaycastCache = {
-                                groundHeight: pos.y - this.hoverHeight,
-                                frame: this._tick
-                            };
-                        }
-                    } else {
-                        // Если не нашли землю, используем текущую высоту минус hoverHeight
-                        this._groundRaycastCache = {
-                            groundHeight: pos.y - this.hoverHeight,
-                            frame: this._tick
-                        };
-                    }
+                    groundHeight = pos.y - this.hoverHeight;
                 }
+                this._groundRaycastCache = { groundHeight, frame: this._tick };
             } else {
                 groundHeight = this._groundRaycastCache.groundHeight;
             }
             
-            // КРИТИЧНО: Дополнительная проверка groundHeight - если он подозрительно низкий, пересчитываем
-            if (groundHeight < -5 || groundHeight > 200 || isNaN(groundHeight)) {
-                // Подозрительное значение - пересчитываем немедленно
-                const game = (window as any).gameInstance;
-                if (game && typeof game.getGroundHeight === 'function') {
-                    const recalculatedHeight = game.getGroundHeight(pos.x, pos.z);
-                    if (recalculatedHeight > -10 && recalculatedHeight < 200) {
-                        groundHeight = recalculatedHeight;
-                        this._groundRaycastCache = {
-                            groundHeight: groundHeight,
-                            frame: this._tick
-                        };
-                    } else {
-                        // Если и это не помогло, используем безопасное значение
-                        groundHeight = Math.max(2.0, pos.y - this.hoverHeight);
-                    }
-                } else {
-                    groundHeight = Math.max(2.0, pos.y - this.hoverHeight);
+            // === 1. HOVER СИСТЕМА (ИДЕНТИЧНО ИГРОКУ) ===
+            let totalVerticalForce = 0;
+            
+            // Защита от проваливания - импульсом вверх, НЕ телепортацией
+            if (pos.y < groundHeight - 1.0) {
+                const pushUpForce = (groundHeight + 1.5 - pos.y) * 50000;
+                body.applyForce(new Vector3(0, pushUpForce, 0), pos);
+                if (vel.y < -5) {
+                    body.setLinearVelocity(new Vector3(vel.x, -5, vel.z));
                 }
             }
             
-            // КРИТИЧНО: Проверяем застревание в воздухе ПЕРЕД hover системой
-            const maxAllowedHeight = groundHeight + 3.0;
-            const isStuckInAir = pos.y > maxAllowedHeight;
+            const targetHeight = groundHeight + this.hoverHeight;
+            const deltaY = targetHeight - pos.y;
+            const velY = vel.y;
+            const absVelY = Math.abs(velY);
             
-            // --- 1. ENHANCED HOVER (same improvements as player) ---
-            // КРИТИЧЕСКИ ВАЖНО: Hover работает ОТНОСИТЕЛЬНО ЗЕМЛИ, а не абсолютной высоты!
-            // ОТКЛЮЧАЕМ hover систему, если танк застрял в воздухе (она мешает падению)
-            if (!isStuckInAir) {
-                // Целевая высота = высота земли + hoverHeight
-                const targetHeight = groundHeight + this.hoverHeight;
-                const deltaY = targetHeight - pos.y; // Положительно когда танк ниже цели
-                const velY = vel.y;
-                
-                // ТАНКОВАЯ ПРОХОДИМОСТЬ: Адаптивная hover-система с поддержкой преодоления препятствий
-                const isMoving = Math.abs(Vector3.Dot(vel, forward)) > 1;
-                const isClimbing = deltaY > 0 && Math.abs(this.smoothThrottle) > 0.3;
-                const hoverSensitivity = isMoving && !isClimbing ? 0.4 : 1.0; // УВЕЛИЧЕНО: меньше уменьшение при движении
+            const isMoving = absFwdSpeed > 0.5;
+            const isClimbing = deltaY > 0 && Math.abs(this.smoothThrottle) > 0.3;
+            
+            if (deltaY > 0) {
+                // Танк ниже цели - поднимаем
+                const hoverSensitivity = isMoving && !isClimbing ? 0.4 : 1.0;
                 const stiffnessMultiplier = 1.0 + Math.min(Math.abs(deltaY) * 0.03, 0.2) * hoverSensitivity;
-                const dampingMultiplier = isMoving ? 2.5 : 2.0; // УМЕНЬШЕНО для лучшего подъёма
+                const dampingMultiplier = isMoving ? 2.5 : 2.0;
                 const hoverForce = (deltaY * this.hoverStiffness * stiffnessMultiplier) - (velY * this.hoverDamping * dampingMultiplier);
                 
-                // ТАНКОВАЯ ПРОХОДИМОСТЬ: Значительно увеличенные лимиты
-                const absVelY = Math.abs(velY);
-                const movementReduction = isMoving && !isClimbing ? 0.6 : 1.0; // УВЕЛИЧЕНО с 0.35 до 0.6
+                const movementReduction = isMoving && !isClimbing ? 0.6 : 1.0;
                 const dynamicMaxForce = Math.min(
-                    (absVelY > 30 ? 3000 : (absVelY > 15 ? 6000 : 10000)) * movementReduction, // 4x УВЕЛИЧЕНО
-                    this.hoverStiffness * 1.5 // УВЕЛИЧЕНО с 0.5
+                    (absVelY > 30 ? 3000 : (absVelY > 15 ? 6000 : 10000)) * movementReduction,
+                    this.hoverStiffness * 1.5
                 );
-                const clampedHoverForce = Math.max(-dynamicMaxForce, Math.min(dynamicMaxForce, hoverForce));
-                
-                // ТАНКОВАЯ ПРОХОДИМОСТЬ: Прижатие только при НЕАКТИВНОМ движении
-                let totalVerticalForce = clampedHoverForce;
-                const isActiveClimb = Math.abs(this.smoothThrottle) > 0.3;
-                if (isMoving && deltaY < -0.1 && !isActiveClimb) {
-                    totalVerticalForce -= Math.abs(deltaY) * this.mass * 60; // УМЕНЬШЕНО с 120 до 60
-                }
-                
-                // Используем переиспользуемый вектор для силы
-                this._tmpUp!.set(0, totalVerticalForce, 0);
-                body.applyForce(this._tmpUp!, pos);
+                totalVerticalForce = Math.max(-dynamicMaxForce, Math.min(dynamicMaxForce, hoverForce));
+            } else {
+                // Танк выше цели - мягко опускаем
+                const hoverForce = (deltaY * this.hoverStiffness * 0.8) - (velY * this.hoverDamping * 3.0);
+                const dynamicMaxForce = isMoving ? 4000 : 8000;
+                totalVerticalForce = Math.max(-dynamicMaxForce, Math.min(dynamicMaxForce, hoverForce));
             }
             
-            // --- 2. ENHANCED KEEP UPRIGHT (same as player!) ---
+            // Прижимная сила при движении
+            if (Math.abs(this.smoothThrottle) > 0.1) {
+                const downforceFactor = PHYSICS_CONFIG.enemyTank.arcade.downforceFactor;
+                const downForce = Math.abs(this.smoothThrottle) * downforceFactor * absFwdSpeed * 0.4;
+                totalVerticalForce -= downForce;
+            }
+            
+            // Применяем ОДНУ вертикальную силу
+            if (isFinite(totalVerticalForce)) {
+                body.applyForce(new Vector3(0, totalVerticalForce, 0), pos);
+            }
+            
+            // === 2. KEEP UPRIGHT (ИДЕНТИЧНО ИГРОКУ - только моменты!) ===
             const tiltX = Math.asin(Math.max(-1, Math.min(1, up.z)));
             const tiltZ = Math.asin(Math.max(-1, Math.min(1, -up.x)));
             
-            // КРИТИЧНО: Если танк слишком наклонён, принудительно выравниваем БЕЗ применения сил
-            if (up.y < 0.5 || Math.abs(tiltX) > 0.5 || Math.abs(tiltZ) > 0.5) {
-                // КРИТИЧНО: Принудительное выравнивание без применения сил
-                this.chassis.rotationQuaternion = Quaternion.Identity();
-                body.setAngularVelocity(Vector3.Zero());
-                body.setTargetTransform(this.chassis.position, Quaternion.Identity());
-            } else {
-                // Нормальное выравнивание только если танк не слишком наклонён
-                const uprightForce = 15000;
-                const uprightDamp = 8000;
-                const correctiveX = -tiltX * uprightForce - angVel.x * uprightDamp;
-                const correctiveZ = -tiltZ * uprightForce - angVel.z * uprightDamp;
+            // Аккумулятор для ВСЕХ угловых моментов X/Z
+            let totalTorqueX = 0;
+            let totalTorqueZ = 0;
+            
+            // Нормальное выравнивание
+            const uprightForce = PHYSICS_CONFIG.enemyTank.arcade.uprightForce || 15000;
+            const uprightDamp = PHYSICS_CONFIG.enemyTank.arcade.uprightDamp || 8000;
+            totalTorqueX += -tiltX * uprightForce - angVel.x * uprightDamp;
+            totalTorqueZ += -tiltZ * uprightForce - angVel.z * uprightDamp;
+            
+            // Экстренное выравнивание если слишком наклонён
+            if (up.y < 0.7) {
+                const emergencyForce = PHYSICS_CONFIG.enemyTank.arcade.emergencyForce || 25000;
+                totalTorqueX += -tiltX * emergencyForce;
+                totalTorqueZ += -tiltZ * emergencyForce;
                 
-                // Используем переиспользуемый вектор для torque
-                const correctiveTorque = this._tmpRight!;
-                correctiveTorque.set(correctiveX, 0, correctiveZ);
-                this.applyTorque(correctiveTorque);
-                
-                // Ограничение угловой скорости для предотвращения переворотов
-                const maxAngVel = 3.0; // Максимальная угловая скорость
-                const angVelLength = angVel.length();
-                if (angVelLength > maxAngVel) {
-                    const clampedAngVel = angVel.normalize().scale(maxAngVel);
-                    body.setAngularVelocity(clampedAngVel);
-                }
-                
-                // Экстренное выравнивание (только если не было принудительного выравнивания выше)
-                if (up.y < 0.7 || Math.abs(tiltX) > 0.3 || Math.abs(tiltZ) > 0.3) {
-                    if (up.y >= 0.5 && Math.abs(tiltX) <= 0.5 && Math.abs(tiltZ) <= 0.5) {
-                        const emergencyForce = 25000;
-                        const emergencyX = -tiltX * emergencyForce;
-                        const emergencyZ = -tiltZ * emergencyForce;
-                        correctiveTorque.set(emergencyX, 0, emergencyZ);
-                        this.applyTorque(correctiveTorque);
-                        
-                        if (up.y < 0.5) {
-                            const liftForce = (0.9 - up.y) * 50000;
-                            this._tmpUp!.set(0, liftForce, 0);
-                            body.applyForce(this._tmpUp!, pos);
-                        }
-                    }
+                // Подъёмная сила чтобы не застрять
+                if (up.y < 0.5) {
+                    const liftForce = (0.9 - up.y) * 50000;
+                    body.applyForce(new Vector3(0, liftForce, 0), pos);
                 }
             }
             
-            // Принудительная коррекция при критическом перевороте
-            if (up.y < 0.3) {
-                // КРИТИЧНО: Полностью сбрасываем угловую скорость и выравниваем
-                body.setAngularVelocity(Vector3.Zero());
-                this.chassis.rotationQuaternion = Quaternion.Identity();
-                body.setTargetTransform(this.chassis.position, Quaternion.Identity());
-                body.setAngularVelocity(Vector3.Zero());
+            // Применяем ВСЕ выравнивающие моменты ОДНОЙ командой
+            if (isFinite(totalTorqueX) && isFinite(totalTorqueZ)) {
+                this.applyTorque(new Vector3(totalTorqueX, 0, totalTorqueZ));
             }
             
-            // УЛУЧШЕНО: Проверка на застревание в воздухе (высота > 3 единиц над землёй - уменьшено с 5.0)
-            // ПРИМЕЧАНИЕ: isStuckInAir уже вычислено выше перед hover системой
-            if (isStuckInAir) {
-                // Увеличиваем таймер застревания в воздухе
-                this._airStuckTimer += 16; // ~16ms per frame
-                
-                // КРИТИЧНО: Если слишком долго в воздухе, принудительно телепортируем на землю
-                if (this._airStuckTimer > this.AIR_STUCK_RESET_TIME) {
-                    const targetY = groundHeight + this.hoverHeight;
-                    const correctedPos = new Vector3(pos.x, targetY, pos.z);
-                    
-                    
-                    this.chassis.position.copyFrom(correctedPos);
-                    const currentQuat = this.chassis.rotationQuaternion || Quaternion.Identity();
-                    body.setTargetTransform(correctedPos, currentQuat);
-                    body.setLinearVelocity(new Vector3(vel.x, 0, vel.z)); // Сбрасываем вертикальную скорость
-                    body.setAngularVelocity(Vector3.Zero());
-                    this._airStuckTimer = 0; // Сбрасываем таймер
-                } else {
-                    // КРИТИЧНО: Принудительно опускаем вниз с более сильной силой
-                    const targetY = groundHeight + this.hoverHeight;
-                    const heightDiff = targetY - pos.y;
-                    const dropForce = heightDiff * 80000; // УВЕЛИЧЕНО с 50000 до 80000 для более быстрого возврата
-                    
-                    
-                    this._tmpUp!.set(0, dropForce, 0);
-                    body.applyForce(this._tmpUp!, pos);
-                    
-                    // ДОПОЛНИТЕЛЬНО: Принудительно ограничиваем вертикальную скорость вниз, если она слишком мала
-                    if (vel.y > -2) {
-                        const correctedVelY = Math.max(-8, vel.y - 2); // Гарантируем падение минимум на 8 м/с или быстрее
-                        body.setLinearVelocity(new Vector3(vel.x, correctedVelY, vel.z));
-                    }
-                }
-            } else {
-                // Сбрасываем таймер, если бот на нормальной высоте
-                this._airStuckTimer = 0;
+            // Ограничение угловой скорости по X/Z (но не Y - поворот)
+            const maxTiltAngVel = 3.0;
+            if (Math.abs(angVel.x) > maxTiltAngVel || Math.abs(angVel.z) > maxTiltAngVel) {
+                const clampedX = Math.max(-maxTiltAngVel, Math.min(maxTiltAngVel, angVel.x));
+                const clampedZ = Math.max(-maxTiltAngVel, Math.min(maxTiltAngVel, angVel.z));
+                body.setAngularVelocity(new Vector3(clampedX, angVel.y, clampedZ));
             }
             
-            // =============================================================
-            // --- СИСТЕМА "СКРУГЛЁННЫЕ ГУСЕНИЦЫ" - АВТОПОДЪЁМ НА ПРЕПЯТСТВИЯ ---
-            // Многолучевая система для имитации закруглённой передней части (как у игрока)
-            // =============================================================
-            let slopeMultiplier = 1.0;
-            let climbForce = 0;
-            let isClimbingObstacle = false;
+            // === 3. MOVEMENT (ИДЕНТИЧНО ИГРОКУ) ===
+            // Плавная интерполяция throttle/steer
+            this.smoothThrottle += (this.throttleTarget - this.smoothThrottle) * 0.12;
+            this.smoothSteer += (this.steerTarget - this.smoothSteer) * 0.18;
             
-            // Фильтр для raycast (исключаем танки и снаряды)
-            const obstacleFilter = (mesh: any) => {
-                if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
-                const meta = mesh.metadata;
-                if (meta && (meta.type === "bullet" || meta.type === "consumable" || meta.type === "enemyTank" || meta.type === "playerTank")) return false;
-                if (mesh === this.chassis || mesh === this.turret || mesh === this.barrel) return false;
-                return true;
-            };
-            
-            const throttleAbs = Math.abs(this.smoothThrottle);
-            const movingForward = this.smoothThrottle > 0.1;
-            const movingBackward = this.smoothThrottle < -0.1;
-            const isMoving = throttleAbs > 0.1;
-            
-            if (isMoving) {
-                // Направление движения (вперёд или назад)
-                const moveDir = movingForward ? forward.clone() : forward.scale(-1);
-                const tankHeight = 0.8;  // Высота танка
-                const tankDepth = 3.5;   // Длина танка
-                
-                // === ЛУЧ 1: ГОРИЗОНТАЛЬНЫЙ (обнаружение стены) ===
-                const wallRayStart = pos.clone();
-                wallRayStart.y -= tankHeight * 0.3;
-                wallRayStart.addInPlace(moveDir.scale(tankDepth * 0.3));
-                
-                const wallRay = new Ray(wallRayStart, moveDir, 2.5);
-                const wallHit = this.scene.pickWithRay(wallRay, obstacleFilter);
-                
-                if (wallHit && wallHit.hit && wallHit.pickedPoint && wallHit.distance < 2.0) {
-                    isClimbingObstacle = true;
-                    
-                    // === ЛУЧ 2: ВЕРТИКАЛЬНЫЙ ВВЕРХ (определение высоты препятствия) ===
-                    const heightRayStart = wallHit.pickedPoint.clone();
-                    heightRayStart.y = pos.y - tankHeight * 0.5;
-                    
-                    const heightRay = new Ray(heightRayStart, Vector3.Up(), this.maxClimbHeight + 1);
-                    const heightHit = this.scene.pickWithRay(heightRay, obstacleFilter);
-                    
-                    let obstacleHeight: number;
-                    if (heightHit && heightHit.hit) {
-                        obstacleHeight = heightHit.distance;
-                    } else {
-                        obstacleHeight = Math.max(0, wallHit.pickedPoint.y - (pos.y - tankHeight * 0.5));
-                    }
-                    
-                    // === ЛУЧ 3: ПРОВЕРКА ВЕРХА ПРЕПЯТСТВИЯ ===
-                    const topCheckStart = wallHit.pickedPoint.clone();
-                    topCheckStart.y = pos.y + this.maxClimbHeight;
-                    topCheckStart.addInPlace(moveDir.scale(0.5));
-                    
-                    const topRay = new Ray(topCheckStart, Vector3.Down(), this.maxClimbHeight * 2);
-                    const topHit = this.scene.pickWithRay(topRay, obstacleFilter);
-                    
-                    if (topHit && topHit.hit && topHit.pickedPoint) {
-                        const topY = topHit.pickedPoint.y;
-                        const currentBottomY = pos.y - tankHeight * 0.5;
-                        obstacleHeight = Math.max(0, topY - currentBottomY);
-                    }
-                    
-                    // Проверяем можем ли преодолеть
-                    if (obstacleHeight > 0.05 && obstacleHeight <= this.maxClimbHeight) {
-                        const proximityFactor = 1.0 - Math.min(wallHit.distance / 2.0, 1.0);
-                        const heightFactor = Math.min(obstacleHeight / this.maxClimbHeight, 1.0);
-                        const climbIntensity = proximityFactor * (0.5 + heightFactor * 0.5) * throttleAbs;
-                        
-                        // === СИЛА 1: ПОДЪЁМ ВВЕРХ ===
-                        climbForce = this.climbAssistForce * climbIntensity;
-                        this._tmpUp!.set(0, climbForce, 0);
-                        body.applyForce(this._tmpUp!, pos);
-                        
-                        // === СИЛА 2: ПОДЪЁМ ПЕРЕДНЕЙ ЧАСТИ ===
-                        const frontLiftForce = this.frontClimbForce * climbIntensity;
-                        const frontPoint = pos.clone();
-                        frontPoint.addInPlace(moveDir.scale(tankDepth * 0.4));
-                        frontPoint.y -= tankHeight * 0.3;
-                        
-                        const liftVec = new Vector3(0, frontLiftForce, 0);
-                        body.applyForce(liftVec, frontPoint);
-                        
-                        // === СИЛА 3: ПРОТАЛКИВАНИЕ ВПЕРЁД ===
-                        const pushForce = this.wallPushForce * climbIntensity;
-                        forceVec.copyFrom(moveDir);
-                        forceVec.scaleInPlace(pushForce);
-                        body.applyForce(forceVec, pos);
-                        
-                        // === МОМЕНТ: ПОДНЯТИЕ НОСА ТАНКА ===
-                        // ИНВЕРТИРОВАНО: минус делает нос вверх, а не зад!
-                        const climbTorqueValue = -this.climbTorque * climbIntensity * (movingForward ? 1 : -1);
-                        const rightAxis = Vector3.Cross(Vector3.Up(), forward).normalize();
-                        const torqueVec = rightAxis.scale(climbTorqueValue);
-                        body.applyAngularImpulse(torqueVec);
-                    }
-                }
-                
-                // === ДОПОЛНИТЕЛЬНЫЙ ЛУЧ: НАКЛОННЫЙ ВПЕРЁД-ВНИЗ (склоны) ===
-                if (!isClimbingObstacle) {
-                    const slopeRayStart = pos.clone();
-                    slopeRayStart.y += tankHeight * 0.2;
-                    
-                    const slopeDir = moveDir.clone();
-                    slopeDir.y = -0.5;
-                    slopeDir.normalize();
-                    
-                    const slopeRay = new Ray(slopeRayStart, slopeDir, 4.0);
-                    const slopeHit = this.scene.pickWithRay(slopeRay, obstacleFilter);
-                    
-                    if (slopeHit && slopeHit.hit && slopeHit.pickedPoint) {
-                        const slopeHeight = slopeHit.pickedPoint.y - groundHeight;
-                        
-                        if (slopeHeight > 0.1 && slopeHeight < this.maxClimbHeight) {
-                            const slopeAngle = Math.atan2(slopeHeight, slopeHit.distance);
-                            slopeMultiplier = 1.0 + Math.min(slopeAngle * 3.0, this.slopeBoostMax - 1.0);
-                            
-                            // Небольшая помощь подъёму
-                            const assistForce = this.climbAssistForce * 0.3 * throttleAbs * Math.min(slopeAngle, 0.8);
-                            this._tmpUp!.set(0, assistForce, 0);
-                            body.applyForce(this._tmpUp!, pos);
-                        }
-                    }
-                }
-            }
-            
-            // --- 3. ENHANCED MOVEMENT (same improvements as player) ---
-            // УЛУЧШЕНО: Максимальная плавность интерполяции для предотвращения дёргания
-            // Увеличена скорость интерполяции для более быстрой реакции, но с жёсткими ограничениями на изменения
-            const throttleLerpSpeed = Math.abs(this.throttleTarget) > 0 ? 0.12 : 0.08; // УВЕЛИЧЕНО для более быстрой реакции
-            const steerLerpSpeed = Math.abs(this.steerTarget) > 0 ? 0.15 : 0.10; // УВЕЛИЧЕНО для более быстрой реакции
-            
-            // КРИТИЧНО: Жёсткие ограничения на максимальное изменение за кадр для предотвращения резких скачков
-            const maxThrottleDelta = 0.08; // УМЕНЬШЕНО с 0.15 - максимальное изменение throttle за кадр
-            const maxSteerDelta = 0.12; // УМЕНЬШЕНО с 0.20 - максимальное изменение steer за кадр
-            
-            const throttleDiff = this.throttleTarget - this.smoothThrottle;
-            const steerDiff = this.steerTarget - this.smoothSteer;
-            
-            const clampedThrottleDiff = Math.max(-maxThrottleDelta, Math.min(maxThrottleDelta, throttleDiff));
-            const clampedSteerDiff = Math.max(-maxSteerDelta, Math.min(maxSteerDelta, steerDiff));
-            
-            // Применяем ограниченное изменение
-            const effectiveThrottleTarget = this.smoothThrottle + clampedThrottleDiff;
-            const effectiveSteerTarget = this.smoothSteer + clampedSteerDiff;
-            
-            // Используем эффективные цели с ограничениями
-            this.smoothThrottle += (effectiveThrottleTarget - this.smoothThrottle) * throttleLerpSpeed;
-            this.smoothSteer += (effectiveSteerTarget - this.smoothSteer) * steerLerpSpeed;
-            
+            // Вычисляем целевую скорость и силу
             const targetSpeed = this.smoothThrottle * this.moveSpeed;
-            const currentSpeed = Vector3.Dot(vel, forward);
-            const speedDiff = targetSpeed - currentSpeed;
+            const speedDiff = targetSpeed - fwdSpeed;
             
-            const isAccelerating = Math.sign(speedDiff) === Math.sign(this.smoothThrottle);
-            const accelMultiplier = isAccelerating ? 1.0 : 1.5;
-            // ТАНКОВАЯ ПРОХОДИМОСТЬ: Применяем slopeMultiplier для усиления тяги на склонах
-            let accel = speedDiff * this.acceleration * accelMultiplier * slopeMultiplier;
-            
-            // УЛУЧШЕНО: Ограничиваем максимальное изменение ускорения за кадр для плавности
-            const maxAccelChange = this.acceleration * 0.15; // Максимум 15% от базового ускорения за кадр
-            const accelChange = Math.max(-maxAccelChange, Math.min(maxAccelChange, accel - this._lastAccel));
-            accel = this._lastAccel + accelChange;
-            this._lastAccel = accel;
-            
-            // Используем переиспользуемый вектор для forcePoint
-            const forcePoint = this._tmpPos!;
-            forcePoint.copyFrom(pos);
-            forcePoint.y -= 0.6;
-            // Используем переиспользуемый вектор для силы
-            forceVec.copyFrom(forward);
-            forceVec.scaleInPlace(accel);
-            body.applyForce(forceVec, forcePoint);
-            
-            if (Math.abs(this.smoothThrottle) > 0.1) {
-                // ТАНКОВАЯ ПРОХОДИМОСТЬ: Уменьшена прижимная сила для лучшего преодоления препятствий
-                const downForce = Math.abs(this.smoothThrottle) * 3000; // УМЕНЬШЕНО с 6000 до 3000
-                this._tmpUp!.set(0, -downForce, 0);
-                body.applyForce(this._tmpUp!, pos);
+            if (Math.abs(this.smoothThrottle) > 0.05) {
+                const accelForce = speedDiff * this.acceleration;
+                const maxAccelForce = this.moveSpeed * this.mass * 4.0;
+                const clampedAccelForce = Math.max(-maxAccelForce, Math.min(maxAccelForce, accelForce));
+                
+                if (isFinite(clampedAccelForce)) {
+                    const moveForce = forward.scale(clampedAccelForce);
+                    body.applyForce(moveForce, pos);
+                }
             }
             
-            // --- 4. ENHANCED TURN (Speed-dependent turning) ---
-            const speedRatio = Math.abs(currentSpeed) / this.moveSpeed;
+            // === 4. TURN (ИДЕНТИЧНО ИГРОКУ) ===
+            const speedRatio = absFwdSpeed / this.moveSpeed;
             const turnSpeedMultiplier = 1.0 + (1.0 - speedRatio) * 0.5;
             const effectiveTurnSpeed = this.turnSpeed * turnSpeedMultiplier;
             
             const targetTurnRate = this.smoothSteer * effectiveTurnSpeed;
             const currentTurnRate = angVel.y;
             
+            // Аккумулятор для ВСЕХ угловых моментов Y
+            let totalTorqueY = 0;
+            
             const isTurning = Math.abs(this.smoothSteer) > 0.1;
             const angularAccelMultiplier = isTurning ? 1.2 : 1.5;
-            let turnAccel = (targetTurnRate - currentTurnRate) * 11000 * angularAccelMultiplier;
+            totalTorqueY += (targetTurnRate - currentTurnRate) * 11000 * angularAccelMultiplier;
             
-            // УЛУЧШЕНО: Ограничиваем максимальное изменение углового ускорения за кадр для плавности
-            const maxTurnAccelChange = 11000 * 0.12; // Максимум 12% от базового углового ускорения за кадр
-            const turnAccelChange = Math.max(-maxTurnAccelChange, Math.min(maxTurnAccelChange, turnAccel - this._lastTurnAccel));
-            turnAccel = this._lastTurnAccel + turnAccelChange;
-            this._lastTurnAccel = turnAccel;
-            // Используем переиспользуемый вектор для torque
-            const torqueVec = this._tmpRight!;
-            torqueVec.set(0, turnAccel, 0);
-            this.applyTorque(torqueVec);
-            
-            if (Math.abs(speedRatio) > 0.3 && Math.abs(this.smoothSteer) > 0.2) {
-                const stabilityTorque = -angVel.y * 2000 * speedRatio;
-                torqueVec.set(0, stabilityTorque, 0);
-                this.applyTorque(torqueVec);
+            // Стабилизация при повороте на скорости
+            if (speedRatio > 0.3 && Math.abs(this.smoothSteer) > 0.2) {
+                totalTorqueY += -angVel.y * 2000 * speedRatio * 0.5;
             }
             
+            // Yaw damping когда не поворачиваем
             if (Math.abs(this.smoothSteer) < 0.05) {
-                torqueVec.set(0, -angVel.y * 4500, 0);
-                this.applyTorque(torqueVec);
+                totalTorqueY += -angVel.y * 4500 * 0.7;
             }
             
-            // --- 5. ENHANCED SIDE FRICTION ---
-            const sideSpeed = Vector3.Dot(vel, right);
-            const sideFrictionMultiplier = 1.0 + Math.abs(currentSpeed) / this.moveSpeed * 0.5;
-            // Используем переиспользуемый вектор для силы
-            forceVec.copyFrom(right);
-            forceVec.scaleInPlace(-sideSpeed * 13000 * sideFrictionMultiplier);
-            body.applyForce(forceVec, pos);
+            // Применяем ВСЕ угловые моменты Y ОДНОЙ командой
+            if (isFinite(totalTorqueY)) {
+                this.applyTorque(new Vector3(0, totalTorqueY, 0));
+            }
             
-            // --- 6. ENHANCED DRAG ---
+            // === 5. ANTI-ROLL (ИДЕНТИЧНО ИГРОКУ) ===
+            if (Math.abs(this.smoothSteer) > 0.1 && absFwdSpeed > 0.5) {
+                const antiRollFactor = PHYSICS_CONFIG.enemyTank.arcade.antiRollFactor || 0.3;
+                const rollAngle = this.smoothSteer > 0 ? tiltZ : -tiltZ;
+                const rollCorrection = -rollAngle * antiRollFactor * absFwdSpeed * this.mass * 50;
+                
+                if (isFinite(rollCorrection) && Math.abs(rollCorrection) > 0.1) {
+                    this.applyTorque(new Vector3(rollCorrection, 0, 0));
+                }
+            }
+            
+            // === 6. SIDE FRICTION (ИДЕНТИЧНО ИГРОКУ) ===
+            const sideSpeed = Vector3.Dot(vel, right);
+            const sideFrictionMultiplier = 1.0 + absFwdSpeed / this.moveSpeed * 0.5;
+            const sideFrictionForce = right.scale(-sideSpeed * 13000 * sideFrictionMultiplier);
+            body.applyForce(sideFrictionForce, pos);
+            
+            // === 7. DRAG WHEN STOPPED (ИДЕНТИЧНО ИГРОКУ) ===
             if (Math.abs(this.throttleTarget) < 0.05) {
                 const sideVel = Vector3.Dot(vel, right);
-                const sideDrag = -sideVel * 8000;
-                forceVec.copyFrom(right);
-                forceVec.scaleInPlace(sideDrag);
-                body.applyForce(forceVec, pos);
+                body.applyForce(right.scale(-sideVel * 8000), pos);
                 
                 const fwdVel = Vector3.Dot(vel, forward);
-                const fwdDrag = -fwdVel * 7000;
-                forceVec.copyFrom(forward);
-                forceVec.scaleInPlace(fwdDrag);
-                body.applyForce(forceVec, pos);
+                body.applyForce(forward.scale(-fwdVel * 7000), pos);
                 
-                const angularDrag = -angVel.y * 5000;
-                torqueVec.set(0, angularDrag, 0);
-                this.applyTorque(torqueVec);
+                this.applyTorque(new Vector3(0, -angVel.y * 5000, 0));
             }
             
-            // --- ANTI-FLY: Clamp vertical velocity ---
-            // Боты не должны летать - ограничиваем вертикальную скорость
-            if (vel.y > 4) {
-                body.setLinearVelocity(new Vector3(vel.x, 4, vel.z));
-            }
-            // УЛУЧШЕНО: Ограничиваем максимальную высоту с учетом groundHeight (было фиксированное 2.5)
-            const absoluteMaxHeight = groundHeight + 2.5; // Используем groundHeight вместо фиксированного значения
-            if (pos.y > absoluteMaxHeight) {
-                // Сильная сила вниз (увеличена с -30000 до -50000 для более быстрого возврата)
-                const heightDiff = absoluteMaxHeight - pos.y;
-                const dropForce = heightDiff * 40000; // Динамическая сила в зависимости от высоты
-                
-                
-                this._tmpUp!.set(0, dropForce, 0);
-                body.applyForce(this._tmpUp!, pos);
+            // === 8. ANTI-FLY (ограничение вертикальной скорости) ===
+            if (vel.y > 5) {
+                body.setLinearVelocity(new Vector3(vel.x, 5, vel.z));
             }
             
-            // --- КРИТИЧНО: Защита от проваливания под террейн ---
-            // Проверяем, не провалился ли танк под террейн
-            const minSafeHeight = groundHeight + this.hoverHeight - 0.5; // Минимум на 0.5м ниже hoverHeight
-            if (pos.y < minSafeHeight || pos.y < groundHeight - 2.0) {
-                // КРИТИЧНО: Танк провалился под террейн - немедленно исправляем!
-                const correctedY = Math.max(groundHeight + this.hoverHeight, groundHeight + 5.0);
-                const correctedPos = new Vector3(pos.x, correctedY, pos.z);
-                
-                logger.warn(`[EnemyTank ${this.id}] ПРОВАЛИЛСЯ ПОД ТЕРРЕЙН! Исправляю: ${pos.y.toFixed(2)} -> ${correctedY.toFixed(2)} (ground: ${groundHeight.toFixed(2)})`);
-                
-                this.chassis.position.copyFrom(correctedPos);
-                this.chassis.computeWorldMatrix(true);
-                body.setTargetTransform(correctedPos, this.chassis.rotationQuaternion || Quaternion.Identity());
-                body.setLinearVelocity(new Vector3(vel.x, 0, vel.z)); // Сбрасываем вертикальную скорость
-                body.setAngularVelocity(Vector3.Zero());
-                
-                // Обновляем кэш groundHeight
-                this._groundRaycastCache = {
-                    groundHeight: groundHeight,
-                    frame: this._tick
-                };
-            }
-            
-            // --- Auto reset if fallen (Enhanced detection) ---
-            const isFallen = pos.y < -10 || up.y < 0.3 || Math.abs(tiltX) > 1.0 || Math.abs(tiltZ) > 1.0;
-            const isStuck = Math.abs(vel.length()) < 0.5 && Math.abs(angVel.length()) < 0.1 && up.y < 0.5;
-            
-            if (isFallen || isStuck) {
+            // === 9. AUTO-RESET (только для критических ситуаций) ===
+            const isFallen = pos.y < -10;
+            if (isFallen) {
                 this.reset();
             }
-            
-            // --- ANTI-STUCK CHECK ---
-            this.checkAndFixStuck();
             
         } catch (e) {
             // Silent fail
@@ -1524,33 +1277,44 @@ export class EnemyTank {
             groundY = pick.pickedPoint.y;
         } else {
             // УЛУЧШЕНО: Если raycast не нашёл землю, используем game.getGroundHeight
-            const game = (window as any).gameInstance;
-            if (game && typeof game.getGroundHeight === 'function') {
-                groundY = game.getGroundHeight(pos.x, pos.z);
+            // ОПТИМИЗАЦИЯ: Вызываем только раз в несколько проверок (каждые 2 проверки = раз в 800мс)
+            const checkCount = Math.floor((now - this.stuckTimer) / this.STUCK_CHECK_INTERVAL);
+            if (checkCount % 2 === 0) {
+                const game = (window as any).gameInstance;
+                if (game && typeof game.getGroundHeight === 'function') {
+                    groundY = game.getGroundHeight(pos.x, pos.z);
+                } else {
+                    groundY = pos.y - this.hoverHeight; // Fallback
+                }
             } else {
-                groundY = pos.y - this.hoverHeight; // Fallback
+                // Используем кэшированное значение из _groundRaycastCache
+                if (this._groundRaycastCache) {
+                    groundY = this._groundRaycastCache.groundHeight;
+                } else {
+                    groundY = pos.y - this.hoverHeight;
+                }
             }
         }
         
         const heightAboveGround = pos.y - groundY;
         
-        // КРИТИЧНО: Если провалились под террейн (высота отрицательная или слишком низкая) - исправляем немедленно!
+        // КРИТИЧНО: Если провалились под террейн - применяем СИЛУ вверх, НЕ телепортацию!
+        // Телепортация вызывает конфликты с физическим движком
         if (heightAboveGround < -1.0 || pos.y < groundY - 2.0) {
-            logger.warn(`[EnemyTank ${this.id}] ПРОВАЛИЛСЯ ПОД ТЕРРЕЙН в checkAndFixStuck! Исправляю: pos.y=${pos.y.toFixed(2)}, groundY=${groundY.toFixed(2)}`);
-            this.forceResetToGround();
+            // Применяем сильный импульс вверх вместо телепортации
+            const pushUpForce = (groundY + 2.0 - pos.y) * 80000;
+            this.physicsBody.applyForce(new Vector3(0, pushUpForce, 0), pos);
+            // Ограничиваем вертикальную скорость вниз
+            if (vel && vel.y < -5) {
+                this.physicsBody.setLinearVelocity(new Vector3(vel.x, -2, vel.z));
+            }
             this.consecutiveStuckCount = 0;
             this.stuckTimer = now;
             return true;
         }
         
-        // Если высота над землёй > 4 единиц - сбрасываем (но не реагируем на холмы)
-        if (heightAboveGround > 4.0) {
-            logger.debug(`[EnemyTank ${this.id}] Too high above ground (height=${heightAboveGround.toFixed(2)}), resetting`);
-            this.forceResetToGround();
-            this.consecutiveStuckCount = 0;
-            this.stuckTimer = now;
-            return true;
-        }
+        // УБРАНО: Проверка на высоту > 4 - танки могут законно находиться на возвышенностях!
+        // Физика сама опустит танк через hover систему
         
         // Проверка 2: Летим вверх слишком быстро (анти-полёт)
         if (vel && vel.y > 8) {
@@ -1641,20 +1405,26 @@ export class EnemyTank {
             }
         }
         
-        // КРИТИЧНО: Устанавливаем безопасную высоту - минимум 5м над террейном, абсолютный минимум 7м
-        const safeY = Math.max(groundHeight + 5.0, Math.max(groundHeight + this.hoverHeight, 7.0));
-        pos.y = safeY;
+        // ИСПРАВЛЕНО: Используем СИЛЫ вместо телепортации!
+        // Телепортация вызывает конфликты с физическим движком и "дёрганье"
+        const targetY = groundHeight + this.hoverHeight + 0.5;
+        const heightDiff = targetY - pos.y;
         
-        // Сбрасываем скорости БЕЗ агрессивных импульсов
-        this.physicsBody.setLinearVelocity(Vector3.Zero());
-        this.physicsBody.setAngularVelocity(Vector3.Zero());
+        // Применяем сильную силу вверх
+        const pushUpForce = heightDiff * 100000;
+        this.physicsBody.applyForce(new Vector3(0, pushUpForce, 0), pos);
         
-        // Телепортируем на правильную высоту
-        this.chassis.position.copyFrom(pos);
-        this.chassis.rotationQuaternion = Quaternion.Identity();
+        // Ограничиваем вертикальную скорость
+        const vel = this.physicsBody.getLinearVelocity();
+        if (vel && vel.y < -3) {
+            this.physicsBody.setLinearVelocity(new Vector3(vel.x, -3, vel.z));
+        }
         
-        // Синхронизируем physics body с мешем
-        this.physicsBody.setTargetTransform(pos, Quaternion.Identity());
+        // Демпфируем угловую скорость для стабилизации
+        const angVel = this.physicsBody.getAngularVelocity();
+        if (angVel && angVel.length() > 1) {
+            this.physicsBody.setAngularVelocity(angVel.scale(0.3));
+        }
         
         // НЕ сбрасываем цели движения - пусть бот продолжает патруль
     }
@@ -2029,8 +1799,8 @@ export class EnemyTank {
         
         // Улучшенная логика принятия решений - более агрессивная!
         
-        // Priority 1: Retreat only at CRITICAL health (было 15%, теперь 10%)
-        if (healthPercent < 0.10) {
+        // Priority 1: Retreat only at CRITICAL health (УЛУЧШЕНО: уменьшено с 10% до 7% для более агрессивного поведения)
+        if (healthPercent < 0.07) {
             this.state = "retreat";
             this.stateTimer = 4000;
             return;
@@ -2082,7 +1852,7 @@ export class EnemyTank {
         
         // УЛУЧШЕНО: Проверка возможности засады (только если здоровье хорошее и есть укрытие)
         if (distance < this.range && healthPercent > 0.6 && distance > 30 && distance < 80) {
-            const ambushChance = this.adaptiveIntelligence > 1.2 ? 0.15 : 0.08; // Умные враги чаще используют засады
+            const ambushChance = this.adaptiveIntelligence > 1.2 ? 0.25 : 0.12; // УЛУЧШЕНО: Умные враги чаще используют засады (увеличено с 0.15 до 0.25)
             if (Math.random() < ambushChance && this.findAmbushPosition()) {
                 this.state = "ambush";
                 this.ambushTimer = 0;
@@ -2112,10 +1882,10 @@ export class EnemyTank {
             const allyCount = this.getNearbyAllyCount();
             const hasAlliesAttacking = this.hasAlliesAttackingTarget();
             
-            // Базовый шанс фланга зависит от множества факторов
+            // Базовый шанс фланга зависит от множества факторов (УЛУЧШЕНО для более агрессивной тактики)
             let flankChance = 0.0;
             if (shouldFlank) {
-                flankChance = 0.50; // УВЕЛИЧЕНО с 0.45
+                flankChance = 0.60; // УВЕЛИЧЕНО с 0.50 для более активного фланга
                 // Увеличиваем шанс фланга если не в оптимальной дистанции
                 if (!isInOptimalRange) {
                     flankChance += 0.15;
@@ -2125,12 +1895,12 @@ export class EnemyTank {
                     flankChance += 0.10;
                 }
             } else {
-                flankChance = 0.20; // УВЕЛИЧЕНО с 0.25
+                flankChance = 0.20; // Базовая вероятность фланга
             }
             
             // УЛУЧШЕНО: Если есть союзники, которые атакуют - значительно увеличиваем шанс фланга для окружения
             if (hasAlliesAttacking && allyCount > 0) {
-                flankChance = Math.min(0.75, flankChance + 0.25 * allyCount); // До 75% шанс фланга при координации
+                flankChance = Math.min(0.85, flankChance + 0.25 * allyCount); // УВЕЛИЧЕНО: До 85% шанс фланга при координации (было 75%)
             }
             
             // Если цель слабая и мы сильнее - меньше фланга, больше атаки (добиваем)
@@ -2286,9 +2056,10 @@ export class EnemyTank {
         // КРИТИЧНО: driveToward вызывается каждый кадр для плавного обновления throttleTarget и steerTarget
         this.driveToward(target, patrolSpeed);
         
-        // Плавное сканирование башни во время патруля (только при обновлении AI)
-        if (this._tick % 2 === 0) {
-            const scanAngle = Math.sin(Date.now() * 0.0012) * 0.7;
+        // ИСПРАВЛЕНО: Сканирование башни каждый кадр для плавности
+        // Если нет игрока в радиусе - сканируем, иначе наведение обрабатывается в update()
+        if (!this.target || !this.target.isAlive) {
+            const scanAngle = Math.sin(Date.now() * 0.0015) * 0.9; // Увеличена амплитуда
             this.turretTargetAngle = scanAngle;
         }
     }
@@ -2362,8 +2133,8 @@ export class EnemyTank {
         const distance = Vector3.Distance(targetPos, myPos);
         
         // УЛУЧШЕНО: Более умное преследование с предсказанием движения цели
-        // Предсказываем, где будет цель через короткое время
-        const predictionTime = 0.5; // 0.5 секунды вперёд
+        // Предсказываем, где будет цель через короткое время (улучшено для лучшего перехвата)
+        const predictionTime = 0.7; // УЛУЧШЕНО: 0.7 секунды вперёд (было 0.5) для более точного перехвата
         const predictedTargetPos = targetPos.add(this.targetVelocity.scale(predictionTime));
         
         // Едем к предсказанной позиции для более эффективного перехвата
@@ -2399,32 +2170,32 @@ export class EnemyTank {
         if (canShoot) {
             const now = Date.now();
             if (now - this.lastShotTime > this.cooldown) {
-        // УЛУЧШЕНО: Улучшенная логика стрельбы с учётом множества факторов
+        // УЛУЧШЕНО: Логика стрельбы зависит от сложности
+        // HARD РЕЖИМ: стреляем ВСЕГДА когда прицелились!
         let shouldFire = false;
         
-        // Вычисляем "качество выстрела" на основе различных факторов
-        const distanceFactor = distance < this.optimalRange ? 1.0 : (distance < this.optimalRange * 1.5 ? 0.8 : 0.6);
-        const aimFactor = this.isAimedAtTarget() ? 1.0 : 0.5;
-        const targetSpeedFactor = this.targetVelocity.length() < 8 ? 1.0 : (this.targetVelocity.length() < 15 ? 0.8 : 0.6);
-        const healthAdvantageFactor = healthPercent > targetHealthPercent ? 1.2 : (healthPercent > targetHealthPercent * 0.8 ? 1.0 : 0.7);
-        const targetWeaknessFactor = targetHealthPercent < 0.4 ? 1.3 : (targetHealthPercent < 0.6 ? 1.1 : 1.0);
-        
-        // Общий шанс выстрела
-        const baseChance = 0.90;
-        const qualityScore = distanceFactor * aimFactor * targetSpeedFactor * healthAdvantageFactor * targetWeaknessFactor;
-        const fireChance = Math.min(0.98, baseChance * qualityScore);
-        
-        // Высокий приоритет: отличная позиция или цель слабая
-        if (qualityScore > 1.0 || targetHealthPercent < 0.5) {
-            shouldFire = Math.random() < Math.min(0.98, fireChance * 1.1);
-        }
-        // Средний приоритет: хорошая позиция
-        else if (qualityScore > 0.7) {
-            shouldFire = Math.random() < fireChance;
-        }
-        // Низкий приоритет: плохая позиция, но всё равно стреляем иногда
-        else {
-            shouldFire = Math.random() < fireChance * 0.7;
+        if (this.difficulty === "hard") {
+            // HARD: Максимально агрессивная стрельба - стреляем сразу!
+            shouldFire = true;
+        } else {
+            // MEDIUM/EASY: Вычисляем "качество выстрела"
+            const distanceFactor = distance < this.optimalRange ? 1.0 : (distance < this.optimalRange * 1.5 ? 0.8 : 0.6);
+            const aimFactor = this.isAimedAtTarget() ? 1.0 : 0.5;
+            const targetSpeedFactor = this.targetVelocity.length() < 8 ? 1.0 : (this.targetVelocity.length() < 15 ? 0.8 : 0.6);
+            const healthAdvantageFactor = healthPercent > targetHealthPercent ? 1.2 : (healthPercent > targetHealthPercent * 0.8 ? 1.0 : 0.7);
+            const targetWeaknessFactor = targetHealthPercent < 0.4 ? 1.3 : (targetHealthPercent < 0.6 ? 1.1 : 1.0);
+            
+            const baseChance = this.difficulty === "medium" ? 0.95 : 0.90; // УЛУЧШЕНО: Более активная стрельба (было 0.92/0.85)
+            const qualityScore = distanceFactor * aimFactor * targetSpeedFactor * healthAdvantageFactor * targetWeaknessFactor;
+            const fireChance = Math.min(0.98, baseChance * qualityScore);
+            
+            if (qualityScore > 1.0 || targetHealthPercent < 0.5) {
+                shouldFire = Math.random() < Math.min(0.98, fireChance * 1.1);
+            } else if (qualityScore > 0.7) {
+                shouldFire = Math.random() < fireChance;
+            } else {
+                shouldFire = Math.random() < fireChance * 0.7;
+            }
         }
                 
                 if (shouldFire) {
@@ -2958,41 +2729,63 @@ export class EnemyTank {
         const targetPos = this.target.chassis.absolutePosition.clone();
         const myPos = this.chassis.absolutePosition;
         
-        // === УЛУЧШЕННОЕ ПРЕДСКАЗАНИЕ: Более точное упреждение цели! ===
+        // === УЛУЧШЕННОЕ ПРЕДСКАЗАНИЕ: Точное упреждение для сложного режима! ===
         const distance = Vector3.Distance(targetPos, myPos);
-        const bulletSpeed = 240; // Approximate bullet speed (doubled)
+        const bulletSpeed = 240; // Скорость снаряда
         const flightTime = distance / bulletSpeed;
         
-        // УЛУЧШЕНО: Улучшенное предсказание с учётом ускорения и изменения направления цели
-        // Вычисляем ускорение цели (изменение скорости)
-        const targetAcceleration = this.targetVelocity.length() > 0.1 ? 
-            this.targetVelocity.normalize().scale(2.0) : Vector3.Zero(); // Приблизительное ускорение
-        
-        // Используем адаптивный фактор предсказания в зависимости от скорости цели
+        // HARD РЕЖИМ: Используем историю движения для предсказания
         const targetSpeed = this.targetVelocity.length();
-        let predictionFactor = 0.85;
-        if (targetSpeed > 15) {
-            predictionFactor = 0.90; // Более агрессивное предсказание для быстрых целей
-        } else if (targetSpeed < 5) {
-            predictionFactor = 0.80; // Менее агрессивное для медленных целей
+        
+        // Адаптивный фактор предсказания зависит от сложности (УЛУЧШЕНО для всех режимов)
+        let predictionFactor: number;
+        if (this.difficulty === "hard") {
+            // HARD: почти идеальное предсказание! (улучшено)
+            if (targetSpeed > 15) {
+                predictionFactor = 0.99; // УЛУЧШЕНО: Почти идеальное для быстрых целей (было 0.98)
+            } else if (targetSpeed > 5) {
+                predictionFactor = 0.97; // УЛУЧШЕНО: Очень точное для средних скоростей (было 0.95)
+            } else {
+                predictionFactor = 0.94; // УЛУЧШЕНО: Точное для медленных целей (было 0.92)
+            }
+        } else if (this.difficulty === "medium") {
+            // MEDIUM: улучшено на 5-7%
+            predictionFactor = targetSpeed > 15 ? 0.93 : (targetSpeed > 5 ? 0.90 : 0.87); // УЛУЧШЕНО (было 0.88/0.85/0.82)
+        } else {
+            // EASY: улучшено на 5-7%
+            predictionFactor = targetSpeed > 15 ? 0.85 : (targetSpeed > 5 ? 0.83 : 0.80); // УЛУЧШЕНО (было 0.80/0.78/0.75)
         }
         
-        // Предсказываем позицию с учётом ускорения
+        // HARD: Более точное вычисление ускорения с учётом истории
+        let targetAcceleration = Vector3.Zero();
+        if (this.difficulty === "hard" && this.targetVelocity.length() > 0.1) {
+            // Предполагаем продолжение текущего направления движения
+            targetAcceleration = this.targetVelocity.normalize().scale(3.0);
+        }
+        
+        // Предсказываем позицию с учётом ускорения (квадратичная интерполяция)
         const predictedPos = targetPos.add(
             this.targetVelocity.scale(flightTime * predictionFactor)
                 .add(targetAcceleration.scale(flightTime * flightTime * 0.5))
         );
         
-        // УЛУЧШЕНО: Адаптивный разброс в зависимости от дистанции и точности
+        // УЛУЧШЕНО: Адаптивный разброс - МИНИМАЛЬНЫЙ для сложного режима!
         const adaptiveAccuracy = this.getAdaptiveAccuracy(distance);
         if (adaptiveAccuracy < 1.0) {
-            const baseSpread = (1 - adaptiveAccuracy) * distance * 0.05; // УМЕНЬШЕНО с 0.06 до 0.05
-            // Увеличиваем разброс для движущихся целей
-            const movementSpread = targetSpeed > 10 ? baseSpread * 1.3 : baseSpread;
+            // HARD режим: минимальный разброс
+            const spreadMultiplier = this.difficulty === "hard" ? 0.02 : 
+                                     (this.difficulty === "medium" ? 0.04 : 0.05);
+            const baseSpread = (1 - adaptiveAccuracy) * distance * spreadMultiplier;
+            
+            // На сложном режиме не увеличиваем разброс для движущихся целей
+            const movementSpread = this.difficulty === "hard" ? baseSpread : 
+                                   (targetSpeed > 10 ? baseSpread * 1.3 : baseSpread);
+            
             predictedPos.x += (Math.random() - 0.5) * movementSpread;
             predictedPos.z += (Math.random() - 0.5) * movementSpread;
-            // Добавляем вертикальную коррекцию для движущихся целей
-            if (targetSpeed > 5) {
+            
+            // Вертикальная коррекция только для лёгкого/среднего режима
+            if (targetSpeed > 5 && this.difficulty !== "hard") {
                 predictedPos.y += (Math.random() - 0.5) * movementSpread * 0.25;
             }
         }
