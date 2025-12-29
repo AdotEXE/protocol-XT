@@ -40,26 +40,108 @@ const firebaseConfig = {
     projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "protocol-tx",
     storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "protocol-tx.firebasestorage.app",
     messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "513687323344",
-    appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:513687323344:web:bdcbda7d8aa142cac8d4d5"
+    appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:513687323344:web:bdcbda7d8aa142cac8d4d5",
+    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-HP3TNXC04H"
 };
 
+/**
+ * Validates Firebase API key format
+ * Web API keys typically start with "AIza" for Google services
+ */
+function validateApiKeyFormat(apiKey: string): { valid: boolean; reason?: string } {
+    if (!apiKey || apiKey.length < 20) {
+        return { valid: false, reason: "API key is too short (minimum 20 characters)" };
+    }
+    if (apiKey === "demo-key") {
+        return { valid: false, reason: "API key is a placeholder value" };
+    }
+    // Web API keys for Firebase typically start with "AIza"
+    // But we allow other formats in case of custom keys
+    if (apiKey.length > 200) {
+        return { valid: false, reason: "API key is too long (maximum 200 characters)" };
+    }
+    return { valid: true };
+}
+
+/**
+ * Validates complete Firebase configuration
+ */
+function validateFirebaseConfig(config: typeof firebaseConfig): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+    
+    if (!config.apiKey) {
+        errors.push("apiKey is missing");
+    } else {
+        const apiKeyValidation = validateApiKeyFormat(config.apiKey);
+        if (!apiKeyValidation.valid) {
+            errors.push(`apiKey: ${apiKeyValidation.reason}`);
+        }
+    }
+    
+    if (!config.authDomain) {
+        errors.push("authDomain is missing");
+    }
+    
+    if (!config.projectId || config.projectId === "demo-project") {
+        errors.push("projectId is missing or invalid");
+    }
+    
+    if (!config.storageBucket) {
+        errors.push("storageBucket is missing");
+    }
+    
+    if (!config.messagingSenderId) {
+        errors.push("messagingSenderId is missing");
+    }
+    
+    if (!config.appId) {
+        errors.push("appId is missing");
+    }
+    
+    return {
+        valid: errors.length === 0,
+        errors
+    };
+}
+
+/**
+ * Masks API key for safe logging (shows first 10 and last 4 characters)
+ */
+function maskApiKey(apiKey: string): string {
+    if (!apiKey || apiKey.length < 15) {
+        return "***";
+    }
+    return `${apiKey.substring(0, 10)}...${apiKey.substring(apiKey.length - 4)}`;
+}
+
 // Validate configuration
-const hasRealConfig = firebaseConfig.apiKey !== "demo-key" && 
-                     firebaseConfig.projectId !== "demo-project" &&
-                     firebaseConfig.apiKey.length > 20; // Basic validation
+const configValidation = validateFirebaseConfig(firebaseConfig);
+const hasRealConfig = configValidation.valid && 
+                     firebaseConfig.apiKey !== "demo-key" && 
+                     firebaseConfig.projectId !== "demo-project";
 
 if (!hasRealConfig) {
-    console.warn("[Firebase] ⚠️ Invalid or missing Firebase configuration!");
-    console.warn("[Firebase] Please set the following environment variables:");
-    console.warn("[Firebase]   - VITE_FIREBASE_API_KEY");
-    console.warn("[Firebase]   - VITE_FIREBASE_AUTH_DOMAIN");
-    console.warn("[Firebase]   - VITE_FIREBASE_PROJECT_ID");
-    console.warn("[Firebase]   - VITE_FIREBASE_STORAGE_BUCKET");
-    console.warn("[Firebase]   - VITE_FIREBASE_MESSAGING_SENDER_ID");
-    console.warn("[Firebase]   - VITE_FIREBASE_APP_ID");
-    console.warn("[Firebase] See docs/FIREBASE_KEYS_EXPLAINED.md for details");
+    // console.warn("[Firebase] ⚠️ Invalid or missing Firebase configuration!");
+    // if (configValidation.errors.length > 0) {
+    //     console.warn("[Firebase] Configuration errors:");
+    //     configValidation.errors.forEach(error => {
+    //         console.warn(`[Firebase]   - ${error}`);
+    //     });
+    // }
+    // console.warn("[Firebase] Please set the following environment variables:");
+    // console.warn("[Firebase]   - VITE_FIREBASE_API_KEY");
+    // console.warn("[Firebase]   - VITE_FIREBASE_AUTH_DOMAIN");
+    // console.warn("[Firebase]   - VITE_FIREBASE_PROJECT_ID");
+    // console.warn("[Firebase]   - VITE_FIREBASE_STORAGE_BUCKET");
+    // console.warn("[Firebase]   - VITE_FIREBASE_MESSAGING_SENDER_ID");
+    // console.warn("[Firebase]   - VITE_FIREBASE_APP_ID");
+    // console.warn("[Firebase] See docs/FIREBASE_KEYS_EXPLAINED.md for details");
 } else if (import.meta.env.DEV) {
-    console.log("[Firebase] ✅ Configuration loaded from environment variables");
+    // console.log("[Firebase] ✅ Configuration loaded", {
+    //     apiKey: maskApiKey(firebaseConfig.apiKey),
+    //     projectId: firebaseConfig.projectId,
+    //     authDomain: firebaseConfig.authDomain
+    // });
 }
 
 export interface PlayerStats {
@@ -253,28 +335,46 @@ export class FirebaseService {
     private auth: Auth | null = null;
     private currentUser: User | null = null;
     private initialized: boolean = false;
+    private authenticated: boolean = false; // Separate flag for authentication status
 
     async initialize(): Promise<boolean> {
-        // Check if configuration is valid before attempting initialization
-        if (!hasRealConfig) {
-            console.warn("[Firebase] ⚠️ Skipping initialization - invalid configuration");
-            console.warn("[Firebase] Firebase features will be disabled. Please configure Firebase to enable cloud features.");
+        // Pre-flight configuration check
+        const configValidation = validateFirebaseConfig(firebaseConfig);
+        if (!configValidation.valid) {
+            // console.warn("[Firebase] ⚠️ Skipping initialization - invalid configuration");
+            // console.warn("[Firebase] Configuration errors:");
+            // configValidation.errors.forEach(error => {
+            //     console.warn(`[Firebase]   - ${error}`);
+            // });
+            // console.warn("[Firebase] Firebase features will be disabled. Please configure Firebase to enable cloud features.");
             this.initialized = false;
+            this.authenticated = false;
+            return false;
+        }
+
+        // Validate API key format before attempting connection
+        const apiKeyValidation = validateApiKeyFormat(firebaseConfig.apiKey);
+        if (!apiKeyValidation.valid) {
+            // console.error("[Firebase] ❌ Invalid API key format:", apiKeyValidation.reason);
+            // console.error("[Firebase] API key:", maskApiKey(firebaseConfig.apiKey));
+            // console.error("[Firebase] Please check your VITE_FIREBASE_API_KEY in .env file");
+            this.initialized = false;
+            this.authenticated = false;
             return false;
         }
 
         try {
-            console.log("[Firebase] Initializing...", {
-                hasApiKey: !!firebaseConfig.apiKey,
-                hasProjectId: !!firebaseConfig.projectId,
-                apiKeyPrefix: firebaseConfig.apiKey?.substring(0, 10) + "..."
-            });
+            // console.log("[Firebase] Initializing...", {
+            //     apiKey: maskApiKey(firebaseConfig.apiKey),
+            //     projectId: firebaseConfig.projectId,
+            //     authDomain: firebaseConfig.authDomain
+            // });
             
             this.app = initializeApp(firebaseConfig);
             this.db = getFirestore(this.app);
             this.auth = getAuth(this.app);
 
-            console.log("[Firebase] Firebase app initialized, waiting for auth state...");
+            // console.log("[Firebase] Firebase app initialized, waiting for auth state...");
 
             // Wait for auth state
             let resolved = false;
@@ -282,33 +382,38 @@ export class FirebaseService {
                 const unsubscribe = onAuthStateChanged(this.auth!, async (user) => {
                     this.currentUser = user;
                     if (user) {
-                        console.log("[Firebase] Authenticated as:", user.uid, user.isAnonymous ? "(anonymous)" : "");
+                        // console.log("[Firebase] Authenticated as:", user.uid, user.isAnonymous ? "(anonymous)" : "");
                         // Update last login (only for non-anonymous users or if user doc exists)
                         if (!user.isAnonymous) {
                             await this.updateLastLogin();
                         }
                         this.initialized = true;
+                        this.authenticated = true;
                         if (!resolved) {
                             resolved = true;
                             unsubscribe(); // Stop listening after first resolution
                             resolve(true);
                         }
                     } else {
-                        console.log("[Firebase] No user authenticated, signing in anonymously...");
+                        // console.log("[Firebase] No user authenticated, signing in anonymously...");
                         // Auto sign in anonymously for basic functionality
                         try {
                             const result = await this.signInAnonymously();
                             if (result.success) {
                                 this.initialized = true;
+                                this.authenticated = true;
                                 if (!resolved) {
                                     resolved = true;
                                     unsubscribe(); // Stop listening after first resolution
                                     resolve(true);
                                 }
                             } else {
-                                console.error("[Firebase] Failed to sign in anonymously:", result.error);
+                                // console.error("[Firebase] Failed to sign in anonymously:", result.error);
                                 // Continue anyway - some features may not work
+                                // App can run in offline mode
                                 this.initialized = true;
+                                this.authenticated = false;
+                                // console.warn("[Firebase] ⚠️ Running in offline mode - Firebase features disabled");
                                 if (!resolved) {
                                     resolved = true;
                                     unsubscribe();
@@ -316,31 +421,63 @@ export class FirebaseService {
                                 }
                             }
                         } catch (error: any) {
+                            // Enhanced error diagnostics
                             const errorCode = error?.code || 'unknown';
                             const errorMessage = error?.message || 'Unknown error';
+                            const errorResponse = error?.response || error?.serverResponse || null;
+                            
+                            // Log full error details for debugging
+                            // console.error("[Firebase] ❌ Authentication error details:", {
+                            //     code: errorCode,
+                            //     message: errorMessage,
+                            //     apiKey: maskApiKey(firebaseConfig.apiKey),
+                            //     projectId: firebaseConfig.projectId,
+                            //     origin: window.location.origin,
+                            //     hasResponse: !!errorResponse
+                            // });
+                            
+                            // if (errorResponse) {
+                            //     console.error("[Firebase] Error response:", errorResponse);
+                            // }
                             
                             // УЛУЧШЕНО: Обработка ошибки блокировки Identity Toolkit API
                             if (errorCode === 'auth/requests-to-this-api-identitytoolkit-method-google.cloud.identitytoolkit.v1.projectconfigservice.getprojectconfig-are-blocked' ||
                                 errorMessage.includes('identitytoolkit') && errorMessage.includes('blocked')) {
-                                console.error("[Firebase] ❌ Identity Toolkit API is blocked!");
-                                console.error("[Firebase] To fix:");
-                                console.error("[Firebase]   1. Go to https://console.cloud.google.com/apis/library/identitytoolkit.googleapis.com");
-                                console.error("[Firebase]   2. Click 'Enable'");
-                                console.error("[Firebase]   3. Check Firebase Console → Authentication → Settings for domain restrictions");
-                            } else if (errorCode === 'auth/api-key-not-valid' || errorCode.includes('api-key')) {
-                                console.error("[Firebase] ❌ Invalid API key!");
-                                console.error("[Firebase] Please check your VITE_FIREBASE_API_KEY in .env file");
-                                console.error("[Firebase] See docs/FIREBASE_KEYS_EXPLAINED.md for setup instructions");
+                                // console.error("[Firebase] ❌ Identity Toolkit API is blocked!");
+                                // console.error("[Firebase] To fix:");
+                                // console.error("[Firebase]   1. Go to https://console.cloud.google.com/apis/library/identitytoolkit.googleapis.com");
+                                // console.error("[Firebase]   2. Click 'Enable'");
+                                // console.error("[Firebase]   3. Check Firebase Console → Authentication → Settings for domain restrictions");
+                            } else if (errorCode === 'auth/api-key-not-valid' || errorCode.includes('api-key') || errorMessage.includes('API key')) {
+                                // console.error("[Firebase] ❌ Invalid API key!");
+                                // console.error("[Firebase] API key used:", maskApiKey(firebaseConfig.apiKey));
+                                // console.error("[Firebase] Please check your VITE_FIREBASE_API_KEY in .env file");
+                                // console.error("[Firebase] Verify API key restrictions in Google Cloud Console:");
+                                // console.error("[Firebase]   APIs & Services → Credentials → [Your API Key] → API restrictions");
+                                // console.error("[Firebase] See docs/FIREBASE_KEYS_EXPLAINED.md for setup instructions");
                             } else if (errorCode === 'auth/operation-not-allowed') {
-                                console.error("[Firebase] ❌ Anonymous authentication is not enabled!");
-                                console.error("[Firebase] Please enable it in Firebase Console:");
-                                console.error("[Firebase]   Authentication → Sign-in method → Anonymous → Enable");
+                                // console.error("[Firebase] ❌ Anonymous authentication is not enabled!");
+                                // console.error("[Firebase] Please enable it in Firebase Console:");
+                                // console.error("[Firebase]   Authentication → Sign-in method → Anonymous → Enable");
+                            } else if (errorMessage.includes('401') || errorMessage.includes('Unauthorized')) {
+                                // Handle 401 Unauthorized specifically
+                                // console.error("[Firebase] ❌ 401 Unauthorized - Authentication failed");
+                                // console.error("[Firebase] Possible causes:");
+                                // console.error("[Firebase]   1. Invalid API key - Check VITE_FIREBASE_API_KEY");
+                                // console.error("[Firebase]   2. API key restrictions - Check Google Cloud Console → APIs & Services → Credentials");
+                                // console.error("[Firebase]   3. Identity Toolkit API not enabled - Enable at https://console.cloud.google.com/apis/library/identitytoolkit.googleapis.com");
+                                // console.error("[Firebase]   4. Anonymous auth disabled - Enable in Firebase Console → Authentication → Sign-in method");
+                                // console.error("[Firebase]   5. Domain not authorized - Check Firebase Console → Authentication → Settings → Authorized domains");
+                                // console.error("[Firebase] Current origin:", window.location.origin);
                             } else {
-                                console.error("[Firebase] Failed to sign in anonymously:", errorMessage);
+                                // console.error("[Firebase] Failed to sign in anonymously:", errorMessage);
                             }
                             
                             // Continue anyway - some features may not work
+                            // App can run in offline mode
                             this.initialized = true;
+                            this.authenticated = false;
+                            // console.warn("[Firebase] ⚠️ Running in offline mode - Firebase features disabled");
                             if (!resolved) {
                                 resolved = true;
                                 unsubscribe();
@@ -351,17 +488,32 @@ export class FirebaseService {
                 });
             });
         } catch (error: any) {
+            // Enhanced error diagnostics
             const errorCode = error?.code || 'unknown';
             const errorMessage = error?.message || 'Unknown error';
+            const errorResponse = error?.response || error?.serverResponse || null;
             
-            console.error("[Firebase] ❌ Initialization error:", errorMessage);
+            // console.error("[Firebase] ❌ Initialization error:", errorMessage);
+            // console.error("[Firebase] Error details:", {
+            //     code: errorCode,
+            //     message: errorMessage,
+            //     apiKey: maskApiKey(firebaseConfig.apiKey),
+            //     projectId: firebaseConfig.projectId,
+            //     hasResponse: !!errorResponse
+            // });
             
-            if (errorCode.includes('api-key') || errorMessage.includes('api-key')) {
-                console.error("[Firebase] Invalid API key. Please check your Firebase configuration.");
-                console.error("[Firebase] See docs/FIREBASE_KEYS_EXPLAINED.md for setup instructions");
-            }
+            // if (errorResponse) {
+            //     console.error("[Firebase] Error response:", errorResponse);
+            // }
+            
+            // if (errorCode.includes('api-key') || errorMessage.includes('api-key')) {
+            //     console.error("[Firebase] Invalid API key. Please check your Firebase configuration.");
+            //     console.error("[Firebase] API key used:", maskApiKey(firebaseConfig.apiKey));
+            //     console.error("[Firebase] See docs/FIREBASE_KEYS_EXPLAINED.md for setup instructions");
+            // }
             
             this.initialized = false;
+            this.authenticated = false;
             return false;
         }
     }
@@ -375,40 +527,103 @@ export class FirebaseService {
             return { success: false, error: "Auth not initialized" };
         }
         
-        // Check if configuration is valid
-        if (!hasRealConfig) {
-            return { success: false, error: "Invalid Firebase configuration. Please check your API key." };
+        // Pre-flight configuration check
+        const configValidation = validateFirebaseConfig(firebaseConfig);
+        if (!configValidation.valid) {
+            const errorMsg = `Invalid Firebase configuration: ${configValidation.errors.join(', ')}`;
+            // console.error("[Firebase] ❌", errorMsg);
+            return { success: false, error: errorMsg };
+        }
+        
+        // Validate API key format
+        const apiKeyValidation = validateApiKeyFormat(firebaseConfig.apiKey);
+        if (!apiKeyValidation.valid) {
+            const errorMsg = `Invalid API key format: ${apiKeyValidation.reason}`;
+            // console.error("[Firebase] ❌", errorMsg);
+            // console.error("[Firebase] API key:", maskApiKey(firebaseConfig.apiKey));
+            return { success: false, error: errorMsg };
         }
         
         try {
             const userCredential = await signInAnonymously(this.auth);
             this.currentUser = userCredential.user;
-            console.log("[Firebase] ✅ Signed in anonymously:", userCredential.user.uid);
+            this.authenticated = true;
+            // console.log("[Firebase] ✅ Signed in anonymously:", userCredential.user.uid);
             return { success: true };
         } catch (error: any) {
+            // Enhanced error diagnostics - capture full error details
             const errorCode = error?.code || 'unknown';
             const errorMessage = error?.message || 'Unknown error';
+            const errorResponse = error?.response || error?.serverResponse || null;
+            
+            // Log detailed error information
+            // console.error("[Firebase] ❌ Anonymous sign in error details:", {
+            //     code: errorCode,
+            //     message: errorMessage,
+            //     apiKey: maskApiKey(firebaseConfig.apiKey),
+            //     projectId: firebaseConfig.projectId,
+            //     origin: window.location.origin,
+            //     hasResponse: !!errorResponse
+            // });
+            
+            // if (errorResponse) {
+            //     console.error("[Firebase] Error response:", errorResponse);
+            // }
             
             let userFriendlyError = errorMessage;
+            let troubleshootingSteps: string[] = [];
             
             // УЛУЧШЕНО: Обработка ошибки блокировки Identity Toolkit API
             if (errorCode === 'auth/requests-to-this-api-identitytoolkit-method-google.cloud.identitytoolkit.v1.projectconfigservice.getprojectconfig-are-blocked' ||
                 errorMessage.includes('identitytoolkit') && errorMessage.includes('blocked')) {
-                userFriendlyError = "Identity Toolkit API is blocked. Enable it in Google Cloud Console: APIs & Services → Enable Identity Toolkit API";
-                console.error("[Firebase] ❌ Identity Toolkit API is blocked!");
-                console.error("[Firebase] To fix:");
-                console.error("[Firebase]   1. Go to https://console.cloud.google.com/apis/library/identitytoolkit.googleapis.com");
-                console.error("[Firebase]   2. Click 'Enable'");
-                console.error("[Firebase]   3. Check Firebase Console → Authentication → Settings for domain restrictions");
-            } else if (errorCode === 'auth/api-key-not-valid' || errorCode.includes('api-key')) {
-                userFriendlyError = "Invalid API key. Please check your VITE_FIREBASE_API_KEY in .env file. See docs/FIREBASE_KEYS_EXPLAINED.md";
+                userFriendlyError = "Identity Toolkit API is blocked. Enable it in Google Cloud Console.";
+                troubleshootingSteps = [
+                    "1. Go to https://console.cloud.google.com/apis/library/identitytoolkit.googleapis.com",
+                    "2. Click 'Enable'",
+                    "3. Check Firebase Console → Authentication → Settings for domain restrictions"
+                ];
+            } else if (errorCode === 'auth/api-key-not-valid' || errorCode.includes('api-key') || errorMessage.includes('API key')) {
+                userFriendlyError = "Invalid API key. Please check your VITE_FIREBASE_API_KEY in .env file.";
+                troubleshootingSteps = [
+                    `API key used: ${maskApiKey(firebaseConfig.apiKey)}`,
+                    "1. Verify API key in Firebase Console → Project Settings → General",
+                    "2. Check API key restrictions in Google Cloud Console → APIs & Services → Credentials",
+                    "3. Ensure Identity Toolkit API is enabled for this API key",
+                    "4. See docs/FIREBASE_KEYS_EXPLAINED.md for setup instructions"
+                ];
             } else if (errorCode === 'auth/operation-not-allowed') {
-                userFriendlyError = "Anonymous authentication is not enabled. Enable it in Firebase Console: Authentication → Sign-in method → Anonymous";
+                userFriendlyError = "Anonymous authentication is not enabled.";
+                troubleshootingSteps = [
+                    "1. Go to Firebase Console → Authentication → Sign-in method",
+                    "2. Find 'Anonymous' in the list",
+                    "3. Click 'Enable'"
+                ];
             } else if (errorCode === 'auth/network-request-failed') {
                 userFriendlyError = "Network error. Please check your internet connection.";
+            } else if (errorMessage.includes('401') || errorMessage.includes('Unauthorized')) {
+                // Handle 401 Unauthorized specifically
+                userFriendlyError = "401 Unauthorized - Authentication failed. Check API key and Firebase settings.";
+                troubleshootingSteps = [
+                    "Possible causes:",
+                    "1. Invalid API key - Check VITE_FIREBASE_API_KEY in .env file",
+                    "2. API key restrictions - Check Google Cloud Console → APIs & Services → Credentials",
+                    "3. Identity Toolkit API not enabled - Enable at https://console.cloud.google.com/apis/library/identitytoolkit.googleapis.com",
+                    "4. Anonymous auth disabled - Enable in Firebase Console → Authentication → Sign-in method",
+                    "5. Domain not authorized - Check Firebase Console → Authentication → Settings → Authorized domains",
+                    `Current origin: ${window.location.origin}`
+                ];
             }
             
-            console.error("[Firebase] ❌ Anonymous sign in error:", userFriendlyError);
+            // Log troubleshooting steps
+            // if (troubleshootingSteps.length > 0) {
+            //     console.error("[Firebase] Troubleshooting steps:");
+            //     troubleshootingSteps.forEach(step => {
+            //         console.error(`[Firebase]   ${step}`);
+            //     });
+            // }
+            
+            // console.error("[Firebase] ❌ Anonymous sign in error:", userFriendlyError);
+            this.authenticated = false;
             return { success: false, error: userFriendlyError };
         }
     }
@@ -417,6 +632,7 @@ export class FirebaseService {
         if (this.auth) {
             await firebaseSignOut(this.auth);
             this.currentUser = null;
+            this.authenticated = false;
         }
     }
 
@@ -426,6 +642,27 @@ export class FirebaseService {
 
     isInitialized(): boolean {
         return this.initialized && this.auth !== null && this.db !== null;
+    }
+
+    /**
+     * Check if Firebase authentication was successful (including anonymous)
+     * Returns true if user is authenticated (anonymous or full auth)
+     * Use isAuthenticated() to check for full (non-anonymous) authentication
+     */
+    hasAuthenticated(): boolean {
+        return this.authenticated && this.currentUser !== null;
+    }
+
+    /**
+     * Get authentication status details
+     */
+    getAuthStatus(): { initialized: boolean; authenticated: boolean; hasUser: boolean; isAnonymous: boolean } {
+        return {
+            initialized: this.initialized,
+            authenticated: this.authenticated,
+            hasUser: this.currentUser !== null,
+            isAnonymous: this.currentUser?.isAnonymous || false
+        };
     }
 
     // === PLAYER STATS ===

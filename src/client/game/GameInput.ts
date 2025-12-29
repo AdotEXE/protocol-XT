@@ -266,6 +266,9 @@ export class GameInput {
         }
         
         // Комбинации Ctrl+1-9,0
+        // ВАЖНО: Основная обработка Ctrl+комбинаций происходит в game.ts с capture phase
+        // Этот код выполняется только если GameInput.handleKeyDown вызывается явно
+        // и только когда gameStarted === true (для совместимости)
         if (e.ctrlKey && this.gameStarted) {
             return this.handleCtrlKeyCombinations(e);
         }
@@ -360,14 +363,8 @@ export class GameInput {
             return true;
         }
         
-        // Ctrl+0: Social Menu
-        if (e.code === "Digit0" || e.code === "Numpad0") {
-            e.preventDefault();
-            e.stopPropagation();
-            e.stopImmediatePropagation();
-            this.handleSocialMenu();
-            return true;
-        }
+        // Ctrl+0: Physics Editor - обрабатывается в game.ts, не здесь
+        // Удалено, чтобы не конфликтовать с обработчиком в game.ts
         
         return false;
     }

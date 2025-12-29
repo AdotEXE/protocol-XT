@@ -338,11 +338,9 @@ export function applySettings(
         }
     }
     
-    // Ограничение FPS
-    if (settings.maxFPS && settings.maxFPS > 0) {
-        if (engine.setTargetFPS) {
-            engine.setTargetFPS(settings.maxFPS);
-        }
+    // Ограничение FPS (0 = без ограничений, иначе устанавливаем указанное значение)
+    if (settings.maxFPS !== undefined && settings.maxFPS > 0 && engine.setTargetFPS) {
+        engine.setTargetFPS(settings.maxFPS);
     }
     
     // Качество частиц

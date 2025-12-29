@@ -788,6 +788,11 @@ export function setupGarageKeyboardNavigation(
     const handler = (e: KeyboardEvent) => {
         if (!isOpen()) return;
         
+        // ИГНОРИРУЕМ Ctrl+комбинации - они используются для меню настроек
+        if (e.ctrlKey || e.altKey || e.metaKey) {
+            return;
+        }
+        
         if (e.code === 'Escape') {
             e.preventDefault();
             callbacks.onEscape();

@@ -509,9 +509,8 @@ export class GameEnemies {
                 const spawnX = combatZone.minX + Math.random() * (combatZone.maxX - combatZone.minX);
                 const spawnZ = combatZone.minZ + Math.random() * (combatZone.maxZ - combatZone.minZ);
                 const groundHeight = this.getGroundHeight(spawnX, spawnZ);
-                // Безопасный отступ: минимум 1.5 единицы над террейном, минимум 2.0 если groundHeight = 0
-                // КРИТИЧНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
-                const spawnY = Math.max(groundHeight + 5.0, 7.0);
+                // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
+                const spawnY = Math.max(groundHeight + 2.0, 3.0);
                 
                 pos = new Vector3(spawnX, spawnY, spawnZ);
                 
@@ -569,8 +568,8 @@ export class GameEnemies {
                 const spawnX = combatZone.minX + Math.random() * (combatZone.maxX - combatZone.minX);
                 const spawnZ = combatZone.minZ + Math.random() * (combatZone.maxZ - combatZone.minZ);
                 const groundHeight = this.getGroundHeight(spawnX, spawnZ);
-                // КРИТИЧНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
-                const spawnY = Math.max(groundHeight + 5.0, 7.0); // Используем getGroundHeight + безопасный отступ
+                // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
+                const spawnY = Math.max(groundHeight + 2.0, 3.0);
                 
                 const newPos = new Vector3(spawnX, spawnY, spawnZ);
                 
@@ -623,9 +622,8 @@ export class GameEnemies {
         
         for (const rawPos of defenderPositions) {
             const groundHeight = this.getGroundHeight(rawPos.x, rawPos.z);
-            // Безопасный отступ: минимум 1.5 единицы над террейном, минимум 2.0 если groundHeight = 0
-            // КРИТИЧНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
-            const spawnY = Math.max(groundHeight + 5.0, 7.0);
+            // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
+            const spawnY = Math.max(groundHeight + 2.0, 3.0);
             const pos = new Vector3(rawPos.x, spawnY, rawPos.z);
             
             const difficulty = this.getCurrentDifficulty();
@@ -683,9 +681,8 @@ export class GameEnemies {
         for (let i = 0; i < waveCount; i++) {
             const spawnZ = -200 + Math.random() * 400;
             const groundHeight = this.getGroundHeight(spawnX, spawnZ);
-            // Безопасный отступ: минимум 1.5 единицы над террейном, минимум 2.0 если groundHeight = 0
-            // КРИТИЧНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
-            const spawnY = Math.max(groundHeight + 5.0, 7.0);
+            // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
+            const spawnY = Math.max(groundHeight + 2.0, 3.0);
             const pos = new Vector3(spawnX, spawnY, spawnZ);
             
             // Сложность растёт с волнами
@@ -731,8 +728,8 @@ export class GameEnemies {
                     const newX = 150 + Math.random() * 100;
                     const newZ = -150 + Math.random() * 300;
                     const groundHeight = this.getGroundHeight(newX, newZ);
-                    // КРИТИЧНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
-                const spawnY = Math.max(groundHeight + 5.0, 7.0); // Используем getGroundHeight + безопасный отступ
+                    // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
+                    const spawnY = Math.max(groundHeight + 2.0, 3.0);
                     const newPos = new Vector3(newX, spawnY, newZ);
                     
                     const difficulty = this.getCurrentDifficulty();
@@ -807,9 +804,8 @@ export class GameEnemies {
                 const spawnX = Math.cos(angle) * distance;
                 const spawnZ = Math.sin(angle) * distance;
                 const groundHeight = this.getGroundHeight(spawnX, spawnZ);
-                // Безопасный отступ: минимум 1.5 единицы над террейном, минимум 2.0 если groundHeight = 0
-                // КРИТИЧНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
-                const spawnY = Math.max(groundHeight + 5.0, 7.0);
+                // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
+                const spawnY = Math.max(groundHeight + 2.0, 3.0);
                 
                 pos = new Vector3(spawnX, spawnY, spawnZ);
                 
@@ -956,8 +952,8 @@ export class GameEnemies {
             if (!garage) continue;
             
             const groundHeight = this.getGroundHeight(garage.x, garage.z);
-            // КРИТИЧНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
-            const spawnY = Math.max(groundHeight + 5.0, 7.0);
+            // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
+            const spawnY = Math.max(groundHeight + 2.0, 3.0);
             const garagePos = new Vector3(garage.x, spawnY, garage.z);
             
             const difficulty = this.getCurrentDifficulty();

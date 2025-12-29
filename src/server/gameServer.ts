@@ -14,6 +14,7 @@ import { InputValidator } from "./validation";
 import { DeltaCompressor, PrioritizedBroadcaster } from "./deltaCompression";
 import { initializeFirebaseAdmin, verifyIdToken } from "./auth";
 import { MonitoringAPI } from "./monitoring";
+import { serverLogger } from "./logger";
 
 const TICK_RATE = 60; // 60 Hz
 const TICK_INTERVAL = 1000 / TICK_RATE; // ~16.67ms
@@ -53,19 +54,19 @@ export class GameServer {
         // Обработка ошибок сервера (включая EADDRINUSE)
         this.wss.on("error", (error: Error & { code?: string }) => {
             if (error.code === 'EADDRINUSE') {
-                console.error(`[Server] ❌ Порт ${port} уже занят!`);
-                console.error(`[Server] Попробуйте:`);
-                console.error(`[Server]   1. Закрыть процесс, использующий порт ${port}`);
-                console.error(`[Server]   2. Или установить переменную окружения PORT=<другой_порт>`);
-                console.error(`[Server]   3. Windows: netstat -ano | findstr :${port} - найти процесс`);
-                console.error(`[Server]   4. Windows: taskkill /PID <PID> /F - закрыть процесс`);
+                serverLogger.error(`[Server] ❌ Порт ${port} уже занят!`);
+                serverLogger.error(`[Server] Попробуйте:`);
+                serverLogger.error(`[Server]   1. Закрыть процесс, использующий порт ${port}`);
+                serverLogger.error(`[Server]   2. Или установить переменную окружения PORT=<другой_порт>`);
+                serverLogger.error(`[Server]   3. Windows: netstat -ano | findstr :${port} - найти процесс`);
+                serverLogger.error(`[Server]   4. Windows: taskkill /PID <PID> /F - закрыть процесс`);
             } else {
-                console.error(`[Server] ❌ WebSocket server error:`, error);
+                serverLogger.error(`[Server] ❌ WebSocket server error:`, error);
             }
         });
         
         this.wss.on("listening", () => {
-            console.log(`[Server] ✅ WebSocket server started on ${host}:${port}`);
+            serverLogger.log(`[Server] ✅ WebSocket server started on ${host}:${port}`);
         });
         
         // Выводим информацию о доступных адресах для подключения
@@ -82,15 +83,15 @@ export class GameServer {
         this.startMonitoringBroadcast();
         this.startPeriodicStats();
         
-        console.log(`[Server] ✅ Сервер готов к работе. Активных комнат: 0, подключенных игроков: 0`);
+        serverLogger.log(`[Server] ✅ Сервер готов к работе. Активных комнат: 0, подключенных игроков: 0`);
     }
     
     private printNetworkInfo(port: number): void {
         const interfaces = os.networkInterfaces();
         
-        console.log(`\n[Server] Доступные адреса для подключения:`);
-        console.log(`  - localhost: ws://localhost:${port} (только на этой машине)`);
-        console.log(`  - 127.0.0.1: ws://127.0.0.1:${port} (только на этой машине)`);
+        serverLogger.log(`\n[Server] Доступные адреса для подключения:`);
+        serverLogger.log(`  - localhost: ws://localhost:${port} (только на этой машине)`);
+        serverLogger.log(`  - 127.0.0.1: ws://127.0.0.1:${port} (только на этой машине)`);
         
         // Выводим все локальные IP-адреса
         const addresses: string[] = [];
@@ -98,36 +99,36 @@ export class GameServer {
             interfaces[iface]?.forEach((addr: any) => {
                 if (addr.family === 'IPv4' && !addr.internal) {
                     addresses.push(addr.address);
-                    console.log(`  - ${iface}: ws://${addr.address}:${port} (для подключения с других ПК)`);
+                    serverLogger.log(`  - ${iface}: ws://${addr.address}:${port} (для подключения с других ПК)`);
                 }
             });
         });
         
         if (addresses.length === 0) {
-            console.log(`  ⚠️  Локальные IP-адреса не найдены. Используйте localhost для подключения на этой машине.`);
+            serverLogger.log(`  ⚠️  Локальные IP-адреса не найдены. Используйте localhost для подключения на этой машине.`);
         } else {
-            console.log(`\n[Server] Для подключения с другого ПК используйте один из адресов выше.`);
+            serverLogger.log(`\n[Server] Для подключения с другого ПК используйте один из адресов выше.`);
         }
-        console.log(``);
+        serverLogger.log(``);
     }
     
     private setupWebSocket(): void {
         // Обработка ошибок сервера
         this.wss.on("error", (error: Error) => {
-            console.error("[Server] WebSocket server error:", error);
+            serverLogger.error("[Server] WebSocket server error:", error);
         });
         
         // Обработка HTTP запросов (для отладки)
         this.wss.on("headers", (headers: string[], req: any) => {
             // Логируем заголовки для отладки
             if (req.url && !req.url.includes('/socket.io')) {
-                console.log("[Server] Upgrade request from:", req.socket.remoteAddress, "URL:", req.url);
+                serverLogger.log("[Server] Upgrade request from:", req.socket.remoteAddress, "URL:", req.url);
             }
         });
         
         // Обработка подключений
         this.wss.on("connection", (ws: WebSocket, req: any) => {
-            console.log("[Server] New client connected from:", req.socket.remoteAddress || "unknown");
+            serverLogger.log("[Server] New client connected from:", req.socket.remoteAddress || "unknown");
             
             ws.on("message", (data: Buffer) => {
                 try {
@@ -152,7 +153,7 @@ export class GameServer {
                 } catch (error) {
                     // Only send error for game clients, not monitoring clients
                     if (!this.monitoringClients.has(ws)) {
-                        console.error("[Server] Error parsing message:", error);
+                        serverLogger.error("[Server] Error parsing message:", error);
                         this.sendError(ws, "INVALID_MESSAGE", "Failed to parse message");
                     }
                 }
@@ -163,7 +164,7 @@ export class GameServer {
             });
             
             ws.on("error", (error) => {
-                console.error("[Server] WebSocket error:", error);
+                serverLogger.error("[Server] WebSocket error:", error);
             });
         });
     }
@@ -257,7 +258,7 @@ export class GameServer {
                 break;
                 
             default:
-                console.warn(`[Server] Unknown message type: ${message.type}`);
+                serverLogger.warn(`[Server] Unknown message type: ${message.type}`);
         }
     }
     
@@ -271,14 +272,14 @@ export class GameServer {
             const decodedToken = await verifyIdToken(idToken);
             if (decodedToken) {
                 verifiedUserId = decodedToken.uid;
-                console.log(`[Server] Token verified for user: ${verifiedUserId}`);
+                serverLogger.log(`[Server] Token verified for user: ${verifiedUserId}`);
                 
                 // Используем UID из токена вместо переданного playerId для безопасности
                 if (verifiedUserId !== playerId) {
-                    console.warn(`[Server] Player ID mismatch: provided ${playerId}, token UID ${verifiedUserId}`);
+                    serverLogger.warn(`[Server] Player ID mismatch: provided ${playerId}, token UID ${verifiedUserId}`);
                 }
             } else {
-                console.warn(`[Server] Invalid token provided, connection may be rejected`);
+                serverLogger.warn(`[Server] Invalid token provided, connection may be rejected`);
                 // Можно отклонить подключение или разрешить как гостя
                 // Для гибкости разрешаем подключение без валидации
             }
@@ -300,7 +301,7 @@ export class GameServer {
             const guestNumber = String(this.guestPlayerCounter).padStart(4, '0');
             finalPlayerId = guestNumber; // ID = 0001, 0002, 0003...
             finalPlayerName = `anon_ID:${guestNumber}`; // Имя = anon_ID:0001, anon_ID:0002, anon_ID:0003...
-            console.log(`[Server] Гость подключился: ID=${finalPlayerId}, имя=${finalPlayerName} (игнорировано имя от клиента: ${data.playerName || 'не указано'})`);
+            serverLogger.log(`[Server] Гость подключился: ID=${finalPlayerId}, имя=${finalPlayerName} (игнорировано имя от клиента: ${data.playerName || 'не указано'})`);
         }
         
         let player = this.players.get(finalPlayerId);
@@ -309,7 +310,7 @@ export class GameServer {
             // Новое подключение - создаем игрока с правильным ID и именем
             player = new ServerPlayer(ws, finalPlayerId, finalPlayerName);
             this.players.set(player.id, player);
-            console.log(`[Server] Игрок подключен: ID=${player.id}, имя=${player.name}${verifiedUserId ? ' [AUTHENTICATED]' : ' [GUEST]'}`);
+            serverLogger.log(`[Server] Игрок подключен: ID=${player.id}, имя=${player.name}${verifiedUserId ? ' [AUTHENTICATED]' : ' [GUEST]'}`);
         } else {
             // Reconnection - обновляем сокет и имя
             if (!verifiedUserId) {
@@ -317,7 +318,7 @@ export class GameServer {
             }
             player.socket = ws;
             player.connected = true;
-            console.log(`[Server] Игрок переподключен: ID=${player.id}, имя=${player.name}${verifiedUserId ? ' [AUTHENTICATED]' : ' [GUEST]'}`);
+            serverLogger.log(`[Server] Игрок переподключен: ID=${player.id}, имя=${player.name}${verifiedUserId ? ' [AUTHENTICATED]' : ' [GUEST]'}`);
         }
         
         this.send(ws, createServerMessage(ServerMessageType.CONNECTED, {
@@ -333,22 +334,22 @@ export class GameServer {
         // Генерируем простой ID комнаты (0001, 0002, и т.д.)
         this.roomCounter++;
         const roomId = String(this.roomCounter).padStart(4, '0');
-        console.log(`[Server] 🔧 Генерация ID комнаты: roomCounter=${this.roomCounter}, roomId=${roomId}`);
+        serverLogger.log(`[Server] 🔧 Генерация ID комнаты: roomCounter=${this.roomCounter}, roomId=${roomId}`);
         
         const room = new GameRoom(mode, maxPlayers, isPrivate, worldSeed, roomId);
         room.settings = settings || {};
         
         // Проверяем, что ID комнаты правильный
         if (room.id !== roomId) {
-            console.error(`[Server] ❌ ОШИБКА: ID комнаты не совпадает! Ожидалось: ${roomId}, получено: ${room.id}`);
+            serverLogger.error(`[Server] ❌ ОШИБКА: ID комнаты не совпадает! Ожидалось: ${roomId}, получено: ${room.id}`);
         } else {
-            console.log(`[Server] ✅ ID комнаты подтвержден: ${room.id}`);
+            serverLogger.log(`[Server] ✅ ID комнаты подтвержден: ${room.id}`);
         }
         
         if (room.addPlayer(player)) {
             this.rooms.set(room.id, room);
             room.creatorId = player.id; // Сохраняем ID создателя
-            console.log(`[Server] Комната создана: ID=${room.id}, режим=${mode}, игроков=1/${maxPlayers}, создатель=${player.id} (${player.name}), seed=${room.worldSeed}`);
+            serverLogger.log(`[Server] Комната создана: ID=${room.id}, режим=${mode}, игроков=1/${maxPlayers}, создатель=${player.id} (${player.name}), seed=${room.worldSeed}`);
             
             this.send(player.socket, createServerMessage(ServerMessageType.ROOM_CREATED, {
                 roomId: room.id,
@@ -360,7 +361,7 @@ export class GameServer {
             // Отправляем обновленный список комнат всем подключенным клиентам
             this.broadcastRoomListToAll();
         } else {
-            console.error(`[Server] Ошибка создания комнаты: не удалось добавить игрока ${player.id}`);
+            serverLogger.error(`[Server] Ошибка создания комнаты: не удалось добавить игрока ${player.id}`);
             this.sendError(player.socket, "ROOM_CREATE_FAILED", "Failed to create room");
         }
     }
@@ -385,7 +386,7 @@ export class GameServer {
         }
         
         if (room.addPlayer(player)) {
-            console.log(`[Server] Игрок ${player.id} (${player.name}) присоединился к комнате ${room.id}, игроков в комнате: ${room.players.size}/${room.maxPlayers}`);
+            serverLogger.log(`[Server] Игрок ${player.id} (${player.name}) присоединился к комнате ${room.id}, игроков в комнате: ${room.players.size}/${room.maxPlayers}`);
             
             // Notify player
             this.send(player.socket, createServerMessage(ServerMessageType.ROOM_JOINED, {
@@ -399,7 +400,7 @@ export class GameServer {
             
             // Если комната активна, сразу отправляем GAME_START для присоединения к идущей игре
             if (room.isActive) {
-                console.log(`[Server] Комната ${room.id} активна, отправляем GAME_START новому игроку ${player.id}`);
+                serverLogger.log(`[Server] Комната ${room.id} активна, отправляем GAME_START новому игроку ${player.id}`);
                 this.send(player.socket, createServerMessage(ServerMessageType.GAME_START, {
                     roomId: room.id,
                     mode: room.mode,
@@ -431,7 +432,7 @@ export class GameServer {
             // Clean up empty rooms
             if (room.isEmpty()) {
                 this.rooms.delete(room.id);
-                console.log(`[Server] Комната ${room.id} удалена (пустая)`);
+                serverLogger.log(`[Server] Комната ${room.id} удалена (пустая)`);
                 // Отправляем обновленный список комнат всем подключенным клиентам
                 this.broadcastRoomListToAll();
             }
@@ -472,7 +473,7 @@ export class GameServer {
         
         // Запускаем игру
         room.startMatch();
-        console.log(`[Server] Игра запущена в комнате ${room.id} создателем ${player.id} (${player.name}), игроков: ${room.players.size}`);
+        serverLogger.log(`[Server] Игра запущена в комнате ${room.id} создателем ${player.id} (${player.name}), игроков: ${room.players.size}`);
         
         // Отправляем всем игрокам в комнате
         this.broadcastToRoom(room, createServerMessage(ServerMessageType.GAME_START, {
@@ -498,7 +499,7 @@ export class GameServer {
         if (availableRooms.length > 0) {
             // Нашли существующую комнату - присоединяемся к ней
             const room = availableRooms[0]; // Берем первую доступную
-            console.log(`[Server] Quick play: присоединение к существующей комнате ${room.id} (режим: ${mode})`);
+            serverLogger.log(`[Server] Quick play: присоединение к существующей комнате ${room.id} (режим: ${mode})`);
             
             if (player.roomId) {
                 this.handleLeaveRoom(player);
@@ -593,7 +594,7 @@ export class GameServer {
             gameTime: room.gameTime
         }));
         
-        console.log(`[Server] Запрос списка комнат от ${player.id} (${player.name}): найдено ${filteredRooms.length} комнат${mode ? ` (режим: ${mode})` : ''}`);
+        serverLogger.log(`[Server] Запрос списка комнат от ${player.id} (${player.name}): найдено ${filteredRooms.length} комнат${mode ? ` (режим: ${mode})` : ''}`);
         
         this.send(player.socket, createServerMessage(ServerMessageType.ROOM_LIST, {
             rooms: roomsList
@@ -615,7 +616,7 @@ export class GameServer {
         player.inputCount++;
         
         if (player.inputCount > 60) { // Max 60 inputs per second
-            console.warn(`[Server] Rate limit exceeded for player ${player.id}: ${player.inputCount} inputs/sec`);
+            serverLogger.warn(`[Server] Rate limit exceeded for player ${player.id}: ${player.inputCount} inputs/sec`);
             return;
         }
         
@@ -629,7 +630,7 @@ export class GameServer {
         );
         
         if (!validation.valid) {
-            console.warn(`[Server] Invalid input from player ${player.id}: ${validation.reason}`);
+            serverLogger.warn(`[Server] Invalid input from player ${player.id}: ${validation.reason}`);
             // Don't process invalid input, but don't disconnect player
             return;
         }
@@ -672,14 +673,14 @@ export class GameServer {
         player.shootCount++;
         
         if (player.shootCount > 10) { // Max 10 shots per second
-            console.warn(`[Server] Shoot rate limit exceeded for player ${player.id}: ${player.shootCount} shots/sec`);
+            serverLogger.warn(`[Server] Shoot rate limit exceeded for player ${player.id}: ${player.shootCount} shots/sec`);
             return;
         }
         
         // Validate shoot data
         const validation = InputValidator.validateShootData(data);
         if (!validation.valid) {
-            console.warn(`[Server] Invalid shoot data from player ${player.id}: ${validation.reason}`);
+            serverLogger.warn(`[Server] Invalid shoot data from player ${player.id}: ${validation.reason}`);
             return;
         }
         
@@ -793,7 +794,7 @@ export class GameServer {
     private handleCancelQueue(player: ServerPlayer, data: any): void {
         const { mode, region } = data;
         this.matchmaking.removeFromQueue(player, mode, region);
-        console.log(`[Server] Player ${player.id} cancelled queue for ${mode}`);
+        serverLogger.log(`[Server] Player ${player.id} cancelled queue for ${mode}`);
     }
     
     private handleDisconnect(ws: WebSocket): void {
@@ -805,7 +806,7 @@ export class GameServer {
         
         const player = this.getPlayerBySocket(ws);
         if (player) {
-            console.log(`[Server] Player disconnected: ${player.id}`);
+            serverLogger.log(`[Server] Player disconnected: ${player.id}`);
             this.handleLeaveRoom(player);
             // Remove from all queues
             for (const mode of ["ffa", "tdm", "coop", "battle_royale", "ctf"] as GameMode[]) {
@@ -848,7 +849,7 @@ export class GameServer {
             const totalPlayers = this.players.size;
             const connectedPlayers = Array.from(this.players.values()).filter(p => p.connected).length;
             
-            console.log(`[Server] 📊 Статистика: комнат=${totalRooms} (активных=${activeRooms}), игроков=${totalPlayers} (подключено=${connectedPlayers})`);
+            serverLogger.log(`[Server] 📊 Статистика: комнат=${totalRooms} (активных=${activeRooms}), игроков=${totalPlayers} (подключено=${connectedPlayers})`);
         }, 30000); // 30 секунд
     }
     
@@ -1065,7 +1066,7 @@ export class GameServer {
             gameTime: room.gameTime
         }));
         
-        console.log(`[Server] 📢 Отправка списка комнат всем подключенным клиентам: ${roomsList.length} публичных комнат, всего подключено ${this.players.size} игроков`);
+        serverLogger.log(`[Server] 📢 Отправка списка комнат всем подключенным клиентам: ${roomsList.length} публичных комнат, всего подключено ${this.players.size} игроков`);
         
         const message = createServerMessage(ServerMessageType.ROOM_LIST, {
             rooms: roomsList
@@ -1080,7 +1081,7 @@ export class GameServer {
                 sentCount++;
             }
         }
-        console.log(`[Server] ✅ Список комнат отправлен ${sentCount} клиентам`);
+        serverLogger.log(`[Server] ✅ Список комнат отправлен ${sentCount} клиентам`);
     }
     
     private send(ws: WebSocket, message: ServerMessage): void {
@@ -1138,7 +1139,7 @@ export class GameServer {
         }
         
         this.wss.close();
-        console.log("[Server] Server shutdown");
+        serverLogger.log("[Server] Server shutdown");
     }
 }
 

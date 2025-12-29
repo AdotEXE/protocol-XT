@@ -73,13 +73,41 @@ export function createUniqueCannon(
 ): Mesh {
     const cannonColor = Color3.FromHexString(cannonType.color);
     
+    // КРИТИЧНО: Уникальное имя для каждого меша, чтобы избежать дублирования
+    const uniqueBarrelId = `barrel_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // КРИТИЧНО: Удаляем все старые меши пушки с паттерном barrel_, чтобы избежать дублирования
+    const oldBarrels = scene.meshes.filter(mesh => 
+        mesh.name && mesh.name.startsWith("barrel_") && !mesh.isDisposed()
+    );
+    oldBarrels.forEach(mesh => {
+        try {
+            // КРИТИЧНО: Удаляем все дочерние меши перед удалением родительского
+            if (mesh.getChildren && mesh.getChildren().length > 0) {
+                const children = mesh.getChildren();
+                children.forEach((child: any) => {
+                    if (child.dispose && !child.isDisposed()) {
+                        try {
+                            child.dispose();
+                        } catch (e) {
+                            // Игнорируем ошибки при удалении дочерних мешей
+                        }
+                    }
+                });
+            }
+            mesh.dispose();
+        } catch (e) {
+            // Игнорируем ошибки при удалении уже удаленных мешей
+        }
+    });
+    
     let barrel: Mesh;
     
     switch (cannonType.id) {
         case "sniper":
             // Sniper - Прототип: ПТРД / Д-44 - Длинная противотанковая пушка
             // Основной ствол - прямоугольный Box (толще, чем раньше)
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 0.75,
                 height: barrelWidth * 0.75,
                 depth: barrelLength * 2.0
@@ -188,7 +216,7 @@ export function createUniqueCannon(
         case "gatling":
             // Gatling - Прототип: ГШ-6-30 / многоствольная система - Советская скорострельная пушка
             // Основной корпус - прямоугольный Box (короткий и широкий)
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 2.0,
                 height: barrelWidth * 2.0,
                 depth: barrelLength * 0.8
@@ -274,7 +302,7 @@ export function createUniqueCannon(
         case "heavy":
             // Heavy - Прототип: ИС-2 / Д-25Т - Массивная пушка с дульным тормозом
             // Основной ствол - прямоугольный Box (толстый)
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 1.5,
                 height: barrelWidth * 1.5,
                 depth: barrelLength * 1.2
@@ -322,7 +350,7 @@ export function createUniqueCannon(
         case "rapid":
             // Rapid - Прототип: Т-34-76 / ЗИС-3 - Быстрая пушка
             // Основной ствол - прямоугольный Box (короткий и компактный)
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 0.8,
                 height: barrelWidth * 0.8,
                 depth: barrelLength * 0.7
@@ -366,7 +394,7 @@ export function createUniqueCannon(
         case "plasma":
             // Plasma - УЛУЧШЕННЫЙ РЕАЛИСТИЧНЫЙ ДИЗАЙН: Плазменная пушка с детализированной геометрией
             // Основной ствол - более реалистичная форма с коническим расширением
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 1.1,
                 height: barrelWidth * 1.1,
                 depth: barrelLength * 1.3
@@ -499,7 +527,7 @@ export function createUniqueCannon(
             
         case "laser":
             // Laser - Прототип: Футуристический лазер (советский стиль)
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 0.6,
                 height: barrelWidth * 0.6,
                 depth: barrelLength * 1.8
@@ -559,7 +587,7 @@ export function createUniqueCannon(
             
         case "tesla":
             // Tesla - Прототип: Футуристическая катушка Тесла (советский стиль)
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 1.8,
                 height: barrelWidth * 1.8,
                 depth: barrelLength * 0.9
@@ -633,7 +661,7 @@ export function createUniqueCannon(
             
         case "railgun":
             // Railgun - Прототип: Футуристический рельсотрон (советский стиль)
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 0.6,
                 height: barrelWidth * 0.6,
                 depth: barrelLength * 2.0
@@ -724,7 +752,7 @@ export function createUniqueCannon(
         case "rocket":
             // Rocket - УЛУЧШЕННЫЙ РЕАЛИСТИЧНЫЙ ДИЗАЙН: РПГ-7 / РПГ-29
             // Основной ствол - более реалистичная форма с цилиндрическим профилем
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 1.6, 
                 height: barrelWidth * 1.6, 
                 depth: barrelLength * 1.2 
@@ -869,7 +897,7 @@ export function createUniqueCannon(
             
         case "mortar":
             // Mortar - Прототип: Миномет / 2Б9 Василек
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 2.5,
                 height: barrelWidth * 2.5,
                 depth: barrelLength * 0.6
@@ -922,7 +950,7 @@ export function createUniqueCannon(
             
         case "cluster":
             // Cluster - Прототип: РСЗО / Катюша
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 1.8, 
                 height: barrelWidth * 1.8, 
                 depth: barrelLength * 1.1 
@@ -973,7 +1001,7 @@ export function createUniqueCannon(
             
         case "explosive":
             // Explosive - Прототип: ИСУ-152 / МЛ-20
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 1.6,
                 height: barrelWidth * 1.6,
                 depth: barrelLength * 1.0
@@ -1016,7 +1044,7 @@ export function createUniqueCannon(
         // === SPECIAL EFFECT WEAPONS ===
         case "flamethrower":
             // Flamethrower - Прототип: Огнемет / РПО-А
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 1.6,
                 height: barrelWidth * 1.6,
                 depth: barrelLength * 0.8
@@ -1087,7 +1115,7 @@ export function createUniqueCannon(
         case "acid":
             // Acid - УЛУЧШЕННЫЙ РЕАЛИСТИЧНЫЙ ДИЗАЙН: Химический распылитель с детализированной геометрией
             // Основной ствол - более реалистичная форма
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 1.3,
                 height: barrelWidth * 1.3,
                 depth: barrelLength * 1.1
@@ -1191,7 +1219,7 @@ export function createUniqueCannon(
             
         case "freeze":
             // Freeze - Прототип: Криогенная установка
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 1.2,
                 height: barrelWidth * 1.2,
                 depth: barrelLength * 1.0
@@ -1252,7 +1280,7 @@ export function createUniqueCannon(
             
         case "poison":
             // Poison - Прототип: Химический инжектор
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 1.1,
                 height: barrelWidth * 1.1,
                 depth: barrelLength * 0.95
@@ -1323,7 +1351,7 @@ export function createUniqueCannon(
             
         case "emp":
             // EMP - Прототип: ЭМИ излучатель
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 1.6,
                 height: barrelWidth * 1.6,
                 depth: barrelLength * 1.0
@@ -1376,7 +1404,7 @@ export function createUniqueCannon(
         // === MULTI-SHOT WEAPONS ===
         case "shotgun":
             // Shotgun - Прототип: Дробовик / КС-23
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 2.2,
                 height: barrelWidth * 2.2,
                 depth: barrelLength * 0.75
@@ -1423,7 +1451,7 @@ export function createUniqueCannon(
             
         case "multishot":
             // Multishot - Прототип: Трехствольная пушка
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 2.2, 
                 height: barrelWidth * 1.6, 
                 depth: barrelLength * 1.0 
@@ -1473,7 +1501,7 @@ export function createUniqueCannon(
         case "homing":
             // Homing - УЛУЧШЕННЫЙ РЕАЛИСТИЧНЫЙ ДИЗАЙН: ПТУР с детализированной системой наведения
             // Основной ствол - более реалистичная форма
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 1.4,
                 height: barrelWidth * 1.4,
                 depth: barrelLength * 1.1
@@ -1537,7 +1565,7 @@ export function createUniqueCannon(
             
         case "piercing":
             // Piercing - Прототип: Бронебойная пушка / БС-3
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 0.55,
                 height: barrelWidth * 0.55,
                 depth: barrelLength * 1.8
@@ -1622,7 +1650,7 @@ export function createUniqueCannon(
             
         case "shockwave":
             // Shockwave - Прототип: Ударная волна
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 2.2,
                 height: barrelWidth * 2.2,
                 depth: barrelLength * 0.85
@@ -1678,7 +1706,7 @@ export function createUniqueCannon(
             
         case "beam":
             // Beam - Прототип: Лучовая пушка
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 0.85,
                 height: barrelWidth * 0.85,
                 depth: barrelLength * 1.6
@@ -1763,7 +1791,7 @@ export function createUniqueCannon(
             
         case "vortex":
             // Vortex - Прототип: Вихревой генератор
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 1.7,
                 height: barrelWidth * 1.7,
                 depth: barrelLength * 1.0
@@ -1801,7 +1829,7 @@ export function createUniqueCannon(
             
         case "support":
             // Support - Прототип: Ремонтный луч
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 1.3,
                 height: barrelWidth * 1.3,
                 depth: barrelLength * 1.0
@@ -1850,7 +1878,7 @@ export function createUniqueCannon(
         default: // standard and all other types
             // Standard - Прототип: Т-34-85 / Д-5Т - Классическая советская пушка
             // Основной ствол - прямоугольный Box (горизонтальный, смотрит вперед)
-            barrel = MeshBuilder.CreateBox("barrel", { 
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
                 width: barrelWidth * 1.0,
                 height: barrelWidth * 1.0,
                 depth: barrelLength * 1.0

@@ -12,6 +12,7 @@ export interface CannonType {
     projectileSize: number;
     color: string; // Hex цвет
     description: string;
+    recoilMultiplier: number; // Множитель силы отдачи (1.0 = стандартная)
 }
 
 /**

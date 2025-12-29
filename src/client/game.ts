@@ -113,6 +113,9 @@ export class Game {
     // Physics panel (lazy loaded)
     physicsPanel: PhysicsPanel | undefined; // Lazy loaded from "./physicsPanel"
     
+    // Physics editor (lazy loaded)
+    physicsEditor: any | undefined; // Lazy loaded from "./physicsEditor"
+    
     // Cheat menu (lazy loaded)
     cheatMenu: CheatMenu | undefined; // Lazy loaded from "./cheatMenu"
     
@@ -271,6 +274,28 @@ export class Game {
     // Update tick counter for optimization
     private _updateTick = 0;
     
+    // ОПТИМИЗАЦИЯ: Кэш для barrel height в updateCamera
+    private _cachedBarrelHeight: number = 2.5;
+    private _cachedBarrelHeightFrame = -1;
+    
+    // ОПТИМИЗАЦИЯ: Кэш для позиций в updateCamera (обновляем каждые 2 кадра)
+    private _cachedBarrelWorldPos: Vector3 = new Vector3(0, 2.5, 0);
+    private _cachedBarrelWorldPosFrame = -1;
+    private _cachedTurretPos: Vector3 = new Vector3(0, 2, 0);
+    private _cachedTurretPosFrame = -1;
+    
+    // ОПТИМИЗАЦИЯ: Кэш для дорогих вычислений в updateCamera
+    private _cachedChassisRotY: number = 0;
+    private _cachedChassisRotYFrame = -1;
+    private _cachedBarrelWorldDir: Vector3 = new Vector3(0, 0, 1);
+    private _cachedBarrelWorldDirFrame = -1;
+    
+    // ОПТИМИЗАЦИЯ: Переиспользуемые векторы для избежания clone()
+    private _tmpCameraPos: Vector3 = new Vector3();
+    private _tmpCameraShake: Vector3 = new Vector3();
+    private _tmpAimPos: Vector3 = new Vector3();
+    private _tmpCameraTarget: Vector3 = new Vector3();
+    
     // Raycast cache для оптимизации проверки видимости цели
     private targetRaycastCache: { result: boolean, frame: number } | null = null;
     private readonly TARGET_RAYCAST_CACHE_FRAMES = 6;
@@ -301,6 +326,8 @@ export class Game {
     // Кэш цветов удалён - теперь в GameGarage
 
     constructor() {
+        console.log("[Game] ========== GAME CONSTRUCTOR STARTED ==========");
+        
         // Initialize game modules
         this.gameGarage = new GameGarage();
         this.gameConsumables = new GameConsumables();
@@ -317,6 +344,10 @@ export class Game {
         this.gameStatsOverlay = new GameStatsOverlay();
         this.gameMultiplayerCallbacks = new GameMultiplayerCallbacks();
         this.gameUpdate = new GameUpdate();
+        
+        // КРИТИЧНО: Регистрируем горячие клавиши СРАЗУ в конструкторе,
+        // независимо от загрузки меню! Это должно быть в НАЧАЛЕ конструктора!
+        this.setupGlobalKeyboardShortcuts();
         
         // Setup loaders callbacks
         this.gameLoaders.setOnMainMenuLoaded((mainMenu) => {
@@ -389,6 +420,8 @@ export class Game {
         
         // Сохраняем экземпляр Game в window для доступа из Menu
         (window as any).gameInstance = this;
+        
+        console.log("[Game] ========== GAME CONSTRUCTOR COMPLETED ==========");
     }
     
     // Lazy load MainMenu
@@ -445,6 +478,689 @@ export class Game {
         } catch (error) {
             logger.error("[Game] Failed to load Garage:", error);
         }
+    }
+    
+    // =====================================================================
+    // ГЛОБАЛЬНЫЕ ГОРЯЧИЕ КЛАВИШИ - регистрируются СРАЗУ в конструкторе
+    // =====================================================================
+    private setupGlobalKeyboardShortcuts(): void {
+        console.log("[Game] ========== REGISTERING GLOBAL KEYBOARD SHORTCUTS ==========");
+        logger.log("[Game] setupGlobalKeyboardShortcuts() called - registering Ctrl+0-9 and O+0-9 handlers");
+        
+        // Отслеживание зажатых клавиш для комбинаций O+0-9
+        const keysPressed = new Set<string>();
+        
+        // Обработчик отпускания клавиш
+        window.addEventListener("keyup", (e) => {
+            keysPressed.delete(e.code);
+            if (e.code === "KeyO") {
+                logger.log("[Game] O key released");
+                console.log("[Game] O key released, keysPressed:", Array.from(keysPressed));
+            }
+        }, true);
+        
+        // КРИТИЧНО: Обработчик Ctrl+0 с capture phase - должен быть ПЕРВЫМ!
+        const ctrl0Handler = (e: KeyboardEvent) => {
+            if (e.ctrlKey && (e.code === "Digit0" || e.code === "Numpad0")) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                logger.log("[Game] Ctrl+0 pressed - opening Physics Editor (CAPTURE)");
+                console.log("[Game] Ctrl+0 pressed - opening Physics Editor (CAPTURE)", e);
+                
+                if (!this.physicsEditor) {
+                    import("./physicsEditor").then((module) => {
+                        const { getPhysicsEditor } = module;
+                        this.physicsEditor = getPhysicsEditor();
+                        this.physicsEditor.setGame(this);
+                        if (this.tank) {
+                            this.physicsEditor.setTank(this.tank);
+                        }
+                        this.physicsEditor.toggle();
+                        logger.log("[Game] Physics editor opened");
+                        console.log("[Game] Physics editor opened");
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load physics editor:", error);
+                        console.error("[Game] Failed to load physics editor:", error);
+                    });
+                } else {
+                    this.physicsEditor.toggle();
+                    logger.log("[Game] Physics editor toggled");
+                    console.log("[Game] Physics editor toggled");
+                }
+            }
+        };
+        window.addEventListener("keydown", ctrl0Handler, true); // CAPTURE PHASE - срабатывает ПЕРВЫМ!
+        console.log("[Game] Ctrl+0 handler registered with capture phase");
+        
+        // КРИТИЧНО: Единый обработчик Ctrl+1-9 с capture phase - перехватывает ДО браузера!
+        const ctrlHotkeysHandler = (e: KeyboardEvent) => {
+            // РАННЯЯ ДИАГНОСТИКА - проверяем что обработчик вообще вызывается
+            if (e.ctrlKey && (e.code.startsWith("Digit") || e.code.startsWith("Numpad"))) {
+                const digit = e.code.replace("Digit", "").replace("Numpad", "");
+                console.log(`[Game] CAPTURE HANDLER: Ctrl+${digit} detected!`, {
+                    code: e.code,
+                    ctrlKey: e.ctrlKey,
+                    defaultPrevented: e.defaultPrevented,
+                    eventPhase: e.eventPhase
+                });
+                logger.log(`[Game] CAPTURE HANDLER: Ctrl+${digit} detected!`);
+            }
+            
+            if (!e.ctrlKey) return;
+            
+            // ДИАГНОСТИКА
+            if (e.code.startsWith("Digit") || e.code.startsWith("Numpad")) {
+                const digit = e.code.replace("Digit", "").replace("Numpad", "");
+                logger.log(`[Game] Ctrl+${digit} detected in CAPTURE handler`);
+                console.log(`[Game] Ctrl+${digit} detected in CAPTURE handler`, e);
+            }
+            
+            // Ctrl+1: Help/Controls Menu
+            if (e.code === "Digit1" || e.code === "Numpad1") {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                if (!this.helpMenu) {
+                    logger.log("[Game] Loading help menu (Ctrl+1 CAPTURE)...");
+                    console.log("[Game] Loading help menu (Ctrl+1 CAPTURE)...");
+                    import("./helpMenu").then(({ HelpMenu }) => {
+                        console.log("[Game] HelpMenu module loaded, creating instance...");
+                        this.helpMenu = new HelpMenu();
+                        console.log("[Game] HelpMenu instance created:", this.helpMenu);
+                        this.helpMenu.setGame(this);
+                        console.log("[Game] setGame() called");
+                        if (typeof this.helpMenu.toggle === 'function') {
+                            console.log("[Game] Calling helpMenu.toggle()...");
+                            this.helpMenu.toggle();
+                            console.log("[Game] helpMenu.toggle() called");
+                            logger.log("[Game] Help menu loaded and toggled (Ctrl+1)");
+                        } else {
+                            console.error("[Game] helpMenu.toggle is NOT a function!");
+                        }
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load help menu:", error);
+                        console.error("[Game] Failed to load help menu:", error);
+                        this.helpMenu = undefined;
+                    });
+                } else {
+                    console.log("[Game] Help menu exists, calling toggle()...");
+                    if (typeof this.helpMenu.toggle === 'function') {
+                        this.helpMenu.toggle();
+                        logger.log("[Game] Help menu toggled (Ctrl+1)");
+                        console.log("[Game] Help menu toggled (Ctrl+1)");
+                    } else {
+                        console.error("[Game] helpMenu.toggle is NOT a function on existing instance!");
+                    }
+                }
+                return;
+            }
+            
+            // Ctrl+2: Screenshot Panel
+            if (e.code === "Digit2" || e.code === "Numpad2") {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                logger.log("[Game] Ctrl+2 pressed - opening screenshot panel (CAPTURE)");
+                this.openScreenshotPanel().catch(error => {
+                    logger.error("[Game] Failed to open screenshot panel:", error);
+                });
+                return;
+            }
+            
+            // Ctrl+3: Debug Dashboard
+            if (e.code === "Digit3" || e.code === "Numpad3") {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                if (!this.debugDashboard) {
+                    if (!this.engine || !this.scene) {
+                        logger.warn("[Game] Cannot load debug dashboard: engine or scene not initialized");
+                        return;
+                    }
+                    logger.log("[Game] Loading debug dashboard (Ctrl+3 CAPTURE)...");
+                    import("./debugDashboard").then(({ DebugDashboard }) => {
+                        this.debugDashboard = new DebugDashboard(this.engine, this.scene);
+                        if (this.chunkSystem) {
+                            this.debugDashboard.setChunkSystem(this.chunkSystem);
+                        }
+                        this.debugDashboard.setGame(this);
+                        if (this.tank) {
+                            this.debugDashboard.setTank(this.tank);
+                        }
+                        if (typeof this.debugDashboard.toggle === 'function') {
+                            this.debugDashboard.toggle();
+                        }
+                        logger.log("[Game] Debug dashboard loaded (Ctrl+3)");
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load debug dashboard:", error);
+                        this.debugDashboard = undefined;
+                    });
+                } else {
+                    if (typeof this.debugDashboard.toggle === 'function') {
+                        this.debugDashboard.toggle();
+                        logger.log("[Game] Debug dashboard toggled (Ctrl+3)");
+                    }
+                }
+                return;
+            }
+            
+            // Ctrl+4: Physics Panel
+            if (e.code === "Digit4" || e.code === "Numpad4") {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                if (!this.physicsPanel) {
+                    logger.log("[Game] Loading physics panel (Ctrl+4 CAPTURE)...");
+                    import("./physicsPanel").then(({ PhysicsPanel }) => {
+                        this.physicsPanel = new PhysicsPanel();
+                        this.physicsPanel.setGame(this);
+                        if (this.tank) {
+                            this.physicsPanel.setTank(this.tank);
+                        }
+                        if (typeof this.physicsPanel.toggle === 'function') {
+                            this.physicsPanel.toggle();
+                            logger.log("[Game] Physics panel loaded and toggled (Ctrl+4)");
+                        }
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load physics panel:", error);
+                        this.physicsPanel = undefined;
+                    });
+                } else {
+                    if (typeof this.physicsPanel.toggle === 'function') {
+                        this.physicsPanel.toggle();
+                        logger.log("[Game] Physics panel toggled (Ctrl+4)");
+                    }
+                }
+                return;
+            }
+            
+            // Ctrl+5: System Terminal
+            if (e.code === "Digit5" || e.code === "Numpad5") {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                this.ensureChatSystem().then(() => {
+                    if (this.chatSystem && typeof this.chatSystem.toggleTerminal === 'function') {
+                        this.chatSystem.toggleTerminal();
+                        logger.log("[Game] System terminal toggled (Ctrl+5)");
+                    } else {
+                        logger.error("[Game] ChatSystem.toggleTerminal is not available");
+                    }
+                }).catch(error => {
+                    logger.error("[Game] Failed to ensure ChatSystem:", error);
+                });
+                return;
+            }
+            
+            // Ctrl+6: Session Settings
+            if (e.code === "Digit6" || e.code === "Numpad6") {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                if (!this.sessionSettings) {
+                    logger.log("[Game] Loading session settings (Ctrl+6 CAPTURE)...");
+                    import("./sessionSettings").then(({ SessionSettings }) => {
+                        this.sessionSettings = new SessionSettings();
+                        this.sessionSettings.setGame(this);
+                        if (typeof (this.sessionSettings as any).toggle === 'function') {
+                            (this.sessionSettings as any).toggle();
+                            logger.log("[Game] Session settings loaded and toggled (Ctrl+6)");
+                        }
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load session settings:", error);
+                        this.sessionSettings = undefined;
+                    });
+                } else {
+                    if (typeof (this.sessionSettings as any).toggle === 'function') {
+                        (this.sessionSettings as any).toggle();
+                        logger.log("[Game] Session settings toggled (Ctrl+6)");
+                    }
+                }
+                return;
+            }
+            
+            // Ctrl+7: Cheat Menu
+            if (e.code === "Digit7" || e.code === "Numpad7") {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                if (!this.cheatMenu) {
+                    logger.log("[Game] Loading cheat menu (Ctrl+7 CAPTURE)...");
+                    import("./cheatMenu").then(({ CheatMenu }) => {
+                        this.cheatMenu = new CheatMenu();
+                        if (this.tank) {
+                            this.cheatMenu.setTank(this.tank);
+                        }
+                        this.cheatMenu.setGame(this);
+                        if (typeof this.cheatMenu.toggle === 'function') {
+                            this.cheatMenu.toggle();
+                        }
+                        logger.log("[Game] Cheat menu loaded (Ctrl+7)");
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load cheat menu:", error);
+                        this.cheatMenu = undefined;
+                    });
+                } else {
+                    if (typeof this.cheatMenu.toggle === 'function') {
+                        this.cheatMenu.toggle();
+                        logger.log("[Game] Cheat menu toggled (Ctrl+7)");
+                    }
+                }
+                return;
+            }
+            
+            // Ctrl+8: Network Menu
+            if (e.code === "Digit8" || e.code === "Numpad8") {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                if (!this.networkMenu) {
+                    logger.log("[Game] Loading network menu (Ctrl+8 CAPTURE)...");
+                    import("./networkMenu").then(({ NetworkMenu }) => {
+                        this.networkMenu = new NetworkMenu();
+                        this.networkMenu.setGame(this);
+                        if (typeof this.networkMenu.toggle === 'function') {
+                            this.networkMenu.toggle();
+                            logger.log("[Game] Network menu loaded and toggled (Ctrl+8)");
+                        }
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load network menu:", error);
+                        this.networkMenu = undefined;
+                    });
+                } else {
+                    if (typeof this.networkMenu.toggle === 'function') {
+                        this.networkMenu.toggle();
+                        logger.log("[Game] Network menu toggled (Ctrl+8)");
+                    }
+                }
+                return;
+            }
+            
+            // Ctrl+9: World Generation Menu
+            if (e.code === "Digit9" || e.code === "Numpad9") {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                if (!this.worldGenerationMenu) {
+                    logger.log("[Game] Loading world generation menu (Ctrl+9 CAPTURE)...");
+                    import("./worldGenerationMenu").then(({ WorldGenerationMenu }) => {
+                        this.worldGenerationMenu = new WorldGenerationMenu();
+                        this.worldGenerationMenu.setGame(this);
+                        if (typeof this.worldGenerationMenu.toggle === 'function') {
+                            this.worldGenerationMenu.toggle();
+                            logger.log("[Game] World generation menu loaded and toggled (Ctrl+9)");
+                        }
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load world generation menu:", error);
+                        this.worldGenerationMenu = undefined;
+                    });
+                } else {
+                    if (typeof this.worldGenerationMenu.toggle === 'function') {
+                        this.worldGenerationMenu.toggle();
+                        logger.log("[Game] World generation menu toggled (Ctrl+9)");
+                    } else if (typeof (this.worldGenerationMenu as any).show === 'function') {
+                        (this.worldGenerationMenu as any).show();
+                        logger.log("[Game] World generation menu shown (Ctrl+9)");
+                    }
+                }
+                return;
+            }
+        };
+        window.addEventListener("keydown", ctrlHotkeysHandler, true); // CAPTURE PHASE!
+        console.log("[Game] Ctrl+1-9 handler registered with capture phase");
+        
+        // Главный обработчик для O+0-9 и других горячих клавиш (БЕЗ Ctrl+1-9!)
+        window.addEventListener("keydown", (e) => {
+            // Отслеживание нажатия O (для комбинаций O+0-9)
+            if (e.code === "KeyO" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                keysPressed.add("KeyO");
+                logger.log("[Game] O key pressed, ready for O+0-9 combinations");
+                console.log("[Game] O key pressed, keysPressed:", Array.from(keysPressed));
+                // Не возвращаем, чтобы O могла использоваться для других целей
+            }
+            
+            // Проверяем, зажата ли клавиша O
+            const oKeyPressed = keysPressed.has("KeyO");
+            
+            // ДИАГНОСТИКА: Логируем все Ctrl+цифры и O+цифры
+            if (e.ctrlKey && (e.code.startsWith("Digit") || e.code.startsWith("Numpad"))) {
+                const digit = e.code.replace("Digit", "").replace("Numpad", "");
+                logger.log(`[Game] Global handler: Ctrl+${digit} detected`);
+                console.log(`[Game] Global handler: Ctrl+${digit} detected`, {
+                    code: e.code,
+                    key: e.key,
+                    ctrlKey: e.ctrlKey,
+                    defaultPrevented: e.defaultPrevented
+                });
+            }
+            
+            if (oKeyPressed && (e.code.startsWith("Digit") || e.code.startsWith("Numpad"))) {
+                const digit = e.code.replace("Digit", "").replace("Numpad", "");
+                logger.log(`[Game] Global handler: O+${digit} detected`);
+                console.log(`[Game] Global handler: O+${digit} detected`, {
+                    code: e.code,
+                    key: e.key,
+                    oKeyPressed: oKeyPressed,
+                    keysPressed: Array.from(keysPressed)
+                });
+            }
+            
+            // =====================================================================
+            // === АЛЬТЕРНАТИВНЫЕ КОМБИНАЦИИ O+0-9 (не конфликтуют с браузером) ===
+            // =====================================================================
+            
+            // O+0: Physics Editor
+            if (oKeyPressed && (e.code === "Digit0" || e.code === "Numpad0")) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                if (!this.physicsEditor) {
+                    import("./physicsEditor").then((module) => {
+                        const { getPhysicsEditor } = module;
+                        this.physicsEditor = getPhysicsEditor();
+                        this.physicsEditor.setGame(this);
+                        if (this.tank) {
+                            this.physicsEditor.setTank(this.tank);
+                        }
+                        this.physicsEditor.toggle();
+                        logger.log("[Game] Physics editor opened (O+0)");
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load physics editor:", error);
+                    });
+                } else {
+                    this.physicsEditor.toggle();
+                    logger.log("[Game] Physics editor toggled (O+0)");
+                }
+                return;
+            }
+            
+            // O+1: Help/Controls Menu
+            if (oKeyPressed && (e.code === "Digit1" || e.code === "Numpad1")) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                if (!this.helpMenu) {
+                    import("./helpMenu").then(({ HelpMenu }) => {
+                        this.helpMenu = new HelpMenu();
+                        this.helpMenu.setGame(this);
+                        if (typeof this.helpMenu.toggle === 'function') {
+                            this.helpMenu.toggle();
+                            logger.log("[Game] Help menu loaded and toggled (O+1)");
+                        }
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load help menu:", error);
+                        this.helpMenu = undefined;
+                    });
+                } else {
+                    if (typeof this.helpMenu.toggle === 'function') {
+                        this.helpMenu.toggle();
+                        logger.log("[Game] Help menu toggled (O+1)");
+                    }
+                }
+                return;
+            }
+            
+            // O+2: Screenshot Panel
+            if (oKeyPressed && (e.code === "Digit2" || e.code === "Numpad2")) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                this.openScreenshotPanel().catch(error => {
+                    logger.error("[Game] Failed to open screenshot panel:", error);
+                });
+                logger.log("[Game] Screenshot panel opening (O+2)");
+                return;
+            }
+            
+            // O+3: Debug Dashboard
+            if (oKeyPressed && (e.code === "Digit3" || e.code === "Numpad3")) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                if (!this.debugDashboard) {
+                    if (!this.engine || !this.scene) {
+                        logger.warn("[Game] Cannot load debug dashboard: engine or scene not initialized");
+                        return;
+                    }
+                    import("./debugDashboard").then(({ DebugDashboard }) => {
+                        this.debugDashboard = new DebugDashboard(this.engine, this.scene);
+                        if (this.chunkSystem) {
+                            this.debugDashboard.setChunkSystem(this.chunkSystem);
+                        }
+                        this.debugDashboard.setGame(this);
+                        if (this.tank) {
+                            this.debugDashboard.setTank(this.tank);
+                        }
+                        if (typeof this.debugDashboard.toggle === 'function') {
+                            this.debugDashboard.toggle();
+                        }
+                        logger.log("[Game] Debug dashboard loaded (O+3)");
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load debug dashboard:", error);
+                        this.debugDashboard = undefined;
+                    });
+                } else {
+                    if (typeof this.debugDashboard.toggle === 'function') {
+                        this.debugDashboard.toggle();
+                        logger.log("[Game] Debug dashboard toggled (O+3)");
+                    }
+                }
+                return;
+            }
+            
+            // O+4: Physics Panel
+            if (oKeyPressed && (e.code === "Digit4" || e.code === "Numpad4")) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                if (!this.physicsPanel) {
+                    import("./physicsPanel").then(({ PhysicsPanel }) => {
+                        this.physicsPanel = new PhysicsPanel();
+                        this.physicsPanel.setGame(this);
+                        if (this.tank) {
+                            this.physicsPanel.setTank(this.tank);
+                        }
+                        if (typeof this.physicsPanel.toggle === 'function') {
+                            this.physicsPanel.toggle();
+                            logger.log("[Game] Physics panel loaded and toggled (O+4)");
+                        }
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load physics panel:", error);
+                        this.physicsPanel = undefined;
+                    });
+                } else {
+                    if (typeof this.physicsPanel.toggle === 'function') {
+                        this.physicsPanel.toggle();
+                        logger.log("[Game] Physics panel toggled (O+4)");
+                    }
+                }
+                return;
+            }
+            
+            // O+5: System Terminal
+            if (oKeyPressed && (e.code === "Digit5" || e.code === "Numpad5")) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                this.ensureChatSystem().then(() => {
+                    if (this.chatSystem && typeof this.chatSystem.toggleTerminal === 'function') {
+                        this.chatSystem.toggleTerminal();
+                        logger.log("[Game] System terminal toggled (O+5)");
+                    } else {
+                        logger.error("[Game] ChatSystem.toggleTerminal is not available");
+                    }
+                }).catch(error => {
+                    logger.error("[Game] Failed to ensure ChatSystem:", error);
+                });
+                return;
+            }
+            
+            // O+6: Session Settings
+            if (oKeyPressed && (e.code === "Digit6" || e.code === "Numpad6")) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                if (!this.sessionSettings) {
+                    import("./sessionSettings").then(({ SessionSettings }) => {
+                        this.sessionSettings = new SessionSettings();
+                        this.sessionSettings.setGame(this);
+                        if (typeof (this.sessionSettings as any).toggle === 'function') {
+                            (this.sessionSettings as any).toggle();
+                            logger.log("[Game] Session settings loaded and toggled (O+6)");
+                        }
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load session settings:", error);
+                        this.sessionSettings = undefined;
+                    });
+                } else {
+                    if (typeof (this.sessionSettings as any).toggle === 'function') {
+                        (this.sessionSettings as any).toggle();
+                        logger.log("[Game] Session settings toggled (O+6)");
+                    }
+                }
+                return;
+            }
+            
+            // O+7: Cheat Menu
+            if (oKeyPressed && (e.code === "Digit7" || e.code === "Numpad7")) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                if (!this.cheatMenu) {
+                    import("./cheatMenu").then(({ CheatMenu }) => {
+                        this.cheatMenu = new CheatMenu();
+                        if (this.tank) {
+                            this.cheatMenu.setTank(this.tank);
+                        }
+                        this.cheatMenu.setGame(this);
+                        if (typeof this.cheatMenu.toggle === 'function') {
+                            this.cheatMenu.toggle();
+                        }
+                        logger.log("[Game] Cheat menu loaded (O+7)");
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load cheat menu:", error);
+                        this.cheatMenu = undefined;
+                    });
+                } else {
+                    if (typeof this.cheatMenu.toggle === 'function') {
+                        this.cheatMenu.toggle();
+                        logger.log("[Game] Cheat menu toggled (O+7)");
+                    }
+                }
+                return;
+            }
+            
+            // O+8: Network Menu
+            if (oKeyPressed && (e.code === "Digit8" || e.code === "Numpad8")) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                if (!this.networkMenu) {
+                    import("./networkMenu").then(({ NetworkMenu }) => {
+                        this.networkMenu = new NetworkMenu();
+                        this.networkMenu.setGame(this);
+                        if (typeof this.networkMenu.toggle === 'function') {
+                            this.networkMenu.toggle();
+                            logger.log("[Game] Network menu loaded and toggled (O+8)");
+                        }
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load network menu:", error);
+                        this.networkMenu = undefined;
+                    });
+                } else {
+                    if (typeof this.networkMenu.toggle === 'function') {
+                        this.networkMenu.toggle();
+                        logger.log("[Game] Network menu toggled (O+8)");
+                    }
+                }
+                return;
+            }
+            
+            // O+9: World Generation Menu
+            if (oKeyPressed && (e.code === "Digit9" || e.code === "Numpad9")) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                if (!this.worldGenerationMenu) {
+                    import("./worldGenerationMenu").then(({ WorldGenerationMenu }) => {
+                        this.worldGenerationMenu = new WorldGenerationMenu();
+                        this.worldGenerationMenu.setGame(this);
+                        if (typeof this.worldGenerationMenu.toggle === 'function') {
+                            this.worldGenerationMenu.toggle();
+                            logger.log("[Game] World generation menu loaded and toggled (O+9)");
+                        }
+                    }).catch(error => {
+                        logger.error("[Game] Failed to load world generation menu:", error);
+                        this.worldGenerationMenu = undefined;
+                    });
+                } else {
+                    if (typeof this.worldGenerationMenu.toggle === 'function') {
+                        this.worldGenerationMenu.toggle();
+                        logger.log("[Game] World generation menu toggled (O+9)");
+                    }
+                }
+                return;
+            }
+            
+            // === АЛЬТЕРНАТИВНЫЕ F1–F10 ДЛЯ ТЕХ ЖЕ ПАНЕЛЕЙ ===
+            // ВАЖНО: Ctrl+0-9 обрабатываются в отдельном обработчике с capture phase выше
+            // F-клавиши дублируют Ctrl+цифры - РАБОТАЮТ ВСЕГДА
+            if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+                const fKeyToDigit: Record<string, string> = {
+                    F1: "Digit1",
+                    F2: "Digit2",
+                    F3: "Digit3",
+                    F4: "Digit4",
+                    F5: "Digit5",
+                    F6: "Digit6",
+                    F7: "Digit7",
+                    F8: "Digit8",
+                    F9: "Digit9",
+                    F10: "Digit0",
+                };
+                const mapped = fKeyToDigit[e.code as keyof typeof fKeyToDigit];
+                if (mapped) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // Симулируем нажатие Ctrl+цифра
+                    const synthetic = new KeyboardEvent("keydown", {
+                        key: mapped === "Digit0" ? "0" : mapped.replace("Digit", ""),
+                        code: mapped,
+                        ctrlKey: true,
+                        shiftKey: false,
+                        altKey: false,
+                        metaKey: false,
+                        bubbles: true,
+                        cancelable: true,
+                    });
+                    window.dispatchEvent(synthetic);
+                    return;
+                }
+            }
+        }, true); // CAPTURE PHASE - срабатывает ПЕРВЫМ!
+        
+        console.log("[Game] ========== GLOBAL KEYBOARD SHORTCUTS REGISTERED ==========");
+        logger.log("[Game] Global keyboard shortcuts registered successfully");
     }
     
     // Setup menu callbacks after menu is loaded
@@ -656,13 +1372,9 @@ export class Game {
             this.scene.blockMaterialDirtyMechanism = true;
         }
         
-        // Setup ESC for pause and Garage
-        // Use global keydown handler for all high-level hotkeys (garage, panels, admin tools)
-        // IMPORTANT: use capture phase (third argument = true), чтобы ловить сочетания
-        // Ctrl+цифры и F-клавиши до того, как их перехватит браузер или другие слушатели.
+        // Обработчики для игровых клавиш (B, G, Tab, ESC, M, N, 1-5)
+        // ВАЖНО: Ctrl+0-9 обрабатываются в setupGlobalKeyboardShortcuts()
         window.addEventListener("keydown", (e) => {
-            // ИСПРАВЛЕНИЕ: Обрабатываем Ctrl+цифры в первую очередь с capture phase
-            // Это гарантирует что наши обработчики сработают до других
             // Open/Close garage MENU with B key - В ЛЮБОЙ МОМЕНТ (даже до старта игры)
             // G key используется для управления воротами гаража во время игры
             if (e.code === "KeyB" || e.key === "b" || e.key === "B") {
@@ -792,8 +1504,11 @@ export class Game {
                             // КРИТИЧНО: Для raycast нужна МИРОВАЯ позиция ствола, не локальная!
                             const barrelWorldMatrix = this.tank.barrel.getWorldMatrix();
                             const barrelDir = Vector3.TransformNormal(Vector3.Forward(), barrelWorldMatrix).normalize();
+                            // ОПТИМИЗАЦИЯ: Используем кэшированную позицию ствола
                             // Для raycast нужна абсолютная позиция ствола в мировых координатах
-                            const barrelPos = this.tank.barrel.getAbsolutePosition();
+                            const barrelPos = this.tank.barrel ? 
+                                (this.tank.barrel.getAbsolutePosition ? this.tank.barrel.getAbsolutePosition() : this.tank.barrel.position) :
+                                new Vector3(0, 2.5, 0);
                             
                             // Используем raycast для точного определения, какая ворота попадает в луч
                             const rayDistance = 100; // Максимальная дистанция луча
@@ -875,386 +1590,12 @@ export class Game {
                 return;
             }
 
-            // === АЛЬТЕРНАТИВНЫЕ F1–F10 ДЛЯ ТЕХ ЖЕ ПАНЕЛЕЙ ===
-            // F-клавиши дублируют Ctrl+цифры - РАБОТАЮТ ВСЕГДА (не только в игре)
-            if (!e.ctrlKey && !e.altKey && !e.metaKey) {
-                const fKeyToDigit: Record<string, string> = {
-                    F1: "Digit1",
-                    F2: "Digit2",
-                    F3: "Digit3",
-                    F4: "Digit4",
-                    F5: "Digit5",
-                    F6: "Digit6",
-                    F7: "Digit7",
-                    F8: "Digit8",
-                    F9: "Digit9",
-                    F10: "Digit0",
-                };
-                const mapped = fKeyToDigit[e.code as keyof typeof fKeyToDigit];
-                if (mapped) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    // Симулируем нажатие Ctrl+цифра, чтобы переиспользовать уже существующую логику
-                    const synthetic = new KeyboardEvent("keydown", {
-                        key: mapped === "Digit0" ? "0" : mapped.replace("Digit", ""),
-                        code: mapped,
-                        ctrlKey: true,
-                        shiftKey: false,
-                        altKey: false,
-                        metaKey: false,
-                        bubbles: true,
-                        cancelable: true,
-                    });
-                    window.dispatchEvent(synthetic);
-                    return;
-                }
-            }
-
-            // === КОМБИНАЦИИ КЛАВИШ CTRL+1-9,0 ===
-            // Обрабатываем ПЕРЕД другими обработчиками чтобы не блокировались
-            
-            // Ctrl+1: Help/Controls Menu (lazy loaded) - работает всегда
-            if (e.ctrlKey && (e.code === "Digit1" || e.code === "Numpad1")) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                if (!this.helpMenu) {
-                    // Lazy load help menu on first use
-                    logger.log("[Game] Loading help menu (Ctrl+1)...");
-                    import("./helpMenu").then(({ HelpMenu }) => {
-                        this.helpMenu = new HelpMenu();
-                        this.helpMenu.setGame(this);
-                        // Toggle visibility after loading
-                        if (typeof this.helpMenu.toggle === 'function') {
-                            this.helpMenu.toggle();
-                        }
-                        logger.log("[Game] Help menu loaded successfully");
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load help menu:", error);
-                        if (this.hud) {
-                            this.hud.showMessage("Failed to load Help Menu", "#f00", 3000);
-                        }
-                        // Сбрасываем ссылку для повторной попытки
-                        this.helpMenu = undefined;
-                    });
-                } else {
-                    // Toggle existing menu
-                    if (typeof this.helpMenu.toggle === 'function') {
-                        this.helpMenu.toggle();
-                        logger.log("[Game] Help menu toggled");
-                    }
-                }
-                return;
-            }
-            
-            // Ctrl+2: Screenshot Panel (lazy loaded) - работает всегда
-            if (e.ctrlKey && (e.code === "Digit2" || e.code === "Numpad2")) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                // Debug: Ctrl+2 pressed for screenshot panel
-                this.openScreenshotPanel();
-                return;
-            }
-            
-            // Ctrl+3: Debug Dashboard (lazy loaded) - работает только в игре
-            if (e.ctrlKey && (e.code === "Digit3" || e.code === "Numpad3")) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                if (!this.debugDashboard) {
-                    // Lazy load debug dashboard on first use
-                    if (!this.engine || !this.scene) {
-                        logger.warn("[Game] Cannot load debug dashboard: engine or scene not initialized");
-                        if (this.hud) {
-                            this.hud.showMessage("Debug Dashboard: запустите игру сначала", "#f00", 3000);
-                        }
-                        return;
-                    }
-                    logger.log("[Game] Loading debug dashboard (Ctrl+3 / F3)...");
-                    import("./debugDashboard").then(({ DebugDashboard }) => {
-                        this.debugDashboard = new DebugDashboard(this.engine, this.scene);
-                        if (this.chunkSystem) {
-                            this.debugDashboard.setChunkSystem(this.chunkSystem);
-                        }
-                        this.debugDashboard.setGame(this);
-                        if (this.tank) {
-                            this.debugDashboard.setTank(this.tank);
-                        }
-                        // Toggle visibility after loading
-                        if (typeof this.debugDashboard.toggle === 'function') {
-                            this.debugDashboard.toggle();
-                        }
-                        logger.log("[Game] Debug dashboard loaded successfully");
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load debug dashboard:", error);
-                        if (this.hud) {
-                            this.hud.showMessage("Failed to load Debug Dashboard", "#f00", 3000);
-                        }
-                        this.debugDashboard = undefined;
-                    });
-                } else {
-                    // Toggle existing dashboard
-                    if (typeof this.debugDashboard.toggle === 'function') {
-                        this.debugDashboard.toggle();
-                        logger.log("[Game] Debug dashboard toggled");
-                    }
-                }
-                return;
-            }
-            
-            // Ctrl+4: Physics Panel (lazy loaded) - работает ВСЕГДА
-            if (e.ctrlKey && (e.code === "Digit4" || e.code === "Numpad4")) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                if (!this.physicsPanel) {
-                    // Lazy load physics panel on first use
-                    logger.log("[Game] Loading physics panel (Ctrl+4 / F4)...");
-                    import("./physicsPanel").then(({ PhysicsPanel }) => {
-                        this.physicsPanel = new PhysicsPanel();
-                        this.physicsPanel.setGame(this);
-                        if (this.tank) {
-                            this.physicsPanel.setTank(this.tank);
-                        }
-                        // Toggle visibility after loading
-                        if (typeof this.physicsPanel.toggle === 'function') {
-                            this.physicsPanel.toggle();
-                        }
-                        logger.log("[Game] Physics panel loaded successfully");
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load physics panel:", error);
-                        if (this.hud) {
-                            this.hud.showMessage("Failed to load Physics Panel", "#f00", 3000);
-                        }
-                        // Сбрасываем ссылку для повторной попытки
-                        this.physicsPanel = undefined;
-                    });
-                } else {
-                    // Toggle existing panel
-                    if (typeof this.physicsPanel.toggle === 'function') {
-                        this.physicsPanel.toggle();
-                        logger.log("[Game] Physics panel toggled");
-                    }
-                }
-                return;
-            }
-            
-            // Ctrl+5: System Terminal - работает всегда
-            if (e.ctrlKey && (e.code === "Digit5" || e.code === "Numpad5")) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                // Убеждаемся что chatSystem инициализирован
-                this.ensureChatSystem().then(() => {
-                    if (this.chatSystem && typeof this.chatSystem.toggleTerminal === 'function') {
-                        this.chatSystem.toggleTerminal();
-                        logger.log("[Game] System terminal toggled");
-                    } else {
-                        logger.error("[Game] ChatSystem.toggleTerminal is not available");
-                        if (this.hud) {
-                            this.hud.showMessage("System Terminal not available", "#f00", 3000);
-                        }
-                    }
-                }).catch(error => {
-                    logger.error("[Game] Failed to ensure ChatSystem for Ctrl+5:", error);
-                    if (this.hud) {
-                        this.hud.showMessage("Failed to initialize System Terminal", "#f00", 3000);
-                    }
-                });
-                return;
-            }
-            
-            // Ctrl+6: Session Settings (lazy loaded) - работает всегда
-            if (e.ctrlKey && (e.code === "Digit6" || e.code === "Numpad6")) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                if (!this.sessionSettings) {
-                    // Lazy load session settings on first use
-                    logger.log("[Game] Loading session settings (Ctrl+6)...");
-                    import("./sessionSettings").then(({ SessionSettings }) => {
-                        this.sessionSettings = new SessionSettings();
-                        this.sessionSettings.setGame(this);
-                        // Toggle visibility after loading
-                        if (typeof (this.sessionSettings as any).toggle === 'function') {
-                            (this.sessionSettings as any).toggle();
-                        }
-                        logger.log("[Game] Session settings loaded successfully");
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load session settings:", error);
-                        if (this.hud) {
-                            this.hud.showMessage("Failed to load Session Settings", "#f00", 3000);
-                        }
-                        // Сбрасываем ссылку для повторной попытки
-                        this.sessionSettings = undefined;
-                    });
-                } else {
-                    // Toggle existing settings
-                    if (typeof (this.sessionSettings as any).toggle === 'function') {
-                        (this.sessionSettings as any).toggle();
-                        logger.log("[Game] Session settings toggled");
-                    }
-                }
-                return;
-            }
-            
-            // Ctrl+7: Cheat Menu (lazy loaded) - работает ВСЕГДА
-            if (e.ctrlKey && (e.code === "Digit7" || e.code === "Numpad7")) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                if (!this.cheatMenu) {
-                    // Lazy load cheat menu on first use
-                    logger.log("[Game] Loading cheat menu (Ctrl+7 / F7)...");
-                    import("./cheatMenu").then(({ CheatMenu }) => {
-                        this.cheatMenu = new CheatMenu();
-                        if (this.tank) {
-                            this.cheatMenu.setTank(this.tank);
-                        }
-                        this.cheatMenu.setGame(this);
-                        // Toggle visibility after loading
-                        if (typeof this.cheatMenu.toggle === 'function') {
-                            this.cheatMenu.toggle();
-                        }
-                        logger.log("[Game] Cheat menu loaded successfully");
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load cheat menu:", error);
-                        if (this.hud) {
-                            this.hud.showMessage("Failed to load Cheat Menu", "#f00", 3000);
-                        }
-                        // Сбрасываем ссылку для повторной попытки
-                        this.cheatMenu = undefined;
-                    });
-                } else {
-                    // Toggle existing menu
-                    if (typeof this.cheatMenu.toggle === 'function') {
-                        this.cheatMenu.toggle();
-                        logger.log("[Game] Cheat menu toggled");
-                    }
-                }
-                return;
-            }
-            
-            // Ctrl+8: Network Menu (lazy loaded) - работает всегда
-            if (e.ctrlKey && (e.code === "Digit8" || e.code === "Numpad8")) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                if (!this.networkMenu) {
-                    // Lazy load network menu on first use
-                    logger.log("[Game] Loading network menu (Ctrl+8)...");
-                    import("./networkMenu").then(({ NetworkMenu }) => {
-                        this.networkMenu = new NetworkMenu();
-                        this.networkMenu.setGame(this);
-                        // ИСПРАВЛЕНИЕ: НЕ открываем меню автоматически при загрузке
-                        // Меню должно открываться только при явном нажатии F8
-                        // if (typeof this.networkMenu.toggle === 'function') {
-                        //     this.networkMenu.toggle();
-                        // }
-                        logger.log("[Game] Network menu loaded successfully (not auto-opened)");
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load network menu:", error);
-                        if (this.hud) {
-                            this.hud.showMessage("Failed to load Network Menu", "#f00", 3000);
-                        }
-                        // Сбрасываем ссылку для повторной попытки
-                        this.networkMenu = undefined;
-                    });
-                } else {
-                    // Toggle existing menu
-                    if (typeof this.networkMenu.toggle === 'function') {
-                        this.networkMenu.toggle();
-                        logger.log("[Game] Network menu toggled");
-                    }
-                }
-                return;
-            }
-            
-            // Ctrl+0: Social Menu (Friends & Clans) (lazy loaded) - работает всегда
-            if (e.ctrlKey && (e.code === "Digit0" || e.code === "Numpad0")) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                if (!this.socialMenu) {
-                    // Lazy load social menu on first use
-                    logger.log("[Game] Loading social menu (Ctrl+0)...");
-                    import("./socialMenu").then(({ socialMenu }) => {
-                        this.socialMenu = socialMenu;
-                        // Toggle visibility after loading
-                        if (this.socialMenu && typeof this.socialMenu.toggle === 'function') {
-                            this.socialMenu.toggle();
-                        }
-                        logger.log("[Game] Social menu loaded successfully");
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load social menu:", error);
-                        if (this.hud) {
-                            this.hud.showMessage("Failed to load Social Menu", "#f00", 3000);
-                        }
-                        this.socialMenu = undefined;
-                    });
-                } else {
-                    // Toggle existing menu
-                    if (typeof this.socialMenu.toggle === 'function') {
-                        this.socialMenu.toggle();
-                        logger.log("[Game] Social menu toggled");
-                    }
-                }
-                return;
-            }
-            
             // Ctrl+Shift+M: Map Editor (lazy loaded)
             if (e.ctrlKey && e.shiftKey && (e.code === "KeyM") && this.gameStarted) {
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
                 void this.openMapEditorInternal();
-                return;
-            }
-            
-            // Ctrl+9: World Generation Menu (lazy loaded) - работает всегда
-            if (e.ctrlKey && (e.code === "Digit9" || e.code === "Numpad9")) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                if (!this.worldGenerationMenu) {
-                    // Lazy load world generation menu on first use
-                    logger.log("[Game] Loading world generation menu (Ctrl+9)...");
-                    import("./worldGenerationMenu").then(({ WorldGenerationMenu }) => {
-                        this.worldGenerationMenu = new WorldGenerationMenu();
-                        this.worldGenerationMenu.setGame(this);
-                        // Toggle visibility after loading
-                        if (typeof this.worldGenerationMenu.toggle === 'function') {
-                            this.worldGenerationMenu.toggle();
-                        }
-                        logger.log("[Game] World generation menu loaded successfully");
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load world generation menu:", error);
-                        if (this.hud) {
-                            this.hud.showMessage("Failed to load World Generation Menu", "#f00", 3000);
-                        }
-                        // Сбрасываем ссылку для повторной попытки
-                        this.worldGenerationMenu = undefined;
-                    });
-                } else {
-                    // Toggle existing menu
-                    if (typeof this.worldGenerationMenu.toggle === 'function') {
-                        this.worldGenerationMenu.toggle();
-                        logger.log("[Game] World generation menu toggled");
-                    } else if (typeof (this.worldGenerationMenu as any).show === 'function') {
-                        (this.worldGenerationMenu as any).show();
-                        logger.log("[Game] World generation menu shown");
-                    }
-                }
                 return;
             }
             
@@ -1311,6 +1652,11 @@ export class Game {
                 
                 // Если игра запущена, обрабатываем паузу и меню
                 // Закрываем все открытые меню перед паузой
+                // Physics Editor закрываем первым (имеет высокий приоритет)
+                if (this.physicsEditor && typeof this.physicsEditor.isVisible === 'function' && this.physicsEditor.isVisible()) {
+                    this.physicsEditor.hide();
+                    return;
+                }
                 if (this.helpMenu && typeof this.helpMenu.isVisible === 'function' && this.helpMenu.isVisible()) {
                     this.helpMenu.hide();
                     return;
@@ -1445,8 +1791,12 @@ export class Game {
         
         // КРИТИЧЕСКИ ВАЖНО: Подписка на onAfterPhysicsObservable будет добавлена в init() после создания сцены и включения физики
         
+        // КРИТИЧНО: НЕ запускаем render loop здесь - он будет запущен в init()
+        // Два render loop одновременно вызывают двойной рендеринг и нулевой FPS!
         // Оптимизированный render loop с проверкой готовности
         // ВАЖНО: Запускаем render loop только после создания engine и scene
+        // ОТКЛЮЧЕНО: Render loop теперь запускается только в init()
+        /*
         if (this.engine && this.scene) {
             this.engine.runRenderLoop(() => {
                 if (this.scene && this.engine) {
@@ -1482,13 +1832,18 @@ export class Game {
                 }
                 
                 // Рендерим сцену всегда (даже если игра на паузе, чтобы видеть меню)
+                // КРИТИЧНО: Обновляем логику ПЕРЕД рендерингом для правильного порядка
                 if (!this.gamePaused) {
-                    this.scene.render();
                     // Обновляем логику игры только если игра запущена
                     if (this.gameStarted) {
+                        // КРИТИЧНО: Синхронизируем _updateTick с GameUpdate для кэширования
+                        this._updateTick++;
+                        if (this._updateTick > 1000000) this._updateTick = 0;
                         // Используем GameUpdate для обновления
                         this.gameUpdate.update();
                     }
+                    // Рендерим сцену после обновления логики
+                    this.scene.render();
                 } else {
                     // Рендерим сцену даже на паузе, чтобы видеть игру за меню
                     this.scene.render();
@@ -1499,6 +1854,7 @@ export class Game {
         } else {
             logger.error("[Game] Cannot start render loop - engine or scene not initialized!");
         }
+        */
 
         window.addEventListener("resize", () => {
             this.engine.resize();
@@ -2041,10 +2397,7 @@ export class Game {
         }
     }
     
-    /**
-     * Запускает игру: инициализирует игровой цикл, спавнит игрока и врагов
-     * @returns {void}
-     */
+    // Запускает игру: инициализирует игровой цикл, спавнит игрока и врагов
     startGame(): void {
         logger.log("startGame() called, mapType:", this.currentMapType);
         this.gameStarted = true;
@@ -2161,15 +2514,15 @@ export class Game {
             
             // Убеждаемся, что камера видна
             if (this.tank && this.tank.chassis) {
-                // Используем getAbsolutePosition() для получения актуальной позиции
-                const tankPos = this.tank.chassis.getAbsolutePosition();
+                // ОПТИМИЗАЦИЯ: Используем кэшированную позицию танка
+                const tankPos = this.tank.getCachedChassisPosition();
                 const lookAt = tankPos.add(new Vector3(0, 1.0, 0));
                 this.camera.setTarget(lookAt);
                 this.camera.radius = this.settings.cameraDistance;
             }
             
-            // Принудительно обновляем камеру сразу
-            this.updateCamera();
+            // ОПТИМИЗАЦИЯ: Камера обновляется через onAfterPhysicsObservable, не вызываем напрямую
+            // this.updateCamera(); // УБРАНО для оптимизации
         } else {
             // Камера еще не создана - это нормально, она создастся в init()
             logger.debug("Camera not yet initialized, will be created in init()", {
@@ -2219,7 +2572,7 @@ export class Game {
             this.hud.setShowFPS(this.settings.showFPS);
             
             // ДИАГНОСТИКА: Проверяем состояние GUI при старте игры
-            logger.log("[Game] HUD state at game start - checking visibility...");
+            // logger.log("[Game] HUD state at game start - checking visibility...");
             // Убеждаемся, что renderTargetsEnabled включен (критично для GUI)
             if (this.scene && !this.scene.renderTargetsEnabled) {
                 logger.error("[Game] CRITICAL: renderTargetsEnabled is FALSE at game start! Fixing...");
@@ -2247,7 +2600,7 @@ export class Game {
             setTimeout(() => {
                 if (this.soundManager) {
                     logger.log("[Game] Starting engine sound immediately...");
-            this.soundManager.startEngine();
+                    this.soundManager.startEngine();
                     // Сразу обновляем звук на холостом ходу для гарантии слышимости
                     if (this.tank && this.tank.chassis) {
                         // ОПТИМИЗАЦИЯ: Используем кэшированную позицию вместо absolutePosition
@@ -2273,11 +2626,8 @@ export class Game {
         logger.log("[Game] Started! gameStarted:", this.gameStarted, "gamePaused:", this.gamePaused);
     }
     
-    /**
-     * Переключает состояние паузы игры
-     * @returns {void}
-     */
-    togglePause(): void {
+    // Переключает состояние паузы игры
+    public togglePause(): void {
         
         if (!this.gameStarted) return;
         
@@ -2300,10 +2650,7 @@ export class Game {
         logger.log(`[Game] ${this.gamePaused ? "Paused" : "Resumed"}`);
     }
     
-    /**
-     * Перезапускает игру на той же карте
-     * @returns {void}
-     */
+    // Перезапускает игру на той же карте
     restartGame(): void {
         logger.log("[Game] Restarting game on same map...");
         
@@ -2317,19 +2664,13 @@ export class Game {
         window.location.reload();
     }
     
-    /**
-     * Выходит из боя и возвращается в главное меню
-     * @returns {void}
-     */
+    // Выходит из боя и возвращается в главное меню
     exitBattle(): void {
         logger.log("[Game] Exiting battle...");
         window.location.reload();
     }
     
-    /**
-     * Останавливает игру: очищает все ресурсы, останавливает звуки, удаляет объекты
-     * @returns {void}
-     */
+    // Останавливает игру: очищает все ресурсы, останавливает звуки, удаляет объекты
     stopGame(): void {
         logger.log("[Game] Stopping game...");
         this.gameStarted = false;
@@ -2351,9 +2692,22 @@ export class Game {
             this.enemyTanks = [];
         }
         
-        // Очищаем танк игрока
+        // Очищаем танк игрока - полностью удаляем все части
         if (this.tank) {
-            if (this.tank.chassis) this.tank.chassis.dispose();
+            // Удаляем все меши танка
+            if (this.tank.chassis && !this.tank.chassis.isDisposed()) {
+                this.tank.chassis.dispose();
+            }
+            if (this.tank.turret && !this.tank.turret.isDisposed()) {
+                this.tank.turret.dispose();
+            }
+            if (this.tank.barrel && !this.tank.barrel.isDisposed()) {
+                this.tank.barrel.dispose();
+            }
+            // Удаляем физическое тело
+            if (this.tank.physicsBody) {
+                this.tank.physicsBody.dispose();
+            }
             this.tank = undefined;
         }
         
@@ -2390,12 +2744,7 @@ export class Game {
         }
     }
 
-    /**
-     * Инициализирует игру: создает сцену, загружает ресурсы, настраивает системы
-     * @async
-     * @returns {Promise<void>} Promise, который разрешается после завершения инициализации
-     * @throws {Error} Если инициализация не удалась
-     */
+    // Инициализирует игру: создает сцену, загружает ресурсы, настраивает системы
     async init() {
         // ОПТИМИЗАЦИЯ: Определяем режим production один раз для всего метода
         const isProduction = (import.meta as any).env?.PROD || false;
@@ -2404,7 +2753,7 @@ export class Game {
         try {
             const firebaseInitialized = await firebaseService.initialize();
             if (firebaseInitialized) {
-                logger.log("[Game] Firebase initialized successfully");
+                // logger.log("[Game] Firebase initialized successfully");
                 
                 // Initialize social system (friends & clans)
                 await socialSystem.initialize();
@@ -2453,34 +2802,55 @@ export class Game {
             logger.debug("Engine initialized:", !!this.engine);
             logger.debug("Scene initialized:", !!this.scene);
             
-            // Запускаем render loop если он еще не запущен
-            if (this.engine && this.scene && !(this.engine as any)._renderLoopRunning) {
-                logger.log("[Game] Starting render loop in init()");
-                this.engine.runRenderLoop(() => {
-                    if (this.scene && this.engine) {
-                        // КРИТИЧЕСКИ ВАЖНО: Проверяем наличие активной камеры перед рендерингом
-                        if (!this.scene.activeCamera) {
-                            if (this.camera) {
-                                this.scene.activeCamera = this.camera;
+            // КРИТИЧНО: Запускаем render loop ТОЛЬКО ОДИН РАЗ в init()
+            // Проверяем, не запущен ли уже render loop через флаг
+            if (this.engine && this.scene) {
+                if (!(this.engine as any)._renderLoopRunning) {
+                    (this.engine as any)._renderLoopRunning = true;
+                    logger.log("[Game] Starting render loop in init() - SINGLE INSTANCE");
+                    this.engine.runRenderLoop(() => {
+                        if (this.scene && this.engine) {
+                            // КРИТИЧЕСКИ ВАЖНО: Проверяем наличие активной камеры перед рендерингом
+                            if (!this.scene.activeCamera) {
+                                if (this.camera) {
+                                    this.scene.activeCamera = this.camera;
+                                } else {
+                                    this.scene.createDefaultCamera(true);
+                                }
+                            }
+                            
+                            // КРИТИЧНО: Обновляем логику ПЕРЕД рендерингом для правильного порядка
+                            if (!this.gamePaused) {
+                                // Обновляем логику игры только если игра запущена
+                                if (this.gameStarted) {
+                                    // КРИТИЧНО: Синхронизируем _updateTick с GameUpdate для кэширования
+                                    this._updateTick++;
+                                    if (this._updateTick > 1000000) this._updateTick = 0;
+                                    // Используем GameUpdate для обновления
+                                    this.gameUpdate.update();
+                                }
+                                // КРИТИЧНО: Рендерим сцену ТОЛЬКО ОДИН РАЗ за кадр!
+                                // Проверяем, не рендерится ли сцена дважды
+                                if (!(this.scene as any)._isRendering) {
+                                    (this.scene as any)._isRendering = true;
+                                    this.scene.render();
+                                    (this.scene as any)._isRendering = false;
+                                } else {
+                                    logger.error("[Game] CRITICAL: scene.render() called twice in same frame! This causes visual duplication!");
+                                }
                             } else {
-                                this.scene.createDefaultCamera(true);
+                                // КРИТИЧНО: Рендерим сцену ТОЛЬКО ОДИН РАЗ за кадр даже на паузе!
+                                if (!(this.scene as any)._isRendering) {
+                                    (this.scene as any)._isRendering = true;
+                                    this.scene.render();
+                                    (this.scene as any)._isRendering = false;
+                                } else {
+                                    logger.error("[Game] CRITICAL: scene.render() called twice in same frame (paused)! This causes visual duplication!");
+                                }
                             }
                         }
-                        
-                        // Рендерим сцену всегда (даже если игра на паузе, чтобы видеть меню)
-                        if (!this.gamePaused) {
-                            this.scene.render();
-                            // Обновляем логику игры только если игра запущена
-                            if (this.gameStarted) {
-                                // Используем GameUpdate для обновления
-                                this.gameUpdate.update();
-                            }
-                        } else {
-                            // Рендерим сцену даже на паузе, чтобы видеть игру за меню
-                            this.scene.render();
-                        }
-                    }
-                });
+                    });
+                }
             }
             
             // Принудительно обновляем размер canvas
@@ -2605,16 +2975,14 @@ export class Game {
             // КРИТИЧЕСКИ ВАЖНО: Обновляем камеру ПОСЛЕ обновления физики для предотвращения эффекта "нескольких танков"
             // Это гарантирует, что камера всегда читает актуальную позицию меша после синхронизации с физическим телом
             // Используем отдельный счетчик для оптимизации (каждые 2 кадра)
-            let cameraUpdateCounter = 0;
+            // ИСПРАВЛЕНИЕ "ДВОЙНОГО ТАНКА": Камера должна обновляться КАЖДЫЙ кадр
+            // Пропуск кадров (% 2) создаёт рассинхронизацию между позицией камеры и танка
             if (physicsInitialized && this.scene.onAfterPhysicsObservable) {
                 this.scene.onAfterPhysicsObservable.add(() => {
                     // Обновляем камеру если игра инициализирована и не на паузе
                     // gameInitialized проверяем вместо gameStarted, так как камера нужна сразу после инициализации
                     if (this.gameInitialized && !this.gamePaused) {
-                        cameraUpdateCounter++;
-                        if (cameraUpdateCounter % 2 === 0) {
-                            this.updateCamera();
-                        }
+                        this.updateCamera();
                     }
                 });
                 logger.log("[Game] Camera update subscribed to onAfterPhysicsObservable");
@@ -2629,6 +2997,90 @@ export class Game {
             logger.log("[Game] Ground will be created by ChunkSystem per chunk");
 
             // Create Tank (spawn close to ground - hover height is ~1.0)
+            // КРИТИЧНО: Удаляем старый танк перед созданием нового
+            if (this.tank) {
+                // КРИТИЧНО: Сначала удаляем дочерние меши, затем родительские
+                if (this.tank.barrel && !this.tank.barrel.isDisposed()) {
+                    // Удаляем дочерние меши barrel, если есть
+                    if (this.tank.barrel.getChildren && this.tank.barrel.getChildren().length > 0) {
+                        this.tank.barrel.getChildren().forEach((child: any) => {
+                            if (child.dispose && !child.isDisposed()) {
+                                try {
+                                    child.dispose();
+                                } catch (e) {
+                                    // Игнорируем ошибки
+                                }
+                            }
+                        });
+                    }
+                    this.tank.barrel.dispose();
+                }
+                if (this.tank.turret && !this.tank.turret.isDisposed()) {
+                    // Удаляем дочерние меши turret (включая barrel, если он еще не удален)
+                    if (this.tank.turret.getChildren && this.tank.turret.getChildren().length > 0) {
+                        this.tank.turret.getChildren().forEach((child: any) => {
+                            if (child.dispose && !child.isDisposed()) {
+                                try {
+                                    child.dispose();
+                                } catch (e) {
+                                    // Игнорируем ошибки
+                                }
+                            }
+                        });
+                    }
+                    this.tank.turret.dispose();
+                }
+                if (this.tank.chassis && !this.tank.chassis.isDisposed()) {
+                    // Удаляем дочерние меши chassis (включая turret и barrel, если они еще не удалены)
+                    if (this.tank.chassis.getChildren && this.tank.chassis.getChildren().length > 0) {
+                        this.tank.chassis.getChildren().forEach((child: any) => {
+                            if (child.dispose && !child.isDisposed()) {
+                                try {
+                                    child.dispose();
+                                } catch (e) {
+                                    // Игнорируем ошибки
+                                }
+                            }
+                        });
+                    }
+                    this.tank.chassis.dispose();
+                }
+                if (this.tank.physicsBody) {
+                    this.tank.physicsBody.dispose();
+                }
+                this.tank = undefined;
+            }
+            
+            // КРИТИЧНО: Дополнительная очистка всех мешей танка из сцены по паттернам
+            const oldTankMeshes = this.scene.meshes.filter(mesh => {
+                if (!mesh.name || mesh.isDisposed()) return false;
+                return mesh.name.startsWith("tankHull_") || 
+                       mesh.name.startsWith("turret_") || 
+                       mesh.name.startsWith("barrel_");
+            });
+            if (oldTankMeshes.length > 0) {
+                logger.warn(`[Game] Found ${oldTankMeshes.length} orphaned tank meshes, disposing them`);
+                oldTankMeshes.forEach(mesh => {
+                    try {
+                        // Удаляем все дочерние меши
+                        if (mesh.getChildren && mesh.getChildren().length > 0) {
+                            mesh.getChildren().forEach((child: any) => {
+                                if (child.dispose && !child.isDisposed()) {
+                                    try {
+                                        child.dispose();
+                                    } catch (e) {
+                                        // Игнорируем ошибки
+                                    }
+                                }
+                            });
+                        }
+                        mesh.dispose();
+                    } catch (e) {
+                        // Игнорируем ошибки
+                    }
+                });
+            }
+            
             this.updateLoadingProgress(40, "Создание танка...");
             this.tank = new TankController(this.scene, new Vector3(0, 1.2, 0));
             
@@ -2643,6 +3095,9 @@ export class Game {
             // Обновляем ссылки в панелях
             if (this.physicsPanel) {
                 this.physicsPanel.setTank(this.tank);
+            }
+            if (this.physicsEditor) {
+                this.physicsEditor.setTank(this.tank);
             }
             if (this.cheatMenu) {
                 this.cheatMenu.setTank(this.tank);
@@ -2667,7 +3122,10 @@ export class Game {
             
             // Aim Camera Setup
             // ИСПРАВЛЕНО: Инициализируем с позицией танка, а не (0,0,0)
-            const initialAimCameraPos = this.tank?.chassis?.getAbsolutePosition() || new Vector3(0, 2, 0);
+            // ОПТИМИЗАЦИЯ: Используем кэшированную позицию если доступна
+            const initialAimCameraPos = this.tank?.getCachedChassisPosition ? 
+                this.tank.getCachedChassisPosition() : 
+                (this.tank?.chassis?.getAbsolutePosition() || new Vector3(0, 2, 0));
             this.aimCamera = new UniversalCamera("aimCamera", initialAimCameraPos.add(new Vector3(0, 3, -8)), this.scene);
             this.aimCamera.fov = this.aimFOV;
             this.aimCamera.inputs.clear();
@@ -2685,8 +3143,8 @@ export class Game {
             this.scene.renderTargetsEnabled = true; // Временно включаем для создания GUI
             this.updateLoadingProgress(50, "Создание интерфейса...");
             try {
-                logger.log("[Game] Creating HUD... Scene renderTargetsEnabled:", this.scene.renderTargetsEnabled);
-                logger.log("[Game] Active camera before HUD:", this.scene.activeCamera?.name);
+                // logger.log("[Game] Creating HUD... Scene renderTargetsEnabled:", this.scene.renderTargetsEnabled);
+                // logger.log("[Game] Active camera before HUD:", this.scene.activeCamera?.name);
                 this.hud = new HUD(this.scene);
                 
                 // Обновляем ссылки в модулях
@@ -2702,7 +3160,7 @@ export class Game {
                 
                 // HUD создан успешно
                 if (this.hud) {
-                    logger.log("[Game] HUD created successfully");
+                    // logger.log("[Game] HUD created successfully");
                     
                     // ДИАГНОСТИКА: Проверяем что renderTargetsEnabled остается включенным
                     if (!this.scene.renderTargetsEnabled) {
@@ -2717,8 +3175,8 @@ export class Game {
                 }
                 
                 this.tank.setHUD(this.hud);
-                logger.log("[Game] HUD created successfully");
-                logger.log("[Game] Active camera after HUD:", this.scene.activeCamera?.name);
+                // logger.log("[Game] HUD created successfully");
+                // logger.log("[Game] Active camera after HUD:", this.scene.activeCamera?.name);
                 // GUI texture создан, можно вернуть настройку (GUI все равно будет работать)
                 // this.scene.renderTargetsEnabled = originalRenderTargetsEnabled;
                 // Оставляем включенным, так как GUI нужен render target
@@ -2826,8 +3284,15 @@ export class Game {
                 this.experienceSystem.setSoundManager(this.soundManager);
             }
             
-            // Create Player Progression System
-            this.playerProgression = new PlayerProgressionSystem();
+            // ИСПРАВЛЕНО: Используем PlayerProgressionSystem из меню (если есть) для сохранения данных аккаунта
+            // или создаём новый если меню ещё не загружено
+            if (this.mainMenu && this.mainMenu.getPlayerProgression()) {
+                this.playerProgression = this.mainMenu.getPlayerProgression()!;
+                logger.log("[Game] Using existing PlayerProgression from MainMenu");
+            } else {
+                this.playerProgression = new PlayerProgressionSystem();
+                logger.log("[Game] Created new PlayerProgressionSystem");
+            }
             this.playerProgression.setChatSystem(this.chatSystem);
             this.playerProgression.setSoundManager(this.soundManager);
             if (this.hud) {
@@ -3039,11 +3504,12 @@ export class Game {
             
             this.chunkSystem = new ChunkSystem(this.scene, {
                 chunkSize: 80,          // HUGE chunks = fewer chunks
-                renderDistance: isProduction ? 1.2 : 1.5,       // Еще меньше в production
-                unloadDistance: 3,       // ОПТИМИЗАЦИЯ: Уменьшено с 4 до 3 для более агрессивной выгрузки
+                renderDistance: this.settings?.renderDistance || 3,
+                unloadDistance: 3,
                 worldSeed: worldSeed,
                 mapType: mapType
             });
+            logger.log(`[Game] ChunkSystem created with renderDistance: ${this.settings?.renderDistance || 3}`);
             logger.log(`Chunk system created with ${this.chunkSystem.garagePositions.length} garages`);
             
             // КРИТИЧНО: Создаём защитную плоскость под картой для предотвращения падения
@@ -3142,6 +3608,7 @@ export class Game {
                 tank: this.tank,
                 hud: this.hud,
                 enemyManager: this.enemyManager,
+                enemyTanks: this.enemyTanks,
                 chunkSystem: this.chunkSystem,
                 consumablesManager: this.consumablesManager,
                 missionSystem: this.missionSystem,
@@ -3160,6 +3627,7 @@ export class Game {
             // Устанавливаем callbacks для GameUpdate
             this.gameUpdate.setUpdateCallbacks({
                 onUpdateCamera: () => this.updateCamera(),
+                onUpdateHUD: () => this.updateHUD(),
                 onUpdateGarageDoors: () => this.gameGarage.updateGarageDoors(),
                 onUpdateGarageCapture: (deltaTime: number) => this.gameGarage.updateGarageCapture(deltaTime, this.respawnEnemyTank.bind(this)),
                 onUpdateGarageRespawnTimers: (deltaTime: number) => {
@@ -3189,12 +3657,16 @@ export class Game {
                 }
             });
             
-            this.updateLoadingProgress(85, "Размещение объектов...");
+            this.updateLoadingProgress(90, "Завершение инициализации...");
             
-            // КРИТИЧЕСКИ ВАЖНО: Запускаем генерацию чанков сразу, чтобы гаражи начали генерироваться
-            // Используем позицию танка (0, 2, 0) для начальной генерации
+            // ОПТИМИЗАЦИЯ: Включаем прогрессивную загрузку чанков
+            // Используем позицию танка (0, 2, 0) для места спавна
             const initialPos = new Vector3(0, 2, 0);
-            this.chunkSystem.update(initialPos);
+            if (this.chunkSystem) {
+                this.chunkSystem.enableProgressiveLoading(initialPos);
+                // Загружаем начальные чанки вокруг места спавна (радиус 1)
+                this.chunkSystem.update(initialPos);
+            }
             
             // === DEBUG TOOLS (Lazy loaded) ===
             // Debug tools are loaded on-demand when F3/F4/F7 are pressed
@@ -3335,9 +3807,13 @@ export class Game {
             logger.debug("Active camera:", this.scene.activeCamera?.name);
             
             // Скрываем загрузочный экран
-            this.updateLoadingProgress(100, "Готово!");
+            this.updateLoadingProgress(100, "Системы загружены!");
+            // ОПТИМИЗАЦИЯ: Скрываем экран загрузки после завершения систем
+            // Карта будет прогружаться постепенно во время игры
             setTimeout(() => {
                 this.hideLoadingScreen();
+                // ОПТИМИЗАЦИЯ: Продолжаем прогрузку карты после скрытия экрана загрузки
+                // Прогресс будет отображаться в HUD
                 // Start tutorial for new players
                 if (this.hud) {
                     this.hud.setOnTutorialComplete(() => {
@@ -3354,34 +3830,25 @@ export class Game {
         }
     }
     
-    /**
-     * Возвращает текущую сложность врагов с учётом sessionSettings и настроек главного меню
-     */
+    // Возвращает текущую сложность врагов с учётом sessionSettings и настроек главного меню
     private getCurrentEnemyDifficulty(): "easy" | "medium" | "hard" {
         return this.gameEnemies.getCurrentDifficulty();
     }
     
-    /**
-     * Мультипликатор наград (кредиты/прогресс) в зависимости от сложности врагов
-     */
+    // Мультипликатор наград (кредиты/прогресс) в зависимости от сложности врагов
     private getDifficultyRewardMultiplier(): number {
         return this.gameEnemies.getDifficultyRewardMultiplier();
     }
     
-    /**
-     * Плавный множитель сложности врагов в зависимости от прогресса игрока и длительности текущей сессии.
-     * Используется для масштабирования параметров EnemyTank и (опционально) количества противников.
-     */
+    // Плавный множитель сложности врагов в зависимости от прогресса игрока и длительности текущей сессии.
+    // Используется для масштабирования параметров EnemyTank и (опционально) количества противников.
     private getAdaptiveEnemyDifficultyScale(): number {
         return this.gameEnemies.getAdaptiveDifficultyScale();
     }
     
     // getAdaptiveEnemyDifficultyScaleOld удалён - теперь используется GameEnemies.getAdaptiveDifficultyScale()
     
-    /**
-     * Спавнит вражеские танки на карте в зависимости от типа карты
-     * @returns {void}
-     */
+    // Спавнит вражеские танки на карте в зависимости от типа карты
     spawnEnemyTanks() {
         logger.log(`[Game] spawnEnemyTanks() called - mapType: ${this.currentMapType}, gameStarted: ${this.gameStarted}, isMultiplayer: ${this.isMultiplayer}`);
         
@@ -3437,6 +3904,11 @@ export class Game {
         
         // Синхронизируем массив врагов после спавна
         this.enemyTanks = this.gameEnemies.enemyTanks;
+        
+        // ОПТИМИЗАЦИЯ: Обновляем ссылку на enemyTanks в GameUpdate для кэширования
+        if (this.gameUpdate) {
+            this.gameUpdate.updateReferences({ enemyTanks: this.enemyTanks });
+        }
         
         // Настраиваем обработчики смерти для всех врагов
         this.gameEnemies.enemyTanks.forEach(enemy => {
@@ -3524,8 +3996,8 @@ export class Game {
                     groundHeight = this.chunkSystem.terrainGenerator.getHeight(spawnX, spawnZ, "dirt");
                 }
                 
-                // КРИТИЧНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
-                spawnY = Math.max(groundHeight + 5.0, 7.0);
+                // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
+                spawnY = Math.max(groundHeight + 2.0, 3.0);
                 
                 pos = new Vector3(spawnX, spawnY, spawnZ);
                 
@@ -3912,8 +4384,8 @@ export class Game {
                 
                 // КРИТИЧЕСКИ ВАЖНО: Обновляем позицию камеры после спавна танка
                 if (this.camera && this.tank && this.tank.chassis) {
-                    // Используем getAbsolutePosition() для получения актуальной позиции
-                    const tankPos = this.tank.chassis.getAbsolutePosition();
+                    // ОПТИМИЗАЦИЯ: Используем кэшированную позицию танка
+                    const tankPos = this.tank.getCachedChassisPosition();
                     const lookAt = tankPos.add(new Vector3(0, 1.0, 0));
                     this.camera.setTarget(lookAt);
                     this.camera.radius = this.settings.cameraDistance;
@@ -4097,11 +4569,9 @@ export class Game {
         setTimeout(checkGarages, 100);
     }
     
-    /**
-     * Улучшенный метод получения высоты террейна (аналогичен GameEnemies.getGroundHeight)
-     * Используется для спавна игрока и врагов
-     * Публичный метод для использования в других системах (телепортация и т.д.)
-     */
+    // Улучшенный метод получения высоты террейна (аналогичен GameEnemies.getGroundHeight)
+    // Используется для спавна игрока и врагов
+    // Публичный метод для использования в других системах (телепортация и т.д.)
     getGroundHeight(x: number, z: number): number {
         if (!this.scene) {
             logger.warn(`[Game] getGroundHeight: No scene available at (${x.toFixed(1)}, ${z.toFixed(1)})`);
@@ -4193,10 +4663,8 @@ export class Game {
         return 2.0; // Минимальная безопасная высота вместо 0
     }
     
-    /**
-     * Создаёт защитную плоскость под картой для предотвращения падения
-     * Серая плоскость с зелёными метрическими линиями по метрам на Z=-10
-     */
+    // Создаёт защитную плоскость под картой для предотвращения падения
+    // Серая плоскость с зелёными метрическими линиями по метрам на Z=-10
     private createSafetyPlane(): void {
         if (!this.scene) {
             logger.warn("[Game] Cannot create safety plane: scene not available");
@@ -4206,10 +4674,12 @@ export class Game {
         // Создаём большую горизонтальную плоскость под картой
         // Размер: 2000x2000 единиц (достаточно для большой карты)
         // CreateGround создаёт горизонтальную плоскость в плоскости XZ
+        // ОПТИМИЗАЦИЯ: Уменьшено subdivisions с 2000 до 50 для производительности
+        // Это создает 51x51 = 2601 вершин вместо 2001x2001 = 4,004,001 вершин!
         const safetyPlaneMesh = MeshBuilder.CreateGround("safetyPlane", {
             width: 2000,
             height: 2000,
-            subdivisions: 2000 // Много подразделений для метрических линий (1 метр = 1 единица)
+            subdivisions: 50 // ОПТИМИЗИРОВАНО: Уменьшено с 2000 до 50 для производительности
         }, this.scene);
         
         // ИСПРАВЛЕНО: Плоскость на Z=-10
@@ -4292,10 +4762,8 @@ export class Game {
         logger.log("[Game] Safety plane created under map at Z=-10 with green metric lines");
     }
     
-    /**
-     * Спавн игрока в случайном месте на карте (для карты Тартария)
-     * Использует raycast для определения высоты террейна и размещает танк над поверхностью
-     */
+    // Спавн игрока в случайном месте на карте (для карты Тартария)
+    // Использует raycast для определения высоты террейна и размещает танк над поверхностью
     spawnPlayerRandom() {
         if (!this.tank) {
             logger.warn("[Game] Tank not initialized");
@@ -4323,8 +4791,8 @@ export class Game {
         
         // Используем улучшенный метод получения высоты террейна
         const groundHeight = this.getGroundHeight(randomX, randomZ);
-        // ОБЯЗАТЕЛЬНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
-        const spawnY = Math.max(groundHeight + 5.0, 7.0);
+        // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
+        const spawnY = Math.max(groundHeight + 2.0, 3.0);
         
         const spawnPos = new Vector3(randomX, spawnY, randomZ);
         this.gameGarage.setPlayerGaragePosition(spawnPos.clone());
@@ -4339,11 +4807,23 @@ export class Game {
             if (this.tank.turret) this.tank.turret.rotation.set(0, 0, 0);
             if (this.tank.barrel) this.tank.barrel.rotation.set(0, 0, 0);
             
-            // ОПТИМИЗАЦИЯ: Удалены computeWorldMatrix - физика обновит матрицы автоматически
-            
+            // Телепортация с правильной синхронизацией физики
+            this.tank.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
             this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
             this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
-            this.tank.physicsBody.setTargetTransform(spawnPos, Quaternion.Identity());
+            
+            // Временно включаем preStep для синхронизации
+            this.tank.physicsBody.disablePreStep = false;
+            this.tank.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
+            this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+            this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+            
+            // Восстанавливаем disablePreStep
+            setTimeout(() => {
+                if (this.tank?.physicsBody) {
+                    this.tank.physicsBody.disablePreStep = true;
+                }
+            }, 0);
         }
     }
     
@@ -4425,8 +4905,8 @@ export class Game {
         // Сохраняем позицию гаража для респавна (ВСЕГДА в этом же гараже!)
         // КРИТИЧНО: Используем улучшенный метод получения высоты террейна
         const terrainHeight = this.getGroundHeight(selectedGarage.x, selectedGarage.z);
-        // ОБЯЗАТЕЛЬНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
-        const garageY = Math.max(terrainHeight + 5.0, 7.0);
+        // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
+        const garageY = Math.max(terrainHeight + 2.0, 3.0);
         
         this.gameGarage.setPlayerGaragePosition(new Vector3(selectedGarage.x, garageY, selectedGarage.z));
         logger.log(`[Game] Garage position saved for respawn: (${this.gameGarage.playerGaragePosition!.x.toFixed(2)}, ${this.gameGarage.playerGaragePosition!.y.toFixed(2)}, ${this.gameGarage.playerGaragePosition!.z.toFixed(2)})`);
@@ -4482,24 +4962,24 @@ export class Game {
                 groundHeight = this.getGroundHeight(selectedGarage.x, selectedGarage.z);
             }
             
-            // КРИТИЧНО: Для спавна в гараже используем минимум 5.0 единиц над террейном
-            // Это гарантирует, что танк не застрянет в террейне даже если высота немного неточна
-            // Минимальная абсолютная высота - 7.0 единиц (на случай если groundHeight = 0)
-            let spawnHeight = Math.max(groundHeight + 5.0, 7.0);
+            // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
+            // Это гарантирует, что танк не застрянет в террейне
+            // Минимальная абсолютная высота - 3.0 единиц (на случай если groundHeight = 0)
+            let spawnHeight = Math.max(groundHeight + 2.0, 3.0);
             
-            // Дополнительная проверка: убеждаемся что мы всегда минимум 5.0 единицы над террейном
-            if (groundHeight > 0 && spawnHeight < groundHeight + 5.0) {
-                spawnHeight = groundHeight + 5.0;
+            // Дополнительная проверка: убеждаемся что мы всегда минимум 2.0 метра над террейном
+            if (groundHeight > 0 && spawnHeight < groundHeight + 2.0) {
+                spawnHeight = groundHeight + 2.0;
                 logger.warn(`[Game] Corrected player spawn Y to ${spawnHeight.toFixed(2)} at (${selectedGarage.x.toFixed(1)}, ${selectedGarage.z.toFixed(1)})`);
             }
             
-            // Финальная проверка безопасности - минимум 5.0 над террейном и минимум 7.0 абсолютной высоты
-            spawnHeight = Math.max(spawnHeight, groundHeight + 5.0, 7.0);
+            // Финальная проверка безопасности - минимум 2.0 над террейном и минимум 3.0 абсолютной высоты
+            spawnHeight = Math.max(spawnHeight, groundHeight + 2.0, 3.0);
             
             // КРИТИЧЕСКАЯ ЗАЩИТА: Если высота всё ещё подозрительно низкая, используем фиксированную безопасную высоту
-            if (spawnHeight < 7.0) {
-                logger.error(`[Game] CRITICAL: Spawn height too low (${spawnHeight.toFixed(2)}), forcing to 7.0`);
-                spawnHeight = 7.0;
+            if (spawnHeight < 3.0) {
+                logger.error(`[Game] CRITICAL: Spawn height too low (${spawnHeight.toFixed(2)}), forcing to 3.0`);
+                spawnHeight = 3.0;
             }
             
             logger.log(`[Game] Player spawn height: ${spawnHeight.toFixed(2)} (ground: ${groundHeight.toFixed(2)})`);
@@ -4514,42 +4994,41 @@ export class Game {
             // Сбрасываем вращение башни
             this.tank.turret.rotation.set(0, 0, 0);
             
-            // КРИТИЧЕСКИ ВАЖНО: Сначала устанавливаем визуальную позицию
-            this.tank.chassis.position.copyFrom(spawnPos);
-            this.tank.chassis.computeWorldMatrix(true);
-            
-            // КРИТИЧЕСКИ ВАЖНО: Синхронизируем физику с визуальной позицией через setTargetTransform
-            // Это гарантирует, что физическое тело находится в правильной позиции
-            this.tank.physicsBody.setTargetTransform(spawnPos, Quaternion.Identity());
-            
-            // Сбрасываем все скорости ПОСЛЕ установки позиции
+            // КРИТИЧЕСКИ ВАЖНО: Телепортация с правильной синхронизацией физики
+            // Шаг 1: Переключаем в ANIMATED режим
+            this.tank.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
             this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
             this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
             
-            // Дополнительная защита: принудительно обновляем позицию через несколько кадров
-            // Это нужно на случай, если физика пытается переместить танк
+            // Шаг 2: Устанавливаем визуальную позицию
+            this.tank.chassis.position.copyFrom(spawnPos);
+            this.tank.chassis.computeWorldMatrix(true);
+            
+            // Шаг 3: Временно включаем preStep для синхронизации
+            this.tank.physicsBody.disablePreStep = false;
+            
+            // Шаг 4: Переключаем в DYNAMIC режим (физика возьмёт позицию из меша)
+            this.tank.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
+            this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+            this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+            
+            // Шаг 5: Восстанавливаем disablePreStep после нескольких кадров стабилизации
             let frameCount = 0;
             const stabilizeInterval = setInterval(() => {
                 frameCount++;
                 if (frameCount > 3) { // Стабилизируем 3 кадра
                     clearInterval(stabilizeInterval);
+                    // Восстанавливаем disablePreStep
+                    if (this.tank?.physicsBody) {
+                        this.tank.physicsBody.disablePreStep = true;
+                    }
                     return;
                 }
                 
-                // Принудительно устанавливаем позицию и синхронизируем физику
-                if (this.tank.chassis && this.tank.physicsBody) {
-                    const currentPos = this.tank.chassis.position;
-                    // Проверяем, не упал ли танк слишком низко
-                    if (currentPos.y < groundHeight + 2.0) {
-                        logger.warn(`[Game] Tank falling detected at frame ${frameCount}, correcting position`);
-                        this.tank.chassis.position.y = spawnHeight;
-                        this.tank.physicsBody.setTargetTransform(
-                            new Vector3(currentPos.x, spawnHeight, currentPos.z),
-                            Quaternion.Identity()
-                        );
-                        this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
-                        this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
-                    }
+                // Принудительно сбрасываем скорости для стабилизации
+                if (this.tank?.physicsBody) {
+                    this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                    this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
                 }
             }, 16); // Каждый кадр (16ms)
         }
@@ -4702,8 +5181,8 @@ export class Game {
                 }
             }
             
-            // КРИТИЧНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
-            const spawnY = Math.max(groundHeight + 5.0, 7.0);
+            // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
+            const spawnY = Math.max(groundHeight + 2.0, 3.0);
             
             const garagePos = new Vector3(garage.x, spawnY, garage.z);
             
@@ -4769,9 +5248,7 @@ export class Game {
         logger.log(`[Game] Spawned ${this.enemyTanks.length} enemy tanks in garages`);
     }
     
-    /**
-     * Обработка смерти врага
-     */
+    // Обработка смерти врага
     private handleEnemyDeath(enemy: EnemyTank): void {
         logger.log("[GAME] Enemy tank destroyed! Adding kill...");
         
@@ -5159,8 +5636,13 @@ export class Game {
                         let newPitch = this.targetAimPitch + pitchDelta;
                         
                         // Ограничиваем угол так, чтобы дальность не превышала 999 метров
+                        // ОПТИМИЗАЦИЯ: Используем кэшированную высоту ствола
                         if (this.tank) {
-                            const barrelHeight = this.tank.barrel ? this.tank.barrel.getAbsolutePosition().y : 2.5;
+                            if (this._cachedBarrelHeightFrame !== this._updateTick && (this._updateTick % 2 === 0)) {
+                                this._cachedBarrelHeight = this.tank.barrel ? this.tank.barrel.getAbsolutePosition().y : 2.5;
+                                this._cachedBarrelHeightFrame = this._updateTick;
+                            }
+                            const barrelHeight = this._cachedBarrelHeight;
                             const maxRange = 999;
                             
                             // Вычисляем дальность для нового угла
@@ -5234,9 +5716,13 @@ export class Game {
                 this.aimPitch = 0; // Только вертикаль сбрасываем
                 this.targetAimPitch = 0; // Сбрасываем целевой угол
                 // Устанавливаем начальную дальность (горизонтальный выстрел)
+                // ОПТИМИЗАЦИЯ: Используем кэшированную высоту ствола
                 if (this.hud && this.tank && this.tank.barrel) {
-                    const barrelHeight = this.tank.barrel.getAbsolutePosition().y;
-                    this.hud.setAimRange(0, this.tank.projectileSpeed, barrelHeight);
+                    if (this._cachedBarrelHeightFrame !== this._updateTick && (this._updateTick % 2 === 0)) {
+                        this._cachedBarrelHeight = this.tank.barrel.getAbsolutePosition().y;
+                        this._cachedBarrelHeightFrame = this._updateTick;
+                    }
+                    this.hud.setAimRange(0, this.tank.projectileSpeed, this._cachedBarrelHeight);
                 }
             } else {
                 // === ВЫХОД ИЗ РЕЖИМА ПРИЦЕЛИВАНИЯ ===
@@ -5393,9 +5879,13 @@ export class Game {
                 }
                 
                 // Обновляем индикатор дальности в HUD
+                // ОПТИМИЗАЦИЯ: Кэшируем getAbsolutePosition() - обновляем каждые 2 кадра
                 if (this.hud && this.tank) {
-                    const barrelHeight = this.tank.barrel ? this.tank.barrel.getAbsolutePosition().y : 2.5;
-                    this.hud.setAimRange(this.aimPitch, this.tank.projectileSpeed, barrelHeight);
+                    if (this._cachedBarrelHeightFrame !== this._updateTick && (this._updateTick % 2 === 0)) {
+                        this._cachedBarrelHeight = this.tank.barrel ? this.tank.barrel.getAbsolutePosition().y : 2.5;
+                        this._cachedBarrelHeightFrame = this._updateTick;
+                    }
+                    this.hud.setAimRange(this.aimPitch, this.tank.projectileSpeed, this._cachedBarrelHeight);
                 }
             } else {
                 // Плавно уменьшаем прогресс перехода
@@ -5411,8 +5901,8 @@ export class Game {
             
             // ИСПРАВЛЕНО: Инициализируем позицию aimCamera ПРИВЯЗАННУЮ К ТАНКУ при первом обнаружении перехода в режим прицеливания
             if (this.isAiming && this._aimCameraStartPos === null && this.camera && this.aimCamera && this.tank && this.tank.chassis) {
-                // ПРИВЯЗЫВАЕМ КАМЕРУ К ПОЗИЦИИ ТАНКА - используем текущую позицию основной камеры относительно танка
-                const tankPos = this.tank.chassis.getAbsolutePosition();
+                // ПРИВЯЗЫВАЕМ КАМЕРУ К ПОЗИЦИИ ТАНКА - используем кэшированную позицию для производительности
+                const tankPos = this.tank.getCachedChassisPosition();
                 const cameraTarget = this.camera.getTarget();
                 const alpha = this.camera.alpha;
                 const beta = this.camera.beta;
@@ -5424,7 +5914,9 @@ export class Game {
                 const z = cameraTarget.z + radius * Math.cos(beta) * Math.cos(alpha);
                 
                 this._aimCameraStartPos = new Vector3(x, y, z);
-                this._aimCameraStartTarget = cameraTarget.clone();
+                // ОПТИМИЗАЦИЯ: Используем переиспользуемый вектор вместо clone()
+                this._tmpCameraTarget.copyFrom(cameraTarget);
+                this._aimCameraStartTarget = this._tmpCameraTarget.clone(); // Нужен новый объект для сохранения
                 
                 // Убеждаемся, что позиция не (0,0,0) - если да, используем позицию танка
                 if (this._aimCameraStartPos.length() < 0.1) {
@@ -5454,10 +5946,12 @@ export class Game {
                     if (this._aimCameraStartPos) {
                         this.aimCamera.position.copyFrom(this._aimCameraStartPos);
                     } else if (this.tank && this.tank.chassis) {
-                        // Fallback: если позиция не установлена, используем позицию танка
-                        const tankPos = this.tank.chassis.getAbsolutePosition();
+                        // Fallback: если позиция не установлена, используем кэшированную позицию танка
+                        const tankPos = this.tank.getCachedChassisPosition();
                         this.aimCamera.position.copyFrom(tankPos.add(new Vector3(0, 3, -8)));
-                        this._aimCameraStartPos = this.aimCamera.position.clone();
+                        // ОПТИМИЗАЦИЯ: Используем переиспользуемый вектор вместо clone()
+                        this._tmpAimPos.copyFrom(this.aimCamera.position);
+                        this._aimCameraStartPos = this._tmpAimPos.clone(); // Нужен новый объект для сохранения
                     }
                     this.aimCamera.setEnabled(true);
                     this.scene.activeCamera = this.aimCamera;
@@ -5508,11 +6002,20 @@ export class Game {
                 // Get BARREL direction from mesh - this is the ACTUAL direction the gun is pointing
                 // barrel is child of turret, which is child of chassis
                 // So getDirection returns world direction accounting for all rotations
-                const barrelWorldMatrix = this.tank.barrel.getWorldMatrix();
-                const barrelWorldDir = Vector3.TransformNormal(Vector3.Forward(), barrelWorldMatrix).normalize();
+                // КРИТИЧНО: ОПТИМИЗАЦИЯ - getWorldMatrix() очень дорогая операция, кэшируем результат
+                if (this._cachedBarrelWorldDirFrame !== this._updateTick && (this._updateTick % 2 === 0)) {
+                    const barrelWorldMatrix = this.tank.barrel.getWorldMatrix();
+                    this._cachedBarrelWorldDir = Vector3.TransformNormal(Vector3.Forward(), barrelWorldMatrix).normalize();
+                    this._cachedBarrelWorldDirFrame = this._updateTick;
+                }
+                const barrelWorldDir = this._cachedBarrelWorldDir;
                 
-                // Barrel/muzzle world position - ВСЕГДА используем absolutePosition для правильной позиции относительно танка
-                const barrelWorldPos = this.tank.barrel.getAbsolutePosition();
+                // ОПТИМИЗАЦИЯ: Используем кэшированную позицию ствола (обновляем каждые 2 кадра)
+                if (this._cachedBarrelWorldPosFrame !== this._updateTick && (this._updateTick % 2 === 0)) {
+                    this._cachedBarrelWorldPos = this.tank.barrel.getAbsolutePosition();
+                    this._cachedBarrelWorldPosFrame = this._updateTick;
+                }
+                const barrelWorldPos = this._cachedBarrelWorldPos;
                 const muzzlePos = barrelWorldPos.add(barrelWorldDir.scale(1.6));
                 
                 // Calculate FULL aiming direction with pitch applied
@@ -5540,16 +6043,28 @@ export class Game {
                 
                 // ИСПРАВЛЕНО: Плавный переход от позиции основной камеры (третье лицо) к позиции прицеливания
                 // ВСЕГДА ПРИВЯЗЫВАЕМ К ПОЗИЦИИ ТАНКА
-                const tankPos = this.tank.chassis.getAbsolutePosition();
+                // ОПТИМИЗАЦИЯ: Используем кэшированную позицию танка
+                const tankPos = this.tank.getCachedChassisPosition();
                 
                 // Используем начальную позицию из основной камеры для плавного перехода
                 // Fallback: если начальная позиция не установлена или неправильная, используем позицию танка
                 let startPos = this._aimCameraStartPos;
-                if (!startPos || startPos.length() < 0.1 || 
-                    Vector3.Distance(startPos, tankPos) > 100) {
-                    // Если позиция не установлена, равна (0,0,0) или слишком далеко от танка - используем позицию танка
-                    startPos = tankPos.add(new Vector3(0, 3, -8)); // Примерная позиция третьего лица относительно танка
+                // ОПТИМИЗАЦИЯ: Используем квадрат расстояния вместо Vector3.Distance (быстрее)
+                if (!startPos || startPos.length() < 0.1) {
+                    startPos = tankPos.add(new Vector3(0, 3, -8));
                     this._aimCameraStartPos = startPos.clone();
+                } else {
+                    const dx = startPos.x - tankPos.x;
+                    const dy = startPos.y - tankPos.y;
+                    const dz = startPos.z - tankPos.z;
+                    const distSq = dx * dx + dy * dy + dz * dz;
+                    if (distSq > 10000) { // 100 в квадрате
+                        // Если позиция слишком далеко от танка - используем позицию танка
+                        startPos = tankPos.add(new Vector3(0, 3, -8));
+                        // ОПТИМИЗАЦИЯ: Используем переиспользуемый вектор вместо clone()
+                        this._tmpAimPos.copyFrom(startPos);
+                        this._aimCameraStartPos = this._tmpAimPos.clone(); // Нужен новый объект для сохранения
+                    }
                 }
                 
                 // Easing функция для более плавного перехода (ease-in-out)
@@ -5571,8 +6086,9 @@ export class Game {
                 
                 // Apply camera shake
                 if (this.cameraShakeIntensity > 0.01) {
-                    const shakePos = this.aimCamera.position.clone();
-                    this.aimCamera.position = shakePos.add(this.cameraShakeOffset.scale(0.4));
+                    // ОПТИМИЗАЦИЯ: Используем переиспользуемый вектор вместо clone()
+                    this._tmpCameraPos.copyFrom(this.aimCamera.position);
+                    this.aimCamera.position = this._tmpCameraPos.add(this.cameraShakeOffset.scale(0.4));
                 }
             }
             
@@ -5590,15 +6106,19 @@ export class Game {
             // КРИТИЧЕСКИ ВАЖНО: Используем absolutePosition для получения актуальной позиции после обновления физики
             // ИСПРАВЛЕНО: Обновляем основную камеру только когда НЕ в режиме прицеливания
             if (t < 0.99 && this.camera && this.cameraShakeIntensity > 0.01) {
-                const basePos = this.tank.chassis.getAbsolutePosition();
-                basePos.y += 2;
-                this.camera.position = basePos.add(this.cameraShakeOffset);
+                // ИСПРАВЛЕНИЕ JITTER: Используем absolutePosition вместо кэшированной позиции
+                // Кэш обновляется в onBeforePhysicsObservable, а камера в onAfterPhysicsObservable
+                // Поэтому кэш содержит позицию от прошлого кадра, что вызывает дёргание
+                this._tmpCameraPos.copyFrom(this.tank.chassis.absolutePosition);
+                this._tmpCameraPos.y += 2;
+                this.camera.position = this._tmpCameraPos.add(this.cameraShakeOffset);
             }
             
             // ИСПРАВЛЕНО: Применяем тряску только когда в режиме прицеливания (t > 0.01)
             if (t > 0.01 && this.aimCamera && this.cameraShakeIntensity > 0.01) {
-                const currentPos = this.aimCamera.position.clone();
-                this.aimCamera.position = currentPos.add(this.cameraShakeOffset.scale(0.5)); // Меньше тряски в режиме прицеливания
+                    // ОПТИМИЗАЦИЯ: Используем переиспользуемый вектор вместо clone()
+                    this._tmpCameraPos.copyFrom(this.aimCamera.position);
+                    this.aimCamera.position = this._tmpCameraPos.add(this.cameraShakeOffset.scale(0.5)); // Меньше тряски в режиме прицеливания
             }
             
             // Third-person smooth follow (для обычного режима, когда не в режиме прицеливания)
@@ -5611,13 +6131,19 @@ export class Game {
                 
                 // Применяем тряску к основной камере
                 if (this.cameraShakeIntensity > 0.01) {
-                    const currentPos = this.camera.position.clone();
-                    this.camera.position = currentPos.add(this.cameraShakeOffset);
+                    // ОПТИМИЗАЦИЯ: Используем переиспользуемый вектор вместо clone()
+                    this._tmpCameraPos.copyFrom(this.camera.position);
+                    this.camera.position = this._tmpCameraPos.add(this.cameraShakeOffset);
                 }
                 
-                const chassisRotY = this.tank.chassis.rotationQuaternion 
-                    ? this.tank.chassis.rotationQuaternion.toEulerAngles().y 
-                    : this.tank.chassis.rotation.y;
+                // ОПТИМИЗАЦИЯ: Кэшируем toEulerAngles() - очень дорогая операция
+                if (this._cachedChassisRotYFrame !== this._updateTick && (this._updateTick % 2 === 0)) {
+                    this._cachedChassisRotY = this.tank.chassis.rotationQuaternion 
+                        ? this.tank.chassis.rotationQuaternion.toEulerAngles().y 
+                        : this.tank.chassis.rotation.y;
+                    this._cachedChassisRotYFrame = this._updateTick;
+                }
+                const chassisRotY = this._cachedChassisRotY;
                 const turretRotY = this.tank.turret.rotation.y;
                 
                 // Если нужно центрировать камеру (кнопка C), камера ПЛАВНО следует за башней
@@ -5684,10 +6210,8 @@ export class Game {
                             }
                         } else if (!this.tank.isAutoCentering) {
                             // Только если не центрируемся - башня догоняет камеру
-                            // При управлении мышью: проверяем поворот корпуса
-                            const currentChassisRotY = this.tank.chassis.rotationQuaternion 
-                                ? this.tank.chassis.rotationQuaternion.toEulerAngles().y 
-                                : this.tank.chassis.rotation.y;
+                            // ОПТИМИЗАЦИЯ: Используем кэшированный угол корпуса
+                            const currentChassisRotY = this._cachedChassisRotY;
                             
                             // Обычное поведение: башня догоняет камеру
                             const targetTurretRot = this.cameraYaw;
@@ -5712,7 +6236,12 @@ export class Game {
                                     const totalWorldAngle = currentChassisRotY + turretRotY;
                                     
                                     // Сохраняем виртуальную точку (направление башни в мировых координатах)
-                                    const turretPos = this.tank.turret.getAbsolutePosition();
+                                    // ОПТИМИЗАЦИЯ: Используем кэшированную позицию башни (обновляем каждые 2 кадра)
+                                    if (this._cachedTurretPosFrame !== this._updateTick && (this._updateTick % 2 === 0)) {
+                                        this._cachedTurretPos = this.tank.turret.getAbsolutePosition();
+                                        this._cachedTurretPosFrame = this._updateTick;
+                                    }
+                                    const turretPos = this._cachedTurretPos;
                                     const forward = new Vector3(Math.sin(totalWorldAngle), 0, Math.cos(totalWorldAngle));
                                     this.virtualTurretTarget = turretPos.add(forward.scale(100)); // Точка на расстоянии 100 единиц
                                 }
@@ -5723,7 +6252,12 @@ export class Game {
                                 const chassisRotDiff = currentChassisRotY - this.lastChassisRotation;
                                 if (Math.abs(chassisRotDiff) > 0.01 && this.virtualTurretTarget) {
                                     // Вычисляем направление к виртуальной точке
-                                    const turretPos = this.tank.turret.getAbsolutePosition();
+                                    // ОПТИМИЗАЦИЯ: Используем кэшированную позицию башни
+                                    if (this._cachedTurretPosFrame !== this._updateTick && (this._updateTick % 2 === 0)) {
+                                        this._cachedTurretPos = this.tank.turret.getAbsolutePosition();
+                                        this._cachedTurretPosFrame = this._updateTick;
+                                    }
+                                    const turretPos = this._cachedTurretPos;
                                     const toTarget = this.virtualTurretTarget.subtract(turretPos);
                                     toTarget.y = 0; // Только горизонтальная плоскость
                                     toTarget.normalize();
@@ -5760,9 +6294,10 @@ export class Game {
                 this.camera.alpha = this.currentCameraAlpha;
                 this.camera.beta = this.cameraBeta;
                 
-                // КРИТИЧЕСКИ ВАЖНО: Используем getAbsolutePosition() для получения актуальной позиции после обновления физики
-                // Это предотвращает эффект "нескольких танков" из-за рассинхронизации позиции меша и физического тела
-                const tankPos = this.tank.chassis.getAbsolutePosition();
+                // ИСПРАВЛЕНИЕ JITTER: Используем absolutePosition вместо кэшированной позиции
+                // Кэш обновляется в onBeforePhysicsObservable, камера - в onAfterPhysicsObservable
+                // Разница во времени обновления вызывает дёргание/мерцание танка при движении
+                const tankPos = this.tank.chassis.absolutePosition;
                 const lookAt = tankPos.add(new Vector3(0, 1.0, 0));
                 this.camera.target.copyFrom(lookAt);
             }
@@ -5827,44 +6362,86 @@ export class Game {
     updateHUD() {
         if (!this.hud || !this.tank) return;
         
+        // КРИТИЧНО: ОПТИМИЗАЦИЯ - Ограничиваем до 8 ближних врагов для производительности
+        const MAX_HUD_ENEMIES = 8;
+        const MAX_HUD_DISTANCE_SQ = 64000; // 250м в квадрате
+        
         // Get all enemy positions with turret rotation info (ЗАЩИТА от null)
-        const turretPositions = this.enemyManager?.getEnemyPositions() || [];
-        // ОПТИМИЗАЦИЯ: Используем for циклы вместо filter и map
-        const tankPositions: Array<{x: number, z: number, alive: boolean, turretRotation: number}> = [];
-        if (this.enemyTanks) {
-            const enemyCount = this.enemyTanks.length;
+        // ОПТИМИЗАЦИЯ: Используем кэш из GameUpdate, ограничиваем количество врагов
+        let tankPositions: Array<{x: number, z: number, alive: boolean, turretRotation: number}> = [];
+        let turretEnemies: Array<{x: number, z: number, alive: boolean, turretRotation?: number}> = [];
+        
+        // Получаем кэшированные позиции из GameUpdate
+        const cachedEnemies = this.gameUpdate?.getCachedEnemyPositions() || [];
+        
+        // ОПТИМИЗАЦИЯ: Обрабатываем только ближних врагов (максимум 8)
+        if (this.enemyTanks && this.enemyTanks.length > 0 && cachedEnemies.length > 0) {
+            const playerPos = this.tank.chassis?.position;
+            const enemyDistances: Array<{enemy: any, distSq: number, index: number}> = [];
+            
+            // Собираем ближних врагов с расстояниями
+            const enemyCount = Math.min(this.enemyTanks.length, cachedEnemies.length);
             for (let i = 0; i < enemyCount; i++) {
                 const t = this.enemyTanks[i];
-                if (!t || !t.isAlive || !t.chassis) continue;
+                if (!t || !t.isAlive || !t.chassis || t.chassis.isDisposed()) continue;
                 
-                // Вычисляем АБСОЛЮТНЫЙ угол башни врага (корпус + башня)
-                let chassisRotY = 0;
-                if (t.chassis.rotationQuaternion) {
-                    chassisRotY = t.chassis.rotationQuaternion.toEulerAngles().y;
-                } else {
-                    chassisRotY = t.chassis.rotation.y;
+                const cached = cachedEnemies[i];
+                if (!cached || !cached.alive) continue;
+                
+                // Вычисляем расстояние до игрока
+                if (playerPos) {
+                    const dx = cached.x - playerPos.x;
+                    const dz = cached.z - playerPos.z;
+                    const distSq = dx * dx + dz * dz;
+                    
+                    // Только ближние враги
+                    if (distSq <= MAX_HUD_DISTANCE_SQ) {
+                        enemyDistances.push({ enemy: t, distSq, index: i });
+                    }
                 }
-                const turretRotY = t.turret ? t.turret.rotation.y : 0;
-                const absoluteTurretAngle = chassisRotY + turretRotY;
-                
-                // ОПТИМИЗАЦИЯ: Используем position вместо absolutePosition
-                const pos = t.chassis.position;
-                tankPositions.push({
-                    x: pos.x,
-                    z: pos.z,
-                    alive: true,
-                    turretRotation: absoluteTurretAngle // АБСОЛЮТНЫЙ угол башни врага
-                });
+            }
+            
+            // Сортируем по расстоянию и берем ближайших
+            enemyDistances.sort((a, b) => a.distSq - b.distSq);
+            const nearestEnemies = enemyDistances.slice(0, MAX_HUD_ENEMIES);
+            
+            // Обрабатываем только ближайших врагов
+            for (const { enemy: t, index } of nearestEnemies) {
+                try {
+                    // КРИТИЧНО: Используем кэшированный chassisRotY из updateEnemyPositionsCache
+                    // Это избегает дорогого toEulerAngles() вызова
+                    const cached = cachedEnemies[index];
+                    const chassisRotY = cached.chassisRotY ?? (t.chassis.rotationQuaternion 
+                        ? t.chassis.rotationQuaternion.toEulerAngles().y 
+                        : t.chassis.rotation.y);
+                    const turretRotY = t.turret ? t.turret.rotation.y : 0;
+                    const absoluteTurretAngle = chassisRotY + turretRotY;
+                    
+                    tankPositions.push({
+                        x: cached.x,
+                        z: cached.z,
+                        alive: true,
+                        turretRotation: absoluteTurretAngle
+                    });
+                } catch (e) {
+                    // Игнорируем ошибки
+                }
             }
         }
         
-        // Добавляем информацию о башнях врагов (ЗАЩИТА от null)
-        const turretEnemies = (turretPositions || []).map((pos) => ({
-            x: pos.x,
-            z: pos.z,
-            alive: pos.alive,
-            turretRotation: undefined // Turrets не имеют отдельной башни
-        }));
+        // ОПТИМИЗАЦИЯ: Получаем позиции турелей (только ближние, ограниченное количество)
+        const turretPositions = this.enemyManager?.getEnemyPositions() || [];
+        const turretCount = Math.min(turretPositions.length, 5); // Максимум 5 турелей
+        for (let i = 0; i < turretCount; i++) {
+            const pos = turretPositions[i];
+            if (!pos || !pos.alive) continue;
+            turretEnemies.push({
+                x: pos.x,
+                z: pos.z,
+                alive: true,
+                turretRotation: undefined
+            });
+        }
         
         // ИСПРАВЛЕНО: Добавляем сетевых игроков в список врагов для радара
         const networkEnemies: Array<{x: number, z: number, alive: boolean, turretRotation: number}> = [];
@@ -5920,6 +6497,12 @@ export class Game {
             this.hud.setSpeed(speed);
         }
         this.hud.setPosition(playerPos.x, playerPos.z, playerPos.y);
+        
+        // Обновляем угол наклона ствола (aimPitch в радианах -> градусы)
+        if (this.tank.aimPitch !== undefined) {
+            const barrelAngleDegrees = (this.tank.aimPitch * 180) / Math.PI;
+            this.hud.setBarrelAngle(barrelAngleDegrees);
+        }
         
         // Обновляем полную карту (если открыта)
         if (this.hud.isFullMapVisible()) {
@@ -6005,38 +6588,13 @@ export class Game {
             this.hud.setMovementDirection(totalAngle);
             
             // Обновляем красные точки врагов на компасе
-            // ОПТИМИЗАЦИЯ: Используем for циклы вместо filter и map
-            const allEnemiesForCompass: Array<{x: number, z: number, alive: boolean}> = [];
-            if (this.enemyTanks) {
-                const enemyCount = this.enemyTanks.length;
-                for (let i = 0; i < enemyCount; i++) {
-                    const t = this.enemyTanks[i];
-                    if (!t || !t.isAlive) continue;
-                    // ОПТИМИЗАЦИЯ: Используем position вместо absolutePosition
-                    const pos = t.chassis.position;
-                    allEnemiesForCompass.push({
-                        x: pos.x,
-                        z: pos.z,
-                        alive: true
-                    });
-                }
+            // ОПТИМИЗАЦИЯ: Используем кэшированные позиции и обновляем реже (каждые 3 кадра)
+            if (this._updateTick % 3 === 0) {
+                // ОПТИМИЗАЦИЯ: Используем кэшированные позиции из GameUpdate
+                const cachedEnemies = this.gameUpdate?.getCachedEnemyPositions() || [];
+                const playerPos = this.tank.getCachedChassisPosition();
+                this.hud.updateCompassEnemies(cachedEnemies, playerPos, totalAngle);
             }
-            // ОПТИМИЗАЦИЯ: Используем for цикл вместо map
-            const turretEnemiesForCompass: Array<{x: number, z: number, alive: boolean}> = [];
-            const turretPositions = this.enemyManager?.getEnemyPositions();
-            if (turretPositions) {
-                const turretCount = turretPositions.length;
-                for (let i = 0; i < turretCount; i++) {
-                    const pos = turretPositions[i];
-                    if (!pos) continue;
-                    turretEnemiesForCompass.push({
-                        x: pos.x,
-                        z: pos.z,
-                        alive: pos.alive
-                    });
-                }
-            }
-            this.hud.updateCompassEnemies([...allEnemiesForCompass, ...turretEnemiesForCompass], this.tank.chassis.absolutePosition, totalAngle);
         } else if (this.tank.chassis) {
             // Fallback: если башни нет, используем корпус
             let chassisY = 0;
@@ -6057,42 +6615,74 @@ export class Game {
         }
         
         // Update enemy count
-        const aliveCount = this.enemyTanks.filter(t => t.isAlive).length + 
-                          (this.enemyManager ? this.enemyManager.getAliveCount() : 0);
-        this.hud.setEnemyCount(aliveCount);
+        // ОПТИМИЗАЦИЯ: Используем for цикл вместо filter и обновляем реже
+        if (this._updateTick % 3 === 0) {
+            let aliveCount = 0;
+            if (this.enemyTanks && this.enemyTanks.length > 0) {
+                const enemyCount = this.enemyTanks.length;
+                for (let i = 0; i < enemyCount; i++) {
+                    const t = this.enemyTanks[i];
+                    if (t && t.isAlive) aliveCount++;
+                }
+            }
+            if (this.enemyManager) {
+                aliveCount += this.enemyManager.getAliveCount();
+            }
+            this.hud.setEnemyCount(aliveCount);
+        }
         
         // Update nearest enemy distance
-        let nearestDistance = Infinity;
-        const allEnemiesCount = allEnemies.length;
-        for (let i = 0; i < allEnemiesCount; i++) {
-            const enemy = allEnemies[i];
-            if (!enemy) continue;
-            let enemyPos: Vector3;
-            if (enemy instanceof Vector3) {
-                enemyPos = enemy;
-            } else if ('x' in enemy && 'z' in enemy) {
-                enemyPos = new Vector3(enemy.x, playerPos.y, enemy.z);
+        // ОПТИМИЗАЦИЯ: Используем квадрат расстояния и обновляем реже
+        if (this._updateTick % 3 === 0) {
+            let nearestDistanceSq = Infinity;
+            const playerPos = this.tank.getCachedChassisPosition();
+            const allEnemiesCount = allEnemies.length;
+            for (let i = 0; i < allEnemiesCount; i++) {
+                const enemy = allEnemies[i];
+                if (!enemy) continue;
+                
+                // ОПТИМИЗАЦИЯ: Используем квадрат расстояния вместо sqrt
+                let dx: number, dz: number;
+                if (enemy instanceof Vector3) {
+                    dx = enemy.x - playerPos.x;
+                    dz = enemy.z - playerPos.z;
+                } else if ('x' in enemy && 'z' in enemy) {
+                    dx = enemy.x - playerPos.x;
+                    dz = enemy.z - playerPos.z;
+                } else {
+                    continue;
+                }
+                const distSq = dx * dx + dz * dz;
+                if (distSq < nearestDistanceSq) {
+                    nearestDistanceSq = distSq;
+                }
+            }
+            if (nearestDistanceSq < Infinity) {
+                const nearestDistance = Math.sqrt(nearestDistanceSq);
+                this.hud.setNearestEnemyDistance(nearestDistance);
             } else {
-                continue;
+                this.hud.setNearestEnemyDistance(0);
             }
-            const dist = Vector3.Distance(playerPos, enemyPos);
-            if (dist < nearestDistance) {
-                nearestDistance = dist;
-            }
-        }
-        if (nearestDistance < Infinity) {
-            this.hud.setNearestEnemyDistance(nearestDistance);
-        } else {
-            this.hud.setNearestEnemyDistance(0);
         }
         
         // FPS теперь обновляется каждый кадр в методе update() для точности и плавности
         // Здесь только остальные элементы HUD
         
+        // ОПТИМИЗАЦИЯ: Обновление прогресса прогрузки карты (каждые 2 кадра)
+        if (this._updateTick % 2 === 0 && this.chunkSystem && this.hud) {
+            try {
+                const progress = this.chunkSystem.getLoadingProgress();
+                this.hud.updateMapLoadingProgress(progress);
+            } catch (e) {
+                // Игнорируем ошибки
+            }
+        }
+        
         // Update debug dashboard (обновляем всегда, даже если танка нет - для отображения сцены)
         if (this.debugDashboard) {
             if (this.tank && this.tank.chassis) {
-                const tankPos = this.tank.chassis.absolutePosition;
+                // ОПТИМИЗАЦИЯ: Используем кэшированную позицию вместо absolutePosition
+                const tankPos = this.tank.getCachedChassisPosition();
                 this.debugDashboard.update({ x: tankPos.x, y: tankPos.y, z: tankPos.z });
             } else {
                 // Если танка нет, обновляем с нулевой позицией
@@ -6187,12 +6777,29 @@ export class Game {
             }
         }
         
+        // ИСПРАВЛЕНО: По умолчанию скрываем HUD индикатор цели
+        // Он будет показан только когда враг строго на линии огня
+        let targetFound = false;
+        
         if (pick && pick.hit && pick.pickedMesh) {
             const pickedMesh = pick.pickedMesh as any; // Приведение типа для isPartOf
             // Check enemy tanks
             const tank = this.enemyTanks.find(et => et.isPartOf && et.isPartOf(pickedMesh));
             if (tank) {
                 tank.setHpVisible(true, playerPos);
+                // ИСПРАВЛЕНО: Показываем HUD индикатор только при точном попадании raycast
+                if (this.hud && playerPos) {
+                    const enemyPos = tank.chassis?.getAbsolutePosition();
+                    const distance = enemyPos ? Vector3.Distance(playerPos, enemyPos) : 0;
+                    this.hud.setTargetInfo({
+                        name: tank.name || "Enemy Tank",
+                        health: tank.currentHealth || 0,
+                        maxHealth: tank.maxHealth || 100,
+                        distance: distance,
+                        type: "enemy"
+                    });
+                    targetFound = true;
+                }
                 return;
             }
             // Check turrets
@@ -6200,49 +6807,30 @@ export class Game {
                 const turret = this.enemyManager.turrets.find(tr => tr.isPartOf && tr.isPartOf(pickedMesh));
                 if (turret) {
                     turret.setHpVisible(true);
-                    return;
-                }
-            }
-        }
-        
-        // Backup: проверяем по расстоянию от луча ствола
-        // Если raycast не попал, проверяем близость к лучу
-        const maxDist = 100;
-        for (let i = 0; i < this.enemyTanks.length; i++) {
-            const enemy = this.enemyTanks[i];
-            if (!enemy || !enemy.isAlive || !enemy.chassis) continue;
-            
-            // ОПТИМИЗАЦИЯ: Используем position вместо absolutePosition для производительности
-            const enemyPos = enemy.chassis.position;
-            // Вычисляем расстояние от луча ствола до врага
-            const toEnemy = enemyPos.subtract(barrelPos);
-            const proj = Vector3.Dot(toEnemy, barrelDir);
-            if (proj > 0 && proj < maxDist) {
-                const closestPoint = barrelPos.add(barrelDir.scale(proj));
-                const dist = Vector3.Distance(closestPoint, enemyPos);
-                if (dist < 2) { // ИСПРАВЛЕНИЕ: Уменьшено с 3 до 2 для более точной линии огня
-                    enemy.setHpVisible(true, playerPos);
-                    return;
-                }
-            }
-        }
-        
-        if (this.enemyManager) {
-            for (const turret of this.enemyManager.turrets) {
-                if (!turret.isAlive || !turret.base) continue;
-                
-                const turretPos = turret.base.absolutePosition;
-                const toTurret = turretPos.subtract(barrelPos);
-                const proj = Vector3.Dot(toTurret, barrelDir);
-                if (proj > 0 && proj < maxDist) {
-                    const closestPoint = barrelPos.add(barrelDir.scale(proj));
-                    const dist = Vector3.Distance(closestPoint, turretPos);
-                    if (dist < 2) { // ИСПРАВЛЕНИЕ: Уменьшено с 3 до 2 для более точной линии огня
-                        turret.setHpVisible(true);
-                        return;
+                    // ИСПРАВЛЕНО: Показываем HUD индикатор только при точном попадании raycast
+                    if (this.hud && playerPos) {
+                        const turretPos = turret.base?.getAbsolutePosition();
+                        const distance = turretPos ? Vector3.Distance(playerPos, turretPos) : 0;
+                        this.hud.setTargetInfo({
+                            name: turret.name || "Turret",
+                            health: turret.health || 0,
+                            maxHealth: turret.maxHealth || 100,
+                            distance: distance,
+                            type: "enemy"
+                        });
+                        targetFound = true;
                     }
+                    return;
                 }
             }
+        }
+        
+        // ИСПРАВЛЕНО: HP bar врага показывается ТОЛЬКО при точном попадании raycast
+        // Backup проверка по близости удалена - только прямое попадание
+        
+        // ИСПРАВЛЕНО: Если цель не найдена, скрываем HUD индикатор
+        if (!targetFound && this.hud) {
+            this.hud.setTargetInfo(null);
         }
     }
     
@@ -6629,9 +7217,7 @@ export class Game {
     
     // === FIREBASE INTEGRATION ===
     
-    /**
-     * Открыть панель настроек скриншотов
-     */
+    // Открыть панель настроек скриншотов
     private async ensureChatSystem(): Promise<void> {
         if (this.chatSystem) {
             return; // Already initialized

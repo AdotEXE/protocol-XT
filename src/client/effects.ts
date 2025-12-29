@@ -789,12 +789,12 @@ export class EffectsManager {
         trailMat.diffuseColor = trailColor;
         trailMat.emissiveColor = trailColor.scale(0.8);
         trailMat.disableLighting = true;
-        trailMat.alpha = 0.5;
+        trailMat.alpha = 0.7; // Увеличено для более заметного трейла
         
         const trailSegments: Mesh[] = [];
         let lastPos = bullet.absolutePosition.clone();
         let frameCount = 0;
-        const maxSegments = 6;
+        const maxSegments = 12; // Увеличено для более длинного трейла
         
         const updateTrail = () => {
             if (bullet.isDisposed()) {
@@ -813,11 +813,11 @@ export class EffectsManager {
             const dist = Vector3.Distance(lastPos, currentPos);
             
             // Only create segment if moved enough
-            if (dist > 0.3) {
+            if (dist > 0.2) { // Уменьшен порог для более частых сегментов
                 const segment = MeshBuilder.CreateBox("trailSeg", { 
-                    width: 0.08, 
-                    height: 0.08, 
-                    depth: Math.max(0.15, dist * 0.6)
+                    width: 0.12,  // Увеличено для более заметного трейла
+                    height: 0.12, // Увеличено
+                    depth: Math.max(0.2, dist * 0.8) // Увеличено
                 }, this.scene);
                 
                 const mid = lastPos.add(currentPos).scale(0.5);
@@ -838,9 +838,9 @@ export class EffectsManager {
             // Fade out older segments
             trailSegments.forEach((seg, i) => {
                 const age = trailSegments.length - i;
-                const fade = Math.max(0.05, 0.5 - age * 0.08);
-                seg.scaling.x = Math.max(0.05, 0.6 - age * 0.08);
-                seg.scaling.y = Math.max(0.05, 0.6 - age * 0.08);
+                const fade = Math.max(0.1, 0.7 - age * 0.05); // Более плавное затухание
+                seg.scaling.x = Math.max(0.1, 0.8 - age * 0.05); // Более плавное уменьшение
+                seg.scaling.y = Math.max(0.1, 0.8 - age * 0.05);
                 seg.visibility = fade;
             });
             

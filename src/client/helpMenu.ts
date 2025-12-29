@@ -73,7 +73,7 @@ export class HelpMenu {
                 { key: "F7 / Ctrl+7", description: "Cheat Menu" },
                 { key: "Ctrl+8", description: "Настройки сети" },
                 { key: "Ctrl+9", description: "Генерация мира" },
-                { key: "Ctrl+0", description: "Друзья и кланы" },
+                { key: "Ctrl+0", description: "Редактор физики" },
                 { key: "Ctrl+Shift+M", description: "Редактор карт" },
             ]
         },

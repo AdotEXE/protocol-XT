@@ -11,6 +11,7 @@ import { logger, LogLevel, loggingSettings, LogCategory } from "./utils/logger";
 import { CHASSIS_TYPES, CANNON_TYPES } from "./tankTypes";
 import { authUI } from "./menu/authUI";
 import { firebaseService } from "./firebaseService";
+import { PlayerProgressionSystem, PLAYER_ACHIEVEMENTS, PLAYER_TITLES, getLevelBonuses, MAX_PLAYER_LEVEL, PLAYER_LEVEL_EXP, type PlayerAchievement, type DailyQuest } from "./playerProgression";
 
 // Version tracking
 // Версия генерируется во время сборки и одинакова для всех пользователей
@@ -352,6 +353,8 @@ export class MainMenu {
     private skillsPanel!: HTMLDivElement;
     private mapSelectionPanel!: HTMLDivElement;
     private playMenuPanel!: HTMLDivElement;
+    private progressPanel!: HTMLDivElement;
+    private progressCurrentTab: "level" | "achievements" | "quests" = "level";
     private onStartGame: (mapType?: MapType) => void = () => {};
     private onRestartGame: () => void = () => {};
     private onExitBattle: () => void = () => {};
@@ -387,6 +390,10 @@ export class MainMenu {
         this.ownedChassisIds = this.loadOwnedIds("ownedChassis", ["medium"]);
         this.ownedCannonIds = this.loadOwnedIds("ownedCannons", ["standard"]);
         
+        // ИСПРАВЛЕНО: Создаём PlayerProgressionSystem сразу при создании меню
+        // чтобы данные аккаунта были доступны немедленно
+        this.playerProgression = new PlayerProgressionSystem();
+        
         // Garage will be loaded lazily when needed (when user opens garage from menu)
         // This reduces initial bundle size
         
@@ -396,12 +403,16 @@ export class MainMenu {
         this.createSettingsUI();
         this.createStatsPanel();
         this.createSkillsPanel();
+        this.createProgressPanel();
         this.createMapSelectionPanel();
         this.createPlayMenuPanel();
         this.startAnimations();
         this.setupCanvasPointerEventsProtection();
         this.setupGlobalEventBlocking();
         this.setupFullscreenListener();
+        
+        // ИСПРАВЛЕНО: Сразу обновляем данные аккаунта в меню
+        this.updatePlayerInfo(true);
     }
     
     private setupFullscreenListener(): void {
@@ -531,7 +542,8 @@ export class MainMenu {
                 this.mapSelectionPanel?.classList.contains("visible") ||
                 this.statsPanel?.classList.contains("visible") ||
                 this.skillsPanel?.classList.contains("visible") ||
-                this.settingsPanel?.classList.contains("visible");
+                this.settingsPanel?.classList.contains("visible") ||
+                this.progressPanel?.classList.contains("visible");
             
             if (isMenuOrPanelVisible) {
                 this.enforceCanvasPointerEvents();
@@ -551,7 +563,7 @@ export class MainMenu {
         // Запускаем при показе меню
         this.container.addEventListener("mouseenter", startLoop);
         // Также запускаем при показе любой панели
-        const panels = [this.mapSelectionPanel, this.statsPanel, this.skillsPanel, this.settingsPanel];
+        const panels = [this.mapSelectionPanel, this.statsPanel, this.skillsPanel, this.settingsPanel, this.progressPanel];
         panels.forEach(panel => {
             if (panel) {
                 const observer = new MutationObserver(() => {
@@ -589,7 +601,8 @@ export class MainMenu {
                 this.mapSelectionPanel?.classList.contains("visible") ||
                 this.statsPanel?.classList.contains("visible") ||
                 this.skillsPanel?.classList.contains("visible") ||
-                this.settingsPanel?.classList.contains("visible");
+                this.settingsPanel?.classList.contains("visible") ||
+                this.progressPanel?.classList.contains("visible");
             
             // Определяем желаемое состояние
             const desiredState = (isMenuVisible || isAnyPanelVisible) ? "none" : "auto";
@@ -2479,6 +2492,481 @@ export class MainMenu {
             #main-menu:not(.hidden) ~ * #gameCanvas {
                 pointer-events: none !important;
             }
+            
+            /* ═══════════════════════════════════════════════════════════════════════════ */
+            /* PROGRESS PANEL STYLES */
+            /* ═══════════════════════════════════════════════════════════════════════════ */
+            
+            /* Кликабельная карточка игрока */
+            .player-card {
+                cursor: pointer;
+                transition: all 0.2s ease;
+            }
+            
+            .player-card:hover {
+                border-color: #0ff !important;
+                box-shadow: 0 0 15px rgba(0, 255, 255, 0.4);
+                transform: translateY(-2px);
+            }
+            
+            .player-card:active {
+                transform: translateY(0);
+            }
+            
+            /* Progress Panel Tabs */
+            .progress-tabs {
+                display: flex;
+                background: rgba(0, 20, 0, 0.9);
+                border-bottom: 2px solid #0f0;
+            }
+            
+            .progress-tab {
+                flex: 1;
+                padding: 12px 16px;
+                background: transparent;
+                border: none;
+                border-right: 1px solid #0f04;
+                color: #080;
+                font-family: 'Press Start 2P', monospace;
+                font-size: 10px;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                text-align: center;
+            }
+            
+            .progress-tab:last-child {
+                border-right: none;
+            }
+            
+            .progress-tab:hover {
+                background: rgba(0, 255, 0, 0.1);
+                color: #0f0;
+            }
+            
+            .progress-tab.active {
+                background: rgba(0, 255, 0, 0.2);
+                color: #0ff;
+                text-shadow: 0 0 8px rgba(0, 255, 255, 0.6);
+            }
+            
+            /* Progress Panel Content */
+            .progress-content {
+                padding: 20px;
+                max-height: 60vh;
+                overflow-y: auto;
+            }
+            
+            .progress-tab-content {
+                display: none;
+            }
+            
+            .progress-tab-content.active {
+                display: block;
+                animation: fadeIn 0.3s ease;
+            }
+            
+            /* Level Section */
+            .progress-level-section {
+                text-align: center;
+                margin-bottom: 25px;
+            }
+            
+            .progress-level-badge {
+                width: 80px;
+                height: 80px;
+                background: linear-gradient(135deg, #000 0%, #030 100%);
+                border: 3px solid #0f0;
+                border-radius: 8px;
+                display: inline-flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                margin-bottom: 10px;
+                box-shadow: 0 0 20px rgba(0, 255, 0, 0.4);
+            }
+            
+            .progress-level-number {
+                font-size: 28px;
+                color: #0f0;
+                text-shadow: 0 0 10px #0f0;
+            }
+            
+            .progress-title {
+                font-size: 12px;
+                margin-top: 8px;
+                text-shadow: 0 0 6px currentColor;
+            }
+            
+            .progress-title-icon {
+                font-size: 18px;
+                margin-right: 5px;
+            }
+            
+            /* Large XP Bar */
+            .progress-xp-bar-container {
+                margin: 20px 0;
+            }
+            
+            .progress-xp-bar-bg {
+                height: 30px;
+                background: #010;
+                border: 2px solid #0f0;
+                border-radius: 4px;
+                position: relative;
+                overflow: hidden;
+            }
+            
+            .progress-xp-bar-fill {
+                height: 100%;
+                background: linear-gradient(90deg, #0a0 0%, #0f0 50%, #0a0 100%);
+                box-shadow: 0 0 15px #0f0;
+                transition: width 0.5s ease;
+                position: relative;
+            }
+            
+            .progress-xp-bar-fill::after {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.2) 50%, transparent 100%);
+                animation: xpShine 2s infinite;
+            }
+            
+            @keyframes xpShine {
+                0% { transform: translateX(-100%); }
+                100% { transform: translateX(100%); }
+            }
+            
+            .progress-xp-text {
+                text-align: center;
+                margin-top: 8px;
+                font-size: 12px;
+                color: #0f0;
+            }
+            
+            .progress-xp-percent {
+                color: #0ff;
+                font-weight: bold;
+            }
+            
+            /* Stats Grid */
+            .progress-stats-grid {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 12px;
+                margin: 20px 0;
+            }
+            
+            .progress-stat-card {
+                background: rgba(0, 30, 0, 0.8);
+                border: 1px solid #0f0;
+                padding: 12px;
+                text-align: center;
+            }
+            
+            .progress-stat-value {
+                font-size: 16px;
+                color: #0f0;
+                text-shadow: 0 0 5px #0f0;
+            }
+            
+            .progress-stat-label {
+                font-size: 8px;
+                color: #0a0;
+                margin-top: 5px;
+            }
+            
+            /* Bonuses Grid */
+            .progress-bonuses-grid {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 8px;
+                margin: 20px 0;
+                padding: 12px;
+                background: rgba(0, 20, 0, 0.6);
+                border: 1px solid #0f04;
+            }
+            
+            .progress-bonus-item {
+                text-align: center;
+                padding: 8px;
+            }
+            
+            .progress-bonus-value {
+                font-size: 14px;
+                color: #0ff;
+                text-shadow: 0 0 5px #0ff;
+            }
+            
+            .progress-bonus-label {
+                font-size: 7px;
+                color: #088;
+                margin-top: 4px;
+            }
+            
+            /* Next Level Reward */
+            .progress-next-level {
+                background: rgba(0, 40, 0, 0.6);
+                border: 1px solid #0f0;
+                padding: 12px;
+                margin-top: 15px;
+                text-align: center;
+            }
+            
+            .progress-next-level-title {
+                font-size: 10px;
+                color: #0a0;
+                margin-bottom: 8px;
+            }
+            
+            .progress-next-level-rewards {
+                display: flex;
+                justify-content: center;
+                gap: 20px;
+                font-size: 11px;
+            }
+            
+            .progress-reward {
+                color: #0f0;
+            }
+            
+            .progress-reward-icon {
+                margin-right: 5px;
+            }
+            
+            /* Achievements Section */
+            .achievements-category-tabs {
+                display: flex;
+                gap: 8px;
+                margin-bottom: 15px;
+                flex-wrap: wrap;
+            }
+            
+            .achievement-category-btn {
+                padding: 6px 12px;
+                background: rgba(0, 30, 0, 0.6);
+                border: 1px solid #0f04;
+                color: #0a0;
+                font-family: 'Press Start 2P', monospace;
+                font-size: 8px;
+                cursor: pointer;
+                transition: all 0.2s ease;
+            }
+            
+            .achievement-category-btn:hover {
+                background: rgba(0, 255, 0, 0.1);
+                border-color: #0f0;
+            }
+            
+            .achievement-category-btn.active {
+                background: rgba(0, 255, 0, 0.2);
+                border-color: #0f0;
+                color: #0f0;
+            }
+            
+            .achievements-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                gap: 10px;
+            }
+            
+            .achievement-card {
+                background: rgba(0, 20, 0, 0.8);
+                border: 2px solid #333;
+                padding: 12px;
+                transition: all 0.2s ease;
+                position: relative;
+            }
+            
+            .achievement-card:hover {
+                transform: scale(1.02);
+            }
+            
+            .achievement-card.unlocked {
+                border-color: #0f0;
+                box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+            }
+            
+            .achievement-card.locked {
+                opacity: 0.5;
+                filter: grayscale(0.5);
+            }
+            
+            /* Tier colors */
+            .achievement-card.tier-bronze { border-color: #cd7f32; }
+            .achievement-card.tier-bronze.unlocked { box-shadow: 0 0 10px rgba(205, 127, 50, 0.4); }
+            
+            .achievement-card.tier-silver { border-color: #c0c0c0; }
+            .achievement-card.tier-silver.unlocked { box-shadow: 0 0 10px rgba(192, 192, 192, 0.4); }
+            
+            .achievement-card.tier-gold { border-color: #ffd700; }
+            .achievement-card.tier-gold.unlocked { box-shadow: 0 0 10px rgba(255, 215, 0, 0.4); }
+            
+            .achievement-card.tier-platinum { border-color: #e5e4e2; }
+            .achievement-card.tier-platinum.unlocked { 
+                box-shadow: 0 0 15px rgba(229, 228, 226, 0.5);
+                animation: platinumGlow 2s ease-in-out infinite;
+            }
+            
+            @keyframes platinumGlow {
+                0%, 100% { box-shadow: 0 0 10px rgba(229, 228, 226, 0.3); }
+                50% { box-shadow: 0 0 20px rgba(229, 228, 226, 0.6); }
+            }
+            
+            .achievement-header {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin-bottom: 8px;
+            }
+            
+            .achievement-icon {
+                font-size: 20px;
+            }
+            
+            .achievement-name {
+                font-size: 10px;
+                color: #0f0;
+                flex: 1;
+            }
+            
+            .achievement-tier {
+                font-size: 7px;
+                padding: 2px 6px;
+                border-radius: 3px;
+            }
+            
+            .achievement-tier.bronze { background: #cd7f32; color: #000; }
+            .achievement-tier.silver { background: #c0c0c0; color: #000; }
+            .achievement-tier.gold { background: #ffd700; color: #000; }
+            .achievement-tier.platinum { background: #e5e4e2; color: #000; }
+            
+            .achievement-description {
+                font-size: 8px;
+                color: #0a0;
+                margin-bottom: 8px;
+            }
+            
+            .achievement-reward {
+                font-size: 8px;
+                color: #0ff;
+                display: flex;
+                gap: 10px;
+            }
+            
+            .achievement-status {
+                position: absolute;
+                top: 8px;
+                right: 8px;
+                font-size: 14px;
+            }
+            
+            /* Daily Quests Section */
+            .quests-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 15px;
+            }
+            
+            .quests-title {
+                font-size: 12px;
+                color: #0ff;
+            }
+            
+            .quests-reset-timer {
+                font-size: 9px;
+                color: #0a0;
+            }
+            
+            .quest-card {
+                background: rgba(0, 25, 0, 0.8);
+                border: 2px solid #0f04;
+                padding: 15px;
+                margin-bottom: 12px;
+                transition: all 0.2s ease;
+            }
+            
+            .quest-card:hover {
+                border-color: #0f0;
+            }
+            
+            .quest-card.completed {
+                border-color: #0ff;
+                background: rgba(0, 40, 40, 0.3);
+            }
+            
+            .quest-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 10px;
+            }
+            
+            .quest-name {
+                font-size: 11px;
+                color: #0f0;
+            }
+            
+            .quest-status-icon {
+                font-size: 16px;
+            }
+            
+            .quest-description {
+                font-size: 9px;
+                color: #0a0;
+                margin-bottom: 12px;
+            }
+            
+            .quest-progress-bar-bg {
+                height: 16px;
+                background: #010;
+                border: 1px solid #0f04;
+                position: relative;
+                margin-bottom: 8px;
+            }
+            
+            .quest-progress-bar-fill {
+                height: 100%;
+                background: linear-gradient(90deg, #080 0%, #0f0 100%);
+                transition: width 0.3s ease;
+            }
+            
+            .quest-progress-text {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                font-size: 9px;
+                color: #fff;
+                text-shadow: 0 0 3px #000;
+            }
+            
+            .quest-rewards {
+                display: flex;
+                justify-content: flex-end;
+                gap: 15px;
+                font-size: 9px;
+            }
+            
+            .quest-reward {
+                color: #0ff;
+            }
+            
+            .quest-reward-icon {
+                margin-right: 4px;
+            }
+            
+            /* No quests message */
+            .no-quests-message {
+                text-align: center;
+                padding: 40px;
+                color: #0a0;
+                font-size: 10px;
+            }
         `;
         
         document.head.appendChild(style);
@@ -2708,6 +3196,24 @@ export class MainMenu {
             // Устанавливаем флаг после успешной привязки всех обработчиков
             this.buttonHandlersAttached = true;
             console.log("[Menu] All button handlers attached successfully");
+            
+            // Добавляем обработчик клика на карточку игрока для открытия панели прогресса
+            const playerCard = document.getElementById("player-info");
+            if (playerCard) {
+                playerCard.addEventListener("click", (e) => {
+                    try {
+                        debugLog("[Menu] Player card clicked, opening progress panel");
+                        e.preventDefault();
+                        e.stopPropagation();
+                        this.showProgress();
+                    } catch (error) {
+                        debugError("[Menu] Error opening progress panel:", error);
+                    }
+                }, true);
+                debugLog("[Menu] Player card click handler attached");
+            } else {
+                debugWarn("[Menu] Player card (#player-info) not found");
+            }
         } catch (error) {
             debugError("[Menu] Error in attachDirectButtonHandlers:", error);
         }
@@ -3658,6 +4164,380 @@ export class MainMenu {
         this.setupCloseButton("skills-close", () => this.hideSkills());
         this.setupCloseButton("skills-back", () => this.hideSkills());
         this.setupPanelCloseOnBackground(this.skillsPanel, () => this.hideSkills());
+    }
+    
+    private createProgressPanel(): void {
+        this.progressPanel = document.createElement("div");
+        this.progressPanel.className = "panel-overlay";
+        this.progressPanel.id = "progress-panel";
+        this.progressPanel.innerHTML = `
+            <div class="panel" style="width: min(90vw, 700px); max-height: min(85vh, 700px);">
+                <div class="panel-header">
+                    <div class="panel-title">ПРОГРЕСС ИГРОКА</div>
+                    <button class="panel-close" id="progress-close">×</button>
+                </div>
+                <div class="progress-tabs">
+                    <button class="progress-tab active" data-tab="level">[1] УРОВЕНЬ</button>
+                    <button class="progress-tab" data-tab="achievements">[2] ДОСТИЖЕНИЯ</button>
+                    <button class="progress-tab" data-tab="quests">[3] ЗАДАНИЯ</button>
+                </div>
+                <div class="progress-content">
+                    <div class="progress-tab-content active" id="progress-level-content">
+                        <!-- Level tab content will be rendered dynamically -->
+                    </div>
+                    <div class="progress-tab-content" id="progress-achievements-content">
+                        <!-- Achievements tab content will be rendered dynamically -->
+                    </div>
+                    <div class="progress-tab-content" id="progress-quests-content">
+                        <!-- Quests tab content will be rendered dynamically -->
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(this.progressPanel);
+        
+        // Setup close button
+        this.setupCloseButton("progress-close", () => this.hideProgress());
+        this.setupPanelCloseOnBackground(this.progressPanel, () => this.hideProgress());
+        
+        // Setup tab switching
+        this.progressPanel.querySelectorAll(".progress-tab").forEach(tab => {
+            tab.addEventListener("click", () => {
+                const tabName = (tab as HTMLElement).dataset.tab as "level" | "achievements" | "quests";
+                this.switchProgressTab(tabName);
+            });
+        });
+    }
+    
+    private switchProgressTab(tab: "level" | "achievements" | "quests"): void {
+        this.progressCurrentTab = tab;
+        
+        // Update tab buttons
+        this.progressPanel.querySelectorAll(".progress-tab").forEach(t => {
+            t.classList.toggle("active", (t as HTMLElement).dataset.tab === tab);
+        });
+        
+        // Update content
+        this.progressPanel.querySelectorAll(".progress-tab-content").forEach(c => {
+            c.classList.remove("active");
+        });
+        
+        const contentId = `progress-${tab}-content`;
+        const contentEl = document.getElementById(contentId);
+        if (contentEl) {
+            contentEl.classList.add("active");
+        }
+        
+        // Render content based on tab
+        switch (tab) {
+            case "level":
+                this.renderLevelTab();
+                break;
+            case "achievements":
+                this.renderAchievementsTab();
+                break;
+            case "quests":
+                this.renderQuestsTab();
+                break;
+        }
+    }
+    
+    private showProgress(): void {
+        debugLog("[Menu] showProgress() called");
+        if (this.progressPanel) {
+            this.progressPanel.classList.add("visible");
+            this.progressPanel.style.setProperty("display", "flex", "important");
+            this.progressPanel.style.setProperty("visibility", "visible", "important");
+            this.progressPanel.style.setProperty("opacity", "1", "important");
+            this.progressPanel.style.setProperty("z-index", "100002", "important");
+            
+            // Add in-battle class if game is running
+            const game = (window as any).gameInstance;
+            if (game && game.gameStarted) {
+                this.progressPanel.classList.add("in-battle");
+            } else {
+                this.progressPanel.classList.remove("in-battle");
+            }
+            
+            // Render current tab
+            this.switchProgressTab(this.progressCurrentTab);
+            this.enforceCanvasPointerEvents();
+        }
+    }
+    
+    private hideProgress(): void {
+        debugLog("[Menu] hideProgress() called");
+        if (this.progressPanel) {
+            this.progressPanel.classList.remove("visible");
+            this.progressPanel.style.setProperty("display", "none", "important");
+            this.progressPanel.style.setProperty("visibility", "hidden", "important");
+            this.enforceCanvasPointerEvents();
+        }
+    }
+    
+    private renderLevelTab(): void {
+        const content = document.getElementById("progress-level-content");
+        if (!content || !this.playerProgression) return;
+        
+        const stats = this.playerProgression.getStats();
+        const xpProgress = this.playerProgression.getExperienceProgress();
+        const realTimeStats = this.playerProgression.getRealTimeXpStats();
+        const bonuses = getLevelBonuses(stats.level);
+        
+        // Get current title
+        let currentTitle: { title: string; icon: string; color: string } = { title: "Новобранец", icon: "🪖", color: "#888888" };
+        for (let lvl = stats.level; lvl >= 1; lvl--) {
+            const titleData = PLAYER_TITLES[lvl];
+            if (titleData) {
+                currentTitle = titleData;
+                break;
+            }
+        }
+        
+        // Get next title
+        let nextTitle = null;
+        for (let lvl = stats.level + 1; lvl <= MAX_PLAYER_LEVEL; lvl++) {
+            if (PLAYER_TITLES[lvl]) {
+                nextTitle = { level: lvl, ...PLAYER_TITLES[lvl] };
+                break;
+            }
+        }
+        
+        // Format prestige
+        const prestigeText = stats.prestigeLevel > 0 
+            ? `Престиж ${stats.prestigeLevel} (+${(stats.prestigeLevel * 10)}%)` 
+            : "Нет престижа";
+        
+        // Calculate XP per minute display
+        const xpPerMin = Math.round(realTimeStats.experiencePerMinute);
+        const xpPerMinText = xpPerMin > 0 ? `+${xpPerMin} XP/мин` : "—";
+        
+        content.innerHTML = `
+            <div class="progress-level-section">
+                <div class="progress-level-badge">
+                    <div class="progress-level-number">${stats.level}</div>
+                </div>
+                <div class="progress-title" style="color: ${currentTitle.color}">
+                    <span class="progress-title-icon">${currentTitle.icon}</span>
+                    ${currentTitle.title}
+                </div>
+            </div>
+            
+            <div class="progress-xp-bar-container">
+                <div class="progress-xp-bar-bg">
+                    <div class="progress-xp-bar-fill" style="width: ${xpProgress.percent}%"></div>
+                </div>
+                <div class="progress-xp-text">
+                    ${xpProgress.current.toLocaleString()} / ${xpProgress.required.toLocaleString()} XP
+                    <span class="progress-xp-percent">(${xpProgress.percent.toFixed(1)}%)</span>
+                </div>
+            </div>
+            
+            <div class="progress-stats-grid">
+                <div class="progress-stat-card">
+                    <div class="progress-stat-value">${stats.totalExperience.toLocaleString()}</div>
+                    <div class="progress-stat-label">ОБЩИЙ ОПЫТ</div>
+                </div>
+                <div class="progress-stat-card">
+                    <div class="progress-stat-value">${xpPerMinText}</div>
+                    <div class="progress-stat-label">СКОРОСТЬ НАБОРА</div>
+                </div>
+                <div class="progress-stat-card">
+                    <div class="progress-stat-value">${prestigeText}</div>
+                    <div class="progress-stat-label">ПРЕСТИЖ</div>
+                </div>
+                <div class="progress-stat-card">
+                    <div class="progress-stat-value">${this.playerProgression.getPlayTimeFormatted()}</div>
+                    <div class="progress-stat-label">ВРЕМЯ В ИГРЕ</div>
+                </div>
+            </div>
+            
+            <div class="progress-bonuses-grid">
+                <div class="progress-bonus-item">
+                    <div class="progress-bonus-value">+${bonuses.healthBonus}</div>
+                    <div class="progress-bonus-label">ЗДОРОВЬЕ</div>
+                </div>
+                <div class="progress-bonus-item">
+                    <div class="progress-bonus-value">+${bonuses.damageBonus}</div>
+                    <div class="progress-bonus-label">УРОН</div>
+                </div>
+                <div class="progress-bonus-item">
+                    <div class="progress-bonus-value">+${bonuses.speedBonus.toFixed(1)}</div>
+                    <div class="progress-bonus-label">СКОРОСТЬ</div>
+                </div>
+                <div class="progress-bonus-item">
+                    <div class="progress-bonus-value">+${((bonuses.creditBonus - 1) * 100).toFixed(0)}%</div>
+                    <div class="progress-bonus-label">КРЕДИТЫ</div>
+                </div>
+            </div>
+            
+            ${nextTitle ? `
+            <div class="progress-next-level">
+                <div class="progress-next-level-title">СЛЕДУЮЩИЙ РАНГ: УРОВЕНЬ ${nextTitle.level}</div>
+                <div class="progress-next-level-rewards">
+                    <span class="progress-reward" style="color: ${nextTitle.color}">
+                        <span class="progress-reward-icon">${nextTitle.icon}</span>
+                        ${nextTitle.title}
+                    </span>
+                    <span class="progress-reward">
+                        <span class="progress-reward-icon">⭐</span>
+                        +1 Очко навыков
+                    </span>
+                </div>
+            </div>
+            ` : `
+            <div class="progress-next-level">
+                <div class="progress-next-level-title" style="color: #ffd700">МАКСИМАЛЬНЫЙ УРОВЕНЬ ДОСТИГНУТ!</div>
+            </div>
+            `}
+        `;
+    }
+    
+    private achievementCategoryFilter: "all" | "combat" | "survival" | "progression" | "special" = "all";
+    
+    private renderAchievementsTab(): void {
+        const content = document.getElementById("progress-achievements-content");
+        if (!content || !this.playerProgression) return;
+        
+        const { unlocked, locked } = this.playerProgression.getAchievements();
+        const allAchievements = [...unlocked, ...locked];
+        
+        // Filter by category
+        const filtered = this.achievementCategoryFilter === "all" 
+            ? allAchievements 
+            : allAchievements.filter(a => a.category === this.achievementCategoryFilter);
+        
+        // Category counts
+        const categoryCounts = {
+            all: allAchievements.length,
+            combat: allAchievements.filter(a => a.category === "combat").length,
+            survival: allAchievements.filter(a => a.category === "survival").length,
+            progression: allAchievements.filter(a => a.category === "progression").length,
+            special: allAchievements.filter(a => a.category === "special").length
+        };
+        
+        const unlockedCount = unlocked.length;
+        const totalCount = allAchievements.length;
+        
+        content.innerHTML = `
+            <div style="margin-bottom: 15px; text-align: center; color: #0f0; font-size: 11px;">
+                Разблокировано: ${unlockedCount} / ${totalCount}
+            </div>
+            
+            <div class="achievements-category-tabs">
+                <button class="achievement-category-btn ${this.achievementCategoryFilter === 'all' ? 'active' : ''}" data-category="all">
+                    ВСЕ (${categoryCounts.all})
+                </button>
+                <button class="achievement-category-btn ${this.achievementCategoryFilter === 'combat' ? 'active' : ''}" data-category="combat">
+                    ⚔ БОЙ (${categoryCounts.combat})
+                </button>
+                <button class="achievement-category-btn ${this.achievementCategoryFilter === 'survival' ? 'active' : ''}" data-category="survival">
+                    🛡 ВЫЖИВАНИЕ (${categoryCounts.survival})
+                </button>
+                <button class="achievement-category-btn ${this.achievementCategoryFilter === 'progression' ? 'active' : ''}" data-category="progression">
+                    📈 ПРОГРЕСС (${categoryCounts.progression})
+                </button>
+                <button class="achievement-category-btn ${this.achievementCategoryFilter === 'special' ? 'active' : ''}" data-category="special">
+                    ⭐ ОСОБЫЕ (${categoryCounts.special})
+                </button>
+            </div>
+            
+            <div class="achievements-grid">
+                ${filtered.map(achievement => {
+                    const isUnlocked = unlocked.some((u: PlayerAchievement) => u.id === achievement.id);
+                    return `
+                        <div class="achievement-card ${isUnlocked ? 'unlocked' : 'locked'} tier-${achievement.tier}">
+                            <div class="achievement-header">
+                                <span class="achievement-icon">${achievement.icon}</span>
+                                <span class="achievement-name">${achievement.name}</span>
+                                <span class="achievement-tier ${achievement.tier}">${achievement.tier.toUpperCase()}</span>
+                            </div>
+                            <div class="achievement-description">${achievement.description}</div>
+                            <div class="achievement-reward">
+                                <span>💰 ${achievement.reward.credits}</span>
+                                <span>⭐ ${achievement.reward.exp} XP</span>
+                                ${achievement.reward.skillPoints ? `<span>🔧 +${achievement.reward.skillPoints} SP</span>` : ''}
+                            </div>
+                            <span class="achievement-status">${isUnlocked ? '✅' : '🔒'}</span>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
+        
+        // Setup category filter buttons
+        content.querySelectorAll(".achievement-category-btn").forEach(btn => {
+            btn.addEventListener("click", () => {
+                this.achievementCategoryFilter = (btn as HTMLElement).dataset.category as any;
+                this.renderAchievementsTab();
+            });
+        });
+    }
+    
+    private renderQuestsTab(): void {
+        const content = document.getElementById("progress-quests-content");
+        if (!content || !this.playerProgression) return;
+        
+        const stats = this.playerProgression.getStats();
+        const dailyQuests: DailyQuest[] = stats.dailyQuests || [];
+        
+        // Calculate time until daily reset (assumes reset at midnight)
+        const now = new Date();
+        const tomorrow = new Date(now);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(0, 0, 0, 0);
+        const timeUntilReset = tomorrow.getTime() - now.getTime();
+        const hoursLeft = Math.floor(timeUntilReset / (1000 * 60 * 60));
+        const minutesLeft = Math.floor((timeUntilReset % (1000 * 60 * 60)) / (1000 * 60));
+        
+        if (dailyQuests.length === 0) {
+            content.innerHTML = `
+                <div class="quests-header">
+                    <div class="quests-title">ЕЖЕДНЕВНЫЕ ЗАДАНИЯ</div>
+                    <div class="quests-reset-timer">Обновление через: ${hoursLeft}ч ${minutesLeft}м</div>
+                </div>
+                <div class="no-quests-message">
+                    Нет активных заданий.<br>
+                    Задания обновляются ежедневно в полночь.
+                </div>
+            `;
+            return;
+        }
+        
+        const completedCount = dailyQuests.filter(q => q.completed).length;
+        
+        content.innerHTML = `
+            <div class="quests-header">
+                <div class="quests-title">ЕЖЕДНЕВНЫЕ ЗАДАНИЯ (${completedCount}/${dailyQuests.length})</div>
+                <div class="quests-reset-timer">Обновление через: ${hoursLeft}ч ${minutesLeft}м</div>
+            </div>
+            
+            ${dailyQuests.map(quest => {
+                const progressPercent = Math.min(100, (quest.progress / quest.target) * 100);
+                return `
+                    <div class="quest-card ${quest.completed ? 'completed' : ''}">
+                        <div class="quest-header">
+                            <span class="quest-name">${quest.name}</span>
+                            <span class="quest-status-icon">${quest.completed ? '✅' : '⏳'}</span>
+                        </div>
+                        <div class="quest-description">${quest.description}</div>
+                        <div class="quest-progress-bar-bg">
+                            <div class="quest-progress-bar-fill" style="width: ${progressPercent}%"></div>
+                            <span class="quest-progress-text">${quest.progress} / ${quest.target}</span>
+                        </div>
+                        <div class="quest-rewards">
+                            <span class="quest-reward">
+                                <span class="quest-reward-icon">💰</span>${quest.reward.credits}
+                            </span>
+                            <span class="quest-reward">
+                                <span class="quest-reward-icon">⭐</span>${quest.reward.exp} XP
+                            </span>
+                        </div>
+                    </div>
+                `;
+            }).join('')}
+        `;
     }
     
     private createMapSelectionPanel(): void {
@@ -6758,6 +7638,11 @@ export class MainMenu {
     
     getTankConfig(): TankConfig {
         return this.tankConfig;
+    }
+    
+    // ИСПРАВЛЕНО: Геттер для получения PlayerProgression из game.ts
+    getPlayerProgression(): PlayerProgressionSystem | null {
+        return this.playerProgression;
     }
     
     show(isPaused: boolean = false): void {

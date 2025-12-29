@@ -35,7 +35,7 @@ export class TargetHealthBar {
     
     constructor(parent: AdvancedDynamicTexture) {
         // === ГЛАВНЫЙ КОНТЕЙНЕР (под компасом) ===
-        // Компас: top: 10px, height: 25px, так что полоска должна быть на ~40px
+        // Компас: top: 10px, height: 35px, так что полоска должна быть на ~50px
         this.container = new Rectangle("targetHealthContainer");
         this.container.width = "320px";
         this.container.height = "60px";
@@ -43,8 +43,8 @@ export class TargetHealthBar {
         this.container.background = "transparent";
         this.container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.container.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.container.top = "45px"; // Под компасом (компас: top 10px + height 25px + отступ 10px = 45px)
-        this.container.alpha = 0;
+        this.container.top = "50px"; // Под компасом (компас: top 10px + height 35px + отступ 5px = 50px)
+        this.container.alpha = 0; // СКРЫТ по умолчанию - показывать только при точном прицеливании
         parent.addControl(this.container);
         
         // === НАЗВАНИЕ ЦЕЛИ ===

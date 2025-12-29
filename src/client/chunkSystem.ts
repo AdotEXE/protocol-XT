@@ -168,12 +168,23 @@ export class ChunkSystem {
         lastUpdateTime: 0
     };
     
+    // ОПТИМИЗАЦИЯ: Прогрессивная загрузка чанков
+    private chunkLoadQueue: Array<{cx: number, cz: number, priority: number}> = [];
+    private chunksLoading: Set<string> = new Set();
+    private readonly MAX_CHUNKS_PER_FRAME = 1; // Загружать по 1 чанку за кадр
+    private readonly INITIAL_LOAD_RADIUS = 1; // Начальный радиус загрузки
+    private currentLoadRadius = 1;
+    private spawnChunk = { x: 0, z: 0 }; // Чанк места спавна
+    private progressiveLoadingEnabled = false; // Флаг включения прогрессивной загрузки
+    private totalChunksInRadius = 0; // Общее количество чанков в радиусе видимости
+    private loadedChunksInRadius = 0; // Загруженные чанки в радиусе
+    
     constructor(scene: Scene, config?: Partial<ChunkConfig>) {
         this.scene = scene;
         this.config = {
             chunkSize: 50,
-            renderDistance: 1.5,  // Уменьшено для оптимизации производительности
-            unloadDistance: 2.5,  // УЛУЧШЕНО: Уменьшено с 3 до 2.5 для более агрессивной очистки памяти
+            renderDistance: 1.5,
+            unloadDistance: 3,
             worldSeed: Date.now(),
             mapType: "normal", // По умолчанию
             ...config
@@ -587,7 +598,8 @@ export class ChunkSystem {
         const startTime = performance.now();
         const { cx, cz } = this.worldToChunk(playerPos.x, playerPos.z);
         
-        if (cx !== this.lastPlayerChunk.x || cz !== this.lastPlayerChunk.z) {
+        // ОПТИМИЗАЦИЯ: При прогрессивной загрузке обновляем каждый кадр
+        if (this.progressiveLoadingEnabled || cx !== this.lastPlayerChunk.x || cz !== this.lastPlayerChunk.z) {
             this.lastPlayerChunk = { x: cx, z: cz };
             this.updateChunks(cx, cz);
         }
@@ -1712,15 +1724,36 @@ export class ChunkSystem {
     private updateChunks(playerCx: number, playerCz: number): void {
         const { renderDistance, unloadDistance } = this.config;
         
+        // ОПТИМИЗАЦИЯ: Прогрессивная загрузка чанков
+        if (this.progressiveLoadingEnabled) {
+            this.updateProgressiveChunkLoading(playerCx, playerCz, renderDistance);
+        } else {
+            // Стандартная загрузка всех чанков сразу (для обратной совместимости)
+            for (let dx = -renderDistance; dx <= renderDistance; dx++) {
+                for (let dz = -renderDistance; dz <= renderDistance; dz++) {
+                    const cx = playerCx + dx;
+                    const cz = playerCz + dz;
+                    const key = this.getChunkKey(cx, cz);
+                    
+                    if (!this.chunks.has(key)) {
+                        this.loadChunk(cx, cz);
+                    } else {
+                        const chunk = this.chunks.get(key)!;
+                        chunk.lastAccess = Date.now();
+                        if (!chunk.loaded) this.showChunk(chunk);
+                    }
+                }
+            }
+        }
+        
+        // Обновляем доступ к существующим чанкам
         for (let dx = -renderDistance; dx <= renderDistance; dx++) {
             for (let dz = -renderDistance; dz <= renderDistance; dz++) {
                 const cx = playerCx + dx;
                 const cz = playerCz + dz;
                 const key = this.getChunkKey(cx, cz);
                 
-                if (!this.chunks.has(key)) {
-                    this.loadChunk(cx, cz);
-                } else {
+                if (this.chunks.has(key)) {
                     const chunk = this.chunks.get(key)!;
                     chunk.lastAccess = Date.now();
                     if (!chunk.loaded) this.showChunk(chunk);
@@ -1728,6 +1761,7 @@ export class ChunkSystem {
             }
         }
         
+        // Выгрузка дальних чанков
         this.chunks.forEach((chunk, key) => {
             const dist = Math.max(Math.abs(chunk.x - playerCx), Math.abs(chunk.z - playerCz));
             if (dist > unloadDistance && chunk.loaded) this.hideChunk(chunk);
@@ -1738,6 +1772,191 @@ export class ChunkSystem {
         this.forceUnloadIfNeeded(playerCx, playerCz);
         
         this.updateStats();
+    }
+    
+    /**
+     * ОПТИМИЗАЦИЯ: Прогрессивная загрузка чанков по спирали от места спавна
+     */
+    private updateProgressiveChunkLoading(playerCx: number, playerCz: number, renderDistance: number): void {
+        // Обновляем очередь загрузки если нужно
+        this.updateChunkLoadQueue(playerCx, playerCz, renderDistance);
+        
+        // Загружаем чанки из очереди (максимум MAX_CHUNKS_PER_FRAME за кадр)
+        let loadedThisFrame = 0;
+        while (loadedThisFrame < this.MAX_CHUNKS_PER_FRAME && this.chunkLoadQueue.length > 0) {
+            // Сортируем очередь по приоритету (высший приоритет первым)
+            this.chunkLoadQueue.sort((a, b) => b.priority - a.priority);
+            
+            const chunkToLoad = this.chunkLoadQueue.shift();
+            if (!chunkToLoad) break;
+            
+            const key = this.getChunkKey(chunkToLoad.cx, chunkToLoad.cz);
+            
+            // Проверяем, не загружается ли уже этот чанк
+            if (this.chunksLoading.has(key) || this.chunks.has(key)) {
+                continue;
+            }
+            
+            // Загружаем чанк
+            this.chunksLoading.add(key);
+            try {
+                this.loadChunk(chunkToLoad.cx, chunkToLoad.cz);
+                this.loadedChunksInRadius++;
+            } catch (e) {
+                logger.warn("[ChunkSystem] Error loading chunk:", e);
+            } finally {
+                this.chunksLoading.delete(key);
+            }
+            
+            loadedThisFrame++;
+        }
+        
+        // Обновляем статистику загрузки
+        this.updateLoadingProgress();
+    }
+    
+    /**
+     * Обновляет очередь загрузки чанков на основе текущей позиции игрока
+     */
+    private updateChunkLoadQueue(playerCx: number, playerCz: number, renderDistance: number): void {
+        // Очищаем очередь от уже загруженных чанков
+        this.chunkLoadQueue = this.chunkLoadQueue.filter(item => {
+            const key = this.getChunkKey(item.cx, item.cz);
+            return !this.chunks.has(key);
+        });
+        
+        // Вычисляем общее количество чанков в радиусе видимости от текущей позиции игрока
+        const totalChunks = Math.pow(Math.floor(renderDistance * 2) + 1, 2);
+        this.totalChunksInRadius = totalChunks;
+        
+        // Пересчитываем количество загруженных чанков в радиусе
+        let loadedCount = 0;
+        for (let dx = -renderDistance; dx <= renderDistance; dx++) {
+            for (let dz = -renderDistance; dz <= renderDistance; dz++) {
+                const cx = playerCx + dx;
+                const cz = playerCz + dz;
+                const key = this.getChunkKey(cx, cz);
+                if (this.chunks.has(key)) {
+                    loadedCount++;
+                }
+            }
+        }
+        this.loadedChunksInRadius = loadedCount;
+        
+        // Добавляем чанки в очередь по спирали от места спавна
+        const maxRadius = Math.ceil(renderDistance);
+        for (let radius = this.currentLoadRadius; radius <= maxRadius; radius++) {
+            // Генерируем чанки на текущем радиусе по спирали
+            const chunksAtRadius: Array<{cx: number, cz: number, priority: number}> = [];
+            
+            for (let dx = -radius; dx <= radius; dx++) {
+                for (let dz = -radius; dz <= radius; dz++) {
+                    // Только чанки на границе текущего радиуса
+                    const dist = Math.max(Math.abs(dx), Math.abs(dz));
+                    if (dist !== radius) continue;
+                    
+                    const cx = this.spawnChunk.x + dx;
+                    const cz = this.spawnChunk.z + dz;
+                    
+                    // Проверяем, что чанк в радиусе видимости
+                    const distFromPlayer = Math.max(Math.abs(cx - playerCx), Math.abs(cz - playerCz));
+                    if (distFromPlayer > renderDistance) continue;
+                    
+                    const key = this.getChunkKey(cx, cz);
+                    if (this.chunks.has(key) || this.chunksLoading.has(key)) continue;
+                    
+                    // Вычисляем приоритет (ближе к игроку = выше приоритет)
+                    const priority = renderDistance - distFromPlayer;
+                    
+                    // Проверяем, нет ли уже этого чанка в очереди
+                    const exists = this.chunkLoadQueue.some(item => item.cx === cx && item.cz === cz);
+                    if (!exists) {
+                        chunksAtRadius.push({ cx, cz, priority });
+                    }
+                }
+            }
+            
+            // Добавляем чанки в очередь
+            this.chunkLoadQueue.push(...chunksAtRadius);
+            
+            // Если нашли чанки на этом радиусе, останавливаемся
+            if (chunksAtRadius.length > 0) {
+                break;
+            }
+        }
+        
+        // Увеличиваем радиус загрузки если текущий радиус полностью загружен
+        if (this.chunkLoadQueue.length === 0 && this.currentLoadRadius < maxRadius) {
+            this.currentLoadRadius++;
+        }
+    }
+    
+    /**
+     * Обновляет статистику прогресса загрузки
+     */
+    private updateLoadingProgress(): void {
+        // Вычисляем процент загруженных чанков
+        // Уже вычисляется в getLoadingProgress()
+    }
+    
+    /**
+     * Получить прогресс загрузки чанков (0-100%)
+     */
+    getLoadingProgress(): number {
+        if (!this.progressiveLoadingEnabled || this.totalChunksInRadius === 0) {
+            return 100; // Если прогрессивная загрузка не включена, считаем что все загружено
+        }
+        
+        const progress = Math.min(100, Math.round((this.loadedChunksInRadius / this.totalChunksInRadius) * 100));
+        return progress;
+    }
+    
+    /**
+     * Включить прогрессивную загрузку чанков
+     * @param spawnPos Позиция места спавна
+     */
+    enableProgressiveLoading(spawnPos: Vector3): void {
+        this.progressiveLoadingEnabled = true;
+        this.currentLoadRadius = this.INITIAL_LOAD_RADIUS;
+        this.loadedChunksInRadius = 0;
+        this.totalChunksInRadius = 0;
+        this.chunkLoadQueue = [];
+        this.chunksLoading.clear();
+        
+        // Вычисляем чанк места спавна
+        this.spawnChunk.x = Math.floor(spawnPos.x / this.config.chunkSize);
+        this.spawnChunk.z = Math.floor(spawnPos.z / this.config.chunkSize);
+        
+        // ОПТИМИЗАЦИЯ: Загружаем начальные чанки вокруг места спавна сразу (радиус 1)
+        // Это гарантирует, что игрок может начать играть сразу
+        const initialRadius = 1;
+        for (let dx = -initialRadius; dx <= initialRadius; dx++) {
+            for (let dz = -initialRadius; dz <= initialRadius; dz++) {
+                const cx = this.spawnChunk.x + dx;
+                const cz = this.spawnChunk.z + dz;
+                const key = this.getChunkKey(cx, cz);
+                
+                if (!this.chunks.has(key)) {
+                    try {
+                        this.loadChunk(cx, cz);
+                        this.loadedChunksInRadius++;
+                    } catch (e) {
+                        logger.warn(`[ChunkSystem] Error loading initial chunk (${cx}, ${cz}):`, e);
+                    }
+                }
+            }
+        }
+        
+        logger.log(`[ChunkSystem] Progressive loading enabled, spawn chunk: (${this.spawnChunk.x}, ${this.spawnChunk.z}), initial chunks loaded: ${this.loadedChunksInRadius}`);
+    }
+    
+    /**
+     * Выключить прогрессивную загрузку (вернуться к стандартной)
+     */
+    disableProgressiveLoading(): void {
+        this.progressiveLoadingEnabled = false;
+        this.chunkLoadQueue = [];
+        this.chunksLoading.clear();
     }
     
     private loadChunk(cx: number, cz: number): void {
@@ -2202,6 +2421,8 @@ export class ChunkSystem {
         
         const positions = ground.getVerticesData(VertexBuffer.PositionKind)!;
         const subdivisions = Math.sqrt(positions.length / 3) - 1;
+        // ИСПРАВЛЕНИЕ: Используем тот же overlap что и в createGround
+        const overlap = 0.1; // 10cm overlap для перекрытия границ
         
         // УЛУЧШЕНО: Проверяем границы чанка и сглаживаем их с соседними чанками
         const edgeSmoothingRadius = 3; // УВЕЛИЧЕНО с 2 до 3 для более агрессивного сглаживания
@@ -2216,8 +2437,18 @@ export class ChunkSystem {
                     const currentHeight = positions[idx + 1] ?? 0;
                     
                     // Получаем координаты в мировом пространстве
-                    const sampleX = worldX + (gx / subdivisions) * size;
-                    const sampleZ = worldZ + (gz / subdivisions) * size;
+                    // ИСПРАВЛЕНИЕ: Координаты sampling с учётом overlap
+                    let sampleX = worldX - (size + overlap) / 2 + (gx / subdivisions) * (size + overlap);
+                    let sampleZ = worldZ - (size + overlap) / 2 + (gz / subdivisions) * (size + overlap);
+                    
+                    // ИСПРАВЛЕНИЕ: Округляем координаты для граничных вершин до фиксированной точности
+                    const isBoundary = (gx === 0 || gx === subdivisions || gz === 0 || gz === subdivisions);
+                    if (isBoundary) {
+                        // Округляем до точности 1mm для гарантии идентичности координат
+                        const precision = 0.001; // 1mm точность
+                        sampleX = Math.round(sampleX / precision) * precision;
+                        sampleZ = Math.round(sampleZ / precision) * precision;
+                    }
                     
                     // Проверяем соседние чанки
                     const neighborCheckDist = size / subdivisions;
@@ -2278,6 +2509,32 @@ export class ChunkSystem {
             }
         }
         
+        // УЛУЧШЕНО: Дополнительная синхронизация граничных вершин
+        // Для граничных вершин гарантируем использование правильных координат и высот
+        const precision = 0.001; // 1mm точность
+        for (let gz = 0; gz <= subdivisions; gz++) {
+            for (let gx = 0; gx <= subdivisions; gx++) {
+                const isBoundary = (gx === 0 || gx === subdivisions || gz === 0 || gz === subdivisions);
+                if (isBoundary) {
+                    const idx = (gz * (subdivisions + 1) + gx) * 3;
+                    let sampleX = worldX - (size + overlap) / 2 + (gx / subdivisions) * (size + overlap);
+                    let sampleZ = worldZ - (size + overlap) / 2 + (gz / subdivisions) * (size + overlap);
+                    
+                    // Округляем координаты для гарантии идентичности
+                    sampleX = Math.round(sampleX / precision) * precision;
+                    sampleZ = Math.round(sampleZ / precision) * precision;
+                    
+                    // Пересчитываем высоту для граничной вершины с правильными координатами
+                    const boundaryHeight = this.terrainGenerator.getHeight(sampleX, sampleZ, typeof biome === "string" ? biome : "dirt");
+                    if (isFinite(boundaryHeight) && !isNaN(boundaryHeight) && boundaryHeight >= 0) {
+                        // Смешиваем с текущей высотой для плавности, но приоритет отдаём правильной высоте
+                        const currentHeight = positions[idx + 1] ?? 0;
+                        positions[idx + 1] = currentHeight * 0.3 + boundaryHeight * 0.7; // 70% новой высоты
+                    }
+                }
+            }
+        }
+        
         // КРИТИЧНО: Финальная проверка всех вершин на валидность перед обновлением
         // Это предотвращает появление дыр из-за некорректных значений
         for (let i = 1; i < positions.length; i += 3) {
@@ -2314,11 +2571,16 @@ export class ChunkSystem {
         
         // If terrain generator is available, build a single heightmap ground mesh instead of many blocky boxes
         if (this.terrainGenerator) {
-            const subdivisions = 24; // Оптимизировано с 32 до 24 для производительности
+            // ОПТИМИЗАЦИЯ: Уменьшено с 24 до 12 для слабых видеокарт
+            // Это создает 13x13 = 169 вершин вместо 25x25 = 625 вершин на чанк
+            // Уменьшение вершин в ~3.7 раза для лучшей производительности
+            const subdivisions = 12; // Оптимизировано для слабых видеокарт (Intel UHD Graphics)
+            // ИСПРАВЛЕНИЕ: Добавляем overlap для гарантии бесшовности между чанками
+            const overlap = 0.1; // 10cm overlap для перекрытия границ
             // Уникальное имя для каждого чанка, чтобы избежать конфликтов
             const ground = MeshBuilder.CreateGround(`ground_${chunkX}_${chunkZ}`, {
-                width: size,
-                height: size,
+                width: size + overlap,
+                height: size + overlap,
                 subdivisions,
                 updatable: true
             }, this.scene);
@@ -2330,11 +2592,23 @@ export class ChunkSystem {
                 // КРИТИЧНО: Используем isPositionInGarageArea для точной проверки
                 // Это гарантирует, что террейн не будет внутри гаража
                 
-                for (let gz = 0; gz < vertsPerSide; gz++) {
+                    for (let gz = 0; gz < vertsPerSide; gz++) {
                     for (let gx = 0; gx < vertsPerSide; gx++) {
                         const idx = (gz * vertsPerSide + gx) * 3;
-                        const sampleX = worldX + (gx / subdivisions) * size;
-                        const sampleZ = worldZ + (gz / subdivisions) * size;
+                        // ИСПРАВЛЕНИЕ: Координаты sampling с учётом overlap
+                        // CreateGround создаёт вершины от -(size+overlap)/2 до +(size+overlap)/2
+                        let sampleX = worldX - (size + overlap) / 2 + (gx / subdivisions) * (size + overlap);
+                        let sampleZ = worldZ - (size + overlap) / 2 + (gz / subdivisions) * (size + overlap);
+                        
+                        // ИСПРАВЛЕНИЕ: Округляем координаты для граничных вершин до фиксированной точности
+                        // Это гарантирует, что граничные вершины соседних чанков используют ТОЧНО одинаковые координаты
+                        const isBoundary = (gx === 0 || gx === subdivisions || gz === 0 || gz === subdivisions);
+                        if (isBoundary) {
+                            // Округляем до точности 1mm для гарантии идентичности координат
+                            const precision = 0.001; // 1mm точность
+                            sampleX = Math.round(sampleX / precision) * precision;
+                            sampleZ = Math.round(sampleZ / precision) * precision;
+                        }
                         
                         // КРИТИЧНО: Используем isPositionInGarageArea с адаптивным запасом
                         // Для специальных карт (полигон, фронтлайн) используем меньший запас, чтобы не блокировать генерацию
@@ -2514,8 +2788,15 @@ export class ChunkSystem {
                             positions[(gz * vertsPerSide + (gx + 1)) * 3 + 1]  // Восток
                         ];
                         
-                        // Вычисляем среднюю высоту соседей
-                        const validNeighbors = neighbors.filter(h => isFinite(h) && !isNaN(h) && h >= 0);
+                        // Проверяем что currentHeight определен
+                        if (currentHeight === undefined || !isFinite(currentHeight) || isNaN(currentHeight)) {
+                            continue;
+                        }
+                        
+                        // Вычисляем среднюю высоту соседей (фильтруем undefined и невалидные значения)
+                        const validNeighbors = neighbors.filter((h): h is number => 
+                            h !== undefined && isFinite(h) && !isNaN(h) && h >= 0
+                        );
                         if (validNeighbors.length > 0) {
                             const avgNeighborHeight = validNeighbors.reduce((a, b) => a + b, 0) / validNeighbors.length;
                             const heightDiff = Math.abs(currentHeight - avgNeighborHeight);
@@ -2539,7 +2820,7 @@ export class ChunkSystem {
             }
             
             // Позиция относительно chunkParent (который уже позиционирован в worldX, worldZ)
-            // Ground должен начинаться с (0, 0, 0) относительно chunkParent
+            // CreateGround создаёт вершины от -size/2 до +size/2, центрируя меш
             ground.position = new Vector3(0, 0, 0);
             
             // Применяем материал с модификацией цвета по высоте
@@ -2582,7 +2863,6 @@ export class ChunkSystem {
         // Fallback: flat ground if no terrain generator
         const ground = MeshBuilder.CreateBox(`ground_${chunkX}_${chunkZ}`, { width: size, height: 0.1, depth: size }, this.scene);
         // Позиция относительно chunkParent (который уже позиционирован в worldX, worldZ)
-        // Ground должен начинаться с (0, 0, 0) относительно chunkParent, чтобы избежать дублирования
         // Небольшое смещение по Y для предотвращения z-fighting между соседними чанками
         ground.position = new Vector3(0, -0.05, 0);
         

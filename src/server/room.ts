@@ -8,6 +8,7 @@ import { getGameModeRules, type GameModeRules } from "./gameModes";
 import { CTFSystem } from "./ctf";
 import { InputValidator } from "./validation";
 import { logger, LogLevel, loggingSettings } from "../client/utils/logger";
+import { serverLogger } from "./logger";
 
 export class GameRoom {
     id: string;
@@ -50,7 +51,7 @@ export class GameRoom {
         // ВСЕГДА используем переданный roomId (простой формат 0001, 0002...)
         // Если roomId не передан, это ошибка - используем fallback, но логируем предупреждение
         if (!roomId) {
-            console.warn(`[Room] ВНИМАНИЕ: комната создана без roomId! Используется fallback nanoid.`);
+            serverLogger.warn(`[Room] ВНИМАНИЕ: комната создана без roomId! Используется fallback nanoid.`);
             this.id = nanoid();
         } else {
             this.id = roomId;
@@ -193,7 +194,7 @@ export class GameRoom {
             this.enemies.set(enemy.id, enemy);
         }
         
-        console.log(`[Room] Spawned ${enemyCount} synchronized enemies for room ${this.id}`);
+        serverLogger.log(`[Room] Spawned ${enemyCount} synchronized enemies for room ${this.id}`);
         if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
             logger.debug(`[Room] Enemies spawned: ${enemyCount} enemies`);
         }

@@ -139,7 +139,7 @@ export class ServerCollector {
             websocketConns: this.lastStats.activeConnections,
             // Note: Average ping calculation requires server API enhancement
             // to expose per-player ping data. Currently not available in ServerStats.
-            avgPing: 0
+            avgPing: 0,
             roomsList
         };
     }

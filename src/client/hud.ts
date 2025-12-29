@@ -197,6 +197,14 @@ export class HUD {
     
     // FPS counter
     private fpsText: TextBlock | null = null;
+    
+    // ОПТИМИЗАЦИЯ: Индикатор прогресса прогрузки карты (нижний левый угол)
+    private mapLoadingContainer: Rectangle | null = null;
+    private mapLoadingBar: Rectangle | null = null;
+    private mapLoadingFill: Rectangle | null = null;
+    private mapLoadingText: TextBlock | null = null;
+    private mapLoadingProgress = 100; // Начальное значение 100% (скрыт)
+    private mapLoadingTargetProgress = 100;
     private fpsContainer: Rectangle | null = null;
     
     // Zoom indicator (aiming mode)
@@ -360,9 +368,11 @@ export class HUD {
         // УЛУЧШЕНО: Инициализируем новые компоненты HUD
         this.speedIndicator = new SpeedIndicator(this.guiTexture, DEFAULT_SPEED_CONFIG);
         // ИСПРАВЛЕНО: Удален reloadBarComponent - используем только старую шкалу перезарядки
-        this.experienceBarComponent = new ExperienceBar(this.guiTexture, DEFAULT_EXPERIENCE_BAR_CONFIG);
+        // ИСПРАВЛЕНО: Удален experienceBarComponent - используем только centralXpBar чтобы избежать дублирования
+        // this.experienceBarComponent = new ExperienceBar(this.guiTexture, DEFAULT_EXPERIENCE_BAR_CONFIG);
         this.killFeedComponent = new KillFeed(this.guiTexture, DEFAULT_KILLFEED_CONFIG);
-        this.arsenalBarComponent = new ArsenalBar(this.guiTexture, this.scalePx.bind(this), this.scaleFontSize.bind(this), DEFAULT_ARSENAL_CONFIG);
+        // ИСПРАВЛЕНО: Удален arsenalBarComponent - используем только createArsenalBlock() чтобы избежать дублирования
+        // this.arsenalBarComponent = new ArsenalBar(this.guiTexture, this.scalePx.bind(this), this.scaleFontSize.bind(this), DEFAULT_ARSENAL_CONFIG);
         
         this.createComboIndicator();   // Индикатор комбо
         this.createDeathScreen();      // Экран результатов смерти
@@ -380,6 +390,8 @@ export class HUD {
         this._createFPSCounter();      // FPS счётчик
         this._createKillCounter();     // Скрытый счётчик убийств (для статистики)
         this._createCurrencyDisplay(); // Скрытый дисплей кредитов (для статистики)
+        // УДАЛЕНО: Индикатор прогрузки карты больше не нужен
+        // this.createMapLoadingIndicator();
         
         // Инициализируем значения блока состояния (если есть начальные значения)
         if (this.tankStatusContainer && this.currentHealth > 0 && this.maxHealth > 0) {
@@ -479,6 +491,23 @@ export class HUD {
         }
         
         this._playerProgression = playerProgression;
+        
+        // ИСПРАВЛЕНО: Сразу загружаем текущие XP данные при инициализации
+        if (playerProgression) {
+            try {
+                // Используем правильные методы PlayerProgressionSystem
+                const xpProgress = playerProgression.getExperienceProgress?.();
+                const level = playerProgression.getLevel?.() ?? 1;
+                if (xpProgress) {
+                    this.updateCentralXp(xpProgress.current, xpProgress.required, level);
+                } else {
+                    this.updateCentralXp(0, 100, level);
+                }
+            } catch (e) {
+                // Ошибка при получении начальных XP данных - используем 0
+                this.updateCentralXp(0, 100, 1);
+            }
+        }
         
         // Подписываемся на изменения опыта
         if (playerProgression && playerProgression.onExperienceChanged) {
@@ -1823,7 +1852,8 @@ export class HUD {
             // Позиционируем в общем ряду: индексы 5-14 для припасов/модулей
             const globalIndex = 4 + i; // 5-14 для припасов/модулей (4 + i, где i от 1 до 10)
             container.left = `${startX + globalIndex * (slotWidth + slotGap)}px`;
-            container.top = this.scalePx(-40); // Поднято выше над XP bar (было -25, теперь -40)
+            container.top = this.scalePx(-48); // Равномерно между XP BAR (-5) и RELOAD BAR (-100)
+            container.zIndex = 20; // ИСПРАВЛЕНО: Единый zIndex для всех слотов
             this.guiTexture.addControl(container);
             
             
@@ -2245,13 +2275,17 @@ export class HUD {
     private compassContainer!: Rectangle;
     private compassDegrees!: TextBlock;
     private compassTicks: Rectangle[] = []; // Риски на компасе
-    private compassEnemyDots: Rectangle[] = []; // Красные точки врагов
+    private compassEnemyDots: Rectangle[] = []; // Красные точки врагов (legacy, для совместимости)
+    // ОПТИМИЗАЦИЯ: Пул объектов для переиспользования точек компаса
+    private compassEnemyDotsPool: Rectangle[] = [];
+    private compassEnemyDotsActive: Rectangle[] = [];
+    private readonly MAX_COMPASS_ENEMIES = 8; // Ограничение количества врагов на компасе
     
     private createCompass() {
         // === ЖИВОЙ КОМПАС БЕЗ БУКВЕННЫХ ОБОЗНАЧЕНИЙ ===
         this.compassContainer = new Rectangle("compassContainer");
-        this.compassContainer.width = this.scalePx(500); // Увеличено в 2 раза (было 250)
-        this.compassContainer.height = this.scalePx(25);
+        this.compassContainer.width = this.scalePx(1000); // Увеличено в 2 раза (было 500)
+        this.compassContainer.height = this.scalePx(35); // УВЕЛИЧЕНО с 25 до 35 для лучшей читаемости
         this.compassContainer.cornerRadius = 0;
         this.compassContainer.thickness = 1;
         this.compassContainer.color = "#0f03";
@@ -2264,12 +2298,13 @@ export class HUD {
         this.compassContainer.zIndex = 100; // КРИТИЧНО: Высокий z-index для видимости
         this.guiTexture.addControl(this.compassContainer);
         
-        
+        // ОПТИМИЗАЦИЯ: Инициализация пула объектов для точек врагов на компасе
+        this.initializeCompassEnemyDotsPool();
         
         // Центральный маркер (красный треугольник вниз)
         const centerMarker = new Rectangle("compassCenterMarker");
-        centerMarker.width = this.scalePx(2);
-        centerMarker.height = this.scalePx(8);
+        centerMarker.width = this.scalePx(3); // УВЕЛИЧЕНО с 2 до 3
+        centerMarker.height = this.scalePx(12); // УВЕЛИЧЕНО с 8 до 12
         centerMarker.thickness = 0;
         centerMarker.background = "#f00";
         centerMarker.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
@@ -2283,36 +2318,39 @@ export class HUD {
         this.compassText.text = "N";
         this.compassText.isVisible = true; // ИСПРАВЛЕНО: Компас должен быть видим
         this.compassText.color = "#0f0";
-        this.compassText.fontSize = this.scaleFontSize(12, 10, 14);
+        this.compassText.fontSize = this.scaleFontSize(14, 12, 16); // УВЕЛИЧЕНО
         this.compassText.fontWeight = "bold";
         this.compassText.fontFamily = "'Press Start 2P', monospace";
         this.compassText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.compassText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        this.compassText.top = "-15px"; // Над градусами
+        this.compassText.top = "-18px"; // Над градусами, скорректировано
         this.compassContainer.addControl(this.compassText);
         
         // Градусы по центру компаса
         this.compassDegrees = new TextBlock("compassDeg");
         this.compassDegrees.text = "0°";
         this.compassDegrees.color = "#0f0";
-        this.compassDegrees.fontSize = this.scaleFontSize(14, 10, 18);
+        this.compassDegrees.fontSize = this.scaleFontSize(18, 14, 22); // УВЕЛИЧЕНО для лучшей читаемости
         this.compassDegrees.fontWeight = "bold";
         this.compassDegrees.fontFamily = "'Press Start 2P', monospace";
         this.compassDegrees.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.compassDegrees.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.compassDegrees.top = "0px";
         this.compassDegrees.isVisible = true; // КРИТИЧНО: Градусы компаса должны быть видимы
+        this.compassDegrees.shadowColor = "#000000";
+        this.compassDegrees.shadowBlur = 2;
         this.compassContainer.addControl(this.compassDegrees);
         
-        // === РИСКИ НА КОМПАСЕ (метки каждые 15 градусов) ===
+        // === РИСКИ НА КОМПАСЕ (метки каждые 5 градусов для заполнения всей ширины) ===
         this.compassTicks = [];
-        for (let i = 0; i < 24; i++) { // 24 риски (360/15 = 24)
+        for (let i = 0; i < 72; i++) { // 72 риски (360/5 = 72) - заполняют весь компас
             const tick = new Rectangle(`compassTick${i}`);
-            const isMajor = i % 4 === 0; // Каждые 4 риски = основные (каждые 60°)
-            tick.width = "1px";
-            tick.height = isMajor ? "6px" : "3px";
+            const isMajor = i % 6 === 0; // Каждые 6 рисок = основные (каждые 30°)
+            const isMedium = i % 3 === 0 && !isMajor; // Средние риски (каждые 15°)
+            tick.width = "2px";
+            tick.height = isMajor ? this.scalePx(12) : (isMedium ? this.scalePx(8) : this.scalePx(4));
             tick.thickness = 0;
-            tick.background = isMajor ? "#0f0" : "#0a0";
+            tick.background = isMajor ? "#0f0" : (isMedium ? "#0c0" : "#080");
             tick.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
             tick.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             tick.top = "0px";
@@ -2422,17 +2460,21 @@ export class HUD {
     private fullMapContainer: Rectangle | null = null;
     private fullMapVisible = false;
     private exploredAreas: Set<string> = new Set(); // Открытые участки карты
-    private fullMapEnemies: Rectangle[] = [];
+    private fullMapEnemies: Rectangle[] = []; // Legacy, для совместимости
+    // ОПТИМИЗАЦИЯ: Пул объектов для маркеров врагов на полной карте
+    private fullMapEnemiesPool: Rectangle[] = [];
+    private fullMapEnemiesActive: Map<string, Rectangle> = new Map(); // Map<enemyId, Rectangle>
+    private readonly MAX_FULLMAP_ENEMIES = 50; // Ограничение количества врагов на карте
     
     private createMinimap() {
         // === ВОЕННО-ТАКТИЧЕСКИЙ ДИЗАЙН РАДАРА (ЗЕЛЁНАЯ СХЕМА) ===
         // УВЕЛИЧЕНО: Размеры с правильными отступами для лучшей читаемости
-        const RADAR_SIZE = 200;           // Размер круга радара (УВЕЛИЧЕНО с 160)
-        const RADAR_INNER = 190;          // Внутренняя область (УВЕЛИЧЕНО с 150)
-        const HEADER_HEIGHT = 32;         // Заголовок (УВЕЛИЧЕНО с 24)
-        const INFO_HEIGHT = 36;           // Нижняя панель (УВЕЛИЧЕНО с 28)
-        const STATUS_WIDTH = 110;         // Блок статуса (УВЕЛИЧЕНО с 80)
-        const GAP = 8;                    // Отступы между элементами (УВЕЛИЧЕНО с 6)
+        const RADAR_SIZE = 220;           // Размер круга радара (УВЕЛИЧЕНО с 200)
+        const RADAR_INNER = 210;          // Внутренняя область (УВЕЛИЧЕНО с 190)
+        const HEADER_HEIGHT = 36;         // Заголовок (УВЕЛИЧЕНО с 32)
+        const INFO_HEIGHT = 40;           // Нижняя панель (УВЕЛИЧЕНО с 36)
+        const STATUS_WIDTH = 125;         // Блок статуса (УВЕЛИЧЕНО с 110)
+        const GAP = 10;                   // Отступы между элементами (УВЕЛИЧЕНО с 8)
         const PADDING = 10;               // Внутренние отступы (УВЕЛИЧЕНО с 8)
         
         // Общие размеры контейнера
@@ -2504,7 +2546,7 @@ export class HUD {
         // === ЦЕНТРАЛЬНАЯ ОБЛАСТЬ (STATUS слева + RADAR справа) ===
         const centerY = PADDING + HEADER_HEIGHT + GAP;
         
-        // === БЛОК СТАТУСА (СЛЕВА) ===
+        // === БЛОК СТАТУСА (СЛЕВА) - КОМПАКТНЫЙ ДИЗАЙН БЕЗ ЗАГОЛОВКА ===
         this.tankStatusContainer = new Rectangle("tankStatusContainer");
         this.tankStatusContainer.width = this.scalePx(STATUS_WIDTH);
         this.tankStatusContainer.height = this.scalePx(RADAR_SIZE);
@@ -2518,148 +2560,79 @@ export class HUD {
         this.tankStatusContainer.top = this.scalePx(centerY);
         this.minimapContainer.addControl(this.tankStatusContainer);
         
-        // Заголовок статуса - УВЕЛИЧЕН размер текста для лучшей читаемости
-        const statusTitle = new TextBlock("statusTitle");
-        statusTitle.text = "STATUS";
-        statusTitle.color = "#00ff00"; // Яркий зелёный
-        statusTitle.fontSize = this.scaleFontSize(14, 12, 16); // УВЕЛИЧЕНО с 10-12 до 14-16
-        statusTitle.fontWeight = "bold";
-        statusTitle.fontFamily = "'Consolas', 'Monaco', 'Courier New', monospace";
-        statusTitle.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        statusTitle.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        statusTitle.top = this.scalePx(8);
-        statusTitle.zIndex = 1000;
-        this.tankStatusContainer.addControl(statusTitle);
+        // Равномерное распределение сверху вниз по высоте контейнера (220px)
+        const rowHeight = 40; // Высота одной строки для равномерного распределения
+        const startY = 10; // Начальный отступ сверху
         
-        // HP - ИСПРАВЛЕНО: Оптимизирован размер и отступы для предотвращения перекрытия
+        // === HP ROW ===
         this.tankStatusHealthText = new TextBlock("tankStatusHealth");
-        this.tankStatusHealthText.text = "HP 100%";
-        this.tankStatusHealthText.color = "#00ff00"; // Яркий зелёный
-        this.tankStatusHealthText.fontSize = this.scaleFontSize(12, 11, 14); // Оптимизирован размер
+        this.tankStatusHealthText.text = "HP: 100%";
+        this.tankStatusHealthText.color = "#00ff00";
+        this.tankStatusHealthText.fontSize = this.scaleFontSize(13, 11, 15);
         this.tankStatusHealthText.fontWeight = "bold";
         this.tankStatusHealthText.fontFamily = "'Consolas', 'Monaco', 'Courier New', monospace";
         this.tankStatusHealthText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.tankStatusHealthText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.tankStatusHealthText.top = this.scalePx(30); // Оптимизирован отступ
+        this.tankStatusHealthText.top = this.scalePx(startY);
         this.tankStatusHealthText.zIndex = 1000;
-        this.tankStatusHealthText.width = "100%"; // КРИТИЧНО: Ограничиваем ширину
+        this.tankStatusHealthText.width = "100%";
         this.tankStatusContainer.addControl(this.tankStatusHealthText);
         
-        // HP Bar - ИСПРАВЛЕНО: Оптимизирована высота и отступы
-        const hpBarBg = new Rectangle("hpBarBg");
-        hpBarBg.width = "88%";
-        hpBarBg.height = this.scalePx(8); // Оптимизирована высота
-        hpBarBg.thickness = 1;
-        hpBarBg.color = "#00ff00";
-        hpBarBg.background = "rgba(0, 30, 0, 0.9)";
-        hpBarBg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        hpBarBg.top = this.scalePx(48); // Оптимизирован отступ
-        this.tankStatusContainer.addControl(hpBarBg);
-        
-        const hpBarFill = new Rectangle("hpBarFill");
-        hpBarFill.width = "100%";
-        hpBarFill.height = "100%";
-        hpBarFill.thickness = 0;
-        hpBarFill.background = "#00ff00";
-        hpBarFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        hpBarBg.addControl(hpBarFill);
-        (this.tankStatusContainer as any)._healthBarFill = hpBarFill;
-        
-        // FUEL - ИСПРАВЛЕНО: Оптимизирован размер и отступы для предотвращения перекрытия
+        // === FUEL ROW ===
         this.tankStatusFuelText = new TextBlock("tankStatusFuel");
-        this.tankStatusFuelText.text = "FUEL 100%";
-        this.tankStatusFuelText.color = "#88ff00"; // Яркий жёлто-зелёный
-        this.tankStatusFuelText.fontSize = this.scaleFontSize(12, 11, 14); // Оптимизирован размер
+        this.tankStatusFuelText.text = "FL: 100%";
+        this.tankStatusFuelText.color = "#f90";
+        this.tankStatusFuelText.fontSize = this.scaleFontSize(13, 11, 15);
         this.tankStatusFuelText.fontWeight = "bold";
         this.tankStatusFuelText.fontFamily = "'Consolas', 'Monaco', 'Courier New', monospace";
         this.tankStatusFuelText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.tankStatusFuelText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.tankStatusFuelText.top = this.scalePx(64); // Оптимизирован отступ (было 70)
+        this.tankStatusFuelText.top = this.scalePx(startY + rowHeight);
         this.tankStatusFuelText.zIndex = 1000;
-        this.tankStatusFuelText.width = "100%"; // КРИТИЧНО: Ограничиваем ширину
+        this.tankStatusFuelText.width = "100%";
         this.tankStatusContainer.addControl(this.tankStatusFuelText);
         
-        // Fuel Bar - ИСПРАВЛЕНО: Оптимизирована высота и отступы
-        const fuelBarBg = new Rectangle("fuelBarBg");
-        fuelBarBg.width = "88%";
-        fuelBarBg.height = this.scalePx(8); // Оптимизирована высота
-        fuelBarBg.thickness = 1;
-        fuelBarBg.color = "#88ff00";
-        fuelBarBg.background = "rgba(30, 30, 0, 0.9)";
-        fuelBarBg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        fuelBarBg.top = this.scalePx(82); // Оптимизирован отступ (было 90)
-        this.tankStatusContainer.addControl(fuelBarBg);
-        
-        const fuelBarFill = new Rectangle("fuelBarFill");
-        fuelBarFill.width = "100%";
-        fuelBarFill.height = "100%";
-        fuelBarFill.thickness = 0;
-        fuelBarFill.background = "#88ff00";
-        fuelBarFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        fuelBarBg.addControl(fuelBarFill);
-        (this.tankStatusContainer as any)._fuelBarFill = fuelBarFill;
-        
-        // ARMOR - ИСПРАВЛЕНО: Оптимизирован размер и отступы для предотвращения перекрытия
+        // === ARMOR ROW ===
         this.tankStatusArmorText = new TextBlock("tankStatusArmor");
-        this.tankStatusArmorText.text = "ARM 0%";
-        this.tankStatusArmorText.color = "#00cccc"; // Яркий голубой
-        this.tankStatusArmorText.fontSize = this.scaleFontSize(12, 11, 14); // Оптимизирован размер
+        this.tankStatusArmorText.text = "AR: 0%";
+        this.tankStatusArmorText.color = "#0cc";
+        this.tankStatusArmorText.fontSize = this.scaleFontSize(13, 11, 15);
         this.tankStatusArmorText.fontWeight = "bold";
         this.tankStatusArmorText.fontFamily = "'Consolas', 'Monaco', 'Courier New', monospace";
         this.tankStatusArmorText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.tankStatusArmorText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.tankStatusArmorText.top = this.scalePx(98); // Оптимизирован отступ (было 108)
+        this.tankStatusArmorText.top = this.scalePx(startY + rowHeight * 2);
         this.tankStatusArmorText.zIndex = 1000;
-        this.tankStatusArmorText.width = "100%"; // КРИТИЧНО: Ограничиваем ширину
+        this.tankStatusArmorText.width = "100%";
         this.tankStatusContainer.addControl(this.tankStatusArmorText);
         
-        // Armor Bar - ИСПРАВЛЕНО: Оптимизирована высота и отступы
-        const armBarBg = new Rectangle("armBarBg");
-        armBarBg.width = "88%";
-        armBarBg.height = this.scalePx(8); // Оптимизирована высота
-        armBarBg.thickness = 1;
-        armBarBg.color = "#00cccc";
-        armBarBg.background = "rgba(0, 30, 30, 0.9)";
-        armBarBg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        armBarBg.top = this.scalePx(116); // Оптимизирован отступ (было 128)
-        this.tankStatusContainer.addControl(armBarBg);
-        
-        const armBarFill = new Rectangle("armBarFill");
-        armBarFill.width = "0%";
-        armBarFill.height = "100%";
-        armBarFill.thickness = 0;
-        armBarFill.background = "#00cccc";
-        armBarFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        armBarBg.addControl(armBarFill);
-        (this.tankStatusContainer as any)._armorBarFill = armBarFill;
-        
-        // KILLS - ИСПРАВЛЕНО: Оптимизирован размер и отступы для предотвращения перекрытия
+        // === KILLS ROW ===
         const killsText = new TextBlock("killsText");
         killsText.text = "☠ 0";
-        killsText.color = "#ff6600"; // Яркий оранжевый
-        killsText.fontSize = this.scaleFontSize(13, 12, 15); // Оптимизирован размер
+        killsText.color = "#f60";
+        killsText.fontSize = this.scaleFontSize(14, 12, 16);
         killsText.fontWeight = "bold";
         killsText.fontFamily = "'Consolas', 'Monaco', 'Courier New', monospace";
         killsText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         killsText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        killsText.top = this.scalePx(132); // Оптимизирован отступ (было 146)
+        killsText.top = this.scalePx(startY + rowHeight * 3);
         killsText.zIndex = 1000;
-        killsText.width = "100%"; // КРИТИЧНО: Ограничиваем ширину
+        killsText.width = "100%";
         this.tankStatusContainer.addControl(killsText);
         (this.tankStatusContainer as any)._killsValue = killsText;
         
-        // ALT - ИСПРАВЛЕНО: Оптимизирован размер и отступы для предотвращения перекрытия
+        // === ALT ROW ===
         const altText = new TextBlock("altText");
-        altText.text = "ALT: 0m";
-        altText.color = "#00ccff"; // Яркий голубой
-        altText.fontSize = this.scaleFontSize(11, 10, 13); // Оптимизирован размер
+        altText.text = "↕ 0m";
+        altText.color = "#0cf";
+        altText.fontSize = this.scaleFontSize(12, 10, 14);
         altText.fontWeight = "bold";
         altText.fontFamily = "'Consolas', 'Monaco', 'Courier New', monospace";
         altText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         altText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        altText.top = this.scalePx(150); // Оптимизирован отступ (было 165)
+        altText.top = this.scalePx(startY + rowHeight * 4);
         altText.zIndex = 1000;
-        altText.width = "100%"; // КРИТИЧНО: Ограничиваем ширину
+        altText.width = "100%";
         this.tankStatusContainer.addControl(altText);
         (this.tankStatusContainer as any)._altValue = altText;
         
@@ -2860,42 +2833,87 @@ export class HUD {
         sep.zIndex = 1; // Низкий z-index
         infoPanel.addControl(sep);
         
-        // ИСПРАВЛЕНО: Скорость слева с оптимизированными отступами и размерами
+        // ИСПРАВЛЕНО: Скорость слева - заметная и чёткая
         const speedText = new TextBlock("speedText");
-        speedText.text = "0 km/h";
+        speedText.text = "0km/h";
         speedText.color = "#00ff00"; // Яркий зелёный
-        speedText.fontSize = this.scaleFontSize(12, 10, 14); // Оптимизирован размер для предотвращения перекрытия
+        speedText.fontSize = this.scaleFontSize(16, 14, 18); // Увеличенный размер для лучшей читаемости
         speedText.fontWeight = "bold";
         speedText.fontFamily = "'Consolas', 'Monaco', 'Courier New', monospace";
         speedText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         speedText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        speedText.left = this.scalePx(10); // Оптимизирован отступ слева
-        speedText.top = "0px"; // Центрирование по вертикали
+        speedText.left = this.scalePx(6); // Немного больше отступ
+        speedText.top = "0px";
         speedText.zIndex = 1000;
-        // КРИТИЧНО: Ограничиваем ширину текста скорости, чтобы не заходить на центр и координаты
-        speedText.width = "35%"; // Уменьшено с 40% до 35% для предотвращения перекрытия
+        speedText.width = "30%"; // Ограничено чтобы оставить место для угла ствола
         speedText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        speedText.textWrapping = true; // Перенос текста при необходимости
+        speedText.textWrapping = false;
+        speedText.shadowColor = "#000000";
+        speedText.shadowBlur = 4; // Увеличена тень для контрастности
+        speedText.outlineWidth = 1;
+        speedText.outlineColor = "#000";
         infoPanel.addControl(speedText);
         (this.minimapContainer as any)._speedValue = speedText;
         
-        // ИСПРАВЛЕНО: Координаты справа с оптимизированными отступами и размерами
+        // НОВОЕ: Угол наклона ствола по центру
+        const barrelAngleText = new TextBlock("barrelAngleText");
+        barrelAngleText.text = "↗ 0°";
+        barrelAngleText.color = "#ffaa00"; // Оранжевый для отличия от скорости
+        barrelAngleText.fontSize = this.scaleFontSize(16, 14, 18); // Увеличенный размер для лучшей читаемости
+        barrelAngleText.fontWeight = "bold";
+        barrelAngleText.fontFamily = "'Consolas', 'Monaco', 'Courier New', monospace";
+        barrelAngleText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        barrelAngleText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        barrelAngleText.top = "0px";
+        barrelAngleText.zIndex = 1000;
+        barrelAngleText.textWrapping = false;
+        barrelAngleText.shadowColor = "#000000";
+        barrelAngleText.shadowBlur = 3;
+        barrelAngleText.outlineWidth = 1;
+        barrelAngleText.outlineColor = "#000";
+        infoPanel.addControl(barrelAngleText);
+        (this.minimapContainer as any)._barrelAngleValue = barrelAngleText;
+        
+        // НОВОЕ: Разделители между элементами
+        const separator1 = new Rectangle("separator1");
+        separator1.width = "2px";
+        separator1.height = "60%";
+        separator1.thickness = 0;
+        separator1.background = "#00ff0066";
+        separator1.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        separator1.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        separator1.left = this.scalePx(-80); // Между скоростью и углом
+        infoPanel.addControl(separator1);
+        
+        const separator2 = new Rectangle("separator2");
+        separator2.width = "2px";
+        separator2.height = "60%";
+        separator2.thickness = 0;
+        separator2.background = "#00ff0066";
+        separator2.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        separator2.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        separator2.left = this.scalePx(80); // Между углом и координатами
+        infoPanel.addControl(separator2);
+        
+        // ИСПРАВЛЕНО: Координаты справа - формат [x y z]
         const posText = new TextBlock("posText");
-        posText.text = "[0, 0, 0]";
+        posText.text = "[0 0 0]";
         posText.color = "#00ff00"; // Яркий зелёный
-        posText.fontSize = this.scaleFontSize(12, 10, 14); // Оптимизирован размер для предотвращения перекрытия
+        posText.fontSize = this.scaleFontSize(14, 12, 16); // Синхронизированный размер
         posText.fontWeight = "bold";
         posText.fontFamily = "'Consolas', 'Monaco', 'Courier New', monospace";
         posText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         posText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        posText.left = this.scalePx(-10); // Оптимизирован отступ справа
-        posText.top = "0px"; // Центрирование по вертикали
+        posText.left = this.scalePx(-4); // Минимальный отступ справа
+        posText.top = "0px";
         posText.zIndex = 1000;
-        // КРИТИЧНО: Ограничиваем ширину текста координат, чтобы не заходить на центр и скорость
-        posText.width = "35%"; // Уменьшено с 40% до 35% для предотвращения перекрытия
+        // КРИТИЧНО: Достаточная ширина для формата [-999 -999 -999]
+        posText.width = "40%"; // Ширина для отрицательных координат
         posText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        posText.textWrapping = true; // Перенос текста при необходимости
-        posText.isVisible = true; // КРИТИЧНО: Координаты должны быть видимы
+        posText.textWrapping = false;
+        posText.isVisible = true;
+        posText.shadowColor = "#000000";
+        posText.shadowBlur = 2;
         infoPanel.addControl(posText);
         (this.minimapContainer as any)._coordValue = posText;
     }
@@ -3040,13 +3058,13 @@ export class HUD {
         // === КОМПАКТНОЕ ОПОВЕЩЕНИЕ ПОД КОМПАСОМ ===
         const msgBg = new Rectangle("msgBg");
         // Увеличена ширина для длинных сообщений
-        msgBg.width = "500px";
-        // Увеличена минимальная высота, будет автоматически подстраиваться
-        msgBg.height = "50px";
-        msgBg.cornerRadius = 0;
+        msgBg.width = "400px";
+        // Уменьшена высота для менее навязчивого вида
+        msgBg.height = "32px";
+        msgBg.cornerRadius = 2;
         msgBg.thickness = 1;
-        msgBg.color = "#f804";
-        msgBg.background = "#000000cc";
+        msgBg.color = "#0f06"; // Зелёный вместо красного
+        msgBg.background = "#001a00dd"; // Тёмно-зелёный фон
         msgBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         msgBg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         msgBg.top = "40px"; // Сразу под компасом (компас: top=10px, height=25px)
@@ -3055,42 +3073,42 @@ export class HUD {
         
         // Левая полоска
         const leftAccent = new Rectangle("msgLeftAccent");
-        leftAccent.width = "3px";
+        leftAccent.width = "2px";
         leftAccent.height = "100%";
         leftAccent.thickness = 0;
-        leftAccent.background = "#f80";
+        leftAccent.background = "#0f0"; // Зелёный
         leftAccent.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         msgBg.addControl(leftAccent);
         
         // Правая полоска
         const rightAccent = new Rectangle("msgRightAccent");
-        rightAccent.width = "3px";
+        rightAccent.width = "2px";
         rightAccent.height = "100%";
         rightAccent.thickness = 0;
-        rightAccent.background = "#f80";
+        rightAccent.background = "#0f0"; // Зелёный
         rightAccent.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         msgBg.addControl(rightAccent);
         
         // Иконка
         const icon = new TextBlock("msgIcon");
-        icon.text = "⚠";
-        icon.color = "#f80";
-        icon.fontSize = 14;
+        icon.text = "►";
+        icon.color = "#0f0"; // Зелёный
+        icon.fontSize = 10;
         icon.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        icon.left = "10px";
+        icon.left = "8px";
         msgBg.addControl(icon);
         (msgBg as any)._icon = icon;
         
         // Текст сообщения
         this.messageText = new TextBlock("messageText");
         this.messageText.text = "";
-        this.messageText.color = "#fff";
-        this.messageText.fontSize = 12;
+        this.messageText.color = "#0f0"; // Зелёный
+        this.messageText.fontSize = 11;
         this.messageText.fontWeight = "bold";
-        this.messageText.fontFamily = "'Press Start 2P', monospace";
+        this.messageText.fontFamily = "'Consolas', 'Monaco', 'Courier New', monospace";
         // Включаем перенос текста для длинных сообщений
-        this.messageText.textWrapping = true;
-        this.messageText.width = "480px"; // Ширина минус отступы для иконки
+        this.messageText.textWrapping = false;
+        this.messageText.width = "380px"; // Ширина минус отступы для иконки
         this.messageText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.messageText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.messageText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -3144,7 +3162,8 @@ export class HUD {
             // Позиционируем в общем ряду: индексы 15-22 для эффектов
             const globalIndex = effectsFirstSlotIndex + i; // 15-22 для эффектов
             container.left = `${startX + globalIndex * (slotWidth + slotGap)}px`;
-            container.top = this.scalePx(-40);
+            container.top = this.scalePx(-48); // Равномерно между XP BAR (-5) и RELOAD BAR (-100)
+            container.zIndex = 20; // ИСПРАВЛЕНО: Единый zIndex для всех слотов
             
             // Градиент прозрачности: слот 1 = 100%, 2 = 75%, 3 = 50%, 4 = 25%, 5 = 0%
             if (i < 5) {
@@ -3838,6 +3857,31 @@ export class HUD {
         }
     }
     
+    /**
+     * Установить угол наклона ствола
+     * @param angleDegrees - Угол в градусах (положительный = вверх, отрицательный = вниз)
+     */
+    setBarrelAngle(angleDegrees: number): void {
+        if (this.minimapContainer) {
+            const barrelAngleValue = (this.minimapContainer as any)._barrelAngleValue as TextBlock;
+            if (barrelAngleValue) {
+                const roundedAngle = Math.round(angleDegrees);
+                // Выбираем символ в зависимости от направления
+                const arrow = roundedAngle >= 0 ? "↗" : "↘";
+                barrelAngleValue.text = `${arrow} ${Math.abs(roundedAngle)}°`;
+                
+                // Цвет в зависимости от угла
+                if (Math.abs(roundedAngle) > 15) {
+                    barrelAngleValue.color = "#ff4444"; // Красный для экстремальных углов
+                } else if (Math.abs(roundedAngle) > 8) {
+                    barrelAngleValue.color = "#ffaa00"; // Оранжевый для средних углов
+                } else {
+                    barrelAngleValue.color = "#00ff00"; // Зелёный для малых углов
+                }
+            }
+        }
+    }
+    
     setPosition(x: number, z: number, y?: number) {
         // Безопасная проверка перед использованием
         if (this.positionText) {
@@ -3848,30 +3892,28 @@ export class HUD {
             }
         }
         
-        // Обновляем координаты в радаре (С ВЫСОТОЙ) - ИСПРАВЛЕНО: Компактный формат для предотвращения перекрытия
+        // Обновляем координаты в радаре (С ВЫСОТОЙ) - формат [ X : Y : Z ]
         if (this.minimapContainer) {
             const coordValue = (this.minimapContainer as any)._coordValue as TextBlock;
             if (coordValue) {
-                coordValue.width = "35%"; // КРИТИЧНО: Ограничиваем ширину
+                // Формат [x y z] - компактный через пробел
                 if (y !== undefined) {
-                    // Компактный формат: убираем пробелы для экономии места
-                    coordValue.text = `[${Math.round(x)},${Math.round(y)},${Math.round(z)}]`;
+                    coordValue.text = `[${Math.round(x)} ${Math.round(y)} ${Math.round(z)}]`;
                 } else {
-                    coordValue.text = `[${Math.round(x)},${Math.round(z)}]`;
+                    coordValue.text = `[${Math.round(x)} ${Math.round(z)}]`;
                 }
-                // КРИТИЧНО: Убеждаемся, что координаты видимы
                 coordValue.isVisible = true;
             }
         }
         
-        // УЛУЧШЕНО: Обновляем высоту (ALT) в блоке статуса
+        // УЛУЧШЕНО: Обновляем высоту (ALT) в блоке статуса - компактный формат
         if (this.tankStatusContainer && y !== undefined) {
             const altValue = (this.tankStatusContainer as any)._altValue as TextBlock;
             if (altValue) {
-                altValue.text = `ALT: ${Math.round(y)}m`;
+                altValue.text = `↕ ${Math.round(y)}m`;
                 // Цвет в зависимости от высоты
                 if (y > 50) {
-                    altValue.color = "#ff00ff"; // Фиолетовый для очень высоких позиций
+                    altValue.color = "#f0f"; // Фиолетовый для очень высоких позиций
                 } else if (y > 20) {
                     altValue.color = "#00ffff"; // Голубой для высоких позиций
                 } else {
@@ -3934,14 +3976,25 @@ export class HUD {
             console.error("[HUD] setDirection: compassDegrees is null!");
         }
         
-        // КРИТИЧНО: Обновляем риски на компасе
+        // КРИТИЧНО: Обновляем риски на компасе - заполняем всю ширину 1000px
+        // Компас показывает примерно 180° (полукруг), ширина 1000px
+        const compassWidth = 1000; // Ширина компаса в пикселях
+        const degreesVisible = 180; // Видимый диапазон градусов
+        const pixelsPerDegree = compassWidth / degreesVisible; // ~5.55 px/градус
+        
         this.compassTicks.forEach((tick, i) => {
             if (!tick) return;
-            const tickAngle = (i * 15) * Math.PI / 180; // Каждые 15 градусов
-            const relativeAngle = tickAngle - normalizedAngle;
-            const tickX = Math.sin(relativeAngle) * 120; // Радиус компаса
+            const tickDegrees = i * 5; // Каждые 5 градусов (72 тика)
+            // Разница между направлением риски и текущим направлением
+            let deltaDegrees = tickDegrees - degrees;
+            // Нормализуем к диапазону [-180, 180]
+            while (deltaDegrees > 180) deltaDegrees -= 360;
+            while (deltaDegrees < -180) deltaDegrees += 360;
+            // Позиция риски на компасе
+            const tickX = deltaDegrees * pixelsPerDegree;
             tick.left = `${tickX}px`;
-            const isVisible = Math.abs(tickX) < 125; // Показываем только видимые риски
+            // Показываем риски в пределах компаса (±500px от центра)
+            const isVisible = Math.abs(tickX) < 490;
             tick.isVisible = isVisible;
             if (isVisible) {
                 tick.alpha = 1.0;
@@ -4016,13 +4069,45 @@ export class HUD {
         this.movementDirectionLabel.zIndex = 1000;
     }
     
+    /**
+     * ОПТИМИЗАЦИЯ: Инициализация пула объектов для точек врагов на компасе
+     */
+    private initializeCompassEnemyDotsPool(): void {
+        // Создаем пул из 12 элементов (больше чем MAX_COMPASS_ENEMIES для запаса)
+        const poolSize = 12;
+        for (let i = 0; i < poolSize; i++) {
+            const dot = new Rectangle(`compassEnemyPool${i}`);
+            dot.width = "4px";
+            dot.height = "4px";
+            dot.cornerRadius = 2;
+            dot.thickness = 0;
+            dot.background = "#f00";
+            dot.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            dot.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            dot.top = "2px";
+            dot.isVisible = false; // Скрываем по умолчанию
+            this.compassContainer.addControl(dot);
+            this.compassEnemyDotsPool.push(dot);
+        }
+    }
+    
     // Обновление красных точек врагов на компасе
+    // ОПТИМИЗИРОВАНО: Использует пул объектов и ограничивает количество врагов
     updateCompassEnemies(enemies: {x: number, z: number, alive: boolean}[], playerPos: Vector3, playerAngle: number): void {
         if (!this.compassContainer) return;
         
-        // Удаляем старые точки
-        this.compassEnemyDots.forEach(dot => dot.dispose());
-        this.compassEnemyDots = [];
+        // Скрываем все активные точки
+        const activeCount = this.compassEnemyDotsActive.length;
+        for (let i = 0; i < activeCount; i++) {
+            const dot = this.compassEnemyDotsActive[i];
+            if (dot) {
+                dot.isVisible = false;
+            }
+        }
+        this.compassEnemyDotsActive = [];
+        
+        // Валидация входных данных
+        if (!enemies || enemies.length === 0) return;
         
         // Нормализуем угол игрока
         let normalizedAngle = playerAngle;
@@ -4032,15 +4117,25 @@ export class HUD {
         // FOV конус (60 градусов = 30 в каждую сторону)
         const fovHalf = 30 * Math.PI / 180;
         
-        enemies.forEach((enemy) => {
-            if (!enemy.alive) return;
+        // ОПТИМИЗАЦИЯ: Собираем врагов с расстояниями и сортируем по близости
+        const enemiesWithDist: Array<{
+            enemy: {x: number, z: number, alive: boolean},
+            distSq: number,
+            relativeAngle: number
+        }> = [];
+        
+        const enemyCount = enemies.length;
+        for (let i = 0; i < enemyCount; i++) {
+            const enemy = enemies[i];
+            if (!enemy || !enemy.alive) continue;
             
-            // Вычисляем относительное направление врага
+            // ОПТИМИЗАЦИЯ: Используем квадрат расстояния вместо sqrt
             const dx = enemy.x - playerPos.x;
             const dz = enemy.z - playerPos.z;
-            const dist = Math.sqrt(dx * dx + dz * dz);
+            const distSq = dx * dx + dz * dz;
             
-            if (dist < 50) { // Только близкие враги
+            // Только близкие враги (50м = 2500 в квадрате)
+            if (distSq < 2500) {
                 const enemyAngle = Math.atan2(dx, dz);
                 let relativeAngle = enemyAngle - normalizedAngle;
                 
@@ -4050,26 +4145,44 @@ export class HUD {
                 
                 // Проверяем, в поле зрения ли враг
                 if (Math.abs(relativeAngle) < fovHalf) {
-                    // Создаём красную точку на компасе
-                    const dot = new Rectangle(`compassEnemy${this.compassEnemyDots.length}`);
-                    dot.width = "4px";
-                    dot.height = "4px";
-                    dot.cornerRadius = 2;
-                    dot.thickness = 0;
-                    dot.background = "#f00";
-                    dot.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-                    dot.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-                    dot.top = "2px";
-                    
-                    // Позиция на компасе (радиус 120px)
-                    const dotX = Math.sin(relativeAngle) * 120;
-                    dot.left = `${dotX}px`;
-                    
-                    this.compassContainer.addControl(dot);
-                    this.compassEnemyDots.push(dot);
+                    enemiesWithDist.push({
+                        enemy,
+                        distSq,
+                        relativeAngle
+                    });
                 }
             }
-        });
+        }
+        
+        // Сортируем по расстоянию (ближайшие первые) и ограничиваем количество
+        enemiesWithDist.sort((a, b) => a.distSq - b.distSq);
+        const visibleEnemies = enemiesWithDist.slice(0, this.MAX_COMPASS_ENEMIES);
+        
+        // Используем элементы из пула
+        const poolSize = this.compassEnemyDotsPool.length;
+        const visibleCount = visibleEnemies.length;
+        for (let i = 0; i < visibleCount; i++) {
+            if (i >= poolSize) break; // Защита от переполнения
+            
+            const enemyData = visibleEnemies[i];
+            if (!enemyData) continue;
+            
+            const dot = this.compassEnemyDotsPool[i];
+            if (!dot) continue;
+            
+            try {
+                // Позиция на компасе (радиус 120px)
+                const dotX = Math.sin(enemyData.relativeAngle) * 120;
+                dot.left = `${dotX}px`;
+                dot.isVisible = true;
+                this.compassEnemyDotsActive.push(dot);
+            } catch (e) {
+                // Игнорируем ошибки
+            }
+        }
+        
+        // Legacy: обновляем старый массив для совместимости (но не создаем новые элементы)
+        this.compassEnemyDots = this.compassEnemyDotsActive;
     }
     
     addKill() {
@@ -4790,13 +4903,13 @@ export class HUD {
         
         // ОТЛАДКА: Проверяем количество врагов и наличие radarArea
         if (enemyCount > 0 && !this.radarArea) {
-            console.error("[HUD] updateMinimap: radarArea is null but enemies exist!", enemyCount);
+            // console.error("[HUD] updateMinimap: radarArea is null but enemies exist!", enemyCount);
         }
         
         // КРИТИЧНО: Логируем количество врагов для отладки
-        if (enemyCount > 0) {
-            console.log(`[HUD] updateMinimap: Processing ${enemyCount} enemies, radarArea exists: ${!!this.radarArea}`);
-        }
+        // if (enemyCount > 0) {
+        //     console.log(`[HUD] updateMinimap: Processing ${enemyCount} enemies, radarArea exists: ${!!this.radarArea}`);
+        // }
         
         for (let i = 0; i < enemyCount; i++) {
             const enemy = enemies[i];
@@ -4812,7 +4925,7 @@ export class HUD {
             
             // КРИТИЧНО: Проверяем наличие radarArea перед обработкой врага
             if (!this.radarArea) {
-                console.error("[HUD] updateMinimap: radarArea is null for enemy", i, ex, ez);
+                // console.error("[HUD] updateMinimap: radarArea is null for enemy", i, ex, ez);
                 continue;
             }
             
@@ -5185,11 +5298,11 @@ export class HUD {
     private _createFPSCounter() {
         // === FPS COUNTER - ЛЕВЫЙ ВЕРХНИЙ УГОЛ ===
         this.fpsContainer = new Rectangle("fpsContainer");
-        this.fpsContainer.width = this.scalePx(85); // Увеличено для 3-значных чисел (144, 240)
-        this.fpsContainer.height = this.scalePx(28);
+        this.fpsContainer.width = this.scalePx(100); // Увеличено для лучшей читаемости
+        this.fpsContainer.height = this.scalePx(35); // Увеличено
         this.fpsContainer.cornerRadius = 3;
         this.fpsContainer.thickness = 2;
-        this.fpsContainer.color = "#0f03";
+        this.fpsContainer.color = "#0f0";
         this.fpsContainer.background = "#000000cc";
         this.fpsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.fpsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
@@ -5201,7 +5314,7 @@ export class HUD {
         this.fpsText = new TextBlock("fpsText");
         this.fpsText.text = "-- FPS";
         this.fpsText.color = "#0f0";
-        this.fpsText.fontSize = this.scaleFontSize(14, 10, 20);
+        this.fpsText.fontSize = this.scaleFontSize(18, 14, 24); // Увеличено
         this.fpsText.fontFamily = "Consolas, monospace";
         this.fpsText.fontWeight = "bold";
         this.fpsText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -5392,7 +5505,7 @@ export class HUD {
         
         this.centralXpContainer = new Rectangle("centralXpContainer");
         this.centralXpContainer.width = `${maxWidth}px`; // Ограниченная ширина вместо 100%
-        this.centralXpContainer.height = this.scalePx(24); // Немного толще
+        this.centralXpContainer.height = this.scalePx(35); // Высота как у компаса (35px)
         this.centralXpContainer.cornerRadius = 3;
         this.centralXpContainer.thickness = 2;
         this.centralXpContainer.color = "#0f0";
@@ -5789,6 +5902,32 @@ export class HUD {
         legend.left = "20px";
         legend.top = "-12px";
         this.fullMapContainer.addControl(legend);
+        
+        // ОПТИМИЗАЦИЯ: Инициализация пула объектов для маркеров врагов
+        this.initializeFullMapEnemiesPool();
+    }
+    
+    /**
+     * ОПТИМИЗАЦИЯ: Инициализация пула объектов для маркеров врагов на полной карте
+     */
+    private initializeFullMapEnemiesPool(): void {
+        const mapArea = this.fullMapContainer?.children[1] as Rectangle;
+        if (!mapArea) return;
+        
+        // Создаем пул из 60 элементов (больше чем MAX_FULLMAP_ENEMIES для запаса)
+        const poolSize = 60;
+        for (let i = 0; i < poolSize; i++) {
+            const marker = new Rectangle(`fullMapEnemyPool${i}`);
+            marker.width = "10px";
+            marker.height = "10px";
+            marker.thickness = 1;
+            marker.color = "#f00";
+            marker.background = "#f00";
+            marker.cornerRadius = 5;
+            marker.isVisible = false; // Скрываем по умолчанию
+            mapArea.addControl(marker);
+            this.fullMapEnemiesPool.push(marker);
+        }
     }
     
     private setupMapKeyListener(): void {
@@ -5852,43 +5991,94 @@ export class HUD {
             playerDir.rotation = -playerRotation;
         }
         
-        // Удаляем старые маркеры врагов
-        this.fullMapEnemies.forEach(e => e.dispose());
-        this.fullMapEnemies = [];
+        // ОПТИМИЗАЦИЯ: Используем пул объектов и Map для отслеживания активных маркеров
+        const mapArea = this.fullMapContainer?.children[1] as Rectangle;
+        if (!mapArea) return;
         
-        // Добавляем врагов на карту (улучшенные маркеры) - используем кэшированные позиции
-        enemies.forEach((enemy, i) => {
-            if (!enemy.alive) return;
-            
-            const enemyId = `${enemy.x}_${enemy.z}`;
-            const cached = this.cachedEnemyPositions.get(enemyId);
-            const enemyX = cached ? cached.x : enemy.x;
-            const enemyZ = cached ? cached.z : enemy.z;
-            
-            const scale = 0.6;
-            const ex = enemyX * scale;
-            const ez = -enemyZ * scale;
-            
-            const maxDist = 320;
-            if (Math.abs(ex) > maxDist || Math.abs(ez) > 240) return;
-            
-            const marker = new Rectangle(`fullMapEnemy${i}`);
-            marker.width = "10px";
-            marker.height = "10px";
-            marker.thickness = 1;
-            marker.color = "#f00";
-            marker.background = "#f00";
-            marker.cornerRadius = 5;
-            marker.left = `${ex}px`;
-            marker.top = `${ez}px`;
-            
-            // Добавляем в область карты
-            const mapArea = this.fullMapContainer?.children[1] as Rectangle;
-            if (mapArea) {
-                mapArea.addControl(marker);
-                this.fullMapEnemies.push(marker);
+        // Валидация входных данных
+        if (!enemies || enemies.length === 0) {
+            // Скрываем все маркеры если врагов нет
+            for (const marker of this.fullMapEnemiesActive.values()) {
+                if (marker) {
+                    marker.isVisible = false;
+                }
             }
-        });
+            this.fullMapEnemiesActive.clear();
+            this.fullMapEnemies = [];
+            return;
+        }
+        
+        // Создаем Set для отслеживания активных врагов
+        const activeEnemyIds = new Set<string>();
+        const scale = 0.6;
+        const maxDist = 320;
+        
+        // ОПТИМИЗАЦИЯ: Ограничиваем количество обрабатываемых врагов
+        const enemyCount = Math.min(enemies.length, this.MAX_FULLMAP_ENEMIES);
+        
+        // Обрабатываем врагов и обновляем/создаем маркеры
+        let poolIndex = 0;
+        for (let i = 0; i < enemyCount; i++) {
+            const enemy = enemies[i];
+            if (!enemy || !enemy.alive) continue;
+            
+            try {
+                // Используем кэшированные позиции
+                const enemyId = `${enemy.x}_${enemy.z}`;
+                const cached = this.cachedEnemyPositions.get(enemyId);
+                const enemyX = cached ? cached.x : enemy.x;
+                const enemyZ = cached ? cached.z : enemy.z;
+                
+                const ex = enemyX * scale;
+                const ez = -enemyZ * scale;
+                
+                // Пропускаем врагов вне видимой области
+                if (Math.abs(ex) > maxDist || Math.abs(ez) > 240) continue;
+                
+                activeEnemyIds.add(enemyId);
+                
+                // Проверяем, есть ли уже маркер для этого врага
+                let marker = this.fullMapEnemiesActive.get(enemyId);
+                
+                if (!marker) {
+                    // Берем маркер из пула
+                    if (poolIndex < this.fullMapEnemiesPool.length) {
+                        marker = this.fullMapEnemiesPool[poolIndex];
+                        if (marker) {
+                            poolIndex++;
+                            this.fullMapEnemiesActive.set(enemyId, marker);
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        // Пул переполнен, пропускаем этого врага
+                        continue;
+                    }
+                }
+                
+                // Обновляем позицию маркера
+                if (marker) {
+                    marker.left = `${ex}px`;
+                    marker.top = `${ez}px`;
+                    marker.isVisible = true;
+                }
+            } catch (e) {
+                // Игнорируем ошибки
+            }
+        }
+        
+        // Скрываем маркеры для неактивных врагов
+        for (const [enemyId, marker] of this.fullMapEnemiesActive.entries()) {
+            if (!activeEnemyIds.has(enemyId)) {
+                if (marker) {
+                    marker.isVisible = false;
+                }
+                this.fullMapEnemiesActive.delete(enemyId);
+            }
+        }
+        
+        // Legacy: обновляем старый массив для совместимости
+        this.fullMapEnemies = Array.from(this.fullMapEnemiesActive.values()).filter((m): m is Rectangle => m !== undefined && m.isVisible);
     }
     
     isFullMapVisible(): boolean {
@@ -6339,11 +6529,10 @@ export class HUD {
     updateTankStatus(health: number, maxHealth: number, fuel: number, maxFuel: number, armor: number): void {
         if (!this.tankStatusContainer) return;
         
-        // Обновляем здоровье - ИСПРАВЛЕНО: Короткий формат для предотвращения перекрытия
+        // Обновляем здоровье - компактный формат ❤ XX%
         if (this.tankStatusHealthText) {
             const healthPercent = Math.max(0, Math.min(100, (health / maxHealth) * 100));
-            this.tankStatusHealthText.text = `❤${Math.round(healthPercent)}%`; // Убрали пробел для экономии места
-            this.tankStatusHealthText.width = "100%"; // КРИТИЧНО: Ограничиваем ширину
+            this.tankStatusHealthText.text = `HP: ${Math.round(healthPercent)}%`;
             
             // Цвет в зависимости от здоровья
             if (healthPercent > 60) {
@@ -6355,11 +6544,10 @@ export class HUD {
             }
         }
         
-        // Обновляем топливо - ИСПРАВЛЕНО: Короткий формат для предотвращения перекрытия
+        // Обновляем топливо - компактный формат ⛽ XX%
         if (this.tankStatusFuelText) {
             const fuelPercent = Math.max(0, Math.min(100, (fuel / maxFuel) * 100));
-            this.tankStatusFuelText.text = `⛽${Math.round(fuelPercent)}%`; // Убрали пробел для экономии места
-            this.tankStatusFuelText.width = "100%"; // КРИТИЧНО: Ограничиваем ширину
+            this.tankStatusFuelText.text = `FL: ${Math.round(fuelPercent)}%`;
             
             // Цвет в зависимости от топлива
             if (fuelPercent > 50) {
@@ -6371,19 +6559,18 @@ export class HUD {
             }
         }
         
-        // Обновляем броню - ИСПРАВЛЕНО: Короткий формат для предотвращения перекрытия
+        // Обновляем броню - компактный формат 🛡 XX%
         if (this.tankStatusArmorText) {
             const armorPercent = Math.max(0, Math.min(100, armor * 100));
-            this.tankStatusArmorText.text = `🛡${Math.round(armorPercent)}%`; // Убрали пробел для экономии места
-            this.tankStatusArmorText.width = "100%"; // КРИТИЧНО: Ограничиваем ширину
+            this.tankStatusArmorText.text = `AR: ${Math.round(armorPercent)}%`;
             
             // Цвет в зависимости от брони
             if (armorPercent > 50) {
                 this.tankStatusArmorText.color = "#0ff";
             } else if (armorPercent > 20) {
-                this.tankStatusArmorText.color = "#0af";
+                this.tankStatusArmorText.color = "#0cc";
             } else {
-                this.tankStatusArmorText.color = "#08f";
+                this.tankStatusArmorText.color = "#0aa";
             }
         }
     }
@@ -6426,8 +6613,9 @@ export class HUD {
             // Позиционируем в общем ряду: индексы 0-4 для арсенала
             const globalIndex = i; // 0-4 для арсенала
             container.left = `${startX + globalIndex * (slotWidth + slotGap)}px`;
-            container.top = this.scalePx(-40); // На той же высоте что и остальные слоты
+            container.top = this.scalePx(-48); // Равномерно между XP BAR (-5) и RELOAD BAR (-100)
             container.isVisible = true;
+            container.zIndex = 20; // ИСПРАВЛЕНО: Единый zIndex для всех слотов
             this.guiTexture.addControl(container);
             
             // Иконка типа снаряда
@@ -7845,6 +8033,117 @@ export class HUD {
             this.missionPanelVisible = !this.missionPanelVisible;
             this.missionPanel.isVisible = this.missionPanelVisible;
             // Если панель открывается, обновление списка миссий выполняется из game.ts (update)
+        }
+    }
+    
+    /**
+     * ОПТИМИЗАЦИЯ: Создание индикатора прогресса прогрузки карты (нижний левый угол)
+     */
+    private createMapLoadingIndicator(): void {
+        // Контейнер в нижнем левом углу
+        this.mapLoadingContainer = new Rectangle("mapLoadingContainer");
+        this.mapLoadingContainer.width = "200px";
+        this.mapLoadingContainer.height = "30px";
+        this.mapLoadingContainer.cornerRadius = 3;
+        this.mapLoadingContainer.thickness = 1;
+        this.mapLoadingContainer.color = "#0f0";
+        this.mapLoadingContainer.background = "rgba(0, 10, 0, 0.8)";
+        this.mapLoadingContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.mapLoadingContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        this.mapLoadingContainer.left = "10px";
+        this.mapLoadingContainer.top = "-40px"; // Отступ снизу (используем отрицательный top)
+        this.mapLoadingContainer.isVisible = false; // Скрыт по умолчанию (показывается когда прогресс < 100%)
+        this.mapLoadingContainer.zIndex = 100;
+        this.guiTexture.addControl(this.mapLoadingContainer);
+        
+        // Текст "Загрузка карты"
+        const label = new TextBlock("mapLoadingLabel");
+        label.text = "Карта:";
+        label.color = "#0f0";
+        label.fontSize = "10px";
+        label.fontFamily = "Consolas, monospace";
+        label.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        label.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        label.left = "5px";
+        this.mapLoadingContainer.addControl(label);
+        
+        // Шкала прогресса (фон)
+        this.mapLoadingBar = new Rectangle("mapLoadingBar");
+        this.mapLoadingBar.width = "120px";
+        this.mapLoadingBar.height = "12px";
+        this.mapLoadingBar.cornerRadius = 2;
+        this.mapLoadingBar.thickness = 1;
+        this.mapLoadingBar.color = "#0f0";
+        this.mapLoadingBar.background = "rgba(0, 20, 0, 0.6)";
+        this.mapLoadingBar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.mapLoadingBar.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.mapLoadingBar.left = "50px";
+        this.mapLoadingContainer.addControl(this.mapLoadingBar);
+        
+        // Заполнение шкалы
+        this.mapLoadingFill = new Rectangle("mapLoadingFill");
+        this.mapLoadingFill.width = "0%";
+        this.mapLoadingFill.height = "10px";
+        this.mapLoadingFill.thickness = 0;
+        this.mapLoadingFill.background = "#0f0";
+        this.mapLoadingFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.mapLoadingBar.addControl(this.mapLoadingFill);
+        
+        // Текст с процентом
+        this.mapLoadingText = new TextBlock("mapLoadingText");
+        this.mapLoadingText.text = "100%";
+        this.mapLoadingText.color = "#0f0";
+        this.mapLoadingText.fontSize = "10px";
+        this.mapLoadingText.fontFamily = "Consolas, monospace";
+        this.mapLoadingText.fontWeight = "bold";
+        this.mapLoadingText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.mapLoadingText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.mapLoadingText.left = "175px";
+        this.mapLoadingContainer.addControl(this.mapLoadingText);
+    }
+    
+    /**
+     * ОПТИМИЗАЦИЯ: Обновление прогресса прогрузки карты
+     * @param progress Процент загрузки (0-100)
+     */
+    updateMapLoadingProgress(progress: number): void {
+        if (!this.mapLoadingContainer || !this.mapLoadingFill || !this.mapLoadingText) return;
+        
+        // Валидация прогресса
+        const validProgress = Math.max(0, Math.min(100, progress));
+        this.mapLoadingTargetProgress = validProgress;
+        
+        // Плавная анимация изменения процента
+        const diff = this.mapLoadingTargetProgress - this.mapLoadingProgress;
+        if (Math.abs(diff) > 0.1) {
+            this.mapLoadingProgress += diff * 0.1; // Плавная интерполяция
+            this.mapLoadingProgress = Math.max(0, Math.min(100, this.mapLoadingProgress));
+        } else {
+            this.mapLoadingProgress = this.mapLoadingTargetProgress;
+        }
+        
+        const roundedProgress = Math.round(this.mapLoadingProgress);
+        
+        // Обновляем шкалу
+        this.mapLoadingFill.width = `${this.mapLoadingProgress}%`;
+        this.mapLoadingText.text = `${roundedProgress}%`;
+        
+        // Автоматическое скрытие при 100%
+        if (roundedProgress >= 100) {
+            // Плавное исчезновение
+            if (this.mapLoadingContainer.isVisible) {
+                this.mapLoadingContainer.alpha = Math.max(0, this.mapLoadingContainer.alpha - 0.05);
+                if (this.mapLoadingContainer.alpha <= 0) {
+                    this.mapLoadingContainer.isVisible = false;
+                    this.mapLoadingContainer.alpha = 1.0; // Сбрасываем для следующего показа
+                }
+            }
+        } else {
+            // Показываем если прогресс < 100%
+            if (!this.mapLoadingContainer.isVisible) {
+                this.mapLoadingContainer.isVisible = true;
+                this.mapLoadingContainer.alpha = 1.0;
+            }
         }
     }
     

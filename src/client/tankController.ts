@@ -31,6 +31,8 @@ import { TankVisualsModule } from "./tank/tankVisuals";
 import type { ChassisAnimationElements } from "./tank/tankChassis";
 import type { ShellCasing } from "./tank/types";
 import { getSkinById, loadSelectedSkin, applySkinToTank } from "./tank/tankSkins";
+import { PHYSICS_CONFIG } from "./config/physicsConfig";
+import { tankDuplicationLogger } from "./tankDuplicationLogger";
 
 export class TankController {
     scene: Scene;
@@ -92,8 +94,8 @@ export class TankController {
     private barrelRecoilTarget = 0; // Целевой откат
     barrelRecoilSpeed = 0.3; // Скорость возврата пушки
     barrelRecoilAmount = -1.6; // Величина отката пушки (увеличено в 4 раза от оригинала)
-    recoilForce = 2500; // Сила отдачи (уменьшено для предотвращения опрокидывания)
-    recoilTorque = 10000; // Сила угловой отдачи (уменьшено для предотвращения опрокидывания)
+    recoilForce = PHYSICS_CONFIG.shooting.recoil.force; // HEAVY & RESPONSIVE: Сила отдачи из конфига
+    recoilTorque = PHYSICS_CONFIG.shooting.recoil.torque; // Сила угловой отдачи
     private _baseBarrelZ = 0; // Исходная позиция Z пушки
     private _baseBarrelY = 0; // Исходная позиция Y пушки
     private _barrelRecoilY = 0; // Вертикальный откат пушки (подъем при выстреле)
@@ -373,6 +375,115 @@ export class TankController {
         logger.log("TankController: Init Start");
         this.scene = scene;
         
+        // КРИТИЧНО: Защита от множественного создания - проверяем, нет ли уже танка в сцене
+        const existingTanks = scene.meshes.filter(mesh => {
+            if (!mesh.name || mesh.isDisposed()) return false;
+            return mesh.name.startsWith("tankHull_") && 
+                   mesh.metadata && 
+                   (mesh.metadata as any).type === "playerTank";
+        });
+        if (existingTanks.length > 0) {
+            logger.error(`[TankController] WARNING: Found ${existingTanks.length} existing player tank(s) in scene! Disposing them.`);
+            existingTanks.forEach((mesh, idx) => {
+                logger.error(`[TankController] Existing tank ${idx}: ${mesh.name}, instance: ${(mesh.metadata as any)?.instance?.constructor?.name || 'unknown'}`);
+                try {
+                    // Удаляем все дочерние меши
+                    if (mesh.getChildren && mesh.getChildren().length > 0) {
+                        mesh.getChildren().forEach((child: any) => {
+                            if (child.dispose && !child.isDisposed()) {
+                                try {
+                                    child.dispose();
+                                } catch (e) {
+                                    // Игнорируем ошибки
+                                }
+                            }
+                        });
+                    }
+                    mesh.dispose();
+                } catch (e) {
+                    logger.error(`[TankController] Error disposing existing tank ${idx}:`, e);
+                }
+            });
+        }
+        
+        // КРИТИЧНО: Агрессивная очистка всех старых мешей танка перед созданием новых
+        // Это предотвращает дублирование танка при повторном создании
+        const oldTankMeshes = scene.meshes.filter(mesh => {
+            if (!mesh.name || mesh.isDisposed()) return false;
+            return mesh.name.startsWith("tankHull_") || 
+                   mesh.name.startsWith("turret_") || 
+                   mesh.name.startsWith("barrel_");
+        });
+        if (oldTankMeshes.length > 0) {
+            logger.warn(`[TankController] Found ${oldTankMeshes.length} old tank meshes, disposing them`);
+            oldTankMeshes.forEach(mesh => {
+                try {
+                    // КРИТИЧНО: Удаляем все дочерние меши перед удалением родительского
+                    if (mesh.getChildren && mesh.getChildren().length > 0) {
+                        const children = mesh.getChildren();
+                        children.forEach((child: any) => {
+                            if (child.dispose && !child.isDisposed()) {
+                                try {
+                                    child.dispose();
+                                } catch (e) {
+                                    // Игнорируем ошибки при удалении дочерних мешей
+                                }
+                            }
+                        });
+                    }
+                    mesh.dispose();
+                } catch (e) {
+                    // Игнорируем ошибки при удалении уже удаленных мешей
+                }
+            });
+        }
+        
+        // КРИТИЧНО: Удаляем все старые observers, которые могут работать со старыми мешами
+        // Это предотвращает дублирование при рендеринге
+        if (scene.onBeforeActiveMeshesEvaluationObservable) {
+            // Удаляем все observers, которые могут быть связаны со старыми мешами танка
+            // К сожалению, мы не можем напрямую удалить конкретные observers без их ссылок,
+            // но мы можем очистить активные меши и rendering groups перед созданием новых
+            const activeMeshes = (scene as any)._activeMeshes;
+            if (activeMeshes && Array.isArray(activeMeshes)) {
+                // Удаляем все меши танка из активных мешей
+                const tankMeshesInActive = activeMeshes.filter((mesh: any) => {
+                    if (!mesh || !mesh.name) return false;
+                    return mesh.name.startsWith("tankHull_") || 
+                           mesh.name.startsWith("turret_") || 
+                           mesh.name.startsWith("barrel_");
+                });
+                tankMeshesInActive.forEach((mesh: any) => {
+                    const index = activeMeshes.indexOf(mesh);
+                    if (index >= 0) {
+                        activeMeshes.splice(index, 1);
+                    }
+                });
+            }
+            
+            // Очищаем rendering groups от старых мешей танка
+            const renderingGroups = (scene as any)._renderingGroups;
+            if (renderingGroups) {
+                Object.keys(renderingGroups).forEach((groupId: string) => {
+                    const group = renderingGroups[groupId];
+                    if (group && group.meshes && Array.isArray(group.meshes)) {
+                        const tankMeshesInGroup = group.meshes.filter((mesh: any) => {
+                            if (!mesh || !mesh.name) return false;
+                            return mesh.name.startsWith("tankHull_") || 
+                                   mesh.name.startsWith("turret_") || 
+                                   mesh.name.startsWith("barrel_");
+                        });
+                        tankMeshesInGroup.forEach((mesh: any) => {
+                            const index = group.meshes.indexOf(mesh);
+                            if (index >= 0) {
+                                group.meshes.splice(index, 1);
+                            }
+                        });
+                    }
+                });
+            }
+        }
+        
         // Pre-create bullet material - VERY BRIGHT for visibility
         this.bulletMat = new StandardMaterial("bulletMat", scene);
         this.bulletMat.diffuseColor = new Color3(1, 1, 0); // Bright yellow
@@ -423,12 +534,60 @@ export class TankController {
         this.visualsModule = new TankVisualsModule(this);
         
         // 1. Visuals - создаём уникальные формы для каждого типа корпуса
+        // КРИТИЧНО: Проверяем, не создан ли уже корпус
+        if ((this as any).chassis && !(this as any).chassis.isDisposed()) {
+            logger.warn("[TankController] Chassis already exists, disposing old one");
+            (this as any).chassis.dispose();
+        }
+        
         this.chassis = this.visualsModule.createUniqueChassis(scene, position);
+        
+        // КРИТИЧНО: Проверяем, что меш не добавлен в сцену дважды
+        const chassisCount = scene.meshes.filter(m => m === this.chassis).length;
+        if (chassisCount > 1) {
+            logger.error(`[TankController] Chassis is in scene ${chassisCount} times! Removing duplicates`);
+            // Удаляем дубликаты
+            for (let i = scene.meshes.length - 1; i >= 0; i--) {
+                if (scene.meshes[i] === this.chassis && i !== scene.meshes.indexOf(this.chassis)) {
+                    scene.meshes.splice(i, 1);
+                }
+            }
+        }
+        
+        // КРИТИЧНО: Убеждаемся, что меш имеет правильный parent (null для корневого меша)
+        if (this.chassis.parent) {
+            logger.warn(`[TankController] Chassis has unexpected parent: ${this.chassis.parent.name}, removing`);
+            this.chassis.parent = null;
+        }
+        
+        // КРИТИЧНО: MeshBuilder.CreateBox автоматически добавляет меш в scene.meshes
+        // НЕ добавляем его вручную, чтобы избежать дублирования
+        
         // КРИТИЧНО: Предотвращаем исчезновение корпуса при frustum culling
         this.chassis.alwaysSelectAsActiveMesh = true;
         // ИСПРАВЛЕНИЕ: Полностью отключаем occlusion culling для предотвращения пропадания за стенами гаража
         this.chassis.occlusionType = AbstractMesh.OCCLUSION_TYPE_NONE;
         this.chassis.isOccluded = false;
+        // КРИТИЧНО: Отключаем получение теней, чтобы избежать дублирования
+        this.chassis.receiveShadows = false;
+        // КРИТИЧНО: Убеждаемся, что меш рендерится только один раз
+        // Отключаем все возможные источники дублирования рендеринга
+        this.chassis.doNotSyncBoundingInfo = false;
+        // КРИТИЧНО: Проверяем, не добавлен ли меш в несколько rendering groups
+        this.chassis.renderingGroupId = 0;
+        // КРИТИЧНО: Убеждаемся, что меш не является instance другого меша
+        if ((this.chassis as any).sourceMesh) {
+            logger.error(`[TankController] CRITICAL: Chassis is an instance of another mesh! This causes visual duplication!`);
+            // Создаем новый меш вместо instance
+            const originalMesh = (this.chassis as any).sourceMesh;
+            const newChassis = originalMesh.clone(`tankHull_clone_${Date.now()}`);
+            this.chassis.dispose();
+            this.chassis = newChassis;
+            this.chassis.position.copyFrom(position);
+            this.chassis.parent = null;
+        }
+        // КРИТИЧНО: Убеждаемся, что меш не клонируется и не инстанцируется
+        this.chassis.doNotSyncBoundingInfo = false; // Включаем синхронизацию bounding info
         
         // Применяем скин к корпусу, если выбран
         const selectedSkinId = loadSelectedSkin();
@@ -446,20 +605,93 @@ export class TankController {
         this.visualsModule.createVisualWheels();
 
         // Башня - размер зависит от типа корпуса
+        // КРИТИЧНО: Проверяем, не создана ли уже башня
+        if ((this as any).turret && !(this as any).turret.isDisposed()) {
+            logger.warn("[TankController] Turret already exists, disposing old one");
+            (this as any).turret.dispose();
+        }
+        
+        // КРИТИЧНО: Уникальное имя для каждого меша, чтобы избежать дублирования
+        const uniqueTurretId = `turret_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        
+        // КРИТИЧНО: Удаляем все старые меши башни с паттерном turret_, чтобы избежать дублирования
+        const oldTurrets = scene.meshes.filter(mesh => 
+            mesh.name && mesh.name.startsWith("turret_") && !mesh.isDisposed()
+        );
+        oldTurrets.forEach(mesh => {
+            try {
+                // КРИТИЧНО: Удаляем все дочерние меши перед удалением родительского
+                if (mesh.getChildren && mesh.getChildren().length > 0) {
+                    const children = mesh.getChildren();
+                    children.forEach((child: any) => {
+                        if (child.dispose && !child.isDisposed()) {
+                            try {
+                                child.dispose();
+                            } catch (e) {
+                                // Игнорируем ошибки при удалении дочерних мешей
+                            }
+                        }
+                    });
+                }
+                mesh.dispose();
+            } catch (e) {
+                // Игнорируем ошибки при удалении уже удаленных мешей
+            }
+        });
+        
         const turretWidth = this.chassisType.width * 0.65;
         const turretHeight = this.chassisType.height * 0.75;
         const turretDepth = this.chassisType.depth * 0.6;
         
-        this.turret = MeshBuilder.CreateBox("turret", { 
+        this.turret = MeshBuilder.CreateBox(uniqueTurretId, { 
             width: turretWidth, 
             height: turretHeight, 
             depth: turretDepth 
         }, scene);
+        
+        // КРИТИЧНО: Проверяем, что меш не добавлен в сцену дважды
+        const turretCount = scene.meshes.filter(m => m === this.turret).length;
+        if (turretCount > 1) {
+            logger.error(`[TankController] Turret is in scene ${turretCount} times! Removing duplicates`);
+            // Удаляем дубликаты
+            for (let i = scene.meshes.length - 1; i >= 0; i--) {
+                if (scene.meshes[i] === this.turret && i !== scene.meshes.indexOf(this.turret)) {
+                    scene.meshes.splice(i, 1);
+                }
+            }
+        }
+        
         // Башня строго по центру корпуса (X=0, Z=0) и на нужной высоте
         this.turret.position = new Vector3(0, this.chassisType.height / 2 + turretHeight / 2, 0);
         this.turret.parent = this.chassis;
+        // КРИТИЧНО: В Babylon.js дочерние меши должны быть в scene.meshes, но рендерятся только вместе с родителем
+        // Убеждаемся, что turret не рендерится как корневой меш, если он дочерний элемент
+        // Устанавливаем флаг, чтобы движок знал, что этот меш не должен рендериться отдельно
+        (this.turret as any)._isChildMesh = true;
+        (this.turret as any)._shouldBeChild = true; // Флаг, что этот меш должен быть дочерним
         
-        const turretMat = new StandardMaterial("turretMat", scene);
+        // КРИТИЧНО: Проверяем, не создались ли instances после установки parent
+        const turretInstancesAfterParent = (this.turret as any).instances;
+        if (turretInstancesAfterParent && Array.isArray(turretInstancesAfterParent) && turretInstancesAfterParent.length > 0) {
+            logger.warn(`[TankController] Turret instances created after setting parent! Clearing ${turretInstancesAfterParent.length} instances...`);
+            turretInstancesAfterParent.forEach((instance: any) => {
+                try {
+                    if (instance && typeof instance.dispose === 'function' && !instance.isDisposed()) {
+                        instance.dispose();
+                    }
+                } catch (e) {
+                    // Игнорируем ошибки
+                }
+            });
+            (this.turret as any).instances = [];
+        }
+        
+        // КРИТИЧНО: В Babylon.js дочерние меши ДОЛЖНЫ быть в scene.meshes для рендеринга
+        // НЕ удаляем turret из scene.meshes - это скрывает башню
+        
+        // КРИТИЧНО: Уникальное имя для материала
+        const uniqueTurretMatId = `turretMat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const turretMat = new StandardMaterial(uniqueTurretMatId, scene);
         // Башня - применяем скин если выбран, иначе используем цвет из chassisType
         let turretColor: Color3;
         const selectedSkinIdTurret = loadSelectedSkin();
@@ -479,115 +711,101 @@ export class TankController {
         this.turret.material = turretMat;
         // All tank parts use same renderingGroupId for proper z-buffer depth testing
         this.turret.renderingGroupId = 0;
-        // КРИТИЧНО: Предотвращаем исчезновение башни при frustum culling (когда камера за стеной)
-        this.turret.alwaysSelectAsActiveMesh = true;
+        // FIX: НЕ используем alwaysSelectAsActiveMesh для дочерних мешей!
+        // Дочерние меши (turret, barrel) наследуют видимость от родителя (chassis)
+        // Установка alwaysSelectAsActiveMesh = true на дочерних мешах вызывает ДВОЙНОЙ РЕНДЕРИНГ
+        // this.turret.alwaysSelectAsActiveMesh = true; // УБРАНО - причина дублирования танка!
+        
         // ИСПРАВЛЕНИЕ: Полностью отключаем occlusion culling для предотвращения пропадания за стенами гаража
         this.turret.occlusionType = AbstractMesh.OCCLUSION_TYPE_NONE;
         this.turret.isOccluded = false;
-        // КРИТИЧНО: Полностью отключаем frustum culling для башни - ФИНАЛЬНОЕ РЕШЕНИЕ
-        // Переопределяем метод isInFrustum чтобы он ВСЕГДА возвращал true
-        const originalIsInFrustum = this.turret.isInFrustum.bind(this.turret);
-        (this.turret as any).isInFrustum = () => {
-            // ВСЕГДА возвращаем true - башня никогда не будет отсечена frustum culling
-            return true;
-        };
+        // КРИТИЧНО: Отключаем получение теней
+        this.turret.receiveShadows = false;
         
-        // Также используем onBeforeActiveMeshesEvaluationObservable - вызывается ПЕРЕД frustum culling
-        const turretVisibilityObserver = scene.onBeforeActiveMeshesEvaluationObservable.add(() => {
-            if (this.turret && !this.turret.isDisposed()) {
-                // Принудительно устанавливаем видимость
-                this.turret.isVisible = true;
-                this.turret.setEnabled(true);
-                
-                // Принудительно добавляем в активные меши ПЕРЕД frustum culling
-                const activeMeshes = (scene as any)._activeMeshes;
-                if (activeMeshes && Array.isArray(activeMeshes)) {
-                    // Удаляем если уже есть (чтобы избежать дубликатов)
-                    const index = activeMeshes.indexOf(this.turret);
-                    if (index >= 0) {
-                        activeMeshes.splice(index, 1);
-                    }
-                    // Добавляем в начало списка (гарантированно будет обработан)
-                    activeMeshes.unshift(this.turret);
-                }
-                
-                // Также принудительно добавляем в rendering group
-                const renderingGroups = (scene as any)._renderingGroups;
-                if (renderingGroups && renderingGroups[this.turret.renderingGroupId]) {
-                    const group = renderingGroups[this.turret.renderingGroupId];
-                    if (group && group.meshes) {
-                        const meshIndex = group.meshes.indexOf(this.turret);
-                        if (meshIndex >= 0) {
-                            group.meshes.splice(meshIndex, 1);
-                        }
-                        group.meshes.unshift(this.turret);
-                    }
-                }
-            }
-        });
-        (this as any)._turretVisibilityObserver = turretVisibilityObserver;
-        (this as any)._turretOriginalIsInFrustum = originalIsInFrustum; // Сохраняем для dispose
+        // FIX: НЕ переопределяем isInFrustum для дочерних мешей!
+        // Дочерние меши автоматически рендерятся вместе с родителем
+        // Переопределение isInFrustum вызывает двойной рендеринг
+        
+        // FIX: НЕ добавляем observers для принудительной видимости дочерних мешей!
+        // Это вызывает их двойное добавление в _activeMeshes
         
         // Пушка - создаём уникальные формы для каждого типа
+        // КРИТИЧНО: Удаляем все старые меши пушки с паттерном barrel_, чтобы избежать дублирования
+        const oldBarrels = scene.meshes.filter(mesh => 
+            mesh.name && mesh.name.startsWith("barrel_") && !mesh.isDisposed()
+        );
+        oldBarrels.forEach(mesh => {
+            try {
+                mesh.dispose();
+            } catch (e) {
+                // Игнорируем ошибки при удалении уже удаленных мешей
+            }
+        });
+        
         const barrelWidth = this.cannonType.barrelWidth;
         const barrelLength = this.cannonType.barrelLength;
         const baseBarrelZ = turretDepth / 2 + barrelLength / 2;
         
         this.barrel = this.visualsModule.createUniqueCannon(scene, barrelWidth, barrelLength);
+        
+        // КРИТИЧНО: Проверяем, что меш не добавлен в сцену дважды
+        const barrelCount = scene.meshes.filter(m => m === this.barrel).length;
+        if (barrelCount > 1) {
+            logger.error(`[TankController] Barrel is in scene ${barrelCount} times! Removing duplicates`);
+            // Удаляем дубликаты
+            for (let i = scene.meshes.length - 1; i >= 0; i--) {
+                if (scene.meshes[i] === this.barrel && i !== scene.meshes.indexOf(this.barrel)) {
+                    scene.meshes.splice(i, 1);
+                }
+            }
+        }
+        
         // Ствол строго по центру башни по X и Y, и выдвинут вперед по Z
         this.barrel.position = new Vector3(0, 0, baseBarrelZ);
         this.barrel.parent = this.turret;
+        // КРИТИЧНО: В Babylon.js дочерние меши должны быть в scene.meshes, но рендерятся только вместе с родителем
+        // Убеждаемся, что barrel не рендерится как корневой меш, если он дочерний элемент
+        // Устанавливаем флаг, чтобы движок знал, что этот меш не должен рендериться отдельно
+        (this.barrel as any)._isChildMesh = true;
+        (this.barrel as any)._shouldBeChild = true; // Флаг, что этот меш должен быть дочерним
+        
+        // КРИТИЧНО: Проверяем, не создались ли instances после установки parent
+        const barrelInstancesAfterParent = (this.barrel as any).instances;
+        if (barrelInstancesAfterParent && Array.isArray(barrelInstancesAfterParent) && barrelInstancesAfterParent.length > 0) {
+            logger.warn(`[TankController] Barrel instances created after setting parent! Clearing ${barrelInstancesAfterParent.length} instances...`);
+            barrelInstancesAfterParent.forEach((instance: any) => {
+                try {
+                    if (instance && typeof instance.dispose === 'function' && !instance.isDisposed()) {
+                        instance.dispose();
+                    }
+                } catch (e) {
+                    // Игнорируем ошибки
+                }
+            });
+            (this.barrel as any).instances = [];
+        }
+        
+        // КРИТИЧНО: В Babylon.js дочерние меши ДОЛЖНЫ быть в scene.meshes для рендеринга
+        // НЕ удаляем barrel из scene.meshes - это скрывает башню
         this.barrel.renderingGroupId = 0;
-        // КРИТИЧНО: Предотвращаем исчезновение ствола при frustum culling
-        this.barrel.alwaysSelectAsActiveMesh = true;
+        // FIX: НЕ используем alwaysSelectAsActiveMesh для дочерних мешей!
+        // Дочерние меши (turret, barrel) наследуют видимость от родителя (chassis)
+        // Установка alwaysSelectAsActiveMesh = true на дочерних мешах вызывает ДВОЙНОЙ РЕНДЕРИНГ
+        // this.barrel.alwaysSelectAsActiveMesh = true; // УБРАНО - причина дублирования танка!
+        
         // ИСПРАВЛЕНИЕ: Полностью отключаем occlusion culling для предотвращения пропадания за стенами гаража
         this.barrel.occlusionType = AbstractMesh.OCCLUSION_TYPE_NONE;
         this.barrel.isOccluded = false;
         this.barrel.scaling.set(1.0, 1.0, 1.0);
+        // КРИТИЧНО: Отключаем получение теней
+        this.barrel.receiveShadows = false;
         
-        // КРИТИЧНО: Полностью отключаем frustum culling для ствола - ФИНАЛЬНОЕ РЕШЕНИЕ
-        // Переопределяем метод isInFrustum чтобы он ВСЕГДА возвращал true
-        const originalBarrelIsInFrustum = this.barrel.isInFrustum.bind(this.barrel);
-        (this.barrel as any).isInFrustum = () => {
-            // ВСЕГДА возвращаем true - ствол никогда не будет отсечён frustum culling
-            return true;
-        };
+        // FIX: НЕ переопределяем isInFrustum для дочерних мешей!
+        // Дочерние меши автоматически рендерятся вместе с родителем
+        // Переопределение isInFrustum вызывает двойной рендеринг
         
-        // Также используем onBeforeActiveMeshesEvaluationObservable - вызывается ПЕРЕД frustum culling
-        const barrelVisibilityObserver = scene.onBeforeActiveMeshesEvaluationObservable.add(() => {
-            if (this.barrel && !this.barrel.isDisposed()) {
-                // Принудительно устанавливаем видимость
-                this.barrel.isVisible = true;
-                this.barrel.setEnabled(true);
-                
-                // Принудительно добавляем в активные меши ПЕРЕД frustum culling
-                const activeMeshes = (scene as any)._activeMeshes;
-                if (activeMeshes && Array.isArray(activeMeshes)) {
-                    // Удаляем если уже есть (чтобы избежать дубликатов)
-                    const index = activeMeshes.indexOf(this.barrel);
-                    if (index >= 0) {
-                        activeMeshes.splice(index, 1);
-                    }
-                    // Добавляем в начало списка (гарантированно будет обработан)
-                    activeMeshes.unshift(this.barrel);
-                }
-                
-                // Также принудительно добавляем в rendering group
-                const renderingGroups = (scene as any)._renderingGroups;
-                if (renderingGroups && renderingGroups[this.barrel.renderingGroupId]) {
-                    const group = renderingGroups[this.barrel.renderingGroupId];
-                    if (group && group.meshes) {
-                        const meshIndex = group.meshes.indexOf(this.barrel);
-                        if (meshIndex >= 0) {
-                            group.meshes.splice(meshIndex, 1);
-                        }
-                        group.meshes.unshift(this.barrel);
-                    }
-                }
-            }
-        });
-        (this as any)._barrelVisibilityObserver = barrelVisibilityObserver;
-        (this as any)._barrelOriginalIsInFrustum = originalBarrelIsInFrustum; // Сохраняем для dispose
+        // FIX: НЕ добавляем observers для принудительной видимости дочерних мешей!
+        // Это вызывает их двойное добавление в _activeMeshes
         
         // Устанавливаем точку поворота (pivot) в задней части ствола (место крепления к башне)
         // Pivot в локальных координатах: задняя часть ствола находится на -barrelLength/2 по оси Z
@@ -625,7 +843,8 @@ export class TankController {
                 )
             }
         }, scene);
-        centerBox.material = { friction: 0.1, restitution: 0.0 };
+        // HEAVY & RESPONSIVE: Отключено трение Havok, используется только Custom Force
+        centerBox.material = { friction: PHYSICS_CONFIG.tank.collisionMaterials.centerBoxFriction, restitution: PHYSICS_CONFIG.tank.collisionMaterials.centerBoxRestitution };
         chassisShape.addChildFromParent(this.chassis, centerBox, this.chassis);
         
         // 2. Передний CYLINDER (скруглённый край - позволяет заезжать на препятствия)
@@ -637,7 +856,8 @@ export class TankController {
                 radius: cylinderRadius
             }
         }, scene);
-        frontCylinder.material = { friction: 0.15, restitution: 0.0 };
+        // HEAVY & RESPONSIVE: Отключено трение Havok, используется только Custom Force
+        frontCylinder.material = { friction: PHYSICS_CONFIG.tank.collisionMaterials.frontCylinderFriction, restitution: PHYSICS_CONFIG.tank.collisionMaterials.frontCylinderRestitution };
         chassisShape.addChildFromParent(this.chassis, frontCylinder, this.chassis);
         
         // 3. Задний CYLINDER (скруглённый край)
@@ -649,22 +869,61 @@ export class TankController {
                 radius: cylinderRadius
             }
         }, scene);
-        backCylinder.material = { friction: 0.15, restitution: 0.0 };
+        // HEAVY & RESPONSIVE: Отключено трение Havok, используется только Custom Force
+        backCylinder.material = { friction: PHYSICS_CONFIG.tank.collisionMaterials.backCylinderFriction, restitution: PHYSICS_CONFIG.tank.collisionMaterials.backCylinderRestitution };
         chassisShape.addChildFromParent(this.chassis, backCylinder, this.chassis);
         
         // Настройки фильтрации столкновений для всего compound shape
         chassisShape.filterMembershipMask = 1;
         chassisShape.filterCollideMask = 2 | 32;
         
+        // КРИТИЧНО: Проверяем, не создано ли уже физическое тело для этого меша
+        const existingBody = (this as any).physicsBody;
+        if (existingBody && !existingBody.isDisposed) {
+            logger.warn("[TankController] Old physics body exists, disposing it");
+            existingBody.dispose();
+            (this as any).physicsBody = null;
+        }
+        
+        // КРИТИЧНО: Проверяем, не привязано ли уже физическое тело к этому мешу
+        const existingPhysicsBody = (this.chassis as any).physicsBody;
+        if (existingPhysicsBody) {
+            // Проверяем, что это не наше тело
+            if (existingPhysicsBody !== (this as any).physicsBody) {
+                logger.warn("[TankController] Chassis already has physics body, disposing it");
+                if (!existingPhysicsBody.isDisposed) {
+                    existingPhysicsBody.dispose();
+                }
+            }
+            // Очищаем ссылку
+            (this.chassis as any).physicsBody = null;
+        }
+        
         this.physicsBody = new PhysicsBody(this.chassis, PhysicsMotionType.DYNAMIC, false, scene);
         this.physicsBody.shape = chassisShape;
-        // ТАНКОВАЯ ПРОХОДИМОСТЬ: Центр масс смещен назад для лучшего подъёма на препятствия
-        this.physicsBody.setMassProperties({ mass: this.mass, centerOfMass: new Vector3(0, -0.55, -0.3) });
-        this.physicsBody.setLinearDamping(0.8);
-        this.physicsBody.setAngularDamping(4.0);
+        
+        // КРИТИЧНО: disablePreStep = true - физика становится единственным источником истины для позиции
+        // Без этого Babylon.js перед каждым шагом физики копирует mesh.position в physics body,
+        // а после шага копирует обратно, создавая "двойной танк" эффект
+        this.physicsBody.disablePreStep = true;
+        
+        // HEAVY & RESPONSIVE: Центр масс смещен ниже для предотвращения опрокидывания
+        this.physicsBody.setMassProperties({ 
+            mass: this.mass, 
+            centerOfMass: PHYSICS_CONFIG.tank.centerOfMass.clone() 
+        });
+        this.physicsBody.setLinearDamping(PHYSICS_CONFIG.tank.stability.linearDamping);
+        this.physicsBody.setAngularDamping(PHYSICS_CONFIG.tank.stability.angularDamping);
 
         // 3. Loop
         scene.onBeforePhysicsObservable.add(() => this.updatePhysics());
+        
+        // 3.1 КРИТИЧНО: Обновляем кэш позиций ПОСЛЕ шага физики, чтобы камера использовала актуальные данные
+        // Это исправляет проблему "двойного танка" - когда камера использовала устаревшую позицию
+        scene.onAfterPhysicsObservable.add(() => this.updatePositionCache());
+        
+        // 3.2 Инициализируем кэш позиций сразу, чтобы избежать (0,0,0) при первом использовании
+        this._cachedChassisPosition.copyFrom(this.chassis.absolutePosition);
         
         // 4. Inputs
         this.setupInput();
@@ -675,6 +934,513 @@ export class TankController {
         
         // 6. Create module visuals
         this.createModuleVisuals();
+        
+        // КРИТИЧНО: Финальная проверка на дубликаты мешей танка в сцене
+        // Проверяем только chassis в scene.meshes (turret и barrel должны быть дочерними элементами)
+        const chassisInScene = scene.meshes.filter(m => m === this.chassis).length;
+        const turretInScene = scene.meshes.filter(m => m === this.turret).length;
+        const barrelInScene = scene.meshes.filter(m => m === this.barrel).length;
+        
+        // Проверяем количество мешей в scene.meshes
+        // В Babylon.js дочерние меши могут быть в scene.meshes, это нормально
+        // Главное - проверить, что нет дубликатов (одинаковых мешей)
+        if (chassisInScene !== 1) {
+            logger.error(`[TankController] ERROR: Chassis is in scene.meshes ${chassisInScene} times (expected 1)!`);
+        }
+        if (turretInScene > 1) {
+            logger.error(`[TankController] ERROR: Turret is in scene.meshes ${turretInScene} times (expected 0-1)!`);
+        }
+        if (barrelInScene > 1) {
+            logger.error(`[TankController] ERROR: Barrel is in scene.meshes ${barrelInScene} times (expected 0-1)!`);
+        }
+        
+        // Проверяем иерархию
+        if (this.turret.parent !== this.chassis) {
+            logger.error(`[TankController] ERROR: Turret parent is ${this.turret.parent?.name || 'null'}, expected chassis!`);
+            this.turret.parent = this.chassis;
+        }
+        if (this.barrel.parent !== this.turret) {
+            logger.error(`[TankController] ERROR: Barrel parent is ${this.barrel.parent?.name || 'null'}, expected turret!`);
+            this.barrel.parent = this.turret;
+        }
+        
+        // КРИТИЧНО: Проверяем, не создаются ли меши дважды из-за клонирования или других причин
+        // Проверяем все меши в сцене с именами танка
+        const allTankMeshes = scene.meshes.filter(mesh => {
+            if (!mesh.name || mesh.isDisposed()) return false;
+            return mesh.name.startsWith("tankHull_") || 
+                   mesh.name.startsWith("turret_") || 
+                   mesh.name.startsWith("barrel_");
+        });
+        
+        // Проверяем, есть ли дубликаты по имени (разные меши с похожими именами)
+        const chassisMeshes = allTankMeshes.filter(m => m.name.startsWith("tankHull_"));
+        const turretMeshes = allTankMeshes.filter(m => m.name.startsWith("turret_"));
+        const barrelMeshes = allTankMeshes.filter(m => m.name.startsWith("barrel_"));
+        
+        if (chassisMeshes.length > 1) {
+            logger.error(`[TankController] CRITICAL: Found ${chassisMeshes.length} chassis meshes!`);
+            chassisMeshes.forEach((mesh, idx) => {
+                logger.error(`[TankController] Chassis ${idx}: ${mesh.name}, isOurChassis: ${mesh === this.chassis}, parent: ${mesh.parent?.name || 'none'}, position: ${mesh.position.x}, ${mesh.position.y}, ${mesh.position.z}`);
+            });
+            // Удаляем все, кроме нашего
+            chassisMeshes.forEach(mesh => {
+                if (mesh !== this.chassis && !mesh.isDisposed()) {
+                    try {
+                        mesh.dispose();
+                    } catch (e) {
+                        // Игнорируем ошибки
+                    }
+                }
+            });
+        }
+        
+        if (turretMeshes.length > 1) {
+            logger.error(`[TankController] CRITICAL: Found ${turretMeshes.length} turret meshes!`);
+            turretMeshes.forEach((mesh, idx) => {
+                logger.error(`[TankController] Turret ${idx}: ${mesh.name}, isOurTurret: ${mesh === this.turret}, parent: ${mesh.parent?.name || 'none'}, position: ${mesh.position.x}, ${mesh.position.y}, ${mesh.position.z}`);
+            });
+            // Удаляем все, кроме нашего
+            turretMeshes.forEach(mesh => {
+                if (mesh !== this.turret && !mesh.isDisposed()) {
+                    try {
+                        mesh.dispose();
+                    } catch (e) {
+                        // Игнорируем ошибки
+                    }
+                }
+            });
+        }
+        
+        if (barrelMeshes.length > 1) {
+            logger.error(`[TankController] CRITICAL: Found ${barrelMeshes.length} barrel meshes!`);
+            barrelMeshes.forEach((mesh, idx) => {
+                logger.error(`[TankController] Barrel ${idx}: ${mesh.name}, isOurBarrel: ${mesh === this.barrel}, parent: ${mesh.parent?.name || 'none'}, position: ${mesh.position.x}, ${mesh.position.y}, ${mesh.position.z}`);
+            });
+            // Удаляем все, кроме нашего
+            barrelMeshes.forEach(mesh => {
+                if (mesh !== this.barrel && !mesh.isDisposed()) {
+                    try {
+                        mesh.dispose();
+                    } catch (e) {
+                        // Игнорируем ошибки
+                    }
+                }
+            });
+        }
+        
+        // КРИТИЧНО: Проверяем, не создаются ли физические тела дважды
+        const chassisPhysicsBodies = [];
+        let currentMesh: any = this.chassis;
+        while (currentMesh) {
+            const physicsBody = (currentMesh as any).physicsBody;
+            if (physicsBody) {
+                // Проверяем, что isDisposed - это функция перед вызовом
+                if (typeof physicsBody.isDisposed === 'function') {
+                    if (!physicsBody.isDisposed()) {
+                        chassisPhysicsBodies.push(physicsBody);
+                    }
+                } else {
+                    // Если isDisposed не функция, просто добавляем (может быть другой тип объекта)
+                    chassisPhysicsBodies.push(physicsBody);
+                }
+            }
+            currentMesh = currentMesh.parent;
+        }
+        
+        if (chassisPhysicsBodies.length > 1) {
+            logger.error(`[TankController] CRITICAL: Found ${chassisPhysicsBodies.length} physics bodies on chassis hierarchy!`);
+            // Оставляем только первый (основной)
+            for (let i = 1; i < chassisPhysicsBodies.length; i++) {
+                try {
+                    if (typeof chassisPhysicsBodies[i].dispose === 'function') {
+                        chassisPhysicsBodies[i].dispose();
+                    }
+                } catch (e) {
+                    // Игнорируем ошибки
+                }
+            }
+        }
+        
+        // КРИТИЧНО: Проверяем, не рендерятся ли меши дважды из-за того, что они в _activeMeshes дважды
+        // Эта проверка выполняется в каждом кадре через observer, но здесь мы делаем начальную проверку
+        const activeMeshes = (scene as any)._activeMeshes;
+        if (activeMeshes && Array.isArray(activeMeshes)) {
+            const chassisInActive = activeMeshes.filter((m: any) => m === this.chassis).length;
+            const turretInActive = activeMeshes.filter((m: any) => m === this.turret).length;
+            const barrelInActive = activeMeshes.filter((m: any) => m === this.barrel).length;
+            
+            if (chassisInActive > 1 || turretInActive > 1 || barrelInActive > 1) {
+                logger.error(`[TankController] CRITICAL: Meshes in _activeMeshes multiple times! chassis=${chassisInActive}, turret=${turretInActive}, barrel=${barrelInActive}`);
+                // Удаляем дубликаты из _activeMeshes
+                const seenChassis = new Set();
+                const seenTurret = new Set();
+                const seenBarrel = new Set();
+                for (let i = activeMeshes.length - 1; i >= 0; i--) {
+                    const mesh = activeMeshes[i];
+                    if (mesh === this.chassis) {
+                        if (seenChassis.has(mesh)) {
+                            activeMeshes.splice(i, 1);
+                        } else {
+                            seenChassis.add(mesh);
+                        }
+                    } else if (mesh === this.turret) {
+                        if (seenTurret.has(mesh)) {
+                            activeMeshes.splice(i, 1);
+                        } else {
+                            seenTurret.add(mesh);
+                        }
+                    } else if (mesh === this.barrel) {
+                        if (seenBarrel.has(mesh)) {
+                            activeMeshes.splice(i, 1);
+                        } else {
+                            seenBarrel.add(mesh);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // FIX: Упрощенный observer - теперь только проверяем целостность parent-child связей
+        // Тяжёлые per-frame проверки дубликатов больше не нужны, так как причина дублирования устранена
+        // (убрали alwaysSelectAsActiveMesh с дочерних мешей turret и barrel)
+        const parentCheckObserver = scene.onBeforeActiveMeshesEvaluationObservable.add(() => {
+            // Проверяем, что дочерние меши остаются дочерними
+            if ((this.turret as any)._shouldBeChild && this.turret.parent === null) {
+                // Восстанавливаем parent если он потерялся
+                this.turret.parent = this.chassis;
+                logger.warn(`[TankController] Turret parent was lost, restored to chassis`);
+            }
+            if ((this.barrel as any)._shouldBeChild && this.barrel.parent === null) {
+                // Восстанавливаем parent если он потерялся
+                this.barrel.parent = this.turret;
+                logger.warn(`[TankController] Barrel parent was lost, restored to turret`);
+            }
+        });
+        (this as any)._parentCheckObserver = parentCheckObserver;
+        
+        // ========== КРИТИЧНО: ПРОВЕРКА И ОЧИСТКА INSTANCES ПОСЛЕ ВСЕХ ОПЕРАЦИЙ ==========
+        // Проверяем и очищаем instances для всех мешей танка ПОСЛЕ создания всех компонентов
+        // Это предотвращает визуальное дублирование, вызванное instances
+        
+        // 1. Проверка и очистка instances для chassis
+        const chassisInstances = (this.chassis as any).instances;
+        if (chassisInstances && Array.isArray(chassisInstances) && chassisInstances.length > 0) {
+            logger.error(`[TankController] CRITICAL: Chassis has ${chassisInstances.length} instances! This may cause visual duplication!`);
+            logger.error(`[TankController] Disposing all chassis instances...`);
+            // Удаляем все instances
+            chassisInstances.forEach((instance: any) => {
+                try {
+                    if (instance && typeof instance.dispose === 'function' && !instance.isDisposed()) {
+                        instance.dispose();
+                    }
+                } catch (e) {
+                    logger.warn(`[TankController] Error disposing chassis instance:`, e);
+                }
+            });
+            // Очищаем массив instances
+            (this.chassis as any).instances = [];
+            logger.error(`[TankController] Chassis instances cleared`);
+        }
+        
+        // 2. Проверка и очистка instances для turret
+        const turretInstances = (this.turret as any).instances;
+        if (turretInstances && Array.isArray(turretInstances) && turretInstances.length > 0) {
+            logger.error(`[TankController] CRITICAL: Turret has ${turretInstances.length} instances! This may cause visual duplication!`);
+            logger.error(`[TankController] Disposing all turret instances...`);
+            turretInstances.forEach((instance: any) => {
+                try {
+                    if (instance && typeof instance.dispose === 'function' && !instance.isDisposed()) {
+                        instance.dispose();
+                    }
+                } catch (e) {
+                    logger.warn(`[TankController] Error disposing turret instance:`, e);
+                }
+            });
+            (this.turret as any).instances = [];
+            logger.error(`[TankController] Turret instances cleared`);
+        }
+        
+        // 3. Проверка и очистка instances для barrel
+        const barrelInstances = (this.barrel as any).instances;
+        if (barrelInstances && Array.isArray(barrelInstances) && barrelInstances.length > 0) {
+            logger.error(`[TankController] CRITICAL: Barrel has ${barrelInstances.length} instances! This may cause visual duplication!`);
+            logger.error(`[TankController] Disposing all barrel instances...`);
+            barrelInstances.forEach((instance: any) => {
+                try {
+                    if (instance && typeof instance.dispose === 'function' && !instance.isDisposed()) {
+                        instance.dispose();
+                    }
+                } catch (e) {
+                    logger.warn(`[TankController] Error disposing barrel instance:`, e);
+                }
+            });
+            (this.barrel as any).instances = [];
+            logger.error(`[TankController] Barrel instances cleared`);
+        }
+        
+        // 4. Финальная проверка: убеждаемся, что все instances очищены
+        const finalChassisInstances = (this.chassis as any).instances;
+        const finalTurretInstances = (this.turret as any).instances;
+        const finalBarrelInstances = (this.barrel as any).instances;
+        if ((finalChassisInstances && finalChassisInstances.length > 0) ||
+            (finalTurretInstances && finalTurretInstances.length > 0) ||
+            (finalBarrelInstances && finalBarrelInstances.length > 0)) {
+            logger.error(`[TankController] CRITICAL: Some instances still exist after cleanup!`);
+            logger.error(`[TankController] Final check: chassis=${finalChassisInstances?.length || 0}, turret=${finalTurretInstances?.length || 0}, barrel=${finalBarrelInstances?.length || 0}`);
+        } else {
+            logger.log(`[TankController] ✅ All instances cleared successfully`);
+        }
+        
+        // ========== КОМПЛЕКСНАЯ ДИАГНОСТИКА ДУБЛИРОВАНИЯ ТАНКА ==========
+        logger.log(`[TankController] ========== TANK DUPLICATION DIAGNOSTICS ==========`);
+        
+        // 1. Проверка мешей в scene.meshes
+        const diagChassisInScene = scene.meshes.filter(m => m === this.chassis).length;
+        const diagTurretInScene = scene.meshes.filter(m => m === this.turret).length;
+        const diagBarrelInScene = scene.meshes.filter(m => m === this.barrel).length;
+        logger.log(`[TankController] [1] scene.meshes count: chassis=${diagChassisInScene}, turret=${diagTurretInScene}, barrel=${diagBarrelInScene}`);
+        
+        // КРИТИЧНО: В Babylon.js дочерние меши ДОЛЖНЫ быть в scene.meshes для рендеринга
+        // Но если они также рендерятся как корневые меши, это может вызвать визуальное дублирование
+        // Проверяем, не рендерятся ли они дважды из-за того, что они и в scene.meshes, и как дочерние элементы
+        if (diagChassisInScene !== 1) {
+            logger.error(`[TankController] [1] ERROR: Chassis in scene.meshes ${diagChassisInScene} times (expected 1)!`);
+        }
+        if (diagTurretInScene > 1) {
+            logger.error(`[TankController] [1] ERROR: Turret in scene.meshes ${diagTurretInScene} times (expected 1)!`);
+        }
+        if (diagBarrelInScene > 1) {
+            logger.error(`[TankController] [1] ERROR: Barrel in scene.meshes ${diagBarrelInScene} times (expected 1)!`);
+        }
+        
+        // КРИТИЧНО: В Babylon.js дочерние меши ДОЛЖНЫ быть в scene.meshes для рендеринга
+        // Проверяем, что turret и barrel в scene.meshes (они дочерние элементы, но должны быть в scene.meshes)
+        if (diagTurretInScene === 0 && this.turret && !this.turret.isDisposed()) {
+            logger.warn(`[TankController] [1] Turret not in scene.meshes! Adding it back.`);
+            scene.meshes.push(this.turret);
+        }
+        if (diagBarrelInScene === 0 && this.barrel && !this.barrel.isDisposed()) {
+            logger.warn(`[TankController] [1] Barrel not in scene.meshes! Adding it back.`);
+            scene.meshes.push(this.barrel);
+        }
+        
+        // 2. Проверка мешей в _activeMeshes
+        const diagActiveMeshes = (scene as any)._activeMeshes;
+        if (diagActiveMeshes && Array.isArray(diagActiveMeshes)) {
+            const chassisInActive = diagActiveMeshes.filter((m: any) => m === this.chassis).length;
+            const turretInActive = diagActiveMeshes.filter((m: any) => m === this.turret).length;
+            const barrelInActive = diagActiveMeshes.filter((m: any) => m === this.barrel).length;
+            logger.log(`[TankController] [2] _activeMeshes count: chassis=${chassisInActive}, turret=${turretInActive}, barrel=${barrelInActive}`);
+            if (chassisInActive > 1 || turretInActive > 1 || barrelInActive > 1) {
+                logger.error(`[TankController] [2] ERROR: Meshes in _activeMeshes multiple times!`);
+                // Удаляем дубликаты из _activeMeshes
+                if (chassisInActive > 1) {
+                    const seen = new Set();
+                    for (let i = diagActiveMeshes.length - 1; i >= 0; i--) {
+                        if (diagActiveMeshes[i] === this.chassis) {
+                            if (seen.has(this.chassis)) {
+                                diagActiveMeshes.splice(i, 1);
+                                logger.error(`[TankController] [2] Removed duplicate chassis from _activeMeshes`);
+                            } else {
+                                seen.add(this.chassis);
+                            }
+                        }
+                    }
+                }
+                if (turretInActive > 1) {
+                    const seen = new Set();
+                    for (let i = diagActiveMeshes.length - 1; i >= 0; i--) {
+                        if (diagActiveMeshes[i] === this.turret) {
+                            if (seen.has(this.turret)) {
+                                diagActiveMeshes.splice(i, 1);
+                                logger.error(`[TankController] [2] Removed duplicate turret from _activeMeshes`);
+                            } else {
+                                seen.add(this.turret);
+                            }
+                        }
+                    }
+                }
+                if (barrelInActive > 1) {
+                    const seen = new Set();
+                    for (let i = diagActiveMeshes.length - 1; i >= 0; i--) {
+                        if (diagActiveMeshes[i] === this.barrel) {
+                            if (seen.has(this.barrel)) {
+                                diagActiveMeshes.splice(i, 1);
+                                logger.error(`[TankController] [2] Removed duplicate barrel from _activeMeshes`);
+                            } else {
+                                seen.add(this.barrel);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 3. Проверка иерархии parent-child
+        logger.log(`[TankController] [3] Hierarchy: chassis.parent=${(this.chassis.parent as any)?.name || 'null'}, turret.parent=${(this.turret.parent as any)?.name || 'null'}, barrel.parent=${(this.barrel.parent as any)?.name || 'null'}`);
+        if (this.turret.parent !== this.chassis) {
+            logger.error(`[TankController] [3] ERROR: Turret parent is not chassis!`);
+        }
+        if (this.barrel.parent !== this.turret) {
+            logger.error(`[TankController] [3] ERROR: Barrel parent is not turret!`);
+        }
+        
+        // 4. Проверка shadow generator
+        const shadowGenerator = (scene as any).terrainShadowGenerator;
+        if (shadowGenerator) {
+            const shadowMap = shadowGenerator.getShadowMap();
+            if (shadowMap && shadowMap.renderList) {
+                const chassisInShadow = shadowMap.renderList.filter((m: any) => m === this.chassis).length;
+                const turretInShadow = shadowMap.renderList.filter((m: any) => m === this.turret).length;
+                const barrelInShadow = shadowMap.renderList.filter((m: any) => m === this.barrel).length;
+                logger.log(`[TankController] [4] Shadow generator count: chassis=${chassisInShadow}, turret=${turretInShadow}, barrel=${barrelInShadow}`);
+                if (chassisInShadow > 1 || turretInShadow > 1 || barrelInShadow > 1) {
+                    logger.error(`[TankController] [4] ERROR: Meshes in shadow generator multiple times!`);
+                    // Удаляем дубликаты из shadow generator
+                    const seenChassis = new Set();
+                    const seenTurret = new Set();
+                    const seenBarrel = new Set();
+                    for (let i = shadowMap.renderList.length - 1; i >= 0; i--) {
+                        const mesh = shadowMap.renderList[i];
+                        if (mesh === this.chassis) {
+                            if (seenChassis.has(mesh)) {
+                                shadowMap.renderList.splice(i, 1);
+                            } else {
+                                seenChassis.add(mesh);
+                            }
+                        } else if (mesh === this.turret) {
+                            if (seenTurret.has(mesh)) {
+                                shadowMap.renderList.splice(i, 1);
+                            } else {
+                                seenTurret.add(mesh);
+                            }
+                        } else if (mesh === this.barrel) {
+                            if (seenBarrel.has(mesh)) {
+                                shadowMap.renderList.splice(i, 1);
+                            } else {
+                                seenBarrel.add(mesh);
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            logger.log(`[TankController] [4] No shadow generator found`);
+        }
+        
+        // 5. Проверка rendering groups
+        logger.log(`[TankController] [5] RenderingGroupId: chassis=${this.chassis.renderingGroupId}, turret=${this.turret.renderingGroupId}, barrel=${this.barrel.renderingGroupId}`);
+        if (this.chassis.renderingGroupId !== this.turret.renderingGroupId || this.turret.renderingGroupId !== this.barrel.renderingGroupId) {
+            logger.error(`[TankController] [5] ERROR: Different renderingGroupId values!`);
+        }
+        
+        // КРИТИЧНО: Проверяем, не добавлены ли меши в несколько rendering groups
+        const renderingGroups = (scene as any)._renderingGroups;
+        if (renderingGroups) {
+            let chassisInGroups = 0;
+            let turretInGroups = 0;
+            let barrelInGroups = 0;
+            Object.keys(renderingGroups).forEach((groupId: string) => {
+                const group = renderingGroups[groupId];
+                if (group && group.meshes && Array.isArray(group.meshes)) {
+                    const chassisCount = group.meshes.filter((m: any) => m === this.chassis).length;
+                    const turretCount = group.meshes.filter((m: any) => m === this.turret).length;
+                    const barrelCount = group.meshes.filter((m: any) => m === this.barrel).length;
+                    if (chassisCount > 0) chassisInGroups += chassisCount;
+                    if (turretCount > 0) turretInGroups += turretCount;
+                    if (barrelCount > 0) barrelInGroups += barrelCount;
+                }
+            });
+            if (chassisInGroups > 1 || turretInGroups > 1 || barrelInGroups > 1) {
+                logger.error(`[TankController] [5] ERROR: Meshes in multiple rendering groups! chassis=${chassisInGroups}, turret=${turretInGroups}, barrel=${barrelInGroups}`);
+                // Удаляем дубликаты из rendering groups
+                Object.keys(renderingGroups).forEach((groupId: string) => {
+                    const group = renderingGroups[groupId];
+                    if (group && group.meshes && Array.isArray(group.meshes)) {
+                        const seenChassis = new Set();
+                        const seenTurret = new Set();
+                        const seenBarrel = new Set();
+                        for (let i = group.meshes.length - 1; i >= 0; i--) {
+                            const mesh = group.meshes[i];
+                            if (mesh === this.chassis) {
+                                if (seenChassis.has(mesh)) {
+                                    group.meshes.splice(i, 1);
+                                    logger.error(`[TankController] [5] Removed duplicate chassis from rendering group ${groupId}`);
+                                } else {
+                                    seenChassis.add(mesh);
+                                }
+                            } else if (mesh === this.turret) {
+                                if (seenTurret.has(mesh)) {
+                                    group.meshes.splice(i, 1);
+                                    logger.error(`[TankController] [5] Removed duplicate turret from rendering group ${groupId}`);
+                                } else {
+                                    seenTurret.add(mesh);
+                                }
+                            } else if (mesh === this.barrel) {
+                                if (seenBarrel.has(mesh)) {
+                                    group.meshes.splice(i, 1);
+                                    logger.error(`[TankController] [5] Removed duplicate barrel from rendering group ${groupId}`);
+                                } else {
+                                    seenBarrel.add(mesh);
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        
+        // 6. Проверка материалов
+        logger.log(`[TankController] [6] Materials: chassis=${this.chassis.material?.name || 'none'}, turret=${this.turret.material?.name || 'none'}, barrel=${this.barrel.material?.name || 'none'}`);
+        logger.log(`[TankController] [6] Material instances: chassis=${this.chassis.material === this.turret.material ? 'SAME' : 'DIFFERENT'}, turret=${this.turret.material === this.barrel.material ? 'SAME' : 'DIFFERENT'}`);
+        
+        // 7. Проверка теней
+        logger.log(`[TankController] [7] Shadows: chassis.receiveShadows=${this.chassis.receiveShadows}, turret.receiveShadows=${this.turret.receiveShadows}, barrel.receiveShadows=${this.barrel.receiveShadows}`);
+        
+        // 8. Проверка видимости и enabled
+        logger.log(`[TankController] [8] Visibility: chassis=${this.chassis.isVisible}, turret=${this.turret.isVisible}, barrel=${this.barrel.isVisible}`);
+        logger.log(`[TankController] [8] Enabled: chassis=${this.chassis.isEnabled()}, turret=${this.turret.isEnabled()}, barrel=${this.barrel.isEnabled()}`);
+        
+        // 9. Проверка позиций (если дубликаты, позиции могут отличаться)
+        logger.log(`[TankController] [9] Positions: chassis=(${this.chassis.position.x.toFixed(2)}, ${this.chassis.position.y.toFixed(2)}, ${this.chassis.position.z.toFixed(2)}), turret=(${this.turret.position.x.toFixed(2)}, ${this.turret.position.y.toFixed(2)}, ${this.turret.position.z.toFixed(2)}), barrel=(${this.barrel.position.x.toFixed(2)}, ${this.barrel.position.y.toFixed(2)}, ${this.barrel.position.z.toFixed(2)})`);
+        
+        // 10. Проверка масштаба (если масштаб неправильный, может показаться дубликатом)
+        logger.log(`[TankController] [10] Scaling: chassis=(${this.chassis.scaling.x.toFixed(2)}, ${this.chassis.scaling.y.toFixed(2)}, ${this.chassis.scaling.z.toFixed(2)}), turret=(${this.turret.scaling.x.toFixed(2)}, ${this.turret.scaling.y.toFixed(2)}, ${this.turret.scaling.z.toFixed(2)}), barrel=(${this.barrel.scaling.x.toFixed(2)}, ${this.barrel.scaling.y.toFixed(2)}, ${this.barrel.scaling.z.toFixed(2)})`);
+        
+        // 11. Проверка физических тел
+        const chassisPhysicsBody = (this.chassis as any).physicsBody;
+        const turretPhysicsBody = (this.turret as any).physicsBody;
+        const barrelPhysicsBody = (this.barrel as any).physicsBody;
+        logger.log(`[TankController] [11] Physics bodies: chassis=${chassisPhysicsBody ? 'EXISTS' : 'NONE'}, turret=${turretPhysicsBody ? 'EXISTS' : 'NONE'}, barrel=${barrelPhysicsBody ? 'EXISTS' : 'NONE'}`);
+        if (turretPhysicsBody || barrelPhysicsBody) {
+            logger.error(`[TankController] [11] ERROR: Turret or barrel has physics body (should only be on chassis)!`);
+        }
+        
+        // 12. Проверка уникальных идентификаторов мешей
+        logger.log(`[TankController] [12] Mesh names: chassis=${this.chassis.name}, turret=${this.turret.name}, barrel=${this.barrel.name}`);
+        logger.log(`[TankController] [12] Mesh uniqueIds: chassis=${this.chassis.uniqueId}, turret=${this.turret.uniqueId}, barrel=${this.barrel.uniqueId}`);
+        
+        // 13. Проверка всех мешей с похожими именами (возможные дубликаты)
+        const allTankMeshesByName = scene.meshes.filter(mesh => {
+            if (!mesh.name || mesh.isDisposed()) return false;
+            return (mesh.name.startsWith("tankHull_") || 
+                   mesh.name.startsWith("turret_") || 
+                   mesh.name.startsWith("barrel_")) &&
+                   mesh !== this.chassis && 
+                   mesh !== this.turret && 
+                   mesh !== this.barrel;
+        });
+        if (allTankMeshesByName.length > 0) {
+            logger.error(`[TankController] [13] ERROR: Found ${allTankMeshesByName.length} additional tank meshes with similar names!`);
+            allTankMeshesByName.forEach((mesh, idx) => {
+                logger.error(`[TankController] [13] Additional mesh ${idx}: ${mesh.name}, position=(${mesh.position.x.toFixed(2)}, ${mesh.position.y.toFixed(2)}, ${mesh.position.z.toFixed(2)}), parent=${mesh.parent?.name || 'null'}`);
+            });
+        } else {
+            logger.log(`[TankController] [13] No additional tank meshes found`);
+        }
+        
+        logger.log(`[TankController] ========== END DIAGNOSTICS ==========`);
         
         logger.log("TankController: Init Success");
     }
@@ -1171,8 +1937,8 @@ export class TankController {
         const game = (window as any).gameInstance;
         if (game && typeof game.getGroundHeight === 'function') {
             const groundHeight = game.getGroundHeight(targetX, targetZ);
-            // ОБЯЗАТЕЛЬНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
-            targetY = Math.max(groundHeight + 5.0, 7.0);
+            // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
+            targetY = Math.max(groundHeight + 2.0, 3.0);
             logger.log(`[TANK] Corrected respawn height: ${targetY.toFixed(2)} (ground: ${groundHeight.toFixed(2)})`);
         } else {
             // Fallback: если game недоступен, используем минимум 7 метров
@@ -1218,7 +1984,8 @@ export class TankController {
                         extents: new Vector3(this.chassisType.width, this.chassisType.height * 0.7, this.chassisType.depth * 0.7)
                     }
                 }, this.scene);
-                centerBox.material = { friction: 0.1, restitution: 0.0 };
+                // HEAVY & RESPONSIVE: Отключено трение Havok, используется только Custom Force
+        centerBox.material = { friction: PHYSICS_CONFIG.tank.collisionMaterials.centerBoxFriction, restitution: PHYSICS_CONFIG.tank.collisionMaterials.centerBoxRestitution };
                 chassisShape.addChildFromParent(this.chassis, centerBox, this.chassis);
                 
                 // Передний CYLINDER
@@ -1230,7 +1997,8 @@ export class TankController {
                         radius: cylinderRadius
                     }
                 }, this.scene);
-                frontCylinder.material = { friction: 0.15, restitution: 0.0 };
+                // HEAVY & RESPONSIVE: Отключено трение Havok, используется только Custom Force
+        frontCylinder.material = { friction: PHYSICS_CONFIG.tank.collisionMaterials.frontCylinderFriction, restitution: PHYSICS_CONFIG.tank.collisionMaterials.frontCylinderRestitution };
                 chassisShape.addChildFromParent(this.chassis, frontCylinder, this.chassis);
                 
                 // Задний CYLINDER
@@ -1242,34 +2010,75 @@ export class TankController {
                         radius: cylinderRadius
                     }
                 }, this.scene);
-                backCylinder.material = { friction: 0.15, restitution: 0.0 };
+                // HEAVY & RESPONSIVE: Отключено трение Havok, используется только Custom Force
+        backCylinder.material = { friction: PHYSICS_CONFIG.tank.collisionMaterials.backCylinderFriction, restitution: PHYSICS_CONFIG.tank.collisionMaterials.backCylinderRestitution };
                 chassisShape.addChildFromParent(this.chassis, backCylinder, this.chassis);
                 
                 chassisShape.filterMembershipMask = 1;
                 chassisShape.filterCollideMask = 2 | 32;
                 
+                // КРИТИЧНО: Проверяем, не создано ли уже физическое тело
+                const existingPhysics = this.physicsBody as any;
+                if (existingPhysics && !existingPhysics.isDisposed) {
+                    logger.error("[TankController] CRITICAL: Physics body already exists in restoreTankPhysics! Disposing old one.");
+                    existingPhysics.dispose();
+                    (this as any).physicsBody = null;
+                }
+                // КРИТИЧНО: Проверяем, не привязано ли уже физическое тело к мешу
+                const existingBody = (this.chassis as any).physicsBody;
+                if (existingBody && existingBody !== this.physicsBody) {
+                    logger.error("[TankController] CRITICAL: Chassis already has physics body in restoreTankPhysics! Disposing it.");
+                    if (!existingBody.isDisposed && typeof existingBody.dispose === 'function') {
+                        existingBody.dispose();
+                    }
+                    (this.chassis as any).physicsBody = null;
+                }
+                
                 this.physicsBody = new PhysicsBody(this.chassis, PhysicsMotionType.DYNAMIC, false, this.scene);
                 this.physicsBody.shape = chassisShape;
-                this.physicsBody.setMassProperties({ mass: this.mass, centerOfMass: new Vector3(0, -0.55, -0.3) });
-                this.physicsBody.setLinearDamping(0.8);
-                this.physicsBody.setAngularDamping(4.0);
+                
+                // КРИТИЧНО: disablePreStep = true - физика единственный источник истины
+                this.physicsBody.disablePreStep = true;
+                
+                // HEAVY & RESPONSIVE: Используем значения из конфига
+                this.physicsBody.setMassProperties({ 
+                    mass: this.mass, 
+                    centerOfMass: PHYSICS_CONFIG.tank.centerOfMass.clone() 
+                });
+                this.physicsBody.setLinearDamping(PHYSICS_CONFIG.tank.stability.linearDamping);
+                this.physicsBody.setAngularDamping(PHYSICS_CONFIG.tank.stability.angularDamping);
             }
             
-            // 5. КРИТИЧНО: Синхронизируем физическое тело с визуальным ПРАВИЛЬНО
-            // Сначала устанавливаем позицию и вращение, потом синхронизируем физику
-            // УБЕЖДАЕМСЯ что используем ПРАВИЛЬНУЮ высоту (targetY уже скорректирована выше)
+            // 5. КРИТИЧНО: Телепортация с правильной синхронизацией физики
+            // Шаг 1: Переключаем в ANIMATED режим для прямого позиционирования
+            this.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
+            
+            // Шаг 2: Сбрасываем скорости
+            this.physicsBody.setLinearVelocity(Vector3.Zero());
+            this.physicsBody.setAngularVelocity(Vector3.Zero());
+            
+            // Шаг 3: Устанавливаем позицию и вращение меша
             this.chassis.position.set(targetX, targetY, targetZ);
             this.chassis.rotationQuaternion = Quaternion.Identity();
             this.chassis.rotation.set(0, 0, 0);
             this.chassis.computeWorldMatrix(true);
             
-            // ТОЛЬКО ПОСЛЕ установки позиции синхронизируем физику
-            this.physicsBody.setTargetTransform(this.chassis.position, Quaternion.Identity());
+            // Шаг 4: Временно включаем preStep для синхронизации позиции с физикой
+            this.physicsBody.disablePreStep = false;
+            
+            // Шаг 5: Возвращаем в DYNAMIC режим (физика возьмёт позицию из меша)
+            this.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
+            
+            // Шаг 6: Сбрасываем скорости после переключения
             this.physicsBody.setLinearVelocity(Vector3.Zero());
             this.physicsBody.setAngularVelocity(Vector3.Zero());
             
-            // КРИТИЧНО: Принудительно устанавливаем правильную ориентацию в физике
-            this.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
+            // Шаг 7: Восстанавливаем disablePreStep после одного кадра
+            setTimeout(() => {
+                if (this.physicsBody) {
+                    this.physicsBody.disablePreStep = true;
+                }
+            }, 0);
             
             // 6. Активируем защиту от урона
             this.activateInvulnerability();
@@ -1284,13 +2093,29 @@ export class TankController {
                     // Если танк перевёрнут - принудительно выравниваем
                     if (up.y < 0.7) {
                         logger.warn(`[TANK] Tank is flipped on spawn! Correcting...`);
+                        
+                        // Используем правильный метод телепортации
+                        this.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
+                        this.physicsBody.setLinearVelocity(Vector3.Zero());
+                        this.physicsBody.setAngularVelocity(Vector3.Zero());
+                        
                         this.chassis.position.set(targetX, targetY, targetZ);
                         this.chassis.rotationQuaternion = Quaternion.Identity();
                         this.chassis.rotation.set(0, 0, 0);
                         this.chassis.computeWorldMatrix(true);
-                        this.physicsBody.setTargetTransform(this.chassis.position, Quaternion.Identity());
+                        
+                        // Временно включаем preStep для синхронизации
+                        this.physicsBody.disablePreStep = false;
+                        this.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
                         this.physicsBody.setLinearVelocity(Vector3.Zero());
                         this.physicsBody.setAngularVelocity(Vector3.Zero());
+                        
+                        // Восстанавливаем disablePreStep
+                        setTimeout(() => {
+                            if (this.physicsBody) {
+                                this.physicsBody.disablePreStep = true;
+                            }
+                        }, 0);
                     }
                     
                     logger.log(`[TANK] Physics re-enabled at garage position`);
@@ -1349,8 +2174,8 @@ export class TankController {
             const game = (window as any).gameInstance;
             if (game && typeof game.getGroundHeight === 'function') {
                 const groundHeight = game.getGroundHeight(targetX, targetZ);
-                // ОБЯЗАТЕЛЬНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
-                targetY = Math.max(groundHeight + 5.0, 7.0);
+                // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
+                targetY = Math.max(groundHeight + 2.0, 3.0);
                 logger.log(`[TANK] Corrected teleport height: ${targetY.toFixed(2)} (ground: ${groundHeight.toFixed(2)})`);
             } else {
                 // Fallback: если game недоступен, используем минимум 7 метров
@@ -1384,9 +2209,9 @@ export class TankController {
             this.turret.computeWorldMatrix(true);
             this.barrel.computeWorldMatrix(true);
             
-            // 6. Синхронизируем физическое тело с визуальным
-            this.physicsBody.setTargetTransform(this.chassis.position, Quaternion.Identity());
-            
+            // 6. Временно включаем preStep для синхронизации позиции с физикой
+            // В ANIMATED режиме это безопасно
+            this.physicsBody.disablePreStep = false;
             
             // 7. Активируем защиту от урона ПОСЛЕ установки позиции (чтобы эффект появился в правильном месте)
             this.activateInvulnerability();
@@ -1399,7 +2224,7 @@ export class TankController {
                     let finalY = targetY;
                     if (game && typeof game.getGroundHeight === 'function') {
                         const groundHeight = game.getGroundHeight(targetX, targetZ);
-                        finalY = Math.max(groundHeight + 5.0, 7.0);
+                        finalY = Math.max(groundHeight + 2.0, 3.0);
                     }
                     
                     // Убеждаемся, что позиция правильная
@@ -1408,20 +2233,21 @@ export class TankController {
                     this.chassis.rotation.set(0, 0, 0);
                     this.chassis.computeWorldMatrix(true);
                     
-                    
-                    // Синхронизируем физическое тело
-                    this.physicsBody.setTargetTransform(this.chassis.position, Quaternion.Identity());
-                    
                     // Сбрасываем скорости ПЕРЕД включением физики
                     this.physicsBody.setLinearVelocity(Vector3.Zero());
                     this.physicsBody.setAngularVelocity(Vector3.Zero());
                     
-                    // Включаем физику
+                    // Включаем физику (disablePreStep уже false, физика возьмёт позицию из меша)
                     this.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
                     
-                    // Ещё раз сбрасываем скорости после включения (на всякий случай)
+                    // Ещё раз сбрасываем скорости после включения
+                    this.physicsBody.setLinearVelocity(Vector3.Zero());
+                    this.physicsBody.setAngularVelocity(Vector3.Zero());
+                    
+                    // Восстанавливаем disablePreStep после синхронизации
                     setTimeout(() => {
                         if (this.physicsBody) {
+                            this.physicsBody.disablePreStep = true;
                             this.physicsBody.setLinearVelocity(Vector3.Zero());
                             this.physicsBody.setAngularVelocity(Vector3.Zero());
                         }
@@ -1545,8 +2371,8 @@ export class TankController {
             if (code === "Digit9" || code === "Numpad9") {
                 this.activateModule9();
             }
-            if (code === "Digit0" || code === "Numpad0") {
-                // Начинаем зарядку прыжка
+            if ((code === "Digit0" || code === "Numpad0") && !evt.ctrlKey && !evt.metaKey) {
+                // Начинаем зарядку прыжка (игнорируем, если нажата Ctrl - используется для других функций)
                 const now = Date.now();
                 logger.log(`[TANK] Key 0 pressed: module0Charging=${this.module0Charging}, canJump=${this.canJump}, hasPhysics=${!!this.physicsBody}, isAlive=${this.isAlive}`);
                 
@@ -1577,11 +2403,13 @@ export class TankController {
             this._inputMap[evt.code] = false;
             
             // Модуль 0: Выполняем прыжок при отпускании кнопки
-            if ((evt.code === "Digit0" || evt.code === "Numpad0") && this.module0Charging) {
-                logger.log(`[TANK] Key 0 released, executing jump`);
-                this.executeModule0Jump();
-            } else if ((evt.code === "Digit0" || evt.code === "Numpad0") && !this.module0Charging) {
-                logger.warn(`[TANK] Key 0 released but module0Charging is false`);
+            // Игнорируем, если была нажата Ctrl (используется для других функций, например Ctrl+0 для редактора физики)
+            if ((evt.code === "Digit0" || evt.code === "Numpad0") && !evt.ctrlKey && !evt.metaKey) {
+                if (this.module0Charging) {
+                    logger.log(`[TANK] Key 0 released, executing jump`);
+                    this.executeModule0Jump();
+                }
+                // Убрано предупреждение - это нормальная ситуация, если клавиша 0 использовалась для других целей
             }
         };
         
@@ -2036,16 +2864,30 @@ export class TankController {
             body.applyImpulse(forward.scale(impulse), ball.position);
             
 
-            // === УСИЛЕННАЯ ОТДАЧА ===
-            // 1. Физическая отдача - отталкиваем танк назад
-            const recoilForceVec = forward.scale(-this.recoilForce);
-            this.physicsBody.applyImpulse(recoilForceVec, this.chassis.absolutePosition);
+            // === GUN FEEL: УСИЛЕННАЯ ОТДАЧА ===
+            // Множитель отдачи зависит от типа пушки
+            const recoilMultiplier = this.cannonType.recoilMultiplier ?? 1.0;
             
-            // 2. Угловая отдача - танк наклоняется назад
+            // 1. Физическая отдача - применяется как импульс к дулу/башне для создания рычага
+            const recoilConfig = PHYSICS_CONFIG.shooting.recoil;
+            const effectiveRecoilForce = this.recoilForce * recoilMultiplier;
+            const recoilForceVec = forward.scale(-effectiveRecoilForce);
+            
+            // GUN FEEL: Применяем отдачу к дулу/башне вместо центра масс для создания крутящего момента
+            if (recoilConfig.applicationPoint === "muzzle") {
+                const barrelWorldPos = this.barrel.getAbsolutePosition();
+                this.physicsBody.applyImpulse(recoilForceVec, barrelWorldPos);
+            } else {
+                // Fallback на центр масс (старое поведение)
+                this.physicsBody.applyImpulse(recoilForceVec, this.chassis.absolutePosition);
+            }
+            
+            // 2. Угловая отдача - танк наклоняется назад (усилена для аркадного геймплея)
+            const effectiveRecoilTorque = this.recoilTorque * recoilMultiplier;
             const barrelWorldPos = this.barrel.getAbsolutePosition();
             const chassisPos = this.chassis.absolutePosition;
             const torqueDir = barrelWorldPos.subtract(chassisPos).normalize();
-            this.applyTorque(new Vector3(-torqueDir.z * this.recoilTorque, 0, torqueDir.x * this.recoilTorque));
+            this.applyTorque(new Vector3(-torqueDir.z * effectiveRecoilTorque, 0, torqueDir.x * effectiveRecoilTorque));
             
             // 3. Визуальный откат пушки - пушка откатывается назад и поднимается
             // Устанавливаем текущие значения отката (мгновенно)
@@ -2550,12 +3392,28 @@ export class TankController {
         shape.filterMembershipMask = 4;
         shape.filterCollideMask = 2 | 8 | 32;
         
+        const projConfig = PHYSICS_CONFIG.shooting.projectiles;
         const body = new PhysicsBody(ball, PhysicsMotionType.DYNAMIC, false, this.scene);
         body.shape = shape;
-        // АРКАДНЫЙ СТИЛЬ: Минимальная масса - снаряд НЕ толкает танки при попадании
-        body.setMassProperties({ mass: 0.001 });
-        body.setLinearDamping(0.01);
-        body.applyImpulse(dir.scale(this.projectileSpeed * 0.018), ball.position);
+        // PROJECTILE BALLISTICS: Минимальная масса - снаряд НЕ толкает танки при попадании
+        body.setMassProperties({ mass: projConfig.mass });
+        body.setLinearDamping(projConfig.linearDamping);
+        
+        // PROJECTILE BALLISTICS: Continuous Collision Detection для быстрых снарядов
+        // Примечание: В Babylon.js Havok CCD настраивается через shape properties, не через motionType
+        
+        // PROJECTILE BALLISTICS: Применяем импульс с учетом конфига
+        const impulse = dir.scale(this.projectileSpeed * projConfig.impulseMultiplier);
+        body.applyImpulse(impulse, ball.position);
+        
+        // PROJECTILE BALLISTICS: Усиленная гравитация для более "хищных" траекторий
+        // Применяется через кастомную гравитацию в updatePhysics или через world gravity
+        if (projConfig.gravityScale !== 1.0) {
+            // Сохраняем gravityScale в metadata для применения в updatePhysics
+            ball.metadata.gravityScale = projConfig.gravityScale;
+            ball.metadata.ricochetMode = projConfig.ricochetMode;
+            ball.metadata.ricochetSpeedLoss = projConfig.ricochetSpeedLoss;
+        }
         
         this.setupProjectileHitDetection(ball, body);
         return ball;
@@ -3172,30 +4030,23 @@ export class TankController {
             // Дополнительная проверка валидности перед использованием
             if (!this.physicsBody || !this.chassis || this.chassis.isDisposed()) return;
             
-            // КРИТИЧНО: Убеждаемся, что иерархия мешей НЕ сломана!
+            // КРИТИЧНО: Проверяем иерархию мешей ТОЛЬКО если она сломана (редкий случай)
             // Башня ДОЛЖНА быть дочерним элементом корпуса
             if (this.turret && this.turret.parent !== this.chassis) {
                 this.turret.parent = this.chassis;
                 // Восстанавливаем позицию башни строго по центру корпуса
-                this.turret.position = new Vector3(0, this.turret.position.y, 0);
+                this.turret.position.set(0, this.turret.position.y, 0);
             }
             // Ствол ДОЛЖЕН быть дочерним элементом башни
             if (this.barrel && this.turret && this.barrel.parent !== this.turret) {
                 this.barrel.parent = this.turret;
-                // Восстанавливаем позицию ствола строго по центру башни по X и Y
-                this.barrel.position = new Vector3(0, this.barrel.position.y, this.barrel.position.z);
+                // Восстанавливаем позицию ствола строго по центру башни
+                this.barrel.position.set(0, this.barrel.position.y, this.barrel.position.z);
             }
             
-            // КРИТИЧНО: Убеждаемся, что башня всегда по центру корпуса по X и Z
-            if (this.turret && (this.turret.position.x !== 0 || this.turret.position.z !== 0)) {
-                this.turret.position.x = 0;
-                this.turret.position.z = 0;
-            }
-            
-            // КРИТИЧНО: Убеждаемся, что ствол всегда по центру башни по X
-            if (this.barrel && this.barrel.position.x !== 0) {
-                this.barrel.position.x = 0;
-            }
+            // УДАЛЕНО: Постоянные проверки position.x/z каждый кадр
+            // Эти проверки вызывали "двойной танк" из-за floating-point сравнений
+            // Позиции башни и ствола устанавливаются ОДИН РАЗ при создании
             
             // Обновляем время игры для системы опыта
             if (this.experienceSystem) {
@@ -3460,15 +4311,18 @@ export class TankController {
                 hoverForce = 0;
                 totalVerticalForce = 0;
             } else {
-                // Простая защита от проваливания под террейн (только если танк значительно ниже)
+                // FIX: Защита от проваливания под террейн БЕЗ прямого изменения позиции
+                // Для DYNAMIC bodies нельзя напрямую менять mesh.position - это вызывает "дёрганье"
+                // Вместо этого применяем сильный импульс вверх
                 if (pos.y < groundHeight - 1.0) {
-                    const correctedY = groundHeight + 1.0;
-                    this.chassis.position.y = correctedY;
-                    this.chassis.computeWorldMatrix(true);
+                    // Применяем импульс для выталкивания танка вверх
+                    const pushUpForce = (groundHeight + 1.5 - pos.y) * 50000;
                     if (this.physicsBody) {
-                        this.physicsBody.setTargetTransform(this.chassis.position, Quaternion.Identity());
-                        this.physicsBody.setLinearVelocity(new Vector3(vel.x, 0, vel.z));
-                        this.physicsBody.setAngularVelocity(Vector3.Zero());
+                        this.physicsBody.applyForce(new Vector3(0, pushUpForce, 0), pos);
+                        // Гасим вертикальную скорость вниз
+                        if (vel.y < -5) {
+                            this.physicsBody.setLinearVelocity(new Vector3(vel.x, -5, vel.z));
+                        }
                     }
                 }
                 
@@ -3669,14 +4523,16 @@ export class TankController {
                 }
             }
             
-            // Дополнительная стабилизация: прижимная сила при движении (объединена с hover)
+            // HEAVY & RESPONSIVE: Прижимная сила при движении (зависит от скорости)
             // Используем кэшированное значение absFwdSpeed для оптимизации
             if (absFwdSpeed > 1) {
-                const downForceVal = this.downForce * (1.0 - up.y) * 0.5; // Увеличено с 0.3 для лучшего сцепления
+                // Downforce Factor: прижимная сила = downforceFactor * velocity
+                const downforceFactor = PHYSICS_CONFIG.tank.arcade.downforceFactor;
+                const downForceVal = downforceFactor * absFwdSpeed * (1.0 - up.y) * 0.5;
                 totalVerticalForce -= downForceVal; // Добавляем к общей вертикальной силе
                 
                 if (shouldLog) {
-                    physicsLogger.verbose(`  [DOWNFORCE] Force: ${downForceVal.toFixed(0)}`);
+                    physicsLogger.verbose(`  [DOWNFORCE] Force: ${downForceVal.toFixed(0)} | Factor: ${downforceFactor} | Speed: ${absFwdSpeed.toFixed(2)}`);
                 }
             }
             
@@ -3702,9 +4558,10 @@ export class TankController {
                 this._resetTimer = 0; // Сбрасываем таймер если танк восстановился
             }
 
-            // Добавляем небольшую силу вниз при движении для лучшего сцепления (объединена с hover)
+            // HEAVY & RESPONSIVE: Прижимная сила при движении (зависит от скорости)
             if (Math.abs(this.smoothThrottle) > 0.1) {
-                const throttleDownForceVal = Math.abs(this.smoothThrottle) * this.downForce * 0.4; // Увеличено с 0.2 для лучшего сцепления
+                const downforceFactor = PHYSICS_CONFIG.tank.arcade.downforceFactor;
+                const throttleDownForceVal = Math.abs(this.smoothThrottle) * downforceFactor * absFwdSpeed * 0.4;
                 totalVerticalForce -= throttleDownForceVal; // Добавляем к общей вертикальной силе
             }
             
@@ -4138,6 +4995,60 @@ export class TankController {
                 physicsLogger.verbose(`    Accel: ${turnAccelVal.toFixed(0)} | Mult: ${angularAccelMultiplier.toFixed(2)} | SpeedRatio: ${speedRatio.toFixed(2)}`);
             }
 
+            // --- HEAVY & RESPONSIVE: ANTI-ROLL FACTOR ---
+            // Перенос нагрузки с внешнего колеса на внутреннее в повороте
+            // Удерживает танк параллельно земле, не давая крениться как обычному авто
+            if (Math.abs(this.smoothSteer) > 0.1 && absFwdSpeed > 0.5) {
+                const antiRollFactor = PHYSICS_CONFIG.tank.arcade.antiRollFactor;
+                // Вычисляем крен (наклон в сторону поворота)
+                const rollAngle = this.smoothSteer > 0 ? tiltZ : -tiltZ; // Крен в сторону поворота
+                
+                // Применяем корректирующий момент для противодействия крену
+                // Чем больше крен и скорость поворота, тем сильнее корректирующий момент
+                const rollCorrection = -rollAngle * antiRollFactor * absFwdSpeed * this.mass * 50;
+                
+                if (isFinite(rollCorrection) && Math.abs(rollCorrection) > 0.1) {
+                    const rollTorque = this._tmpVector6;
+                    rollTorque.set(rollCorrection, 0, 0); // Момент вокруг оси X (крен)
+                    this.applyTorque(rollTorque);
+                    
+                    if (shouldLog) {
+                        physicsLogger.verbose(`  [ANTI-ROLL] RollAngle: ${(rollAngle * 180 / Math.PI).toFixed(1)}° | Correction: ${rollCorrection.toFixed(0)} | Factor: ${antiRollFactor}`);
+                    }
+                }
+            }
+
+            // --- ARCADE MODIFIERS: AIR CONTROL & ANGULAR DRAG ---
+            // Определяем, находится ли танк в воздухе (выше целевой высоты + порог)
+            const targetHeight = groundHeight + this.hoverHeight;
+            const isInAir = pos.y > targetHeight + 0.3; // Порог 0.3 м для определения "в воздухе"
+            
+            if (isInAir) {
+                const arcadeConfig = PHYSICS_CONFIG.tank.arcade;
+                
+                // ARCADE MODIFIERS: Air Control - позволяет доворачивать корпус в прыжке
+                if (Math.abs(this.smoothSteer) > 0.1 && arcadeConfig.airControl > 0) {
+                    const airControlTorque = this.smoothSteer * this.turnAccel * arcadeConfig.airControl;
+                    const airTorque = this._tmpVector7;
+                    airTorque.set(0, airControlTorque, 0);
+                    this.applyTorque(airTorque);
+                    
+                    if (shouldLog) {
+                        physicsLogger.verbose(`  [AIR CONTROL] Steer: ${this.smoothSteer.toFixed(2)} | Torque: ${airControlTorque.toFixed(0)} | Factor: ${arcadeConfig.airControl}`);
+                    }
+                }
+                
+                // ARCADE MODIFIERS: Angular Drag в воздухе - предотвращает бесконечное вращение
+                if (arcadeConfig.angularDragAir > 0) {
+                    const airAngularDamping = this._tmpVector6;
+                    airAngularDamping.copyFrom(angVel);
+                    airAngularDamping.scaleInPlace(-arcadeConfig.angularDragAir);
+                    if (isFinite(airAngularDamping.x) && isFinite(airAngularDamping.y) && isFinite(airAngularDamping.z)) {
+                        this.applyTorque(airAngularDamping);
+                    }
+                }
+            }
+
             // --- WALL SLIDING (соскальзывание на вертикальной стене) ---
             if (this._isOnVerticalWall && this._wallNormal && body) {
                 // КРИТИЧНО: Сильное демпфирование угловой скорости на стене для предотвращения вращения
@@ -4297,8 +5208,10 @@ export class TankController {
                 this.turretAcceleration *= 0.8; // Плавное торможение
             }
             
-            // Применяем скорость башни (с проверкой валидности)
-            if (this.turret && !this.turret.isDisposed()) {
+            // Применяем скорость башни ТОЛЬКО при клавиатурном управлении (Z/X)
+            // Когда isKeyboardTurretControl = false, game.ts управляет башней через мышь/камеру
+            // Двойное обновление вызывает дёргание/мерцание танка при движении
+            if (this.turret && !this.turret.isDisposed() && this.isKeyboardTurretControl) {
                 this.turretTurnSmooth += (this.turretTurnTarget - this.turretTurnSmooth) * this.turretLerpSpeed;
                 const rotationDelta = this.turretTurnSmooth * this.baseTurretSpeed * this.turretAcceleration;
                 if (isFinite(rotationDelta)) {
@@ -4409,25 +5322,10 @@ export class TankController {
                 this.updateModules();
             }
             
-            // КРИТИЧНО: Принудительно обновляем видимость башни и ствола каждый кадр
-            // Это предотвращает их исчезновение когда камера за стенами гаража
-            // ОПТИМИЗАЦИЯ: refreshBoundingInfo вызывается только каждые 30 кадров (дорогая операция)
-            if (this.turret && !this.turret.isDisposed()) {
-                this.turret.isVisible = true;
-                this.turret.setEnabled(true);
-                // Обновляем bounding info реже для производительности (увеличено с 10 до 30)
-                if (this._tick % 30 === 0 && !this.turret.doNotSyncBoundingInfo) {
-                    this.turret.refreshBoundingInfo();
-                }
-            }
-            if (this.barrel && !this.barrel.isDisposed()) {
-                this.barrel.isVisible = true;
-                this.barrel.setEnabled(true);
-                // Обновляем bounding info реже для производительности (увеличено с 10 до 30)
-                if (this._tick % 30 === 0 && !this.barrel.doNotSyncBoundingInfo) {
-                    this.barrel.refreshBoundingInfo();
-                }
-            }
+            // FIX: УБРАНО принудительное обновление видимости дочерних мешей каждый кадр
+            // Дочерние меши (turret, barrel) наследуют видимость от родителя (chassis)
+            // Принудительная установка isVisible/setEnabled может вызывать проблемы с рендерингом
+            // Вместо этого полагаемся на parent-child hierarchy в Babylon.js
 
             // === UPDATE HUD (every 6th frame for optimization) ===
             if (this._tick % 6 === 0 && this.hud && isFinite(fwdSpeed)) {
@@ -4448,23 +5346,9 @@ export class TankController {
                 }
             }
             
-            // === КЭШИРОВАНИЕ ПОЗИЦИЙ ДЛЯ ПРОИЗВОДИТЕЛЬНОСТИ ===
-            // Кэшируем позиции после всех вычислений для использования в других системах
-            // Это избегает дорогих вызовов getAbsolutePosition() в других местах
-            this._cachedChassisPosition.copyFrom(this.chassis.position);
-            if (this.turret && !this.turret.isDisposed()) {
-                if (!this._cachedTurretPosition) {
-                    this._cachedTurretPosition = new Vector3();
-                }
-                this._cachedTurretPosition.copyFrom(this.turret.position);
-            }
-            if (this.barrel && !this.barrel.isDisposed()) {
-                if (!this._cachedBarrelPosition) {
-                    this._cachedBarrelPosition = new Vector3();
-                }
-                this._cachedBarrelPosition.copyFrom(this.barrel.position);
-            }
-            this._positionCacheFrame = this._tick;
+            // КЭШИРОВАНИЕ ПОЗИЦИЙ ПЕРЕНЕСЕНО в updatePositionCache() 
+            // который вызывается в onAfterPhysicsObservable
+            // Это исправляет проблему "двойного танка" при движении
         } catch (e) {
             // Улучшенная обработка ошибок с детальной информацией (только с троттлингом)
             const now = performance.now();
@@ -4499,8 +5383,47 @@ export class TankController {
     // Используйте эти методы вместо getAbsolutePosition() для лучшей производительности
     
     /**
+     * Обновить кэш позиций ПОСЛЕ шага физики
+     * Вызывается из onAfterPhysicsObservable для синхронизации с физикой
+     * КРИТИЧНО: Принудительно обновляем WorldMatrix для получения актуальных absolutePosition
+     */
+    updatePositionCache(): void {
+        if (!this.chassis || this.chassis.isDisposed()) return;
+        
+        // КРИТИЧНО: После шага физики Havok обновляет mesh.position напрямую,
+        // но WorldMatrix НЕ обновляется автоматически.
+        // Без computeWorldMatrix, absolutePosition будет устаревшей!
+        // Это вызывает эффект "двойного танка" при движении.
+        this.chassis.computeWorldMatrix(true);
+        
+        // Используем absolutePosition (мировые координаты) вместо position (локальные)
+        // После computeWorldMatrix это гарантированно актуальные данные
+        this._cachedChassisPosition.copyFrom(this.chassis.absolutePosition);
+        
+        if (this.turret && !this.turret.isDisposed()) {
+            // computeWorldMatrix для дочерних элементов обновляет их абсолютные позиции
+            this.turret.computeWorldMatrix(true);
+            if (!this._cachedTurretPosition) {
+                this._cachedTurretPosition = new Vector3();
+            }
+            this._cachedTurretPosition.copyFrom(this.turret.absolutePosition);
+        }
+        
+        if (this.barrel && !this.barrel.isDisposed()) {
+            this.barrel.computeWorldMatrix(true);
+            if (!this._cachedBarrelPosition) {
+                this._cachedBarrelPosition = new Vector3();
+            }
+            this._cachedBarrelPosition.copyFrom(this.barrel.absolutePosition);
+        }
+        
+        this._positionCacheFrame = this._tick;
+    }
+    
+    /**
      * Получить кэшированную позицию корпуса
-     * Возвращает position (локальная позиция), которая синхронизирована с физикой
+     * Возвращает absolutePosition (мировые координаты), синхронизированную с физикой
+     * ПОСЛЕ шага физики
      */
     getCachedChassisPosition(): Vector3 {
         return this._cachedChassisPosition;

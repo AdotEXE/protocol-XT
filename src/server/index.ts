@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { GameServer } from "./gameServer";
 import * as net from "net";
 import * as http from "http";
+import { serverLogger } from "./logger";
 
 const DEFAULT_WS_PORT = 8000;  // WebSocket сервер
 const DEFAULT_HTTP_PORT = 7000; // HTTP мониторинг
@@ -74,16 +75,16 @@ function createHTTPServer(gameServer: GameServer): http.Server {
     });
     
     httpServer.listen(httpPort, HOST, () => {
-        console.log(`[Server] ✅ HTTP server started on http://${HOST}:${httpPort}`);
-        console.log(`[Server]    - Health: http://localhost:${httpPort}/health`);
-        console.log(`[Server]    - Stats: http://localhost:${httpPort}/api/stats`);
+        serverLogger.log(`[Server] ✅ HTTP server started on http://${HOST}:${httpPort}`);
+        serverLogger.log(`[Server]    - Health: http://localhost:${httpPort}/health`);
+        serverLogger.log(`[Server]    - Stats: http://localhost:${httpPort}/api/stats`);
     });
     
     httpServer.on('error', (error: NodeJS.ErrnoException) => {
         if (error.code === 'EADDRINUSE') {
-            console.warn(`[Server] ⚠️ HTTP порт ${httpPort} занят, пропускаем HTTP сервер`);
+            serverLogger.warn(`[Server] ⚠️ HTTP порт ${httpPort} занят, пропускаем HTTP сервер`);
         } else {
-            console.error(`[Server] ❌ HTTP server error:`, error);
+            serverLogger.error(`[Server] ❌ HTTP server error:`, error);
         }
     });
     
@@ -100,25 +101,25 @@ async function startServer(): Promise<GameServer> {
     
     while (!available && attempts < maxAttempts) {
         attempts++;
-        console.warn(`[Server] ⚠️ Порт ${wsPort} занят (попытка ${attempts}/${maxAttempts}), ждем 2 секунды...`);
+        serverLogger.warn(`[Server] ⚠️ Порт ${wsPort} занят (попытка ${attempts}/${maxAttempts}), ждем 2 секунды...`);
         await new Promise(resolve => setTimeout(resolve, 2000));
         available = await isPortAvailable(wsPort);
     }
     
     if (!available) {
-        console.warn(`[Server] ⚠️ Порт ${wsPort} все еще занят после ${maxAttempts} попыток, ищем свободный порт...`);
+        serverLogger.warn(`[Server] ⚠️ Порт ${wsPort} все еще занят после ${maxAttempts} попыток, ищем свободный порт...`);
         try {
             wsPort = await findAvailablePort(wsPort);
-            console.log(`[Server] ✅ Найден свободный порт: ${wsPort}`);
-            console.warn(`[Server] ⚠️ ВНИМАНИЕ: Сервер запущен на порту ${wsPort} вместо ${DEFAULT_WS_PORT}`);
-            console.warn(`[Server] ⚠️ Клиент должен подключаться к ws://localhost:${wsPort}`);
+            serverLogger.log(`[Server] ✅ Найден свободный порт: ${wsPort}`);
+            serverLogger.warn(`[Server] ⚠️ ВНИМАНИЕ: Сервер запущен на порту ${wsPort} вместо ${DEFAULT_WS_PORT}`);
+            serverLogger.warn(`[Server] ⚠️ Клиент должен подключаться к ws://localhost:${wsPort}`);
         } catch (error) {
-            console.error(`[Server] ❌ Ошибка при поиске свободного порта:`, error);
-            console.error(`[Server] Попробуйте:`);
-            console.error(`[Server]   1. Закрыть процесс, использующий порт ${DEFAULT_WS_PORT}`);
-            console.error(`[Server]   2. Или установить переменную окружения PORT=<другой_порт>`);
-            console.error(`[Server]   3. Или запустить: npm run kill:ports`);
-            console.error(`[Server]   4. Или вручную: netstat -ano | findstr :${DEFAULT_WS_PORT}`);
+            serverLogger.error(`[Server] ❌ Ошибка при поиске свободного порта:`, error);
+            serverLogger.error(`[Server] Попробуйте:`);
+            serverLogger.error(`[Server]   1. Закрыть процесс, использующий порт ${DEFAULT_WS_PORT}`);
+            serverLogger.error(`[Server]   2. Или установить переменную окружения PORT=<другой_порт>`);
+            serverLogger.error(`[Server]   3. Или запустить: npm run kill:ports`);
+            serverLogger.error(`[Server]   4. Или вручную: netstat -ano | findstr :${DEFAULT_WS_PORT}`);
             process.exit(1);
         }
     }
@@ -136,13 +137,13 @@ let gameServerInstance: GameServer | null = null;
 startServer().then((server) => {
     gameServerInstance = server;
 }).catch((error) => {
-    console.error("[Server] ❌ Критическая ошибка при запуске сервера:", error);
+    serverLogger.error("[Server] ❌ Критическая ошибка при запуске сервера:", error);
     process.exit(1);
 });
 
 // Graceful shutdown
 process.on("SIGINT", () => {
-    console.log("\n[Server] Shutting down...");
+    serverLogger.log("\n[Server] Shutting down...");
     if (gameServerInstance) {
         gameServerInstance.shutdown();
     }
@@ -150,7 +151,7 @@ process.on("SIGINT", () => {
 });
 
 process.on("SIGTERM", () => {
-    console.log("\n[Server] Shutting down...");
+    serverLogger.log("\n[Server] Shutting down...");
     if (gameServerInstance) {
         gameServerInstance.shutdown();
     }

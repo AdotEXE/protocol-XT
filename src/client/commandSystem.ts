@@ -245,9 +245,9 @@ export class CommandSystem {
                 if (game.tank && game.tank.chassis) {
                     // КРИТИЧНО: Вычисляем высоту террейна автоматически
                     const groundHeight = (game as any).getGroundHeight ? (game as any).getGroundHeight(x, z) : 2.0;
-                    // ОБЯЗАТЕЛЬНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
+                    // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
                     // Игнорируем customY если он указан - всегда используем высоту над террейном
-                    const targetY = Math.max(groundHeight + 5.0, 7.0);
+                    const targetY = Math.max(groundHeight + 2.0, 3.0);
                     
                     const targetPos = new Vector3(x, targetY, z);
                     game.tank.chassis.position = targetPos;

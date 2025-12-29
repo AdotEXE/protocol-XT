@@ -41,9 +41,7 @@ export class GameGarage {
     protected hud: HUD | undefined;
     protected enemyTanks: EnemyTank[] = [];
     
-    // Таймер для проверки готовности террейна
-    private terrainReadyTime: number = 0;
-    private readonly TERRAIN_READY_DELAY = 5000; // УВЕЛИЧЕНО: 5 секунд задержки для полной загрузки террейна (было 2)
+    // УБРАНО: terrainReadyTime больше не используется - ворота открываются сразу
     
     // Кэшированные цвета для оптимизации
     private readonly _colorNeutral = new Color3(0.9, 0.9, 0.9);
@@ -131,8 +129,8 @@ export class GameGarage {
                     groundHeight = maxHeight > 0 ? maxHeight : 2.0;
                 }
                 
-                // ОБЯЗАТЕЛЬНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
-                const garageY = Math.max(groundHeight + 5.0, 7.0);
+                // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
+                const garageY = Math.max(groundHeight + 2.0, 3.0);
                 const correctedGaragePos = new Vector3(nearestGarageX, garageY, nearestGarageZ);
                 
                 logger.log(`[GameGarage] Garage position: (${correctedGaragePos.x.toFixed(2)}, ${correctedGaragePos.y.toFixed(2)}, ${correctedGaragePos.z.toFixed(2)}) - ground: ${groundHeight.toFixed(2)}`);
@@ -166,8 +164,8 @@ export class GameGarage {
                 groundHeight = maxHeight > 0 ? maxHeight : 2.0;
             }
             
-            // ОБЯЗАТЕЛЬНО: Минимум 5 метров над террейном, абсолютный минимум 7 метров
-            const correctedY = Math.max(groundHeight + 5.0, 7.0);
+            // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
+            const correctedY = Math.max(groundHeight + 2.0, 3.0);
             const correctedPos = new Vector3(savedX, correctedY, savedZ);
             
             logger.log(`[GameGarage] Using saved garage position (corrected): (${correctedPos.x.toFixed(2)}, ${correctedPos.y.toFixed(2)}, ${correctedPos.z.toFixed(2)}) - ground: ${groundHeight.toFixed(2)}`);
@@ -277,45 +275,73 @@ export class GameGarage {
     updateGarageDoors(): void {
         if (!this.chunkSystem || !this.chunkSystem.garageDoors) return;
         
-        // КРИТИЧНО: Проверяем, загружен ли террейн перед открытием ворот
-        // Используем комбинированный подход: проверка чанков + таймер для надежности
-        // УСИЛЕНО: Требуем больше чанков для полной загрузки террейна вокруг игрока
-        // renderDistance обычно 1.5, что означает 3x3 = 9 чанков вокруг игрока
-        const minLoadedChunks = 9; // УВЕЛИЧЕНО: Требуем минимум 9 чанков (3x3 вокруг игрока) вместо 1
-        const loadedChunks = this.chunkSystem.stats?.loadedChunks || 0;
-        const currentTime = Date.now();
-        
-        // Инициализируем таймер при первом вызове
-        if (this.terrainReadyTime === 0) {
-            this.terrainReadyTime = currentTime;
-        }
-        
-        // Террейн готов если:
-        // 1. Загружено достаточно чанков (минимум 9 для полной загрузки вокруг игрока) И
-        // 2. Прошло достаточно времени (5 секунд) для гарантированной загрузки
-        const timeElapsed = currentTime - this.terrainReadyTime;
-        const terrainReady = loadedChunks >= minLoadedChunks && timeElapsed >= this.TERRAIN_READY_DELAY;
-        
-        // Если террейн не загружен, не открываем ворота автоматически
-        if (!terrainReady) {
-            // Закрываем все ворота, если они были открыты
+        // КРИТИЧНО: УБРАНА ВСЯ ПРОВЕРКА ТЕРРЕЙНА - ворота открываются сразу, если игрок внутри гаража
+        // Проверяем, находится ли игрок внутри гаража ПЕРВЫМ ДЕЛОМ
+        let playerInsideGarage = false;
+        if (this.tank && this.tank.chassis && this.tank.isAlive) {
+            const playerPos = this.tank.chassis.getAbsolutePosition();
             const doors = this.chunkSystem.garageDoors;
-            const doorCount = doors.length;
-            for (let i = 0; i < doorCount; i++) {
+            for (let i = 0; i < doors.length; i++) {
                 const doorData = doors[i];
                 if (!doorData) continue;
-                // Закрываем только если не ручное управление
-                if (!doorData.manualControl) {
-                    doorData.frontDoorOpen = false;
-                    doorData.backDoorOpen = false;
+                const garagePos = doorData.position;
+                const garageDepth = doorData.garageDepth || 20;
+                const garageWidth = 16; // Ширина гаража
+                
+                // Проверяем, находится ли игрок внутри этого гаража
+                const isInside = (
+                    playerPos.x >= garagePos.x - garageWidth / 2 &&
+                    playerPos.x <= garagePos.x + garageWidth / 2 &&
+                    playerPos.z >= garagePos.z - garageDepth / 2 &&
+                    playerPos.z <= garagePos.z + garageDepth / 2
+                );
+                
+                if (isInside) {
+                    playerInsideGarage = true;
+                    // Если игрок внутри гаража, открываем ворота сразу БЕЗ ПРОВЕРКИ ТЕРРЕЙНА
+                    if (!doorData.manualControl) {
+                        doorData.frontDoorOpen = true;
+                        doorData.backDoorOpen = true;
+                        
+                        // КРИТИЧНО: Принудительно устанавливаем позицию ворот в открытое состояние СРАЗУ
+                        // Это гарантирует, что ворота откроются даже если логика движения не сработает
+                        if (doorData.frontDoor && doorData.frontOpenY !== undefined) {
+                            doorData.frontDoor.position.y = doorData.frontOpenY;
+                            // Обновляем физику - перемещаем далеко вверх, чтобы не блокировать проход
+                            if (doorData.frontDoorPhysics && doorData.frontDoorPhysics.body) {
+                                doorData.frontDoor.getWorldMatrix();
+                                doorData.frontDoorPhysics.body.setTargetTransform(
+                                    new Vector3(doorData.frontDoor.position.x, 100, doorData.frontDoor.position.z),
+                                    Quaternion.Identity()
+                                );
+                            }
+                        }
+                        if (doorData.backDoor && doorData.backOpenY !== undefined) {
+                            doorData.backDoor.position.y = doorData.backOpenY;
+                            // Обновляем физику - перемещаем далеко вверх, чтобы не блокировать проход
+                            if (doorData.backDoorPhysics && doorData.backDoorPhysics.body) {
+                                doorData.backDoor.getWorldMatrix();
+                                doorData.backDoorPhysics.body.setTargetTransform(
+                                    new Vector3(doorData.backDoor.position.x, 100, doorData.backDoor.position.z),
+                                    Quaternion.Identity()
+                                );
+                            }
+                        }
+                        
+                        // Логируем для отладки (только раз в секунду, чтобы не спамить)
+                        const now = Date.now();
+                        if (!(this as any)._lastDoorOpenLog || now - (this as any)._lastDoorOpenLog > 1000) {
+                            // logger.log(`[GameGarage] Player inside garage, opening doors IMMEDIATELY (player: ${playerPos.x.toFixed(1)}, ${playerPos.z.toFixed(1)}, garage: ${garagePos.x.toFixed(1)}, ${garagePos.z.toFixed(1)})`);
+                            (this as any)._lastDoorOpenLog = now;
+                        }
+                    }
+                    break;
                 }
             }
-            // Двигаем ворота к закрытому состоянию
-            this.moveDoorsToClosedState();
-            return;
         }
         
-        const doorSpeed = 0.18; // Скорость движения ворот
+        // Скорость движения ворот - увеличиваем если игрок внутри гаража
+        const doorSpeed = playerInsideGarage ? 1.0 : 0.18; // Быстрое открытие если игрок внутри
         
         // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach для лучшей производительности
         const doors = this.chunkSystem.garageDoors;
@@ -345,6 +371,20 @@ export class GameGarage {
                 doorData.manualControl = false;
             }
             
+            // КРИТИЧНО: Проверяем, находится ли игрок внутри ЭТОГО гаража
+            let playerInThisGarage = false;
+            if (this.tank && this.tank.chassis && this.tank.isAlive) {
+                const playerPos = this.tank.chassis.getAbsolutePosition();
+                const garageWidth = 16;
+                const isInside = (
+                    playerPos.x >= garagePos.x - garageWidth / 2 &&
+                    playerPos.x <= garagePos.x + garageWidth / 2 &&
+                    playerPos.z >= garagePos.z - garageDepth / 2 &&
+                    playerPos.z <= garagePos.z + garageDepth / 2
+                );
+                playerInThisGarage = isInside;
+            }
+            
             // КРИТИЧНО: Проверяем игрока для автооткрытия ворот (ТОЛЬКО если разрешено автоматическое управление)
             if (allowAutoControl && this.tank && this.tank.chassis && this.tank.isAlive) {
                 // КРИТИЧНО: Используем getAbsolutePosition() для получения мировой позиции
@@ -357,27 +397,33 @@ export class GameGarage {
                 const dzFront = playerPos.z - frontDoorPos.z;
                 const distToFrontSq = dxFront * dxFront + dzFront * dzFront;
                 
-                // Открываем ворота если игрок близко, закрываем если далеко
-                if (distToFrontSq < doorOpenDistanceSq) {
+                // КРИТИЧНО: Если игрок внутри гаража, ворота всегда открыты
+                if (playerInThisGarage) {
                     doorData.frontDoorOpen = true;
-                } else if (distToFrontSq > doorCloseDistanceSq) {
-                    // Закрываем только если игрок достаточно далеко (гистерезис)
-                    doorData.frontDoorOpen = false;
-                }
-                // Если игрок между порогами - сохраняем текущее состояние (гистерезис)
-                
-                const dxBack = playerPos.x - backDoorPos.x;
-                const dzBack = playerPos.z - backDoorPos.z;
-                const distToBackSq = dxBack * dxBack + dzBack * dzBack;
-                
-                // Открываем ворота если игрок близко, закрываем если далеко
-                if (distToBackSq < doorOpenDistanceSq) {
                     doorData.backDoorOpen = true;
-                } else if (distToBackSq > doorCloseDistanceSq) {
-                    // Закрываем только если игрок достаточно далеко (гистерезис)
-                    doorData.backDoorOpen = false;
+                } else {
+                    // Открываем ворота если игрок близко, закрываем если далеко
+                    if (distToFrontSq < doorOpenDistanceSq) {
+                        doorData.frontDoorOpen = true;
+                    } else if (distToFrontSq > doorCloseDistanceSq) {
+                        // Закрываем только если игрок достаточно далеко (гистерезис)
+                        doorData.frontDoorOpen = false;
+                    }
+                    // Если игрок между порогами - сохраняем текущее состояние (гистерезис)
+                    
+                    const dxBack = playerPos.x - backDoorPos.x;
+                    const dzBack = playerPos.z - backDoorPos.z;
+                    const distToBackSq = dxBack * dxBack + dzBack * dzBack;
+                    
+                    // Открываем ворота если игрок близко, закрываем если далеко
+                    if (distToBackSq < doorOpenDistanceSq) {
+                        doorData.backDoorOpen = true;
+                    } else if (distToBackSq > doorCloseDistanceSq) {
+                        // Закрываем только если игрок достаточно далеко (гистерезис)
+                        doorData.backDoorOpen = false;
+                    }
+                    // Если игрок между порогами - сохраняем текущее состояние (гистерезис)
                 }
-                // Если игрок между порогами - сохраняем текущее состояние (гистерезис)
             } else if (allowAutoControl) {
                 // ИСПРАВЛЕНО: Если игрок не существует или не жив - закрываем ворота (ТОЛЬКО если разрешено автоматическое управление)
                 doorData.frontDoorOpen = false;
@@ -426,9 +472,18 @@ export class GameGarage {
             const currentFrontY = doorData.frontDoor.position.y;
             const frontDiff = targetFrontY - currentFrontY;
             
+            // Логируем для отладки (только если ворота должны открываться и есть разница)
+            if (targetFrontOpen && Math.abs(frontDiff) > 0.1) {
+                const now = Date.now();
+                if (!(this as any)._lastDoorMoveLog || now - (this as any)._lastDoorMoveLog > 2000) {
+                    logger.log(`[GameGarage] Moving front door: current=${currentFrontY.toFixed(2)}, target=${targetFrontY.toFixed(2)}, diff=${frontDiff.toFixed(2)}, open=${targetFrontOpen}`);
+                    (this as any)._lastDoorMoveLog = now;
+                }
+            }
+            
             if (Math.abs(frontDiff) > 0.01) {
                 // ИСПРАВЛЕНО: Плавное движение ворот без дёргания - используем фиксированную скорость
-                const doorSpeed = 0.25; // Фиксированная скорость движения (было lerp factor)
+                // Используем doorSpeed из внешней области видимости (быстрее если игрок внутри гаража)
                 const moveAmount = Math.min(Math.abs(frontDiff), doorSpeed); // Ограничиваем максимальное движение за кадр
                 const newFrontY = currentFrontY + Math.sign(frontDiff) * moveAmount;
                 doorData.frontDoor.position.y = newFrontY;
@@ -465,7 +520,7 @@ export class GameGarage {
             
             if (Math.abs(backDiff) > 0.01) {
                 // ИСПРАВЛЕНО: Плавное движение ворот без дёргания - используем фиксированную скорость
-                const doorSpeed = 0.25; // Фиксированная скорость движения (было lerp factor)
+                // Используем doorSpeed из внешней области видимости (быстрее если игрок внутри гаража)
                 const moveAmount = Math.min(Math.abs(backDiff), doorSpeed); // Ограничиваем максимальное движение за кадр
                 const newBackY = currentBackY + Math.sign(backDiff) * moveAmount;
                 doorData.backDoor.position.y = newBackY;

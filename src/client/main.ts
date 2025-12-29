@@ -63,10 +63,30 @@ const _game = new Game();
             import('@vercel/speed-insights')
         ]);
         
+        // Suppress Vercel analytics console logs in development
+        const originalConsoleLog = console.log;
+        const originalConsoleWarn = console.warn;
+        console.log = (...args: any[]) => {
+            if (!args[0]?.toString().includes('[Vercel') && !args[0]?.toString().includes('Vercel')) {
+                originalConsoleLog.apply(console, args);
+            }
+        };
+        console.warn = (...args: any[]) => {
+            if (!args[0]?.toString().includes('[Vercel') && !args[0]?.toString().includes('Vercel')) {
+                originalConsoleWarn.apply(console, args);
+            }
+        };
+        
         // Initialize Vercel Web Analytics
         inject();
         // Initialize Vercel Speed Insights (client-side only)
         injectSpeedInsights();
+        
+        // Restore console after a delay
+        setTimeout(() => {
+            console.log = originalConsoleLog;
+            console.warn = originalConsoleWarn;
+        }, 1000);
     } catch (error) {
         console.warn('Failed to load analytics:', error);
     }

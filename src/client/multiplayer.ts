@@ -1526,6 +1526,13 @@ export class MultiplayerManager {
             return;
         }
         
+        // FIX: Защита от добавления локального игрока в networkPlayers
+        // Это предотвращает создание сетевого танка для локального игрока (дублирование)
+        if (playerData.id === this.playerId) {
+            logger.warn("[Multiplayer] Attempted to add local player to networkPlayers, skipping");
+            return;
+        }
+        
         // Check for NaN or Infinity - используем дефолтные значения если невалидны
         let x = 0, y = 2, z = 0;
         if (playerData.position && 

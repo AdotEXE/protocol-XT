@@ -36,9 +36,9 @@ export const TANK_CONSTANTS = {
     SHELL_CASING_MASS: 0.1,                   // Масса гильзы
     SHELL_CASING_LINEAR_DAMPING: 0.5,         // Линейное затухание
     SHELL_CASING_ANGULAR_DAMPING: 0.8,        // Угловое затухание
-    SHELL_CASING_EJECT_SPEED_MIN: 8,          // Минимальная скорость выброса
-    SHELL_CASING_EJECT_SPEED_MAX: 12,         // Максимальная скорость выброса (8 + 4)
-    SHELL_CASING_ROTATION_MULTIPLIER: 10,     // Множитель случайного вращения
+    SHELL_CASING_EJECT_SPEED_MIN: 1.5,        // Минимальная скорость выброса (уменьшено)
+    SHELL_CASING_EJECT_SPEED_MAX: 3,          // Максимальная скорость выброса (уменьшено)
+    SHELL_CASING_ROTATION_MULTIPLIER: 3,      // Множитель случайного вращения (уменьшено)
     SHELL_CASING_PHYSICS_EXTENT_MULTIPLIER: 0.75, // Размер физического тела гильзы
     SHELL_CASING_PHYSICS_HEIGHT_MULTIPLIER: 0.5,  // Высота физического тела гильзы
     SHELL_CASING_FILTER_MEMBERSHIP_MASK: 64,  // Группа фильтра гильз

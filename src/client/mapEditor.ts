@@ -712,8 +712,8 @@ export class MapEditor {
         if (!indices) return;
         
         // Получаем размер меша и количество подразделений
-        // Предполагаем, что меш создан через CreateGround с subdivisions=24
-        const subdivisions = 24;
+        // Предполагаем, что меш создан через CreateGround с subdivisions=12 (оптимизировано)
+        const subdivisions = 12;
         const vertsPerSide = subdivisions + 1;
         
         // Вычисляем размер чанка (предполагаем стандартный размер)

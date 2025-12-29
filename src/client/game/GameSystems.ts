@@ -93,36 +93,41 @@ export class GameSystems implements Partial<IGameSystems> {
         this.mainMenu = mainMenu;
         
         try {
-            // Create Tank
-            updateLoadingProgress(40, "Создание танка...");
-            this.tank = new TankController(scene, new Vector3(0, 1.2, 0));
+            // КРИТИЧНО: GameSystems.initializeSystems НЕ ИСПОЛЬЗУЕТСЯ в текущей версии кода
+            // Танк создается в game.ts:init(), поэтому здесь НЕ создаем танк, чтобы избежать дублирования
+            // Create Tank - ОТКЛЮЧЕНО: танк создается в game.ts:init()
+            // updateLoadingProgress(40, "Создание танка...");
+            // this.tank = new TankController(scene, new Vector3(0, 1.2, 0));
+            // this.tank.setRespawnPositionCallback(() => getPlayerGaragePosition());
+            logger.warn("[GameSystems] initializeSystems called but tank creation is disabled - tank is created in game.ts:init()");
             
-            // Устанавливаем callback для респавна в гараже
-            this.tank.setRespawnPositionCallback(() => getPlayerGaragePosition());
+            // Create HUD - ОТКЛЮЧЕНО: HUD создается в game.ts:init()
+            // updateLoadingProgress(50, "Создание интерфейса...");
+            // const originalRenderTargetsEnabled = scene.renderTargetsEnabled;
+            // scene.renderTargetsEnabled = true;
+            // try {
+            //     this.hud = new HUD(scene);
+            //     if (this.hud && this.tank) {
+            //         this.tank.setHUD(this.hud);
+            //         logger.log("[GameSystems] HUD created successfully");
+            //     }
+            // } catch (e) {
+            //     logger.error("[GameSystems] HUD creation error:", e);
+            //     scene.renderTargetsEnabled = originalRenderTargetsEnabled;
+            // }
             
-            // Create HUD
-            updateLoadingProgress(50, "Создание интерфейса...");
-            const originalRenderTargetsEnabled = scene.renderTargetsEnabled;
-            scene.renderTargetsEnabled = true;
-            try {
-                this.hud = new HUD(scene);
-                if (this.hud) {
-                    this.tank.setHUD(this.hud);
-                    logger.log("[GameSystems] HUD created successfully");
-                }
-            } catch (e) {
-                logger.error("[GameSystems] HUD creation error:", e);
-                scene.renderTargetsEnabled = originalRenderTargetsEnabled;
-            }
+            // Create Sound Manager - ОТКЛЮЧЕНО: создается в game.ts:init()
+            // updateLoadingProgress(55, "Загрузка звуков...");
+            // this.soundManager = new SoundManager();
+            // if (this.tank) {
+            //     this.tank.setSoundManager(this.soundManager);
+            // }
             
-            // Create Sound Manager
-            updateLoadingProgress(55, "Загрузка звуков...");
-            this.soundManager = new SoundManager();
-            this.tank.setSoundManager(this.soundManager);
-            
-            // Create Effects Manager
-            this.effectsManager = new EffectsManager(scene);
-            this.tank.setEffectsManager(this.effectsManager);
+            // Create Effects Manager - ОТКЛЮЧЕНО: создается в game.ts:init()
+            // this.effectsManager = new EffectsManager(scene);
+            // if (this.tank) {
+            //     this.tank.setEffectsManager(this.effectsManager);
+            // }
             
             // Create Currency Manager
             this.currencyManager = new CurrencyManager();
@@ -259,9 +264,10 @@ export class GameSystems implements Partial<IGameSystems> {
             this.enemyManager.setPlayer(this.tank);
             this.enemyManager.setEffectsManager(this.effectsManager);
             this.enemyManager.setSoundManager(this.soundManager);
-            if (this.tank) {
-                this.tank.setEnemyManager(this.enemyManager);
-            }
+            // ОТКЛЮЧЕНО: танк создается в game.ts:init()
+            // if (this.tank) {
+            //     this.tank.setEnemyManager(this.enemyManager);
+            // }
             
             // Create Destruction System
             this.destructionSystem = new DestructionSystem(scene, {
@@ -298,42 +304,44 @@ export class GameSystems implements Partial<IGameSystems> {
     
     /**
      * Связывание систем с танком
+     * ОТКЛЮЧЕНО: танк создается в game.ts:init(), поэтому этот метод не используется
      */
     protected connectSystemsToTank(): void {
-        if (!this.tank) return;
+        // ОТКЛЮЧЕНО: GameSystems не используется, танк создается в game.ts:init()
+        // if (!this.tank) return;
         
         // Connect chat system
-        if (this.chatSystem) {
-            this.tank.chatSystem = this.chatSystem;
-        }
+        // if (this.chatSystem && this.tank) {
+        //     this.tank.chatSystem = this.chatSystem;
+        // }
         
         // Connect experience system
-        if (this.experienceSystem) {
-            this.tank.experienceSystem = this.experienceSystem;
-            this.tank.achievementsSystem = this.achievementsSystem;
-        }
+        // if (this.experienceSystem && this.tank) {
+        //     this.tank.experienceSystem = this.experienceSystem;
+        //     this.tank.achievementsSystem = this.achievementsSystem;
+        // }
         
         // Connect aiming system
-        if (this.aimingSystem) {
-            this.aimingSystem.setTank(this.tank);
-        }
+        // if (this.aimingSystem && this.tank) {
+        //     this.aimingSystem.setTank(this.tank);
+        // }
         
         // Connect player progression
-        if (this.playerProgression) {
-            this.tank.playerProgression = this.playerProgression;
-        }
+        // if (this.playerProgression && this.tank) {
+        //     this.tank.playerProgression = this.playerProgression;
+        // }
         
         // Connect multiplayer shoot callback
-        if (this.multiplayerManager) {
-            this.tank.setOnShootCallback((data) => {
-                if (this.isMultiplayer && this.multiplayerManager) {
-                    this.multiplayerManager.sendPlayerShoot(data);
-                }
-            });
-            
-            this.tank.networkPlayers = this.networkPlayerTanks;
-            (this.tank as any).multiplayerManager = this.multiplayerManager;
-        }
+        // if (this.multiplayerManager && this.tank) {
+        //     this.tank.setOnShootCallback((data) => {
+        //         if (this.isMultiplayer && this.multiplayerManager) {
+        //             this.multiplayerManager.sendPlayerShoot(data);
+        //         }
+        //     });
+        //     
+        //     this.tank.networkPlayers = this.networkPlayerTanks;
+        //     (this.tank as any).multiplayerManager = this.multiplayerManager;
+        // }
     }
     
     /**

@@ -34,13 +34,41 @@ export function createUniqueChassis(
     const d = chassisType.depth;
     const color = Color3.FromHexString(chassisType.color);
     
+    // КРИТИЧНО: Уникальное имя для каждого меша, чтобы избежать дублирования
+    const uniqueId = `tankHull_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // КРИТИЧНО: Удаляем все старые меши корпуса с паттерном tankHull_, чтобы избежать дублирования
+    const oldMeshes = scene.meshes.filter(mesh => 
+        mesh.name && mesh.name.startsWith("tankHull_") && !mesh.isDisposed()
+    );
+    oldMeshes.forEach(mesh => {
+        try {
+            // КРИТИЧНО: Удаляем все дочерние меши перед удалением родительского
+            if (mesh.getChildren && mesh.getChildren().length > 0) {
+                const children = mesh.getChildren();
+                children.forEach((child: any) => {
+                    if (child.dispose && !child.isDisposed()) {
+                        try {
+                            child.dispose();
+                        } catch (e) {
+                            // Игнорируем ошибки при удалении дочерних мешей
+                        }
+                    }
+                });
+            }
+            mesh.dispose();
+        } catch (e) {
+            // Игнорируем ошибки при удалении уже удаленных мешей
+        }
+    });
+    
     // Base chassis mesh - более выразительные пропорции
     let chassis: Mesh;
     
     switch (chassisType.id) {
         case "light":
             // Light - Прототип: БТ-7 / Т-70 - Узкий, низкий, обтекаемый
-            chassis = MeshBuilder.CreateBox("tankHull", { 
+            chassis = MeshBuilder.CreateBox(uniqueId, { 
                 width: w * 0.75, 
                 height: h * 0.7, 
                 depth: d * 1.2 
@@ -49,7 +77,7 @@ export function createUniqueChassis(
             
         case "scout":
             // Scout - Прототип: Т-70 / БТ-7 - Очень маленький, клиновидный
-            chassis = MeshBuilder.CreateBox("tankHull", { 
+            chassis = MeshBuilder.CreateBox(uniqueId, { 
                 width: w * 0.7, 
                 height: h * 0.65, 
                 depth: d * 0.85 
@@ -58,7 +86,7 @@ export function createUniqueChassis(
             
         case "heavy":
             // Heavy - Прототип: ИС-2 / ИС-7 - Огромный, массивный, квадратный
-            chassis = MeshBuilder.CreateBox("tankHull", { 
+            chassis = MeshBuilder.CreateBox(uniqueId, { 
                 width: w * 1.08, 
                 height: h * 1.2, 
                 depth: d * 1.08 
@@ -67,7 +95,7 @@ export function createUniqueChassis(
             
         case "assault":
             // Assault - ШИРОКИЙ, АГРЕССИВНЫЙ, УГЛОВАТЫЙ
-            chassis = MeshBuilder.CreateBox("tankHull", { 
+            chassis = MeshBuilder.CreateBox(uniqueId, { 
                 width: w * 1.12, 
                 height: h * 1.1, 
                 depth: d * 1.05 
@@ -76,7 +104,7 @@ export function createUniqueChassis(
             
         case "stealth":
             // Stealth - ОЧЕНЬ НИЗКИЙ, ПЛОСКИЙ, УГЛОВАТЫЙ
-            chassis = MeshBuilder.CreateBox("tankHull", { 
+            chassis = MeshBuilder.CreateBox(uniqueId, { 
                 width: w * 1.05, 
                 height: h * 0.7, 
                 depth: d * 1.15 
@@ -86,7 +114,7 @@ export function createUniqueChassis(
         case "hover":
             // Hover - Прототип: Концепт на воздушной подушке - Округлый, обтекаемый
             const hoverSize = Math.max(w, d) * 1.1;
-            chassis = MeshBuilder.CreateBox("tankHull", { 
+            chassis = MeshBuilder.CreateBox(uniqueId, { 
                 width: hoverSize,
                 height: h * 0.95,
                 depth: hoverSize
@@ -95,7 +123,7 @@ export function createUniqueChassis(
             
         case "siege":
             // Siege - ОГРОМНЫЙ, МАССИВНЫЙ
-            chassis = MeshBuilder.CreateBox("tankHull", { 
+            chassis = MeshBuilder.CreateBox(uniqueId, { 
                 width: w * 1.25, 
                 height: h * 1.35, 
                 depth: d * 1.2 
@@ -104,7 +132,7 @@ export function createUniqueChassis(
             
         case "racer":
             // Racer - ЭКСТРЕМАЛЬНО НИЗКИЙ, ДЛИННЫЙ
-            chassis = MeshBuilder.CreateBox("tankHull", { 
+            chassis = MeshBuilder.CreateBox(uniqueId, { 
                 width: w * 0.75, 
                 height: h * 0.55, 
                 depth: d * 1.3 
@@ -113,7 +141,7 @@ export function createUniqueChassis(
             
         case "amphibious":
             // Amphibious - ШИРОКИЙ, С ПОПЛАВКАМИ
-            chassis = MeshBuilder.CreateBox("tankHull", { 
+            chassis = MeshBuilder.CreateBox(uniqueId, { 
                 width: w * 1.15, 
                 height: h * 1.1, 
                 depth: d * 1.1 
@@ -123,7 +151,7 @@ export function createUniqueChassis(
         case "shield":
             // Shield - Прототип: Т-72 + генератор щита - Широкий, с генератором
             const shieldSize = Math.max(w, d) * 1.2;
-            chassis = MeshBuilder.CreateBox("tankHull", { 
+            chassis = MeshBuilder.CreateBox(uniqueId, { 
                 width: shieldSize,
                 height: h * 1.1,
                 depth: shieldSize
@@ -132,7 +160,7 @@ export function createUniqueChassis(
             
         case "drone":
             // Drone - СРЕДНИЙ, С ПЛАТФОРМАМИ
-            chassis = MeshBuilder.CreateBox("tankHull", { 
+            chassis = MeshBuilder.CreateBox(uniqueId, { 
                 width: w * 1.1, 
                 height: h * 1.12, 
                 depth: d * 1.05 
@@ -141,7 +169,7 @@ export function createUniqueChassis(
             
         case "artillery":
             // Artillery - ШИРОКИЙ, ВЫСОКИЙ
-            chassis = MeshBuilder.CreateBox("tankHull", { 
+            chassis = MeshBuilder.CreateBox(uniqueId, { 
                 width: w * 1.2, 
                 height: h * 1.25, 
                 depth: d * 1.15 
@@ -150,7 +178,7 @@ export function createUniqueChassis(
             
         case "destroyer":
             // Destroyer - ОЧЕНЬ ДЛИННЫЙ, НИЗКИЙ
-            chassis = MeshBuilder.CreateBox("tankHull", { 
+            chassis = MeshBuilder.CreateBox(uniqueId, { 
                 width: w * 0.85, 
                 height: h * 0.75, 
                 depth: d * 1.4 
@@ -159,7 +187,7 @@ export function createUniqueChassis(
             
         case "command":
             // Command - ВЫСОКИЙ, С АНТЕННАМИ
-            chassis = MeshBuilder.CreateBox("tankHull", { 
+            chassis = MeshBuilder.CreateBox(uniqueId, { 
                 width: w * 1.1, 
                 height: h * 1.2, 
                 depth: d * 1.1 
@@ -168,7 +196,7 @@ export function createUniqueChassis(
             
         default: // medium
             // Medium - СБАЛАНСИРОВАННЫЙ, КЛАССИЧЕСКИЙ
-            chassis = MeshBuilder.CreateBox("tankHull", { 
+            chassis = MeshBuilder.CreateBox(uniqueId, { 
                 width: w * 1.0, 
                 height: h * 1.0, 
                 depth: d * 1.0 
@@ -178,7 +206,9 @@ export function createUniqueChassis(
     chassis.position.copyFrom(position);
     
     // Base material - улучшенный low-poly стиль
-    const mat = new StandardMaterial("tankMat", scene);
+    // КРИТИЧНО: Уникальное имя для материала, чтобы избежать конфликтов
+    const uniqueMatId = `tankMat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const mat = new StandardMaterial(uniqueMatId, scene);
     mat.diffuseColor = color;
     mat.specularColor = Color3.Black();
     mat.disableLighting = false;
