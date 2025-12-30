@@ -7,6 +7,7 @@
 [![Babylon.js](https://img.shields.io/badge/Babylon.js-8.40-blue)](https://www.babylonjs.com/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)](https://www.typescriptlang.org/)
 [![Havok Physics](https://img.shields.io/badge/Havok-Physics-orange)](https://www.havok.com/)
+[![Version](https://img.shields.io/badge/Version-0.4.20032-green)](https://github.com/AdotEXE/protocol-XT)
 [![License](https://img.shields.io/badge/License-ISC-green)](LICENSE)
 
 [🚀 Быстрый старт](#-быстрый-старт) • [🌐 Играть онлайн](#-играть-онлайн) • [📚 Документация](#-документация) • [🐛 Проблемы](#-известные-проблемы) • [🤝 Контрибьютинг](#-контрибьютинг)
@@ -24,7 +25,7 @@ Protocol TX — это современный веб-шутер, воссозд�
 - 🎯 **Реалистичная физика** - Havok Physics с hover-механикой для танков
 - 🎨 **Low Poly графика** - Оптимизированный стиль с высокой производительностью
 - 🎮 **Продвинутое прицеливание** - Система прицеливания с зумом и баллистикой
-- 📈 **Система прогресса** - Опыт, уровни, навыки и достижения
+- 📈 **Система прогресса** - Опыт, уровни (до 50), навыки (до 15) и достижения (50+)
 - 🤖 **Умный AI** - Враги с различными тактиками и поведением
 - 🌍 **Динамический мир** - Chunk System для генерации бесконечного мира
 - 💬 **Социальные функции** - Чат, система друзей, кланы
@@ -35,6 +36,8 @@ Protocol TX — это современный веб-шутер, воссозд�
 - 🛡️ **Античит** - Базовая защита от читов (проверка скорости, телепортов)
 - 📚 **API документация** - Полная документация для разработчиков
 - 📊 **Система мониторинга** - Терминальный дашборд для отслеживания метрик в реальном времени
+- 🗺️ **8 типов карт** - Polygon, Frontline, Ruins, Canyon, Industrial, Urban Warfare, Underground, Coastal
+- 🎯 **Модульная архитектура** - Чистый код с разделением на модули
 
 ## 🚀 Технологии
 
@@ -44,7 +47,9 @@ Protocol TX — это современный веб-шутер, воссозд�
 | **Havok Physics** | 1.3.10 | Физический движок |
 | **TypeScript** | 5.9 | Типизированный JavaScript |
 | **Vite** | 7.2 | Сборщик и dev-сервер |
-| **Firebase** | 12.6 | Backend (Auth, Firestore) |
+| **Firebase** | 12.7 | Backend (Auth, Firestore) |
+| **WebSocket (ws)** | 8.18 | Мультиплеер сервер |
+| **Node.js** | 20+ | Серверная платформа |
 
 ## 📋 Требования
 
@@ -193,18 +198,35 @@ TX/
 │   │   ├── experienceSystem.ts # Система опыта
 │   │   ├── playerProgression.ts # Система прогресса
 │   │   │
-│   │   ├── game/            # 🆕 Модули игры
+│   │   ├── game/            # 🆕 Модули игры (27 модулей)
+│   │   │   ├── GameCore.ts         # Основная логика игры
+│   │   │   ├── GameSystems.ts      # Управление системами
+│   │   │   ├── GameCamera.ts       # Управление камерой
+│   │   │   ├── GameInput.ts        # Обработка ввода
+│   │   │   ├── GamePhysics.ts      # Инициализация физики
+│   │   │   ├── GameMultiplayer.ts  # Мультиплеер логика
+│   │   │   ├── GameEnemies.ts      # Управление врагами
+│   │   │   ├── GameProjectile.ts   # Система снарядов
+│   │   │   ├── GameStats.ts        # Статистика
+│   │   │   ├── GameUI.ts           # UI управление
+│   │   │   ├── GameAudio.ts        # Аудио настройки
 │   │   │   ├── LoadingScreen.ts    # Экран загрузки
 │   │   │   ├── SettingsManager.ts  # Управление настройками
 │   │   │   └── FrontlineMode.ts    # Режим Frontline
 │   │   │
-│   │   ├── hud/             # 🆕 Компоненты HUD
+│   │   ├── hud/             # 🆕 Компоненты HUD (21 компонент)
 │   │   │   └── components/
 │   │   │       ├── Crosshair.ts      # Прицел
-│   │   │       ├── HealthBar.ts      # Полоса здоровья
-│   │   │       ├── Minimap.ts        # Миникарта
-│   │   │       ├── Compass.ts        # Компас
-│   │   │       └── ConsumablesBar.ts # Панель расходников
+│   │   │       ├── HealthBar.ts     # Полоса здоровья
+│   │   │       ├── Minimap.ts       # Миникарта
+│   │   │       ├── Compass.ts       # Компас
+│   │   │       ├── ConsumablesBar.ts # Панель расходников
+│   │   │       ├── TargetIndicator.ts # Индикатор цели
+│   │   │       ├── DamageIndicator.ts # Индикаторы урона
+│   │   │       ├── NotificationQueue.ts # Очередь уведомлений
+│   │   │       ├── FuelIndicator.ts   # Индикатор топлива
+│   │   │       ├── TankStatus.ts     # Статус танка
+│   │   │       └── ...              # Другие компоненты
 │   │   │
 │   │   ├── menu/            # 🆕 Экраны меню
 │   │   │   └── screens/
@@ -214,23 +236,31 @@ TX/
 │   │   ├── tank/            # 🆕 Модули танка
 │   │   │   ├── movement/
 │   │   │   │   └── TankMovementConfig.ts
-│   │   │   └── combat/
-│   │   │       ├── TankWeaponConfig.ts
-│   │   │       ├── TankAiming.ts
-│   │   │       └── TankDamage.ts
+│   │   │   ├── combat/
+│   │   │   │   ├── TankWeaponConfig.ts
+│   │   │   │   ├── TankAiming.ts
+│   │   │   │   └── TankDamage.ts
+│   │   │   ├── tankCannon.ts      # 26 типов пушек
+│   │   │   ├── tankChassis.ts     # Типы корпусов
+│   │   │   └── tankSpecialAbilities.ts # Специальные способности
 │   │   │
-│   │   ├── maps/            # 🆕 Генераторы карт
+│   │   ├── maps/            # 🆕 Генераторы карт (8 типов)
 │   │   │   ├── shared/
 │   │   │   │   ├── BaseMapGenerator.ts
 │   │   │   │   └── ChunkHelpers.ts
-│   │   │   ├── polygon/
-│   │   │   ├── frontline/
-│   │   │   ├── ruins/
-│   │   │   ├── canyon/
-│   │   │   ├── industrial/
-│   │   │   ├── urban_warfare/
-│   │   │   ├── underground/
-│   │   │   └── coastal/
+│   │   │   ├── polygon/     # Полигон
+│   │   │   ├── frontline/   # Фронтовая линия
+│   │   │   ├── ruins/       # Руины
+│   │   │   ├── canyon/      # Каньон
+│   │   │   ├── industrial/  # Промышленная зона
+│   │   │   ├── urban_warfare/ # Городская война
+│   │   │   ├── underground/ # Подземелье
+│   │   │   └── coastal/     # Побережье
+│   │   │
+│   │   ├── world/           # 🆕 Генерация мира
+│   │   │   ├── GarageGenerator.ts  # Генерация гаражей
+│   │   │   ├── BuildingGenerator.ts # Генерация зданий
+│   │   │   └── ChunkHelpers.ts     # Вспомогательные функции
 │   │   │
 │   │   └── ...              # Другие системы
 │   │
@@ -239,20 +269,29 @@ TX/
 │   │   ├── gameServer.ts    # Основной игровой сервер
 │   │   ├── room.ts          # Управление игровыми комнатами
 │   │   ├── player.ts        # Представление игрока на сервере
-│   │   ├── projectile.ts    # Система снарядов на сервере
+│   │   ├── projectile.ts   # Система снарядов на сервере
 │   │   ├── validation.ts    # Валидация входных данных и античит
 │   │   ├── matchmaking.ts   # Система матчмейкинга
 │   │   ├── gameModes.ts     # Правила игровых режимов
 │   │   └── ctf.ts           # Система Capture the Flag
 │   │
 │   └── shared/              # Общий код
+│       ├── messages.ts      # Сообщения протокола
+│       ├── protocol.ts      # Протокол связи
+│       └── types.ts         # Общие типы
 │
 ├── public/                  # Статические файлы
 │   └── HavokPhysics.wasm   # Физический движок
 ├── docs/                    # Документация
 │   ├── development_plan.md  # Техническая документация
 │   ├── TROUBLESHOOTING.md   # Руководство по устранению неполадок
-│   └── ARCHITECTURE.md      # Архитектура проекта
+│   ├── ARCHITECTURE.md      # Архитектура проекта
+│   ├── FEATURES.md          # Подробное описание функций
+│   └── ...                  # Другая документация
+├── scripts/                 # Скрипты разработки
+│   ├── monitor/             # Система мониторинга
+│   ├── start-all.ts        # Запуск всех систем
+│   └── ...                  # Другие скрипты
 ├── index.html               # HTML точка входа
 ├── vite.config.ts           # Конфигурация Vite
 └── tsconfig.json           # Конфигурация TypeScript
@@ -266,30 +305,51 @@ TX/
 - **AimingSystem** - Продвинутая система прицеливания с баллистикой
 - **EnemyManager** - Управление врагами и AI
 - **ChunkSystem** - Динамическая генерация мира (✨ улучшено 2025-12-28)
-- **NoiseGenerator** - Расширенные алгоритмы шума (✨ 5 новых методов)
+- **NoiseGenerator** - Расширенные алгоритмы шума (✨ 5 новых методов, до 8 октав)
 - **TerrainGenerator** - Улучшенная генерация террейна (✨ новые алгоритмы)
 - **BaseMapGenerator** - Расширенные возможности (✨ 6 новых методов)
 - **Garage** - Система гаражей и респавна
 - **ConsumablesManager** - Система припасов и консьюмаблов
+- **DestructionSystem** - Система разрушения объектов
+- **MissionSystem** - Система миссий и заданий
+- **AchievementsSystem** - Система достижений (50+ достижений)
 
 ### 📊 Системы прогресса
 
 - **ExperienceSystem** - Система опыта и комбо
-- **PlayerProgressionSystem** - Глобальная прокачка игрока
+- **PlayerProgressionSystem** - Глобальная прокачка игрока (до 50 уровня)
 - **CurrencyManager** - Управление валютой
-- **Achievements** - Система достижений (в разработке)
+- **SkillTreeSystem** - Дерево навыков (5 веток, до 15 уровня каждый)
+- **AchievementsSystem** - Система достижений с наградами
+- **PlayerStatsSystem** - Статистика игрока
 
 ### 🎨 Системы визуализации
 
-- **HUD** - Интерфейс пользователя
-- **EffectsManager** - Визуальные эффекты (взрывы, дым)
+- **HUD** - Интерфейс пользователя (21 компонент)
+- **EffectsManager** - Визуальные эффекты (взрывы, дым, частицы)
 - **SoundManager** - Звуковая система
 - **ChatSystem** - Система чата
+- **NotificationQueue** - Очередь уведомлений
+
+### 🌍 Системы мира
+
+- **ChunkSystem** - Динамическая генерация чанков
+- **NoiseGenerator** - 5+ алгоритмов генерации шума
+- **TerrainGenerator** - Генерация террейна для разных биомов
+- **GarageGenerator** - Процедурная генерация гаражей
+- **BuildingGenerator** - Процедурная генерация зданий
+- **POISystem** - Система точек интереса
+- **RoadNetwork** - Генерация дорожной сети
 
 ### 🛠️ Инструменты разработчика
 
-- **DebugDashboard** - Панель отладки (F2)
-- **PhysicsPanel** - Настройка физики в реальном времени (F3)
+- **DebugDashboard** - Панель отладки (F3)
+- **PhysicsPanel** - Настройка физики в реальном времени (F4)
+- **SystemTerminal** - Системная консоль (F5)
+- **SessionSettings** - Настройки сессии (F6)
+- **CheatMenu** - Меню читов для разработчиков (F7)
+- **PhysicsEditor** - Редактор физики
+- **MapEditor** - Редактор карт
 
 ## 🎮 Управление
 
@@ -342,7 +402,6 @@ TX/
 
 | Действие | Клавиша | Описание |
 |----------|---------|----------|
-
 | **Debug Dashboard** | **F3** | Панель отладки (FPS, чанки, статистика) |
 | **Physics Panel** | **F4** | Панель настройки физики в реальном времени |
 | **System Terminal** | **F5** | Системная консоль для разработчиков |
@@ -358,22 +417,13 @@ TX/
 | **Карта** | **M** | Открыть/закрыть полную карту |
 | **Миссии** | **N** | Открыть/закрыть панель миссий |
 
-### Старые горячие клавиши (для справки)
-
-| Действие | Клавиша |
-|----------|---------|
-| Dev Dashboard | **F3** |
-| Physics Manager | **F4** |
-| Dev Console (System Terminal) | **F5** |
-| Полная карта | M (удерживать) |
-
 ## 🐛 Последние исправления
 
 ### ✅ Создание ветки разработки (2025-12-30)
 
 - **Новая ветка dzoblin** - Создана отдельная ветка для разработки и экспериментов
 - **Синхронизация с удалённым репозиторием** - Ветка доступна на GitHub для совместной работы
-- **Обновление документации** - CHANGELOG обновлён с информацией о новой ветке
+- **Обновление документации** - README и CHANGELOG обновлены с информацией о новой ветке
 
 ### ✅ Улучшения генераторов карт (2025-12-28)
 
@@ -416,10 +466,11 @@ TX/
 ### ✅ Рефакторинг архитектуры (2025-12-25)
 
 - **Модульная структура** - Крупный рефакторинг кодовой базы
-  - 8 новых генераторов карт (Polygon, Frontline, Ruins, Canyon и др.)
-  - 5 компонентов HUD (Crosshair, HealthBar, Minimap, Compass, ConsumablesBar)
+  - 27 модулей игры (GameCore, GameSystems, GameCamera и др.)
+  - 21 компонент HUD (Crosshair, HealthBar, Minimap, Compass и др.)
+  - 8 генераторов карт (Polygon, Frontline, Ruins, Canyon и др.)
   - 4 модуля танка (TankMovementConfig, TankWeaponConfig, TankAiming, TankDamage)
-  - 3 модуля игры (LoadingScreen, SettingsManager, FrontlineMode)
+  - 3 модуля меню (MainMenuScreen, SettingsScreen)
 
 - **Оптимизация сборки** - Раздельные чанки для maps, tank, tartaria
 
@@ -502,6 +553,11 @@ TX/
 3. Закоммитьте изменения (`git commit -m 'Add some AmazingFeature'`)
 4. Запушьте в ветку (`git push origin feature/AmazingFeature`)
 5. Откройте Pull Request
+
+### Ветки разработки
+
+- **main** - Основная стабильная ветка
+- **dzoblin** - Ветка для разработки и экспериментов (создана 2025-12-30)
 
 ## 📝 Лицензия
 
