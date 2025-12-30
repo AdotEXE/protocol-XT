@@ -47,8 +47,6 @@ export class PhysicsEditor {
             this.visible = false;
             if (this.container) {
                 this.container.classList.add("hidden");
-                this.container.style.display = "none";
-                this.container.style.pointerEvents = "none";
             }
             logger.log("[PhysicsEditor] Constructor completed successfully");
             console.log("[PhysicsEditor] Constructor completed successfully");
@@ -146,8 +144,16 @@ export class PhysicsEditor {
             style.id = "physics-editor-styles";
             style.textContent = `
             #physics-editor {
-                z-index: 10000 !important;
                 position: fixed !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+                background: rgba(0, 0, 0, 0.8) !important;
+                display: flex !important;
+                justify-content: center !important;
+                align-items: center !important;
+                z-index: 10000 !important;
             }
             #physics-editor.hidden {
                 display: none !important;
@@ -926,43 +932,11 @@ export class PhysicsEditor {
                 document.body.appendChild(this.container);
             }
             
-            // КРИТИЧНО: Сначала убираем класс hidden, потом устанавливаем display
+            // Убираем класс hidden - CSS сам покажет контейнер с display: flex
             this.container.classList.remove("hidden");
-            // Используем пустую строку, чтобы CSS правила работали (как в physicsPanel)
-            this.container.style.display = "";
-            this.container.style.zIndex = "10000";
-            this.container.style.visibility = "";
-            this.container.style.opacity = "";
-            this.container.style.pointerEvents = "";
-            
-            // Принудительно проверяем и устанавливаем стили
-            const computedStyle = window.getComputedStyle(this.container);
-            logger.log(`[PhysicsEditor] Computed display: ${computedStyle.display}, visibility: ${computedStyle.visibility}`);
-            console.log(`[PhysicsEditor] Computed display: ${computedStyle.display}, visibility: ${computedStyle.visibility}`);
-            
-            // Если всё ещё скрыто, принудительно показываем
-            if (computedStyle.display === "none" || computedStyle.visibility === "hidden") {
-                logger.warn("[PhysicsEditor] Still hidden after toggle, forcing display");
-                console.warn("[PhysicsEditor] Still hidden after toggle, forcing display");
-                this.container.style.display = "flex";
-                this.container.style.visibility = "visible";
-            }
-            
-            // Проверяем, что контейнер действительно виден
-            const rect = this.container.getBoundingClientRect();
-            logger.log(`[PhysicsEditor] Editor shown - position: ${rect.left}, ${rect.top}, size: ${rect.width}x${rect.height}`);
-            console.log(`[PhysicsEditor] Editor shown - position: ${rect.left}, ${rect.top}, size: ${rect.width}x${rect.height}`);
-            
-            if (rect.width === 0 || rect.height === 0) {
-                logger.error("[PhysicsEditor] Container has zero size!");
-                console.error("[PhysicsEditor] Container has zero size!", this.container);
-            }
-            
             this.updateFromConfig();
         } else {
             this.container.classList.add("hidden");
-            this.container.style.display = "none";
-            this.container.style.visibility = "hidden";
             logger.log("[PhysicsEditor] Editor hidden");
         }
     }
@@ -970,7 +944,6 @@ export class PhysicsEditor {
     hide(): void {
         this.visible = false;
         this.container.classList.add("hidden");
-        this.container.style.display = "none";
     }
     
     isVisible(): boolean {

@@ -16,17 +16,30 @@ export class CommonStyles {
         style.textContent = `
             /* Общие стили для всех панелей */
             .panel-overlay {
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(0, 0, 0, 0.8);
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                z-index: 10000;
+                position: fixed !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+                background: rgba(0, 0, 0, 0.8) !important;
+                display: flex !important;
+                justify-content: center !important;
+                align-items: center !important;
+                z-index: 100002 !important;
                 animation: fadeIn 0.2s ease;
+                pointer-events: auto !important;
+            }
+            
+            /* Скрытие панели через класс hidden */
+            .panel-overlay.hidden {
+                display: none !important;
+                visibility: hidden !important;
+            }
+            
+            /* Видимая панель */
+            .panel-overlay.visible {
+                display: flex !important;
+                visibility: visible !important;
             }
             
             /* Полупрозрачный фон для панелей во время боя */

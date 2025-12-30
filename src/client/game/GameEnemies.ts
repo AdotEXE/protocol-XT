@@ -255,10 +255,10 @@ export class GameEnemies {
     }
     
     /**
-     * Получение высоты террейна в точке через raycast
-     * Улучшенная версия с множественными fallback стратегиями
+     * Получение высоты террейна и нормали поверхности в точке через raycast
+     * Возвращает объект с высотой и нормалью
      */
-    private getGroundHeight(x: number, z: number): number {
+    private getGroundInfo(x: number, z: number): { height: number; normal: Vector3 } | null {
         if (!this.systems?.scene) {
             logger.warn(`[GameEnemies] getGroundHeight: No scene available at (${x.toFixed(1)}, ${z.toFixed(1)})`);
             return 2.0; // Минимальная безопасная высота вместо 0
@@ -284,9 +284,11 @@ export class GameEnemies {
         if (hit?.hit && hit.pickedPoint) {
             const height = hit.pickedPoint.y;
             if (height > -10 && height < 200) { // Разумные пределы
-                return height;
+                // КРИТИЧНО: Получаем нормаль поверхности для выравнивания
+                const normal = hit.getNormal ? hit.getNormal(true) : Vector3.Up();
+                return { height, normal: normal || Vector3.Up() };
             } else {
-                logger.warn(`[GameEnemies] getGroundHeight: Raycast returned suspicious height ${height.toFixed(2)} at (${x.toFixed(1)}, ${z.toFixed(1)})`);
+                logger.warn(`[GameEnemies] getGroundInfo: Raycast returned suspicious height ${height.toFixed(2)} at (${x.toFixed(1)}, ${z.toFixed(1)})`);
             }
         }
         
@@ -345,8 +347,16 @@ export class GameEnemies {
         }
         
         // Последний fallback: минимальная безопасная высота
-        logger.warn(`[GameEnemies] getGroundHeight: All methods failed at (${x.toFixed(1)}, ${z.toFixed(1)}), using safe default 2.0`);
-        return 2.0; // Минимальная безопасная высота вместо 0
+        logger.warn(`[GameEnemies] getGroundInfo: All methods failed at (${x.toFixed(1)}, ${z.toFixed(1)}), using safe default`);
+        return { height: 2.0, normal: Vector3.Up() }; // Минимальная безопасная высота и нормаль вверх
+    }
+    
+    /**
+     * Получение высоты террейна в точке (для обратной совместимости)
+     */
+    private getGroundHeight(x: number, z: number): number {
+        const info = this.getGroundInfo(x, z);
+        return info ? info.height : 2.0;
     }
     
     /**
@@ -356,7 +366,8 @@ export class GameEnemies {
         pos: Vector3, 
         difficulty: "easy" | "medium" | "hard",
         difficultyScale: number,
-        onDeath?: () => void
+        onDeath?: () => void,
+        groundNormal?: Vector3 // Нормаль поверхности для выравнивания
     ): EnemyTank | null {
         if (!this.systems?.scene || !this.systems.soundManager || !this.systems.effectsManager) {
             return null;
@@ -368,7 +379,8 @@ export class GameEnemies {
             this.systems.soundManager, 
             this.systems.effectsManager, 
             difficulty, 
-            difficultyScale
+            difficultyScale,
+            groundNormal || Vector3.Up() // Передаём нормаль поверхности
         );
         
         if (this.systems.tank) {
@@ -803,9 +815,9 @@ export class GameEnemies {
                 const distance = minDistance + Math.random() * (maxDistance - minDistance);
                 const spawnX = Math.cos(angle) * distance;
                 const spawnZ = Math.sin(angle) * distance;
-                const groundHeight = this.getGroundHeight(spawnX, spawnZ);
+                const groundInfo = this.getGroundInfo(spawnX, spawnZ);
                 // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-                const spawnY = Math.max(groundHeight + 2.0, 3.0);
+                const spawnY = Math.max(groundInfo.height + 2.0, 3.0);
                 
                 pos = new Vector3(spawnX, spawnY, spawnZ);
                 
@@ -818,15 +830,20 @@ export class GameEnemies {
                     }
                 }
                 
-                if (!tooClose) break;
+                if (!tooClose) {
+                    // Сохраняем нормаль поверхности для выравнивания
+                    (pos as any).groundNormal = groundInfo.normal;
+                    break;
+                }
                 attempts++;
             } while (attempts < 30);
             
             spawnPositions.push(pos);
             
+            const groundNormal = (pos as any).groundNormal || Vector3.Up();
             const enemy = this.createEnemy(pos, aiDifficulty, difficultyScale, () => {
                 this.handleStandardEnemyDeath(enemy!);
-            });
+            }, groundNormal);
             
             if (enemy) {
                 this.enemyTanks.push(enemy);

@@ -22,6 +22,7 @@ import { logger } from "./utils/logger";
 import { AIPathfinding } from "./ai/AIPathfinding";
 import type { RoadNetwork } from "./roadNetwork";
 import { PHYSICS_CONFIG } from "./config/physicsConfig";
+import { CHASSIS_TYPES, CANNON_TYPES, ChassisType, CannonType } from "./tankTypes";
 
 // === AI States ===
 type AIState = "idle" | "patrol" | "chase" | "attack" | "flank" | "retreat" | "evade" | "capturePOI" | "ambush" | "bait";
@@ -75,6 +76,15 @@ export class EnemyTank {
     private turretCurrentAngle = 0;
     private turretAcceleration = 0;
     private turretAccelStartTime = 0;
+    private turretSpeed = 0.04; // Базовая скорость вращения башни (рад/кадр), как у игрока
+    private turretLerpSpeed = 0.15; // Скорость интерполяции башни, как у игрока
+    
+    // Спавн: нормаль поверхности для выравнивания
+    private spawnGroundNormal: Vector3 = Vector3.Up();
+    
+    // === Equipment (random selection) ===
+    private chassisType!: ChassisType;
+    private cannonType!: CannonType;
     
     // === AI State ===
     private target: { chassis: Mesh, isAlive: boolean, currentHealth?: number, turret?: Mesh, barrel?: Mesh } | null = null;
@@ -102,7 +112,7 @@ export class EnemyTank {
     private nearbyEnemies: EnemyTank[] = []; // Близкие союзники для координации
     private lastGroupCheckTime = 0;
     private readonly GROUP_CHECK_INTERVAL = 1000; // УЛУЧШЕНО: Уменьшено для более быстрой координации между ботами
-    private readonly GROUP_COORDINATION_RANGE = 100; // УЛУЧШЕНО: Увеличен радиус координации с 80 до 100 для лучшей координации между ботами
+    private readonly GROUP_COORDINATION_RANGE = 120; // МАКСИМАЛЬНО: Увеличен радиус координации с 100 до 120 для максимальной координации между ботами!
     
     // УЛУЧШЕНО: Система укрытий и тактического позиционирования
     private lastCoverCheckTime = 0;
@@ -169,12 +179,17 @@ export class EnemyTank {
     
     // === Combat ===
     private lastShotTime = 0;
-    private cooldown = 2200; // УЛУЧШЕНО: Уменьшено с 2.5 до 2.2 секунд для более динамичного боя
+    private cooldown = 2200; // УЛУЧШЕНО: Уменьшено с 2.5 до 2.2 секунд для более динамичного боя (будет перезаписано из пушки)
     private isReloading = false;
     private range = 60;           // Дальность атаки
     private detectRange = 250;    // УЛУЧШЕНО: Увеличен с 200 до 250м для лучшего обнаружения
     private optimalRange = 35;     // Оптимальная дистанция боя
     private aimAccuracy = 0.98;   // УЛУЧШЕНО: Увеличена с 0.95 до 0.98 для более точной стрельбы
+    
+    // Параметры из пушки (устанавливаются в applyDifficultySettings)
+    private damage = 25; // Будет перезаписано из cannonType
+    private projectileSpeed = 200; // Будет перезаписано из cannonType
+    private projectileSize = 0.2; // Будет перезаписано из cannonType
     
     // УЛУЧШЕНО: Адаптивная точность в зависимости от дистанции и сложности
     // HARD режим: почти идеальная точность!
@@ -188,23 +203,23 @@ export class EnemyTank {
         
         if (this.difficulty === "hard") {
             difficultyMultiplier = 1.0;
-            distancePenaltyMax = 0.08; // Только 8% штраф на дистанции (было 15%)
-            healthPenaltyMax = 0.05; // Только 5% штраф при низком HP (было 10%)
+            distancePenaltyMax = 0.04; // МАКСИМАЛЬНО: Уменьшено с 0.08 до 0.04 - минимальный штраф на дистанции!
+            healthPenaltyMax = 0.02; // МАКСИМАЛЬНО: Уменьшено с 0.05 до 0.02 - практически нет штрафа при низком HP!
         } else if (this.difficulty === "medium") {
-            difficultyMultiplier = 0.92;
-            distancePenaltyMax = 0.12;
-            healthPenaltyMax = 0.08;
+            difficultyMultiplier = 0.96; // МАКСИМАЛЬНО: Увеличено с 0.92
+            distancePenaltyMax = 0.08; // МАКСИМАЛЬНО: Уменьшено с 0.12
+            healthPenaltyMax = 0.05; // МАКСИМАЛЬНО: Уменьшено с 0.08
         } else {
-            difficultyMultiplier = 0.85;
-            distancePenaltyMax = 0.15;
-            healthPenaltyMax = 0.10;
+            difficultyMultiplier = 0.90; // МАКСИМАЛЬНО: Увеличено с 0.85
+            distancePenaltyMax = 0.12; // МАКСИМАЛЬНО: Уменьшено с 0.15
+            healthPenaltyMax = 0.08; // МАКСИМАЛЬНО: Уменьшено с 0.10
         }
         
-        const distancePenalty = Math.min(distancePenaltyMax, distance / 300);
+        const distancePenalty = Math.min(distancePenaltyMax, distance / 350); // УЛУЧШЕНО: Больше дистанция без штрафа
         const healthPenalty = (1.0 - this.currentHealth / this.maxHealth) * healthPenaltyMax;
         
-        // HARD режим: минимум 0.90 точность (было 0.75)
-        const minAccuracy = this.difficulty === "hard" ? 0.90 : (this.difficulty === "medium" ? 0.80 : 0.75);
+        // МАКСИМАЛЬНО: Практически идеальная минимальная точность на всех уровнях!
+        const minAccuracy = this.difficulty === "hard" ? 0.94 : (this.difficulty === "medium" ? 0.88 : 0.82); // МАКСИМАЛЬНО улучшено!
         return Math.max(minAccuracy, baseAccuracy * difficultyMultiplier - distancePenalty - healthPenalty);
     }
     
@@ -295,18 +310,26 @@ export class EnemyTank {
         soundManager: SoundManager,
         effectsManager: EffectsManager,
         difficulty: "easy" | "medium" | "hard" = "hard",
-        difficultyScale = 1
+        difficultyScale = 1,
+        groundNormal: Vector3 = Vector3.Up() // Нормаль поверхности для выравнивания
     ) {
         this.scene = scene;
         this.soundManager = soundManager;
         this.effectsManager = effectsManager;
         this.difficulty = difficulty;
         this.difficultyScale = difficultyScale;
+        this.spawnGroundNormal = groundNormal; // Сохраняем нормаль для выравнивания
         this.id = EnemyTank.count++;
         // УЛУЧШЕНО: Регистрируем себя в статическом списке для группового поведения
         EnemyTank.allEnemies.push(this);
         
-        // Применяем настройки сложности
+        // КРИТИЧНО: Выбираем случайное снаряжение ПЕРЕД применением настроек
+        // Выбираем случайный корпус
+        this.chassisType = CHASSIS_TYPES[Math.floor(Math.random() * CHASSIS_TYPES.length)]!;
+        // Выбираем случайную пушку
+        this.cannonType = CANNON_TYPES[Math.floor(Math.random() * CANNON_TYPES.length)]!;
+        
+        // Применяем настройки сложности (теперь только AI-параметры, параметры из снаряжения применяются внутри)
         this.applyDifficultySettings();
         
         // Share bullet material
@@ -379,15 +402,13 @@ export class EnemyTank {
                     this.chassis.position.y = targetY;
                 }
                 
-                // КРИТИЧНО: Принудительно устанавливаем правильную ориентацию
-                this.chassis.rotationQuaternion = Quaternion.Identity();
-                
+                // КРИТИЧНО: Используем ту же ориентацию что установили выше (перпендикулярно поверхности)
                 // Сбрасываем скорости сразу
                 this.physicsBody.setLinearVelocity(Vector3.Zero());
                 this.physicsBody.setAngularVelocity(Vector3.Zero());
                 
-                // Синхронизируем physics body с mesh
-                this.physicsBody.setTargetTransform(this.chassis.position, Quaternion.Identity());
+                // Синхронизируем physics body с mesh используя правильную ориентацию
+                this.physicsBody.setTargetTransform(this.chassis.position, this.chassis.rotationQuaternion);
                 
             }
         });
@@ -399,9 +420,9 @@ export class EnemyTank {
                 this.physicsBody.setLinearVelocity(Vector3.Zero());
                 this.physicsBody.setAngularVelocity(Vector3.Zero());
                 
-                // КРИТИЧНО: Принудительно устанавливаем правильную ориентацию
-                this.chassis.rotationQuaternion = Quaternion.Identity();
-                this.physicsBody.setTargetTransform(this.chassis.position, Quaternion.Identity());
+                // КРИТИЧНО: Используем ориентацию перпендикулярно поверхности (уже установлена в createChassis)
+                // Не сбрасываем в Identity, сохраняем правильную ориентацию
+                this.physicsBody.setTargetTransform(this.chassis.position, this.chassis.rotationQuaternion);
             }
             
             // Только после финальной корректировки отключаем стабилизацию
@@ -451,82 +472,74 @@ export class EnemyTank {
     }
     
     private applyDifficultySettings() {
+        // КРИТИЧНО: Параметры из снаряжения применяются ПЕРВЫМИ (не зависят от сложности!)
+        // Применяем параметры из выбранного корпуса
+        this.moveSpeed = this.chassisType.moveSpeed;
+        this.turnSpeed = this.chassisType.turnSpeed; // Скорость поворота корпуса
+        this.acceleration = this.chassisType.acceleration;
+        this.maxHealth = this.chassisType.maxHealth;
+        this.mass = this.chassisType.mass;
+        
+        // Применяем параметры из выбранной пушки
+        this.cooldown = this.cannonType.cooldown;
+        this.damage = this.cannonType.damage;
+        this.projectileSpeed = this.cannonType.projectileSpeed;
+        this.projectileSize = this.cannonType.projectileSize;
+        
+        // Теперь применяем ТОЛЬКО AI-параметры из сложности
         switch (this.difficulty) {
             case "easy":
-                // Легкая сложность: медленная реакция, низкая точность
-                this.cooldown = 3500; // 3.5 секунды перезарядка (было 4000)
-                this.aimAccuracy = 0.70; // 70% точность (было 65%)
-                this.detectRange = 150; // Радиус обнаружения
-                this.range = 50;
-                this.optimalRange = 28;
-                this.decisionInterval = 600; // Решения каждые 600мс (улучшено для более быстрой реакции)
-                this.moveSpeed = 12; // Быстрее для более бодрого поведения (было 10)
-                // Менее толстые и бьют слабее
-                this.maxHealth = 80;
+                // Легкая сложность: улучшенная реакция и точность
+                this.aimAccuracy = 0.80;
+                this.detectRange = 180;
+                this.range = 65;
+                this.optimalRange = 32;
+                this.decisionInterval = 400;
                 break;
             case "medium":
-                // Средняя сложность: средняя реакция, средняя точность
-                this.cooldown = 2500; // 2.5 секунды перезарядка (было 3000)
-                this.aimAccuracy = 0.85; // 85% точность (было 80%)
-                this.detectRange = 180;
-                this.range = 60;
-                this.optimalRange = 32;
-                this.decisionInterval = 350; // Решения каждые 350мс (улучшено для более быстрой реакции)
-                this.moveSpeed = 18; // Быстрее для более бодрого поведения (было 14)
-                this.maxHealth = 100;
+                // Средняя сложность: очень быстрая реакция, высокая точность
+                this.aimAccuracy = 0.92;
+                this.detectRange = 220;
+                this.range = 75;
+                this.optimalRange = 38;
+                this.decisionInterval = 200;
                 break;
             case "hard":
-                // Сложная сложность: быстрая реакция, высокая точность
-                this.cooldown = 2000; // 2 секунды перезарядка (было 2500)
-                this.aimAccuracy = 0.95; // 95% точность
-                this.detectRange = 220; // Увеличенный радиус обнаружения (было 200)
-                this.range = 70;
-                this.optimalRange = 38;
-                this.decisionInterval = 200; // Решения каждые 200мс (улучшено для максимально быстрой реакции)
-                this.moveSpeed = 24; // Максимальная скорость (как у игрока!) (было 18)
-                // Толще и живучее на сложной
-                this.maxHealth = 130;
+                // Сложная сложность: СУПЕР-БЫСТРАЯ реакция, ПРАКТИЧЕСКИ ИДЕАЛЬНАЯ точность
+                this.aimAccuracy = 0.98;
+                this.detectRange = 280;
+                this.range = 85;
+                this.optimalRange = 45;
+                this.decisionInterval = 100;
                 break;
         }
         
         // Плавный множитель сложности на основе прогресса игрока и длительности сессии
         const scale = Math.min(Math.max(this.difficultyScale, 0.7), 1.8);
 
-        // Живучесть (HP) растёт более заметно, но без экстремумов
+        // Живучесть (HP) растёт более заметно, но без экстремумов (применяется к HP из корпуса)
         const healthScale = 1 + (scale - 1) * 0.8; // до ~+64% HP при максимальном скейле
         this.maxHealth = Math.round(this.maxHealth * healthScale);
 
-        // Агрессия: чем выше скейл, тем быстрее решения и короче перезарядка
+        // Агрессия: чем выше скейл, тем быстрее решения и короче перезарядка (применяется к cooldown из пушки)
         const aggressionScale = 1 + (scale - 1) * 0.7;
         this.cooldown = Math.round(this.cooldown / aggressionScale);
-        // Не позволяем ИИ принимать решения слишком редко или слишком часто
-        this.decisionInterval = Math.max(200, Math.round(this.decisionInterval / aggressionScale));
+        // МАКСИМАЛЬНО: Разрешаем принимать решения еще чаще для максимальной реактивности
+        this.decisionInterval = Math.max(50, Math.round(this.decisionInterval / aggressionScale));
         
         // Синхронизируем текущее здоровье с новым максимумом
         this.currentHealth = this.maxHealth;
+        
+        logger.debug(`[EnemyTank ${this.id}] Equipment: ${this.chassisType.name} chassis, ${this.cannonType.name} cannon | Speed: ${this.moveSpeed}, HP: ${this.maxHealth}, Cooldown: ${this.cooldown}ms`);
     }
     
     // === VISUALS (same as player) ===
     
     private createChassis(position: Vector3): Mesh {
-        // Random visual variation for enemies (light/medium/heavy look)
-        const variant = this.id % 5; // 5 variants
-        let width = 2.2, height = 0.8, depth = 3.5;
-        
-        if (variant === 0) {
-            // Light variant - smaller
-            width = 1.8; height = 0.7; depth = 3.0;
-        } else if (variant === 1) {
-            // Heavy variant - larger
-            width = 2.6; height = 0.9; depth = 4.0;
-        } else if (variant === 2) {
-            // Scout variant - very small
-            width = 1.6; height = 0.6; depth = 2.8;
-        } else if (variant === 3) {
-            // Assault variant - medium-large
-            width = 2.4; height = 0.85; depth = 3.8;
-        }
-        // variant 4 = standard (medium)
+        // КРИТИЧНО: Используем размеры из выбранного корпуса
+        const width = this.chassisType.width;
+        const height = this.chassisType.height;
+        const depth = this.chassisType.depth;
         
         const chassis = MeshBuilder.CreateBox(`enemyTank_${this.id}`, {
             width, height, depth
@@ -534,18 +547,42 @@ export class EnemyTank {
         // КРИТИЧНО: Используем позицию как есть (уже с правильной высотой террейна + 2.0)
         // НЕ добавляем 0.5, так как позиция уже правильная
         chassis.position.copyFrom(position);
-        // КРИТИЧНО: Устанавливаем правильную ориентацию ПЕРЕД созданием физики
-        chassis.rotationQuaternion = Quaternion.Identity();
+        // КРИТИЧНО: Выравниваем танк ПЕРПЕНДИКУЛЯРНО поверхности используя нормаль
+        // Нормаль поверхности становится "up" вектором танка
+        const up = this.spawnGroundNormal.clone().normalize();
+        const defaultUp = Vector3.Up();
+        
+        // Если нормаль почти вертикальна (parallel to defaultUp), используем стандартную ориентацию
+        const dot = Vector3.Dot(up, defaultUp);
+        if (Math.abs(dot) > 0.99) {
+            chassis.rotationQuaternion = Quaternion.Identity();
+        } else {
+            // Вычисляем ось и угол поворота для выравнивания up вектора с нормалью поверхности
+            const axis = Vector3.Cross(defaultUp, up);
+            if (axis.length() < 0.001) {
+                // Векторы противоположны, используем любую перпендикулярную ось
+                axis.copyFromFloats(1, 0, 0);
+            }
+            axis.normalize();
+            
+            const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
+            // Создаём кватернион поворота вокруг вычисленной оси
+            const spawnRotation = Quaternion.RotationAxis(axis, angle);
+            chassis.rotationQuaternion = spawnRotation;
+        }
         
         const mat = new StandardMaterial(`enemyTankMat_${this.id}`, this.scene);
-        mat.diffuseColor = new Color3(0.5, 0.15, 0.1); // Dark red/brown
+        // КРИТИЧНО: Используем цвет из выбранного корпуса
+        const colorHex = this.chassisType.color;
+        const color = Color3.FromHexString(colorHex);
+        mat.diffuseColor = color;
         mat.specularColor = Color3.Black();
         mat.freeze();
         chassis.material = mat;
         chassis.metadata = { type: "enemyTank", instance: this };
         
-        // Add visual details for heavy variant
-        if (variant === 1) {
+        // Add visual details for heavy chassis types
+        if (this.chassisType.id === "heavy" || this.chassisType.id === "siege") {
             const armorMat = new StandardMaterial(`enemyArmor_${this.id}`, this.scene);
             armorMat.diffuseColor = new Color3(0.4, 0.12, 0.08);
             armorMat.freeze();
@@ -590,33 +627,22 @@ export class EnemyTank {
     }
     
     private createBarrel(): Mesh {
-        // Random barrel variation for visual diversity
-        const barrelVariant = this.id % 5;
-        let width = 0.2, height = 0.2, depth = 2.5;
-        
-        if (barrelVariant === 0) {
-            // Sniper-like - long and thin
-            width = 0.15; height = 0.15; depth = 3.0;
-        } else if (barrelVariant === 1) {
-            // Heavy-like - thick
-            width = 0.25; height = 0.25; depth = 2.5;
-        } else if (barrelVariant === 2) {
-            // Gatling-like - short and thick
-            width = 0.22; height = 0.22; depth = 1.9;
-        } else if (barrelVariant === 3) {
-            // Rapid-like - short and thin
-            width = 0.18; height = 0.18; depth = 1.7;
-        }
-        // variant 4 = standard
+        // КРИТИЧНО: Используем размеры из выбранной пушки
+        const width = this.cannonType.barrelWidth;
+        const height = this.cannonType.barrelWidth; // Используем barrelWidth для обеих сторон
+        const depth = this.cannonType.barrelLength;
         
         const barrel = MeshBuilder.CreateBox(`enemyBarrel_${this.id}`, {
             width, height, depth
         }, this.scene);
         barrel.parent = this.turret;
-        barrel.position = new Vector3(0, 0.2, 1.5);
+        barrel.position = new Vector3(0, 0.2, depth * 0.5); // Позиция зависит от длины ствола
         
         const mat = new StandardMaterial(`enemyBarrelMat_${this.id}`, this.scene);
-        mat.diffuseColor = new Color3(0.25, 0.08, 0.05);
+        // КРИТИЧНО: Используем цвет из выбранной пушки
+        const colorHex = this.cannonType.color;
+        const color = Color3.FromHexString(colorHex);
+        mat.diffuseColor = color;
         mat.specularColor = Color3.Black();
         mat.freeze();
         barrel.material = mat;
@@ -810,9 +836,10 @@ export class EnemyTank {
     private setupPhysics(): void {
         // Физика корпуса (chassis) с РЕАЛИСТИЧНЫМ ГУСЕНИЧНЫМ ХИТБОКСОМ
         // Compound shape: центральный BOX + скруглённые CYLINDER спереди и сзади
-        const chassisWidth = 2.2;
-        const chassisHeight = 0.8;
-        const chassisDepth = 3.5;
+        // КРИТИЧНО: Используем размеры из выбранного корпуса
+        const chassisWidth = this.chassisType.width;
+        const chassisHeight = this.chassisType.height;
+        const chassisDepth = this.chassisType.depth;
         
         const chassisShape = new PhysicsShapeContainer(this.scene);
         
@@ -946,9 +973,9 @@ export class EnemyTank {
         // УЛУЧШЕНО: Обновляем эскалацию сложности и использование высот
         if (this.target && this.target.isAlive) {
             this.combatTime += 16; // ~16ms per frame
-            // Увеличиваем интеллект каждые 30 секунд боя
-            if (this.combatTime > 30000 && this.adaptiveIntelligence < 1.5) {
-                this.adaptiveIntelligence += 0.05;
+            // МАКСИМАЛЬНО: Увеличиваем интеллект быстрее и до большего значения
+            if (this.combatTime > 20000 && this.adaptiveIntelligence < 1.8) { // УЛУЧШЕНО: каждые 20с (было 30с) и до 1.8 (было 1.5)
+                this.adaptiveIntelligence += 0.08; // УЛУЧШЕНО: +0.08 вместо 0.05 - быстрее растет интеллект!
                 this.combatTime = 0;
                 logger.debug(`[EnemyTank ${this.id}] Intelligence increased to ${this.adaptiveIntelligence.toFixed(2)}`);
             }
@@ -1068,12 +1095,12 @@ export class EnemyTank {
             // === 1. HOVER СИСТЕМА (ИДЕНТИЧНО ИГРОКУ) ===
             let totalVerticalForce = 0;
             
-            // Защита от проваливания - импульсом вверх, НЕ телепортацией
+            // Защита от проваливания - мягкая коррекция, НЕ сильный толчок
             if (pos.y < groundHeight - 1.0) {
-                const pushUpForce = (groundHeight + 1.5 - pos.y) * 50000;
+                const pushUpForce = (groundHeight + 1.0 - pos.y) * 20000; // УМЕНЬШЕНО с 50000
                 body.applyForce(new Vector3(0, pushUpForce, 0), pos);
-                if (vel.y < -5) {
-                    body.setLinearVelocity(new Vector3(vel.x, -5, vel.z));
+                if (vel.y < -3) {
+                    body.setLinearVelocity(new Vector3(vel.x, -3, vel.z)); // УМЕНЬШЕНО с -5
                 }
             }
             
@@ -1235,9 +1262,9 @@ export class EnemyTank {
                 this.applyTorque(new Vector3(0, -angVel.y * 5000, 0));
             }
             
-            // === 8. ANTI-FLY (ограничение вертикальной скорости) ===
-            if (vel.y > 5) {
-                body.setLinearVelocity(new Vector3(vel.x, 5, vel.z));
+            // === 8. ANTI-FLY (строгое ограничение вертикальной скорости вверх) ===
+            if (vel.y > 0.5) { // Танки НЕ должны летать вверх!
+                body.setLinearVelocity(new Vector3(vel.x, 0, vel.z)); // Жёстко ограничиваем скорость вверх
             }
             
             // === 9. AUTO-RESET (только для критических ситуаций) ===
@@ -1301,26 +1328,23 @@ export class EnemyTank {
         // КРИТИЧНО: Если провалились под террейн - применяем СИЛУ вверх, НЕ телепортацию!
         // Телепортация вызывает конфликты с физическим движком
         if (heightAboveGround < -1.0 || pos.y < groundY - 2.0) {
-            // Применяем сильный импульс вверх вместо телепортации
-            const pushUpForce = (groundY + 2.0 - pos.y) * 80000;
+            // Применяем МЯГКУЮ коррекцию вверх вместо сильного толчка
+            const pushUpForce = (groundY + 1.0 - pos.y) * 30000; // УМЕНЬШЕНО с 80000
             this.physicsBody.applyForce(new Vector3(0, pushUpForce, 0), pos);
             // Ограничиваем вертикальную скорость вниз
-            if (vel && vel.y < -5) {
-                this.physicsBody.setLinearVelocity(new Vector3(vel.x, -2, vel.z));
+            if (vel && vel.y < -3) {
+                this.physicsBody.setLinearVelocity(new Vector3(vel.x, -3, vel.z)); // УМЕНЬШЕНО с -2
             }
             this.consecutiveStuckCount = 0;
             this.stuckTimer = now;
             return true;
         }
         
-        // УБРАНО: Проверка на высоту > 4 - танки могут законно находиться на возвышенностях!
-        // Физика сама опустит танк через hover систему
-        
-        // Проверка 2: Летим вверх слишком быстро (анти-полёт)
-        if (vel && vel.y > 8) {
-            logger.debug(`[EnemyTank ${this.id}] Flying up too fast (velY=${vel.y.toFixed(2)}), clamping`);
-            // Сбрасываем вертикальную скорость
-            this.physicsBody.setLinearVelocity(new Vector3(vel.x, Math.min(vel.y, 2), vel.z));
+        // Проверка 2: Летим вверх - ЖЁСТКОЕ ограничение (танки НЕ должны летать!)
+        if (vel && vel.y > 0.5) {
+            logger.debug(`[EnemyTank ${this.id}] Flying up (velY=${vel.y.toFixed(2)}), clamping to 0`);
+            // Жёстко сбрасываем вертикальную скорость вверх
+            this.physicsBody.setLinearVelocity(new Vector3(vel.x, 0, vel.z));
             this.stuckTimer = now;
             return true;
         }
@@ -1405,19 +1429,24 @@ export class EnemyTank {
             }
         }
         
-        // ИСПРАВЛЕНО: Используем СИЛЫ вместо телепортации!
+        // ИСПРАВЛЕНО: Используем МЯГКИЕ СИЛЫ вместо сильных толчков!
         // Телепортация вызывает конфликты с физическим движком и "дёрганье"
-        const targetY = groundHeight + this.hoverHeight + 0.5;
+        const targetY = groundHeight + this.hoverHeight;
         const heightDiff = targetY - pos.y;
         
-        // Применяем сильную силу вверх
-        const pushUpForce = heightDiff * 100000;
+        // Применяем МЯГКУЮ силу вверх (уменьшено в 5 раз)
+        const pushUpForce = heightDiff * 20000; // УМЕНЬШЕНО с 100000
         this.physicsBody.applyForce(new Vector3(0, pushUpForce, 0), pos);
         
-        // Ограничиваем вертикальную скорость
+        // Жёстко ограничиваем вертикальную скорость вверх
         const vel = this.physicsBody.getLinearVelocity();
-        if (vel && vel.y < -3) {
-            this.physicsBody.setLinearVelocity(new Vector3(vel.x, -3, vel.z));
+        if (vel) {
+            if (vel.y > 0.5) {
+                // Танки НЕ должны летать вверх!
+                this.physicsBody.setLinearVelocity(new Vector3(vel.x, 0, vel.z));
+            } else if (vel.y < -3) {
+                this.physicsBody.setLinearVelocity(new Vector3(vel.x, -3, vel.z));
+            }
         }
         
         // Демпфируем угловую скорость для стабилизации
@@ -1602,7 +1631,8 @@ export class EnemyTank {
         while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
         while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
         
-        const rotationDelta = angleDiff * 0.08 * Math.max(0.3, this.turretAcceleration);
+        // КРИТИЧНО: Используем turretSpeed вместо захардкоженного значения
+        const rotationDelta = angleDiff * this.turretSpeed * Math.max(0.3, this.turretAcceleration);
         this.turretCurrentAngle += rotationDelta;
         this.turret.rotation.y = this.turretCurrentAngle;
     }
@@ -1799,10 +1829,10 @@ export class EnemyTank {
         
         // Улучшенная логика принятия решений - более агрессивная!
         
-        // Priority 1: Retreat only at CRITICAL health (УЛУЧШЕНО: уменьшено с 10% до 7% для более агрессивного поведения)
-        if (healthPercent < 0.07) {
+        // МАКСИМАЛЬНО АГРЕССИВНО: Retreat only at EXTREMELY CRITICAL health (уменьшено с 7% до 5%!)
+        if (healthPercent < 0.05) {
             this.state = "retreat";
-            this.stateTimer = 4000;
+            this.stateTimer = 3000; // УЛУЧШЕНО: Меньше времени в отступлении для более быстрого возврата в бой
             return;
         }
         
@@ -1852,7 +1882,7 @@ export class EnemyTank {
         
         // УЛУЧШЕНО: Проверка возможности засады (только если здоровье хорошее и есть укрытие)
         if (distance < this.range && healthPercent > 0.6 && distance > 30 && distance < 80) {
-            const ambushChance = this.adaptiveIntelligence > 1.2 ? 0.25 : 0.12; // УЛУЧШЕНО: Умные враги чаще используют засады (увеличено с 0.15 до 0.25)
+            const ambushChance = this.adaptiveIntelligence > 1.2 ? 0.35 : 0.20; // МАКСИМАЛЬНО: Умные враги ОЧЕНЬ часто используют засады (увеличено с 0.25 до 0.35)
             if (Math.random() < ambushChance && this.findAmbushPosition()) {
                 this.state = "ambush";
                 this.ambushTimer = 0;
@@ -1882,25 +1912,25 @@ export class EnemyTank {
             const allyCount = this.getNearbyAllyCount();
             const hasAlliesAttacking = this.hasAlliesAttackingTarget();
             
-            // Базовый шанс фланга зависит от множества факторов (УЛУЧШЕНО для более агрессивной тактики)
+            // МАКСИМАЛЬНО АГРЕССИВНАЯ ТАКТИКА: Базовый шанс фланга значительно увеличен
             let flankChance = 0.0;
             if (shouldFlank) {
-                flankChance = 0.60; // УВЕЛИЧЕНО с 0.50 для более активного фланга
+                flankChance = 0.70; // МАКСИМАЛЬНО: Увеличено с 0.60 до 0.70 - очень агрессивный фланг!
                 // Увеличиваем шанс фланга если не в оптимальной дистанции
                 if (!isInOptimalRange) {
-                    flankChance += 0.15;
+                    flankChance += 0.20; // УЛУЧШЕНО: с 0.15
                 }
                 // Увеличиваем шанс фланга если есть преимущество по HP
                 if (hasHealthAdvantage) {
-                    flankChance += 0.10;
+                    flankChance += 0.15; // УЛУЧШЕНО: с 0.10
                 }
             } else {
-                flankChance = 0.20; // Базовая вероятность фланга
+                flankChance = 0.30; // МАКСИМАЛЬНО: Увеличено с 0.20 до 0.30 - даже без условий фланг вероятен!
             }
             
-            // УЛУЧШЕНО: Если есть союзники, которые атакуют - значительно увеличиваем шанс фланга для окружения
+            // МАКСИМАЛЬНО: Если есть союзники, которые атакуют - ОЧЕНЬ высокий шанс фланга для окружения
             if (hasAlliesAttacking && allyCount > 0) {
-                flankChance = Math.min(0.85, flankChance + 0.25 * allyCount); // УВЕЛИЧЕНО: До 85% шанс фланга при координации (было 75%)
+                flankChance = Math.min(0.95, flankChance + 0.30 * allyCount); // МАКСИМАЛЬНО: До 95% шанс фланга при координации! (было 85%)
             }
             
             // Если цель слабая и мы сильнее - меньше фланга, больше атаки (добиваем)
@@ -2132,9 +2162,9 @@ export class EnemyTank {
         const myPos = this.chassis.absolutePosition;
         const distance = Vector3.Distance(targetPos, myPos);
         
-        // УЛУЧШЕНО: Более умное преследование с предсказанием движения цели
-        // Предсказываем, где будет цель через короткое время (улучшено для лучшего перехвата)
-        const predictionTime = 0.7; // УЛУЧШЕНО: 0.7 секунды вперёд (было 0.5) для более точного перехвата
+        // МАКСИМАЛЬНО УМНОЕ преследование с идеальным предсказанием движения цели
+        // Предсказываем, где будет цель через оптимальное время для максимально точного перехвата
+        const predictionTime = this.difficulty === "hard" ? 0.9 : (this.difficulty === "medium" ? 0.8 : 0.7); // МАКСИМАЛЬНО: Адаптивное предсказание в зависимости от сложности (Hard: 0.9с!)
         const predictedTargetPos = targetPos.add(this.targetVelocity.scale(predictionTime));
         
         // Едем к предсказанной позиции для более эффективного перехвата
@@ -2185,7 +2215,7 @@ export class EnemyTank {
             const healthAdvantageFactor = healthPercent > targetHealthPercent ? 1.2 : (healthPercent > targetHealthPercent * 0.8 ? 1.0 : 0.7);
             const targetWeaknessFactor = targetHealthPercent < 0.4 ? 1.3 : (targetHealthPercent < 0.6 ? 1.1 : 1.0);
             
-            const baseChance = this.difficulty === "medium" ? 0.95 : 0.90; // УЛУЧШЕНО: Более активная стрельба (было 0.92/0.85)
+            const baseChance = this.difficulty === "medium" ? 0.98 : 0.95; // МАКСИМАЛЬНО: Практически всегда стреляют! (было 0.95/0.90)
             const qualityScore = distanceFactor * aimFactor * targetSpeedFactor * healthAdvantageFactor * targetWeaknessFactor;
             const fireChance = Math.min(0.98, baseChance * qualityScore);
             
@@ -2737,23 +2767,23 @@ export class EnemyTank {
         // HARD РЕЖИМ: Используем историю движения для предсказания
         const targetSpeed = this.targetVelocity.length();
         
-        // Адаптивный фактор предсказания зависит от сложности (УЛУЧШЕНО для всех режимов)
+        // МАКСИМАЛЬНО ТОЧНОЕ предсказание: практически идеальное на всех уровнях сложности!
         let predictionFactor: number;
         if (this.difficulty === "hard") {
-            // HARD: почти идеальное предсказание! (улучшено)
+            // HARD: ПРАКТИЧЕСКИ ИДЕАЛЬНОЕ предсказание! (МАКСИМАЛЬНО ПРОКАЧАНО)
             if (targetSpeed > 15) {
-                predictionFactor = 0.99; // УЛУЧШЕНО: Почти идеальное для быстрых целей (было 0.98)
+                predictionFactor = 0.995; // МАКСИМАЛЬНО: Почти 100% точность для быстрых целей! (было 0.99)
             } else if (targetSpeed > 5) {
-                predictionFactor = 0.97; // УЛУЧШЕНО: Очень точное для средних скоростей (было 0.95)
+                predictionFactor = 0.985; // МАКСИМАЛЬНО: Практически идеально для средних скоростей (было 0.97)
             } else {
-                predictionFactor = 0.94; // УЛУЧШЕНО: Точное для медленных целей (было 0.92)
+                predictionFactor = 0.975; // МАКСИМАЛЬНО: Очень точное для медленных целей (было 0.94)
             }
         } else if (this.difficulty === "medium") {
-            // MEDIUM: улучшено на 5-7%
-            predictionFactor = targetSpeed > 15 ? 0.93 : (targetSpeed > 5 ? 0.90 : 0.87); // УЛУЧШЕНО (было 0.88/0.85/0.82)
+            // MEDIUM: МАКСИМАЛЬНО улучшено - практически идеальная точность!
+            predictionFactor = targetSpeed > 15 ? 0.96 : (targetSpeed > 5 ? 0.94 : 0.92); // МАКСИМАЛЬНО (было 0.93/0.90/0.87)
         } else {
-            // EASY: улучшено на 5-7%
-            predictionFactor = targetSpeed > 15 ? 0.85 : (targetSpeed > 5 ? 0.83 : 0.80); // УЛУЧШЕНО (было 0.80/0.78/0.75)
+            // EASY: МАКСИМАЛЬНО улучшено для легкого режима
+            predictionFactor = targetSpeed > 15 ? 0.90 : (targetSpeed > 5 ? 0.88 : 0.85); // МАКСИМАЛЬНО (было 0.85/0.83/0.80)
         }
         
         // HARD: Более точное вычисление ускорения с учётом истории
@@ -2769,24 +2799,24 @@ export class EnemyTank {
                 .add(targetAcceleration.scale(flightTime * flightTime * 0.5))
         );
         
-        // УЛУЧШЕНО: Адаптивный разброс - МИНИМАЛЬНЫЙ для сложного режима!
+        // МАКСИМАЛЬНО: Практически нулевой разброс для максимальной точности!
         const adaptiveAccuracy = this.getAdaptiveAccuracy(distance);
         if (adaptiveAccuracy < 1.0) {
-            // HARD режим: минимальный разброс
-            const spreadMultiplier = this.difficulty === "hard" ? 0.02 : 
-                                     (this.difficulty === "medium" ? 0.04 : 0.05);
+            // МАКСИМАЛЬНО: Еще более минимальный разброс для всех режимов
+            const spreadMultiplier = this.difficulty === "hard" ? 0.01 :  // МАКСИМАЛЬНО: Уменьшено с 0.02!
+                                     (this.difficulty === "medium" ? 0.025 : 0.035); // МАКСИМАЛЬНО: Уменьшено!
             const baseSpread = (1 - adaptiveAccuracy) * distance * spreadMultiplier;
             
-            // На сложном режиме не увеличиваем разброс для движущихся целей
-            const movementSpread = this.difficulty === "hard" ? baseSpread : 
-                                   (targetSpeed > 10 ? baseSpread * 1.3 : baseSpread);
+            // На сложном режиме практически нет разброса даже для движущихся целей
+            const movementSpread = this.difficulty === "hard" ? baseSpread * 0.8 : // МАКСИМАЛЬНО: Даже уменьшаем для Hard!
+                                   (targetSpeed > 10 ? baseSpread * 1.2 : baseSpread); // МАКСИМАЛЬНО: Меньше увеличение
             
             predictedPos.x += (Math.random() - 0.5) * movementSpread;
             predictedPos.z += (Math.random() - 0.5) * movementSpread;
             
-            // Вертикальная коррекция только для лёгкого/среднего режима
-            if (targetSpeed > 5 && this.difficulty !== "hard") {
-                predictedPos.y += (Math.random() - 0.5) * movementSpread * 0.25;
+            // Вертикальная коррекция только для лёгкого режима (Hard и Medium практически не нуждаются)
+            if (targetSpeed > 5 && this.difficulty === "easy") {
+                predictedPos.y += (Math.random() - 0.5) * movementSpread * 0.20; // МАКСИМАЛЬНО: Меньше вертикальный разброс
             }
         }
         
@@ -2850,20 +2880,24 @@ export class EnemyTank {
         this.effectsManager.createMuzzleFlash(muzzlePos, barrelDir);
         this.effectsManager.createDustCloud(this.chassis.position.clone());
         
-        // Create bullet (same size as player!)
+        // КРИТИЧНО: Используем размеры из выбранной пушки
+        const bulletSize = this.cannonType.projectileSize;
+        const bulletDepth = bulletSize * 12.5; // Глубина пропорциональна размеру
+        
+        // Create bullet с размерами из пушки
         const ball = MeshBuilder.CreateBox(`enemyBullet_${Date.now()}`, {
-            width: 0.6,
-            height: 0.6,
-            depth: 2.5
+            width: bulletSize,
+            height: bulletSize,
+            depth: bulletDepth
         }, this.scene);
         ball.position.copyFrom(muzzlePos);
         ball.lookAt(ball.position.add(barrelDir));
         ball.material = this.bulletMat;
-        ball.metadata = { type: "enemyBullet", owner: this };
+        ball.metadata = { type: "enemyBullet", owner: this, damage: this.damage };
         
         const shape = new PhysicsShape({
             type: PhysicsShapeType.BOX,
-            parameters: { extents: new Vector3(0.5, 0.5, 2.0) }
+            parameters: { extents: new Vector3(bulletSize * 0.8, bulletSize * 0.8, bulletDepth * 0.8) }
         }, this.scene);
         shape.filterMembershipMask = 16; // Enemy bullet
         shape.filterCollideMask = 1 | 2 | 32;  // Player (1), environment (2), and protective walls (32)
@@ -2874,31 +2908,30 @@ export class EnemyTank {
         body.setMassProperties({ mass: 0.001 });
         body.setLinearDamping(0.01);
         
-        // Fire in BARREL direction! (уменьшен импульс из-за малой массы)
-        body.applyImpulse(barrelDir.scale(3), ball.position);
+        // КРИТИЧНО: Используем скорость снаряда из выбранной пушки
+        // Импульс рассчитывается как: импульс = скорость * масса, но так как масса мала, используем прямое масштабирование
+        const impulseMultiplier = this.projectileSpeed / 200; // Нормализуем относительно стандартной скорости 200
+        body.applyImpulse(barrelDir.scale(3 * impulseMultiplier), ball.position);
         
         // === RECOIL (like player!) ===
-        const recoilForce = barrelDir.scale(-400);
+        // Отдача зависит от типа пушки (recoilMultiplier)
+        const recoilBaseForce = 400;
+        const recoilForce = barrelDir.scale(-recoilBaseForce * this.cannonType.recoilMultiplier);
         this.physicsBody.applyImpulse(recoilForce, this.chassis.absolutePosition);
         
-        // Angular recoil (tank rocks back)
+        // Angular recoil (tank rocks back) - также зависит от типа пушки
         const barrelWorldPos = this.barrel.getAbsolutePosition();
         const chassisPos = this.chassis.absolutePosition;
         const torqueDir = barrelWorldPos.subtract(chassisPos).normalize();
         // Используем переиспользуемый вектор для torque отдачи
         const recoilTorque = this._tmpRight!;
-        recoilTorque.set(-torqueDir.z * 2000, 0, torqueDir.x * 2000);
+        const recoilTorqueBase = 2000;
+        recoilTorque.set(-torqueDir.z * recoilTorqueBase * this.cannonType.recoilMultiplier, 0, torqueDir.x * recoilTorqueBase * this.cannonType.recoilMultiplier);
         this.applyTorque(recoilTorque);
         
         // === HIT DETECTION ===
-        // Базовый урон пули
-        let damage = 20;
-        // Масштабируем урон в зависимости от сложности
-        if (this.difficulty === "easy") {
-            damage = 14; // Меньше урон на лёгкой
-        } else if (this.difficulty === "hard") {
-            damage = 26; // Больше урон на сложной
-        }
+        // КРИТИЧНО: Урон берется из выбранной пушки (уже установлен в applyDifficultySettings)
+        let damage = this.damage;
         // Дополнительное плавное масштабирование урона от прогресса/длительности сессии
         const scale = Math.min(Math.max(this.difficultyScale, 0.7), 1.8);
         const damageScale = 1 + (scale - 1) * 0.5; // до ~+40% урона при максимальном скейле

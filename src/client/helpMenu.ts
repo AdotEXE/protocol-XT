@@ -254,7 +254,9 @@ export class HelpMenu {
         
         this.visible = true;
         this.container.classList.remove("hidden");
+        this.container.classList.add("visible");
         this.container.style.display = "flex";
+        this.container.style.visibility = "visible";
         
         
         // Reset search
@@ -275,7 +277,9 @@ export class HelpMenu {
         
         this.visible = false;
         this.container.classList.add("hidden");
+        this.container.classList.remove("visible");
         this.container.style.display = "none";
+        this.container.style.visibility = "hidden";
         
         logger.log("[HelpMenu] Menu closed");
     }

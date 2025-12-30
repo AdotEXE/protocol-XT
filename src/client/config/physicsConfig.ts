@@ -264,7 +264,7 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
             linearDamping: 0.8,
             angularDamping: 4.0,
             suspensionCompression: 4.0,
-            uprightForce: 12000,
+            uprightForce: 18000,
             uprightDamp: 8000,
             stabilityForce: 3000,
             emergencyForce: 18000,
@@ -304,7 +304,7 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
             maxDownwardSpeed: 35,
             maxAngularSpeed: 2.5,
         },
-        centerOfMass: new Vector3(0, -0.55, -0.3),
+        centerOfMass: new Vector3(0, -0.3, -0.1),
         collisionMaterials: {
             centerBoxFriction: 0.1,
             centerBoxRestitution: 0.0,
@@ -320,10 +320,10 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
             collideMask: 2 | 32,
         },
         arcade: {
-            antiRollFactor: 0,
-            downforceFactor: 2.0,
-            airControl: 0.4,
-            angularDragAir: 5.0,
+            antiRollFactor: 0, // ОТКЛЮЧЕНО
+            downforceFactor: 0, // ОТКЛЮЧЕНО
+            airControl: 0, // ОТКЛЮЧЕНО
+            angularDragAir: 0, // ОТКЛЮЧЕНО
         },
     },
     turret: {
@@ -384,11 +384,15 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
         stability: {
             hoverStiffness: 7000, // СИНХРОНИЗИРОВАНО с игроком
             hoverDamping: 18000, // СИНХРОНИЗИРОВАНО с игроком
-            linearDamping: 0.8, // СИНХРОНИЗИРОВАНО (было 0.5)
-            angularDamping: 4.0, // СИНХРОНИЗИРОВАНО (было 3.0)
-            uprightForce: 15000, // ДОБАВЛЕНО
-            uprightDamp: 8000, // ДОБАВЛЕНО
-            emergencyForce: 25000, // ДОБАВЛЕНО
+            linearDamping: 0.8, // СИНХРОНИЗИРОВАНО с игроком
+            angularDamping: 4.0, // СИНХРОНИЗИРОВАНО с игроком
+            suspensionCompression: 4.0, // СИНХРОНИЗИРОВАНО с игроком
+            uprightForce: 18000, // СИНХРОНИЗИРОВАНО с игроком
+            uprightDamp: 8000, // СИНХРОНИЗИРОВАНО с игроком
+            stabilityForce: 3000, // СИНХРОНИЗИРОВАНО с игроком
+            emergencyForce: 18000, // СИНХРОНИЗИРОВАНО с игроком
+            liftForce: 0, // СИНХРОНИЗИРОВАНО с игроком
+            downForce: 1500, // СИНХРОНИЗИРОВАНО с игроком
         },
         climbing: {
             climbAssistForce: 40000, // СИНХРОНИЗИРОВАНО с игроком (было 120000)
@@ -398,20 +402,17 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
             wallPushForce: 25000, // СИНХРОНИЗИРОВАНО с игроком (было 80000)
             climbTorque: 12000, // СИНХРОНИЗИРОВАНО с игроком (было 25000)
         },
-        centerOfMass: new Vector3(0, -0.55, -0.3),
+        centerOfMass: new Vector3(0, -0.3, -0.1), // СИНХРОНИЗИРОВАНО с игроком
         collisionFilters: {
             membershipMask: 8,
             collideMask: 2 | 4 | 32,
         },
         arcade: {
-            // ВКЛЮЧЕНО: Аркадные параметры теперь работают как у игрока!
-            antiRollFactor: 0.3, // ВКЛЮЧЕНО (было 0)
-            downforceFactor: 2.0, // ВКЛЮЧЕНО (было 0)
-            airControl: 0.4, // ВКЛЮЧЕНО (было 0)
-            angularDragAir: 5.0, // ВКЛЮЧЕНО (было 0)
-            uprightForce: 15000, // ДОБАВЛЕНО
-            uprightDamp: 8000, // ДОБАВЛЕНО
-            emergencyForce: 25000, // ДОБАВЛЕНО
+            // ОТКЛЮЧЕНО: Аркадная физика отключена
+            antiRollFactor: 0, // ОТКЛЮЧЕНО
+            downforceFactor: 0, // ОТКЛЮЧЕНО
+            airControl: 0, // ОТКЛЮЧЕНО
+            angularDragAir: 0, // ОТКЛЮЧЕНО
         },
         projectiles: {
             baseDamage: 20,
@@ -487,7 +488,7 @@ function createDefaultConfig(): PhysicsConfig {
                 linearDamping: 0.8,
                 angularDamping: 4.0,
                 suspensionCompression: 4.0,
-                uprightForce: 12000,
+                uprightForce: 18000,
                 uprightDamp: 8000,
                 stabilityForce: 3000,
                 emergencyForce: 18000,
@@ -527,7 +528,7 @@ function createDefaultConfig(): PhysicsConfig {
                 maxDownwardSpeed: 35,
                 maxAngularSpeed: 2.5,
             },
-            centerOfMass: new Vector3(0, -0.55, -0.3),
+            centerOfMass: new Vector3(0, -0.3, -0.1),
             collisionMaterials: {
                 centerBoxFriction: 0.1,
                 centerBoxRestitution: 0.0,
@@ -543,10 +544,10 @@ function createDefaultConfig(): PhysicsConfig {
                 collideMask: 2 | 32,
             },
             arcade: {
-                antiRollFactor: 0,
-                downforceFactor: 2.0,
-                airControl: 0.4,
-                angularDragAir: 5.0,
+                antiRollFactor: 0, // ОТКЛЮЧЕНО
+                downforceFactor: 0, // ОТКЛЮЧЕНО
+                airControl: 0, // ОТКЛЮЧЕНО
+                angularDragAir: 0, // ОТКЛЮЧЕНО
             },
         },
         turret: {
@@ -609,9 +610,13 @@ function createDefaultConfig(): PhysicsConfig {
                 hoverDamping: 18000,
                 linearDamping: 0.8,
                 angularDamping: 4.0,
-                uprightForce: 15000,
+                suspensionCompression: 4.0,
+                uprightForce: 18000, // СИНХРОНИЗИРОВАНО с игроком
                 uprightDamp: 8000,
-                emergencyForce: 25000,
+                stabilityForce: 3000,
+                emergencyForce: 18000, // СИНХРОНИЗИРОВАНО с игроком
+                liftForce: 0,
+                downForce: 1500,
             },
             climbing: {
                 climbAssistForce: 40000,
@@ -621,19 +626,16 @@ function createDefaultConfig(): PhysicsConfig {
                 wallPushForce: 25000,
                 climbTorque: 12000,
             },
-            centerOfMass: new Vector3(0, -0.55, -0.3),
+            centerOfMass: new Vector3(0, -0.3, -0.1), // СИНХРОНИЗИРОВАНО с игроком
             collisionFilters: {
                 membershipMask: 8,
                 collideMask: 2 | 4 | 32,
             },
             arcade: {
-                antiRollFactor: 0.3,
-                downforceFactor: 2.0,
-                airControl: 0.4,
-                angularDragAir: 5.0,
-                uprightForce: 15000,
-                uprightDamp: 8000,
-                emergencyForce: 25000,
+                antiRollFactor: 0, // ОТКЛЮЧЕНО
+                downforceFactor: 0, // ОТКЛЮЧЕНО
+                airControl: 0, // ОТКЛЮЧЕНО
+                angularDragAir: 0, // ОТКЛЮЧЕНО
             },
             projectiles: {
                 baseDamage: 20,

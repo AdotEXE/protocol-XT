@@ -1973,11 +1973,15 @@ export class ChunkSystem {
         
         this.generateChunkContent(cx, cz, worldX, worldZ, chunkParent);
         
+        // Сохраняем chunkParent для последующего использования (нужно для синхронизации)
+        this.chunks.set(key, chunk);
+        
+        // КРИТИЧНО: Синхронизируем граничные вершины с соседними чанками для полного устранения дыр
+        const overlap = 0.5; // Используем тот же overlap что и в createGround
+        this.synchronizeBoundaryVertices(cx, cz, worldX, worldZ, this.config.chunkSize, overlap);
+        
         // ОПТИМИЗАЦИЯ: Объединяем статичные меши для уменьшения draw calls
         this.mergeStaticMeshesInChunk(chunkParent);
-        
-        // Сохраняем chunkParent для последующего использования
-        this.chunks.set(key, chunk);
     }
     
     // Get completely random biome for normal map (no distance dependency)
@@ -2422,7 +2426,7 @@ export class ChunkSystem {
         const positions = ground.getVerticesData(VertexBuffer.PositionKind)!;
         const subdivisions = Math.sqrt(positions.length / 3) - 1;
         // ИСПРАВЛЕНИЕ: Используем тот же overlap что и в createGround
-        const overlap = 0.1; // 10cm overlap для перекрытия границ
+        const overlap = 0.5; // Увеличено до 50cm для гарантии бесшовности
         
         // УЛУЧШЕНО: Проверяем границы чанка и сглаживаем их с соседними чанками
         const edgeSmoothingRadius = 3; // УВЕЛИЧЕНО с 2 до 3 для более агрессивного сглаживания
@@ -2510,26 +2514,54 @@ export class ChunkSystem {
         }
         
         // УЛУЧШЕНО: Дополнительная синхронизация граничных вершин
-        // Для граничных вершин гарантируем использование правильных координат и высот
+        // Для граничных вершин используем ТОЧНЫЕ координаты границы между чанками
         const precision = 0.001; // 1mm точность
+        const chunkSize = this.config.chunkSize;
+        
         for (let gz = 0; gz <= subdivisions; gz++) {
             for (let gx = 0; gx <= subdivisions; gx++) {
-                const isBoundary = (gx === 0 || gx === subdivisions || gz === 0 || gz === subdivisions);
+                const isBoundaryX = (gx === 0 || gx === subdivisions);
+                const isBoundaryZ = (gz === 0 || gz === subdivisions);
+                const isBoundary = isBoundaryX || isBoundaryZ;
+                
                 if (isBoundary) {
                     const idx = (gz * (subdivisions + 1) + gx) * 3;
-                    let sampleX = worldX - (size + overlap) / 2 + (gx / subdivisions) * (size + overlap);
-                    let sampleZ = worldZ - (size + overlap) / 2 + (gz / subdivisions) * (size + overlap);
                     
-                    // Округляем координаты для гарантии идентичности
-                    sampleX = Math.round(sampleX / precision) * precision;
-                    sampleZ = Math.round(sampleZ / precision) * precision;
+                    // КРИТИЧНО: Используем точные координаты границы между чанками
+                    let sampleX: number;
+                    let sampleZ: number;
+                    
+                    if (isBoundaryX) {
+                        // Вершина на границе по X
+                        if (gx === 0) {
+                            sampleX = Math.round((chunkX * chunkSize) / precision) * precision;
+                        } else {
+                            sampleX = Math.round(((chunkX + 1) * chunkSize) / precision) * precision;
+                        }
+                    } else {
+                        sampleX = worldX - (size + overlap) / 2 + (gx / subdivisions) * (size + overlap);
+                        sampleX = Math.round(sampleX / precision) * precision;
+                    }
+                    
+                    if (isBoundaryZ) {
+                        // Вершина на границе по Z
+                        if (gz === 0) {
+                            sampleZ = Math.round((chunkZ * chunkSize) / precision) * precision;
+                        } else {
+                            sampleZ = Math.round(((chunkZ + 1) * chunkSize) / precision) * precision;
+                        }
+                    } else {
+                        sampleZ = worldZ - (size + overlap) / 2 + (gz / subdivisions) * (size + overlap);
+                        sampleZ = Math.round(sampleZ / precision) * precision;
+                    }
                     
                     // Пересчитываем высоту для граничной вершины с правильными координатами
-                    const boundaryHeight = this.terrainGenerator.getHeight(sampleX, sampleZ, typeof biome === "string" ? biome : "dirt");
+                    let boundaryHeight = this.terrainGenerator.getHeight(sampleX, sampleZ, typeof biome === "string" ? biome : "dirt");
+                    // Гарантируем минимальную высоту 0.5 для предотвращения дыр
+                    boundaryHeight = Math.max(boundaryHeight, 0.5);
                     if (isFinite(boundaryHeight) && !isNaN(boundaryHeight) && boundaryHeight >= 0) {
-                        // Смешиваем с текущей высотой для плавности, но приоритет отдаём правильной высоте
-                        const currentHeight = positions[idx + 1] ?? 0;
-                        positions[idx + 1] = currentHeight * 0.3 + boundaryHeight * 0.7; // 70% новой высоты
+                        // Устанавливаем правильную высоту напрямую (100% новой высоты для граничных вершин)
+                        positions[idx + 1] = boundaryHeight;
                     }
                 }
             }
@@ -2541,9 +2573,9 @@ export class ChunkSystem {
             const height = positions[i];
             // Проверяем на undefined, NaN, Infinity и слишком низкие значения
             if (height === undefined || !isFinite(height) || isNaN(height)) {
-                positions[i] = 0.0; // Безопасная высота по умолчанию
-            } else if (height < 0.0) {
-                positions[i] = 0.0; // Минимальная высота для предотвращения дыр
+                positions[i] = 0.5; // Безопасная высота по умолчанию (не 0, чтобы избежать дыр)
+            } else if (height < 0.5) {
+                positions[i] = 0.5; // Минимальная высота 0.5 для полного устранения дыр
             }
         }
         
@@ -2552,10 +2584,196 @@ export class ChunkSystem {
         ground.refreshBoundingInfo(true);
     }
     
+    // Синхронизация граничных вершин с соседними чанками для полного устранения дыр
+    private synchronizeBoundaryVertices(chunkX: number, chunkZ: number, worldX: number, worldZ: number, size: number, overlap: number): void {
+        if (!this.terrainGenerator) return;
+        
+        // Проверяем 4 соседних чанка (север, юг, восток, запад)
+        const neighbors: Array<{ cx: number; cz: number; edge: 'north' | 'south' | 'east' | 'west' }> = [
+            { cx: chunkX, cz: chunkZ - 1, edge: 'north' },   // Север
+            { cx: chunkX, cz: chunkZ + 1, edge: 'south' },   // Юг
+            { cx: chunkX + 1, cz: chunkZ, edge: 'east' },   // Восток
+            { cx: chunkX - 1, cz: chunkZ, edge: 'west' }     // Запад
+        ];
+        
+        for (const neighbor of neighbors) {
+            const neighborKey = this.getChunkKey(neighbor.cx, neighbor.cz);
+            const neighborChunk = this.chunks.get(neighborKey);
+            
+            if (neighborChunk && neighborChunk.loaded) {
+                // Синхронизируем граничные вершины (двусторонняя синхронизация)
+                const neighborWorldX = neighbor.cx * this.config.chunkSize;
+                const neighborWorldZ = neighbor.cz * this.config.chunkSize;
+                this.syncChunkBoundary(chunkX, chunkZ, worldX, worldZ, size, overlap, neighbor.cx, neighbor.cz, neighborWorldX, neighborWorldZ, neighbor.edge as 'north' | 'south' | 'east' | 'west');
+            }
+        }
+    }
+    
+    // Синхронизация конкретной границы между двумя чанками
+    private syncChunkBoundary(
+        chunkX1: number, chunkZ1: number, worldX1: number, worldZ1: number,
+        size: number, overlap: number,
+        chunkX2: number, chunkZ2: number, worldX2: number, worldZ2: number,
+        edge: 'north' | 'south' | 'east' | 'west'
+    ): void {
+        if (!this.terrainGenerator) return;
+        
+        // Получаем оба чанка
+        const key1 = this.getChunkKey(chunkX1, chunkZ1);
+        const key2 = this.getChunkKey(chunkX2, chunkZ2);
+        const chunk1 = this.chunks.get(key1);
+        const chunk2 = this.chunks.get(key2);
+        
+        if (!chunk1 || !chunk2 || !chunk1.loaded || !chunk2.loaded) return;
+        
+        // Находим ground меши
+        const ground1 = chunk1.node.getChildMeshes(false).find(m => m.name.includes("ground")) as Mesh;
+        const ground2 = chunk2.node.getChildMeshes(false).find(m => m.name.includes("ground")) as Mesh;
+        
+        if (!ground1 || !ground2) return;
+        
+        const positions1 = ground1.getVerticesData(VertexBuffer.PositionKind);
+        const positions2 = ground2.getVerticesData(VertexBuffer.PositionKind);
+        
+        if (!positions1 || !positions2) return;
+        
+        const subdivisions = Math.sqrt(positions1.length / 3) - 1;
+        const precision = 0.001; // 1mm точность
+        
+        // Определяем какие вершины синхронизировать в зависимости от границы
+        let syncVertices1: Array<{ gx: number; gz: number }> = [];
+        let syncVertices2: Array<{ gx: number; gz: number }> = [];
+        
+        switch (edge) {
+            case 'north': // chunk1 севернее chunk2
+                // Граница chunk1 (юг): gz = subdivisions
+                // Граница chunk2 (север): gz = 0
+                for (let gx = 0; gx <= subdivisions; gx++) {
+                    syncVertices1.push({ gx, gz: subdivisions });
+                    syncVertices2.push({ gx, gz: 0 });
+                }
+                break;
+            case 'south': // chunk1 южнее chunk2
+                // Граница chunk1 (север): gz = 0
+                // Граница chunk2 (юг): gz = subdivisions
+                for (let gx = 0; gx <= subdivisions; gx++) {
+                    syncVertices1.push({ gx, gz: 0 });
+                    syncVertices2.push({ gx, gz: subdivisions });
+                }
+                break;
+            case 'east': // chunk1 восточнее chunk2
+                // Граница chunk1 (запад): gx = 0
+                // Граница chunk2 (восток): gx = subdivisions
+                for (let gz = 0; gz <= subdivisions; gz++) {
+                    syncVertices1.push({ gx: 0, gz });
+                    syncVertices2.push({ gx: subdivisions, gz });
+                }
+                break;
+            case 'west': // chunk1 западнее chunk2
+                // Граница chunk1 (восток): gx = subdivisions
+                // Граница chunk2 (запад): gx = 0
+                for (let gz = 0; gz <= subdivisions; gz++) {
+                    syncVertices1.push({ gx: subdivisions, gz });
+                    syncVertices2.push({ gx: 0, gz });
+                }
+                break;
+        }
+        
+        // Синхронизируем вершины
+        for (let i = 0; i < syncVertices1.length; i++) {
+            const v1 = syncVertices1[i];
+            const v2 = syncVertices2[i];
+            
+            if (!v1 || !v2) continue; // Пропускаем если вершины не определены
+            
+            const idx1 = (v1.gz * (subdivisions + 1) + v1.gx) * 3;
+            const idx2 = (v2.gz * (subdivisions + 1) + v2.gx) * 3;
+            
+            // КРИТИЧНО: Используем ТОЧНЫЕ координаты границы между чанками
+            // Это гарантирует идентичность координат для граничных вершин
+            const chunkSize = this.config.chunkSize;
+            let finalX: number;
+            let finalZ: number;
+            
+            switch (edge) {
+                case 'north': // chunk1 севернее chunk2, граница по Z
+                    // X координата: используем точную координату границы чанка по X
+                    // Для граничных вершин по X используем точную границу, иначе вычисляем
+                    if (v1.gx === 0) {
+                        finalX = Math.round((chunkX1 * chunkSize) / precision) * precision;
+                    } else if (v1.gx === subdivisions) {
+                        finalX = Math.round(((chunkX1 + 1) * chunkSize) / precision) * precision;
+                    } else {
+                        finalX = Math.round((worldX1 - (size + overlap) / 2 + (v1.gx / subdivisions) * (size + overlap)) / precision) * precision;
+                    }
+                    // Z координата: точная граница между чанками
+                    finalZ = Math.round((chunkZ1 * chunkSize) / precision) * precision;
+                    break;
+                case 'south': // chunk1 южнее chunk2, граница по Z
+                    // X координата: используем точную координату границы чанка по X
+                    if (v1.gx === 0) {
+                        finalX = Math.round((chunkX1 * chunkSize) / precision) * precision;
+                    } else if (v1.gx === subdivisions) {
+                        finalX = Math.round(((chunkX1 + 1) * chunkSize) / precision) * precision;
+                    } else {
+                        finalX = Math.round((worldX1 - (size + overlap) / 2 + (v1.gx / subdivisions) * (size + overlap)) / precision) * precision;
+                    }
+                    // Z координата: точная граница между чанками
+                    finalZ = Math.round(((chunkZ1 + 1) * chunkSize) / precision) * precision;
+                    break;
+                case 'east': // chunk1 восточнее chunk2, граница по X
+                    // X координата: точная граница между чанками
+                    finalX = Math.round(((chunkX1 + 1) * chunkSize) / precision) * precision;
+                    // Z координата: используем точную координату границы чанка по Z
+                    if (v1.gz === 0) {
+                        finalZ = Math.round((chunkZ1 * chunkSize) / precision) * precision;
+                    } else if (v1.gz === subdivisions) {
+                        finalZ = Math.round(((chunkZ1 + 1) * chunkSize) / precision) * precision;
+                    } else {
+                        finalZ = Math.round((worldZ1 - (size + overlap) / 2 + (v1.gz / subdivisions) * (size + overlap)) / precision) * precision;
+                    }
+                    break;
+                case 'west': // chunk1 западнее chunk2, граница по X
+                    // X координата: точная граница между чанками
+                    finalX = Math.round((chunkX1 * chunkSize) / precision) * precision;
+                    // Z координата: используем точную координату границы чанка по Z
+                    if (v1.gz === 0) {
+                        finalZ = Math.round((chunkZ1 * chunkSize) / precision) * precision;
+                    } else if (v1.gz === subdivisions) {
+                        finalZ = Math.round(((chunkZ1 + 1) * chunkSize) / precision) * precision;
+                    } else {
+                        finalZ = Math.round((worldZ1 - (size + overlap) / 2 + (v1.gz / subdivisions) * (size + overlap)) / precision) * precision;
+                    }
+                    break;
+            }
+            
+            // Получаем высоту из terrainGenerator с синхронизированными координатами
+            const biome = "dirt"; // Используем базовый биом для синхронизации
+            let syncedHeight = this.terrainGenerator.getHeight(finalX, finalZ, biome);
+            // Гарантируем минимальную высоту 0.5
+            syncedHeight = Math.max(syncedHeight, 0.5);
+            
+            if (isFinite(syncedHeight) && !isNaN(syncedHeight)) {
+                // Устанавливаем одинаковую высоту для обеих вершин
+                positions1[idx1 + 1] = syncedHeight;
+                positions2[idx2 + 1] = syncedHeight;
+            }
+        }
+        
+        // Обновляем оба меша
+        ground1.updateVerticesData(VertexBuffer.PositionKind, positions1, true);
+        ground1.refreshBoundingInfo(true);
+        ground2.updateVerticesData(VertexBuffer.PositionKind, positions2, true);
+        ground2.refreshBoundingInfo(true);
+    }
+    
     private createGround(chunkX: number, chunkZ: number, worldX: number, worldZ: number, size: number, biome: BiomeType | string, _random: SeededRandom, chunkParent: TransformNode): void {
         // ВАЖНО: Всегда создаём ground для чанка, даже если в нём есть гараж
         // Пол гаража будет создан поверх ground, но ground нужен для остальной части чанка
         // Это предотвращает появление огромных дыр размером с чанк
+        
+        // ИСПРАВЛЕНИЕ: Объявляем overlap в начале функции для правильной области видимости
+        const overlap = 0.5; // Увеличено до 50cm для гарантии бесшовности
         
         // Ground with biome-specific color
         let groundMat: string;
@@ -2575,8 +2793,6 @@ export class ChunkSystem {
             // Это создает 13x13 = 169 вершин вместо 25x25 = 625 вершин на чанк
             // Уменьшение вершин в ~3.7 раза для лучшей производительности
             const subdivisions = 12; // Оптимизировано для слабых видеокарт (Intel UHD Graphics)
-            // ИСПРАВЛЕНИЕ: Добавляем overlap для гарантии бесшовности между чанками
-            const overlap = 0.1; // 10cm overlap для перекрытия границ
             // Уникальное имя для каждого чанка, чтобы избежать конфликтов
             const ground = MeshBuilder.CreateGround(`ground_${chunkX}_${chunkZ}`, {
                 width: size + overlap,
@@ -2592,20 +2808,61 @@ export class ChunkSystem {
                 // КРИТИЧНО: Используем isPositionInGarageArea для точной проверки
                 // Это гарантирует, что террейн не будет внутри гаража
                 
-                    for (let gz = 0; gz < vertsPerSide; gz++) {
+                // КРИТИЧНО: Для граничных вершин используем ТОЧНЫЕ координаты границы между чанками
+                // Это гарантирует, что граничные вершины соседних чанков всегда используют одинаковые координаты
+                const precision = 0.001; // 1mm точность
+                const chunkSize = this.config.chunkSize;
+                
+                for (let gz = 0; gz < vertsPerSide; gz++) {
                     for (let gx = 0; gx < vertsPerSide; gx++) {
                         const idx = (gz * vertsPerSide + gx) * 3;
-                        // ИСПРАВЛЕНИЕ: Координаты sampling с учётом overlap
-                        // CreateGround создаёт вершины от -(size+overlap)/2 до +(size+overlap)/2
-                        let sampleX = worldX - (size + overlap) / 2 + (gx / subdivisions) * (size + overlap);
-                        let sampleZ = worldZ - (size + overlap) / 2 + (gz / subdivisions) * (size + overlap);
                         
-                        // ИСПРАВЛЕНИЕ: Округляем координаты для граничных вершин до фиксированной точности
-                        // Это гарантирует, что граничные вершины соседних чанков используют ТОЧНО одинаковые координаты
-                        const isBoundary = (gx === 0 || gx === subdivisions || gz === 0 || gz === subdivisions);
+                        // Определяем является ли вершина граничной
+                        const isBoundaryX = (gx === 0 || gx === subdivisions);
+                        const isBoundaryZ = (gz === 0 || gz === subdivisions);
+                        const isBoundary = isBoundaryX || isBoundaryZ;
+                        
+                        let sampleX: number;
+                        let sampleZ: number;
+                        
                         if (isBoundary) {
-                            // Округляем до точности 1mm для гарантии идентичности координат
-                            const precision = 0.001; // 1mm точность
+                            // КРИТИЧНО: Для граничных вершин используем точные координаты границы между чанками
+                            // Это гарантирует идентичность координат между соседними чанками
+                            
+                            if (isBoundaryX) {
+                                // Вершина на границе по X
+                                if (gx === 0) {
+                                    // Западная граница: точная координата границы чанка
+                                    sampleX = Math.round((chunkX * chunkSize) / precision) * precision;
+                                } else {
+                                    // Восточная граница: точная координата границы чанка
+                                    sampleX = Math.round(((chunkX + 1) * chunkSize) / precision) * precision;
+                                }
+                            } else {
+                                // Внутренняя вершина по X: вычисляем как обычно
+                                sampleX = worldX - (size + overlap) / 2 + (gx / subdivisions) * (size + overlap);
+                                sampleX = Math.round(sampleX / precision) * precision;
+                            }
+                            
+                            if (isBoundaryZ) {
+                                // Вершина на границе по Z
+                                if (gz === 0) {
+                                    // Южная граница: точная координата границы чанка
+                                    sampleZ = Math.round((chunkZ * chunkSize) / precision) * precision;
+                                } else {
+                                    // Северная граница: точная координата границы чанка
+                                    sampleZ = Math.round(((chunkZ + 1) * chunkSize) / precision) * precision;
+                                }
+                            } else {
+                                // Внутренняя вершина по Z: вычисляем как обычно
+                                sampleZ = worldZ - (size + overlap) / 2 + (gz / subdivisions) * (size + overlap);
+                                sampleZ = Math.round(sampleZ / precision) * precision;
+                            }
+                        } else {
+                            // Для внутренних вершин вычисляем как обычно
+                            sampleX = worldX - (size + overlap) / 2 + (gx / subdivisions) * (size + overlap);
+                            sampleZ = worldZ - (size + overlap) / 2 + (gz / subdivisions) * (size + overlap);
+                            // Округляем для консистентности
                             sampleX = Math.round(sampleX / precision) * precision;
                             sampleZ = Math.round(sampleZ / precision) * precision;
                         }
@@ -2747,10 +3004,9 @@ export class ChunkSystem {
                             }
                             
                             // КРИТИЧНО: Минимальная высота для предотвращения глубоких дыр
-                            // УВЕЛИЧЕНА минимальная высота с -2.0 до 0.0 для предотвращения дыр
-                            if (height < 0.0) {
-                                height = 0.0;
-                            }
+                            // УВЕЛИЧЕНА минимальная высота до 0.5 для полного устранения дыр
+                            // Гарантируем минимальную высоту 0.5 для предотвращения дыр
+                            height = Math.max(height, 0.5);
                             
                             // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Если высота NaN или Infinity, устанавливаем безопасное значение
                             if (!isFinite(height) || isNaN(height)) {
@@ -2768,8 +3024,8 @@ export class ChunkSystem {
                     // Проверяем на undefined, NaN, Infinity и слишком низкие значения
                     if (height === undefined || !isFinite(height) || isNaN(height)) {
                         positions[i] = 0.5; // Безопасная высота по умолчанию (не 0, чтобы избежать дыр)
-                    } else if (height < 0.0) {
-                        positions[i] = 0.0; // Минимальная высота для предотвращения дыр
+                    } else if (height < 0.5) {
+                        positions[i] = 0.5; // Минимальная высота 0.5 для полного устранения дыр
                     }
                 }
                 
@@ -2817,6 +3073,11 @@ export class ChunkSystem {
                 
                 ground.updateVerticesData(VertexBuffer.PositionKind, positions, true);
                 ground.refreshBoundingInfo(true);
+                
+                // КРИТИЧНО: Немедленная синхронизация граничных вершин с соседними чанками
+                // Это гарантирует что граничные вершины совпадают даже если соседние чанки загружены позже
+                // overlap уже объявлен выше в функции
+                this.synchronizeBoundaryVertices(chunkX, chunkZ, worldX, worldZ, size, overlap);
             }
             
             // Позиция относительно chunkParent (который уже позиционирован в worldX, worldZ)

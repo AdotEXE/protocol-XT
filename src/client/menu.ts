@@ -778,13 +778,19 @@ export class MainMenu {
                         </button>
                     </div>
                     <div class="auth-buttons" id="auth-buttons">
-                        <button class="menu-btn" id="btn-login">
+                        <button class="menu-btn under-construction-btn" id="btn-login">
                             <span class="btn-icon">🔐</span>
                             <span class="btn-label">ВОЙТИ</span>
+                            <div class="under-construction-overlay">
+                                <span class="under-construction-text">UNDER CONSTRUCTION</span>
+                            </div>
                         </button>
-                        <button class="menu-btn secondary" id="btn-register">
+                        <button class="menu-btn secondary under-construction-btn" id="btn-register">
                             <span class="btn-icon">📝</span>
                             <span class="btn-label">РЕГИСТРАЦИЯ</span>
+                            <div class="under-construction-overlay">
+                                <span class="under-construction-text">UNDER CONSTRUCTION</span>
+                            </div>
                         </button>
                     </div>
                 </div>
