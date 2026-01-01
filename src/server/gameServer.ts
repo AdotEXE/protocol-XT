@@ -222,6 +222,10 @@ export class GameServer {
                 if (player) this.handleCancelQueue(player, message.data);
                 break;
                 
+            case ClientMessageType.GAME_INVITE:
+                if (player) this.handleGameInvite(player, message.data);
+                break;
+                
             case ClientMessageType.START_GAME:
                 if (player) this.handleStartGame(player, message.data);
                 break;
@@ -499,6 +503,10 @@ export class GameServer {
         if (availableRooms.length > 0) {
             // Нашли существующую комнату - присоединяемся к ней
             const room = availableRooms[0]; // Берем первую доступную
+            if (!room) {
+                serverLogger.error(`[Server] Quick play: комната не найдена, хотя массив не пуст`);
+                return;
+            }
             serverLogger.log(`[Server] Quick play: присоединение к существующей комнате ${room.id} (режим: ${mode})`);
             
             if (player.roomId) {
@@ -795,6 +803,56 @@ export class GameServer {
         const { mode, region } = data;
         this.matchmaking.removeFromQueue(player, mode, region);
         serverLogger.log(`[Server] Player ${player.id} cancelled queue for ${mode}`);
+    }
+    
+    private handleGameInvite(player: ServerPlayer, data: any): void {
+        const { targetPlayerId, gameMode, roomId } = data;
+        
+        if (!targetPlayerId) {
+            this.sendError(player.socket, "INVALID_INVITE", "Target player ID is required");
+            return;
+        }
+        
+        // Находим целевого игрока
+        const targetPlayer = this.getPlayerById(targetPlayerId);
+        if (!targetPlayer || !targetPlayer.connected) {
+            this.sendError(player.socket, "PLAYER_NOT_FOUND", "Target player not found or not connected");
+            return;
+        }
+        
+        // Если указана комната, проверяем что отправитель в ней
+        if (roomId) {
+            if (player.roomId !== roomId) {
+                this.sendError(player.socket, "NOT_IN_ROOM", "You are not in the specified room");
+                return;
+            }
+            
+            const room = this.rooms.get(roomId);
+            if (!room) {
+                this.sendError(player.socket, "ROOM_NOT_FOUND", "Room not found");
+                return;
+            }
+            
+            // Отправляем приглашение в комнату
+            this.send(targetPlayer.socket, createServerMessage(ServerMessageType.GAME_INVITE, {
+                fromPlayerId: player.id,
+                fromPlayerName: player.name,
+                roomId: roomId,
+                gameMode: gameMode || room.mode,
+                worldSeed: room.worldSeed
+            }));
+            
+            serverLogger.log(`[Server] Game invite sent from ${player.id} to ${targetPlayerId} for room ${roomId}`);
+        } else {
+            // Приглашение без комнаты - создаем новую или используем режим игры
+            this.send(targetPlayer.socket, createServerMessage(ServerMessageType.GAME_INVITE, {
+                fromPlayerId: player.id,
+                fromPlayerName: player.name,
+                gameMode: gameMode || "ffa"
+            }));
+            
+            serverLogger.log(`[Server] Game invite sent from ${player.id} to ${targetPlayerId} for mode ${gameMode || "ffa"}`);
+        }
     }
     
     private handleDisconnect(ws: WebSocket): void {
@@ -1103,6 +1161,10 @@ export class GameServer {
             }
         }
         return undefined;
+    }
+    
+    private getPlayerById(playerId: string): ServerPlayer | undefined {
+        return this.players.get(playerId);
     }
     
     /**

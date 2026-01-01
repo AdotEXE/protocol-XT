@@ -6,6 +6,7 @@
  * - TankWeaponConfig - конфигурация боеприпасов
  * - TankAiming - система прицеливания
  * - TankDamage - система урона
+ * - RicochetSystem - система рикошета
  */
 
 // Конфигурация оружия
@@ -19,4 +20,20 @@ export type { AimingConfig, AimingState, TrajectoryResult } from './TankAiming';
 // Система урона
 export { TankDamage, DAMAGE_TYPES, DEFAULT_ARMOR_CONFIG, VULNERABLE_MODULES } from './TankDamage';
 export type { DamageType, DamageData, DamageResult, ArmorConfig } from './TankDamage';
+
+// Система рикошета
+export { 
+    RicochetSystem, 
+    ricochetSystem,
+    SURFACE_RICOCHET_CONFIG as RICOCHET_SURFACE_CONFIG,
+    DEFAULT_RICOCHET_CONFIG,
+    RICOCHET_CANNON_CONFIG 
+} from './RicochetSystem';
+export type { 
+    SurfaceMaterial, 
+    SurfaceRicochetParams,
+    RicochetConfig, 
+    RicochetParams, 
+    RicochetResult 
+} from './RicochetSystem';
 

@@ -525,6 +525,144 @@ export class SessionSettings {
     dispose(): void {
         this.container.remove();
     }
+    
+    /**
+     * Рендерит контент меню в переданный контейнер (для UnifiedMenu)
+     */
+    renderToContainer(container: HTMLElement): void {
+        container.innerHTML = this.getEmbeddedContentHTML();
+        this.setupEmbeddedEventListeners(container);
+    }
+    
+    /**
+     * Возвращает HTML контента без overlay wrapper
+     */
+    private getEmbeddedContentHTML(): string {
+        return `
+            <div class="session-embedded-content">
+                <h3 style="color: #0ff; margin: 0 0 16px 0; font-size: 16px; text-shadow: 0 0 8px rgba(0, 255, 255, 0.5);">
+                    🎮 Настройки сессии
+                </h3>
+                
+                <div class="session-section-emb">
+                    <div style="color: #ff0; font-size: 13px; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid rgba(0, 255, 4, 0.3); padding-bottom: 5px;">
+                        ВРАГИ
+                    </div>
+                    <div style="margin-bottom: 12px;">
+                        <label style="color: #aaa; font-size: 11px; display: block; margin-bottom: 5px;">
+                            Количество врагов: <span class="ss-enemy-count-val" style="color: #0f0; font-weight: bold;">${this.settings.enemyCount}</span>
+                        </label>
+                        <input type="range" class="ss-enemy-count-emb" min="0" max="50" value="${this.settings.enemyCount}" style="width: 100%;">
+                    </div>
+                    <div style="margin-bottom: 12px;">
+                        <label style="color: #aaa; font-size: 11px; display: block; margin-bottom: 5px;">
+                            Интервал спавна (сек): <span class="ss-spawn-interval-val" style="color: #0f0; font-weight: bold;">${this.settings.spawnInterval}</span>
+                        </label>
+                        <input type="range" class="ss-spawn-interval-emb" min="1" max="60" value="${this.settings.spawnInterval}" style="width: 100%;">
+                    </div>
+                </div>
+                
+                <div class="session-section-emb">
+                    <div style="color: #ff0; font-size: 13px; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid rgba(0, 255, 4, 0.3); padding-bottom: 5px;">
+                        СЛОЖНОСТЬ AI
+                    </div>
+                    <div style="margin-bottom: 12px;">
+                        <select class="ss-difficulty-emb" style="
+                            width: 100%; padding: 6px 8px;
+                            background: rgba(0, 5, 0, 0.5);
+                            border: 1px solid rgba(0, 255, 4, 0.4);
+                            border-radius: 4px; color: #0f0;
+                            font-family: Consolas, Monaco, monospace;
+                        ">
+                            <option value="easy" ${this.settings.aiDifficulty === 'easy' ? 'selected' : ''}>Лёгкая</option>
+                            <option value="medium" ${this.settings.aiDifficulty === 'medium' ? 'selected' : ''}>Средняя</option>
+                            <option value="hard" ${this.settings.aiDifficulty === 'hard' ? 'selected' : ''}>Сложная</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="session-section-emb">
+                    <div style="color: #ff0; font-size: 13px; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid rgba(0, 255, 4, 0.3); padding-bottom: 5px;">
+                        РЕЖИМ ИГРЫ
+                    </div>
+                    <div style="margin-bottom: 12px;">
+                        <select class="ss-gamemode-emb" style="
+                            width: 100%; padding: 6px 8px;
+                            background: rgba(0, 5, 0, 0.5);
+                            border: 1px solid rgba(0, 255, 4, 0.4);
+                            border-radius: 4px; color: #0f0;
+                            font-family: Consolas, Monaco, monospace;
+                        ">
+                            <option value="normal" ${this.settings.gameMode === 'normal' ? 'selected' : ''}>Обычный</option>
+                            <option value="survival" ${this.settings.gameMode === 'survival' ? 'selected' : ''}>Выживание</option>
+                            <option value="capture" ${this.settings.gameMode === 'capture' ? 'selected' : ''}>Захват</option>
+                            <option value="raid" ${this.settings.gameMode === 'raid' ? 'selected' : ''}>Рейд</option>
+                            <option value="sandbox" ${this.settings.gameMode === 'sandbox' ? 'selected' : ''}>Песочница</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 10px; margin-top: 16px;">
+                    <button class="panel-btn primary ss-apply-btn" style="flex: 1; padding: 10px;">✓ Применить</button>
+                    <button class="panel-btn ss-reset-btn" style="flex: 1; padding: 10px;">↻ Сбросить</button>
+                </div>
+            </div>
+        `;
+    }
+    
+    /**
+     * Привязывает обработчики событий для embedded режима
+     */
+    private setupEmbeddedEventListeners(container: HTMLElement): void {
+        const enemyCountSlider = container.querySelector(".ss-enemy-count-emb") as HTMLInputElement;
+        const enemyCountVal = container.querySelector(".ss-enemy-count-val");
+        const spawnIntervalSlider = container.querySelector(".ss-spawn-interval-emb") as HTMLInputElement;
+        const spawnIntervalVal = container.querySelector(".ss-spawn-interval-val");
+        const difficultySelect = container.querySelector(".ss-difficulty-emb") as HTMLSelectElement;
+        const gamemodeSelect = container.querySelector(".ss-gamemode-emb") as HTMLSelectElement;
+        const applyBtn = container.querySelector(".ss-apply-btn");
+        const resetBtn = container.querySelector(".ss-reset-btn");
+        
+        enemyCountSlider?.addEventListener("input", () => {
+            if (enemyCountVal) enemyCountVal.textContent = enemyCountSlider.value;
+            this.settings.enemyCount = parseInt(enemyCountSlider.value);
+        });
+        
+        spawnIntervalSlider?.addEventListener("input", () => {
+            if (spawnIntervalVal) spawnIntervalVal.textContent = spawnIntervalSlider.value;
+            this.settings.spawnInterval = parseInt(spawnIntervalSlider.value);
+        });
+        
+        difficultySelect?.addEventListener("change", () => {
+            this.settings.aiDifficulty = difficultySelect.value as "easy" | "medium" | "hard";
+        });
+        
+        gamemodeSelect?.addEventListener("change", () => {
+            this.settings.gameMode = gamemodeSelect.value as GameMode;
+        });
+        
+        applyBtn?.addEventListener("click", () => {
+            this.applySettings();
+            if (this.game?.hud) {
+                this.game.hud.showMessage("Настройки сессии применены!", "#0f0", 2000);
+            }
+        });
+        
+        resetBtn?.addEventListener("click", () => {
+            this.settings = this.getDefaultSettings();
+            // Обновляем UI
+            if (enemyCountSlider) enemyCountSlider.value = String(this.settings.enemyCount);
+            if (enemyCountVal) enemyCountVal.textContent = String(this.settings.enemyCount);
+            if (spawnIntervalSlider) spawnIntervalSlider.value = String(this.settings.spawnInterval);
+            if (spawnIntervalVal) spawnIntervalVal.textContent = String(this.settings.spawnInterval);
+            if (difficultySelect) difficultySelect.value = this.settings.aiDifficulty;
+            if (gamemodeSelect) gamemodeSelect.value = this.settings.gameMode;
+            
+            if (this.game?.hud) {
+                this.game.hud.showMessage("Настройки сброшены!", "#ff0", 2000);
+            }
+        });
+    }
 }
 
 

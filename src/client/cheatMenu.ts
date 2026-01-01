@@ -475,8 +475,8 @@ export class CheatMenu {
                 if (this.tank) {
                     // Получаем высоту террейна в центре
                     const groundHeight = this.getGroundHeight(0, 0);
-                    // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-                    const safeHeight = Math.max(groundHeight + 2.0, 3.0);
+                    // Безопасная высота: +5м над террейном, минимум 7м
+                    const safeHeight = Math.max(groundHeight + 5.0, 7.0);
                     
                     const targetPos = new Vector3(0, safeHeight, 0);
                     this.tank.chassis.position = targetPos;
@@ -508,8 +508,8 @@ export class CheatMenu {
                     
                     // Получаем высоту террейна
                     const groundHeight = this.getGroundHeight(x, z);
-                    // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-                    const safeHeight = Math.max(groundHeight + 2.0, 3.0);
+                    // Безопасная высота: +5м над террейном, минимум 7м
+                    const safeHeight = Math.max(groundHeight + 5.0, 7.0);
                     
                     const targetPos = new Vector3(x, safeHeight, z);
                     this.tank.chassis.position = targetPos;
@@ -540,8 +540,8 @@ export class CheatMenu {
                     if (garagePos) {
                         // Получаем высоту террейна под гаражем
                         const groundHeight = this.getGroundHeight(garagePos.x, garagePos.z);
-                        // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-                        const safeHeight = Math.max(groundHeight + 2.0, 3.0);
+                        // Безопасная высота: +5м над террейном, минимум 7м
+                        const safeHeight = Math.max(groundHeight + 5.0, 7.0);
                         
                         const targetPos = new Vector3(garagePos.x, safeHeight, garagePos.z);
                         this.tank.chassis.position = targetPos;
@@ -579,8 +579,8 @@ export class CheatMenu {
                         
                         // Получаем высоту террейна
                         const groundHeight = this.getGroundHeight(spawnPos.x, spawnPos.z);
-                        // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-                        const safeHeight = Math.max(groundHeight + 2.0, 3.0);
+                        // Безопасная высота: +5м над террейном, минимум 7м
+                        const safeHeight = Math.max(groundHeight + 5.0, 7.0);
                         
                         const targetPos = new Vector3(spawnPos.x, safeHeight, spawnPos.z);
                         this.tank.chassis.position = targetPos;
@@ -626,8 +626,8 @@ export class CheatMenu {
                         
                         // Получаем высоту террейна
                         const groundHeight = this.getGroundHeight(spawnPos.x, spawnPos.z);
-                        // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-                        const safeHeight = Math.max(groundHeight + 2.0, 3.0);
+                        // Безопасная высота: +5м над террейном, минимум 7м
+                        const safeHeight = Math.max(groundHeight + 5.0, 7.0);
                         
                         const targetPos = new Vector3(spawnPos.x, safeHeight, spawnPos.z);
                         this.tank.chassis.position = targetPos;
@@ -672,8 +672,8 @@ export class CheatMenu {
                     if (!isNaN(posX) && !isNaN(posZ)) {
                         // КРИТИЧНО: Вычисляем высоту террейна автоматически
                         const groundHeight = this.getGroundHeight(posX, posZ);
-                        // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-                        const safeHeight = Math.max(groundHeight + 2.0, 3.0);
+                        // Безопасная высота: +5м над террейном, минимум 7м
+                        const safeHeight = Math.max(groundHeight + 5.0, 7.0);
                         
                         const targetPos = new Vector3(posX, safeHeight, posZ);
                         this.tank.chassis.position = targetPos;
@@ -848,14 +848,13 @@ export class CheatMenu {
                 const coords = prompt("Введите X, Z через запятую (Y вычисляется автоматически):", "0, 0");
                 if (coords && this.tank && this.tank.chassis) {
                     const parts = coords.split(",").map(s => parseFloat(s.trim()));
-                    if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-                        const posX = parts[0];
-                        const posZ = parts[1];
-                        
+                    const posX = parts[0];
+                    const posZ = parts[1];
+                    if (parts.length >= 2 && posX !== undefined && posZ !== undefined && !isNaN(posX) && !isNaN(posZ)) {
                         // КРИТИЧНО: Вычисляем высоту террейна автоматически
                         const groundHeight = this.getGroundHeight(posX, posZ);
-                        // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-                        const safeHeight = Math.max(groundHeight + 2.0, 3.0);
+                        // Безопасная высота: +5м над террейном, минимум 7м
+                        const safeHeight = Math.max(groundHeight + 5.0, 7.0);
                         
                         const targetPos = new Vector3(posX, safeHeight, posZ);
                         this.tank.chassis.position = targetPos;
@@ -1185,9 +1184,9 @@ export class CheatMenu {
             const spawnZ = pos.z + Math.sin(angle) * distance;
             
             // КРИТИЧНО: Вычисляем высоту террейна и спавним НАД террейном
-            const groundHeight = (this.game as any).getGroundHeight ? (this.game as any).getGroundHeight(spawnX, spawnZ) : 2.0;
-            // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-            const spawnY = Math.max(groundHeight + 2.0, 3.0);
+            const groundHeight = (this.game as any).getGroundHeight ? (this.game as any).getGroundHeight(spawnX, spawnZ) : 5.0;
+            // Безопасная высота: +5м над террейном, минимум 7м
+            const spawnY = Math.max(groundHeight + 5.0, 7.0);
             
             const spawnPos = new Vector3(spawnX, spawnY, spawnZ);
             
@@ -1761,6 +1760,187 @@ export class CheatMenu {
     
     dispose(): void {
         this.container.remove();
+    }
+    
+    /**
+     * Рендерит контент меню в переданный контейнер (для UnifiedMenu)
+     */
+    renderToContainer(container: HTMLElement): void {
+        container.innerHTML = this.getEmbeddedContentHTML();
+        this.setupEmbeddedEventListeners(container);
+    }
+    
+    /**
+     * Возвращает HTML контента без overlay wrapper
+     */
+    private getEmbeddedContentHTML(): string {
+        const categories = ["combat", "movement", "resources", "debug", "world", "time", "visual", "other"];
+        const categoryNames: { [key: string]: string } = {
+            combat: "⚔ БОЕВЫЕ",
+            movement: "🏃 ДВИЖЕНИЕ",
+            resources: "💰 РЕСУРСЫ",
+            debug: "🐛 ОТЛАДКА",
+            world: "🌍 МИР",
+            time: "⏰ ВРЕМЯ",
+            visual: "👁 ВИЗУАЛЬНЫЕ",
+            other: "🔧 ПРОЧЕЕ"
+        };
+        
+        let tabsHtml = "";
+        let contentHtml = "";
+        
+        categories.forEach((category, index) => {
+            const categoryCheats = Array.from(this.cheats.values()).filter(c => c.category === category);
+            if (categoryCheats.length === 0) return;
+            
+            tabsHtml += `<button class="cheat-tab-emb ${index === 0 ? 'active' : ''}" data-category="${category}">
+                ${categoryNames[category]}
+            </button>`;
+            
+            contentHtml += `<div class="cheat-tab-content-emb ${index === 0 ? 'active' : ''}" data-category="${category}">`;
+            
+            categoryCheats.forEach(cheat => {
+                if (cheat.type === "action") {
+                    contentHtml += `
+                        <div class="cheat-item-emb cheat-action-emb" data-cheat-id="${cheat.id}">
+                            <div class="cheat-info-emb">
+                                <div class="cheat-name-emb">${cheat.name}</div>
+                                <div class="cheat-desc-emb">${cheat.description}</div>
+                            </div>
+                            <button class="cheat-action-btn-emb" data-cheat-btn="${cheat.id}">
+                                ${cheat.buttonText || "ACTIVATE"}
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    contentHtml += `
+                        <div class="cheat-item-emb" data-cheat-id="${cheat.id}">
+                            <div class="cheat-info-emb">
+                                <div class="cheat-name-emb">${cheat.name}</div>
+                                <div class="cheat-desc-emb">${cheat.description}</div>
+                            </div>
+                            <label class="cheat-toggle-emb">
+                                <input type="checkbox" data-cheat-toggle="${cheat.id}" ${cheat.enabled ? "checked" : ""}>
+                                <span class="cheat-slider-emb"></span>
+                            </label>
+                        </div>
+                    `;
+                }
+            });
+            
+            contentHtml += `</div>`;
+        });
+        
+        return `
+            <div class="cheat-embedded-content">
+                <h3 style="color: #0ff; margin: 0 0 16px 0; font-size: 16px; text-shadow: 0 0 8px rgba(0, 255, 255, 0.5);">
+                    🎯 Меню читов
+                </h3>
+                <div class="cheat-tabs-emb">${tabsHtml}</div>
+                <div class="cheat-content-emb">${contentHtml}</div>
+            </div>
+            <style>
+                .cheat-tabs-emb {
+                    display: flex;
+                    gap: 4px;
+                    margin-bottom: 12px;
+                    flex-wrap: wrap;
+                    padding-bottom: 8px;
+                    border-bottom: 1px solid rgba(0, 255, 4, 0.3);
+                }
+                .cheat-tab-emb {
+                    padding: 6px 10px;
+                    background: rgba(0, 20, 0, 0.3);
+                    border: 1px solid rgba(0, 255, 4, 0.3);
+                    color: #7f7;
+                    cursor: pointer;
+                    font-size: 10px;
+                    font-weight: bold;
+                    font-family: Consolas, Monaco, monospace;
+                    border-radius: 4px;
+                    transition: all 0.2s;
+                }
+                .cheat-tab-emb:hover { background: rgba(0, 40, 0, 0.5); color: #0f0; }
+                .cheat-tab-emb.active { background: rgba(0, 255, 4, 0.2); color: #0f0; border-color: rgba(0, 255, 4, 0.8); }
+                .cheat-tab-content-emb { display: none; }
+                .cheat-tab-content-emb.active { display: block; }
+                .cheat-item-emb {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 8px 10px;
+                    margin-bottom: 6px;
+                    background: rgba(0, 5, 0, 0.3);
+                    border: 1px solid rgba(0, 255, 4, 0.2);
+                    border-radius: 4px;
+                    gap: 10px;
+                }
+                .cheat-info-emb { flex: 1; min-width: 0; }
+                .cheat-name-emb { font-size: 11px; color: #0f0; font-weight: bold; margin-bottom: 2px; }
+                .cheat-desc-emb { font-size: 9px; color: #7f7; }
+                .cheat-toggle-emb { position: relative; display: inline-block; width: 44px; height: 22px; flex-shrink: 0; }
+                .cheat-toggle-emb input { opacity: 0; width: 0; height: 0; }
+                .cheat-slider-emb {
+                    position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+                    background: rgba(0, 5, 0, 0.5); transition: 0.3s; border-radius: 22px;
+                    border: 1px solid rgba(0, 255, 4, 0.4);
+                }
+                .cheat-slider-emb:before {
+                    position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px;
+                    background: rgba(0, 255, 4, 0.6); transition: 0.3s; border-radius: 50%;
+                }
+                .cheat-toggle-emb input:checked + .cheat-slider-emb { background: rgba(0, 255, 4, 0.3); border-color: rgba(0, 255, 4, 0.6); }
+                .cheat-toggle-emb input:checked + .cheat-slider-emb:before { transform: translateX(22px); background: #0f0; }
+                .cheat-action-btn-emb {
+                    padding: 6px 10px; background: linear-gradient(180deg, rgba(0, 255, 4, 0.3), rgba(0, 255, 4, 0.1));
+                    border: 1px solid rgba(0, 255, 4, 0.8); border-radius: 4px; color: #0f0;
+                    font-size: 10px; font-weight: bold; cursor: pointer; transition: all 0.2s;
+                    font-family: Consolas, Monaco, monospace; min-width: 70px; flex-shrink: 0;
+                }
+                .cheat-action-btn-emb:hover { background: linear-gradient(180deg, rgba(0, 255, 4, 0.5), rgba(0, 255, 4, 0.3)); transform: scale(1.05); }
+                .cheat-action-emb { background: rgba(0, 30, 0, 0.4); }
+            </style>
+        `;
+    }
+    
+    /**
+     * Привязывает обработчики событий для embedded режима
+     */
+    private setupEmbeddedEventListeners(container: HTMLElement): void {
+        // Обработчики вкладок
+        const tabs = container.querySelectorAll(".cheat-tab-emb");
+        tabs.forEach(tab => {
+            tab.addEventListener("click", () => {
+                const category = (tab as HTMLElement).dataset.category;
+                if (!category) return;
+                
+                container.querySelectorAll(".cheat-tab-emb").forEach(t => t.classList.remove("active"));
+                container.querySelectorAll(".cheat-tab-content-emb").forEach(c => c.classList.remove("active"));
+                
+                tab.classList.add("active");
+                const content = container.querySelector(`.cheat-tab-content-emb[data-category="${category}"]`);
+                if (content) content.classList.add("active");
+            });
+        });
+        
+        // Обработчики переключателей (toggle)
+        this.cheats.forEach((cheat, id) => {
+            if (cheat.type === "action") {
+                const button = container.querySelector(`[data-cheat-btn="${id}"]`) as HTMLButtonElement;
+                if (button) {
+                    button.addEventListener("click", () => cheat.toggle());
+                }
+            } else {
+                const checkbox = container.querySelector(`[data-cheat-toggle="${id}"]`) as HTMLInputElement;
+                if (checkbox) {
+                    checkbox.addEventListener("change", () => {
+                        cheat.toggle();
+                        // Обновляем визуальное состояние
+                        checkbox.checked = cheat.enabled;
+                    });
+                }
+            }
+        });
     }
 }
 

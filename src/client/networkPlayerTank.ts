@@ -264,14 +264,28 @@ export class NetworkPlayerTank {
                 currentPos
             );
         } else if (this.interpolationAlpha < 1) {
-            // Cubic interpolation (smoothstep) for smoother movement
+            // Enhanced cubic interpolation with velocity-based prediction
             const t = this.smoothstep(0, 1, this.interpolationAlpha);
-            Vector3.LerpToRef(
-                this.networkPlayer.lastPosition,
-                targetPos,
-                t,
-                currentPos
-            );
+            
+            // Use velocity for better prediction during interpolation
+            if (this.estimatedVelocity && this.estimatedVelocity.lengthSquared() > 0.01) {
+                // Add velocity-based offset for smoother prediction
+                const velocityOffset = this.estimatedVelocity.scale(this.interpolationAlpha * 0.016); // ~1 frame ahead
+                const predictedPos = this.networkPlayer.lastPosition.add(velocityOffset);
+                Vector3.LerpToRef(
+                    this.networkPlayer.lastPosition,
+                    predictedPos,
+                    t,
+                    this.chassis.position
+                );
+            } else {
+                Vector3.LerpToRef(
+                    this.networkPlayer.lastPosition,
+                    targetPos,
+                    t,
+                    currentPos
+                );
+            }
         } else {
             currentPos.copyFrom(targetPos);
         }

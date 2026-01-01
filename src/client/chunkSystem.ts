@@ -4,6 +4,7 @@ import {
     MeshBuilder,
     StandardMaterial,
     Color3,
+    Color4,
     PhysicsAggregate,
     PhysicsShapeType,
     PhysicsMotionType,
@@ -68,10 +69,21 @@ interface ChunkConfig {
     unloadDistance: number;
     worldSeed: number;
     mapType?: MapType;
+    enableTerrainEdges?: boolean; // Показывать рёбра полигонов террейна (по умолчанию false)
 }
 
 // Biome types for variety
 type BiomeType = "city" | "industrial" | "residential" | "park" | "wasteland" | "military";
+
+// Biome color definitions for smooth blending (RGB values 0-1)
+const BIOME_COLORS: Record<BiomeType, { r: number; g: number; b: number }> = {
+    city: { r: 0.3, g: 0.3, b: 0.35 },        // dark gray (asphalt)
+    industrial: { r: 0.45, g: 0.4, b: 0.35 }, // gray-brown (gravel)
+    residential: { r: 0.3, g: 0.45, b: 0.25 }, // dark green (lawn)
+    park: { r: 0.4, g: 0.6, b: 0.3 },          // green (grass)
+    wasteland: { r: 0.5, g: 0.4, b: 0.3 },     // brown (dirt)
+    military: { r: 0.7, g: 0.6, b: 0.4 }       // tan (sand)
+};
 
 export class ChunkSystem {
     private scene: Scene;
@@ -159,8 +171,8 @@ export class ChunkSystem {
     // Кеш для материалов с модификациями по высоте
     private heightTintedMaterials: Map<string, StandardMaterial> = new Map();
     
-    // Кеш для контрастных цветов краев
-    private contrastEdgeColors: Map<string, Color3> = new Map();
+    // Кеш для контрастных цветов краев (Color4 для EdgesRenderer)
+    private contrastEdgeColors: Map<string, Color4> = new Map();
     
     public stats = {
         loadedChunks: 0,
@@ -187,6 +199,7 @@ export class ChunkSystem {
             unloadDistance: 3,
             worldSeed: Date.now(),
             mapType: "normal", // По умолчанию
+            enableTerrainEdges: false, // Линии рёбер террейна выключены по умолчанию
             ...config
         };
         // ChunkSystem constructor called
@@ -417,8 +430,9 @@ export class ChunkSystem {
     /**
      * Получить контрастный цвет краев на основе яркости материала
      * Использует кеш для оптимизации
+     * ИСПРАВЛЕНО: Возвращает Color4 (EdgesRenderer требует Color4, а не Color3)
      */
-    private getContrastEdgeColor(materialName: string): Color3 {
+    private getContrastEdgeColor(materialName: string): Color4 {
         // Проверяем кеш
         const cached = this.contrastEdgeColors.get(materialName);
         if (cached) return cached;
@@ -431,16 +445,17 @@ export class ChunkSystem {
         const luminance = 0.299 * baseColor.r + 0.587 * baseColor.g + 0.114 * baseColor.b;
         
         // Определяем контрастный цвет на основе яркости
-        let edgeColor: Color3;
+        // ИСПРАВЛЕНО: Используем Color4 с альфа-каналом для EdgesRenderer
+        let edgeColor: Color4;
         if (luminance < 0.3) {
             // Темные материалы - светлые края
-            edgeColor = new Color3(0.7, 0.7, 0.7);
+            edgeColor = new Color4(0.7, 0.7, 0.7, 1);
         } else if (luminance > 0.5) {
             // Светлые материалы - темные края
-            edgeColor = new Color3(0.15, 0.15, 0.15);
+            edgeColor = new Color4(0.15, 0.15, 0.15, 1);
         } else {
             // Средние материалы - нейтральные края
-            edgeColor = new Color3(0.4, 0.4, 0.4);
+            edgeColor = new Color4(0.4, 0.4, 0.4, 1);
         }
         
         // Сохраняем в кеш
@@ -536,9 +551,104 @@ export class ChunkSystem {
     }
     
     /**
-     * Применить vertex colors на основе высоты вершин для визуализации высот
+     * Получить биом для позиции с учётом плавного перехода через шум.
+     * Используется для vertex color blending на границах биомов.
      */
-    private applyHeightVertexColors(ground: Mesh, positions: Float32Array | number[] | null, _vertsPerSide: number): void {
+    private getBiomeColorAtPosition(worldX: number, worldZ: number): { r: number; g: number; b: number } {
+        if (!this.biomeNoise) {
+            return BIOME_COLORS.park; // Fallback
+        }
+        
+        // Масштаб шума для переходов (меньше = более плавные переходы)
+        const transitionScale = 0.015; // ~40-60m transition zones
+        const detailScale = 0.008; // Крупномасштабный шум для основных зон
+        
+        // Используем многослойный шум для естественных переходов
+        const n1 = (this.biomeNoise.fbm(worldX * detailScale, worldZ * detailScale, 3, 2.0, 0.5) + 1) / 2;
+        const n2 = (this.biomeNoise.fbm(worldX * transitionScale + 500, worldZ * transitionScale + 500, 2, 2.0, 0.6) + 1) / 2;
+        const n3 = (this.biomeNoise.fbm(worldX * detailScale * 0.5 - 300, worldZ * detailScale * 0.5 - 300, 2, 2.0, 0.4) + 1) / 2;
+        
+        // Комбинированный шум для более естественных переходов
+        const blendNoise = n1 * 0.5 + n2 * 0.3 + n3 * 0.2;
+        
+        // Расстояние от центра карты влияет на распределение биомов
+        const dist = Math.sqrt(worldX * worldX + worldZ * worldZ);
+        const distFactor = Math.min(dist / 400, 1); // 0 в центре, 1 на краях
+        
+        // Определяем веса биомов на основе шума и расстояния
+        let weights: Record<BiomeType, number> = {
+            city: 0,
+            industrial: 0,
+            residential: 0,
+            park: 0,
+            wasteland: 0,
+            military: 0
+        };
+        
+        // Центральная зона - больше города
+        if (dist < 120) {
+            weights.city = 0.6 - distFactor * 0.3;
+            weights.industrial = 0.2 + blendNoise * 0.15;
+            weights.residential = 0.15;
+            weights.park = 0.05 + n2 * 0.1;
+        }
+        // Средняя зона - смешанная
+        else if (dist < 250) {
+            const zoneFactor = (dist - 120) / 130; // 0 to 1
+            weights.city = (0.3 - zoneFactor * 0.2) * (1 - blendNoise * 0.3);
+            weights.industrial = 0.2 + zoneFactor * 0.1;
+            weights.residential = 0.25 + zoneFactor * 0.1;
+            weights.park = 0.15 + blendNoise * 0.2;
+            weights.wasteland = zoneFactor * 0.1;
+            weights.military = zoneFactor * 0.05 * n3;
+        }
+        // Внешняя зона - природа и военные объекты
+        else {
+            const outerFactor = Math.min((dist - 250) / 200, 1);
+            weights.city = 0.05 * (1 - outerFactor);
+            weights.industrial = 0.1 * (1 - outerFactor * 0.5);
+            weights.residential = 0.15 * (1 - outerFactor * 0.7);
+            weights.park = 0.3 + blendNoise * 0.15;
+            weights.wasteland = 0.25 + outerFactor * 0.2 + n1 * 0.1;
+            weights.military = 0.15 + outerFactor * 0.15 * n3;
+        }
+        
+        // Нормализуем веса
+        let totalWeight = 0;
+        for (const key in weights) {
+            totalWeight += weights[key as BiomeType];
+        }
+        if (totalWeight > 0) {
+            for (const key in weights) {
+                weights[key as BiomeType] /= totalWeight;
+            }
+        }
+        
+        // Смешиваем цвета биомов по весам
+        let r = 0, g = 0, b = 0;
+        for (const biome in weights) {
+            const w = weights[biome as BiomeType];
+            const color = BIOME_COLORS[biome as BiomeType];
+            r += color.r * w;
+            g += color.g * w;
+            b += color.b * w;
+        }
+        
+        return { r, g, b };
+    }
+    
+    /**
+     * Применить vertex colors с учётом высоты И плавных переходов биомов.
+     * Комбинирует height-based brightness с biome-based coloring.
+     */
+    private applyHeightVertexColors(
+        ground: Mesh, 
+        positions: Float32Array | number[] | null, 
+        vertsPerSide: number,
+        cornerX?: number,
+        cornerZ?: number,
+        chunkSize?: number
+    ): void {
         if (!positions || positions.length === 0) return;
         
         // Находим минимальную и максимальную высоту для нормализации
@@ -553,27 +663,68 @@ export class ChunkSystem {
             }
         }
         
-        // Если все высоты одинаковые, не применяем vertex colors
-        if (maxHeight - minHeight < 0.1) return;
+        // Если данные невалидные, выходим
+        if (!isFinite(minHeight) || !isFinite(maxHeight)) return;
         
-        const heightRange = maxHeight - minHeight;
+        const heightRange = Math.max(maxHeight - minHeight, 0.1);
         const colors: number[] = [];
+        const subdivisions = vertsPerSide - 1;
+        const cSize = chunkSize ?? this.config.chunkSize;
         
-        // Создаем цвета на основе высоты: низкие - темнее, высокие - светлее
-        for (let i = 1; i < positions.length; i += 3) {
-            const height = positions[i];
-            if (height !== undefined && isFinite(height)) {
-                // Нормализуем высоту от 0 до 1
-                const normalizedHeight = heightRange > 0 ? (height - minHeight) / heightRange : 0;
+        // Если нет cornerX/cornerZ, используем только высотную модуляцию
+        const useBiomeBlending = cornerX !== undefined && cornerZ !== undefined && this.biomeNoise !== null;
+        
+        // Создаем цвета для каждой вершины
+        let vertexIndex = 0;
+        for (let gz = 0; gz < vertsPerSide; gz++) {
+            for (let gx = 0; gx < vertsPerSide; gx++) {
+                const idx = vertexIndex * 3;
+                const height = positions[idx + 1];
                 
-                // УСИЛЕНО: Создаем цвет с большим контрастом - низкие высоты намного темнее, высокие намного светлее
-                // От 0.5 (темные низкие) до 1.3 (очень светлые высокие) - было 0.75-1.0
-                const brightness = 0.5 + normalizedHeight * 0.8; // От 0.5 до 1.3
-                // Ограничиваем максимальную яркость для избежания пересвета
-                const clampedBrightness = Math.min(brightness, 1.2);
-                colors.push(clampedBrightness, clampedBrightness, clampedBrightness, 1.0); // RGBA
-            } else {
-                colors.push(1.0, 1.0, 1.0, 1.0); // Белый по умолчанию
+                if (height !== undefined && isFinite(height)) {
+                    // Нормализуем высоту от 0 до 1
+                    const normalizedHeight = heightRange > 0 ? (height - minHeight) / heightRange : 0;
+                    
+                    // Модулятор яркости по высоте: низкие - темнее, высокие - светлее
+                    // От 0.6 до 1.15 для сохранения читаемости цветов биомов
+                    const brightness = 0.6 + normalizedHeight * 0.55;
+                    const clampedBrightness = Math.min(brightness, 1.15);
+                    
+                    let r: number, g: number, b: number;
+                    
+                    if (useBiomeBlending) {
+                        // Вычисляем мировые координаты вершины
+                        // X: стандартный порядок от cornerX до cornerX + chunkSize
+                        const worldX = cornerX! + (gx / subdivisions) * cSize;
+                        // Z: ИНВЕРТИРОВАННЫЙ порядок! gz=0 → дальний край, gz=max → ближний край
+                        const worldZ = cornerZ! + cSize - (gz / subdivisions) * cSize;
+                        
+                        // Получаем цвет биома с плавным переходом
+                        const biomeColor = this.getBiomeColorAtPosition(worldX, worldZ);
+                        
+                        // Применяем яркость к цвету биома
+                        r = biomeColor.r * clampedBrightness;
+                        g = biomeColor.g * clampedBrightness;
+                        b = biomeColor.b * clampedBrightness;
+                    } else {
+                        // Без biome blending - только яркость (серый)
+                        r = clampedBrightness;
+                        g = clampedBrightness;
+                        b = clampedBrightness;
+                    }
+                    
+                    // Ограничиваем значения цветов
+                    colors.push(
+                        Math.min(1.0, Math.max(0.0, r)),
+                        Math.min(1.0, Math.max(0.0, g)),
+                        Math.min(1.0, Math.max(0.0, b)),
+                        1.0 // Alpha
+                    );
+                } else {
+                    colors.push(0.5, 0.5, 0.5, 1.0); // Серый по умолчанию
+                }
+                
+                vertexIndex++;
             }
         }
         
@@ -1961,24 +2112,27 @@ export class ChunkSystem {
     
     private loadChunk(cx: number, cz: number): void {
         const key = this.getChunkKey(cx, cz);
-        const worldX = cx * this.config.chunkSize;
-        const worldZ = cz * this.config.chunkSize;
+        const chunkSize = this.config.chunkSize;
+        
+        // cornerX, cornerZ - это координаты УГЛА чанка (левый нижний)
+        // Чанк (0,0) занимает область от (0,0) до (chunkSize, chunkSize)
+        // Чанк (1,0) занимает область от (chunkSize,0) до (2*chunkSize, chunkSize)
+        const cornerX = cx * chunkSize;
+        const cornerZ = cz * chunkSize;
         
         const chunkParent = new TransformNode(`chunk_${key}`, this.scene);
-        chunkParent.position = new Vector3(worldX, 0, worldZ);
+        // Родитель позиционируется в углу чанка
+        chunkParent.position = new Vector3(cornerX, 0, cornerZ);
         
         const chunk: ChunkData = {
             x: cx, z: cz, node: chunkParent, meshes: [], loaded: true, lastAccess: Date.now()
         };
         
-        this.generateChunkContent(cx, cz, worldX, worldZ, chunkParent);
+        // Генерируем контент чанка
+        this.generateChunkContent(cx, cz, cornerX, cornerZ, chunkParent);
         
-        // Сохраняем chunkParent для последующего использования (нужно для синхронизации)
+        // Сохраняем чанк
         this.chunks.set(key, chunk);
-        
-        // КРИТИЧНО: Синхронизируем граничные вершины с соседними чанками для полного устранения дыр
-        const overlap = 0.5; // Используем тот же overlap что и в createGround
-        this.synchronizeBoundaryVertices(cx, cz, worldX, worldZ, this.config.chunkSize, overlap);
         
         // ОПТИМИЗАЦИЯ: Объединяем статичные меши для уменьшения draw calls
         this.mergeStaticMeshesInChunk(chunkParent);
@@ -2409,373 +2563,80 @@ export class ChunkSystem {
         
         // Генерируем припасы
         this.generateConsumables(chunkX, chunkZ, worldX, worldZ, size, random, chunkParent);
-        
-        // ИСПРАВЛЕНИЕ: Постобработка чанка для заполнения дыр между соседними чанками
-        this.postProcessChunk(chunkX, chunkZ, worldX, worldZ, size, biome, chunkParent);
     }
     
-    // Постобработка чанка для заполнения дыр между соседними чанками
-    private postProcessChunk(chunkX: number, chunkZ: number, worldX: number, worldZ: number, size: number, biome: BiomeType | string, chunkParent: TransformNode): void {
-        if (!this.terrainGenerator) return;
+    /**
+     * ЕДИНСТВЕННАЯ функция для получения высоты террейна.
+     * Гарантирует детерминизм: одинаковые координаты = одинаковая высота.
+     * Используется для ВСЕХ вершин террейна.
+     * 
+     * ВАЖНО: Высота НЕ ЗАВИСИТ от биома! Биом влияет только на текстуру.
+     * Это гарантирует бесшовность между чанками с разными биомами.
+     */
+    private getWorldHeight(worldX: number, worldZ: number): number {
+        if (!this.terrainGenerator) return 0;
         
-        // Находим ground mesh для этого чанка по имени
-        const groundName = `ground_${chunkX}_${chunkZ}`;
-        const ground = chunkParent.getChildMeshes(false).find(m => m.name.includes("ground")) as Mesh;
-        if (!ground || !ground.getVerticesData(VertexBuffer.PositionKind)) return;
+        // Округление для устранения погрешностей float
+        const precision = 0.0001; // 0.1mm точность
+        const x = Math.round(worldX / precision) * precision;
+        const z = Math.round(worldZ / precision) * precision;
         
-        const positions = ground.getVerticesData(VertexBuffer.PositionKind)!;
-        const subdivisions = Math.sqrt(positions.length / 3) - 1;
-        // ИСПРАВЛЕНИЕ: Используем тот же overlap что и в createGround
-        const overlap = 0.5; // Увеличено до 50cm для гарантии бесшовности
+        // Проверка гаража - плоская область
+        if (this.isPositionInGarageArea(x, z, 10)) {
+            return 0; // Пол гаража
+        }
         
-        // УЛУЧШЕНО: Проверяем границы чанка и сглаживаем их с соседними чанками
-        const edgeSmoothingRadius = 3; // УВЕЛИЧЕНО с 2 до 3 для более агрессивного сглаживания
-        
-        for (let gz = 0; gz <= subdivisions; gz++) {
-            for (let gx = 0; gx <= subdivisions; gx++) {
-                const isOnEdge = (gx <= edgeSmoothingRadius || gx >= subdivisions - edgeSmoothingRadius ||
-                                 gz <= edgeSmoothingRadius || gz >= subdivisions - edgeSmoothingRadius);
-                
-                if (isOnEdge) {
-                    const idx = (gz * (subdivisions + 1) + gx) * 3;
-                    const currentHeight = positions[idx + 1] ?? 0;
-                    
-                    // Получаем координаты в мировом пространстве
-                    // ИСПРАВЛЕНИЕ: Координаты sampling с учётом overlap
-                    let sampleX = worldX - (size + overlap) / 2 + (gx / subdivisions) * (size + overlap);
-                    let sampleZ = worldZ - (size + overlap) / 2 + (gz / subdivisions) * (size + overlap);
-                    
-                    // ИСПРАВЛЕНИЕ: Округляем координаты для граничных вершин до фиксированной точности
-                    const isBoundary = (gx === 0 || gx === subdivisions || gz === 0 || gz === subdivisions);
-                    if (isBoundary) {
-                        // Округляем до точности 1mm для гарантии идентичности координат
-                        const precision = 0.001; // 1mm точность
-                        sampleX = Math.round(sampleX / precision) * precision;
-                        sampleZ = Math.round(sampleZ / precision) * precision;
-                    }
-                    
-                    // Проверяем соседние чанки
-                    const neighborCheckDist = size / subdivisions;
-                    const neighborHeights: number[] = [];
-                    
-                    // Проверяем 8 направлений (включая диагонали)
-                    const directions = [
-                        { dx: neighborCheckDist, dz: 0 },
-                        { dx: -neighborCheckDist, dz: 0 },
-                        { dx: 0, dz: neighborCheckDist },
-                        { dx: 0, dz: -neighborCheckDist },
-                        { dx: neighborCheckDist * 0.707, dz: neighborCheckDist * 0.707 },
-                        { dx: -neighborCheckDist * 0.707, dz: -neighborCheckDist * 0.707 },
-                        { dx: neighborCheckDist * 0.707, dz: -neighborCheckDist * 0.707 },
-                        { dx: -neighborCheckDist * 0.707, dz: neighborCheckDist * 0.707 }
-                    ];
-                    
-                    for (const dir of directions) {
-                        const neighborX = sampleX + dir.dx;
-                        const neighborZ = sampleZ + dir.dz;
-                        
-                        // КРИТИЧНО: Используем isPositionInGarageArea для проверки соседних точек
-                        const neighborInGarage = this.isPositionInGarageArea(neighborX, neighborZ, 0);
-                        
-                        if (!neighborInGarage) {
-                            const neighborHeight = this.terrainGenerator.getHeight(neighborX, neighborZ, typeof biome === "string" ? biome : "dirt");
-                            if (isFinite(neighborHeight)) {
-                                neighborHeights.push(neighborHeight);
-                            }
-                        }
-                    }
-                    
-                    // Если есть соседние высоты, сглаживаем текущую высоту
-                    if (neighborHeights.length > 0) {
-                        const avgNeighborHeight = neighborHeights.reduce((a, b) => a + b, 0) / neighborHeights.length;
-                        const heightDiff = Math.abs(currentHeight - avgNeighborHeight);
-                        
-                        // УЛУЧШЕНО: Если разница большая (более 1.5 единиц), сглаживаем более агрессивно
-                        if (heightDiff > 1.5) {
-                            // Используем плавное сглаживание в зависимости от расстояния до края
-                            const edgeDist = Math.min(
-                                Math.min(gx, subdivisions - gx),
-                                Math.min(gz, subdivisions - gz)
-                            );
-                            // Более агрессивное сглаживание на границах
-                            const smoothingFactor = Math.max(0.4, Math.min(0.8, edgeDist / edgeSmoothingRadius));
-                            
-                            // Используем smoothstep для более плавного перехода
-                            const normalizedDist = edgeDist / edgeSmoothingRadius;
-                            const smoothFactor = normalizedDist * normalizedDist * (3 - 2 * normalizedDist);
-                            const finalSmoothing = Math.max(0.4, Math.min(0.8, smoothFactor));
-                            
-                            const smoothedHeight = currentHeight * (1 - finalSmoothing) + avgNeighborHeight * finalSmoothing;
-                            positions[idx + 1] = smoothedHeight;
-                        }
-                    }
-                }
+        // Плавный переход от гаража
+        const garageTransitionRadius = 25;
+        let garageBlend = 0;
+        for (const area of this.garageAreas) {
+            const centerX = area.x + area.width / 2;
+            const centerZ = area.z + area.depth / 2;
+            const dist = Math.sqrt((x - centerX) ** 2 + (z - centerZ) ** 2);
+            const edgeDist = dist - Math.max(area.width, area.depth) / 2;
+            if (edgeDist < garageTransitionRadius && edgeDist > 0) {
+                const t = edgeDist / garageTransitionRadius;
+                // Smoothstep для плавного перехода
+                garageBlend = Math.max(garageBlend, 1 - t * t * (3 - 2 * t));
             }
         }
         
-        // УЛУЧШЕНО: Дополнительная синхронизация граничных вершин
-        // Для граничных вершин используем ТОЧНЫЕ координаты границы между чанками
-        const precision = 0.001; // 1mm точность
+        // КРИТИЧЕСКИ ВАЖНО: Используем ОДИН биом "park" для ВСЕХ вершин
+        // Это гарантирует бесшовность между чанками с разными биомами
+        // Биом чанка влияет только на текстуру, но НЕ на геометрию
+        let height = this.terrainGenerator.getHeight(x, z, "park");
+        
+        // Смешивание с высотой гаража (0) для плавного перехода
+        if (garageBlend > 0) {
+            height = height * (1 - garageBlend);
+        }
+        
+        // Валидация
+        if (!isFinite(height) || isNaN(height)) {
+            height = 0;
+        }
+        
+        return Math.max(height, 0);
+    }
+    
+    /**
+     * Создаёт террейн (ground mesh) для чанка.
+     * БЕСШОВНАЯ ГЕНЕРАЦИЯ: Использует единую функцию getWorldHeight для всех вершин,
+     * что гарантирует идентичные высоты на границах соседних чанков.
+     * 
+     * @param chunkX - Индекс чанка по X
+     * @param chunkZ - Индекс чанка по Z  
+     * @param cornerX - Мировая координата X угла чанка
+     * @param cornerZ - Мировая координата Z угла чанка
+     * @param size - Размер чанка
+     * @param biome - Биом для выбора материала
+     * @param _random - Генератор случайных чисел (не используется)
+     * @param chunkParent - Родительский узел чанка
+     */
+    private createGround(chunkX: number, chunkZ: number, cornerX: number, cornerZ: number, size: number, biome: BiomeType | string, _random: SeededRandom, chunkParent: TransformNode): void {
         const chunkSize = this.config.chunkSize;
         
-        for (let gz = 0; gz <= subdivisions; gz++) {
-            for (let gx = 0; gx <= subdivisions; gx++) {
-                const isBoundaryX = (gx === 0 || gx === subdivisions);
-                const isBoundaryZ = (gz === 0 || gz === subdivisions);
-                const isBoundary = isBoundaryX || isBoundaryZ;
-                
-                if (isBoundary) {
-                    const idx = (gz * (subdivisions + 1) + gx) * 3;
-                    
-                    // КРИТИЧНО: Используем точные координаты границы между чанками
-                    let sampleX: number;
-                    let sampleZ: number;
-                    
-                    if (isBoundaryX) {
-                        // Вершина на границе по X
-                        if (gx === 0) {
-                            sampleX = Math.round((chunkX * chunkSize) / precision) * precision;
-                        } else {
-                            sampleX = Math.round(((chunkX + 1) * chunkSize) / precision) * precision;
-                        }
-                    } else {
-                        sampleX = worldX - (size + overlap) / 2 + (gx / subdivisions) * (size + overlap);
-                        sampleX = Math.round(sampleX / precision) * precision;
-                    }
-                    
-                    if (isBoundaryZ) {
-                        // Вершина на границе по Z
-                        if (gz === 0) {
-                            sampleZ = Math.round((chunkZ * chunkSize) / precision) * precision;
-                        } else {
-                            sampleZ = Math.round(((chunkZ + 1) * chunkSize) / precision) * precision;
-                        }
-                    } else {
-                        sampleZ = worldZ - (size + overlap) / 2 + (gz / subdivisions) * (size + overlap);
-                        sampleZ = Math.round(sampleZ / precision) * precision;
-                    }
-                    
-                    // Пересчитываем высоту для граничной вершины с правильными координатами
-                    let boundaryHeight = this.terrainGenerator.getHeight(sampleX, sampleZ, typeof biome === "string" ? biome : "dirt");
-                    // Гарантируем минимальную высоту 0.5 для предотвращения дыр
-                    boundaryHeight = Math.max(boundaryHeight, 0.5);
-                    if (isFinite(boundaryHeight) && !isNaN(boundaryHeight) && boundaryHeight >= 0) {
-                        // Устанавливаем правильную высоту напрямую (100% новой высоты для граничных вершин)
-                        positions[idx + 1] = boundaryHeight;
-                    }
-                }
-            }
-        }
-        
-        // КРИТИЧНО: Финальная проверка всех вершин на валидность перед обновлением
-        // Это предотвращает появление дыр из-за некорректных значений
-        for (let i = 1; i < positions.length; i += 3) {
-            const height = positions[i];
-            // Проверяем на undefined, NaN, Infinity и слишком низкие значения
-            if (height === undefined || !isFinite(height) || isNaN(height)) {
-                positions[i] = 0.5; // Безопасная высота по умолчанию (не 0, чтобы избежать дыр)
-            } else if (height < 0.5) {
-                positions[i] = 0.5; // Минимальная высота 0.5 для полного устранения дыр
-            }
-        }
-        
-        // Обновляем вершины ground mesh
-        ground.updateVerticesData(VertexBuffer.PositionKind, positions, true);
-        ground.refreshBoundingInfo(true);
-    }
-    
-    // Синхронизация граничных вершин с соседними чанками для полного устранения дыр
-    private synchronizeBoundaryVertices(chunkX: number, chunkZ: number, worldX: number, worldZ: number, size: number, overlap: number): void {
-        if (!this.terrainGenerator) return;
-        
-        // Проверяем 4 соседних чанка (север, юг, восток, запад)
-        const neighbors: Array<{ cx: number; cz: number; edge: 'north' | 'south' | 'east' | 'west' }> = [
-            { cx: chunkX, cz: chunkZ - 1, edge: 'north' },   // Север
-            { cx: chunkX, cz: chunkZ + 1, edge: 'south' },   // Юг
-            { cx: chunkX + 1, cz: chunkZ, edge: 'east' },   // Восток
-            { cx: chunkX - 1, cz: chunkZ, edge: 'west' }     // Запад
-        ];
-        
-        for (const neighbor of neighbors) {
-            const neighborKey = this.getChunkKey(neighbor.cx, neighbor.cz);
-            const neighborChunk = this.chunks.get(neighborKey);
-            
-            if (neighborChunk && neighborChunk.loaded) {
-                // Синхронизируем граничные вершины (двусторонняя синхронизация)
-                const neighborWorldX = neighbor.cx * this.config.chunkSize;
-                const neighborWorldZ = neighbor.cz * this.config.chunkSize;
-                this.syncChunkBoundary(chunkX, chunkZ, worldX, worldZ, size, overlap, neighbor.cx, neighbor.cz, neighborWorldX, neighborWorldZ, neighbor.edge as 'north' | 'south' | 'east' | 'west');
-            }
-        }
-    }
-    
-    // Синхронизация конкретной границы между двумя чанками
-    private syncChunkBoundary(
-        chunkX1: number, chunkZ1: number, worldX1: number, worldZ1: number,
-        size: number, overlap: number,
-        chunkX2: number, chunkZ2: number, worldX2: number, worldZ2: number,
-        edge: 'north' | 'south' | 'east' | 'west'
-    ): void {
-        if (!this.terrainGenerator) return;
-        
-        // Получаем оба чанка
-        const key1 = this.getChunkKey(chunkX1, chunkZ1);
-        const key2 = this.getChunkKey(chunkX2, chunkZ2);
-        const chunk1 = this.chunks.get(key1);
-        const chunk2 = this.chunks.get(key2);
-        
-        if (!chunk1 || !chunk2 || !chunk1.loaded || !chunk2.loaded) return;
-        
-        // Находим ground меши
-        const ground1 = chunk1.node.getChildMeshes(false).find(m => m.name.includes("ground")) as Mesh;
-        const ground2 = chunk2.node.getChildMeshes(false).find(m => m.name.includes("ground")) as Mesh;
-        
-        if (!ground1 || !ground2) return;
-        
-        const positions1 = ground1.getVerticesData(VertexBuffer.PositionKind);
-        const positions2 = ground2.getVerticesData(VertexBuffer.PositionKind);
-        
-        if (!positions1 || !positions2) return;
-        
-        const subdivisions = Math.sqrt(positions1.length / 3) - 1;
-        const precision = 0.001; // 1mm точность
-        
-        // Определяем какие вершины синхронизировать в зависимости от границы
-        let syncVertices1: Array<{ gx: number; gz: number }> = [];
-        let syncVertices2: Array<{ gx: number; gz: number }> = [];
-        
-        switch (edge) {
-            case 'north': // chunk1 севернее chunk2
-                // Граница chunk1 (юг): gz = subdivisions
-                // Граница chunk2 (север): gz = 0
-                for (let gx = 0; gx <= subdivisions; gx++) {
-                    syncVertices1.push({ gx, gz: subdivisions });
-                    syncVertices2.push({ gx, gz: 0 });
-                }
-                break;
-            case 'south': // chunk1 южнее chunk2
-                // Граница chunk1 (север): gz = 0
-                // Граница chunk2 (юг): gz = subdivisions
-                for (let gx = 0; gx <= subdivisions; gx++) {
-                    syncVertices1.push({ gx, gz: 0 });
-                    syncVertices2.push({ gx, gz: subdivisions });
-                }
-                break;
-            case 'east': // chunk1 восточнее chunk2
-                // Граница chunk1 (запад): gx = 0
-                // Граница chunk2 (восток): gx = subdivisions
-                for (let gz = 0; gz <= subdivisions; gz++) {
-                    syncVertices1.push({ gx: 0, gz });
-                    syncVertices2.push({ gx: subdivisions, gz });
-                }
-                break;
-            case 'west': // chunk1 западнее chunk2
-                // Граница chunk1 (восток): gx = subdivisions
-                // Граница chunk2 (запад): gx = 0
-                for (let gz = 0; gz <= subdivisions; gz++) {
-                    syncVertices1.push({ gx: subdivisions, gz });
-                    syncVertices2.push({ gx: 0, gz });
-                }
-                break;
-        }
-        
-        // Синхронизируем вершины
-        for (let i = 0; i < syncVertices1.length; i++) {
-            const v1 = syncVertices1[i];
-            const v2 = syncVertices2[i];
-            
-            if (!v1 || !v2) continue; // Пропускаем если вершины не определены
-            
-            const idx1 = (v1.gz * (subdivisions + 1) + v1.gx) * 3;
-            const idx2 = (v2.gz * (subdivisions + 1) + v2.gx) * 3;
-            
-            // КРИТИЧНО: Используем ТОЧНЫЕ координаты границы между чанками
-            // Это гарантирует идентичность координат для граничных вершин
-            const chunkSize = this.config.chunkSize;
-            let finalX: number;
-            let finalZ: number;
-            
-            switch (edge) {
-                case 'north': // chunk1 севернее chunk2, граница по Z
-                    // X координата: используем точную координату границы чанка по X
-                    // Для граничных вершин по X используем точную границу, иначе вычисляем
-                    if (v1.gx === 0) {
-                        finalX = Math.round((chunkX1 * chunkSize) / precision) * precision;
-                    } else if (v1.gx === subdivisions) {
-                        finalX = Math.round(((chunkX1 + 1) * chunkSize) / precision) * precision;
-                    } else {
-                        finalX = Math.round((worldX1 - (size + overlap) / 2 + (v1.gx / subdivisions) * (size + overlap)) / precision) * precision;
-                    }
-                    // Z координата: точная граница между чанками
-                    finalZ = Math.round((chunkZ1 * chunkSize) / precision) * precision;
-                    break;
-                case 'south': // chunk1 южнее chunk2, граница по Z
-                    // X координата: используем точную координату границы чанка по X
-                    if (v1.gx === 0) {
-                        finalX = Math.round((chunkX1 * chunkSize) / precision) * precision;
-                    } else if (v1.gx === subdivisions) {
-                        finalX = Math.round(((chunkX1 + 1) * chunkSize) / precision) * precision;
-                    } else {
-                        finalX = Math.round((worldX1 - (size + overlap) / 2 + (v1.gx / subdivisions) * (size + overlap)) / precision) * precision;
-                    }
-                    // Z координата: точная граница между чанками
-                    finalZ = Math.round(((chunkZ1 + 1) * chunkSize) / precision) * precision;
-                    break;
-                case 'east': // chunk1 восточнее chunk2, граница по X
-                    // X координата: точная граница между чанками
-                    finalX = Math.round(((chunkX1 + 1) * chunkSize) / precision) * precision;
-                    // Z координата: используем точную координату границы чанка по Z
-                    if (v1.gz === 0) {
-                        finalZ = Math.round((chunkZ1 * chunkSize) / precision) * precision;
-                    } else if (v1.gz === subdivisions) {
-                        finalZ = Math.round(((chunkZ1 + 1) * chunkSize) / precision) * precision;
-                    } else {
-                        finalZ = Math.round((worldZ1 - (size + overlap) / 2 + (v1.gz / subdivisions) * (size + overlap)) / precision) * precision;
-                    }
-                    break;
-                case 'west': // chunk1 западнее chunk2, граница по X
-                    // X координата: точная граница между чанками
-                    finalX = Math.round((chunkX1 * chunkSize) / precision) * precision;
-                    // Z координата: используем точную координату границы чанка по Z
-                    if (v1.gz === 0) {
-                        finalZ = Math.round((chunkZ1 * chunkSize) / precision) * precision;
-                    } else if (v1.gz === subdivisions) {
-                        finalZ = Math.round(((chunkZ1 + 1) * chunkSize) / precision) * precision;
-                    } else {
-                        finalZ = Math.round((worldZ1 - (size + overlap) / 2 + (v1.gz / subdivisions) * (size + overlap)) / precision) * precision;
-                    }
-                    break;
-            }
-            
-            // Получаем высоту из terrainGenerator с синхронизированными координатами
-            const biome = "dirt"; // Используем базовый биом для синхронизации
-            let syncedHeight = this.terrainGenerator.getHeight(finalX, finalZ, biome);
-            // Гарантируем минимальную высоту 0.5
-            syncedHeight = Math.max(syncedHeight, 0.5);
-            
-            if (isFinite(syncedHeight) && !isNaN(syncedHeight)) {
-                // Устанавливаем одинаковую высоту для обеих вершин
-                positions1[idx1 + 1] = syncedHeight;
-                positions2[idx2 + 1] = syncedHeight;
-            }
-        }
-        
-        // Обновляем оба меша
-        ground1.updateVerticesData(VertexBuffer.PositionKind, positions1, true);
-        ground1.refreshBoundingInfo(true);
-        ground2.updateVerticesData(VertexBuffer.PositionKind, positions2, true);
-        ground2.refreshBoundingInfo(true);
-    }
-    
-    private createGround(chunkX: number, chunkZ: number, worldX: number, worldZ: number, size: number, biome: BiomeType | string, _random: SeededRandom, chunkParent: TransformNode): void {
-        // ВАЖНО: Всегда создаём ground для чанка, даже если в нём есть гараж
-        // Пол гаража будет создан поверх ground, но ground нужен для остальной части чанка
-        // Это предотвращает появление огромных дыр размером с чанк
-        
-        // ИСПРАВЛЕНИЕ: Объявляем overlap в начале функции для правильной области видимости
-        const overlap = 0.5; // Увеличено до 50cm для гарантии бесшовности
-        
-        // Ground with biome-specific color
+        // Определяем материал на основе биома
         let groundMat: string;
         switch (biome) {
             case "city": groundMat = "asphalt"; break;
@@ -2787,357 +2648,98 @@ export class ChunkSystem {
             default: groundMat = typeof biome === "string" ? biome : "dirt";
         }
         
-        // If terrain generator is available, build a single heightmap ground mesh instead of many blocky boxes
+        // Если есть terrain generator - создаём heightmap terrain
         if (this.terrainGenerator) {
-            // ОПТИМИЗАЦИЯ: Уменьшено с 24 до 12 для слабых видеокарт
-            // Это создает 13x13 = 169 вершин вместо 25x25 = 625 вершин на чанк
-            // Уменьшение вершин в ~3.7 раза для лучшей производительности
-            const subdivisions = 12; // Оптимизировано для слабых видеокарт (Intel UHD Graphics)
-            // Уникальное имя для каждого чанка, чтобы избежать конфликтов
+            const subdivisions = 12; // 13x13 = 169 вершин на чанк
+            
+            // БЕЗ OVERLAP - точное соответствие размеру чанка
+            // Это гарантирует что границы чанков точно совпадают
             const ground = MeshBuilder.CreateGround(`ground_${chunkX}_${chunkZ}`, {
-                width: size + overlap,
-                height: size + overlap,
+                width: chunkSize,
+                height: chunkSize,
                 subdivisions,
-                updatable: true
+                updatable: true // ВАЖНО: true чтобы можно было обновить высоты вершин
             }, this.scene);
             
-            // Sample heights from terrain generator
             const positions = ground.getVerticesData(VertexBuffer.PositionKind);
-            const vertsPerSide = subdivisions + 1;
-            if (positions) {
-                // КРИТИЧНО: Используем isPositionInGarageArea для точной проверки
-                // Это гарантирует, что террейн не будет внутри гаража
-                
-                // КРИТИЧНО: Для граничных вершин используем ТОЧНЫЕ координаты границы между чанками
-                // Это гарантирует, что граничные вершины соседних чанков всегда используют одинаковые координаты
-                const precision = 0.001; // 1mm точность
-                const chunkSize = this.config.chunkSize;
-                
-                for (let gz = 0; gz < vertsPerSide; gz++) {
-                    for (let gx = 0; gx < vertsPerSide; gx++) {
-                        const idx = (gz * vertsPerSide + gx) * 3;
-                        
-                        // Определяем является ли вершина граничной
-                        const isBoundaryX = (gx === 0 || gx === subdivisions);
-                        const isBoundaryZ = (gz === 0 || gz === subdivisions);
-                        const isBoundary = isBoundaryX || isBoundaryZ;
-                        
-                        let sampleX: number;
-                        let sampleZ: number;
-                        
-                        if (isBoundary) {
-                            // КРИТИЧНО: Для граничных вершин используем точные координаты границы между чанками
-                            // Это гарантирует идентичность координат между соседними чанками
-                            
-                            if (isBoundaryX) {
-                                // Вершина на границе по X
-                                if (gx === 0) {
-                                    // Западная граница: точная координата границы чанка
-                                    sampleX = Math.round((chunkX * chunkSize) / precision) * precision;
-                                } else {
-                                    // Восточная граница: точная координата границы чанка
-                                    sampleX = Math.round(((chunkX + 1) * chunkSize) / precision) * precision;
-                                }
-                            } else {
-                                // Внутренняя вершина по X: вычисляем как обычно
-                                sampleX = worldX - (size + overlap) / 2 + (gx / subdivisions) * (size + overlap);
-                                sampleX = Math.round(sampleX / precision) * precision;
-                            }
-                            
-                            if (isBoundaryZ) {
-                                // Вершина на границе по Z
-                                if (gz === 0) {
-                                    // Южная граница: точная координата границы чанка
-                                    sampleZ = Math.round((chunkZ * chunkSize) / precision) * precision;
-                                } else {
-                                    // Северная граница: точная координата границы чанка
-                                    sampleZ = Math.round(((chunkZ + 1) * chunkSize) / precision) * precision;
-                                }
-                            } else {
-                                // Внутренняя вершина по Z: вычисляем как обычно
-                                sampleZ = worldZ - (size + overlap) / 2 + (gz / subdivisions) * (size + overlap);
-                                sampleZ = Math.round(sampleZ / precision) * precision;
-                            }
-                        } else {
-                            // Для внутренних вершин вычисляем как обычно
-                            sampleX = worldX - (size + overlap) / 2 + (gx / subdivisions) * (size + overlap);
-                            sampleZ = worldZ - (size + overlap) / 2 + (gz / subdivisions) * (size + overlap);
-                            // Округляем для консистентности
-                            sampleX = Math.round(sampleX / precision) * precision;
-                            sampleZ = Math.round(sampleZ / precision) * precision;
-                        }
-                        
-                        // КРИТИЧНО: Используем isPositionInGarageArea с адаптивным запасом
-                        // Для специальных карт (полигон, фронтлайн) используем меньший запас, чтобы не блокировать генерацию
-                        // Для обычных карт используем больший запас для полной защиты
-                        const isSpecialMap = this.config.mapType === "polygon" || this.config.mapType === "frontline";
-                        const garageCheckMargin = isSpecialMap ? 10 : 25; // Меньший запас для специальных карт
-                        const inGarage = this.isPositionInGarageArea(sampleX, sampleZ, garageCheckMargin);
-                        
-                        // Если точка в гараже или очень близко к нему, устанавливаем высоту на уровень пола гаража (0)
-                        // КРИТИЧНО: Это гарантирует, что террейн не будет внутри гаража
-                        if (inGarage) {
-                            positions[idx + 1] = 0; // Пол гаража на уровне 0
-                        } else {
-                            // КРИТИЧНО: Проверяем расстояние до гаража для плавного перехода
-                            // Используем isPositionInGarageArea с разными margin для определения расстояния
-                            let minGarageDist = Infinity;
-                            let closestGarageArea: { x: number; z: number; width: number; depth: number } | null = null;
-                            
-                            for (const area of this.garageAreas) {
-                                // Вычисляем расстояние до ближайшей точки области гаража
-                                const areaCenterX = area.x + area.width / 2;
-                                const areaCenterZ = area.z + area.depth / 2;
-                                const dx = Math.abs(sampleX - areaCenterX);
-                                const dz = Math.abs(sampleZ - areaCenterZ);
-                                // Расстояние до края области гаража
-                                const distToEdge = Math.max(0, Math.sqrt(dx * dx + dz * dz) - Math.max(area.width, area.depth) / 2);
-                                if (distToEdge < minGarageDist) {
-                                    minGarageDist = distToEdge;
-                                    closestGarageArea = area;
-                                }
-                            }
-                            
-                            // Если точка близко к гаражу (в пределах 30 единиц), сглаживаем высоту
-                            const garageSmoothingRadius = 30; // Увеличено для плавного перехода
-                            let height = this.terrainGenerator.getHeight(sampleX, sampleZ, typeof biome === "string" ? biome : "dirt");
-                            
-                            // КРИТИЧНО: Дополнительная проверка - если точка в области гаража с margin, устанавливаем 0
-                            const smoothingMargin = isSpecialMap ? 8 : 15; // Меньший запас для специальных карт
-                            if (this.isPositionInGarageArea(sampleX, sampleZ, smoothingMargin)) {
-                                // Если точка в расширенной области гаража, устанавливаем 0
-                                height = 0;
-                            } else if (minGarageDist < garageSmoothingRadius && closestGarageArea) {
-                                // Плавный переход от гаража (высота 0) к нормальной высоте
-                                const smoothingFactor = 1.0 - (minGarageDist / garageSmoothingRadius);
-                                // Используем smoothstep для более плавного перехода
-                                const smoothFactor = smoothingFactor * smoothingFactor * (3 - 2 * smoothingFactor);
-                                // Смешиваем высоту с нулём (уровень гаража) для плавного выезда
-                                height = height * (1 - smoothFactor * 0.8) + 0 * (smoothFactor * 0.8);
-                                // Ограничиваем максимальную высоту вблизи гаража
-                                if (minGarageDist < 20) {
-                                    height = Math.min(height, 0.5); // Максимум 0.5 единицы высоты вблизи гаража
-                                }
-                            }
-                            
-                            // ИСПРАВЛЕНИЕ: Улучшенное сглаживание границ чанков для предотвращения дыр
-                            // Проверяем точки на границах чанка и сглаживаем их с соседними чанками
-                            const edgeThreshold = 2; // Расстояние от края для сглаживания (в вершинах)
-                            const isOnEdge = (gx <= edgeThreshold || gx >= subdivisions - edgeThreshold || 
-                                             gz <= edgeThreshold || gz >= subdivisions - edgeThreshold);
-                            
-                            if (isOnEdge && this.terrainGenerator) {
-                                // Получаем высоты соседних точек из соседних чанков
-                                // Используем несколько точек для более точного усреднения
-                                const neighborDistances = [0.1, 0.5, 1.0, 2.0]; // Разные расстояния для лучшего усреднения
-                                const neighborHeights: number[] = [];
-                                
-                                // Проверяем 8 направлений (север, юг, восток, запад, диагонали)
-                                const directions = [
-                                    { x: 0, z: 1 },   // Север
-                                    { x: 0, z: -1 },  // Юг
-                                    { x: 1, z: 0 },   // Восток
-                                    { x: -1, z: 0 },  // Запад
-                                    { x: 1, z: 1 },   // Северо-восток
-                                    { x: -1, z: 1 },  // Северо-запад
-                                    { x: 1, z: -1 },  // Юго-восток
-                                    { x: -1, z: -1 }  // Юго-запад
-                                ];
-                                
-                                for (const dir of directions) {
-                                    for (const dist of neighborDistances) {
-                                        const neighborX = sampleX + dir.x * dist;
-                                        const neighborZ = sampleZ + dir.z * dist;
-                                        
-                                        // КРИТИЧНО: Используем isPositionInGarageArea для проверки соседних точек
-                                        const neighborInGarage = this.isPositionInGarageArea(neighborX, neighborZ, 0);
-                                        
-                                        if (!neighborInGarage) {
-                                            const neighborHeight = this.terrainGenerator.getHeight(neighborX, neighborZ, typeof biome === "string" ? biome : "dirt");
-                                            if (isFinite(neighborHeight) && !isNaN(neighborHeight) && neighborHeight >= 0) {
-                                                neighborHeights.push(neighborHeight);
-                                            }
-                                        }
-                                    }
-                                }
-                                
-                                // Если есть соседние высоты, сглаживаем текущую высоту
-                                if (neighborHeights.length > 0) {
-                                    const avgNeighborHeight = neighborHeights.reduce((a, b) => a + b, 0) / neighborHeights.length;
-                                    const heightDiff = Math.abs(height - avgNeighborHeight);
-                                    
-                                    // УЛУЧШЕНО: Более агрессивное сглаживание для предотвращения дыр
-                                    // Вычисляем расстояние до края для плавного сглаживания
-                                    const distToEdgeX = Math.min(gx, subdivisions - gx);
-                                    const distToEdgeZ = Math.min(gz, subdivisions - gz);
-                                    const distToEdge = Math.min(distToEdgeX, distToEdgeZ);
-                                    
-                                    // Более агрессивное сглаживание на самых краях
-                                    let smoothingStrength = 0.3; // Базовая сила сглаживания
-                                    if (distToEdge <= 1) {
-                                        smoothingStrength = 0.7; // Очень агрессивное на краю
-                                    } else if (distToEdge <= 2) {
-                                        smoothingStrength = 0.5; // Среднее сглаживание
-                                    }
-                                    
-                                    // Если разница большая (более 1.5 единиц), сглаживаем более агрессивно
-                                    if (heightDiff > 1.5) {
-                                        // Используем более сильное сглаживание
-                                        height = height * (1 - smoothingStrength) + avgNeighborHeight * smoothingStrength;
-                                    } else if (heightDiff > 0.5) {
-                                        // Умеренное сглаживание для средних разниц
-                                        height = height * (1 - smoothingStrength * 0.6) + avgNeighborHeight * (smoothingStrength * 0.6);
-                                    }
-                                    
-                                    // КРИТИЧНО: ДОПОЛНИТЕЛЬНАЯ ЗАЩИТА ОТ ДЫР
-                                    // Если текущая высота намного ниже соседних, поднимаем её
-                                    if (height < avgNeighborHeight - 2.5) {
-                                        // Ограничиваем глубину дыр - не допускаем разницу более 2 единиц
-                                        height = Math.max(height, avgNeighborHeight - 2.0);
-                                    }
-                                    
-                                    // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Если высота отрицательная, поднимаем до минимума
-                                    if (height < 0) {
-                                        height = Math.max(0, avgNeighborHeight * 0.5);
-                                    }
-                                }
-                            }
-                            
-                            // КРИТИЧНО: Минимальная высота для предотвращения глубоких дыр
-                            // УВЕЛИЧЕНА минимальная высота до 0.5 для полного устранения дыр
-                            // Гарантируем минимальную высоту 0.5 для предотвращения дыр
-                            height = Math.max(height, 0.5);
-                            
-                            // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Если высота NaN или Infinity, устанавливаем безопасное значение
-                            if (!isFinite(height) || isNaN(height)) {
-                                height = 0.5; // Безопасная высота по умолчанию
-                            }
-                            
-                            positions[idx + 1] = height;
-                        }
-                    }
-                }
-                // КРИТИЧНО: Финальная проверка всех вершин на валидность перед обновлением
-                // Это предотвращает появление дыр из-за некорректных значений
-                for (let i = 1; i < positions.length; i += 3) {
-                    const height = positions[i];
-                    // Проверяем на undefined, NaN, Infinity и слишком низкие значения
-                    if (height === undefined || !isFinite(height) || isNaN(height)) {
-                        positions[i] = 0.5; // Безопасная высота по умолчанию (не 0, чтобы избежать дыр)
-                    } else if (height < 0.5) {
-                        positions[i] = 0.5; // Минимальная высота 0.5 для полного устранения дыр
-                    }
-                }
-                
-                // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Сглаживание резких перепадов высот для предотвращения визуальных дыр
-                // Проверяем соседние вершины и сглаживаем слишком большие перепады
-                for (let gz = 1; gz < vertsPerSide - 1; gz++) {
-                    for (let gx = 1; gx < vertsPerSide - 1; gx++) {
-                        const idx = (gz * vertsPerSide + gx) * 3;
-                        const currentHeight = positions[idx + 1];
-                        
-                        // Проверяем 4 соседние вершины
-                        const neighbors = [
-                            positions[((gz - 1) * vertsPerSide + gx) * 3 + 1], // Север
-                            positions[((gz + 1) * vertsPerSide + gx) * 3 + 1], // Юг
-                            positions[(gz * vertsPerSide + (gx - 1)) * 3 + 1], // Запад
-                            positions[(gz * vertsPerSide + (gx + 1)) * 3 + 1]  // Восток
-                        ];
-                        
-                        // Проверяем что currentHeight определен
-                        if (currentHeight === undefined || !isFinite(currentHeight) || isNaN(currentHeight)) {
-                            continue;
-                        }
-                        
-                        // Вычисляем среднюю высоту соседей (фильтруем undefined и невалидные значения)
-                        const validNeighbors = neighbors.filter((h): h is number => 
-                            h !== undefined && isFinite(h) && !isNaN(h) && h >= 0
-                        );
-                        if (validNeighbors.length > 0) {
-                            const avgNeighborHeight = validNeighbors.reduce((a, b) => a + b, 0) / validNeighbors.length;
-                            const heightDiff = Math.abs(currentHeight - avgNeighborHeight);
-                            
-                            // Если перепад слишком большой (более 3 единиц), сглаживаем
-                            if (heightDiff > 3.0) {
-                                const smoothingFactor = 0.4;
-                                positions[idx + 1] = currentHeight * (1 - smoothingFactor) + avgNeighborHeight * smoothingFactor;
-                            }
-                            
-                            // КРИТИЧНО: Если текущая высота намного ниже соседей (дыра), поднимаем её
-                            if (currentHeight < avgNeighborHeight - 2.5) {
-                                positions[idx + 1] = Math.max(currentHeight, avgNeighborHeight - 2.0);
-                            }
-                        }
-                    }
-                }
-                
-                ground.updateVerticesData(VertexBuffer.PositionKind, positions, true);
-                ground.refreshBoundingInfo(true);
-                
-                // КРИТИЧНО: Немедленная синхронизация граничных вершин с соседними чанками
-                // Это гарантирует что граничные вершины совпадают даже если соседние чанки загружены позже
-                // overlap уже объявлен выше в функции
-                this.synchronizeBoundaryVertices(chunkX, chunkZ, worldX, worldZ, size, overlap);
+            if (!positions) {
+                ground.dispose();
+                return;
             }
             
-            // Позиция относительно chunkParent (который уже позиционирован в worldX, worldZ)
-            // CreateGround создаёт вершины от -size/2 до +size/2, центрируя меш
-            ground.position = new Vector3(0, 0, 0);
+            const vertsPerSide = subdivisions + 1;
+            
+            // ЕДИНАЯ ФОРМУЛА для всех вершин - ключ к бесшовности
+            // ВАЖНО: В Babylon.js CreateGround порядок вершин по Z ИНВЕРТИРОВАН!
+            // row=0 → z = +height/2 (дальняя сторона), row=max → z = -height/2 (ближняя)
+            // Поэтому формула для worldZ учитывает эту инверсию
+            for (let gz = 0; gz < vertsPerSide; gz++) {
+                for (let gx = 0; gx < vertsPerSide; gx++) {
+                    const idx = (gz * vertsPerSide + gx) * 3;
+                    
+                    // Мировые координаты вершины
+                    // X: стандартный порядок от cornerX до cornerX + chunkSize
+                    const worldX = cornerX + (gx / subdivisions) * chunkSize;
+                    // Z: ИНВЕРТИРОВАННЫЙ порядок! gz=0 → дальний край, gz=max → ближний край
+                    const worldZ = cornerZ + chunkSize - (gz / subdivisions) * chunkSize;
+                    
+                    // Единая детерминистическая функция высоты для ВСЕХ вершин
+                    // ВАЖНО: Без параметра biome - высота независима от биома!
+                    const height = this.getWorldHeight(worldX, worldZ);
+                    
+                    // Устанавливаем высоту (X и Z уже установлены CreateGround)
+                    positions[idx + 1] = height;
+                }
+            }
+            
+            // Обновляем вершины
+            ground.updateVerticesData(VertexBuffer.PositionKind, positions);
+            ground.refreshBoundingInfo(true);
+            
+            // Позиция: chunkParent в углу, ground центрирован в чанке
+            ground.position = new Vector3(chunkSize / 2, 0, chunkSize / 2);
             
             // Применяем материал с модификацией цвета по высоте
-            // Для heightmap используем среднюю высоту чанка для определения оттенка
-            if (positions) {
-                const avgHeight = this.calculateAverageHeight(positions, vertsPerSide);
-                const tintedMaterial = this.getHeightTintedMaterial(groundMat, avgHeight);
-                ground.material = tintedMaterial;
-                
-                // Добавляем vertex colors для визуализации высот
-                this.applyHeightVertexColors(ground, positions, vertsPerSide);
-            } else {
-                ground.material = this.getMat(groundMat);
-            }
+            const avgHeight = this.calculateAverageHeight(positions, vertsPerSide);
+            const tintedMaterial = this.getHeightTintedMaterial(groundMat, avgHeight);
+            ground.material = tintedMaterial;
+            
+            // Добавляем vertex colors с плавными переходами биомов через шум
+            this.applyHeightVertexColors(ground, positions, vertsPerSide, cornerX, cornerZ, chunkSize);
             
             ground.parent = chunkParent;
             
-            // Включаем рендеринг краев для визуализации границ и высот
-            ground.enableEdgesRendering();
-            const edgeColor = this.getContrastEdgeColor(groundMat);
-            const edgesRenderer = (ground as any)._edgesRenderer;
-            if (edgesRenderer) {
-                edgesRenderer.edgesWidth = 2.0; // УСИЛЕНО: Толще для лучшей видимости (было 1.5)
-                edgesRenderer.edgesColor = edgeColor;
+            // Рендеринг рёбер террейна (опционально, по умолчанию выключено)
+            if (this.config.enableTerrainEdges) {
+                ground.enableEdgesRendering();
+                const edgeColor = this.getContrastEdgeColor(groundMat);
+                const edgesRenderer = (ground as any)._edgesRenderer;
+                if (edgesRenderer) {
+                    edgesRenderer.edgesWidth = 2.0;
+                    edgesRenderer.edgesColor = edgeColor;
+                }
             }
             
-            // Устанавливаем renderOrder для правильного рендеринга (ground должен рендериться первым)
             ground.renderingGroupId = 0;
-            
-            // Отключаем тени для ground, чтобы избежать артефактов
             ground.receiveShadows = false;
-            // ground.castShadows = false; // Removed: property doesn't exist on GroundMesh
             
             this.optimizeMesh(ground);
-            // chunk.meshes.push(ground);
             new PhysicsAggregate(ground, PhysicsShapeType.MESH, { mass: 0 }, this.scene);
             return;
         }
         
-        // Fallback: flat ground if no terrain generator
-        const ground = MeshBuilder.CreateBox(`ground_${chunkX}_${chunkZ}`, { width: size, height: 0.1, depth: size }, this.scene);
-        // Позиция относительно chunkParent (который уже позиционирован в worldX, worldZ)
-        // Небольшое смещение по Y для предотвращения z-fighting между соседними чанками
-        ground.position = new Vector3(0, -0.05, 0);
-        
-        // Устанавливаем renderOrder для правильного рендеринга (ground должен рендериться первым)
+        // Fallback: плоская земля если нет terrain generator
+        const ground = MeshBuilder.CreateBox(`ground_${chunkX}_${chunkZ}`, { 
+            width: chunkSize, 
+            height: 0.1, 
+            depth: chunkSize 
+        }, this.scene);
+        ground.position = new Vector3(chunkSize / 2, -0.05, chunkSize / 2);
         ground.renderingGroupId = 0;
-        
-        // Отключаем тени для ground, чтобы избежать артефактов
         ground.receiveShadows = false;
-        // ground.castShadows = false; // Removed: property doesn't exist on Mesh
-        
         ground.material = this.getMat(groundMat);
         ground.parent = chunkParent;
         this.optimizeMesh(ground);
-        // chunk.meshes.push(ground);
         new PhysicsAggregate(ground, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
     }
     
@@ -6790,14 +6392,15 @@ export class ChunkSystem {
                         hillBlock.material = this.getHeightTintedMaterial(matName, blockHeight);
                         hillBlock.parent = chunkParent;
                         
-                        // Включаем рендеринг краев для визуализации высот
-                        hillBlock.enableEdgesRendering();
-                        const edgeColor = this.getContrastEdgeColor(matName);
-                        // Устанавливаем цвет и толщину краев через EdgesRenderer
-                        const edgesRenderer = (hillBlock as any)._edgesRenderer;
-                        if (edgesRenderer) {
-                            edgesRenderer.edgesWidth = 1.0;
-                            edgesRenderer.edgesColor = edgeColor;
+                        // Рендеринг рёбер (опционально)
+                        if (this.config.enableTerrainEdges) {
+                            hillBlock.enableEdgesRendering();
+                            const edgeColor = this.getContrastEdgeColor(matName);
+                            const edgesRenderer = (hillBlock as any)._edgesRenderer;
+                            if (edgesRenderer) {
+                                edgesRenderer.edgesWidth = 1.0;
+                                edgesRenderer.edgesColor = edgeColor;
+                            }
                         }
                         
                         this.optimizeMesh(hillBlock);
@@ -6827,14 +6430,15 @@ export class ChunkSystem {
                         depBlock.material = this.getHeightTintedMaterial(matName, -depDepth);
                         depBlock.parent = chunkParent;
                         
-                        // Включаем рендеринг краев для визуализации высот
-                        depBlock.enableEdgesRendering();
-                        const edgeColor = this.getContrastEdgeColor(matName);
-                        // Устанавливаем цвет и толщину краев через EdgesRenderer
-                        const edgesRenderer = (depBlock as any)._edgesRenderer;
-                        if (edgesRenderer) {
-                            edgesRenderer.edgesWidth = 1.0;
-                            edgesRenderer.edgesColor = edgeColor;
+                        // Рендеринг рёбер (опционально)
+                        if (this.config.enableTerrainEdges) {
+                            depBlock.enableEdgesRendering();
+                            const edgeColor = this.getContrastEdgeColor(matName);
+                            const edgesRenderer = (depBlock as any)._edgesRenderer;
+                            if (edgesRenderer) {
+                                edgesRenderer.edgesWidth = 1.0;
+                                edgesRenderer.edgesColor = edgeColor;
+                            }
                         }
                         
                         this.optimizeMesh(depBlock);

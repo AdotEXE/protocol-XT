@@ -2145,7 +2145,10 @@ export class MainMenu {
             .skill-tree-wrapper {
                 margin-top: 10px;
                 background: linear-gradient(180deg, #062106, #020);
-                border: 1px solid #0f0;
+                border-top: 2px solid #0f0;
+                border-left: none;
+                border-right: none;
+                border-bottom: none;
                 padding: 16px;
                 max-height: 72vh;
                 overflow: auto;
@@ -2155,10 +2158,14 @@ export class MainMenu {
 
             .skill-tree-header {
                 display: flex;
-                justify-content: space-between;
+                flex-wrap: wrap;
+                justify-content: flex-start;
                 align-items: center;
-                gap: 12px;
-                margin-bottom: 12px;
+                gap: 8px;
+                padding: 10px 12px;
+                background: linear-gradient(180deg, rgba(0,30,0,0.98), rgba(0,15,0,0.95));
+                border-bottom: 2px solid #0f0;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.8);
             }
 
             .skill-points-pill {
@@ -2192,12 +2199,15 @@ export class MainMenu {
             .skill-tree {
                 position: relative;
                 min-height: 640px;
-                min-width: 1100px;
+                min-width: 2500px; /* Шире для трех деревьев */
                 background-image: linear-gradient(90deg, rgba(0,255,120,0.05) 1px, transparent 1px);
                 background-repeat: repeat;
                 background-size: 160px 1px;
                 padding: 12px;
-                border: 1px solid rgba(0,255,80,0.35);
+                border-top: 2px solid rgba(0,255,80,0.6);
+                border-left: none;
+                border-right: none;
+                border-bottom: none;
             }
 
             .skill-node {
@@ -2422,6 +2432,31 @@ export class MainMenu {
                 filter: drop-shadow(0 0 4px rgba(0,255,80,0.6));
             }
 
+            .skill-category-header {
+                position: absolute;
+                padding: 12px 20px;
+                background: rgba(0, 0, 0, 0.8);
+                border: 2px solid;
+                border-radius: 8px;
+                font-size: 18px;
+                font-weight: bold;
+                cursor: pointer;
+                z-index: 10;
+                transition: all 0.2s ease;
+                user-select: none;
+                white-space: nowrap;
+            }
+            
+            .skill-category-header:hover {
+                background: rgba(0, 0, 0, 0.95);
+                transform: scale(1.05);
+            }
+            
+            .skill-category-header.active {
+                background: rgba(255, 255, 255, 0.1);
+                box-shadow: 0 0 15px currentColor;
+            }
+            
             .skill-empty {
                 color: #8f8;
                 font-size: 11px;
@@ -6482,6 +6517,13 @@ export class MainMenu {
         const multiplayerManager = game?.multiplayerManager;
         if (multiplayerManager) {
             multiplayerManager.leaveRoom();
+            
+            // Сбрасываем флаг мультиплеера чтобы боты могли спавниться в одиночной игре
+            if (game.disableMultiplayer) {
+                game.disableMultiplayer();
+                debugLog("[Menu] Disabled multiplayer mode after leaving room");
+            }
+            
             const roomInfoEl = document.getElementById("mp-room-info");
             if (roomInfoEl) {
                 roomInfoEl.style.display = "none";
@@ -6513,6 +6555,99 @@ export class MainMenu {
     }
     
     // Метод для отображения уведомлений (успешных сообщений) в меню
+    showGameInviteNotification(data: { fromPlayerId: string; fromPlayerName: string; roomId?: string; gameMode?: string; worldSeed?: number }): void {
+        // Создаем модальное окно для приглашения
+        const modal = document.createElement("div");
+        modal.id = "game-invite-modal";
+        modal.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, rgba(0, 50, 0, 0.95) 0%, rgba(0, 30, 0, 0.95) 100%);
+            border: 2px solid #4ade80;
+            border-radius: 8px;
+            padding: 30px;
+            z-index: 10001;
+            min-width: 400px;
+            max-width: 500px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            box-shadow: 0 0 30px rgba(74, 222, 128, 0.5);
+        `;
+        
+        modal.innerHTML = `
+            <div style="text-align: center; margin-bottom: 20px;">
+                <div style="font-size: 24px; color: #4ade80; margin-bottom: 10px;">🎮 ПРИГЛАШЕНИЕ В ИГРУ</div>
+                <div style="font-size: 16px; color: #fff; margin-bottom: 5px;">${data.fromPlayerName}</div>
+                ${data.roomId ? `<div style="font-size: 12px; color: #888; margin-top: 5px;">Комната: ${data.roomId.substring(0, 12)}</div>` : ''}
+                ${data.gameMode ? `<div style="font-size: 12px; color: #888; margin-top: 5px;">Режим: ${data.gameMode.toUpperCase()}</div>` : ''}
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: center;">
+                <button id="invite-accept" style="
+                    flex: 1;
+                    padding: 12px 24px;
+                    background: rgba(74, 222, 128, 0.2);
+                    border: 1px solid #4ade80;
+                    color: #4ade80;
+                    font-family: 'Consolas', 'Monaco', monospace;
+                    font-size: 14px;
+                    cursor: pointer;
+                    border-radius: 4px;
+                ">ПРИНЯТЬ</button>
+                <button id="invite-decline" style="
+                    flex: 1;
+                    padding: 12px 24px;
+                    background: rgba(239, 68, 68, 0.2);
+                    border: 1px solid #ef4444;
+                    color: #ef4444;
+                    font-family: 'Consolas', 'Monaco', monospace;
+                    font-size: 14px;
+                    cursor: pointer;
+                    border-radius: 4px;
+                ">ОТКЛОНИТЬ</button>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // Обработчики кнопок
+        const acceptBtn = document.getElementById("invite-accept");
+        const declineBtn = document.getElementById("invite-decline");
+        
+        if (acceptBtn) {
+            acceptBtn.onclick = () => {
+                const game = (window as any).gameInstance as any;
+                const multiplayerManager = game?.multiplayerManager;
+                
+                if (data.roomId && multiplayerManager) {
+                    // Присоединяемся к комнате
+                    multiplayerManager.joinRoom(data.roomId);
+                    this.showMultiplayerNotification(`Присоединение к комнате ${data.fromPlayerName}...`, "#4ade80");
+                } else if (multiplayerManager) {
+                    // Создаем комнату с указанным режимом
+                    const mode = data.gameMode || "ffa";
+                    multiplayerManager.createRoom(mode as any, 32, false);
+                    this.showMultiplayerNotification(`Создание комнаты для игры с ${data.fromPlayerName}...`, "#4ade80");
+                }
+                
+                modal.remove();
+            };
+        }
+        
+        if (declineBtn) {
+            declineBtn.onclick = () => {
+                modal.remove();
+            };
+        }
+        
+        // Автоматически закрываем через 30 секунд
+        setTimeout(() => {
+            if (document.body.contains(modal)) {
+                modal.remove();
+            }
+        }, 30000);
+    }
+    
     showMultiplayerNotification(message: string, color: string = "#4ade80"): void {
         const errorEl = document.getElementById("mp-error-message");
         const errorTextEl = document.getElementById("mp-error-text");
@@ -6877,6 +7012,13 @@ export class MainMenu {
             // Обычный старт для одиночной игры
             console.log("[Menu] Starting game with mapType:", this.selectedMapType);
             console.log("[Menu] onStartGame callback:", typeof this.onStartGame);
+            
+            // Сбрасываем флаг мультиплеера чтобы боты спавнились
+            const game = (window as any).gameInstance as any;
+            if (game && game.disableMultiplayer) {
+                game.disableMultiplayer();
+                debugLog("[Menu] Disabled multiplayer mode for single-player game");
+            }
             
             if (this.onStartGame && typeof this.onStartGame === 'function') {
                 this.onStartGame(this.selectedMapType);

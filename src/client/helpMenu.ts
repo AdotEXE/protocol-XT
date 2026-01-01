@@ -64,17 +64,20 @@ export class HelpMenu {
             title: "ГОРЯЧИЕ КЛАВИШИ",
             icon: "⌨",
             controls: [
-                { key: "Ctrl+1 / F1", description: "Помощь / Управление" },
-                { key: "F2 / Ctrl+2", description: "Скриншот" },
-                { key: "F3 / Ctrl+3", description: "Debug Dashboard" },
-                { key: "F4 / Ctrl+4", description: "Physics Panel" },
-                { key: "F5 / Ctrl+5", description: "System Terminal" },
-                { key: "F6 / Ctrl+6", description: "Session Settings" },
-                { key: "F7 / Ctrl+7", description: "Cheat Menu" },
-                { key: "Ctrl+8", description: "Настройки сети" },
-                { key: "Ctrl+9", description: "Генерация мира" },
-                { key: "Ctrl+0", description: "Редактор физики" },
-                { key: "Ctrl+Shift+M", description: "Редактор карт" },
+                { key: "F2", description: "📸 Скриншот (быстрый)" },
+                { key: "F7", description: "🎛️ Панель управления" },
+                { key: "Ctrl+7", description: "🎛️ Панель управления (альт.)" },
+            ]
+        },
+        {
+            title: "РАСХОДНИКИ",
+            icon: "🎒",
+            controls: [
+                { key: "1", description: "Расходник слот 1" },
+                { key: "2", description: "Расходник слот 2" },
+                { key: "3", description: "Расходник слот 3" },
+                { key: "4", description: "Расходник слот 4" },
+                { key: "5", description: "Расходник слот 5" },
             ]
         },
         {
@@ -286,6 +289,119 @@ export class HelpMenu {
     
     isVisible(): boolean {
         return this.visible;
+    }
+    
+    /**
+     * Рендерит контент меню в переданный контейнер (для UnifiedMenu)
+     */
+    renderToContainer(container: HTMLElement): void {
+        container.innerHTML = this.getEmbeddedContentHTML();
+        this.setupEmbeddedEventListeners(container);
+    }
+    
+    /**
+     * Возвращает HTML контента без overlay wrapper
+     */
+    private getEmbeddedContentHTML(): string {
+        return `
+            <div class="help-embedded-content">
+                <h3 style="color: #0ff; margin: 0 0 16px 0; font-size: 16px; text-shadow: 0 0 8px rgba(0, 255, 255, 0.5);">
+                    🎮 Управление и горячие клавиши
+                </h3>
+                <div style="margin-bottom: 16px;">
+                    <input type="text" class="help-search-embedded" placeholder="Поиск по командам..." style="
+                        width: 100%;
+                        padding: 8px 12px;
+                        background: rgba(0, 5, 0, 0.5);
+                        border: 1px solid rgba(0, 255, 4, 0.4);
+                        border-radius: 4px;
+                        color: #0f0;
+                        font-family: Consolas, Monaco, 'Courier New', monospace;
+                        font-size: 12px;
+                        box-sizing: border-box;
+                    ">
+                </div>
+                <div class="help-categories-container">
+                    ${this.renderCategoriesEmbedded(this.categories)}
+                </div>
+            </div>
+        `;
+    }
+    
+    /**
+     * Рендерит категории для embedded режима
+     */
+    private renderCategoriesEmbedded(categories: ControlCategory[]): string {
+        return categories.map(category => `
+            <div class="help-section" style="margin-bottom: 20px;">
+                <div style="
+                    color: #0ff;
+                    font-size: 13px;
+                    font-weight: bold;
+                    margin-bottom: 10px;
+                    padding-bottom: 6px;
+                    border-bottom: 1px solid rgba(0, 255, 4, 0.3);
+                ">
+                    ${category.icon} ${category.title}
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 6px;">
+                    ${category.controls.map(control => `
+                        <div style="
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                            padding: 6px 10px;
+                            background: rgba(0, 5, 0, 0.3);
+                            border: 1px solid rgba(0, 255, 4, 0.2);
+                            border-radius: 4px;
+                        ">
+                            <span style="color: #0f0; font-size: 11px;">${control.description}</span>
+                            <span style="
+                                color: #0ff;
+                                font-size: 10px;
+                                font-weight: bold;
+                                padding: 3px 6px;
+                                background: rgba(0, 255, 4, 0.1);
+                                border: 1px solid rgba(0, 255, 4, 0.3);
+                                border-radius: 3px;
+                                font-family: Consolas, Monaco, 'Courier New', monospace;
+                            ">${control.key}</span>
+                        </div>
+                    `).join("")}
+                </div>
+            </div>
+        `).join("");
+    }
+    
+    /**
+     * Привязывает обработчики событий для embedded режима
+     */
+    private setupEmbeddedEventListeners(container: HTMLElement): void {
+        const searchInput = container.querySelector(".help-search-embedded") as HTMLInputElement;
+        const categoriesContainer = container.querySelector(".help-categories-container");
+        
+        if (searchInput && categoriesContainer) {
+            searchInput.addEventListener("input", () => {
+                const query = searchInput.value.toLowerCase().trim();
+                
+                let filtered: ControlCategory[];
+                if (query === "") {
+                    filtered = [...this.categories];
+                } else {
+                    filtered = this.categories.map(category => {
+                        const filteredControls = category.controls.filter(control =>
+                            control.key.toLowerCase().includes(query) ||
+                            control.description.toLowerCase().includes(query)
+                        );
+                        return filteredControls.length > 0
+                            ? { ...category, controls: filteredControls }
+                            : null;
+                    }).filter((cat): cat is ControlCategory => cat !== null);
+                }
+                
+                categoriesContainer.innerHTML = this.renderCategoriesEmbedded(filtered);
+            });
+        }
     }
 }
 

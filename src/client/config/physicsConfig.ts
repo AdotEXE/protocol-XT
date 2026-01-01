@@ -63,6 +63,85 @@ export interface ConstantsConfig {
     projectileMaxDistance: number;
 }
 
+// ========== СИСТЕМА РИКОШЕТА ==========
+
+/**
+ * Тип материала поверхности для рикошета
+ */
+export type SurfaceMaterial = "metal" | "concrete" | "ground" | "water" | "armor";
+
+/**
+ * Параметры рикошета для материала
+ */
+export interface SurfaceRicochetParams {
+    /** Сохранение скорости (0.0 - 1.0) */
+    speedRetention: number;
+    /** Разброс угла отскока (градусы) */
+    deflectionSpread: number;
+    /** Бонус/штраф к углу рикошета (градусы) */
+    ricochetBonus: number;
+}
+
+/**
+ * Конфигурация системы рикошета
+ */
+export interface RicochetSystemConfig {
+    /** Параметры для разных материалов поверхностей */
+    surfaces: Record<SurfaceMaterial, SurfaceRicochetParams>;
+    /** Настройки по умолчанию */
+    defaults: {
+        /** Максимальное количество рикошетов */
+        maxRicochets: number;
+        /** Минимальная скорость для рикошета (м/с) */
+        minSpeedForRicochet: number;
+        /** Минимальная скорость для трейла (м/с) */
+        minSpeedForTrail: number;
+        /** Базовый угол рикошета (градусы) */
+        baseRicochetAngle: number;
+    };
+}
+
+/**
+ * Конфигурация материалов поверхностей для рикошета
+ */
+export const SURFACE_RICOCHET_CONFIG: Record<SurfaceMaterial, SurfaceRicochetParams> = {
+    metal: {
+        speedRetention: 0.85,
+        deflectionSpread: 3,
+        ricochetBonus: 5
+    },
+    concrete: {
+        speedRetention: 0.75,
+        deflectionSpread: 8,
+        ricochetBonus: 0
+    },
+    ground: {
+        speedRetention: 0.55,
+        deflectionSpread: 15,
+        ricochetBonus: -10
+    },
+    armor: {
+        speedRetention: 0.90,
+        deflectionSpread: 2,
+        ricochetBonus: 10
+    },
+    water: {
+        speedRetention: 0.30,
+        deflectionSpread: 20,
+        ricochetBonus: -20
+    }
+};
+
+/**
+ * Настройки рикошета по умолчанию
+ */
+export const RICOCHET_DEFAULTS = {
+    maxRicochets: 3,
+    minSpeedForRicochet: 15,
+    minSpeedForTrail: 50,
+    baseRicochetAngle: 70
+};
+
 export interface EnemyProjectilesConfig {
     baseDamage: number;
     impulse: number;
@@ -108,6 +187,7 @@ export interface PhysicsConfig {
             sideDrag: number;
             fwdDrag: number;
             angularDrag: number;
+            pitchTorque: number; // Крутящий момент для наклона при движении
         };
         climbing: {
             climbAssistForce: number;
@@ -153,6 +233,9 @@ export interface PhysicsConfig {
             downforceFactor: number;
             airControl: number;
             angularDragAir: number;
+            uprightForce: number;
+            uprightDamp: number;
+            emergencyForce: number;
         };
     };
     turret: TurretConfig;
@@ -207,6 +290,9 @@ export interface PhysicsConfig {
             uprightDamp: number;
             emergencyForce: number;
         };
+        movement: {
+            pitchTorque: number; // Крутящий момент для наклона при движении
+        };
         climbing: {
             climbAssistForce: number;
             maxClimbHeight: number;
@@ -250,7 +336,7 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
     },
     tank: {
         basic: {
-            mass: 3500,
+            mass: 10000, // 10 тонн
             hoverHeight: 1.0,
             moveSpeed: 24,
             turnSpeed: 2.5,
@@ -279,6 +365,7 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
             sideDrag: 8000,
             fwdDrag: 7000,
             angularDrag: 5000,
+            pitchTorque: 8000, // Крутящий момент для наклона при движении (Н·м)
         },
         climbing: {
             climbAssistForce: 40000,
@@ -304,7 +391,7 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
             maxDownwardSpeed: 35,
             maxAngularSpeed: 2.5,
         },
-        centerOfMass: new Vector3(0, -0.3, -0.1),
+        centerOfMass: new Vector3(0, -0.3, -0.3), // Смещён назад
         collisionMaterials: {
             centerBoxFriction: 0.1,
             centerBoxRestitution: 0.0,
@@ -324,6 +411,9 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
             downforceFactor: 0, // ОТКЛЮЧЕНО
             airControl: 0, // ОТКЛЮЧЕНО
             angularDragAir: 0, // ОТКЛЮЧЕНО
+            uprightForce: 0, // ОТКЛЮЧЕНО (не используется в arcade)
+            uprightDamp: 0, // ОТКЛЮЧЕНО (не используется в arcade)
+            emergencyForce: 0, // ОТКЛЮЧЕНО (не используется в arcade)
         },
     },
     turret: {
@@ -347,8 +437,8 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
             projectileSize: 0.2,
         },
         recoil: {
-            force: 2500,
-            torque: 10000,
+            force: 10000, // x4 (было 2500)
+            torque: 40000, // x4 (было 10000)
             barrelRecoilSpeed: 0.3,
             barrelRecoilAmount: -1.6,
             applicationPoint: "center",
@@ -375,10 +465,10 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
     enemyTank: {
         // СИНХРОНИЗИРОВАНО С ИГРОКОМ: параметры физики теперь идентичны tank!
         basic: {
-            mass: 3500, // СИНХРОНИЗИРОВАНО (было 3000)
+            mass: 10000, // СИНХРОНИЗИРОВАНО с игроком (10 тонн)
             hoverHeight: 1.0,
-            moveSpeed: 24, // УЛУЧШЕНО: Идентично игроку для максимальной скорости (было 22)
-            turnSpeed: 2.5, // УЛУЧШЕНО: Идентично игроку для максимальной манёвренности (было 2.3)
+            moveSpeed: 24, // Идентично игроку
+            turnSpeed: 2.5, // Идентично игроку
             acceleration: 40000, // Такой же как у игрока
         },
         stability: {
@@ -386,13 +476,12 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
             hoverDamping: 18000, // СИНХРОНИЗИРОВАНО с игроком
             linearDamping: 0.8, // СИНХРОНИЗИРОВАНО с игроком
             angularDamping: 4.0, // СИНХРОНИЗИРОВАНО с игроком
-            suspensionCompression: 4.0, // СИНХРОНИЗИРОВАНО с игроком
             uprightForce: 18000, // СИНХРОНИЗИРОВАНО с игроком
             uprightDamp: 8000, // СИНХРОНИЗИРОВАНО с игроком
-            stabilityForce: 3000, // СИНХРОНИЗИРОВАНО с игроком
             emergencyForce: 18000, // СИНХРОНИЗИРОВАНО с игроком
-            liftForce: 0, // СИНХРОНИЗИРОВАНО с игроком
-            downForce: 1500, // СИНХРОНИЗИРОВАНО с игроком
+        },
+        movement: {
+            pitchTorque: 8000, // СИНХРОНИЗИРОВАНО с игроком (Н·м)
         },
         climbing: {
             climbAssistForce: 40000, // СИНХРОНИЗИРОВАНО с игроком (было 120000)
@@ -402,7 +491,7 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
             wallPushForce: 25000, // СИНХРОНИЗИРОВАНО с игроком (было 80000)
             climbTorque: 12000, // СИНХРОНИЗИРОВАНО с игроком (было 25000)
         },
-        centerOfMass: new Vector3(0, -0.3, -0.1), // СИНХРОНИЗИРОВАНО с игроком
+        centerOfMass: new Vector3(0, -0.3, -0.3), // Смещён назад // СИНХРОНИЗИРОВАНО с игроком
         collisionFilters: {
             membershipMask: 8,
             collideMask: 2 | 4 | 32,
@@ -413,6 +502,9 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
             downforceFactor: 0, // ОТКЛЮЧЕНО
             airControl: 0, // ОТКЛЮЧЕНО
             angularDragAir: 0, // ОТКЛЮЧЕНО
+            uprightForce: 0, // ОТКЛЮЧЕНО (не используется в arcade)
+            uprightDamp: 0, // ОТКЛЮЧЕНО (не используется в arcade)
+            emergencyForce: 0, // ОТКЛЮЧЕНО (не используется в arcade)
         },
         projectiles: {
             baseDamage: 20,
@@ -474,7 +566,7 @@ function createDefaultConfig(): PhysicsConfig {
         },
         tank: {
             basic: {
-                mass: 3500,
+                mass: 10000, // 10 тонн
                 hoverHeight: 1.0,
                 moveSpeed: 24,
                 turnSpeed: 2.5,
@@ -503,6 +595,7 @@ function createDefaultConfig(): PhysicsConfig {
                 sideDrag: 8000,
                 fwdDrag: 7000,
                 angularDrag: 5000,
+                pitchTorque: 8000, // Крутящий момент для наклона при движении (Н·м)
             },
             climbing: {
                 climbAssistForce: 40000,
@@ -528,7 +621,7 @@ function createDefaultConfig(): PhysicsConfig {
                 maxDownwardSpeed: 35,
                 maxAngularSpeed: 2.5,
             },
-            centerOfMass: new Vector3(0, -0.3, -0.1),
+            centerOfMass: new Vector3(0, -0.3, -0.3), // Смещён назад
             collisionMaterials: {
                 centerBoxFriction: 0.1,
                 centerBoxRestitution: 0.0,
@@ -548,6 +641,9 @@ function createDefaultConfig(): PhysicsConfig {
                 downforceFactor: 0, // ОТКЛЮЧЕНО
                 airControl: 0, // ОТКЛЮЧЕНО
                 angularDragAir: 0, // ОТКЛЮЧЕНО
+                uprightForce: 0, // ОТКЛЮЧЕНО (не используется в arcade)
+                uprightDamp: 0, // ОТКЛЮЧЕНО (не используется в arcade)
+                emergencyForce: 0, // ОТКЛЮЧЕНО (не используется в arcade)
             },
         },
         turret: {
@@ -599,10 +695,10 @@ function createDefaultConfig(): PhysicsConfig {
         enemyTank: {
             // DEFAULT: Синхронизированные параметры с игроком
             basic: {
-                mass: 3500,
+                mass: 10000, // СИНХРОНИЗИРОВАНО с игроком (10 тонн)
                 hoverHeight: 1.0,
-                moveSpeed: 24, // УЛУЧШЕНО: Идентично игроку
-                turnSpeed: 2.5, // УЛУЧШЕНО: Идентично игроку
+                moveSpeed: 24, // Идентично игроку
+                turnSpeed: 2.5, // Идентично игроку
                 acceleration: 40000,
             },
             stability: {
@@ -610,13 +706,12 @@ function createDefaultConfig(): PhysicsConfig {
                 hoverDamping: 18000,
                 linearDamping: 0.8,
                 angularDamping: 4.0,
-                suspensionCompression: 4.0,
                 uprightForce: 18000, // СИНХРОНИЗИРОВАНО с игроком
                 uprightDamp: 8000,
-                stabilityForce: 3000,
                 emergencyForce: 18000, // СИНХРОНИЗИРОВАНО с игроком
-                liftForce: 0,
-                downForce: 1500,
+            },
+            movement: {
+                pitchTorque: 8000, // СИНХРОНИЗИРОВАНО с игроком (Н·м)
             },
             climbing: {
                 climbAssistForce: 40000,
@@ -626,7 +721,7 @@ function createDefaultConfig(): PhysicsConfig {
                 wallPushForce: 25000,
                 climbTorque: 12000,
             },
-            centerOfMass: new Vector3(0, -0.3, -0.1), // СИНХРОНИЗИРОВАНО с игроком
+            centerOfMass: new Vector3(0, -0.3, -0.3), // Смещён назад // СИНХРОНИЗИРОВАНО с игроком
             collisionFilters: {
                 membershipMask: 8,
                 collideMask: 2 | 4 | 32,
@@ -636,6 +731,9 @@ function createDefaultConfig(): PhysicsConfig {
                 downforceFactor: 0, // ОТКЛЮЧЕНО
                 airControl: 0, // ОТКЛЮЧЕНО
                 angularDragAir: 0, // ОТКЛЮЧЕНО
+                uprightForce: 0, // ОТКЛЮЧЕНО (не используется в arcade)
+                uprightDamp: 0, // ОТКЛЮЧЕНО (не используется в arcade)
+                emergencyForce: 0, // ОТКЛЮЧЕНО (не используется в arcade)
             },
             projectiles: {
                 baseDamage: 20,

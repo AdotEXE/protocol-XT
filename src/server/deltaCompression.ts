@@ -167,7 +167,74 @@ export class DeltaCompressor {
     }
 }
 
+/**
+ * Spatial Hash Grid for efficient spatial queries
+ */
+export class SpatialHashGrid {
+    private cellSize: number;
+    private grid: Map<string, Set<string>> = new Map(); // cellKey -> Set<playerId>
+    
+    constructor(cellSize: number = 100) {
+        this.cellSize = cellSize;
+    }
+    
+    private getCellKey(x: number, z: number): string {
+        const cellX = Math.floor(x / this.cellSize);
+        const cellZ = Math.floor(z / this.cellSize);
+        return `${cellX},${cellZ}`;
+    }
+    
+    /**
+     * Get players in cells near the given position
+     */
+    getNearbyPlayers(players: PlayerData[], centerPos: Vector3, radius: number): PlayerData[] {
+        const nearbyPlayers: PlayerData[] = [];
+        const radiusCells = Math.ceil(radius / this.cellSize);
+        const centerCellX = Math.floor(centerPos.x / this.cellSize);
+        const centerCellZ = Math.floor(centerPos.z / this.cellSize);
+        
+        // Check cells in radius
+        for (let dx = -radiusCells; dx <= radiusCells; dx++) {
+            for (let dz = -radiusCells; dz <= radiusCells; dz++) {
+                const cellKey = `${centerCellX + dx},${centerCellZ + dz}`;
+                const cellPlayers = this.grid.get(cellKey);
+                if (cellPlayers) {
+                    for (const playerId of cellPlayers) {
+                        const player = players.find(p => p.id === playerId);
+                        if (player && Vector3.Distance(centerPos, player.position) <= radius) {
+                            nearbyPlayers.push(player);
+                        }
+                    }
+                }
+            }
+        }
+        
+        return nearbyPlayers;
+    }
+    
+    /**
+     * Update grid with current player positions
+     */
+    updateGrid(players: PlayerData[]): void {
+        this.grid.clear();
+        
+        for (const player of players) {
+            const cellKey = this.getCellKey(player.position.x, player.position.z);
+            if (!this.grid.has(cellKey)) {
+                this.grid.set(cellKey, new Set());
+            }
+            this.grid.get(cellKey)!.add(player.id);
+        }
+    }
+}
+
 export class PrioritizedBroadcaster {
+    private spatialGrid: SpatialHashGrid;
+    
+    constructor() {
+        this.spatialGrid = new SpatialHashGrid(100); // 100 unit cells
+    }
+    
     // Prioritize players based on distance and importance
     prioritizePlayers(
         players: PlayerData[],
@@ -179,7 +246,31 @@ export class PrioritizedBroadcaster {
             return players; // No need to prioritize if we can send all
         }
         
-        // Calculate distance and priority for each player
+        // Update spatial grid for efficient queries
+        this.spatialGrid.updateGrid(players);
+        
+        // Get nearby players using spatial grid (within 500 units)
+        const nearbyPlayers = this.spatialGrid.getNearbyPlayers(players, localPlayerPos, 500);
+        
+        // If we have enough nearby players, use them
+        if (nearbyPlayers.length >= maxPlayers) {
+            // Calculate priority for nearby players
+            const playersWithPriority = nearbyPlayers.map(player => ({
+                player,
+                distance: Vector3.Distance(localPlayerPos, player.position),
+                priority: this.calculatePriority(player, localPlayerPos)
+            }));
+            
+            // Sort by priority (higher is better)
+            playersWithPriority.sort((a, b) => b.priority - a.priority);
+            
+            // Return top N players
+            return playersWithPriority
+                .slice(0, maxPlayers)
+                .map(p => p.player);
+        }
+        
+        // Fallback to distance-based prioritization for all players
         const playersWithPriority = players.map(player => ({
             player,
             distance: Vector3.Distance(localPlayerPos, player.position),
@@ -243,6 +334,39 @@ export class PrioritizedBroadcaster {
         }
         // Close - full update (handled normally)
         return player;
+    }
+    
+    /**
+     * Calculate adaptive update rate based on distance and network conditions
+     * Returns update frequency multiplier (1.0 = full rate, 0.5 = half rate, etc.)
+     */
+    getAdaptiveUpdateRate(distance: number, playerCount: number, networkLoad: number = 0): number {
+        // Base rate based on distance
+        let rate = 1.0;
+        
+        if (distance > 500) {
+            rate = 0.2; // Very far: 20% update rate (5x less frequent)
+        } else if (distance > 300) {
+            rate = 0.4; // Far: 40% update rate
+        } else if (distance > 150) {
+            rate = 0.7; // Medium: 70% update rate
+        } else {
+            rate = 1.0; // Close: 100% update rate
+        }
+        
+        // Adjust based on player count (more players = lower rate for distant ones)
+        if (playerCount > 20) {
+            rate *= 0.8; // Reduce by 20% if many players
+        }
+        
+        // Adjust based on network load (0.0 = no load, 1.0 = high load)
+        if (networkLoad > 0.7) {
+            rate *= 0.7; // Reduce by 30% if high network load
+        } else if (networkLoad > 0.5) {
+            rate *= 0.85; // Reduce by 15% if medium network load
+        }
+        
+        return Math.max(0.1, Math.min(1.0, rate)); // Clamp between 0.1 and 1.0
     }
 }
 

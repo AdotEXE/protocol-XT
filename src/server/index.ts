@@ -3,6 +3,7 @@ import { GameServer } from "./gameServer";
 import * as net from "net";
 import * as http from "http";
 import { serverLogger } from "./logger";
+import { handleUpgradeRequest } from "./upgrade";
 
 const DEFAULT_WS_PORT = 8000;  // WebSocket сервер
 const DEFAULT_HTTP_PORT = 7000; // HTTP мониторинг
@@ -42,7 +43,7 @@ async function findAvailablePort(startPort: number, maxAttempts: number = 10): P
 function createHTTPServer(gameServer: GameServer): http.Server {
     const httpPort = process.env.HTTP_PORT ? parseInt(process.env.HTTP_PORT) : DEFAULT_HTTP_PORT;
     
-    const httpServer = http.createServer((req, res) => {
+    const httpServer = http.createServer(async (req, res) => {
         // CORS headers
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -51,6 +52,12 @@ function createHTTPServer(gameServer: GameServer): http.Server {
         if (req.method === 'OPTIONS') {
             res.writeHead(200);
             res.end();
+            return;
+        }
+        
+        // API прокачки
+        const handledByUpgrade = await handleUpgradeRequest(req, res);
+        if (handledByUpgrade) {
             return;
         }
         

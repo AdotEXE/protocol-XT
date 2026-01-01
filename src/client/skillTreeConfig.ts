@@ -28,6 +28,7 @@ export interface SkillNode {
     calculatedX?: number; // Вычисленная X позиция
     calculatedY?: number; // Вычисленная Y позиция
     branchIndex?: number; // Индекс ветки от родителя (для угла)
+    category?: "combat" | "defense" | "utility"; // Категория для группировки
 }
 
 export interface SkillEdge {
@@ -44,16 +45,12 @@ export interface SkillBranch {
 }
 
 export const SKILL_BRANCHES: SkillBranch[] = [
-    { id: "mobility", name: "Мобильность", icon: "🏃", color: "#0ff", description: "Прыжки, скорость, манёвры" },
-    { id: "ultimate", name: "Ультимативные", icon: "💥", color: "#f0f", description: "Мощные способности" },
-    { id: "tech", name: "Технологии", icon: "🔧", color: "#ff0", description: "Дроны, инженерка" },
-    { id: "support", name: "Поддержка", icon: "💚", color: "#0f0", description: "Бафы союзникам" },
-    { id: "stealth", name: "Скрытность", icon: "👁️", color: "#888", description: "Невидимость, маскировка" },
-    { id: "utility", name: "Утилиты", icon: "🛠️", color: "#fa0", description: "Стенки, ловушки" },
-    { id: "firepower", name: "Огневая мощь", icon: "⚔️", color: "#f00", description: "Урон, стрельба" },
-    { id: "defense", name: "Защита", icon: "🛡️", color: "#00f", description: "Броня, щиты" },
-    { id: "supply", name: "Экономика", icon: "💰", color: "#ff0", description: "Ресурсы, кредиты" },
-    { id: "commander", name: "Командование", icon: "🎖️", color: "#faf", description: "Ауры, тактика" }
+    { id: "attack", name: "Атака", icon: "⚔️", color: "#f00", description: "Урон, ультимативные способности" },
+    { id: "defense", name: "Защита", icon: "🛡️", color: "#00f", description: "Броня, щиты, регенерация" },
+    { id: "mobility", name: "Мобильность", icon: "🏃", color: "#0ff", description: "Скорость, прыжки, манёвры" },
+    { id: "tech", name: "Технологии", icon: "🔧", color: "#ff0", description: "Дроны, турели, гаджеты" },
+    { id: "stealth", name: "Скрытность", icon: "👁️", color: "#888", description: "Невидимость, засады" },
+    { id: "leadership", name: "Лидерство", icon: "🎖️", color: "#0f0", description: "Поддержка, экономика, ауры" }
 ];
 
 // Функция для расчёта стоимости (растущая: 1, 2, 3, 4, 5)
@@ -61,17 +58,35 @@ export function getSkillCost(level: number, baseCost: number = 1): number {
     return baseCost + (level - 1);
 }
 
+// Маппинг веток к категориям (3 основные категории)
+export const BRANCH_CATEGORIES = {
+    combat: ["attackHub"],                    // Атака
+    defense: ["defenseHub", "mobilityHub"],   // Защита + Мобильность
+    utility: ["techHub", "stealthHub", "leadershipHub"]  // Технологии + Скрытность + Лидерство
+};
+
+// Цвета категорий
+export const CATEGORY_COLORS = {
+    combat: "#f00",
+    defense: "#00f",
+    utility: "#0f0"
+};
+
+// Константы для нового размещения
+const NODE_WIDTH = 220;
+const NODE_HEIGHT = 130;
+const MIN_NODE_SPACING = 150;
+const TREE_SPACING = 100; // Отступ между деревьями
+const TREE_WIDTH = 800; // Ширина каждого дерева
+
 // Продвинутое структурированное размещение узлов дерева навыков
 // Центральный узел в центре, ветки по кругу с учётом их ширины и глубины
 // С автоматическим выравниванием и оптимизацией пространства
 
-// Константы для размещения
+// Константы для старого размещения (используются в старых функциях)
 const HUB_RADIUS = 750; // Расстояние от центра до веток (хабов) - увеличено для большего пространства
 const NODE_VERTICAL_STEP = 350; // Вертикальный шаг между узлами в ветке
 const NODE_HORIZONTAL_OFFSET = 280; // Горизонтальное смещение для узлов с несколькими детьми
-const NODE_WIDTH = 220; // Ширина узла (для расчёта перекрытий)
-const NODE_HEIGHT = 130; // Высота узла (для расчёта перекрытий)
-const MIN_NODE_SPACING = 50; // Минимальное расстояние между узлами (дополнительный отступ)
 const LEVEL_ALIGNMENT_TOLERANCE = 20; // Допуск для выравнивания узлов на одном уровне
 
 // Структура для хранения информации о ветке
@@ -116,205 +131,254 @@ function calculateBranchInfo(nodeId: string, visited: Set<string> = new Set()): 
     }
 }
 
-// Вычисление всех позиций узлов дерева
-export function calculateAllNodePositions(): Map<string, { x: number; y: number }> {
+// Новая функция для размещения трех деревьев с гибким разветвлением
+export function calculateThreeTreesLayout(): Map<string, { x: number; y: number }> {
     const positions = new Map<string, { x: number; y: number }>();
     
-    // Находим центральный узел
-    const coreNode = SKILL_TREE_NODES.find(n => n.id === "commandCore");
-    if (!coreNode) return positions;
-    
-    // 1. Центральный узел в позиции (0, 0)
-    positions.set(coreNode.id, { x: 0, y: 0 });
-    
-    // 2. Находим все ветки (хабы) от центрального узла
-    const hubNodes = SKILL_TREE_NODES.filter(n => 
-        n.parentId === "commandCore" && n.type === "hub"
-    );
-    
-    // 3. Вычисляем информацию о каждой ветке (глубина, ширина)
-    const hubInfo = new Map<string, BranchInfo>();
-    hubNodes.forEach(hub => {
-        hubInfo.set(hub.id, calculateBranchInfo(hub.id));
-    });
-    
-    // Сортируем ветки по приоритету: сначала широкие и глубокие
-    const sortedHubs = [...hubNodes].sort((a, b) => {
-        const infoA = hubInfo.get(a.id)!;
-        const infoB = hubInfo.get(b.id)!;
-        // Приоритет: сначала более широкие, затем более глубокие
-        const priorityA = infoA.maxWidth * 1000 + infoA.depth;
-        const priorityB = infoB.maxWidth * 1000 + infoB.depth;
-        return priorityB - priorityA;
-    });
-    
-    // 4. Умное размещение веток по кругу с учётом их ширины
-    const hubAngles = new Map<string, number>();
-    const baseAngleStep = (360 / sortedHubs.length) * Math.PI / 180;
-    
-    sortedHubs.forEach((hub, index) => {
-        const info = hubInfo.get(hub.id)!;
+    // Функция для вычисления базового расстояния в зависимости от глубины
+    const getBaseDistance = (depth: number, childCount: number): number => {
+        let base = 200;
+        if (depth >= 5) base = 350;
+        else if (depth >= 3) base = 280;
+        else if (depth >= 1) base = 240;
         
-        // Базовый угол для равномерного распределения
-        let angle = index * baseAngleStep;
+        // Увеличиваем расстояние если много детей
+        if (childCount >= 3) base *= 1.25;
         
-        // Корректируем угол для широких веток, чтобы избежать перекрытий
-        if (info.maxWidth > NODE_WIDTH * 2) {
-            // Широкие ветки получают дополнительный отступ
-            const widthFactor = info.maxWidth / (NODE_WIDTH * 2);
-            angle += (widthFactor - 1) * 0.05; // Небольшой дополнительный угол
+        return base;
+    };
+    
+    // Функция для проверки коллизий (строгая проверка перекрытия прямоугольников)
+    const checkCollision = (x: number, y: number, existingPositions: Map<string, { x: number; y: number }>): boolean => {
+        // Проверяем перекрытие с учетом размеров узлов и минимального отступа
+        const nodeLeft = x - NODE_WIDTH / 2 - MIN_NODE_SPACING / 2;
+        const nodeRight = x + NODE_WIDTH / 2 + MIN_NODE_SPACING / 2;
+        const nodeTop = y - NODE_HEIGHT / 2 - MIN_NODE_SPACING / 2;
+        const nodeBottom = y + NODE_HEIGHT / 2 + MIN_NODE_SPACING / 2;
+        
+        for (const [_, pos] of existingPositions) {
+            const existingLeft = pos.x - NODE_WIDTH / 2 - MIN_NODE_SPACING / 2;
+            const existingRight = pos.x + NODE_WIDTH / 2 + MIN_NODE_SPACING / 2;
+            const existingTop = pos.y - NODE_HEIGHT / 2 - MIN_NODE_SPACING / 2;
+            const existingBottom = pos.y + NODE_HEIGHT / 2 + MIN_NODE_SPACING / 2;
+            
+            // Строгая проверка перекрытия прямоугольников
+            if (nodeRight > existingLeft && nodeLeft < existingRight &&
+                nodeBottom > existingTop && nodeTop < existingBottom) {
+                return true;
+            }
+        }
+        return false;
+    };
+    
+    // Функция для поиска свободной позиции справа с органичным смещением
+    // ВСЕГДА возвращает позицию (никогда null)
+    const findFreePosition = (
+        startX: number,
+        startY: number,
+        existingPositions: Map<string, { x: number; y: number }>,
+        maxAttempts: number = 100
+    ): { x: number; y: number } => {
+        // Пробуем позиции справа с небольшими вертикальными смещениями (имитация ветки)
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            // Органичное смещение: небольшие случайные отклонения вверх/вниз
+            const offsetY = (Math.sin(attempt * 0.5) + Math.cos(attempt * 0.3)) * (MIN_NODE_SPACING * 0.5);
+            const testX = startX + (attempt * MIN_NODE_SPACING * 0.3);
+            const testY = startY + offsetY;
+            
+            if (!checkCollision(testX, testY, existingPositions)) {
+                return { x: testX, y: testY };
+            }
+        }
+        // Если не нашли свободную позицию - сильно сдвигаем вправо (гарантированная позиция)
+        return { x: startX + maxAttempts * MIN_NODE_SPACING * 0.5, y: startY };
+    };
+    
+    // Функция для размещения узла с избежанием коллизий
+    const placeNodeWithCollisionAvoidance = (
+        nodeId: string,
+        parentPos: { x: number; y: number },
+        angle: number,
+        distance: number,
+        existingPositions: Map<string, { x: number; y: number }>,
+        maxAttempts: number = 8
+    ): { x: number; y: number } | null => {
+        let baseX = parentPos.x + Math.cos(angle) * distance;
+        let baseY = parentPos.y + Math.sin(angle) * distance;
+        
+        // Пробуем разместить в базовой позиции
+        if (!checkCollision(baseX, baseY, existingPositions)) {
+            return { x: baseX, y: baseY };
         }
         
-        hubAngles.set(hub.id, angle);
+        // Если коллизия, пробуем разные углы
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            const angleOffset = (attempt * Math.PI * 2) / maxAttempts;
+            const testAngle = angle + angleOffset;
+            const testX = parentPos.x + Math.cos(testAngle) * distance;
+            const testY = parentPos.y + Math.sin(testAngle) * distance;
+            
+            if (!checkCollision(testX, testY, existingPositions)) {
+                return { x: testX, y: testY };
+            }
+        }
         
-        const x = Math.cos(angle) * HUB_RADIUS;
-        const y = Math.sin(angle) * HUB_RADIUS;
-        positions.set(hub.id, { x, y });
-    });
+        // Если все попытки неудачны, увеличиваем расстояние
+        const fallbackDistance = distance * 1.3;
+        return {
+            x: parentPos.x + Math.cos(angle) * fallbackDistance,
+            y: parentPos.y + Math.sin(angle) * fallbackDistance
+        };
+    };
     
-    // 5. Для каждой ветки размещаем узлы вертикально вниз с оптимизированным алгоритмом
-    // Сначала собираем все узлы по уровням для выравнивания
-    const nodesByLevel = new Map<number, Array<{ nodeId: string; parentId: string; branchId: string }>>();
-    
-    sortedHubs.forEach((hub) => {
-        const hubPos = positions.get(hub.id);
-        if (!hubPos) return;
-        
-        const branchInfo = hubInfo.get(hub.id)!;
-        
-        // Рекурсивно размещаем все дочерние узлы ветки
-        const placeNodesInBranch = (
-            parentId: string, 
+    // Рекурсивная функция для размещения узлов с гибким разветвлением
+    const placeNodesRecursive = (
+        nodeId: string,
             parentPos: { x: number; y: number }, 
             depth: number,
-            branchCenterX: number, // Центр ветки для симметричного размещения
-            levelWidth: number = 0 // Ширина текущего уровня
+        existingPositions: Map<string, { x: number; y: number }>,
+        category: "combat" | "defense" | "utility"
         ) => {
-            const children = SKILL_TREE_NODES.filter(n => n.parentId === parentId);
-            
+        const children = SKILL_TREE_NODES.filter(n => n.parentId === nodeId);
             if (children.length === 0) return;
             
-            // Оптимальный шаг: адаптивный в зависимости от глубины
-            let adaptiveStep = NODE_VERTICAL_STEP;
-            if (depth > 5) {
-                adaptiveStep = NODE_VERTICAL_STEP * 0.90; // Компактнее для глубоких уровней
-            } else if (depth > 3) {
-                adaptiveStep = NODE_VERTICAL_STEP * 0.95;
+        const baseDistance = getBaseDistance(depth, children.length);
+        
+        // Разрешенные углы для движения СЛЕВА НАПРАВО: 45, 0, -45 градусов (все идут вправо)
+        // Углы 90 и -90 исключены, так как они строго вертикальные
+        const allowedAngles = [
+            Math.PI / 4,      // 45° (вниз-вправо)
+            0,                // 0° (строго вправо)
+            -Math.PI / 4      // -45° (вверх-вправо)
+        ];
+        
+        // ДЕРЕВО: ветки расходятся в разные стороны от начальной плоскости (0°)
+        // Используем углы: 45°, 0°, -45° для расхождения веток
+        
+        if (children.length === 1) {
+            // Один ребенок - размещаем вправо с органичным смещением (имитация продолжения ветки)
+            const child = children[0]!;
+            let pos: { x: number; y: number } | null = null;
+            
+            // Органичное смещение для имитации ветки (чередование вверх/вниз)
+            const patternOffset = Math.sin(depth * 0.8) * (baseDistance * 0.25);
+            
+            // Пробуем углы в порядке приоритета: 0° (вправо), 45° (вниз-вправо), -45° (вверх-вправо)
+            for (const angle of [0, Math.PI / 4, -Math.PI / 4]) {
+                const testX = parentPos.x + Math.cos(angle) * baseDistance;
+                const testY = parentPos.y + Math.sin(angle) * baseDistance + patternOffset;
+                
+                if (!checkCollision(testX, testY, existingPositions)) {
+                    pos = { x: testX, y: testY };
+                    break;
+                }
             }
             
-            // Если у узла один ребёнок - размещаем вертикально вниз по центру
-            if (children.length === 1) {
-                const child = children[0]!;
-                const childPos = {
-                    x: branchCenterX, // Всегда по центру ветки для симметрии
-                    y: parentPos.y + adaptiveStep + MIN_NODE_SPACING
-                };
-                positions.set(child.id, childPos);
-                
-                // Сохраняем информацию о уровне для последующего выравнивания
-                if (!nodesByLevel.has(depth + 1)) {
-                    nodesByLevel.set(depth + 1, []);
-                }
-                nodesByLevel.get(depth + 1)!.push({ nodeId: child.id, parentId, branchId: hub.id });
-                
-                placeNodesInBranch(child.id, childPos, depth + 1, branchCenterX, NODE_WIDTH);
-            } else {
-                // Если несколько детей - размещаем их симметрично относительно центра ветки
-                // Вычисляем оптимальную ширину для размещения всех детей
-                const minSpacing = NODE_WIDTH + MIN_NODE_SPACING;
-                const totalWidth = Math.max(
-                    NODE_HORIZONTAL_OFFSET * (children.length - 1),
-                    minSpacing * (children.length - 1)
-                );
-                const startX = branchCenterX - totalWidth / 2;
-                
-                // Вычисляем оптимальное расстояние между детьми
-                const optimalSpacing = children.length > 1 ? totalWidth / (children.length - 1) : 0;
-                
-                children.forEach((child, childIndex) => {
-                    const childPos = {
-                        x: startX + childIndex * optimalSpacing,
-                        y: parentPos.y + adaptiveStep + MIN_NODE_SPACING
-                    };
-                    positions.set(child.id, childPos);
-                    
-                    // Сохраняем информацию о уровне
-                    if (!nodesByLevel.has(depth + 1)) {
-                        nodesByLevel.set(depth + 1, []);
-                    }
-                    nodesByLevel.get(depth + 1)!.push({ nodeId: child.id, parentId, branchId: hub.id });
-                    
-                    // Для каждого ребёнка вычисляем его центр (для симметричного размещения его детей)
-                    const childCenterX = childPos.x;
-                    placeNodesInBranch(child.id, childPos, depth + 1, childCenterX, NODE_WIDTH);
-                });
+            // Если все углы заняты, ищем свободную позицию справа
+            if (!pos) {
+                const startX = parentPos.x + baseDistance;
+                const startY = parentPos.y + patternOffset;
+                pos = findFreePosition(startX, startY, existingPositions);
             }
+            
+            // pos всегда будет существовать (findFreePosition гарантированно возвращает позицию)
+            existingPositions.set(child.id, pos);
+            placeNodesRecursive(child.id, pos, depth + 1, existingPositions, category);
+        } else {
+            // Несколько детей - ВЕТВЛЕНИЕ ДЕРЕВА: расходимся в разные стороны
+            // Используем углы: -45° (вверх-вправо), 0° (вправо), 45° (вниз-вправо)
+            // Это создает веерное расхождение веток
+            
+            const branchAngles = [-Math.PI / 4, 0, Math.PI / 4]; // -45°, 0°, 45°
+            
+            children.forEach((child, index) => {
+                // Выбираем угол для этой ветки (циклически используем доступные углы)
+                const angleIndex = index % branchAngles.length;
+                const angle = branchAngles[angleIndex]!;
+                
+                // Органичное смещение для каждой ветки (имитация естественного ветвления)
+                const organicOffset = (Math.sin(depth * 0.9 + index * 0.6) + Math.cos(depth * 0.7 + index * 0.4)) * (baseDistance * 0.2);
+                
+                // Если детей больше чем углов, добавляем небольшие вариации
+                let finalAngle = angle;
+                if (children.length > branchAngles.length) {
+                    const variation = (index - angleIndex) * 0.1; // Небольшое отклонение
+                    finalAngle = angle + variation;
+                    // Ограничиваем углы в диапазоне -45° до +45°
+                    finalAngle = Math.max(-Math.PI / 4, Math.min(Math.PI / 4, finalAngle));
+                }
+                
+                let testX = parentPos.x + Math.cos(finalAngle) * baseDistance;
+                let testY = parentPos.y + Math.sin(finalAngle) * baseDistance + organicOffset;
+                
+                // Проверяем коллизию и ищем свободное место
+                if (checkCollision(testX, testY, existingPositions)) {
+                    const freePos = findFreePosition(testX, testY, existingPositions);
+                    testX = freePos.x;
+                    testY = freePos.y;
+                }
+                
+                // Размещаем узел (findFreePosition гарантирует валидную позицию)
+                const pos = { x: testX, y: testY };
+                existingPositions.set(child.id, pos);
+                placeNodesRecursive(child.id, pos, depth + 1, existingPositions, category);
+            });
+        }
         };
         
-        // Начинаем размещение от центра ветки (позиция хаба)
-        placeNodesInBranch(hub.id, hubPos, 0, hubPos.x, branchInfo.maxWidth);
-    });
+    // Обрабатываем каждую категорию
+    const categories: Array<{ id: "combat" | "defense" | "utility"; name: string; icon: string }> = [
+        { id: "combat", name: "БОЕВЫЕ", icon: "⚔️" },
+        { id: "defense", name: "ЗАЩИТА", icon: "🛡️" },
+        { id: "utility", name: "УТИЛИТЫ", icon: "🛠️" }
+    ];
     
-    // 6. Постобработка: выравнивание узлов на одном уровне для лучшей визуализации
-    // (опционально, можно закомментировать если не нужно)
-    nodesByLevel.forEach((nodes, level) => {
-        if (level <= 1 || nodes.length <= 1) return; // Не выравниваем первые уровни и одиночные узлы
+    categories.forEach((category, treeIndex) => {
+        const hubIds = BRANCH_CATEGORIES[category.id];
+        const categoryHubs = SKILL_TREE_NODES.filter(n => hubIds.includes(n.id));
         
-        // Группируем узлы по веткам
-        const nodesByBranch = new Map<string, typeof nodes>();
-        nodes.forEach(node => {
-            if (!nodesByBranch.has(node.branchId)) {
-                nodesByBranch.set(node.branchId, []);
-            }
-            nodesByBranch.get(node.branchId)!.push(node);
-        });
+        // Центральная позиция дерева
+        const treeCenterX = treeIndex * (TREE_WIDTH + TREE_SPACING) + TREE_WIDTH / 2;
+        const treeTopY = 100;
         
-        // Для каждой ветки выравниваем узлы на одном уровне
-        nodesByBranch.forEach((branchNodes) => {
-            if (branchNodes.length <= 1) return;
+        // Размещаем hub категории (если нужен) или первый hub ветки
+        if (categoryHubs.length > 0) {
+            // Размещаем hub-узлы веток органично
+            const hubSpacing = Math.min(300, TREE_WIDTH / (categoryHubs.length + 1));
+            const startX = treeCenterX - (categoryHubs.length - 1) * hubSpacing / 2;
             
-            // Находим среднюю Y координату для выравнивания
-            const avgY = branchNodes.reduce((sum, node) => {
-                const pos = positions.get(node.nodeId);
-                return sum + (pos?.y || 0);
-            }, 0) / branchNodes.length;
-            
-            // Выравниваем узлы, если они близки по Y
-            branchNodes.forEach(node => {
-                const pos = positions.get(node.nodeId);
-                if (pos && Math.abs(pos.y - avgY) < LEVEL_ALIGNMENT_TOLERANCE) {
-                    pos.y = avgY;
-                    positions.set(node.nodeId, pos);
-                }
+            categoryHubs.forEach((hub, hubIndex) => {
+                const hubX = startX + hubIndex * hubSpacing;
+                const hubY = treeTopY + 200 + hubIndex * 400; // Размещаем вертикально с большим отступом
+                const hubPos = { x: hubX, y: hubY };
+                
+                positions.set(hub.id, hubPos);
+                
+                // Размещаем дочерние узлы рекурсивно (они будут расходиться в разные стороны как дерево)
+                placeNodesRecursive(hub.id, hubPos, 1, positions, category.id);
             });
-        });
-    });
-    
-    // 7. Обрабатываем мета-узел синергии (если есть)
-    const synergyNode = SKILL_TREE_NODES.find(n => n.id === "commandSynergy");
-    if (synergyNode && synergyNode.parentId === "commandCore") {
-        // Размещаем мета-узел ниже центрального узла
-        positions.set(synergyNode.id, { x: 0, y: -HUB_RADIUS - 400 });
-    }
-    
-    // 8. Обрабатываем любые оставшиеся узлы (на случай если есть узлы без прямого родителя)
-    SKILL_TREE_NODES.forEach(node => {
-        if (!positions.has(node.id) && node.id !== "commandCore") {
-            // Если у узла есть parentId, пытаемся разместить его относительно родителя
-            if (node.parentId) {
-                const parentPos = positions.get(node.parentId);
-                if (parentPos) {
-                    // Размещаем вертикально вниз от родителя
-                    positions.set(node.id, {
-                        x: parentPos.x,
-                        y: parentPos.y + NODE_VERTICAL_STEP
-                    });
-                }
-            }
         }
     });
     
+    // Обрабатываем мета-узел синергии (если есть) - размещаем внизу по центру
+    const synergyNode = SKILL_TREE_NODES.find(n => n.id === "commandSynergy");
+    if (synergyNode) {
+        // Находим максимальную Y координату
+        let maxY = 0;
+        positions.forEach(pos => {
+            if (pos.y > maxY) maxY = pos.y;
+        });
+        // Размещаем мета-узел ниже всех остальных
+        const centerX = (categories.length - 1) * (TREE_WIDTH + TREE_SPACING) / 2 + TREE_WIDTH / 2;
+        positions.set(synergyNode.id, { x: centerX, y: maxY + 300 });
+    }
+    
     return positions;
+}
+
+// Основная функция для вычисления позиций (использует новую систему трех деревьев)
+export function calculateAllNodePositions(): Map<string, { x: number; y: number }> {
+    return calculateThreeTreesLayout();
 }
 
 // Центральный узел
@@ -446,6 +510,139 @@ const MOBILITY_BRANCH: SkillNode[] = [
         parentId: "mobility7",
         maxLevel: 5,
         effects: ["+3% максимальная скорость"]
+    },
+    // === РАЗВЕТВЛЕНИЕ от mobility5 ===
+    {
+        id: "mobility9",
+        title: "Рывок",
+        desc: "Активация: мгновенный рывок вперёд. -1с кулдаун за уровень.",
+        icon: "💨",
+        row: 7,
+        col: 1,
+        type: "module",
+        moduleId: "dash",
+        parentId: "mobility5",
+        maxLevel: 5,
+        effects: ["Рывок вперёд", "-1с кулдаун"]
+    },
+    {
+        id: "mobility10",
+        title: "Уклонение",
+        desc: "+2% шанс уклонения от снарядов за уровень.",
+        icon: "🌪️",
+        row: 7,
+        col: -1,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "mobility5",
+        maxLevel: 5,
+        effects: ["+2% уклонение"]
+    },
+    {
+        id: "mobility11",
+        title: "Адреналин",
+        desc: "После рывка: +10% скорость на 3с за уровень.",
+        icon: "⚡",
+        row: 8,
+        col: 1,
+        type: "skill",
+        skillId: "tankMastery",
+        parentId: "mobility9",
+        maxLevel: 5,
+        effects: ["+10% скорость после рывка"]
+    },
+    {
+        id: "mobility12",
+        title: "Скольжение",
+        desc: "Модуль: скольжение при торможении. +1с длительность за уровень.",
+        icon: "🎿",
+        row: 8,
+        col: -1,
+        type: "module",
+        moduleId: "slide",
+        parentId: "mobility10",
+        maxLevel: 5,
+        effects: ["Скольжение", "+1с длительность"]
+    },
+    {
+        id: "mobility13",
+        title: "Цепной рывок",
+        desc: "Возможность второго рывка подряд. -0.5с между рывками за уровень.",
+        icon: "⚡⚡",
+        row: 9,
+        col: 1,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "mobility11",
+        maxLevel: 5,
+        effects: ["Двойной рывок", "-0.5с задержка"]
+    },
+    // === РАЗВЕТВЛЕНИЕ от mobility3 (раннее) ===
+    {
+        id: "mobility14",
+        title: "Лёгкий шаг",
+        desc: "+3% скорость при полном HP за уровень.",
+        icon: "🪶",
+        row: 5,
+        col: -2,
+        type: "skill",
+        skillId: "tankMastery",
+        parentId: "mobility3",
+        maxLevel: 5,
+        effects: ["+3% скорость при полном HP"]
+    },
+    {
+        id: "mobility15",
+        title: "Инерция",
+        desc: "+2% сохранение скорости при повороте за уровень.",
+        icon: "🔄",
+        row: 6,
+        col: -2,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "mobility14",
+        maxLevel: 5,
+        effects: ["+2% сохранение скорости"]
+    },
+    {
+        id: "mobility16",
+        title: "Ветер в спину",
+        desc: "Модуль: +15% скорость на 3с после убийства.",
+        icon: "💨",
+        row: 7,
+        col: -2,
+        type: "module",
+        moduleId: "windBuff",
+        parentId: "mobility15",
+        maxLevel: 5,
+        effects: ["+15% скорость после убийства"]
+    },
+    // === ПРОДОЛЖЕНИЕ основной ветки ===
+    {
+        id: "mobility17",
+        title: "Сверхскорость",
+        desc: "+4% максимальная скорость за уровень.",
+        icon: "🚀",
+        row: 10,
+        col: 0,
+        type: "skill",
+        skillId: "tankMastery",
+        parentId: "mobility8",
+        maxLevel: 5,
+        effects: ["+4% максимальная скорость"]
+    },
+    {
+        id: "mobility18",
+        title: "Квантовый прыжок",
+        desc: "Модуль: телепортация на короткое расстояние.",
+        icon: "⚛️",
+        row: 11,
+        col: 0,
+        type: "module",
+        moduleId: "quantumJump",
+        parentId: "mobility17",
+        maxLevel: 5,
+        effects: ["Квантовый прыжок"]
     }
 ];
 
@@ -472,7 +669,7 @@ const ULTIMATE_BRANCH: SkillNode[] = [
         col: 1,
         type: "skill",
         skillId: "combatExpert",
-        parentId: "ultimateHub",
+        parentId: "attackHub",
         maxLevel: 5,
         effects: ["+1.5% урон"]
     },
@@ -566,6 +763,139 @@ const ULTIMATE_BRANCH: SkillNode[] = [
         parentId: "ultimate7",
         maxLevel: 5,
         effects: ["+5% общий урон"]
+    },
+    // === РАЗВЕТВЛЕНИЕ от ultimate5 ===
+    {
+        id: "ultimate9",
+        title: "Берсерк",
+        desc: "Модуль: +50% урона на 5с, -30% защиты. +1с за уровень.",
+        icon: "🔥",
+        row: 7,
+        col: 2,
+        type: "module",
+        moduleId: "berserk",
+        parentId: "ultimate5",
+        maxLevel: 5,
+        effects: ["Берсерк: +50% урон", "-30% защита", "+1с длительность"]
+    },
+    {
+        id: "ultimate10",
+        title: "Перегрузка",
+        desc: "Модуль: мощный выстрел с откатом. +10% урон за уровень.",
+        icon: "⚡",
+        row: 7,
+        col: 0,
+        type: "module",
+        moduleId: "overcharge",
+        parentId: "ultimate5",
+        maxLevel: 5,
+        effects: ["Перегрузка: мощный выстрел"]
+    },
+    {
+        id: "ultimate11",
+        title: "Неудержимый",
+        desc: "В режиме берсерка: иммунитет к замедлению.",
+        icon: "💪",
+        row: 8,
+        col: 2,
+        type: "skill",
+        skillId: "combatExpert",
+        parentId: "ultimate9",
+        maxLevel: 5,
+        effects: ["Иммунитет к замедлению"]
+    },
+    {
+        id: "ultimate12",
+        title: "Критическая перегрузка",
+        desc: "Перегрузка: +25% шанс крита за уровень.",
+        icon: "💥",
+        row: 8,
+        col: 0,
+        type: "skill",
+        skillId: "combatExpert",
+        parentId: "ultimate10",
+        maxLevel: 5,
+        effects: ["+25% шанс крита при перегрузке"]
+    },
+    {
+        id: "ultimate13",
+        title: "Экстаз битвы",
+        desc: "Убийства продлевают берсерк на 2с за уровень.",
+        icon: "☠️",
+        row: 9,
+        col: 2,
+        type: "skill",
+        skillId: "combatExpert",
+        parentId: "ultimate11",
+        maxLevel: 5,
+        effects: ["+2с берсерка за убийство"]
+    },
+    // === РАЗВЕТВЛЕНИЕ от ultimate3 (раннее) ===
+    {
+        id: "ultimate14",
+        title: "Жажда крови",
+        desc: "+2% вампиризм (восстановление HP от урона) за уровень.",
+        icon: "🩸",
+        row: 5,
+        col: -1,
+        type: "skill",
+        skillId: "combatExpert",
+        parentId: "ultimate3",
+        maxLevel: 5,
+        effects: ["+2% вампиризм"]
+    },
+    {
+        id: "ultimate15",
+        title: "Кровавый угар",
+        desc: "+5% урон при HP ниже 50% за уровень.",
+        icon: "💀",
+        row: 6,
+        col: -1,
+        type: "skill",
+        skillId: "combatExpert",
+        parentId: "ultimate14",
+        maxLevel: 5,
+        effects: ["+5% урон при низком HP"]
+    },
+    {
+        id: "ultimate16",
+        title: "Последний рывок",
+        desc: "Модуль: при HP<10% - неуязвимость на 2с. +0.5с за уровень.",
+        icon: "💫",
+        row: 7,
+        col: -1,
+        type: "module",
+        moduleId: "lastStand",
+        parentId: "ultimate15",
+        maxLevel: 5,
+        effects: ["Неуязвимость при HP<10%"]
+    },
+    // === ПРОДОЛЖЕНИЕ основной ветки ===
+    {
+        id: "ultimate17",
+        title: "Абсолютный хаос",
+        desc: "+6% общий урон за уровень.",
+        icon: "🌪️",
+        row: 10,
+        col: 1,
+        type: "skill",
+        skillId: "combatExpert",
+        parentId: "ultimate8",
+        maxLevel: 5,
+        effects: ["+6% общий урон"]
+    },
+    {
+        id: "ultimate18",
+        title: "Апокалипсис",
+        desc: "Модуль: массовый урон по всем врагам в радиусе.",
+        icon: "☄️",
+        row: 11,
+        col: 1,
+        type: "module",
+        moduleId: "apocalypse",
+        parentId: "ultimate17",
+        maxLevel: 5,
+        effects: ["Массовый урон в радиусе"]
     }
 ];
 
@@ -686,18 +1016,151 @@ const TECH_BRANCH: SkillNode[] = [
         parentId: "tech7",
         maxLevel: 5,
         effects: ["+2% скорость всех систем"]
+    },
+    // === РАЗВЕТВЛЕНИЕ от tech5 ===
+    {
+        id: "tech9",
+        title: "Дрон-разведчик",
+        desc: "Модуль: дрон выявляет скрытых врагов. +10м радиус за уровень.",
+        icon: "👁️",
+        row: 7,
+        col: 3,
+        type: "module",
+        moduleId: "scoutDrone",
+        parentId: "tech5",
+        maxLevel: 5,
+        effects: ["Обнаружение скрытых", "+10м радиус"]
+    },
+    {
+        id: "tech10",
+        title: "Инженерная турель",
+        desc: "Модуль: размещаемая автоматическая турель.",
+        icon: "🗼",
+        row: 7,
+        col: 1,
+        type: "module",
+        moduleId: "turret",
+        parentId: "tech5",
+        maxLevel: 5,
+        effects: ["Автотурель"]
+    },
+    {
+        id: "tech11",
+        title: "Рой дронов",
+        desc: "+1 дополнительный дрон за 2 уровня.",
+        icon: "🐝",
+        row: 8,
+        col: 3,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "tech9",
+        maxLevel: 5,
+        effects: ["+1 дрон за 2 уровня"]
+    },
+    {
+        id: "tech12",
+        title: "Улучшенная турель",
+        desc: "+15% урон турели, +10с время жизни за уровень.",
+        icon: "🗼",
+        row: 8,
+        col: 1,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "tech10",
+        maxLevel: 5,
+        effects: ["+15% урон турели", "+10с время жизни"]
+    },
+    {
+        id: "tech13",
+        title: "ИИ-ядро",
+        desc: "Дроны самостоятельно выбирают приоритетные цели.",
+        icon: "🧠",
+        row: 9,
+        col: 3,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "tech11",
+        maxLevel: 5,
+        effects: ["Умный ИИ дронов"]
+    },
+    // === РАЗВЕТВЛЕНИЕ от tech3 (раннее) ===
+    {
+        id: "tech14",
+        title: "Нанороботы",
+        desc: "Модуль: микроботы восстанавливают системы. +2% ремонт/с за уровень.",
+        icon: "🔬",
+        row: 5,
+        col: 4,
+        type: "module",
+        moduleId: "nanobots",
+        parentId: "tech3",
+        maxLevel: 5,
+        effects: ["+2% авторемонт/с"]
+    },
+    {
+        id: "tech15",
+        title: "Улучшенные наноботы",
+        desc: "Наноботы также восстанавливают энергию. +1% энергия/с за уровень.",
+        icon: "⚡",
+        row: 6,
+        col: 4,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "tech14",
+        maxLevel: 5,
+        effects: ["+1% восстановление энергии/с"]
+    },
+    {
+        id: "tech16",
+        title: "Нанощит",
+        desc: "Наноботы создают защитное поле. +5% сопротивление за уровень.",
+        icon: "🛡️",
+        row: 7,
+        col: 4,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "tech15",
+        maxLevel: 5,
+        effects: ["+5% сопротивление от нанощита"]
+    },
+    // === ПРОДОЛЖЕНИЕ основной ветки ===
+    {
+        id: "tech17",
+        title: "Сингулярность",
+        desc: "+3% скорость всех систем за уровень.",
+        icon: "🌀",
+        row: 10,
+        col: 2,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "tech8",
+        maxLevel: 5,
+        effects: ["+3% скорость всех систем"]
+    },
+    {
+        id: "tech18",
+        title: "Технологическое превосходство",
+        desc: "Модуль: все дроны получают +100% эффективность на 10с.",
+        icon: "🤖",
+        row: 11,
+        col: 2,
+        type: "module",
+        moduleId: "techSupremacy",
+        parentId: "tech17",
+        maxLevel: 5,
+        effects: ["+100% эффективность дронов"]
     }
 ];
 
-// Ветка 4: Поддержка
-const SUPPORT_BRANCH: SkillNode[] = [
+// Ветка: Лидерство (объединяет поддержку + экономику + командование)
+const LEADERSHIP_BRANCH: SkillNode[] = [
     {
-        id: "supportHub",
-        title: "Ветка поддержки",
-        desc: "Бафы союзникам и командная работа.",
-        icon: "💚",
+        id: "leadershipHub",
+        title: "Ветка лидерства",
+        desc: "Поддержка, экономика, командование.",
+        icon: "🎖️",
         row: 1,
-        col: 3,
+        col: 5,
         type: "hub",
         badge: "Ветка",
         branchColor: "#0f0",
@@ -712,7 +1175,7 @@ const SUPPORT_BRANCH: SkillNode[] = [
         col: 3,
         type: "skill",
         skillId: "survivalInstinct",
-        parentId: "supportHub",
+        parentId: "leadershipHub",
         maxLevel: 5,
         effects: ["+8 HP"]
     },
@@ -806,6 +1269,139 @@ const SUPPORT_BRANCH: SkillNode[] = [
         parentId: "support7",
         maxLevel: 5,
         effects: ["Неуязвимость союзников"]
+    },
+    // === РАЗВЕТВЛЕНИЕ от support5 ===
+    {
+        id: "support9",
+        title: "Аура скорости",
+        desc: "Модуль: +5% скорость союзникам в радиусе за уровень.",
+        icon: "💨",
+        row: 7,
+        col: 4,
+        type: "module",
+        moduleId: "speedAura",
+        parentId: "support5",
+        maxLevel: 5,
+        effects: ["+5% скорость союзникам"]
+    },
+    {
+        id: "support10",
+        title: "Боевой клич",
+        desc: "Модуль: +10% урон союзникам на 5с. +1с за уровень.",
+        icon: "📢",
+        row: 7,
+        col: 2,
+        type: "module",
+        moduleId: "warCry",
+        parentId: "support5",
+        maxLevel: 5,
+        effects: ["Боевой клич: +10% урон", "+1с длительность"]
+    },
+    {
+        id: "support11",
+        title: "Стремительная поддержка",
+        desc: "Ауры действуют на +20% большем расстоянии за уровень.",
+        icon: "🌀",
+        row: 8,
+        col: 4,
+        type: "skill",
+        skillId: "survivalInstinct",
+        parentId: "support9",
+        maxLevel: 5,
+        effects: ["+20% радиус аур"]
+    },
+    {
+        id: "support12",
+        title: "Вдохновение",
+        desc: "Боевой клич также даёт +5% защиты за уровень.",
+        icon: "💪",
+        row: 8,
+        col: 2,
+        type: "skill",
+        skillId: "survivalInstinct",
+        parentId: "support10",
+        maxLevel: 5,
+        effects: ["+5% защита от клича"]
+    },
+    {
+        id: "support13",
+        title: "Герой команды",
+        desc: "Все бонусы поддержки действуют и на вас с +50% эффективностью.",
+        icon: "🌟",
+        row: 9,
+        col: 4,
+        type: "skill",
+        skillId: "survivalInstinct",
+        parentId: "support11",
+        maxLevel: 5,
+        effects: ["+50% эффективность для себя"]
+    },
+    // === РАЗВЕТВЛЕНИЕ от support3 (раннее) ===
+    {
+        id: "support14",
+        title: "Щит союзника",
+        desc: "Модуль: передаёт часть своего щита союзнику. +10% за уровень.",
+        icon: "🔰",
+        row: 5,
+        col: 5,
+        type: "module",
+        moduleId: "allyShield",
+        parentId: "support3",
+        maxLevel: 5,
+        effects: ["Передача +10% щита"]
+    },
+    {
+        id: "support15",
+        title: "Связь жизней",
+        desc: "Распределение урона между вами и союзником. -5% урон каждому за уровень.",
+        icon: "❤️‍🔥",
+        row: 6,
+        col: 5,
+        type: "skill",
+        skillId: "survivalInstinct",
+        parentId: "support14",
+        maxLevel: 5,
+        effects: ["-5% урон при связи"]
+    },
+    {
+        id: "support16",
+        title: "Воскрешение",
+        desc: "Модуль: возрождает павшего союзника с 30% HP. +10% HP за уровень.",
+        icon: "✨",
+        row: 7,
+        col: 5,
+        type: "module",
+        moduleId: "resurrect",
+        parentId: "support15",
+        maxLevel: 5,
+        effects: ["Воскрешение союзника"]
+    },
+    // === ПРОДОЛЖЕНИЕ основной ветки ===
+    {
+        id: "support17",
+        title: "Аватар поддержки",
+        desc: "+3% все характеристики за уровень.",
+        icon: "👼",
+        row: 10,
+        col: 3,
+        type: "skill",
+        skillId: "survivalInstinct",
+        parentId: "support8",
+        maxLevel: 5,
+        effects: ["+3% все характеристики"]
+    },
+    {
+        id: "support18",
+        title: "Святилище",
+        desc: "Модуль: создаёт зону, где союзники получают -50% урона.",
+        icon: "🏛️",
+        row: 11,
+        col: 3,
+        type: "module",
+        moduleId: "sanctuary",
+        parentId: "support17",
+        maxLevel: 5,
+        effects: ["Зона -50% урона"]
     }
 ];
 
@@ -926,6 +1522,139 @@ const STEALTH_BRANCH: SkillNode[] = [
         parentId: "stealth7",
         maxLevel: 5,
         effects: ["Невидимость при атаке"]
+    },
+    // === РАЗВЕТВЛЕНИЕ от stealth5 ===
+    {
+        id: "stealth9",
+        title: "Засада",
+        desc: "+30% урон первой атаке из стелса за уровень.",
+        icon: "🎯",
+        row: 7,
+        col: 5,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "stealth5",
+        maxLevel: 5,
+        effects: ["+30% урон из засады"]
+    },
+    {
+        id: "stealth10",
+        title: "Дымовая завеса",
+        desc: "Модуль: создаёт облако дыма, скрывающее от врагов.",
+        icon: "💨",
+        row: 7,
+        col: 3,
+        type: "module",
+        moduleId: "smokeScreen",
+        parentId: "stealth5",
+        maxLevel: 5,
+        effects: ["Дымовая завеса"]
+    },
+    {
+        id: "stealth11",
+        title: "Убийца из тени",
+        desc: "Убийство из стелса сбрасывает кулдаун невидимости.",
+        icon: "☠️",
+        row: 8,
+        col: 5,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "stealth9",
+        maxLevel: 5,
+        effects: ["Сброс кулдауна при убийстве"]
+    },
+    {
+        id: "stealth12",
+        title: "Токсичный дым",
+        desc: "Дымовая завеса наносит урон врагам внутри. +5 урон/с за уровень.",
+        icon: "☠️",
+        row: 8,
+        col: 3,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "stealth10",
+        maxLevel: 5,
+        effects: ["+5 урон/с в дыму"]
+    },
+    {
+        id: "stealth13",
+        title: "Призрак",
+        desc: "При критическом HP автоматически активируется стелс.",
+        icon: "👻",
+        row: 9,
+        col: 5,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "stealth11",
+        maxLevel: 5,
+        effects: ["Авто-стелс при HP<20%"]
+    },
+    // === РАЗВЕТВЛЕНИЕ от stealth3 (раннее) ===
+    {
+        id: "stealth14",
+        title: "Слепящая вспышка",
+        desc: "Модуль: ослепляет врагов на 2с. +0.5с за уровень.",
+        icon: "💥",
+        row: 5,
+        col: 6,
+        type: "module",
+        moduleId: "flashBang",
+        parentId: "stealth3",
+        maxLevel: 5,
+        effects: ["Ослепление на 2с"]
+    },
+    {
+        id: "stealth15",
+        title: "Отвлечение",
+        desc: "После вспышки: +20% урон по ослеплённым за уровень.",
+        icon: "🎭",
+        row: 6,
+        col: 6,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "stealth14",
+        maxLevel: 5,
+        effects: ["+20% урон по ослеплённым"]
+    },
+    {
+        id: "stealth16",
+        title: "Теневой шаг",
+        desc: "Модуль: мгновенное перемещение за спину врага.",
+        icon: "🌑",
+        row: 7,
+        col: 6,
+        type: "module",
+        moduleId: "shadowStep",
+        parentId: "stealth15",
+        maxLevel: 5,
+        effects: ["Телепорт за спину врага"]
+    },
+    // === ПРОДОЛЖЕНИЕ основной ветки ===
+    {
+        id: "stealth17",
+        title: "Абсолютная тень",
+        desc: "+3с длительность стелса за уровень.",
+        icon: "🌌",
+        row: 10,
+        col: 4,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "stealth8",
+        maxLevel: 5,
+        effects: ["+3с длительность стелса"]
+    },
+    {
+        id: "stealth18",
+        title: "Владыка теней",
+        desc: "Модуль: в стелсе вы проходите сквозь врагов и стены.",
+        icon: "👤",
+        row: 11,
+        col: 4,
+        type: "module",
+        moduleId: "shadowLord",
+        parentId: "stealth17",
+        maxLevel: 5,
+        effects: ["Прохождение сквозь объекты"]
     }
 ];
 
@@ -952,7 +1681,7 @@ const UTILITY_BRANCH: SkillNode[] = [
         col: 6,
         type: "skill",
         skillId: "resourcefulness",
-        parentId: "utilityHub",
+        parentId: "techHub",
         maxLevel: 5,
         effects: ["+1% опыт"]
     },
@@ -1046,18 +1775,151 @@ const UTILITY_BRANCH: SkillNode[] = [
         parentId: "utility7",
         maxLevel: 5,
         effects: ["Телепортация"]
+    },
+    // === РАЗВЕТВЛЕНИЕ от utility5 ===
+    {
+        id: "utility9",
+        title: "Ловушки",
+        desc: "Модуль: размещаемые замедляющие ловушки.",
+        icon: "🪤",
+        row: 7,
+        col: 7,
+        type: "module",
+        moduleId: "traps",
+        parentId: "utility5",
+        maxLevel: 5,
+        effects: ["Замедляющие ловушки"]
+    },
+    {
+        id: "utility10",
+        title: "EMP-граната",
+        desc: "Модуль: граната отключает электронику врагов на 2с за уровень.",
+        icon: "⚡",
+        row: 7,
+        col: 5,
+        type: "module",
+        moduleId: "empGrenade",
+        parentId: "utility5",
+        maxLevel: 5,
+        effects: ["EMP: отключение на 2с"]
+    },
+    {
+        id: "utility11",
+        title: "Ядовитые ловушки",
+        desc: "Ловушки наносят урон со временем. +3 урон/с за уровень.",
+        icon: "☠️",
+        row: 8,
+        col: 7,
+        type: "skill",
+        skillId: "resourcefulness",
+        parentId: "utility9",
+        maxLevel: 5,
+        effects: ["+3 урон/с от ловушек"]
+    },
+    {
+        id: "utility12",
+        title: "Перегрузка EMP",
+        desc: "EMP-граната также наносит +20 урон за уровень.",
+        icon: "💥",
+        row: 8,
+        col: 5,
+        type: "skill",
+        skillId: "resourcefulness",
+        parentId: "utility10",
+        maxLevel: 5,
+        effects: ["+20 урон от EMP"]
+    },
+    {
+        id: "utility13",
+        title: "Мастер ловушек",
+        desc: "+2 одновременных ловушки за уровень.",
+        icon: "🪤",
+        row: 9,
+        col: 7,
+        type: "skill",
+        skillId: "resourcefulness",
+        parentId: "utility11",
+        maxLevel: 5,
+        effects: ["+2 ловушки одновременно"]
+    },
+    // === РАЗВЕТВЛЕНИЕ от utility3 (раннее) ===
+    {
+        id: "utility14",
+        title: "Голограмма",
+        desc: "Модуль: создаёт копию-приманку. Длительность +1с за уровень.",
+        icon: "👥",
+        row: 5,
+        col: 8,
+        type: "module",
+        moduleId: "hologram",
+        parentId: "utility3",
+        maxLevel: 5,
+        effects: ["Копия-приманка"]
+    },
+    {
+        id: "utility15",
+        title: "Взрывающаяся голограмма",
+        desc: "Голограмма взрывается при уничтожении. +15 урон за уровень.",
+        icon: "💥",
+        row: 6,
+        col: 8,
+        type: "skill",
+        skillId: "resourcefulness",
+        parentId: "utility14",
+        maxLevel: 5,
+        effects: ["+15 урон от взрыва голограммы"]
+    },
+    {
+        id: "utility16",
+        title: "Армия иллюзий",
+        desc: "+1 голограмма одновременно за 2 уровня.",
+        icon: "👥👥",
+        row: 7,
+        col: 8,
+        type: "skill",
+        skillId: "resourcefulness",
+        parentId: "utility15",
+        maxLevel: 5,
+        effects: ["+1 голограмма за 2 уровня"]
+    },
+    // === ПРОДОЛЖЕНИЕ основной ветки ===
+    {
+        id: "utility17",
+        title: "Тактический гений",
+        desc: "+3% опыт и кредиты за уровень.",
+        icon: "🧠",
+        row: 10,
+        col: 6,
+        type: "skill",
+        skillId: "resourcefulness",
+        parentId: "utility8",
+        maxLevel: 5,
+        effects: ["+3% опыт и кредиты"]
+    },
+    {
+        id: "utility18",
+        title: "Врата",
+        desc: "Модуль: создаёт портал для быстрого перемещения.",
+        icon: "🌀",
+        row: 11,
+        col: 6,
+        type: "module",
+        moduleId: "portal",
+        parentId: "utility17",
+        maxLevel: 5,
+        effects: ["Портал"]
     }
 ];
 
-// Ветка 7: Огневая мощь
-const FIREPOWER_BRANCH: SkillNode[] = [
+// Ветка: Атака (объединяет огневую мощь + ультимативные)
+const ATTACK_BRANCH: SkillNode[] = [
     {
-        id: "firepowerHub",
-        title: "Ветка огневой мощи",
-        desc: "Урон, стрельба и разрушение.",
+        id: "attackHub",
+        title: "Ветка атаки",
+        desc: "Урон, критический удар, разрушение.",
         icon: "⚔️",
         row: 1,
-        col: 7,
+        col: 0,
         type: "hub",
         badge: "Ветка",
         branchColor: "#f00",
@@ -1072,7 +1934,7 @@ const FIREPOWER_BRANCH: SkillNode[] = [
         col: 7,
         type: "skill",
         skillId: "combatExpert",
-        parentId: "firepowerHub",
+        parentId: "attackHub",
         maxLevel: 5,
         effects: ["+2 урон"]
     },
@@ -1166,6 +2028,139 @@ const FIREPOWER_BRANCH: SkillNode[] = [
         parentId: "firepower7",
         maxLevel: 5,
         effects: ["+4 урон"]
+    },
+    // === РАЗВЕТВЛЕНИЕ от firepower5 ===
+    {
+        id: "firepower9",
+        title: "Бронебойные снаряды",
+        desc: "+3% игнорирования брони за уровень.",
+        icon: "🔩",
+        row: 7,
+        col: 8,
+        type: "skill",
+        skillId: "combatExpert",
+        parentId: "firepower5",
+        maxLevel: 5,
+        effects: ["+3% игнорирование брони"]
+    },
+    {
+        id: "firepower10",
+        title: "Критический урон",
+        desc: "+5% шанс крита, +10% урон крита за уровень.",
+        icon: "💥",
+        row: 7,
+        col: 6,
+        type: "skill",
+        skillId: "combatExpert",
+        parentId: "firepower5",
+        maxLevel: 5,
+        effects: ["+5% шанс крита", "+10% урон крита"]
+    },
+    {
+        id: "firepower11",
+        title: "Разрывные снаряды",
+        desc: "Модуль: снаряды взрываются при попадании. +2м радиус за уровень.",
+        icon: "💣",
+        row: 8,
+        col: 8,
+        type: "module",
+        moduleId: "explosiveShells",
+        parentId: "firepower9",
+        maxLevel: 5,
+        effects: ["Взрывные снаряды", "+2м радиус"]
+    },
+    {
+        id: "firepower12",
+        title: "Снайпер",
+        desc: "+10% урон на дальних дистанциях за уровень.",
+        icon: "🎯",
+        row: 8,
+        col: 6,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "firepower10",
+        maxLevel: 5,
+        effects: ["+10% урон на дистанции"]
+    },
+    {
+        id: "firepower13",
+        title: "Опустошитель",
+        desc: "Каждый 5-й выстрел наносит x2 урон.",
+        icon: "☠️",
+        row: 9,
+        col: 8,
+        type: "skill",
+        skillId: "combatExpert",
+        parentId: "firepower11",
+        maxLevel: 5,
+        effects: ["Каждый 5-й выстрел x2"]
+    },
+    // === РАЗВЕТВЛЕНИЕ от firepower3 (раннее) ===
+    {
+        id: "firepower14",
+        title: "Зажигательные снаряды",
+        desc: "Снаряды поджигают цель. +3 урон/с за уровень.",
+        icon: "🔥",
+        row: 5,
+        col: 9,
+        type: "skill",
+        skillId: "combatExpert",
+        parentId: "firepower3",
+        maxLevel: 5,
+        effects: ["+3 урон/с поджог"]
+    },
+    {
+        id: "firepower15",
+        title: "Адское пламя",
+        desc: "Поджог распространяется на ближайших врагов.",
+        icon: "🌋",
+        row: 6,
+        col: 9,
+        type: "skill",
+        skillId: "combatExpert",
+        parentId: "firepower14",
+        maxLevel: 5,
+        effects: ["Распространение огня"]
+    },
+    {
+        id: "firepower16",
+        title: "Огненный шторм",
+        desc: "Модуль: выпускает волну огня вокруг. +10 урон за уровень.",
+        icon: "🔥🔥",
+        row: 7,
+        col: 9,
+        type: "module",
+        moduleId: "fireStorm",
+        parentId: "firepower15",
+        maxLevel: 5,
+        effects: ["Волна огня +10 урон"]
+    },
+    // === ПРОДОЛЖЕНИЕ основной ветки ===
+    {
+        id: "firepower17",
+        title: "Абсолютный урон",
+        desc: "+5 урон за уровень.",
+        icon: "💀",
+        row: 10,
+        col: 7,
+        type: "skill",
+        skillId: "combatExpert",
+        parentId: "firepower8",
+        maxLevel: 5,
+        effects: ["+5 урон"]
+    },
+    {
+        id: "firepower18",
+        title: "Орбитальный удар",
+        desc: "Модуль: вызывает мощный удар с орбиты.",
+        icon: "☄️",
+        row: 11,
+        col: 7,
+        type: "module",
+        moduleId: "orbitalStrike",
+        parentId: "firepower17",
+        maxLevel: 5,
+        effects: ["Орбитальный удар"]
     }
 ];
 
@@ -1286,6 +2281,139 @@ const DEFENSE_BRANCH: SkillNode[] = [
         parentId: "defense7",
         maxLevel: 5,
         effects: ["Временная неуязвимость"]
+    },
+    // === РАЗВЕТВЛЕНИЕ от defense5 ===
+    {
+        id: "defense9",
+        title: "Активная регенерация",
+        desc: "+3 HP/сек при низком HP за уровень.",
+        icon: "💚",
+        row: 7,
+        col: 9,
+        type: "skill",
+        skillId: "survivalInstinct",
+        parentId: "defense5",
+        maxLevel: 5,
+        effects: ["+3 HP/сек при HP<30%"]
+    },
+    {
+        id: "defense10",
+        title: "Отражение урона",
+        desc: "+5% урона отражается атакующему за уровень.",
+        icon: "🔄",
+        row: 7,
+        col: 7,
+        type: "skill",
+        skillId: "survivalInstinct",
+        parentId: "defense5",
+        maxLevel: 5,
+        effects: ["+5% отражение урона"]
+    },
+    {
+        id: "defense11",
+        title: "Адаптивная броня",
+        desc: "Броня усиливается после получения урона. +2% за уровень.",
+        icon: "🔧",
+        row: 8,
+        col: 9,
+        type: "skill",
+        skillId: "survivalInstinct",
+        parentId: "defense9",
+        maxLevel: 5,
+        effects: ["+2% броня после удара"]
+    },
+    {
+        id: "defense12",
+        title: "Шипастая броня",
+        desc: "Модуль: атакующие получают урон при контакте.",
+        icon: "⚔️",
+        row: 8,
+        col: 7,
+        type: "module",
+        moduleId: "thornArmor",
+        parentId: "defense10",
+        maxLevel: 5,
+        effects: ["Урон при контакте"]
+    },
+    {
+        id: "defense13",
+        title: "Живучесть",
+        desc: "Выживание с 1 HP раз в 60с. -10с кулдаун за уровень.",
+        icon: "❤️‍🔥",
+        row: 9,
+        col: 9,
+        type: "skill",
+        skillId: "survivalInstinct",
+        parentId: "defense11",
+        maxLevel: 5,
+        effects: ["Выживание с 1 HP", "-10с кулдаун"]
+    },
+    // === РАЗВЕТВЛЕНИЕ от defense3 (раннее) ===
+    {
+        id: "defense14",
+        title: "Реактивная броня",
+        desc: "При попадании: +5% броня на 3с за уровень.",
+        icon: "💥",
+        row: 5,
+        col: 10,
+        type: "skill",
+        skillId: "survivalInstinct",
+        parentId: "defense3",
+        maxLevel: 5,
+        effects: ["+5% броня после попадания"]
+    },
+    {
+        id: "defense15",
+        title: "Контратака",
+        desc: "При попадании: 10% шанс автовыстрела за уровень.",
+        icon: "⚔️",
+        row: 6,
+        col: 10,
+        type: "skill",
+        skillId: "survivalInstinct",
+        parentId: "defense14",
+        maxLevel: 5,
+        effects: ["+10% шанс контратаки"]
+    },
+    {
+        id: "defense16",
+        title: "Бастион",
+        desc: "Модуль: неподвижность даёт +50% броня. +10% за уровень.",
+        icon: "🏰",
+        row: 7,
+        col: 10,
+        type: "module",
+        moduleId: "bastion",
+        parentId: "defense15",
+        maxLevel: 5,
+        effects: ["+50% броня в режиме бастиона"]
+    },
+    // === ПРОДОЛЖЕНИЕ основной ветки ===
+    {
+        id: "defense17",
+        title: "Несгибаемый",
+        desc: "+4% максимальное HP за уровень.",
+        icon: "💪",
+        row: 10,
+        col: 8,
+        type: "skill",
+        skillId: "survivalInstinct",
+        parentId: "defense8",
+        maxLevel: 5,
+        effects: ["+4% максимальное HP"]
+    },
+    {
+        id: "defense18",
+        title: "Божественный щит",
+        desc: "Модуль: полная неуязвимость на 5с. Кулдаун 120с.",
+        icon: "✨",
+        row: 11,
+        col: 8,
+        type: "module",
+        moduleId: "divineShield",
+        parentId: "defense17",
+        maxLevel: 5,
+        effects: ["Полная неуязвимость 5с"]
     }
 ];
 
@@ -1312,7 +2440,7 @@ const SUPPLY_BRANCH: SkillNode[] = [
         col: 9,
         type: "skill",
         skillId: "resourcefulness",
-        parentId: "supplyHub",
+        parentId: "leadershipHub",
         maxLevel: 5,
         effects: ["+2% кредиты"]
     },
@@ -1406,6 +2534,139 @@ const SUPPLY_BRANCH: SkillNode[] = [
         parentId: "supply7",
         maxLevel: 5,
         effects: ["x2 награды"]
+    },
+    // === РАЗВЕТВЛЕНИЕ от supply5 ===
+    {
+        id: "supply9",
+        title: "Торговец",
+        desc: "-10% стоимость улучшений за уровень.",
+        icon: "🏪",
+        row: 7,
+        col: 10,
+        type: "skill",
+        skillId: "resourcefulness",
+        parentId: "supply5",
+        maxLevel: 5,
+        effects: ["-10% стоимость улучшений"]
+    },
+    {
+        id: "supply10",
+        title: "Удачливый",
+        desc: "+5% шанс редких дропов за уровень.",
+        icon: "🍀",
+        row: 7,
+        col: 8,
+        type: "skill",
+        skillId: "resourcefulness",
+        parentId: "supply5",
+        maxLevel: 5,
+        effects: ["+5% шанс редких дропов"]
+    },
+    {
+        id: "supply11",
+        title: "Оптовик",
+        desc: "Покупка нескольких улучшений даёт скидку. +5% за уровень.",
+        icon: "📦",
+        row: 8,
+        col: 10,
+        type: "skill",
+        skillId: "resourcefulness",
+        parentId: "supply9",
+        maxLevel: 5,
+        effects: ["+5% скидка за опт"]
+    },
+    {
+        id: "supply12",
+        title: "Охотник за сокровищами",
+        desc: "+10% шанс найти бонусные ящики за уровень.",
+        icon: "🗝️",
+        row: 8,
+        col: 8,
+        type: "skill",
+        skillId: "resourcefulness",
+        parentId: "supply10",
+        maxLevel: 5,
+        effects: ["+10% шанс бонусных ящиков"]
+    },
+    {
+        id: "supply13",
+        title: "Олигарх",
+        desc: "Пассивный доход: +1 кредит/сек за уровень.",
+        icon: "💎",
+        row: 9,
+        col: 10,
+        type: "skill",
+        skillId: "resourcefulness",
+        parentId: "supply11",
+        maxLevel: 5,
+        effects: ["+1 кредит/сек"]
+    },
+    // === РАЗВЕТВЛЕНИЕ от supply3 (раннее) ===
+    {
+        id: "supply14",
+        title: "Контрабандист",
+        desc: "+3% шанс получить редкие предметы за уровень.",
+        icon: "📦",
+        row: 5,
+        col: 11,
+        type: "skill",
+        skillId: "resourcefulness",
+        parentId: "supply3",
+        maxLevel: 5,
+        effects: ["+3% шанс редких предметов"]
+    },
+    {
+        id: "supply15",
+        title: "Чёрный рынок",
+        desc: "Доступ к эксклюзивным предметам. -5% цена за уровень.",
+        icon: "🏴",
+        row: 6,
+        col: 11,
+        type: "skill",
+        skillId: "resourcefulness",
+        parentId: "supply14",
+        maxLevel: 5,
+        effects: ["Чёрный рынок", "-5% цена"]
+    },
+    {
+        id: "supply16",
+        title: "Магнат империи",
+        desc: "Модуль: удваивает все доходы на 30с. +5с за уровень.",
+        icon: "👑",
+        row: 7,
+        col: 11,
+        type: "module",
+        moduleId: "empireMagnate",
+        parentId: "supply15",
+        maxLevel: 5,
+        effects: ["x2 доходы на 30с"]
+    },
+    // === ПРОДОЛЖЕНИЕ основной ветки ===
+    {
+        id: "supply17",
+        title: "Финансовая империя",
+        desc: "+4% кредиты и опыт за уровень.",
+        icon: "🏦",
+        row: 10,
+        col: 9,
+        type: "skill",
+        skillId: "resourcefulness",
+        parentId: "supply8",
+        maxLevel: 5,
+        effects: ["+4% кредиты и опыт"]
+    },
+    {
+        id: "supply18",
+        title: "Мидас",
+        desc: "Модуль: враги дропают +200% кредитов при смерти.",
+        icon: "✨",
+        row: 11,
+        col: 9,
+        type: "module",
+        moduleId: "midasTouch",
+        parentId: "supply17",
+        maxLevel: 5,
+        effects: ["+200% дроп кредитов"]
     }
 ];
 
@@ -1432,7 +2693,7 @@ const COMMANDER_BRANCH: SkillNode[] = [
         col: 10,
         type: "skill",
         skillId: "tankMastery",
-        parentId: "commanderHub",
+        parentId: "leadershipHub",
         maxLevel: 5,
         effects: ["+1% все характеристики"]
     },
@@ -1526,6 +2787,139 @@ const COMMANDER_BRANCH: SkillNode[] = [
         parentId: "commander7",
         maxLevel: 5,
         effects: ["+50% характеристики союзников"]
+    },
+    // === РАЗВЕТВЛЕНИЕ от commander5 ===
+    {
+        id: "commander9",
+        title: "Тактический приказ",
+        desc: "Модуль: союзники получают +20% скорость на 5с. +1с за уровень.",
+        icon: "📋",
+        row: 7,
+        col: 11,
+        type: "module",
+        moduleId: "tacticalOrder",
+        parentId: "commander5",
+        maxLevel: 5,
+        effects: ["Приказ: +20% скорость", "+1с длительность"]
+    },
+    {
+        id: "commander10",
+        title: "Вдохновляющая речь",
+        desc: "Модуль: +15% урон союзникам на 5с. +1с за уровень.",
+        icon: "📢",
+        row: 7,
+        col: 9,
+        type: "module",
+        moduleId: "inspiringSpeech",
+        parentId: "commander5",
+        maxLevel: 5,
+        effects: ["Речь: +15% урон", "+1с длительность"]
+    },
+    {
+        id: "commander11",
+        title: "Молниеносный удар",
+        desc: "Тактический приказ также даёт +10% шанс крита за уровень.",
+        icon: "⚡",
+        row: 8,
+        col: 11,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "commander9",
+        maxLevel: 5,
+        effects: ["+10% крит от приказа"]
+    },
+    {
+        id: "commander12",
+        title: "Фанатизм",
+        desc: "Вдохновляющая речь: союзники игнорируют 10% урона за уровень.",
+        icon: "🔥",
+        row: 8,
+        col: 9,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "commander10",
+        maxLevel: 5,
+        effects: ["+10% игнорирование урона"]
+    },
+    {
+        id: "commander13",
+        title: "Легендарный командир",
+        desc: "Все ваши ауры действуют на +50% большей территории.",
+        icon: "🌟",
+        row: 9,
+        col: 11,
+        type: "skill",
+        skillId: "tankMastery",
+        parentId: "commander11",
+        maxLevel: 5,
+        effects: ["+50% радиус аур"]
+    },
+    // === РАЗВЕТВЛЕНИЕ от commander3 (раннее) ===
+    {
+        id: "commander14",
+        title: "Стратег",
+        desc: "Союзники видят врагов на мини-карте. +5м радиус за уровень.",
+        icon: "🗺️",
+        row: 5,
+        col: 12,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "commander3",
+        maxLevel: 5,
+        effects: ["Обнаружение врагов +5м"]
+    },
+    {
+        id: "commander15",
+        title: "Тактический анализ",
+        desc: "Видны HP и характеристики врагов.",
+        icon: "📊",
+        row: 6,
+        col: 12,
+        type: "skill",
+        skillId: "tacticalGenius",
+        parentId: "commander14",
+        maxLevel: 5,
+        effects: ["Анализ характеристик врагов"]
+    },
+    {
+        id: "commander16",
+        title: "Координированная атака",
+        desc: "Модуль: отмечает цель, союзники наносят +20% урон по ней.",
+        icon: "🎯",
+        row: 7,
+        col: 12,
+        type: "module",
+        moduleId: "coordinatedAttack",
+        parentId: "commander15",
+        maxLevel: 5,
+        effects: ["+20% урон по отмеченной цели"]
+    },
+    // === ПРОДОЛЖЕНИЕ основной ветки ===
+    {
+        id: "commander17",
+        title: "Император",
+        desc: "+3% все характеристики за уровень.",
+        icon: "👑",
+        row: 10,
+        col: 10,
+        type: "skill",
+        skillId: "tankMastery",
+        parentId: "commander8",
+        maxLevel: 5,
+        effects: ["+3% все характеристики"]
+    },
+    {
+        id: "commander18",
+        title: "Божественное командование",
+        desc: "Модуль: все союзники получают +100% характеристик на 10с.",
+        icon: "⚡",
+        row: 11,
+        col: 10,
+        type: "module",
+        moduleId: "divineCommand",
+        parentId: "commander17",
+        maxLevel: 5,
+        effects: ["+100% характеристики союзников"]
     }
 ];
 
@@ -1541,19 +2935,20 @@ const SYNERGY_NODE: SkillNode = {
     parentId: "commandCore"
 };
 
-// Собираем все узлы
+// Собираем все узлы (6 веток)
 export const SKILL_TREE_NODES: SkillNode[] = [
     COMMAND_CORE,
-    ...MOBILITY_BRANCH,
-    ...ULTIMATE_BRANCH,
-    ...TECH_BRANCH,
-    ...SUPPORT_BRANCH,
-    ...STEALTH_BRANCH,
-    ...UTILITY_BRANCH,
-    ...FIREPOWER_BRANCH,
-    ...DEFENSE_BRANCH,
-    ...SUPPLY_BRANCH,
-    ...COMMANDER_BRANCH,
+    ...ATTACK_BRANCH,           // Атака (хаб: attackHub)
+    ...DEFENSE_BRANCH,          // Защита (хаб: defenseHub)
+    ...MOBILITY_BRANCH,         // Мобильность (хаб: mobilityHub)
+    ...TECH_BRANCH,             // Технологии (хаб: techHub)
+    ...STEALTH_BRANCH,          // Скрытность (хаб: stealthHub)
+    ...LEADERSHIP_BRANCH,       // Лидерство (хаб: leadershipHub)
+    // Навыки из объединённых веток (без хабов - привязаны к новым)
+    ...ULTIMATE_BRANCH.slice(1),   // Ультимативные -> Атака (attackHub)
+    ...UTILITY_BRANCH.slice(1),    // Утилиты -> Технологии (techHub)
+    ...SUPPLY_BRANCH.slice(1),     // Экономика -> Лидерство (leadershipHub)
+    ...COMMANDER_BRANCH.slice(1),  // Командование -> Лидерство (leadershipHub)
     SYNERGY_NODE
 ];
 

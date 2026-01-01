@@ -172,8 +172,11 @@ export class TargetHealthBar {
             // Обновляем дистанцию
             this.distanceText.text = `DIST: ${Math.round(target.distance)}m`;
         } else {
-            // Не сбрасываем сразу - держим отображение
-            // currentTarget останется для fade-out
+            // ИСПРАВЛЕНО: Сбрасываем сразу - полоска должна исчезать мгновенно
+            // когда враг не в прицеле
+            this.currentTarget = null;
+            this.fadeAlpha = 0;
+            this.container.alpha = 0;
         }
     }
     

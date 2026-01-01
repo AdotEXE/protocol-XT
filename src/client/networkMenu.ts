@@ -758,5 +758,154 @@ export class NetworkMenu {
     isVisible(): boolean {
         return this.visible;
     }
+    
+    /**
+     * Рендерит контент меню в переданный контейнер (для UnifiedMenu)
+     */
+    renderToContainer(container: HTMLElement): void {
+        container.innerHTML = this.getEmbeddedContentHTML();
+        this.setupEmbeddedEventListeners(container);
+    }
+    
+    /**
+     * Возвращает HTML контента без overlay wrapper
+     */
+    private getEmbeddedContentHTML(): string {
+        return `
+            <div class="network-embedded-content">
+                <h3 style="color: #0ff; margin: 0 0 16px 0; font-size: 16px; text-shadow: 0 0 8px rgba(0, 255, 255, 0.5);">
+                    🌐 Настройки сети
+                </h3>
+                
+                <!-- Статус подключения -->
+                <div style="
+                    background: rgba(0, 20, 0, 0.6);
+                    border: 1px solid rgba(0, 255, 4, 0.3);
+                    border-radius: 4px;
+                    padding: 12px;
+                    margin-bottom: 16px;
+                ">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span style="color: #7f7; font-size: 11px;">Статус:</span>
+                        <span class="net-status-emb" style="color: #0f0; font-size: 11px; font-weight: bold;">Отключен</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span style="color: #7f7; font-size: 11px;">Пинг:</span>
+                        <span class="net-ping-emb" style="color: #0ff; font-size: 11px;">-- мс</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="color: #7f7; font-size: 11px;">Сервер:</span>
+                        <span style="color: #7f7; font-size: 11px;">${this.settings.serverAddress}:${this.settings.port}</span>
+                    </div>
+                </div>
+                
+                <!-- Настройки сервера -->
+                <div style="margin-bottom: 16px;">
+                    <div style="color: #ff0; font-size: 13px; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid rgba(0, 255, 4, 0.3); padding-bottom: 5px;">
+                        НАСТРОЙКИ СЕРВЕРА
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <label style="color: #aaa; font-size: 11px; display: block; margin-bottom: 4px;">Адрес сервера:</label>
+                        <input type="text" class="net-server-emb" value="${this.settings.serverAddress}" style="
+                            width: 100%; padding: 6px 8px;
+                            background: rgba(0, 5, 0, 0.5);
+                            border: 1px solid rgba(0, 255, 4, 0.4);
+                            border-radius: 4px; color: #0f0;
+                            font-family: Consolas, Monaco, monospace;
+                            box-sizing: border-box;
+                        ">
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <label style="color: #aaa; font-size: 11px; display: block; margin-bottom: 4px;">Порт:</label>
+                        <input type="number" class="net-port-emb" value="${this.settings.port}" style="
+                            width: 100%; padding: 6px 8px;
+                            background: rgba(0, 5, 0, 0.5);
+                            border: 1px solid rgba(0, 255, 4, 0.4);
+                            border-radius: 4px; color: #0f0;
+                            font-family: Consolas, Monaco, monospace;
+                            box-sizing: border-box;
+                        ">
+                    </div>
+                </div>
+                
+                <!-- Опции -->
+                <div style="margin-bottom: 16px;">
+                    <div style="color: #ff0; font-size: 13px; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid rgba(0, 255, 4, 0.3); padding-bottom: 5px;">
+                        ОПЦИИ
+                    </div>
+                    <label style="color: #aaa; font-size: 11px; display: flex; align-items: center; margin-bottom: 8px; cursor: pointer;">
+                        <input type="checkbox" class="net-autoconnect-emb" ${this.settings.autoConnect ? 'checked' : ''} style="margin-right: 8px; accent-color: #0f0;">
+                        Автоподключение
+                    </label>
+                    <label style="color: #aaa; font-size: 11px; display: flex; align-items: center; margin-bottom: 8px; cursor: pointer;">
+                        <input type="checkbox" class="net-showping-emb" ${this.settings.showPing ? 'checked' : ''} style="margin-right: 8px; accent-color: #0f0;">
+                        Показывать пинг
+                    </label>
+                    <label style="color: #aaa; font-size: 11px; display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" class="net-textchat-emb" ${this.settings.textChat ? 'checked' : ''} style="margin-right: 8px; accent-color: #0f0;">
+                        Текстовый чат
+                    </label>
+                </div>
+                
+                <!-- Кнопки -->
+                <div style="display: flex; gap: 10px; margin-top: 16px;">
+                    <button class="panel-btn primary net-connect-btn" style="flex: 1; padding: 10px;">🔗 Подключиться</button>
+                    <button class="panel-btn net-disconnect-btn" style="flex: 1; padding: 10px;">❌ Отключиться</button>
+                </div>
+            </div>
+        `;
+    }
+    
+    /**
+     * Привязывает обработчики событий для embedded режима
+     */
+    private setupEmbeddedEventListeners(container: HTMLElement): void {
+        const serverInput = container.querySelector(".net-server-emb") as HTMLInputElement;
+        const portInput = container.querySelector(".net-port-emb") as HTMLInputElement;
+        const autoConnectCb = container.querySelector(".net-autoconnect-emb") as HTMLInputElement;
+        const showPingCb = container.querySelector(".net-showping-emb") as HTMLInputElement;
+        const textChatCb = container.querySelector(".net-textchat-emb") as HTMLInputElement;
+        const connectBtn = container.querySelector(".net-connect-btn");
+        const disconnectBtn = container.querySelector(".net-disconnect-btn");
+        
+        serverInput?.addEventListener("change", () => {
+            this.settings.serverAddress = serverInput.value;
+            this.saveSettings();
+        });
+        
+        portInput?.addEventListener("change", () => {
+            this.settings.port = parseInt(portInput.value) || 8000;
+            this.saveSettings();
+        });
+        
+        autoConnectCb?.addEventListener("change", () => {
+            this.settings.autoConnect = autoConnectCb.checked;
+            this.saveSettings();
+        });
+        
+        showPingCb?.addEventListener("change", () => {
+            this.settings.showPing = showPingCb.checked;
+            this.saveSettings();
+        });
+        
+        textChatCb?.addEventListener("change", () => {
+            this.settings.textChat = textChatCb.checked;
+            this.saveSettings();
+        });
+        
+        connectBtn?.addEventListener("click", () => {
+            if (this.game?.hud) {
+                this.game.hud.showMessage("Подключение к серверу...", "#0ff", 2000);
+            }
+            // TODO: Реальная логика подключения
+        });
+        
+        disconnectBtn?.addEventListener("click", () => {
+            if (this.game?.hud) {
+                this.game.hud.showMessage("Отключено от сервера", "#f00", 2000);
+            }
+            // TODO: Реальная логика отключения
+        });
+    }
 }
 

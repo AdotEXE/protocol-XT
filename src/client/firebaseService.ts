@@ -114,6 +114,57 @@ function maskApiKey(apiKey: string): string {
     return `${apiKey.substring(0, 10)}...${apiKey.substring(apiKey.length - 4)}`;
 }
 
+/**
+ * Validates that the current domain is likely authorized in Firebase
+ * This is a pre-flight check that provides warnings but doesn't block initialization
+ */
+function validateDomain(authDomain: string): { valid: boolean; warning?: string } {
+    if (typeof window === 'undefined') {
+        return { valid: true }; // Server-side, skip validation
+    }
+    
+    const currentHost = window.location.hostname;
+    const authDomainHost = authDomain.replace(/^https?:\/\//, '').split('/')[0] || '';
+    
+    // Check if current domain matches auth domain or is localhost
+    if (currentHost === 'localhost' || currentHost === '127.0.0.1' || currentHost.startsWith('192.168.')) {
+        return { valid: true }; // Local development, always valid
+    }
+    
+    // Check if current domain is a subdomain of auth domain or vice versa
+    if (authDomainHost && (currentHost === authDomainHost || 
+        currentHost.endsWith('.' + authDomainHost) || 
+        authDomainHost.endsWith('.' + currentHost))) {
+        return { valid: true };
+    }
+    
+    // If domains don't match, provide a warning
+    return {
+        valid: true, // Don't block, but warn
+        warning: `Current domain (${currentHost}) may not match Firebase auth domain (${authDomainHost}). Ensure ${currentHost} is added to authorized domains in Firebase Console.`
+    };
+}
+
+/**
+ * Pre-flight check for Identity Toolkit API availability
+ * This function provides helpful warnings but doesn't actually test the API
+ * (testing would require making a request which could fail)
+ */
+function checkIdentityToolkitAPIWarnings(projectId: string, apiKey: string): string[] {
+    const warnings: string[] = [];
+    
+    // Check if API key format suggests it might be restricted
+    if (apiKey && apiKey.length > 0) {
+        warnings.push(`To use Firebase Authentication, ensure:`);
+        warnings.push(`1. Identity Toolkit API is enabled for project: ${projectId}`);
+        warnings.push(`   Link: https://console.cloud.google.com/apis/library/identitytoolkit.googleapis.com?project=${projectId}`);
+        warnings.push(`2. API key (${maskApiKey(apiKey)}) has Identity Toolkit API enabled`);
+        warnings.push(`   Link: https://console.cloud.google.com/apis/credentials?project=${projectId}`);
+    }
+    
+    return warnings;
+}
+
 // Validate configuration
 const configValidation = validateFirebaseConfig(firebaseConfig);
 const hasRealConfig = configValidation.valid && 
@@ -355,12 +406,27 @@ export class FirebaseService {
         // Validate API key format before attempting connection
         const apiKeyValidation = validateApiKeyFormat(firebaseConfig.apiKey);
         if (!apiKeyValidation.valid) {
-            // console.error("[Firebase] ❌ Invalid API key format:", apiKeyValidation.reason);
-            // console.error("[Firebase] API key:", maskApiKey(firebaseConfig.apiKey));
-            // console.error("[Firebase] Please check your VITE_FIREBASE_API_KEY in .env file");
+            console.error("[Firebase] ❌ Invalid API key format:", apiKeyValidation.reason);
+            console.error("[Firebase] API key:", maskApiKey(firebaseConfig.apiKey));
+            console.error("[Firebase] Please check your VITE_FIREBASE_API_KEY in .env file");
             this.initialized = false;
             this.authenticated = false;
             return false;
+        }
+        
+        // Validate domain configuration
+        const domainValidation = validateDomain(firebaseConfig.authDomain);
+        if (domainValidation.warning) {
+            console.warn("[Firebase] ⚠️ Domain validation warning:", domainValidation.warning);
+        }
+        
+        // Pre-flight warnings for Identity Toolkit API
+        if (import.meta.env.DEV) {
+            const apiWarnings = checkIdentityToolkitAPIWarnings(firebaseConfig.projectId, firebaseConfig.apiKey);
+            if (apiWarnings.length > 0) {
+                console.log("[Firebase] ℹ️ Identity Toolkit API requirements:");
+                apiWarnings.forEach(warning => console.log(`[Firebase]   ${warning}`));
+            }
         }
 
         try {
@@ -426,51 +492,72 @@ export class FirebaseService {
                             const errorMessage = error?.message || 'Unknown error';
                             const errorResponse = error?.response || error?.serverResponse || null;
                             
-                            // Log full error details for debugging
-                            // console.error("[Firebase] ❌ Authentication error details:", {
-                            //     code: errorCode,
-                            //     message: errorMessage,
-                            //     apiKey: maskApiKey(firebaseConfig.apiKey),
-                            //     projectId: firebaseConfig.projectId,
-                            //     origin: window.location.origin,
-                            //     hasResponse: !!errorResponse
-                            // });
-                            
-                            // if (errorResponse) {
-                            //     console.error("[Firebase] Error response:", errorResponse);
-                            // }
+            // Log full error details for debugging
+            console.error("[Firebase] ❌ Authentication error details:", {
+                code: errorCode,
+                message: errorMessage,
+                apiKey: maskApiKey(firebaseConfig.apiKey),
+                projectId: firebaseConfig.projectId,
+                origin: window.location.origin,
+                hasResponse: !!errorResponse
+            });
+            
+            if (errorResponse) {
+                console.error("[Firebase] Error response:", errorResponse);
+            }
                             
                             // УЛУЧШЕНО: Обработка ошибки блокировки Identity Toolkit API
                             if (errorCode === 'auth/requests-to-this-api-identitytoolkit-method-google.cloud.identitytoolkit.v1.projectconfigservice.getprojectconfig-are-blocked' ||
                                 errorMessage.includes('identitytoolkit') && errorMessage.includes('blocked')) {
-                                // console.error("[Firebase] ❌ Identity Toolkit API is blocked!");
-                                // console.error("[Firebase] To fix:");
-                                // console.error("[Firebase]   1. Go to https://console.cloud.google.com/apis/library/identitytoolkit.googleapis.com");
-                                // console.error("[Firebase]   2. Click 'Enable'");
-                                // console.error("[Firebase]   3. Check Firebase Console → Authentication → Settings for domain restrictions");
+                                console.error("[Firebase] ❌ Identity Toolkit API is blocked!");
+                                console.error("[Firebase] Error Code:", errorCode);
+                                console.error("[Firebase] Project ID:", firebaseConfig.projectId);
+                                console.error("[Firebase] API Key:", maskApiKey(firebaseConfig.apiKey));
+                                console.error("[Firebase] Current Origin:", window.location.origin);
+                                console.error("[Firebase]");
+                                console.error("[Firebase] To fix this error:");
+                                console.error("[Firebase]   1. Go to: https://console.cloud.google.com/apis/library/identitytoolkit.googleapis.com");
+                                console.error("[Firebase]   2. Select your project:", firebaseConfig.projectId);
+                                console.error("[Firebase]   3. Click 'Enable' button");
+                                console.error("[Firebase]   4. Check API key restrictions:");
+                                console.error("[Firebase]      - Go to: https://console.cloud.google.com/apis/credentials");
+                                console.error("[Firebase]      - Find your API key:", maskApiKey(firebaseConfig.apiKey));
+                                console.error("[Firebase]      - Ensure 'Identity Toolkit API' is allowed in API restrictions");
+                                console.error("[Firebase]   5. Check domain authorization:");
+                                console.error("[Firebase]      - Go to: https://console.firebase.google.com/project/" + firebaseConfig.projectId + "/authentication/settings");
+                                console.error("[Firebase]      - Verify", window.location.hostname, "is in authorized domains");
+                                console.error("[Firebase]");
+                                console.error("[Firebase] See docs/FIREBASE_IDENTITY_TOOLKIT_FIX.md for detailed instructions");
                             } else if (errorCode === 'auth/api-key-not-valid' || errorCode.includes('api-key') || errorMessage.includes('API key')) {
-                                // console.error("[Firebase] ❌ Invalid API key!");
-                                // console.error("[Firebase] API key used:", maskApiKey(firebaseConfig.apiKey));
-                                // console.error("[Firebase] Please check your VITE_FIREBASE_API_KEY in .env file");
-                                // console.error("[Firebase] Verify API key restrictions in Google Cloud Console:");
-                                // console.error("[Firebase]   APIs & Services → Credentials → [Your API Key] → API restrictions");
-                                // console.error("[Firebase] See docs/FIREBASE_KEYS_EXPLAINED.md for setup instructions");
+                                console.error("[Firebase] ❌ Invalid API key!");
+                                console.error("[Firebase] API key used:", maskApiKey(firebaseConfig.apiKey));
+                                console.error("[Firebase] Project ID:", firebaseConfig.projectId);
+                                console.error("[Firebase] Please check your VITE_FIREBASE_API_KEY in .env file");
+                                console.error("[Firebase] Verify API key restrictions in Google Cloud Console:");
+                                console.error("[Firebase]   APIs & Services → Credentials → [Your API Key] → API restrictions");
+                                console.error("[Firebase] See docs/FIREBASE_KEYS_EXPLAINED.md for setup instructions");
                             } else if (errorCode === 'auth/operation-not-allowed') {
-                                // console.error("[Firebase] ❌ Anonymous authentication is not enabled!");
-                                // console.error("[Firebase] Please enable it in Firebase Console:");
-                                // console.error("[Firebase]   Authentication → Sign-in method → Anonymous → Enable");
+                                console.error("[Firebase] ❌ Anonymous authentication is not enabled!");
+                                console.error("[Firebase] Project ID:", firebaseConfig.projectId);
+                                console.error("[Firebase] Please enable it in Firebase Console:");
+                                console.error("[Firebase]   Authentication → Sign-in method → Anonymous → Enable");
+                                console.error("[Firebase]   Direct link: https://console.firebase.google.com/project/" + firebaseConfig.projectId + "/authentication/providers");
                             } else if (errorMessage.includes('401') || errorMessage.includes('Unauthorized')) {
                                 // Handle 401 Unauthorized specifically
-                                // console.error("[Firebase] ❌ 401 Unauthorized - Authentication failed");
-                                // console.error("[Firebase] Possible causes:");
-                                // console.error("[Firebase]   1. Invalid API key - Check VITE_FIREBASE_API_KEY");
-                                // console.error("[Firebase]   2. API key restrictions - Check Google Cloud Console → APIs & Services → Credentials");
-                                // console.error("[Firebase]   3. Identity Toolkit API not enabled - Enable at https://console.cloud.google.com/apis/library/identitytoolkit.googleapis.com");
-                                // console.error("[Firebase]   4. Anonymous auth disabled - Enable in Firebase Console → Authentication → Sign-in method");
-                                // console.error("[Firebase]   5. Domain not authorized - Check Firebase Console → Authentication → Settings → Authorized domains");
-                                // console.error("[Firebase] Current origin:", window.location.origin);
+                                console.error("[Firebase] ❌ 401 Unauthorized - Authentication failed");
+                                console.error("[Firebase] Project ID:", firebaseConfig.projectId);
+                                console.error("[Firebase] API Key:", maskApiKey(firebaseConfig.apiKey));
+                                console.error("[Firebase] Current Origin:", window.location.origin);
+                                console.error("[Firebase] Possible causes:");
+                                console.error("[Firebase]   1. Invalid API key - Check VITE_FIREBASE_API_KEY");
+                                console.error("[Firebase]   2. API key restrictions - Check Google Cloud Console → APIs & Services → Credentials");
+                                console.error("[Firebase]   3. Identity Toolkit API not enabled - Enable at https://console.cloud.google.com/apis/library/identitytoolkit.googleapis.com");
+                                console.error("[Firebase]   4. Anonymous auth disabled - Enable in Firebase Console → Authentication → Sign-in method");
+                                console.error("[Firebase]   5. Domain not authorized - Check Firebase Console → Authentication → Settings → Authorized domains");
                             } else {
-                                // console.error("[Firebase] Failed to sign in anonymously:", errorMessage);
+                                console.error("[Firebase] Failed to sign in anonymously:", errorMessage);
+                                console.error("[Firebase] Error Code:", errorCode);
+                                console.error("[Firebase] Project ID:", firebaseConfig.projectId);
                             }
                             
                             // Continue anyway - some features may not work
@@ -493,24 +580,32 @@ export class FirebaseService {
             const errorMessage = error?.message || 'Unknown error';
             const errorResponse = error?.response || error?.serverResponse || null;
             
-            // console.error("[Firebase] ❌ Initialization error:", errorMessage);
-            // console.error("[Firebase] Error details:", {
-            //     code: errorCode,
-            //     message: errorMessage,
-            //     apiKey: maskApiKey(firebaseConfig.apiKey),
-            //     projectId: firebaseConfig.projectId,
-            //     hasResponse: !!errorResponse
-            // });
+            console.error("[Firebase] ❌ Initialization error:", errorMessage);
+            console.error("[Firebase] Error details:", {
+                code: errorCode,
+                message: errorMessage,
+                apiKey: maskApiKey(firebaseConfig.apiKey),
+                projectId: firebaseConfig.projectId,
+                origin: window.location.origin,
+                hasResponse: !!errorResponse
+            });
             
-            // if (errorResponse) {
-            //     console.error("[Firebase] Error response:", errorResponse);
-            // }
+            if (errorResponse) {
+                console.error("[Firebase] Error response:", errorResponse);
+            }
             
-            // if (errorCode.includes('api-key') || errorMessage.includes('api-key')) {
-            //     console.error("[Firebase] Invalid API key. Please check your Firebase configuration.");
-            //     console.error("[Firebase] API key used:", maskApiKey(firebaseConfig.apiKey));
-            //     console.error("[Firebase] See docs/FIREBASE_KEYS_EXPLAINED.md for setup instructions");
-            // }
+            // Check for Identity Toolkit API error
+            if (errorCode === 'auth/requests-to-this-api-identitytoolkit-method-google.cloud.identitytoolkit.v1.projectconfigservice.getprojectconfig-are-blocked' ||
+                (errorMessage.includes('identitytoolkit') && errorMessage.includes('blocked'))) {
+                console.error("[Firebase] ❌ Identity Toolkit API is blocked!");
+                console.error("[Firebase] See docs/FIREBASE_IDENTITY_TOOLKIT_FIX.md for detailed fix instructions");
+            }
+            
+            if (errorCode.includes('api-key') || errorMessage.includes('api-key')) {
+                console.error("[Firebase] Invalid API key. Please check your Firebase configuration.");
+                console.error("[Firebase] API key used:", maskApiKey(firebaseConfig.apiKey));
+                console.error("[Firebase] See docs/FIREBASE_KEYS_EXPLAINED.md for setup instructions");
+            }
             
             this.initialized = false;
             this.authenticated = false;
@@ -557,18 +652,18 @@ export class FirebaseService {
             const errorResponse = error?.response || error?.serverResponse || null;
             
             // Log detailed error information
-            // console.error("[Firebase] ❌ Anonymous sign in error details:", {
-            //     code: errorCode,
-            //     message: errorMessage,
-            //     apiKey: maskApiKey(firebaseConfig.apiKey),
-            //     projectId: firebaseConfig.projectId,
-            //     origin: window.location.origin,
-            //     hasResponse: !!errorResponse
-            // });
+            console.error("[Firebase] ❌ Anonymous sign in error details:", {
+                code: errorCode,
+                message: errorMessage,
+                apiKey: maskApiKey(firebaseConfig.apiKey),
+                projectId: firebaseConfig.projectId,
+                origin: window.location.origin,
+                hasResponse: !!errorResponse
+            });
             
-            // if (errorResponse) {
-            //     console.error("[Firebase] Error response:", errorResponse);
-            // }
+            if (errorResponse) {
+                console.error("[Firebase] Error response:", errorResponse);
+            }
             
             let userFriendlyError = errorMessage;
             let troubleshootingSteps: string[] = [];
@@ -578,14 +673,29 @@ export class FirebaseService {
                 errorMessage.includes('identitytoolkit') && errorMessage.includes('blocked')) {
                 userFriendlyError = "Identity Toolkit API is blocked. Enable it in Google Cloud Console.";
                 troubleshootingSteps = [
-                    "1. Go to https://console.cloud.google.com/apis/library/identitytoolkit.googleapis.com",
-                    "2. Click 'Enable'",
-                    "3. Check Firebase Console → Authentication → Settings for domain restrictions"
+                    `Project ID: ${firebaseConfig.projectId}`,
+                    `API Key: ${maskApiKey(firebaseConfig.apiKey)}`,
+                    `Current Origin: ${window.location.origin}`,
+                    "",
+                    "To fix:",
+                    "1. Go to: https://console.cloud.google.com/apis/library/identitytoolkit.googleapis.com",
+                    `2. Select your project: ${firebaseConfig.projectId}`,
+                    "3. Click 'Enable' button",
+                    "4. Check API key restrictions:",
+                    "   - Go to: https://console.cloud.google.com/apis/credentials",
+                    `   - Find your API key: ${maskApiKey(firebaseConfig.apiKey)}`,
+                    "   - Ensure 'Identity Toolkit API' is allowed in API restrictions",
+                    "5. Check domain authorization:",
+                    `   - Go to: https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`,
+                    `   - Verify ${window.location.hostname} is in authorized domains`,
+                    "",
+                    "See docs/FIREBASE_IDENTITY_TOOLKIT_FIX.md for detailed instructions"
                 ];
             } else if (errorCode === 'auth/api-key-not-valid' || errorCode.includes('api-key') || errorMessage.includes('API key')) {
                 userFriendlyError = "Invalid API key. Please check your VITE_FIREBASE_API_KEY in .env file.";
                 troubleshootingSteps = [
                     `API key used: ${maskApiKey(firebaseConfig.apiKey)}`,
+                    `Project ID: ${firebaseConfig.projectId}`,
                     "1. Verify API key in Firebase Console → Project Settings → General",
                     "2. Check API key restrictions in Google Cloud Console → APIs & Services → Credentials",
                     "3. Ensure Identity Toolkit API is enabled for this API key",
@@ -594,7 +704,9 @@ export class FirebaseService {
             } else if (errorCode === 'auth/operation-not-allowed') {
                 userFriendlyError = "Anonymous authentication is not enabled.";
                 troubleshootingSteps = [
+                    `Project ID: ${firebaseConfig.projectId}`,
                     "1. Go to Firebase Console → Authentication → Sign-in method",
+                    `   Direct link: https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/providers`,
                     "2. Find 'Anonymous' in the list",
                     "3. Click 'Enable'"
                 ];
@@ -604,25 +716,28 @@ export class FirebaseService {
                 // Handle 401 Unauthorized specifically
                 userFriendlyError = "401 Unauthorized - Authentication failed. Check API key and Firebase settings.";
                 troubleshootingSteps = [
+                    `Project ID: ${firebaseConfig.projectId}`,
+                    `API Key: ${maskApiKey(firebaseConfig.apiKey)}`,
+                    `Current Origin: ${window.location.origin}`,
+                    "",
                     "Possible causes:",
                     "1. Invalid API key - Check VITE_FIREBASE_API_KEY in .env file",
                     "2. API key restrictions - Check Google Cloud Console → APIs & Services → Credentials",
                     "3. Identity Toolkit API not enabled - Enable at https://console.cloud.google.com/apis/library/identitytoolkit.googleapis.com",
                     "4. Anonymous auth disabled - Enable in Firebase Console → Authentication → Sign-in method",
-                    "5. Domain not authorized - Check Firebase Console → Authentication → Settings → Authorized domains",
-                    `Current origin: ${window.location.origin}`
+                    "5. Domain not authorized - Check Firebase Console → Authentication → Settings → Authorized domains"
                 ];
             }
             
             // Log troubleshooting steps
-            // if (troubleshootingSteps.length > 0) {
-            //     console.error("[Firebase] Troubleshooting steps:");
-            //     troubleshootingSteps.forEach(step => {
-            //         console.error(`[Firebase]   ${step}`);
-            //     });
-            // }
+            if (troubleshootingSteps.length > 0) {
+                console.error("[Firebase] Troubleshooting steps:");
+                troubleshootingSteps.forEach(step => {
+                    console.error(`[Firebase]   ${step}`);
+                });
+            }
             
-            // console.error("[Firebase] ❌ Anonymous sign in error:", userFriendlyError);
+            console.error("[Firebase] ❌ Anonymous sign in error:", userFriendlyError);
             this.authenticated = false;
             return { success: false, error: userFriendlyError };
         }

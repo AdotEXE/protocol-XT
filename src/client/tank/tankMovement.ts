@@ -62,49 +62,42 @@ export class TankMovementModule {
         }
 
         // Автоматическое центрирование (активируется по C) - с ОБЫЧНОЙ скоростью вращения
-        // НО ТОЛЬКО если игрок не управляет башней вручную (Z/X или мышка)
-        if (((this.tank as any).isAutoCentering || inputMap["KeyC"]) && !(this.tank as any).isKeyboardTurretControl) {
+        // НО ТОЛЬКО если игрок не управляет башней вручную (Z/X)
+        const isAutoCentering = (this.tank as any).isAutoCentering;
+        const shouldCenter = (isAutoCentering || inputMap["KeyC"]) && !(this.tank as any).isKeyboardTurretControl;
+        
+        if (inputMap["KeyC"] && !isAutoCentering) {
+            // Нажата C и центрирование ещё не активно - активируем
+            (this.tank as any).isAutoCentering = true;
+            console.log("[TankMovement] KeyC pressed - центровка АКТИВИРОВАНА");
+        }
+        
+        if (shouldCenter) {
             // Нормализуем угол к [-PI, PI] для кратчайшего пути
             let currentRot = this.tank.turret.rotation.y;
             while (currentRot > Math.PI) currentRot -= Math.PI * 2;
             while (currentRot < -Math.PI) currentRot += Math.PI * 2;
             
-            // Если башня уже в центре и игрок нажимает C - просто синхронизируем cameraYaw и выходим
-            if (Math.abs(currentRot) < 0.01) {
-                if (inputMap["KeyC"] && !(this.tank as any).isAutoCentering) {
-                    // Башня уже в центре, просто синхронизируем cameraYaw через событие
-                    this.tank.turret.rotation.y = 0;
-                    window.dispatchEvent(new CustomEvent("syncCameraYaw", { 
-                        detail: { turretRotY: 0 } 
-                    }));
-                    // Не запускаем центрирование, если башня уже в центре
-                    return;
-                }
-                // Если уже центрируемся и достигли центра - завершаем
-                if ((this.tank as any).isAutoCentering) {
-                    // Достигли центра - останавливаем вращение
-                    this.tank.turret.rotation.y = 0;
-                    this.tank.turretTurnTarget = 0;
-                    this.tank.turretTurnSmooth = 0;
-                    (this.tank as any).turretAcceleration = 0;
-                    (this.tank as any).turretAccelStartTime = 0;
-                    (this.tank as any).isAutoCentering = false;
-                    
-                    // Синхронизируем cameraYaw с углом башни (0 когда башня в центре)
-                    window.dispatchEvent(new CustomEvent("syncCameraYaw", { 
-                        detail: { turretRotY: 0 } 
-                    }));
-                    
-                    // КРИТИЧЕСКИ ВАЖНО: НЕ центрируем камеру при центрировании башни!
-                    // C должна центрировать ТОЛЬКО башню, камера следует за башней автоматически
-                    window.dispatchEvent(new CustomEvent("stopCenterCamera"));
-                }
-            } else {
-                // Башня не в центре - запускаем центрирование
-                if (inputMap["KeyC"]) (this.tank as any).isAutoCentering = true;
+            // Если башня уже в центре - завершаем центрирование
+            if (Math.abs(currentRot) < 0.02) {
+                // Достигли центра - останавливаем вращение
+                this.tank.turret.rotation.y = 0;
+                this.tank.turretTurnTarget = 0;
+                this.tank.turretTurnSmooth = 0;
+                (this.tank as any).turretAcceleration = 0;
+                (this.tank as any).turretAccelStartTime = 0;
+                (this.tank as any).isAutoCentering = false;
                 
-                // Используем ОБЫЧНУЮ скорость вращения башни для центровки
-                const baseTurretSpeed = (this.tank as any).baseTurretSpeed; // Та же скорость, что и при обычном вращении
+                // Синхронизируем cameraYaw с углом башни (0 когда башня в центре)
+                window.dispatchEvent(new CustomEvent("syncCameraYaw", { 
+                    detail: { turretRotY: 0 } 
+                }));
+                
+                window.dispatchEvent(new CustomEvent("stopCenterCamera"));
+                console.log("[TankMovement] Центровка ЗАВЕРШЕНА - башня в центре");
+            } else {
+                // Башня не в центре - продолжаем центрирование
+                const baseTurretSpeed = (this.tank as any).baseTurretSpeed || 2.0;
                 
                 // Вычисляем направление к центру
                 const targetDirection = -Math.sign(currentRot); // -1 или 1, в зависимости от направления

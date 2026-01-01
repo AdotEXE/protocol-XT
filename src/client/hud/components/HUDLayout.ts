@@ -80,7 +80,8 @@ export class HUDLayout {
                 break;
             case "right":
                 component.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-                component.rightInPixels = scalePixels(offsetX + this.config.safeAreaMargin);
+                // При RIGHT alignment, leftInPixels работает как отступ справа (отрицательное значение)
+                component.leftInPixels = -scalePixels(offsetX + this.config.safeAreaMargin);
                 break;
         }
         
@@ -96,7 +97,8 @@ export class HUDLayout {
                 break;
             case "bottom":
                 component.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-                component.bottomInPixels = scalePixels(offsetY + this.config.safeAreaMargin);
+                // При BOTTOM alignment, topInPixels работает как отступ снизу (отрицательное значение)
+                component.topInPixels = -scalePixels(offsetY + this.config.safeAreaMargin);
                 break;
         }
     }

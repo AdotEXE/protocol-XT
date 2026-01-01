@@ -28,6 +28,10 @@ export interface CannonType {
     color: string; // Hex цвет
     description: string;
     recoilMultiplier: number; // Множитель силы отдачи (1.0 = стандартная)
+    // Параметры рикошета (опционально)
+    maxRicochets?: number; // Максимальное количество рикошетов
+    ricochetSpeedRetention?: number; // Сохранение скорости при рикошете (0.0-1.0)
+    ricochetAngle?: number; // Угол рикошета (градусы)
 }
 
 // 5 chassis types
@@ -271,7 +275,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.15,
         color: "#888888",
         description: "Fast fire rate, low damage",
-        recoilMultiplier: 0.5 // Лёгкая отдача
+        recoilMultiplier: 1.0 // Лёгкая отдача (x2)
     },
     {
         id: "standard",
@@ -284,7 +288,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.2,
         color: "#666666",
         description: "Balanced cannon",
-        recoilMultiplier: 1.0 // Стандартная отдача
+        recoilMultiplier: 2.0 // Стандартная отдача (x2)
     },
     {
         id: "heavy",
@@ -297,7 +301,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.25,
         color: "#444444",
         description: "Slow but powerful",
-        recoilMultiplier: 1.8 // Сильная отдача
+        recoilMultiplier: 3.6 // Сильная отдача (x2)
     },
     {
         id: "sniper",
@@ -310,7 +314,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.18,
         color: "#222222",
         description: "High damage, long range",
-        recoilMultiplier: 2.0 // Мощная отдача
+        recoilMultiplier: 4.0 // Мощная отдача (x2)
     },
     {
         id: "gatling",
@@ -323,7 +327,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.12,
         color: "#aaaaaa",
         description: "Very fast fire rate",
-        recoilMultiplier: 0.25 // Минимальная отдача (скорострельность)
+        recoilMultiplier: 0.5 // Минимальная отдача (скорострельность) (x2)
     },
     
     // === NEW 20 CANNONS ===
@@ -340,7 +344,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.22,
         color: "#ff00ff",
         description: "Плазменная пушка с энергетическими снарядами. Урон: 35 | Перезарядка: 2.5с | Скорость снаряда: 220 м/с. Средний урон, средняя скорость перезарядки. Эффективна против легкой брони.",
-        recoilMultiplier: 0.8 // Энергетическое оружие - меньше отдачи
+        recoilMultiplier: 1.6 // Энергетическое оружие - меньше отдачи (x2)
     },
     {
         id: "laser",
@@ -353,7 +357,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.14,
         color: "#ff0000",
         description: "Лазерный луч мгновенного попадания. Урон: 30 | Перезарядка: 1.5с | Скорость: 400 м/с (мгновенно). Высокая точность, нет задержки попадания. Идеален для быстрых целей.",
-        recoilMultiplier: 0.3 // Лазер - почти нет отдачи
+        recoilMultiplier: 0.6 // Лазер - почти нет отдачи (x2)
     },
     {
         id: "tesla",
@@ -366,7 +370,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.20,
         color: "#00ffff",
         description: "Катушка Тесла с цепной молнией. Урон: 20 | Перезарядка: 1.8с | Эффект: урон переходит на 2 ближайших врагов (50% урона). Отлично против групп.",
-        recoilMultiplier: 0.4 // Электрическое оружие - слабая отдача
+        recoilMultiplier: 0.8 // Электрическое оружие - слабая отдача (x2)
     },
     {
         id: "railgun",
@@ -379,7 +383,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.16,
         color: "#0088ff",
         description: "Рельсотрон с экстремальным уроном. Урон: 60 | Перезарядка: 5.0с | Скорость: 500 м/с. Самый высокий урон, но очень медленная перезарядка. Один выстрел - одно убийство.",
-        recoilMultiplier: 2.5 // Максимальная отдача!
+        recoilMultiplier: 5.0 // Максимальная отдача! (x2)
     },
     
     // === EXPLOSIVE WEAPONS ===
@@ -394,7 +398,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.28,
         color: "#ff8800",
         description: "Ракетная установка с взрывным уроном. Урон: 45 | Перезарядка: 3.0с | Радиус взрыва: 3м. Эффективна против групп врагов.",
-        recoilMultiplier: 1.6 // Ракетная отдача
+        recoilMultiplier: 3.2 // Ракетная отдача (x2)
     },
     {
         id: "mortar",
@@ -407,7 +411,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.32,
         color: "#8b4513",
         description: "Миномет с высокой дугой траектории. Урон: 55 | Перезарядка: 4.5с | Радиус взрыва: 5м. Стреляет через препятствия, массивный урон по области.",
-        recoilMultiplier: 2.2 // Тяжёлый миномёт - сильная отдача
+        recoilMultiplier: 4.4 // Тяжёлый миномёт - сильная отдача (x2)
     },
     {
         id: "cluster",
@@ -420,7 +424,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.24,
         color: "#ff4444",
         description: "Кластерная установка, разделяющиеся снаряды. Урон: 25 | Перезарядка: 2.8с | Разделяется на 5 снарядов. Покрывает большую площадь.",
-        recoilMultiplier: 1.2 // Средняя отдача
+        recoilMultiplier: 2.4 // Средняя отдача (x2)
     },
     {
         id: "explosive",
@@ -433,7 +437,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.26,
         color: "#ff6600",
         description: "Взрывная пушка со сплэш-уроном. Урон: 42 | Перезарядка: 3.2с | Радиус взрыва: 4м. Баланс между уроном и перезарядкой.",
-        recoilMultiplier: 1.7 // Взрывная отдача
+        recoilMultiplier: 3.4 // Взрывная отдача (x2)
     },
     
     // === SPECIAL EFFECT WEAPONS ===
@@ -448,7 +452,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.18,
         color: "#ff3300",
         description: "Огнемет с непрерывным огнем. Урон: 12 | Перезарядка: 0.2с | Эффект: горение 5 сек (5 урона/сек). Ближний бой, высокая DPS.",
-        recoilMultiplier: 0.15 // Огнемёт - почти нет отдачи
+        recoilMultiplier: 0.3 // Огнемёт - почти нет отдачи (x2)
     },
     {
         id: "acid",
@@ -461,7 +465,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.20,
         color: "#00ff00",
         description: "Кислотный распылитель с коррозией. Урон: 18 | Перезарядка: 2.2с | Эффект: коррозия 8 сек (3 урона/сек), снижает броню на 20%.",
-        recoilMultiplier: 0.6 // Жидкость - слабая отдача
+        recoilMultiplier: 1.2 // Жидкость - слабая отдача (x2)
     },
     {
         id: "freeze",
@@ -474,7 +478,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.19,
         color: "#00ccff",
         description: "Криогенная пушка с замораживанием. Урон: 22 | Перезарядка: 2.4с | Эффект: замедление на 50% на 4 сек. Контроль врагов.",
-        recoilMultiplier: 0.7 // Криогенная - умеренная отдача
+        recoilMultiplier: 1.4 // Криогенная - умеренная отдача (x2)
     },
     {
         id: "poison",
@@ -487,7 +491,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.17,
         color: "#9900ff",
         description: "Токсичный инжектор с отравлением. Урон: 16 | Перезарядка: 2.1с | Эффект: яд 10 сек (2 урона/сек). Долгий DoT.",
-        recoilMultiplier: 0.5 // Инжектор - слабая отдача
+        recoilMultiplier: 1.0 // Инжектор - слабая отдача (x2)
     },
     {
         id: "emp",
@@ -500,7 +504,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.23,
         color: "#ffff00",
         description: "ЭМИ бластер, отключает системы. Урон: 15 | Перезарядка: 3.5с | Эффект: отключение способностей на 6 сек. Тактическое оружие.",
-        recoilMultiplier: 0.4 // ЭМИ - электромагнитное, слабая отдача
+        recoilMultiplier: 0.8 // ЭМИ - электромагнитное, слабая отдача (x2)
     },
     
     // === MULTI-SHOT WEAPONS ===
@@ -515,7 +519,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.10,
         color: "#cc6600",
         description: "Дробовик с множественными снарядами. Урон: 8 (×10 снарядов) | Перезарядка: 1.2с | Эффективен вблизи, разброс урона.",
-        recoilMultiplier: 1.4 // Дробовик - ощутимая отдача
+        recoilMultiplier: 2.8 // Дробовик - ощутимая отдача (x2)
     },
     {
         id: "multishot",
@@ -528,7 +532,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.13,
         color: "#8888aa",
         description: "Многоствольная пушка, 3 выстрела одновременно. Урон: 14×3 | Перезарядка: 1.6с | Три снаряда параллельно, хороший DPS.",
-        recoilMultiplier: 1.1 // Многоствольная - суммарная отдача
+        recoilMultiplier: 2.2 // Многоствольная - суммарная отдача (x2)
     },
     
     // === ADVANCED WEAPONS ===
@@ -543,7 +547,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.25,
         color: "#ff0088",
         description: "Самонаводящаяся ракета, преследует цели. Урон: 38 | Перезарядка: 3.8с | Автоматическое наведение, игнорирует уклонение.",
-        recoilMultiplier: 1.5 // Ракета - заметная отдача
+        recoilMultiplier: 3.0 // Ракета - заметная отдача (x2)
     },
     {
         id: "piercing",
@@ -556,7 +560,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.12,
         color: "#cccccc",
         description: "Бронебойная пушка, пронзает врагов. Урон: 32 | Перезарядка: 2.8с | Проходит через 3 врагов, снижение урона на 20% за цель.",
-        recoilMultiplier: 1.8 // Бронебойная - сильная отдача
+        recoilMultiplier: 3.6 // Бронебойная - сильная отдача (x2)
     },
     {
         id: "shockwave",
@@ -569,7 +573,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.30,
         color: "#ffaa00",
         description: "Ударная волна с отбрасыванием. Урон: 28 | Перезарядка: 3.0с | Радиус: 4м, отбрасывает врагов, контроль территории.",
-        recoilMultiplier: 1.3 // Ударная волна - средняя отдача
+        recoilMultiplier: 2.6 // Ударная волна - средняя отдача (x2)
     },
     {
         id: "beam",
@@ -582,7 +586,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.15,
         color: "#ff00aa",
         description: "Лучовая пушка с непрерывным лучом. Урон: 26 | Перезарядка: 1.9с | Непрерывный луч 2 сек, накапливающийся урон.",
-        recoilMultiplier: 0.35 // Лучевая - минимальная отдача
+        recoilMultiplier: 0.7 // Лучевая - минимальная отдача (x2)
     },
     {
         id: "vortex",
@@ -595,7 +599,7 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSize: 0.27,
         color: "#aa00ff",
         description: "Вихревой генератор, притягивает врагов. Урон: 33 | Перезарядка: 3.6с | Притягивает врагов к центру взрыва, радиус 5м.",
-        recoilMultiplier: 1.4 // Вихрь - заметная отдача
+        recoilMultiplier: 2.8 // Вихрь - заметная отдача (x2)
     },
     {
         id: "support",
@@ -607,8 +611,26 @@ export const CANNON_TYPES: CannonType[] = [
         projectileSpeed: 250,
         projectileSize: 0.20,
         color: "#00ff88",
-        description: "Ремонтный луч, лечит союзников. Урон: 20 | Перезарядка: 1.5с | Лечит союзников на 30 HP, наносит урон врагам. Поддержка команды.",
-        recoilMultiplier: 0.3 // Ремонтный луч - минимальная отдача
+        description: "Ремонтный луч, лечит союзников. Урон: 20 | Перезарядка: 1.5с | Лечит союзников на 30 HP, наносит урон врагов. Поддержка команды.",
+        recoilMultiplier: 0.6 // Ремонтный луч - минимальная отдача (x2)
+    },
+    
+    // === RICOCHET CANNON ===
+    {
+        id: "ricochet",
+        name: "Ricochet Master",
+        barrelLength: 2.4,
+        barrelWidth: 0.22,
+        damage: 28,
+        cooldown: 2200,
+        projectileSpeed: 250,
+        projectileSize: 0.18,
+        color: "#ffd700", // Золотой
+        description: "Мастер рикошетов! До 5 отскоков на базовом уровне. Урон: 28 | Перезарядка: 2.2с | Идеален для стрельбы из-за углов и непрямого урона. Снаряды сохраняют 90% скорости при отскоке.",
+        recoilMultiplier: 1.8,
+        maxRicochets: 5,
+        ricochetSpeedRetention: 0.90,
+        ricochetAngle: 55 // Более пологий угол для рикошета
     }
 ];
 

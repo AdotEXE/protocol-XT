@@ -225,6 +225,86 @@ export class InputValidator {
         return { suspicious: false };
     }
     
+    /**
+     * Enhanced statistical analysis for cheat detection
+     * Tracks multiple metrics: speed consistency, direction changes, perfect movements
+     */
+    static performStatisticalAnalysis(
+        positionHistory: Array<{ time: number; position: Vector3 }>
+    ): { suspicious: boolean; score: number; reasons: string[] } {
+        const reasons: string[] = [];
+        let score = 0;
+        
+        if (positionHistory.length < 3) {
+            return { suspicious: false, score: 0, reasons: [] };
+        }
+        
+        // Check for perfect movement patterns (bot-like behavior)
+        let perfectMovements = 0;
+        for (let i = 1; i < positionHistory.length; i++) {
+            const prev = positionHistory[i - 1];
+            const curr = positionHistory[i];
+            if (!prev || !curr) continue;
+            const timeDelta = (curr.time - prev.time) / 1000; // Convert to seconds
+            const distance = Vector3.Distance(prev.position, curr.position);
+            const speed = distance / timeDelta;
+            
+            // Check if speed is exactly constant (suspicious)
+            if (i > 1) {
+                const prev2 = positionHistory[i - 2];
+                if (!prev2) continue;
+                const prevTimeDelta = (prev.time - prev2.time) / 1000;
+                const prevDistance = Vector3.Distance(prev2.position, prev.position);
+                const prevSpeed = prevDistance / prevTimeDelta;
+                
+                // If speeds are identical (within 0.01), it's suspicious
+                if (Math.abs(speed - prevSpeed) < 0.01 && speed > 0.1) {
+                    perfectMovements++;
+                }
+            }
+        }
+        
+        if (perfectMovements > positionHistory.length * 0.8) {
+            reasons.push(`Perfect movement pattern detected (${perfectMovements}/${positionHistory.length})`);
+            score += 30;
+        }
+        
+        // Check for speed anomalies
+        const speeds: number[] = [];
+        for (let i = 1; i < positionHistory.length; i++) {
+            const prev = positionHistory[i - 1];
+            const curr = positionHistory[i];
+            if (!prev || !curr) continue;
+            const timeDelta = (curr.time - prev.time) / 1000;
+            const distance = Vector3.Distance(prev.position, curr.position);
+            const speed = distance / timeDelta;
+            speeds.push(speed);
+        }
+        
+        if (speeds.length > 0) {
+            const avgSpeed = speeds.reduce((a, b) => a + b, 0) / speeds.length;
+            const maxSpeed = Math.max(...speeds);
+            
+            if (maxSpeed > this.MAX_SPEED * this.MAX_SPEED_MULTIPLIER * 1.2) {
+                reasons.push(`Speed exceeds limit: ${maxSpeed.toFixed(2)} units/s`);
+                score += 25;
+            }
+            
+            // Check for inconsistent speeds (possible speed hack)
+            const speedVariance = speeds.reduce((sum, s) => sum + Math.pow(s - avgSpeed, 2), 0) / speeds.length;
+            if (speedVariance < 0.1 && avgSpeed > 10) {
+                reasons.push(`Suspiciously consistent speed (variance: ${speedVariance.toFixed(2)})`);
+                score += 15;
+            }
+        }
+        
+        return {
+            suspicious: score > 50,
+            score,
+            reasons
+        };
+    }
+    
     static validatePosition(position: Vector3): ValidationResult {
         if (!position || typeof position.x !== "number" || typeof position.y !== "number" || typeof position.z !== "number") {
             return { valid: false, reason: "Invalid position structure" };

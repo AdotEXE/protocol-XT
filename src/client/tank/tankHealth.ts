@@ -34,9 +34,37 @@ export class TankHealthModule {
             return; // Не получаем урон во время защиты
         }
         
-        // Shield reduces damage
+        // СУПЕР: Щит ПОЛНОСТЬЮ блокирует урон!
         if (this.tank.chassisAnimationElements?.shieldActive) {
+            const blockedDamage = amount;
             amount = Math.round(amount * TANK_CONSTANTS.SHIELD_DAMAGE_REDUCTION);
+            
+            // Если щит полностью блокирует урон, показываем визуальный эффект и выходим
+            if (amount <= 0) {
+                console.log(`[SHIELD] 🛡️ Щит полностью заблокировал ${blockedDamage} урона!`);
+                
+                // Визуальный эффект блокировки щита
+                if (this.tank.hud) {
+                    this.tank.hud.showShieldBlock(blockedDamage);
+                }
+                
+                // Звук блокировки щита
+                if (this.tank.soundManager) {
+                    this.tank.soundManager.playHit("armor", this.tank.chassis?.position || Vector3.Zero());
+                }
+                
+                // Создаём визуальный эффект на щите
+                if (this.tank.effectsManager && this.tank.chassis) {
+                    const em = this.tank.effectsManager as any;
+                    if (typeof em.createShieldHitEffect === "function") {
+                        em.createShieldHitEffect(this.tank.chassis.position);
+                    } else if (typeof em.createHitSpark === "function") {
+                        em.createHitSpark(this.tank.chassis.position);
+                    }
+                }
+                
+                return; // Урон полностью заблокирован - не проходит дальше!
+            }
         }
         
         // Stealth reduces damage (harder to hit)

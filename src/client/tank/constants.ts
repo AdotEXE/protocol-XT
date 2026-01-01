@@ -9,7 +9,7 @@ export const TANK_CONSTANTS = {
     FUEL_CONSUMPTION_RATE: 0.5, // Литров в секунду при движении
     
     // Снижение урона
-    SHIELD_DAMAGE_REDUCTION: 0.5, // Щит снижает урон на 50%
+    SHIELD_DAMAGE_REDUCTION: 0.0, // СУПЕР: Щит ПОЛНОСТЬЮ блокирует урон (100% защита!)
     STEALTH_DAMAGE_REDUCTION: 0.7, // Стелс снижает урон на 30%
     
     // Радиусы попаданий

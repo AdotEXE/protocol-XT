@@ -551,6 +551,221 @@ export class DebugDashboard {
         this.container.remove();
         // FPS indicator removed - using HUD FPS only
     }
+    
+    /**
+     * Рендерит контент в переданный контейнер (для UnifiedMenu)
+     */
+    renderToContainer(container: HTMLElement): void {
+        container.innerHTML = this.getEmbeddedContentHTML();
+        this.setupEmbeddedEventListeners(container);
+        this.startEmbeddedUpdates(container);
+    }
+    
+    /**
+     * Возвращает HTML контента без overlay wrapper
+     */
+    private getEmbeddedContentHTML(): string {
+        return `
+            <div class="debug-embedded-content">
+                <h3 style="color: #0ff; margin: 0 0 16px 0; font-size: 16px; text-shadow: 0 0 8px rgba(0, 255, 255, 0.5);">
+                    📊 Debug Dashboard
+                </h3>
+                
+                <!-- Основные метрики -->
+                <div style="
+                    background: rgba(0, 20, 0, 0.6);
+                    border: 1px solid rgba(0, 255, 4, 0.3);
+                    border-radius: 4px;
+                    padding: 12px;
+                    margin-bottom: 16px;
+                ">
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #7f7; font-size: 11px;">FPS:</span>
+                            <span class="dbg-fps-emb" style="color: #0f0; font-size: 11px; font-weight: bold;">--</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #7f7; font-size: 11px;">Draw Calls:</span>
+                            <span class="dbg-drawcalls-emb" style="color: #0ff; font-size: 11px;">--</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #7f7; font-size: 11px;">Vertices:</span>
+                            <span class="dbg-vertices-emb" style="color: #0ff; font-size: 11px;">--</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #7f7; font-size: 11px;">Active Meshes:</span>
+                            <span class="dbg-meshes-emb" style="color: #0ff; font-size: 11px;">--</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #7f7; font-size: 11px;">Particles:</span>
+                            <span class="dbg-particles-emb" style="color: #0ff; font-size: 11px;">--</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #7f7; font-size: 11px;">Total Lights:</span>
+                            <span class="dbg-lights-emb" style="color: #0ff; font-size: 11px;">--</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- FPS график -->
+                <div style="margin-bottom: 16px;">
+                    <div style="color: #ff0; font-size: 12px; margin-bottom: 6px;">FPS История</div>
+                    <canvas class="dbg-fps-chart-emb" width="300" height="60" style="
+                        background: rgba(0, 5, 0, 0.5);
+                        border: 1px solid rgba(0, 255, 4, 0.3);
+                        border-radius: 4px;
+                        width: 100%;
+                    "></canvas>
+                </div>
+                
+                <!-- Опции отладки -->
+                <div style="margin-bottom: 16px;">
+                    <div style="color: #ff0; font-size: 13px; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid rgba(0, 255, 4, 0.3); padding-bottom: 5px;">
+                        ОПЦИИ ОТЛАДКИ
+                    </div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                        <button class="panel-btn dbg-wireframe-btn" style="padding: 6px 12px; font-size: 10px;">Wireframe</button>
+                        <button class="panel-btn dbg-bounds-btn" style="padding: 6px 12px; font-size: 10px;">Bounds</button>
+                        <button class="panel-btn dbg-inspector-btn" style="padding: 6px 12px; font-size: 10px;">Inspector</button>
+                        <button class="panel-btn dbg-axes-btn" style="padding: 6px 12px; font-size: 10px;">World Axes</button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    /**
+     * Привязывает обработчики событий для embedded режима
+     */
+    private setupEmbeddedEventListeners(container: HTMLElement): void {
+        const wireframeBtn = container.querySelector(".dbg-wireframe-btn");
+        const boundsBtn = container.querySelector(".dbg-bounds-btn");
+        const inspectorBtn = container.querySelector(".dbg-inspector-btn");
+        const axesBtn = container.querySelector(".dbg-axes-btn");
+        
+        wireframeBtn?.addEventListener("click", () => {
+            if (this.scene) {
+                this.scene.meshes.forEach(mesh => {
+                    if (mesh.material) {
+                        (mesh.material as any).wireframe = !(mesh.material as any).wireframe;
+                    }
+                });
+            }
+        });
+        
+        boundsBtn?.addEventListener("click", () => {
+            if (this.scene) {
+                const showBounds = !this.scene.meshes[0]?.showBoundingBox;
+                this.scene.meshes.forEach(mesh => {
+                    mesh.showBoundingBox = showBounds;
+                });
+            }
+        });
+        
+        inspectorBtn?.addEventListener("click", async () => {
+            if (this.scene) {
+                try {
+                    const { Inspector } = await import("@babylonjs/inspector");
+                    if (Inspector.IsVisible) {
+                        Inspector.Hide();
+                    } else {
+                        Inspector.Show(this.scene, {});
+                    }
+                } catch (e) {
+                    console.error("[DebugDashboard] Failed to load inspector:", e);
+                }
+            }
+        });
+        
+        axesBtn?.addEventListener("click", () => {
+            if (this.scene) {
+                // Toggle world axes
+                const existingAxes = this.scene.getMeshByName("worldAxes");
+                if (existingAxes) {
+                    existingAxes.dispose();
+                } else {
+                    // Create simple axes
+                    const axesSize = 50;
+                    const { MeshBuilder, StandardMaterial, Color3 } = require("@babylonjs/core");
+                    
+                    const axesParent = new MeshBuilder.CreateBox("worldAxes", { size: 0.1 }, this.scene);
+                    axesParent.isVisible = false;
+                    
+                    const xAxis = MeshBuilder.CreateLines("xAxis", {
+                        points: [new (require("@babylonjs/core").Vector3)(0, 0, 0), new (require("@babylonjs/core").Vector3)(axesSize, 0, 0)]
+                    }, this.scene);
+                    xAxis.color = new Color3(1, 0, 0);
+                    xAxis.parent = axesParent;
+                    
+                    const yAxis = MeshBuilder.CreateLines("yAxis", {
+                        points: [new (require("@babylonjs/core").Vector3)(0, 0, 0), new (require("@babylonjs/core").Vector3)(0, axesSize, 0)]
+                    }, this.scene);
+                    yAxis.color = new Color3(0, 1, 0);
+                    yAxis.parent = axesParent;
+                    
+                    const zAxis = MeshBuilder.CreateLines("zAxis", {
+                        points: [new (require("@babylonjs/core").Vector3)(0, 0, 0), new (require("@babylonjs/core").Vector3)(0, 0, axesSize)]
+                    }, this.scene);
+                    zAxis.color = new Color3(0, 0, 1);
+                    zAxis.parent = axesParent;
+                }
+            }
+        });
+    }
+    
+    /**
+     * Запускает обновление метрик для embedded режима
+     */
+    private startEmbeddedUpdates(container: HTMLElement): void {
+        const fpsEl = container.querySelector(".dbg-fps-emb");
+        const drawCallsEl = container.querySelector(".dbg-drawcalls-emb");
+        const verticesEl = container.querySelector(".dbg-vertices-emb");
+        const meshesEl = container.querySelector(".dbg-meshes-emb");
+        const particlesEl = container.querySelector(".dbg-particles-emb");
+        const lightsEl = container.querySelector(".dbg-lights-emb");
+        const chartCanvas = container.querySelector(".dbg-fps-chart-emb") as HTMLCanvasElement;
+        
+        const fpsHistory: number[] = [];
+        const maxHistory = 60;
+        
+        const updateMetrics = () => {
+            if (!this.engine || !this.scene) return;
+            
+            const fps = this.engine.getFps();
+            fpsHistory.push(fps);
+            if (fpsHistory.length > maxHistory) fpsHistory.shift();
+            
+            if (fpsEl) fpsEl.textContent = fps.toFixed(1);
+            if (drawCallsEl) drawCallsEl.textContent = String(this.scene.getActiveIndices());
+            if (verticesEl) verticesEl.textContent = String(this.scene.getTotalVertices());
+            if (meshesEl) meshesEl.textContent = String(this.scene.getActiveMeshes().length);
+            if (particlesEl) particlesEl.textContent = String(this.scene.particleSystems?.length || 0);
+            if (lightsEl) lightsEl.textContent = String(this.scene.lights?.length || 0);
+            
+            // Рисуем FPS график
+            if (chartCanvas) {
+                const ctx = chartCanvas.getContext("2d");
+                if (ctx) {
+                    ctx.fillStyle = "rgba(0, 5, 0, 0.8)";
+                    ctx.fillRect(0, 0, chartCanvas.width, chartCanvas.height);
+                    
+                    const barWidth = chartCanvas.width / maxHistory;
+                    fpsHistory.forEach((f, i) => {
+                        const height = Math.min((f / 60) * chartCanvas.height, chartCanvas.height);
+                        ctx.fillStyle = f >= 55 ? "#0f0" : f >= 30 ? "#ff0" : "#f00";
+                        ctx.fillRect(i * barWidth, chartCanvas.height - height, barWidth - 1, height);
+                    });
+                }
+            }
+        };
+        
+        // Сохраняем интервал в dataset для очистки при размонтировании
+        const intervalId = setInterval(updateMetrics, 1000);
+        container.dataset.debugInterval = String(intervalId);
+        
+        // Первое обновление сразу
+        updateMetrics();
+    }
 }
 
 

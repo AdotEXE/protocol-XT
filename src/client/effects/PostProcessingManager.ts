@@ -1,0 +1,444 @@
+/**
+ * @module effects/PostProcessingManager
+ * @description Менеджер постпроцессинга для визуальных эффектов (bloom, motion blur и др.)
+ */
+
+import {
+    Scene,
+    Camera,
+    DefaultRenderingPipeline,
+    MotionBlurPostProcess,
+    ImageProcessingConfiguration
+} from "@babylonjs/core";
+import { logger } from "../utils/logger";
+
+export interface PostProcessingConfig {
+    bloomEnabled: boolean;
+    bloomIntensity: number;
+    bloomThreshold: number;
+    bloomWeight: number;
+    bloomKernel: number;
+    bloomScale: number;
+    
+    motionBlurEnabled: boolean;
+    motionBlurIntensity: number;
+    motionBlurSamples: number;
+    
+    fxaaEnabled: boolean;
+    
+    chromaticAberrationEnabled: boolean;
+    chromaticAberrationAmount: number;
+    
+    grainEnabled: boolean;
+    grainIntensity: number;
+    
+    vignetteEnabled: boolean;
+    vignetteWeight: number;
+    vignetteStretch: number;
+    
+    sharpenEnabled: boolean;
+    sharpenIntensity: number;
+    
+    contrastEnabled: boolean;
+    contrast: number;
+    exposure: number;
+}
+
+export const DEFAULT_POST_PROCESSING_CONFIG: PostProcessingConfig = {
+    bloomEnabled: false,
+    bloomIntensity: 0.5,
+    bloomThreshold: 0.9,
+    bloomWeight: 0.15,
+    bloomKernel: 64,
+    bloomScale: 0.5,
+    
+    motionBlurEnabled: false,
+    motionBlurIntensity: 0.5,
+    motionBlurSamples: 32,
+    
+    fxaaEnabled: true,
+    
+    chromaticAberrationEnabled: false,
+    chromaticAberrationAmount: 0,
+    
+    grainEnabled: false,
+    grainIntensity: 0,
+    
+    vignetteEnabled: false,
+    vignetteWeight: 0.3,
+    vignetteStretch: 0.5,
+    
+    sharpenEnabled: false,
+    sharpenIntensity: 0.2,
+    
+    contrastEnabled: false,
+    contrast: 1.0,
+    exposure: 1.0
+};
+
+export class PostProcessingManager {
+    private scene: Scene;
+    private camera: Camera | null = null;
+    private config: PostProcessingConfig;
+    
+    private defaultPipeline: DefaultRenderingPipeline | null = null;
+    private motionBlur: MotionBlurPostProcess | null = null;
+    
+    private isInitialized = false;
+    
+    constructor(scene: Scene, config: Partial<PostProcessingConfig> = {}) {
+        this.scene = scene;
+        this.config = { ...DEFAULT_POST_PROCESSING_CONFIG, ...config };
+    }
+    
+    /**
+     * Инициализация постпроцессинга
+     */
+    initialize(camera: Camera): void {
+        if (this.isInitialized) {
+            logger.warn("[PostProcessing] Already initialized");
+            return;
+        }
+        
+        this.camera = camera;
+        
+        try {
+            // Создаём Default Rendering Pipeline для большинства эффектов
+            // ИСПРАВЛЕНИЕ: Отключаем HDR чтобы избежать затемнения в режиме прицеливания
+            this.defaultPipeline = new DefaultRenderingPipeline(
+                "defaultPipeline",
+                false, // HDR отключён для предотвращения затемнения
+                this.scene,
+                [camera]
+            );
+            
+            // Применяем начальную конфигурацию
+            this.applyConfig(this.config);
+            
+            // ВАЖНО: Устанавливаем нейтральную экспозицию для всех камер
+            if (this.defaultPipeline.imageProcessing) {
+                this.defaultPipeline.imageProcessing.exposure = 1.0;
+                this.defaultPipeline.imageProcessing.contrast = 1.0;
+            }
+            
+            this.isInitialized = true;
+            logger.log("[PostProcessing] Initialized successfully");
+        } catch (error) {
+            logger.error("[PostProcessing] Failed to initialize:", error);
+        }
+    }
+    
+    /**
+     * Применить конфигурацию
+     */
+    applyConfig(config: Partial<PostProcessingConfig>): void {
+        this.config = { ...this.config, ...config };
+        
+        if (!this.defaultPipeline || !this.camera) {
+            return;
+        }
+        
+        const pipeline = this.defaultPipeline;
+        
+        // === BLOOM ===
+        pipeline.bloomEnabled = this.config.bloomEnabled;
+        if (this.config.bloomEnabled) {
+            pipeline.bloomThreshold = this.config.bloomThreshold;
+            pipeline.bloomWeight = this.config.bloomWeight;
+            pipeline.bloomKernel = this.config.bloomKernel;
+            pipeline.bloomScale = this.config.bloomScale;
+        }
+        
+        // === FXAA (Anti-aliasing) ===
+        pipeline.fxaaEnabled = this.config.fxaaEnabled;
+        
+        // === CHROMATIC ABERRATION ===
+        pipeline.chromaticAberrationEnabled = this.config.chromaticAberrationEnabled;
+        if (this.config.chromaticAberrationEnabled) {
+            pipeline.chromaticAberration.aberrationAmount = this.config.chromaticAberrationAmount;
+        }
+        
+        // === GRAIN ===
+        pipeline.grainEnabled = this.config.grainEnabled;
+        if (this.config.grainEnabled) {
+            pipeline.grain.intensity = this.config.grainIntensity;
+        }
+        
+        // === VIGNETTE ===
+        if (pipeline.imageProcessing) {
+            pipeline.imageProcessing.vignetteEnabled = this.config.vignetteEnabled;
+            if (this.config.vignetteEnabled) {
+                pipeline.imageProcessing.vignetteWeight = this.config.vignetteWeight;
+                pipeline.imageProcessing.vignetteStretch = this.config.vignetteStretch;
+            }
+            
+            // === CONTRAST & EXPOSURE ===
+            if (this.config.contrastEnabled) {
+                pipeline.imageProcessing.contrast = this.config.contrast;
+                pipeline.imageProcessing.exposure = this.config.exposure;
+            }
+        }
+        
+        // === SHARPEN ===
+        pipeline.sharpenEnabled = this.config.sharpenEnabled;
+        if (this.config.sharpenEnabled && pipeline.sharpen) {
+            pipeline.sharpen.edgeAmount = this.config.sharpenIntensity;
+        }
+        
+        // === MOTION BLUR (отдельный постпроцесс) ===
+        this.updateMotionBlur();
+        
+        logger.log("[PostProcessing] Config applied:", {
+            bloom: this.config.bloomEnabled,
+            motionBlur: this.config.motionBlurEnabled,
+            fxaa: this.config.fxaaEnabled
+        });
+    }
+    
+    /**
+     * Обновить Motion Blur
+     */
+    private updateMotionBlur(): void {
+        if (!this.camera) return;
+        
+        // Удаляем существующий motion blur
+        if (this.motionBlur) {
+            this.motionBlur.dispose();
+            this.motionBlur = null;
+        }
+        
+        // Создаём новый, если включено
+        if (this.config.motionBlurEnabled) {
+            try {
+                this.motionBlur = new MotionBlurPostProcess(
+                    "motionBlur",
+                    this.scene,
+                    1.0, // ratio
+                    this.camera
+                );
+                this.motionBlur.isObjectBased = true;
+                
+                this.motionBlur.motionStrength = this.config.motionBlurIntensity;
+                this.motionBlur.motionBlurSamples = this.config.motionBlurSamples;
+                
+                logger.log("[PostProcessing] Motion blur enabled");
+            } catch (error) {
+                logger.error("[PostProcessing] Failed to create motion blur:", error);
+            }
+        }
+    }
+    
+    /**
+     * Включить/выключить bloom
+     */
+    setBloom(enabled: boolean, intensity?: number): void {
+        this.config.bloomEnabled = enabled;
+        if (intensity !== undefined) {
+            this.config.bloomIntensity = intensity;
+            this.config.bloomWeight = intensity * 0.3; // Пропорциональный weight
+        }
+        
+        if (this.defaultPipeline) {
+            this.defaultPipeline.bloomEnabled = enabled;
+            if (enabled && intensity !== undefined) {
+                this.defaultPipeline.bloomWeight = this.config.bloomWeight;
+            }
+        }
+    }
+    
+    /**
+     * Включить/выключить motion blur
+     */
+    setMotionBlur(enabled: boolean, intensity?: number): void {
+        this.config.motionBlurEnabled = enabled;
+        if (intensity !== undefined) {
+            this.config.motionBlurIntensity = intensity;
+        }
+        this.updateMotionBlur();
+    }
+    
+    /**
+     * Включить/выключить FXAA
+     */
+    setFXAA(enabled: boolean): void {
+        this.config.fxaaEnabled = enabled;
+        if (this.defaultPipeline) {
+            this.defaultPipeline.fxaaEnabled = enabled;
+        }
+    }
+    
+    /**
+     * Включить/выключить vignette
+     */
+    setVignette(enabled: boolean, weight?: number): void {
+        this.config.vignetteEnabled = enabled;
+        if (weight !== undefined) {
+            this.config.vignetteWeight = weight;
+        }
+        
+        if (this.defaultPipeline?.imageProcessing) {
+            this.defaultPipeline.imageProcessing.vignetteEnabled = enabled;
+            if (enabled && weight !== undefined) {
+                this.defaultPipeline.imageProcessing.vignetteWeight = weight;
+            }
+        }
+    }
+    
+    /**
+     * Установить контраст и экспозицию
+     */
+    setContrastExposure(contrast: number, exposure: number): void {
+        this.config.contrast = contrast;
+        this.config.exposure = exposure;
+        this.config.contrastEnabled = true;
+        
+        if (this.defaultPipeline?.imageProcessing) {
+            this.defaultPipeline.imageProcessing.contrast = contrast;
+            this.defaultPipeline.imageProcessing.exposure = exposure;
+        }
+    }
+    
+    /**
+     * Включить preset "Cinematic"
+     */
+    enableCinematicMode(): void {
+        this.applyConfig({
+            bloomEnabled: true,
+            bloomWeight: 0.2,
+            bloomThreshold: 0.8,
+            vignetteEnabled: true,
+            vignetteWeight: 0.4,
+            grainEnabled: true,
+            grainIntensity: 0.03,
+            chromaticAberrationEnabled: true,
+            chromaticAberrationAmount: 0.5,
+            contrastEnabled: true,
+            contrast: 1.1,
+            exposure: 1.0
+        });
+    }
+    
+    /**
+     * Включить preset "Performance"
+     */
+    enablePerformanceMode(): void {
+        this.applyConfig({
+            bloomEnabled: false,
+            motionBlurEnabled: false,
+            fxaaEnabled: true,
+            chromaticAberrationEnabled: false,
+            grainEnabled: false,
+            vignetteEnabled: false,
+            sharpenEnabled: false,
+            contrastEnabled: false
+        });
+    }
+    
+    /**
+     * Включить preset "Quality"
+     */
+    enableQualityMode(): void {
+        this.applyConfig({
+            bloomEnabled: true,
+            bloomWeight: 0.15,
+            bloomThreshold: 0.9,
+            fxaaEnabled: true,
+            sharpenEnabled: true,
+            sharpenIntensity: 0.15,
+            contrastEnabled: true,
+            contrast: 1.05,
+            exposure: 1.0
+        });
+    }
+    
+    /**
+     * Выключить все эффекты
+     */
+    disableAll(): void {
+        this.applyConfig({
+            bloomEnabled: false,
+            motionBlurEnabled: false,
+            fxaaEnabled: false,
+            chromaticAberrationEnabled: false,
+            grainEnabled: false,
+            vignetteEnabled: false,
+            sharpenEnabled: false,
+            contrastEnabled: false
+        });
+    }
+    
+    /**
+     * Получить текущую конфигурацию
+     */
+    getConfig(): PostProcessingConfig {
+        return { ...this.config };
+    }
+    
+    /**
+     * Проверить, инициализирован ли менеджер
+     */
+    isReady(): boolean {
+        return this.isInitialized;
+    }
+    
+    /**
+     * Получить DefaultRenderingPipeline (для расширенной настройки)
+     */
+    getPipeline(): DefaultRenderingPipeline | null {
+        return this.defaultPipeline;
+    }
+    
+    /**
+     * Добавить камеру к пайплайну (для поддержки нескольких камер, например aimCamera)
+     */
+    addCamera(camera: Camera): void {
+        if (!this.defaultPipeline) {
+            logger.warn("[PostProcessing] Pipeline not initialized, cannot add camera");
+            return;
+        }
+        
+        // Добавляем камеру к пайплайну
+        const cameras = this.defaultPipeline.cameras;
+        if (!cameras.includes(camera)) {
+            cameras.push(camera);
+            logger.log("[PostProcessing] Added camera to pipeline:", camera.name);
+        }
+        
+        // ВАЖНО: Применяем нейтральные настройки для предотвращения затемнения
+        if (this.defaultPipeline.imageProcessing) {
+            this.defaultPipeline.imageProcessing.exposure = 1.0;
+            this.defaultPipeline.imageProcessing.contrast = 1.0;
+        }
+    }
+    
+    /**
+     * Сбросить экспозицию к нормальному значению (для предотвращения затемнения)
+     */
+    resetExposure(): void {
+        if (this.defaultPipeline?.imageProcessing) {
+            this.defaultPipeline.imageProcessing.exposure = 1.0;
+            this.defaultPipeline.imageProcessing.contrast = 1.0;
+        }
+    }
+    
+    /**
+     * Освободить ресурсы
+     */
+    dispose(): void {
+        if (this.motionBlur) {
+            this.motionBlur.dispose();
+            this.motionBlur = null;
+        }
+        
+        if (this.defaultPipeline) {
+            this.defaultPipeline.dispose();
+            this.defaultPipeline = null;
+        }
+        
+        this.isInitialized = false;
+        logger.log("[PostProcessing] Disposed");
+    }
+}
+
+export default PostProcessingManager;
+

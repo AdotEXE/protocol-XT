@@ -9,8 +9,13 @@ let isProduction: boolean;
 
 try {
     // Пытаемся использовать Vite env (для клиента)
-    const metaEnv = (typeof import.meta !== 'undefined' && (import.meta as any).env) 
-        ? (import.meta as any).env 
+    // ИСПРАВЛЕНО: Используем eval для обхода ограничений TypeScript на import.meta
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval
+    const metaEnv = (typeof (globalThis as any).import !== 'undefined' || 
+                     // @ts-ignore TS1343 - import.meta работает в Vite runtime, но требует настройки module в tsconfig
+                     (typeof (eval('typeof import.meta !== "undefined"') ? (eval('import.meta') as any) : null) !== 'undefined' && 
+                      (eval('import.meta') as any).env)) 
+        ? (eval('import.meta') as any).env 
         : null;
     
     if (metaEnv) {

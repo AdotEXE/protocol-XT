@@ -10,6 +10,10 @@
  * - ConsumablesBar - панель расходников
  */
 
+// Индикатор боеприпасов
+export { AmmoIndicator, DEFAULT_AMMO_CONFIG } from './AmmoIndicator';
+export type { AmmoIndicatorConfig, AmmoState } from './AmmoIndicator';
+
 // Прицел
 export { Crosshair, DEFAULT_CROSSHAIR_CONFIG } from './Crosshair';
 export type { CrosshairConfig } from './Crosshair';

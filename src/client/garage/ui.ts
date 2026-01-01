@@ -208,6 +208,20 @@ export function injectGarageStyles(): void {
             border-color: #0ff;
             box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
         }
+        .garage-item.pending {
+            border-color: #ff0;
+            box-shadow: 0 0 12px rgba(255, 255, 0, 0.4);
+            background: rgba(50, 50, 0, 0.3);
+            animation: pendingGlow 1.5s ease-in-out infinite;
+        }
+        @keyframes pendingGlow {
+            0%, 100% { box-shadow: 0 0 10px rgba(255, 255, 0, 0.3); }
+            50% { box-shadow: 0 0 20px rgba(255, 255, 0, 0.6); }
+        }
+        @keyframes pendingPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
         .garage-item-name { color: #0f0; font-size: clamp(10px, 1.2vw, 12px); font-weight: bold; }
         .garage-item-desc { color: #080; font-size: clamp(8px, 1vw, 10px); margin-top: clamp(2px, 0.3vh, 3px); }
         .garage-item-stats { color: #0aa; font-size: clamp(8px, 0.9vw, 9px); margin-top: clamp(3px, 0.4vh, 4px); }

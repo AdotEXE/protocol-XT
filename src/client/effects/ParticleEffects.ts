@@ -435,7 +435,8 @@ export class ParticleEffects {
     dispose(): void {
         this.clear();
         
-        for (const mat of this.materials.values()) {
+        // ИСПРАВЛЕНО: Используем Array.from для совместимости с TypeScript
+        for (const mat of Array.from(this.materials.values())) {
             mat.dispose();
         }
         this.materials.clear();

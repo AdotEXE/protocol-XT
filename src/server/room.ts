@@ -319,9 +319,18 @@ export class GameRoom {
                 if (player.id === projectile.ownerId) continue; // Can't hit self
                 if (player.status !== "alive") continue;
                 
-                // Use lag compensation: check hit at position when shot was fired
-                const rewindTime = projectile.spawnTime - (projectile.shooterRTT / 2); // Half RTT for compensation
+                // Enhanced lag compensation: check hit at position when shot was fired
+                // Use full RTT for more accurate compensation (client sends timestamp when shot was fired)
+                const rewindTime = projectile.spawnTime - projectile.shooterRTT; // Full RTT for better accuracy
                 const targetPos = player.getPositionAtTime(rewindTime) || player.position;
+                
+                // Fallback to current position if history is not available
+                if (!targetPos || Vector3.Distance(targetPos, Vector3.Zero()) < 0.1) {
+                    const fallbackPos = player.position;
+                    if (fallbackPos) {
+                        targetPos.copyFrom(fallbackPos);
+                    }
+                }
                 
                 if (projectile.checkHit(targetPos)) {
                     // Hit!
@@ -428,8 +437,17 @@ export class GameRoom {
                 // Update position history for lag compensation and anti-cheat
                 player.addPositionSnapshot(player.position);
                 
-                // Check for suspicious movement
+                // Enhanced anti-cheat: perform statistical analysis
                 const suspiciousCheck = InputValidator.checkSuspiciousMovement(player.positionHistory);
+                const statisticalAnalysis = InputValidator.performStatisticalAnalysis(player.positionHistory);
+                
+                if (statisticalAnalysis.suspicious) {
+                    player.violationCount += statisticalAnalysis.score;
+                    if (loggingSettings.getLevel() >= LogLevel.WARN) {
+                        logger.warn(`[Room] Suspicious movement detected for player ${player.name}: ${statisticalAnalysis.reasons.join(", ")} (score: ${statisticalAnalysis.score})`);
+                    }
+                }
+                
                 if (suspiciousCheck.suspicious) {
                     player.suspiciousMovementCount++;
                     if (loggingSettings.getLevel() >= LogLevel.DEBUG) {

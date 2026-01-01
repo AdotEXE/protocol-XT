@@ -193,19 +193,26 @@ export abstract class BaseMapGenerator implements IMapGenerator {
     
     /**
      * Создать плоскость (ground)
+     * @param addPhysics - Добавить физику для коллизии (по умолчанию true)
      */
     protected createGround(
         name: string,
         options: { width: number; height: number },
         position: Vector3,
         material: StandardMaterial | string,
-        parent: TransformNode
+        parent: TransformNode,
+        addPhysics: boolean = true
     ): Mesh {
         const ground = MeshBuilder.CreateGround(name, options, this.scene);
         ground.position = position;
         ground.material = typeof material === "string" ? this.getMat(material) : material;
         ground.parent = parent;
         ground.freezeWorldMatrix();
+        
+        if (addPhysics) {
+            new PhysicsAggregate(ground, PhysicsShapeType.BOX, { mass: 0, friction: 0.5 }, this.scene);
+        }
+        
         return ground;
     }
     

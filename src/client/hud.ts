@@ -18,6 +18,8 @@ import { EFFECTS_CONFIG } from "./effects/EffectsConfig";
 import { 
     SpeedIndicator, 
     DEFAULT_SPEED_CONFIG,
+    AmmoIndicator,
+    DEFAULT_AMMO_CONFIG,
     // ИСПРАВЛЕНО: Удален ReloadBar - используем только старую шкалу перезарядки
     ExperienceBar,
     DEFAULT_EXPERIENCE_BAR_CONFIG,
@@ -178,7 +180,7 @@ export class HUD {
     // Active effects indicators
     private activeEffectsContainer: Rectangle | null = null;
     private activeEffectsSlots: Array<{ container: Rectangle, icon: TextBlock, nameText: TextBlock, timerText: TextBlock, progressBar: Rectangle }> = [];
-    private readonly maxActiveEffectsSlots = 8; // 5+ слотов (минимум 5 видимых)
+    private readonly maxActiveEffectsSlots = 5; // 5 видимых слотов с прозрачностью
     private activeEffects: Map<string, { container: Rectangle, text: TextBlock, timeout: number }> = new Map();
     
     // Tank stats display
@@ -321,6 +323,7 @@ export class HUD {
     
     // УЛУЧШЕНО: Новые компоненты HUD
     private speedIndicator: SpeedIndicator | null = null;
+    private ammoIndicator: AmmoIndicator | null = null;
     // ИСПРАВЛЕНО: Удален reloadBarComponent - используем только старую шкалу перезарядки
     private experienceBarComponent: ExperienceBar | null = null;
     private killFeedComponent: KillFeed | null = null;
@@ -362,11 +365,12 @@ export class HUD {
         // УЛУЧШЕНО: Создаём экранную вспышку при уроне
         this.screenFlashEffect = new ScreenFlashEffect(this.guiTexture);
         
-        // Создаём полосу здоровья цели (под компасом)
-        this.targetHealthBar = new TargetHealthBar(this.guiTexture);
+        // ОТКЛЮЧЕНО: Полоса здоровья цели под компасом отвлекает
+        // this.targetHealthBar = new TargetHealthBar(this.guiTexture);
         
         // УЛУЧШЕНО: Инициализируем новые компоненты HUD
         this.speedIndicator = new SpeedIndicator(this.guiTexture, DEFAULT_SPEED_CONFIG);
+        this.ammoIndicator = new AmmoIndicator(this.guiTexture, DEFAULT_AMMO_CONFIG);
         // ИСПРАВЛЕНО: Удален reloadBarComponent - используем только старую шкалу перезарядки
         // ИСПРАВЛЕНО: Удален experienceBarComponent - используем только centralXpBar чтобы избежать дублирования
         // this.experienceBarComponent = new ExperienceBar(this.guiTexture, DEFAULT_EXPERIENCE_BAR_CONFIG);
@@ -1830,11 +1834,11 @@ export class HUD {
     private arsenalCooldowns: Map<number, { startTime: number, duration: number }> = new Map();
     
     private createConsumablesDisplay() {
-        // === HOTBAR - СЛОТЫ 5-14 В ОБЩЕМ РЯДУ ИЗ 23 СЛОТОВ (10 слотов: 1-0) ===
+        // === HOTBAR - СЛОТЫ 5-14 В ОБЩЕМ РЯДУ ИЗ 20 СЛОТОВ (10 слотов: 1-0) ===
         const slotWidth = scalePixels(44); // Увеличено с 36
         const slotGap = scalePixels(5); // Увеличено с 4
-        // Всего 23 слота: 5 арсенал + 10 припасы/модули + 8 эффектов
-        const totalSlots = 23;
+        // Всего 20 слотов: 5 арсенал + 10 припасы/модули + 5 эффектов
+        const totalSlots = 20;
         const totalWidth = totalSlots * slotWidth + (totalSlots - 1) * slotGap;
         const startX = -totalWidth / 2 + slotWidth / 2;
         
@@ -2330,12 +2334,12 @@ export class HUD {
         this.compassDegrees = new TextBlock("compassDeg");
         this.compassDegrees.text = "0°";
         this.compassDegrees.color = "#0f0";
-        this.compassDegrees.fontSize = this.scaleFontSize(18, 14, 22); // УВЕЛИЧЕНО для лучшей читаемости
+        this.compassDegrees.fontSize = this.scaleFontSize(12, 10, 14); // Уменьшен чтобы не выходил за края
         this.compassDegrees.fontWeight = "bold";
         this.compassDegrees.fontFamily = "'Press Start 2P', monospace";
         this.compassDegrees.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.compassDegrees.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        this.compassDegrees.top = "0px";
+        this.compassDegrees.top = "5px"; // Опущен ниже чтобы не выходил за края
         this.compassDegrees.isVisible = true; // КРИТИЧНО: Градусы компаса должны быть видимы
         this.compassDegrees.shadowColor = "#000000";
         this.compassDegrees.shadowBlur = 2;
@@ -2470,10 +2474,10 @@ export class HUD {
         // === ВОЕННО-ТАКТИЧЕСКИЙ ДИЗАЙН РАДАРА (ЗЕЛЁНАЯ СХЕМА) ===
         // УВЕЛИЧЕНО: Размеры с правильными отступами для лучшей читаемости
         const RADAR_SIZE = 220;           // Размер круга радара (УВЕЛИЧЕНО с 200)
-        const RADAR_INNER = 210;          // Внутренняя область (УВЕЛИЧЕНО с 190)
-        const HEADER_HEIGHT = 36;         // Заголовок (УВЕЛИЧЕНО с 32)
-        const INFO_HEIGHT = 40;           // Нижняя панель (УВЕЛИЧЕНО с 36)
-        const STATUS_WIDTH = 125;         // Блок статуса (УВЕЛИЧЕНО с 110)
+        const RADAR_INNER = 180;          // Внутренняя область (уменьшена)
+        const HEADER_HEIGHT = 26;         // Заголовок
+        const INFO_HEIGHT = 36;           // Нижняя панель (УВЕЛИЧЕНА для читаемости)
+        const STATUS_WIDTH = 105;         // Блок статуса (УВЕЛИЧЕН для видимости текста)
         const GAP = 10;                   // Отступы между элементами (УВЕЛИЧЕНО с 8)
         const PADDING = 10;               // Внутренние отступы (УВЕЛИЧЕНО с 8)
         
@@ -2492,7 +2496,7 @@ export class HUD {
         this.minimapContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         this.minimapContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         this.minimapContainer.left = this.scalePx(-12);
-        this.minimapContainer.top = this.scalePx(-40);
+        this.minimapContainer.top = this.scalePx(-45); // На одной высоте с XP BAR
         this.guiTexture.addControl(this.minimapContainer);
         
         // === ДЕКОРАТИВНЫЕ УГОЛКИ ===
@@ -2528,15 +2532,16 @@ export class HUD {
         this.directionLabelsContainer.zIndex = 100; // КРИТИЧНО: Высокий z-index для видимости
         this.minimapContainer.addControl(this.directionLabelsContainer);
         
-        // КРИТИЧНО: Направление ствола (N, E, S, W) - УВЕЛИЧЕН размер текста для лучшей читаемости
+        // КРИТИЧНО: Направление ствола (N, NE, E, SE, S, SW, W, NW)
         this.movementDirectionLabel = new TextBlock("movementDirectionLabel");
         this.movementDirectionLabel.text = "N";
         this.movementDirectionLabel.color = "#00ff00"; // Яркий зелёный
-        this.movementDirectionLabel.fontSize = this.scaleFontSize(18, 16, 20); // УВЕЛИЧЕНО для лучшей видимости
+        this.movementDirectionLabel.fontSize = this.scaleFontSize(12, 10, 14); // Уменьшен чтобы не выходил за края
         this.movementDirectionLabel.fontWeight = "bold";
-        this.movementDirectionLabel.fontFamily = "'Consolas', 'Monaco', 'Courier New', monospace";
+        this.movementDirectionLabel.fontFamily = "'Press Start 2P', monospace";
         this.movementDirectionLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.movementDirectionLabel.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.movementDirectionLabel.top = "3px"; // Опущен ниже
         this.movementDirectionLabel.left = 0;
         this.movementDirectionLabel.zIndex = 1000; // КРИТИЧНО: Очень высокий z-index для видимости
         this.movementDirectionLabel.isVisible = true; // КРИТИЧНО: Индикатор направления должен быть видим
@@ -2560,62 +2565,67 @@ export class HUD {
         this.tankStatusContainer.top = this.scalePx(centerY);
         this.minimapContainer.addControl(this.tankStatusContainer);
         
-        // Равномерное распределение сверху вниз по высоте контейнера (220px)
-        const rowHeight = 40; // Высота одной строки для равномерного распределения
-        const startY = 10; // Начальный отступ сверху
+        // Равномерное распределение сверху вниз по высоте контейнера
+        const rowHeight = 22; // Высота одной строки (увеличена для читаемости)
+        const startY = 8; // КРАСНАЯ ЛИНИЯ - отступ сверху для лучшей читаемости
+        const leftPadding = 10; // Увеличенный отступ слева
         
         // === HP ROW ===
         this.tankStatusHealthText = new TextBlock("tankStatusHealth");
-        this.tankStatusHealthText.text = "HP: 100%";
+        this.tankStatusHealthText.text = "HP:100%";
         this.tankStatusHealthText.color = "#00ff00";
-        this.tankStatusHealthText.fontSize = this.scaleFontSize(13, 11, 15);
+        this.tankStatusHealthText.fontSize = this.scaleFontSize(10, 8, 12); // Увеличенный шрифт для читаемости
         this.tankStatusHealthText.fontWeight = "bold";
-        this.tankStatusHealthText.fontFamily = "'Consolas', 'Monaco', 'Courier New', monospace";
-        this.tankStatusHealthText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.tankStatusHealthText.fontFamily = "'Press Start 2P', monospace";
+        this.tankStatusHealthText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.tankStatusHealthText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.tankStatusHealthText.top = this.scalePx(startY);
+        this.tankStatusHealthText.left = this.scalePx(leftPadding); // Увеличенный отступ слева
         this.tankStatusHealthText.zIndex = 1000;
         this.tankStatusHealthText.width = "100%";
         this.tankStatusContainer.addControl(this.tankStatusHealthText);
         
         // === FUEL ROW ===
         this.tankStatusFuelText = new TextBlock("tankStatusFuel");
-        this.tankStatusFuelText.text = "FL: 100%";
+        this.tankStatusFuelText.text = "FL:100%";
         this.tankStatusFuelText.color = "#f90";
-        this.tankStatusFuelText.fontSize = this.scaleFontSize(13, 11, 15);
+        this.tankStatusFuelText.fontSize = this.scaleFontSize(10, 8, 12); // Увеличенный шрифт для читаемости
         this.tankStatusFuelText.fontWeight = "bold";
-        this.tankStatusFuelText.fontFamily = "'Consolas', 'Monaco', 'Courier New', monospace";
-        this.tankStatusFuelText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.tankStatusFuelText.fontFamily = "'Press Start 2P', monospace";
+        this.tankStatusFuelText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.tankStatusFuelText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.tankStatusFuelText.top = this.scalePx(startY + rowHeight);
+        this.tankStatusFuelText.left = this.scalePx(leftPadding); // Увеличенный отступ слева
         this.tankStatusFuelText.zIndex = 1000;
         this.tankStatusFuelText.width = "100%";
         this.tankStatusContainer.addControl(this.tankStatusFuelText);
         
         // === ARMOR ROW ===
         this.tankStatusArmorText = new TextBlock("tankStatusArmor");
-        this.tankStatusArmorText.text = "AR: 0%";
+        this.tankStatusArmorText.text = "AR:0%";
         this.tankStatusArmorText.color = "#0cc";
-        this.tankStatusArmorText.fontSize = this.scaleFontSize(13, 11, 15);
+        this.tankStatusArmorText.fontSize = this.scaleFontSize(10, 8, 12); // Увеличенный шрифт для читаемости
         this.tankStatusArmorText.fontWeight = "bold";
-        this.tankStatusArmorText.fontFamily = "'Consolas', 'Monaco', 'Courier New', monospace";
-        this.tankStatusArmorText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.tankStatusArmorText.fontFamily = "'Press Start 2P', monospace";
+        this.tankStatusArmorText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.tankStatusArmorText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.tankStatusArmorText.top = this.scalePx(startY + rowHeight * 2);
+        this.tankStatusArmorText.left = this.scalePx(leftPadding); // Увеличенный отступ слева
         this.tankStatusArmorText.zIndex = 1000;
         this.tankStatusArmorText.width = "100%";
         this.tankStatusContainer.addControl(this.tankStatusArmorText);
         
         // === KILLS ROW ===
         const killsText = new TextBlock("killsText");
-        killsText.text = "☠ 0";
+        killsText.text = "K:0"; // K = Kills
         killsText.color = "#f60";
-        killsText.fontSize = this.scaleFontSize(14, 12, 16);
+        killsText.fontSize = this.scaleFontSize(10, 8, 12); // Увеличенный шрифт для читаемости
         killsText.fontWeight = "bold";
-        killsText.fontFamily = "'Consolas', 'Monaco', 'Courier New', monospace";
-        killsText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        killsText.fontFamily = "'Press Start 2P', monospace";
+        killsText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         killsText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         killsText.top = this.scalePx(startY + rowHeight * 3);
+        killsText.left = this.scalePx(leftPadding); // Увеличенный отступ слева
         killsText.zIndex = 1000;
         killsText.width = "100%";
         this.tankStatusContainer.addControl(killsText);
@@ -2623,14 +2633,15 @@ export class HUD {
         
         // === ALT ROW ===
         const altText = new TextBlock("altText");
-        altText.text = "↕ 0m";
+        altText.text = "A:0"; // A = Altitude
         altText.color = "#0cf";
-        altText.fontSize = this.scaleFontSize(12, 10, 14);
+        altText.fontSize = this.scaleFontSize(10, 8, 12); // Увеличенный шрифт для читаемости
         altText.fontWeight = "bold";
-        altText.fontFamily = "'Consolas', 'Monaco', 'Courier New', monospace";
-        altText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        altText.fontFamily = "'Press Start 2P', monospace";
+        altText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         altText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         altText.top = this.scalePx(startY + rowHeight * 4);
+        altText.left = this.scalePx(leftPadding); // Увеличенный отступ слева
         altText.zIndex = 1000;
         altText.width = "100%";
         this.tankStatusContainer.addControl(altText);
@@ -2661,8 +2672,8 @@ export class HUD {
         this.radarArea.isVisible = true; // КРИТИЧНО: Область радара должна быть видима
         radarContainer.addControl(this.radarArea);
         
-        // === КОНЦЕНТРИЧЕСКИЕ КРУГИ ===
-        const ringRadii = [15, 30, 45, 60, 72];
+        // === КОНЦЕНТРИЧЕСКИЕ КРУГИ (увеличены до краёв блока) ===
+        const ringRadii = [22, 44, 66, 88, 105]; // Увеличены чтобы касаться краёв
         for (let i = 0; i < ringRadii.length; i++) {
             const r = ringRadii[i] ?? 0;
             const circle = new Rectangle(`ring${i}`);
@@ -2811,7 +2822,7 @@ export class HUD {
         const infoY = centerY + RADAR_SIZE + GAP;
         
         const infoPanel = new Rectangle("infoPanel");
-        infoPanel.width = this.scalePx(TOTAL_WIDTH - PADDING * 2);
+        infoPanel.width = this.scalePx(TOTAL_WIDTH); // Полная ширина без отступов
         infoPanel.height = this.scalePx(INFO_HEIGHT);
         infoPanel.thickness = 1;
         infoPanel.color = "#00ff00";
@@ -2837,15 +2848,15 @@ export class HUD {
         const speedText = new TextBlock("speedText");
         speedText.text = "0km/h";
         speedText.color = "#00ff00"; // Яркий зелёный
-        speedText.fontSize = this.scaleFontSize(16, 14, 18); // Увеличенный размер для лучшей читаемости
+        speedText.fontSize = this.scaleFontSize(11, 9, 13); // УВЕЛИЧЕННЫЙ шрифт для читаемости
         speedText.fontWeight = "bold";
-        speedText.fontFamily = "'Consolas', 'Monaco', 'Courier New', monospace";
+        speedText.fontFamily = "'Press Start 2P', monospace";
         speedText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         speedText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        speedText.left = this.scalePx(6); // Немного больше отступ
+        speedText.left = this.scalePx(6);
         speedText.top = "0px";
         speedText.zIndex = 1000;
-        speedText.width = "30%"; // Ограничено чтобы оставить место для угла ствола
+        speedText.width = "30%"; // Увеличено для лучшей видимости
         speedText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         speedText.textWrapping = false;
         speedText.shadowColor = "#000000";
@@ -2857,14 +2868,16 @@ export class HUD {
         
         // НОВОЕ: Угол наклона ствола по центру
         const barrelAngleText = new TextBlock("barrelAngleText");
-        barrelAngleText.text = "↗ 0°";
+        barrelAngleText.text = "↗0°";
         barrelAngleText.color = "#ffaa00"; // Оранжевый для отличия от скорости
-        barrelAngleText.fontSize = this.scaleFontSize(16, 14, 18); // Увеличенный размер для лучшей читаемости
+        barrelAngleText.fontSize = this.scaleFontSize(11, 9, 13); // УВЕЛИЧЕННЫЙ шрифт для читаемости
         barrelAngleText.fontWeight = "bold";
-        barrelAngleText.fontFamily = "'Consolas', 'Monaco', 'Courier New', monospace";
-        barrelAngleText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        barrelAngleText.fontFamily = "'Press Start 2P', monospace";
+        barrelAngleText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         barrelAngleText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        barrelAngleText.left = this.scalePx(95); // Смещение для увеличенного текста
         barrelAngleText.top = "0px";
+        barrelAngleText.width = "20%"; // Увеличено для читаемости
         barrelAngleText.zIndex = 1000;
         barrelAngleText.textWrapping = false;
         barrelAngleText.shadowColor = "#000000";
@@ -2899,21 +2912,23 @@ export class HUD {
         const posText = new TextBlock("posText");
         posText.text = "[0 0 0]";
         posText.color = "#00ff00"; // Яркий зелёный
-        posText.fontSize = this.scaleFontSize(14, 12, 16); // Синхронизированный размер
+        posText.fontSize = this.scaleFontSize(10, 8, 12); // УВЕЛИЧЕННЫЙ шрифт для читаемости
         posText.fontWeight = "bold";
-        posText.fontFamily = "'Consolas', 'Monaco', 'Courier New', monospace";
+        posText.fontFamily = "'Press Start 2P', monospace";
         posText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         posText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        posText.left = this.scalePx(-4); // Минимальный отступ справа
+        posText.left = this.scalePx(-4); // Отступ справа
         posText.top = "0px";
         posText.zIndex = 1000;
         // КРИТИЧНО: Достаточная ширина для формата [-999 -999 -999]
-        posText.width = "40%"; // Ширина для отрицательных координат
+        posText.width = "52%"; // Ширина для координат
         posText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         posText.textWrapping = false;
         posText.isVisible = true;
         posText.shadowColor = "#000000";
-        posText.shadowBlur = 2;
+        posText.shadowBlur = 3;
+        posText.outlineWidth = 1;
+        posText.outlineColor = "#000";
         infoPanel.addControl(posText);
         (this.minimapContainer as any)._coordValue = posText;
     }
@@ -3105,7 +3120,7 @@ export class HUD {
         this.messageText.color = "#0f0"; // Зелёный
         this.messageText.fontSize = 11;
         this.messageText.fontWeight = "bold";
-        this.messageText.fontFamily = "'Consolas', 'Monaco', 'Courier New', monospace";
+        this.messageText.fontFamily = "'Press Start 2P', monospace";
         // Включаем перенос текста для длинных сообщений
         this.messageText.textWrapping = false;
         this.messageText.width = "380px"; // Ширина минус отступы для иконки
@@ -3120,11 +3135,11 @@ export class HUD {
     
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private _createActiveEffectsDisplay() {
-        // Active Effects - СЛОТЫ 15-22 В ОБЩЕМ РЯДУ ИЗ 23 СЛОТОВ (8 слотов)
+        // Active Effects - СЛОТЫ 15-19 В ОБЩЕМ РЯДУ ИЗ 20 СЛОТОВ (5 слотов)
         const slotWidth = scalePixels(44); // Такой же размер как у припасов/модулей
         const slotGap = scalePixels(5);
-        // Всего 23 слота: 5 арсенал + 10 припасы/модули + 8 эффектов
-        const totalSlots = 23;
+        // Всего 20 слотов: 5 арсенал + 10 припасы/модули + 5 эффектов
+        const totalSlots = 20;
         const totalWidth = totalSlots * slotWidth + (totalSlots - 1) * slotGap;
         const startX = -totalWidth / 2 + slotWidth / 2;
         
@@ -3136,19 +3151,22 @@ export class HUD {
         this.activeEffectsContainer.thickness = 0;
         this.activeEffectsContainer.color = "transparent";
         this.activeEffectsContainer.background = "transparent";
-        // Контейнер использует LEFT alignment для упрощения позиционирования (слоты позиционируются напрямую)
+        // Контейнер использует LEFT alignment для упрощения позиционирования
         this.activeEffectsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.activeEffectsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        // Эффекты занимают индексы 15-22 (8 слотов) в общем ряду
+        // Эффекты занимают индексы 15-19 (5 слотов) в общем ряду
         const effectsFirstSlotIndex = 15; // Первый слот эффектов в общем ряду
         // Позиция левого края первого слота эффектов
         const effectsFirstSlotLeft = startX + effectsFirstSlotIndex * (slotWidth + slotGap);
         this.activeEffectsContainer.left = `${effectsFirstSlotLeft - slotWidth / 2}px`;
-        this.activeEffectsContainer.top = this.scalePx(-40); // На той же высоте что и остальные слоты
+        this.activeEffectsContainer.top = this.scalePx(-48); // На той же высоте что и остальные слоты
         this.activeEffectsContainer.isVisible = true;
         this.guiTexture.addControl(this.activeEffectsContainer);
         
-        // Создаем 8 слотов для эффектов
+        // Создаем 5 слотов для эффектов с градиентом прозрачности
+        // Прозрачность слева направо: 0%, 20%, 40%, 60%, 80%
+        const alphaValues = [1.0, 0.8, 0.6, 0.4, 0.2]; // alpha = 1 - прозрачность
+        
         for (let i = 0; i < this.maxActiveEffectsSlots; i++) {
             const container = new Rectangle(`effectSlot${i}`);
             container.width = `${slotWidth}px`;
@@ -3159,21 +3177,15 @@ export class HUD {
             container.background = "#000000bb";
             container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             container.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            // Позиционируем в общем ряду: индексы 15-22 для эффектов
-            const globalIndex = effectsFirstSlotIndex + i; // 15-22 для эффектов
+            // Позиционируем в общем ряду: индексы 15-19 для эффектов
+            const globalIndex = effectsFirstSlotIndex + i;
             container.left = `${startX + globalIndex * (slotWidth + slotGap)}px`;
-            container.top = this.scalePx(-48); // Равномерно между XP BAR (-5) и RELOAD BAR (-100)
-            container.zIndex = 20; // ИСПРАВЛЕНО: Единый zIndex для всех слотов
+            container.top = this.scalePx(-48); // Равномерно между XP BAR и RELOAD BAR
+            container.zIndex = 20;
             
-            // Градиент прозрачности: слот 1 = 100%, 2 = 75%, 3 = 50%, 4 = 25%, 5 = 0%
-            if (i < 5) {
-                container.alpha = 1.0 - (i * 0.25); // 1.0, 0.75, 0.5, 0.25, 0.0
-                container.isVisible = true;
-            } else {
-                // Слоты 6-8 скрыты по умолчанию
-                container.alpha = 0;
-                container.isVisible = false;
-            }
+            // Градиент прозрачности: 0%, 20%, 40%, 60%, 80%
+            container.alpha = alphaValues[i] ?? 0.2;
+            container.isVisible = true;
             
             // Добавляем слот напрямую в guiTexture для правильного позиционирования в общем ряду
             this.guiTexture.addControl(container);
@@ -3731,6 +3743,50 @@ export class HUD {
         }, 150);
     }
     
+    /**
+     * Показывает эффект блокировки щита - урон полностью заблокирован!
+     */
+    showShieldBlock(blockedDamage: number) {
+        // Синяя вспышка по краям экрана - щит заблокировал урон
+        const intensity = Math.min(1, blockedDamage / 50);
+        
+        // Используем голубой/бирюзовый цвет для щита
+        this.damageIndicator.background = `#00${Math.floor(30 + intensity * 200).toString(16).padStart(2, '0')}${Math.floor(200 + intensity * 55).toString(16).padStart(2, '0')}`;
+        this.damageIndicator.isVisible = true;
+        
+        // Edge indicators (cyan/shield color)
+        const leftEdge = (this.damageIndicator as any)._leftEdge as Rectangle;
+        const rightEdge = (this.damageIndicator as any)._rightEdge as Rectangle;
+        
+        if (leftEdge && rightEdge) {
+            leftEdge.background = "#00ffff"; // Cyan for shield
+            rightEdge.background = "#00ffff";
+            leftEdge.alpha = intensity * 0.8;
+            rightEdge.alpha = intensity * 0.8;
+            leftEdge.isVisible = true;
+            rightEdge.isVisible = true;
+        }
+        
+        // Показываем текст блокировки урона через chatSystem (если доступен)
+        if (blockedDamage > 0 && (this as any).chatSystem) {
+            const message = `🛡️ BLOCKED: ${blockedDamage} DMG`;
+            (this as any).chatSystem.addMessage(message, "system", "#00ffff");
+        }
+        
+        // Короткая вспышка
+        setTimeout(() => {
+            this.damageIndicator.isVisible = false;
+            if (leftEdge) {
+                leftEdge.isVisible = false;
+                leftEdge.background = "#f00"; // Reset to red
+            }
+            if (rightEdge) {
+                rightEdge.isVisible = false;
+                rightEdge.background = "#f00"; // Reset to red
+            }
+        }, 200);
+    }
+    
     startReload(reloadTimeMs: number) {
         this.isReloading = true;
         this.reloadTime = reloadTimeMs;
@@ -3858,6 +3914,30 @@ export class HUD {
     }
     
     /**
+     * Установить количество боеприпасов
+     * @param current - Текущее количество
+     * @param max - Максимальное количество
+     * @param ammoType - Тип снаряда (опционально)
+     * @param isReloading - Идёт ли перезарядка (опционально)
+     */
+    setAmmo(current: number, max: number, ammoType?: string, isReloading?: boolean): void {
+        // УЛУЧШЕНО: Используем компонент AmmoIndicator
+        if (this.ammoIndicator) {
+            this.ammoIndicator.update({
+                currentAmmo: current,
+                maxAmmo: max,
+                ammoType: ammoType,
+                isReloading: isReloading
+            });
+            
+            // Мигание при низком уровне боеприпасов
+            if (this.ammoIndicator.isCriticalAmmo()) {
+                this.ammoIndicator.flashWarning();
+            }
+        }
+    }
+    
+    /**
      * Установить угол наклона ствола
      * @param angleDegrees - Угол в градусах (положительный = вверх, отрицательный = вниз)
      */
@@ -3868,7 +3948,7 @@ export class HUD {
                 const roundedAngle = Math.round(angleDegrees);
                 // Выбираем символ в зависимости от направления
                 const arrow = roundedAngle >= 0 ? "↗" : "↘";
-                barrelAngleValue.text = `${arrow} ${Math.abs(roundedAngle)}°`;
+                barrelAngleValue.text = `${arrow}${Math.abs(roundedAngle)}°`;
                 
                 // Цвет в зависимости от угла
                 if (Math.abs(roundedAngle) > 15) {
@@ -3910,7 +3990,7 @@ export class HUD {
         if (this.tankStatusContainer && y !== undefined) {
             const altValue = (this.tankStatusContainer as any)._altValue as TextBlock;
             if (altValue) {
-                altValue.text = `↕ ${Math.round(y)}m`;
+                altValue.text = `A:${Math.round(y)}`;
                 // Цвет в зависимости от высоты
                 if (y > 50) {
                     altValue.color = "#f0f"; // Фиолетовый для очень высоких позиций
@@ -4036,31 +4116,23 @@ export class HUD {
         while (angle < 0) angle += Math.PI * 2;
         while (angle >= Math.PI * 2) angle -= Math.PI * 2;
         
-        // Определяем направление относительно карты (4 основных направления: N, E, S, W)
+        // Определяем направление относительно карты (8 направлений: N, NE, E, SE, S, SW, W, NW)
         // В Babylon.js: 0 = +Z (север), π/2 = +X (восток), π = -Z (юг), 3π/2 = -X (запад)
-        // Используем только основные направления (N, E, S, W) как запрошено
-        const directions = ["N", "E", "S", "W"];
+        const directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
         
-        // Вычисляем индекс направления (каждое направление = 90 градусов)
-        // 0-45° и 315-360° = N, 45-135° = E, 135-225° = S, 225-315° = W
-        let index = 0;
+        // Вычисляем индекс направления (каждое направление = 45 градусов)
         const degrees = (angle * 180) / Math.PI;
-        if (degrees >= 45 && degrees < 135) {
-            index = 1; // E
-        } else if (degrees >= 135 && degrees < 225) {
-            index = 2; // S
-        } else if (degrees >= 225 && degrees < 315) {
-            index = 3; // W
-        } else {
-            index = 0; // N (0-45 и 315-360)
-        }
+        // Нормализуем к 0-360
+        const normalizedDeg = ((degrees % 360) + 360) % 360;
+        // Смещаем на 22.5 для правильного округления к ближайшему направлению
+        const index = Math.floor((normalizedDeg + 22.5) / 45) % 8;
         
-        // КРИТИЧНО: Обновляем текст направления (только N, E, S, W)
+        // КРИТИЧНО: Обновляем текст направления (8 направлений)
         this.movementDirectionLabel.text = directions[index]!;
         
         // Цвет - всегда яркий зелёный для лучшей видимости
         this.movementDirectionLabel.color = "#00ff00";
-        this.movementDirectionLabel.fontSize = this.scaleFontSize(18, 16, 20); // УВЕЛИЧЕНО для лучшей видимости
+        this.movementDirectionLabel.fontSize = this.scaleFontSize(12, 10, 14); // Уменьшен
         this.movementDirectionLabel.fontWeight = "bold";
         
         // КРИТИЧНО: Ещё раз убеждаемся, что индикатор видим
@@ -6532,7 +6604,7 @@ export class HUD {
         // Обновляем здоровье - компактный формат ❤ XX%
         if (this.tankStatusHealthText) {
             const healthPercent = Math.max(0, Math.min(100, (health / maxHealth) * 100));
-            this.tankStatusHealthText.text = `HP: ${Math.round(healthPercent)}%`;
+            this.tankStatusHealthText.text = `HP:${Math.round(healthPercent)}%`;
             
             // Цвет в зависимости от здоровья
             if (healthPercent > 60) {
@@ -6547,7 +6619,7 @@ export class HUD {
         // Обновляем топливо - компактный формат ⛽ XX%
         if (this.tankStatusFuelText) {
             const fuelPercent = Math.max(0, Math.min(100, (fuel / maxFuel) * 100));
-            this.tankStatusFuelText.text = `FL: ${Math.round(fuelPercent)}%`;
+            this.tankStatusFuelText.text = `FL:${Math.round(fuelPercent)}%`;
             
             // Цвет в зависимости от топлива
             if (fuelPercent > 50) {
@@ -6562,7 +6634,7 @@ export class HUD {
         // Обновляем броню - компактный формат 🛡 XX%
         if (this.tankStatusArmorText) {
             const armorPercent = Math.max(0, Math.min(100, armor * 100));
-            this.tankStatusArmorText.text = `AR: ${Math.round(armorPercent)}%`;
+            this.tankStatusArmorText.text = `AR:${Math.round(armorPercent)}%`;
             
             // Цвет в зависимости от брони
             if (armorPercent > 50) {
@@ -6578,11 +6650,11 @@ export class HUD {
     // === ARSENAL BLOCK ===
     
     private createArsenalBlock(): void {
-        // === АРСЕНАЛ - ПЕРВЫЕ 5 СЛОТОВ В ОБЩЕМ РЯДУ ИЗ 23 СЛОТОВ ===
+        // === АРСЕНАЛ - ПЕРВЫЕ 5 СЛОТОВ В ОБЩЕМ РЯДУ ИЗ 20 СЛОТОВ ===
         const slotWidth = scalePixels(44); // Такой же размер как у припасов
         const slotGap = scalePixels(5);
-        // Всего 23 слота: 5 арсенал + 10 припасы/модули + 8 эффектов
-        const totalSlots = 23;
+        // Всего 20 слотов: 5 арсенал + 10 припасы/модули + 5 эффектов
+        const totalSlots = 20;
         const totalWidth = totalSlots * slotWidth + (totalSlots - 1) * slotGap;
         const startX = -totalWidth / 2 + slotWidth / 2;
         

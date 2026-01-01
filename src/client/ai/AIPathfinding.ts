@@ -458,7 +458,8 @@ export class AIPathfinding {
         const now = Date.now();
         const toDelete: string[] = [];
         
-        for (const [key, value] of this.obstacleCache) {
+        // ИСПРАВЛЕНО: Используем Array.from для совместимости с TypeScript
+        for (const [key, value] of Array.from(this.obstacleCache.entries())) {
             if (now - value.time > this.CACHE_LIFETIME) {
                 toDelete.push(key);
             }

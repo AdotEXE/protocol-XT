@@ -77,10 +77,14 @@ export interface GameEndData {
 
 export interface ProjectileSpawnData {
     projectile: ProjectileData;
+    position?: Vector3Data;
+    direction?: Vector3Data;
+    cannonType?: string;
 }
 
 export interface EnemyUpdateData {
     enemy: EnemyData;
+    enemies?: EnemyData[];
 }
 
 export interface SafeZoneUpdateData {
@@ -97,6 +101,8 @@ export interface CTFFlagUpdateData {
 export interface PlayerKilledData {
     killerId: string;
     victimId: string;
+    killerName?: string;
+    victimName?: string;
     weapon?: string;
     position?: Vector3Data;
 }
@@ -120,6 +126,9 @@ export interface CTFFlagPickupData {
     team: number;
     carrierId: string;
     position: Vector3Data;
+    playerId?: string;
+    playerName?: string;
+    flagTeam?: number;
 }
 
 export interface CTFFlagCaptureData {
@@ -127,6 +136,9 @@ export interface CTFFlagCaptureData {
     team: number;
     capturerId: string;
     score: number;
+    playerId?: string;
+    playerName?: string;
+    capturingTeam?: number;
 }
 
 export interface NetworkPlayer {
@@ -286,6 +298,8 @@ export class MultiplayerManager {
     private onCTFFlagCaptureCallback: ((data: CTFFlagCaptureData) => void) | null = null;
     private onQueueUpdateCallback: ((data: QueueUpdateData) => void) | null = null;
     private onMatchFoundCallback: ((data: MatchFoundData) => void) | null = null;
+    private onGameInviteCallback: ((data: { fromPlayerId: string; fromPlayerName: string; roomId?: string; gameMode?: string; worldSeed?: number }) => void) | null = null;
+    private onReconciliationCallback: ((data: { serverState?: PlayerData; predictedState?: PredictedState; unconfirmedStates?: PredictedState[]; positionDiff?: number; rotationDiff?: number; needsReapplication?: boolean }) => void) | null = null;
     private onRoomCreatedCallback: ((data: RoomCreatedData) => void) | null = null;
     private onRoomListCallback: ((rooms: RoomData[]) => void) | null = null;
     private onErrorCallback: ((data: ErrorData) => void) | null = null;
@@ -722,6 +736,10 @@ export class MultiplayerManager {
                     this.handleQueueUpdate(message.data);
                     break;
                     
+                case ServerMessageType.GAME_INVITE:
+                    this.handleGameInvite(message.data);
+                    break;
+                    
                 case ServerMessageType.GAME_START:
                     this.handleGameStart(message.data);
                     break;
@@ -1073,12 +1091,10 @@ export class MultiplayerManager {
      * Get packets per second (sent and received)
      */
     getPacketsPerSecond(): { sent: number; received: number } {
-        const sent = this.packetsSentHistory.length > 0 
-            ? this.packetsSentHistory[this.packetsSentHistory.length - 1].count 
-            : 0;
-        const received = this.packetsReceivedHistory.length > 0 
-            ? this.packetsReceivedHistory[this.packetsReceivedHistory.length - 1].count 
-            : 0;
+        const sentEntry = this.packetsSentHistory[this.packetsSentHistory.length - 1];
+        const receivedEntry = this.packetsReceivedHistory[this.packetsReceivedHistory.length - 1];
+        const sent = sentEntry?.count ?? 0;
+        const received = receivedEntry?.count ?? 0;
         return { sent, received };
     }
     
@@ -1151,10 +1167,8 @@ export class MultiplayerManager {
                             game.mainMenu.updateRoomList(rooms);
                         }
                     });
-                    // Вызываем callback сразу с текущими данными
-                    if (this.onRoomListCallback) {
-                        this.onRoomListCallback(rooms);
-                    }
+                    // Вызываем callback сразу с текущими данными - используем updateRoomList напрямую
+                    game.mainMenu.updateRoomList(rooms);
                 } else if (game?.gameMultiplayerCallbacks) {
                     logger.log(`[Multiplayer] ✅ Найден gameMultiplayerCallbacks, пытаемся настроить через него`);
                     // Попробуем настроить через GameMultiplayerCallbacks
@@ -1165,9 +1179,8 @@ export class MultiplayerManager {
                                 callbacks.deps.mainMenu.updateRoomList(rooms);
                             }
                         });
-                        if (this.onRoomListCallback) {
-                            this.onRoomListCallback(rooms);
-                        }
+                        // Вызываем updateRoomList напрямую
+                        callbacks.deps.mainMenu.updateRoomList(rooms);
                     } else {
                         logger.warn(`[Multiplayer] ⚠️ mainMenu не доступен в gameMultiplayerCallbacks`);
                     }
@@ -1247,6 +1260,13 @@ export class MultiplayerManager {
     private handleQueueUpdate(data: QueueUpdateData): void {
         if (this.onQueueUpdateCallback) {
             this.onQueueUpdateCallback(data);
+        }
+    }
+    
+    private handleGameInvite(data: { fromPlayerId: string; fromPlayerName: string; roomId?: string; gameMode?: string; worldSeed?: number }): void {
+        logger.log(`[Multiplayer] Received game invite from ${data.fromPlayerName} (${data.fromPlayerId})`);
+        if (this.onGameInviteCallback) {
+            this.onGameInviteCallback(data);
         }
     }
     
@@ -1723,7 +1743,10 @@ export class MultiplayerManager {
         // Remove oldest entries (keep the newest ones)
         const removeCount = sequences.length - maxSize;
         for (let i = 0; i < removeCount; i++) {
-            this.predictionState.predictedStates.delete(sequences[i]);
+            const seq = sequences[i];
+            if (seq !== undefined) {
+                this.predictionState.predictedStates.delete(seq);
+            }
         }
     }
     
@@ -1743,11 +1766,41 @@ export class MultiplayerManager {
     
     /**
      * Reconcile server state with client predictions
+     * Implements proper rollback and re-application of inputs
      */
     private reconcileServerState(serverSequence: number | undefined, serverPlayerData: PlayerData | null): void {
-        if (serverSequence === undefined || serverSequence < 0) {
-            // No reconciliation needed if server doesn't send sequence
+        if (serverSequence === undefined || serverSequence < 0 || !serverPlayerData) {
+            // No reconciliation needed if server doesn't send sequence or data
             return;
+        }
+        
+        // Check if we need to reconcile (server state differs from our prediction)
+        const predictedState = this.predictionState.predictedStates.get(serverSequence);
+        if (predictedState) {
+            const serverPos = serverPlayerData.position;
+            const predictedPos = predictedState.position;
+            
+            // Calculate position difference
+            const posDiff = Vector3.Distance(serverPos, predictedPos);
+            const rotationDiff = Math.abs((serverPlayerData.rotation || 0) - predictedState.rotation);
+            
+            // If difference is significant, we need to reconcile
+            const POSITION_THRESHOLD = 0.5; // 0.5 units
+            const ROTATION_THRESHOLD = 0.1; // ~6 degrees
+            
+            if (posDiff > POSITION_THRESHOLD || rotationDiff > ROTATION_THRESHOLD) {
+                logger.log(`[Multiplayer] Reconciliation needed: posDiff=${posDiff.toFixed(2)}, rotDiff=${rotationDiff.toFixed(2)}`);
+                
+                // Trigger reconciliation callback if available
+                if (this.onReconciliationCallback) {
+                    this.onReconciliationCallback({
+                        serverState: serverPlayerData,
+                        predictedState: predictedState,
+                        positionDiff: posDiff,
+                        rotationDiff: rotationDiff
+                    });
+                }
+            }
         }
         
         // Update confirmed sequence
@@ -1770,8 +1823,27 @@ export class MultiplayerManager {
         // Clean up any remaining old states
         this.cleanupOldPredictedStates();
         
-        // If we have predicted states after confirmed sequence, they need to be re-applied
+        // Re-apply unconfirmed inputs after server state
+        // Get all unconfirmed sequences (after serverSequence)
+        const unconfirmedSequences = Array.from(this.predictionState.predictedStates.keys())
+            .filter(seq => seq > serverSequence)
+            .sort((a, b) => a - b);
+        
+        // If we have unconfirmed states, they need to be re-applied
         // This will be handled by the game's TankController through reconciliation callback
+        if (unconfirmedSequences.length > 0 && this.onReconciliationCallback) {
+            const unconfirmedStates = unconfirmedSequences.map(seq => 
+                this.predictionState.predictedStates.get(seq)
+            ).filter(state => state !== undefined);
+            
+            if (unconfirmedStates.length > 0) {
+                this.onReconciliationCallback({
+                    serverState: serverPlayerData,
+                    unconfirmedStates: unconfirmedStates as PredictedState[],
+                    needsReapplication: true
+                });
+            }
+        }
     }
     
     /**
@@ -2160,6 +2232,14 @@ export class MultiplayerManager {
     
     onMatchFound(callback: (data: MatchFoundData) => void): void {
         this.onMatchFoundCallback = callback;
+    }
+    
+    onGameInvite(callback: (data: { fromPlayerId: string; fromPlayerName: string; roomId?: string; gameMode?: string; worldSeed?: number }) => void): void {
+        this.onGameInviteCallback = callback;
+    }
+    
+    onReconciliation(callback: (data: { serverState?: PlayerData; predictedState?: PredictedState; unconfirmedStates?: PredictedState[]; positionDiff?: number; rotationDiff?: number; needsReapplication?: boolean }) => void): void {
+        this.onReconciliationCallback = callback;
     }
     
     onRoomCreated(callback: (data: RoomCreatedData) => void): void {

@@ -908,4 +908,172 @@ export class PhysicsPanel {
     dispose(): void {
         this.container.remove();
     }
+    
+    /**
+     * Рендерит контент в переданный контейнер (для UnifiedMenu)
+     */
+    renderToContainer(container: HTMLElement): void {
+        container.innerHTML = this.getEmbeddedContentHTML();
+        this.setupEmbeddedEventListeners(container);
+    }
+    
+    /**
+     * Возвращает HTML контента без overlay wrapper
+     */
+    private getEmbeddedContentHTML(): string {
+        return `
+            <div class="physics-embedded-content">
+                <h3 style="color: #0ff; margin: 0 0 16px 0; font-size: 16px; text-shadow: 0 0 8px rgba(0, 255, 255, 0.5);">
+                    ⚙️ Параметры физики
+                </h3>
+                
+                <!-- Информация о танке -->
+                <div style="
+                    background: rgba(0, 20, 0, 0.6);
+                    border: 1px solid rgba(0, 255, 4, 0.3);
+                    border-radius: 4px;
+                    padding: 12px;
+                    margin-bottom: 16px;
+                ">
+                    <div style="color: #ff0; font-size: 12px; margin-bottom: 8px; font-weight: bold;">ТЕКУЩИЕ ПАРАМЕТРЫ</div>
+                    <div class="phys-params-emb" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; font-size: 10px;">
+                        <div><span style="color: #7f7;">Скорость:</span> <span class="phys-speed-emb" style="color: #0ff;">--</span></div>
+                        <div><span style="color: #7f7;">Ускорение:</span> <span class="phys-accel-emb" style="color: #0ff;">--</span></div>
+                        <div><span style="color: #7f7;">Масса:</span> <span class="phys-mass-emb" style="color: #0ff;">--</span></div>
+                        <div><span style="color: #7f7;">Трение:</span> <span class="phys-friction-emb" style="color: #0ff;">--</span></div>
+                    </div>
+                </div>
+                
+                <!-- Быстрые настройки -->
+                <div style="margin-bottom: 16px;">
+                    <div style="color: #ff0; font-size: 13px; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid rgba(0, 255, 4, 0.3); padding-bottom: 5px;">
+                        БЫСТРЫЕ НАСТРОЙКИ
+                    </div>
+                    
+                    <div style="margin-bottom: 12px;">
+                        <label style="color: #aaa; font-size: 11px; display: block; margin-bottom: 4px;">
+                            Скорость движения: <span class="phys-movespeed-val" style="color: #0f0;">1.0x</span>
+                        </label>
+                        <input type="range" class="phys-movespeed-emb" min="0.1" max="3" step="0.1" value="1" style="width: 100%;">
+                    </div>
+                    
+                    <div style="margin-bottom: 12px;">
+                        <label style="color: #aaa; font-size: 11px; display: block; margin-bottom: 4px;">
+                            Скорость поворота: <span class="phys-turnspeed-val" style="color: #0f0;">1.0x</span>
+                        </label>
+                        <input type="range" class="phys-turnspeed-emb" min="0.1" max="3" step="0.1" value="1" style="width: 100%;">
+                    </div>
+                    
+                    <div style="margin-bottom: 12px;">
+                        <label style="color: #aaa; font-size: 11px; display: block; margin-bottom: 4px;">
+                            Гравитация: <span class="phys-gravity-val" style="color: #0f0;">1.0x</span>
+                        </label>
+                        <input type="range" class="phys-gravity-emb" min="0" max="3" step="0.1" value="1" style="width: 100%;">
+                    </div>
+                </div>
+                
+                <!-- Кнопки -->
+                <div style="display: flex; gap: 10px;">
+                    <button class="panel-btn phys-apply-btn" style="flex: 1; padding: 8px;">✓ Применить</button>
+                    <button class="panel-btn phys-reset-btn" style="flex: 1; padding: 8px;">↻ Сбросить</button>
+                </div>
+                
+                <div style="margin-top: 12px; padding: 10px; background: rgba(255, 255, 0, 0.1); border: 1px solid rgba(255, 255, 0, 0.3); border-radius: 4px;">
+                    <div style="color: #ff0; font-size: 11px;">💡 Для расширенного редактирования используйте "Редактор физики" в меню.</div>
+                </div>
+            </div>
+        `;
+    }
+    
+    /**
+     * Привязывает обработчики событий для embedded режима
+     */
+    private setupEmbeddedEventListeners(container: HTMLElement): void {
+        const moveSpeedSlider = container.querySelector(".phys-movespeed-emb") as HTMLInputElement;
+        const moveSpeedVal = container.querySelector(".phys-movespeed-val");
+        const turnSpeedSlider = container.querySelector(".phys-turnspeed-emb") as HTMLInputElement;
+        const turnSpeedVal = container.querySelector(".phys-turnspeed-val");
+        const gravitySlider = container.querySelector(".phys-gravity-emb") as HTMLInputElement;
+        const gravityVal = container.querySelector(".phys-gravity-val");
+        const applyBtn = container.querySelector(".phys-apply-btn");
+        const resetBtn = container.querySelector(".phys-reset-btn");
+        
+        // Обновление значений
+        const updateSliderVal = (slider: HTMLInputElement, valEl: Element | null) => {
+            if (valEl) valEl.textContent = `${slider.value}x`;
+        };
+        
+        moveSpeedSlider?.addEventListener("input", () => updateSliderVal(moveSpeedSlider, moveSpeedVal));
+        turnSpeedSlider?.addEventListener("input", () => updateSliderVal(turnSpeedSlider, turnSpeedVal));
+        gravitySlider?.addEventListener("input", () => updateSliderVal(gravitySlider, gravityVal));
+        
+        applyBtn?.addEventListener("click", () => {
+            if (this.tank) {
+                const speedMult = parseFloat(moveSpeedSlider?.value || "1");
+                const turnMult = parseFloat(turnSpeedSlider?.value || "1");
+                
+                // Применяем модификаторы
+                if ((this.tank as any).baseMoveSpeed === undefined) {
+                    (this.tank as any).baseMoveSpeed = this.tank.moveSpeed;
+                }
+                if ((this.tank as any).baseTurnSpeed === undefined) {
+                    (this.tank as any).baseTurnSpeed = this.tank.turnSpeed;
+                }
+                
+                this.tank.moveSpeed = (this.tank as any).baseMoveSpeed * speedMult;
+                this.tank.turnSpeed = (this.tank as any).baseTurnSpeed * turnMult;
+                
+                if (this.game?.hud) {
+                    this.game.hud.showMessage("Параметры физики применены!", "#0f0", 2000);
+                }
+            }
+            
+            // Гравитация
+            if (this.game?.scene) {
+                const gravMult = parseFloat(gravitySlider?.value || "1");
+                const baseGravity = -9.81;
+                (this.game.scene as any).gravity = { x: 0, y: baseGravity * gravMult, z: 0 };
+            }
+        });
+        
+        resetBtn?.addEventListener("click", () => {
+            if (moveSpeedSlider) { moveSpeedSlider.value = "1"; updateSliderVal(moveSpeedSlider, moveSpeedVal); }
+            if (turnSpeedSlider) { turnSpeedSlider.value = "1"; updateSliderVal(turnSpeedSlider, turnSpeedVal); }
+            if (gravitySlider) { gravitySlider.value = "1"; updateSliderVal(gravitySlider, gravityVal); }
+            
+            // Восстанавливаем базовые значения
+            if (this.tank) {
+                if ((this.tank as any).baseMoveSpeed) {
+                    this.tank.moveSpeed = (this.tank as any).baseMoveSpeed;
+                }
+                if ((this.tank as any).baseTurnSpeed) {
+                    this.tank.turnSpeed = (this.tank as any).baseTurnSpeed;
+                }
+            }
+            
+            if (this.game?.hud) {
+                this.game.hud.showMessage("Параметры сброшены!", "#ff0", 2000);
+            }
+        });
+        
+        // Обновление текущих параметров
+        this.updateEmbeddedParams(container);
+    }
+    
+    /**
+     * Обновляет отображение текущих параметров
+     */
+    private updateEmbeddedParams(container: HTMLElement): void {
+        const speedEl = container.querySelector(".phys-speed-emb");
+        const accelEl = container.querySelector(".phys-accel-emb");
+        const massEl = container.querySelector(".phys-mass-emb");
+        const frictionEl = container.querySelector(".phys-friction-emb");
+        
+        if (this.tank) {
+            if (speedEl) speedEl.textContent = `${this.tank.moveSpeed?.toFixed(1) || "--"}`;
+            if (accelEl) accelEl.textContent = `${(this.tank as any).acceleration?.toFixed(1) || "--"}`;
+            if (massEl) massEl.textContent = `${(this.tank as any).mass?.toFixed(0) || "--"} кг`;
+            if (frictionEl) frictionEl.textContent = `${(this.tank as any).friction?.toFixed(2) || "--"}`;
+        }
+    }
 }

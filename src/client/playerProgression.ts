@@ -863,6 +863,41 @@ export class PlayerProgressionSystem {
         this.stats = { ...DEFAULT_PLAYER_STATS };
         localStorage.removeItem("tx_player_stats");
     }
+    
+    /**
+     * Установить уровень игрока (для восстановления прогресса)
+     * @param level - Уровень для установки (1-50)
+     */
+    setLevel(level: number): void {
+        if (level < 1) level = 1;
+        if (level > MAX_PLAYER_LEVEL) level = MAX_PLAYER_LEVEL;
+        
+        // Устанавливаем уровень
+        this.stats.level = level;
+        
+        // Устанавливаем опыт - минимум для этого уровня
+        const expForLevel = PLAYER_LEVEL_EXP[level - 1] || 0;
+        this.stats.experience = expForLevel;
+        this.stats.totalExperience = expForLevel;
+        
+        // Даём skill points за уровень (по 1 за каждый уровень начиная со 2-го)
+        this.stats.skillPoints = Math.max(0, level - 1);
+        
+        // Сохраняем
+        this.saveStats();
+        
+        // Уведомляем систему об изменении
+        this.notifyExperienceChanged();
+        
+        console.log(`[PlayerProgression] Уровень установлен: ${level}, XP: ${expForLevel}`);
+    }
+    
+    /**
+     * Получить текущий уровень
+     */
+    getCurrentLevel(): number {
+        return this.stats.level;
+    }
 }
 
 export { PLAYER_ACHIEVEMENTS, MAX_PLAYER_LEVEL, PLAYER_LEVEL_EXP, PLAYER_TITLES, getLevelBonuses };

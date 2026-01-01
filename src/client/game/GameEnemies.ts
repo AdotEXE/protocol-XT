@@ -39,6 +39,7 @@ export interface GameSystemsAccess {
     gameStarted: boolean;
     survivalStartTime: number;
     isMultiplayer?: boolean; // Флаг мультиплеера - в мультиплеере не спавним ботов
+    aiCoordinator?: any; // УЛУЧШЕНО: AI Coordinator для групповой тактики
 }
 
 /**
@@ -258,15 +259,17 @@ export class GameEnemies {
      * Получение высоты террейна и нормали поверхности в точке через raycast
      * Возвращает объект с высотой и нормалью
      */
-    private getGroundInfo(x: number, z: number): { height: number; normal: Vector3 } | null {
+    private getGroundInfo(x: number, z: number): { height: number; normal: Vector3 } {
+        const defaultResult = { height: 5.0, normal: Vector3.Up() }; // Безопасная высота по умолчанию
+        
         if (!this.systems?.scene) {
-            logger.warn(`[GameEnemies] getGroundHeight: No scene available at (${x.toFixed(1)}, ${z.toFixed(1)})`);
-            return 2.0; // Минимальная безопасная высота вместо 0
+            logger.warn(`[GameEnemies] getGroundInfo: No scene available at (${x.toFixed(1)}, ${z.toFixed(1)})`);
+            return defaultResult;
         }
         
         // Улучшенный raycast: начинаем выше и с большим диапазоном
-        const rayStart = new Vector3(x, 150, z); // Увеличено с 100 до 150
-        const ray = new Ray(rayStart, Vector3.Down(), 300); // Увеличено с 200 до 300
+        const rayStart = new Vector3(x, 200, z); // Увеличено для надёжности
+        const ray = new Ray(rayStart, Vector3.Down(), 400);
         
         // Улучшенный фильтр мешей: проверяем больше паттернов
         const hit = this.systems.scene.pickWithRay(ray, (mesh) => {
@@ -283,9 +286,10 @@ export class GameEnemies {
         
         if (hit?.hit && hit.pickedPoint) {
             const height = hit.pickedPoint.y;
-            if (height > -10 && height < 200) { // Разумные пределы
+            if (height > -50 && height < 300) { // Расширенные разумные пределы
                 // КРИТИЧНО: Получаем нормаль поверхности для выравнивания
                 const normal = hit.getNormal ? hit.getNormal(true) : Vector3.Up();
+                logger.debug(`[GameEnemies] getGroundInfo: Raycast found height ${height.toFixed(2)} at (${x.toFixed(1)}, ${z.toFixed(1)})`);
                 return { height, normal: normal || Vector3.Up() };
             } else {
                 logger.warn(`[GameEnemies] getGroundInfo: Raycast returned suspicious height ${height.toFixed(2)} at (${x.toFixed(1)}, ${z.toFixed(1)})`);
@@ -295,12 +299,12 @@ export class GameEnemies {
         // Fallback 1: используем terrain generator с несколькими биомами
         if (this.systems.chunkSystem?.terrainGenerator) {
             const biomes = ["dirt", "city", "residential", "park", "industrial", "concrete"];
-            let maxHeight = 0;
+            let maxHeight = -Infinity;
             
             for (const biome of biomes) {
                 try {
                     const height = this.systems.chunkSystem.terrainGenerator.getHeight(x, z, biome);
-                    if (height > maxHeight && height > -10 && height < 200) {
+                    if (height > maxHeight && height > -50 && height < 300) {
                         maxHeight = height;
                     }
                 } catch (e) {
@@ -308,9 +312,9 @@ export class GameEnemies {
                 }
             }
             
-            if (maxHeight > 0) {
-                logger.debug(`[GameEnemies] getGroundHeight: TerrainGenerator returned ${maxHeight.toFixed(2)} at (${x.toFixed(1)}, ${z.toFixed(1)})`);
-                return maxHeight;
+            if (maxHeight > -Infinity) {
+                logger.debug(`[GameEnemies] getGroundInfo: TerrainGenerator returned ${maxHeight.toFixed(2)} at (${x.toFixed(1)}, ${z.toFixed(1)})`);
+                return { height: maxHeight, normal: Vector3.Up() };
             }
         }
         
@@ -328,8 +332,8 @@ export class GameEnemies {
                     const checkZ = (chunkZ + dz) * chunkSize;
                     
                     // Raycast в центре соседнего чанка
-                    const checkRayStart = new Vector3(checkX, 150, checkZ);
-                    const checkRay = new Ray(checkRayStart, Vector3.Down(), 300);
+                    const checkRayStart = new Vector3(checkX, 200, checkZ);
+                    const checkRay = new Ray(checkRayStart, Vector3.Down(), 400);
                     const checkHit = this.systems.scene.pickWithRay(checkRay, (mesh) => {
                         if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
                         return mesh.name.startsWith("ground_") && mesh.isEnabled();
@@ -337,9 +341,9 @@ export class GameEnemies {
                     
                     if (checkHit?.hit && checkHit.pickedPoint) {
                         const height = checkHit.pickedPoint.y;
-                        if (height > 0 && height < 200) {
-                            logger.debug(`[GameEnemies] getGroundHeight: Found terrain in nearby chunk at ${height.toFixed(2)}`);
-                            return height;
+                        if (height > -50 && height < 300) {
+                            logger.debug(`[GameEnemies] getGroundInfo: Found terrain in nearby chunk at ${height.toFixed(2)}`);
+                            return { height, normal: Vector3.Up() };
                         }
                     }
                 }
@@ -348,7 +352,7 @@ export class GameEnemies {
         
         // Последний fallback: минимальная безопасная высота
         logger.warn(`[GameEnemies] getGroundInfo: All methods failed at (${x.toFixed(1)}, ${z.toFixed(1)}), using safe default`);
-        return { height: 2.0, normal: Vector3.Up() }; // Минимальная безопасная высота и нормаль вверх
+        return defaultResult;
     }
     
     /**
@@ -356,7 +360,7 @@ export class GameEnemies {
      */
     private getGroundHeight(x: number, z: number): number {
         const info = this.getGroundInfo(x, z);
-        return info ? info.height : 2.0;
+        return info.height;
     }
     
     /**
@@ -385,6 +389,12 @@ export class GameEnemies {
         
         if (this.systems.tank) {
             enemy.setTarget(this.systems.tank);
+        }
+        
+        // УЛУЧШЕНО: Регистрируем бота в AI Coordinator
+        if (this.systems.aiCoordinator) {
+            enemy.setAiCoordinator(this.systems.aiCoordinator);
+            this.systems.aiCoordinator.registerBot(enemy);
         }
         
         if (onDeath) {
@@ -521,8 +531,8 @@ export class GameEnemies {
                 const spawnX = combatZone.minX + Math.random() * (combatZone.maxX - combatZone.minX);
                 const spawnZ = combatZone.minZ + Math.random() * (combatZone.maxZ - combatZone.minZ);
                 const groundHeight = this.getGroundHeight(spawnX, spawnZ);
-                // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-                const spawnY = Math.max(groundHeight + 2.0, 3.0);
+                // Спавн на 5 метров выше террейна для гарантии
+                const spawnY = Math.max(groundHeight + 5.0, 7.0);
                 
                 pos = new Vector3(spawnX, spawnY, spawnZ);
                 
@@ -580,8 +590,8 @@ export class GameEnemies {
                 const spawnX = combatZone.minX + Math.random() * (combatZone.maxX - combatZone.minX);
                 const spawnZ = combatZone.minZ + Math.random() * (combatZone.maxZ - combatZone.minZ);
                 const groundHeight = this.getGroundHeight(spawnX, spawnZ);
-                // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-                const spawnY = Math.max(groundHeight + 2.0, 3.0);
+                // Спавн на 5 метров выше террейна для гарантии
+                const spawnY = Math.max(groundHeight + 5.0, 7.0);
                 
                 const newPos = new Vector3(spawnX, spawnY, spawnZ);
                 
@@ -634,8 +644,8 @@ export class GameEnemies {
         
         for (const rawPos of defenderPositions) {
             const groundHeight = this.getGroundHeight(rawPos.x, rawPos.z);
-            // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-            const spawnY = Math.max(groundHeight + 2.0, 3.0);
+            // Спавн на 5 метров выше террейна для гарантии
+            const spawnY = Math.max(groundHeight + 5.0, 7.0);
             const pos = new Vector3(rawPos.x, spawnY, rawPos.z);
             
             const difficulty = this.getCurrentDifficulty();
@@ -693,8 +703,8 @@ export class GameEnemies {
         for (let i = 0; i < waveCount; i++) {
             const spawnZ = -200 + Math.random() * 400;
             const groundHeight = this.getGroundHeight(spawnX, spawnZ);
-            // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-            const spawnY = Math.max(groundHeight + 2.0, 3.0);
+            // Спавн на 5 метров выше террейна для гарантии
+            const spawnY = Math.max(groundHeight + 5.0, 7.0);
             const pos = new Vector3(spawnX, spawnY, spawnZ);
             
             // Сложность растёт с волнами
@@ -740,8 +750,8 @@ export class GameEnemies {
                     const newX = 150 + Math.random() * 100;
                     const newZ = -150 + Math.random() * 300;
                     const groundHeight = this.getGroundHeight(newX, newZ);
-                    // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-                    const spawnY = Math.max(groundHeight + 2.0, 3.0);
+                    // Спавн на 5 метров выше террейна для гарантии
+                    const spawnY = Math.max(groundHeight + 5.0, 7.0);
                     const newPos = new Vector3(newX, spawnY, newZ);
                     
                     const difficulty = this.getCurrentDifficulty();
@@ -816,8 +826,8 @@ export class GameEnemies {
                 const spawnX = Math.cos(angle) * distance;
                 const spawnZ = Math.sin(angle) * distance;
                 const groundInfo = this.getGroundInfo(spawnX, spawnZ);
-                // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-                const spawnY = Math.max(groundInfo.height + 2.0, 3.0);
+                // Спавн на 5 метров выше террейна для гарантии
+                const spawnY = Math.max(groundInfo.height + 5.0, 7.0);
                 
                 pos = new Vector3(spawnX, spawnY, spawnZ);
                 
@@ -969,8 +979,8 @@ export class GameEnemies {
             if (!garage) continue;
             
             const groundHeight = this.getGroundHeight(garage.x, garage.z);
-            // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-            const spawnY = Math.max(groundHeight + 2.0, 3.0);
+            // Спавн на 5 метров выше террейна для гарантии
+            const spawnY = Math.max(groundHeight + 5.0, 7.0);
             const garagePos = new Vector3(garage.x, spawnY, garage.z);
             
             const difficulty = this.getCurrentDifficulty();

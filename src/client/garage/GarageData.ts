@@ -173,20 +173,45 @@ export function generateTrackParts(): TankPart[] {
  * Генерирует массив TankPart для модулей
  */
 export function generateModuleParts(): TankPart[] {
-    return MODULE_PRESETS.map(module => ({
-        id: module.id,
-        name: module.name,
-        description: module.description,
-        cost: module.cost,
-        unlocked: module.unlocked,
-        type: "module" as const,
-        stats: {
-            armor: module.stats.armor ? module.stats.armor * 100 : undefined,
-            speed: module.stats.speed ? module.stats.speed * 100 : undefined,
-            reload: module.stats.reload ? Math.abs(module.stats.reload) * 100 : undefined,
-            damage: module.stats.damage ? module.stats.damage * 100 : undefined
-        }
-    }));
+    return MODULE_PRESETS.map(module => {
+        // Формируем расширенное описание на основе всех характеристик
+        let fullDescription = module.description;
+        
+        // Добавляем иконку модуля к названию если есть
+        const displayName = module.icon ? `${module.icon} ${module.name}` : module.name;
+        
+        // Определяем цвет редкости для UI
+        const rarityColors: Record<string, string> = {
+            common: "#9e9e9e",
+            uncommon: "#4caf50", 
+            rare: "#2196f3",
+            epic: "#9c27b0",
+            legendary: "#ff9800"
+        };
+        
+        return {
+            id: module.id,
+            name: displayName,
+            description: fullDescription,
+            cost: module.cost,
+            unlocked: module.unlocked,
+            type: "module" as const,
+            stats: {
+                armor: module.stats.armor ? module.stats.armor * 100 : undefined,
+                speed: module.stats.speed ? module.stats.speed * 100 : undefined,
+                reload: module.stats.reload ? Math.abs(module.stats.reload) * 100 : undefined,
+                damage: module.stats.damage ? module.stats.damage * 100 : undefined,
+                health: module.stats.health ? module.stats.health * 100 : undefined,
+                // Дополнительные статы для отображения
+                ...(module.stats.critChance && { critChance: module.stats.critChance * 100 }),
+                ...(module.stats.evasion && { evasion: module.stats.evasion * 100 }),
+                ...(module.stats.fuelEfficiency && { fuelEfficiency: module.stats.fuelEfficiency * 100 }),
+                ...(module.stats.repairRate && { repairRate: module.stats.repairRate * 100 })
+            },
+            rarity: module.rarity,
+            rarityColor: rarityColors[module.rarity || "common"]
+        };
+    });
 }
 
 /**

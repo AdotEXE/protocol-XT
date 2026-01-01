@@ -54,6 +54,7 @@ export interface MultiplayerCallbacksDependencies {
     startGame?: () => Promise<void> | void;
     isGameInitialized?: () => boolean;
     isGameStarted?: () => boolean;
+    processPendingNetworkPlayers?: () => void;
 }
 
 /**
@@ -168,6 +169,30 @@ export class GameMultiplayerCallbacks {
                     data.queueSize || 0,
                     data.estimatedWait || 0,
                     data.mode || "unknown"
+                );
+            }
+        });
+        
+        mm.onGameInvite((data) => {
+            logger.log(`[Game] Game invite from ${data.fromPlayerName} (${data.fromPlayerId})`);
+            // Показываем уведомление в HUD
+            if (this.deps.hud) {
+                this.deps.hud.showMessage(
+                    `🎮 Приглашение от ${data.fromPlayerName}${data.roomId ? ` (Комната: ${data.roomId.substring(0, 8)})` : ''}`,
+                    "#4ade80",
+                    5000
+                );
+            }
+            // Показываем уведомление в меню
+            if (this.deps.mainMenu && typeof this.deps.mainMenu.showGameInviteNotification === "function") {
+                this.deps.mainMenu.showGameInviteNotification(data);
+            }
+            // Показываем уведомление в чате
+            if (this.deps.chatSystem) {
+                this.deps.chatSystem.addMessage(
+                    `🎮 ${data.fromPlayerName} приглашает вас в игру${data.roomId ? ` (Комната: ${data.roomId.substring(0, 8)})` : ''}`,
+                    "info",
+                    1
                 );
             }
         });

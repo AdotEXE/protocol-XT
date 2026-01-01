@@ -43,6 +43,13 @@ export class GameGarage {
     
     // УБРАНО: terrainReadyTime больше не используется - ворота открываются сразу
     
+    // Состояние для детекции входа в гараж (для применения pending изменений)
+    private wasPlayerInGarage: boolean = false;
+    private isApplyingChanges: boolean = false;
+    
+    // Ссылка на систему гаража (UI) для применения pending изменений
+    private garageUI: any = null; // Garage class instance
+    
     // Кэшированные цвета для оптимизации
     private readonly _colorNeutral = new Color3(0.9, 0.9, 0.9);
     private readonly _colorPlayer = new Color3(0.0, 1.0, 0.0);
@@ -59,15 +66,24 @@ export class GameGarage {
         chunkSystem: ChunkSystem | undefined,
         tank: TankController | undefined,
         hud?: HUD,
-        enemyTanks?: EnemyTank[]
+        enemyTanks?: EnemyTank[],
+        garageUI?: any
     ): void {
         this.scene = scene;
         this.chunkSystem = chunkSystem;
         this.tank = tank;
         this.hud = hud;
         this.enemyTanks = enemyTanks || [];
+        this.garageUI = garageUI || null;
         
         logger.log("[GameGarage] Garage system initialized");
+    }
+    
+    /**
+     * Установить ссылку на UI гаража (для применения pending изменений)
+     */
+    setGarageUI(garageUI: any): void {
+        this.garageUI = garageUI;
     }
     
     /**
@@ -129,8 +145,9 @@ export class GameGarage {
                     groundHeight = maxHeight > 0 ? maxHeight : 2.0;
                 }
                 
-                // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-                const garageY = Math.max(groundHeight + 2.0, 3.0);
+                // Высота пола гаража: верхняя поверхность пола на groundHeight + 0.15
+                // Спавн на 1 метр выше пола: groundHeight + 0.15 + 1.0 = groundHeight + 1.15
+                const garageY = groundHeight + 1.15;
                 const correctedGaragePos = new Vector3(nearestGarageX, garageY, nearestGarageZ);
                 
                 logger.log(`[GameGarage] Garage position: (${correctedGaragePos.x.toFixed(2)}, ${correctedGaragePos.y.toFixed(2)}, ${correctedGaragePos.z.toFixed(2)}) - ground: ${groundHeight.toFixed(2)}`);
@@ -164,8 +181,9 @@ export class GameGarage {
                 groundHeight = maxHeight > 0 ? maxHeight : 2.0;
             }
             
-            // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-            const correctedY = Math.max(groundHeight + 2.0, 3.0);
+            // Высота пола гаража: верхняя поверхность пола на groundHeight + 0.15
+            // Спавн на 1 метр выше пола: groundHeight + 0.15 + 1.0 = groundHeight + 1.15
+            const correctedY = groundHeight + 1.15;
             const correctedPos = new Vector3(savedX, correctedY, savedZ);
             
             logger.log(`[GameGarage] Using saved garage position (corrected): (${correctedPos.x.toFixed(2)}, ${correctedPos.y.toFixed(2)}, ${correctedPos.z.toFixed(2)}) - ground: ${groundHeight.toFixed(2)}`);
@@ -268,12 +286,103 @@ export class GameGarage {
     }
     
     /**
+     * Проверить находится ли игрок внутри любого гаража
+     */
+    isPlayerInAnyGarage(): boolean {
+        if (!this.chunkSystem || !this.chunkSystem.garageDoors) return false;
+        if (!this.tank || !this.tank.chassis || !this.tank.isAlive) return false;
+        
+        const playerPos = this.tank.chassis.getAbsolutePosition();
+        const doors = this.chunkSystem.garageDoors;
+        
+        for (let i = 0; i < doors.length; i++) {
+            const doorData = doors[i];
+            if (!doorData) continue;
+            const garagePos = doorData.position;
+            const garageDepth = doorData.garageDepth || 20;
+            const garageWidth = 16;
+            
+            const isInside = (
+                playerPos.x >= garagePos.x - garageWidth / 2 &&
+                playerPos.x <= garagePos.x + garageWidth / 2 &&
+                playerPos.z >= garagePos.z - garageDepth / 2 &&
+                playerPos.z <= garagePos.z + garageDepth / 2
+            );
+            
+            if (isInside) return true;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Проверить и применить pending изменения при въезде в гараж
+     */
+    checkAndApplyPendingChanges(): void {
+        const isInGarage = this.isPlayerInAnyGarage();
+        
+        // Детектируем МОМЕНТ ВХОДА в гараж (переход из false в true)
+        if (isInGarage && !this.wasPlayerInGarage && !this.isApplyingChanges) {
+            this.applyPendingGarageChanges();
+        }
+        
+        this.wasPlayerInGarage = isInGarage;
+    }
+    
+    /**
+     * Применить pending изменения с анимацией
+     */
+    private applyPendingGarageChanges(): void {
+        if (!this.garageUI) return;
+        
+        // Проверяем есть ли pending изменения
+        if (typeof this.garageUI.hasPendingChanges !== 'function') return;
+        if (!this.garageUI.hasPendingChanges()) return;
+        
+        this.isApplyingChanges = true;
+        
+        // Получаем pending изменения
+        const pending = this.garageUI.getPendingChanges();
+        logger.log(`[GameGarage] Applying pending changes: chassis=${pending.chassisId}, cannon=${pending.cannonId}, track=${pending.trackId}, skin=${pending.skinId}`);
+        
+        // Запускаем анимацию смены частей
+        if (this.tank && typeof (this.tank as any).playPartChangeAnimation === 'function') {
+            const applied = this.garageUI.applyPendingChangesToTank();
+            
+            // Запускаем анимацию для каждой измененной части
+            (this.tank as any).playPartChangeAnimation(applied, () => {
+                this.isApplyingChanges = false;
+                
+                // Показываем уведомление
+                if (this.hud && typeof this.hud.showNotification === 'function') {
+                    this.hud.showNotification("🔧 Оборудование установлено!", "success");
+                }
+                
+                logger.log("[GameGarage] Part change animation complete");
+            });
+        } else {
+            // Если анимации нет, просто применяем изменения
+            this.garageUI.applyPendingChangesToTank();
+            this.isApplyingChanges = false;
+            
+            if (this.hud && typeof this.hud.showNotification === 'function') {
+                this.hud.showNotification("🔧 Оборудование установлено!", "success");
+            }
+            
+            logger.log("[GameGarage] Pending changes applied (no animation)");
+        }
+    }
+    
+    /**
      * Обновление ворот гаражей
      * ПРОСТАЯ ЛОГИКА: Ворота просто двигаются вверх/вниз к целевой позиции
      * КРИТИЧНО: Ворота не открываются до загрузки террейна
      */
     updateGarageDoors(): void {
         if (!this.chunkSystem || !this.chunkSystem.garageDoors) return;
+        
+        // === ПРОВЕРКА PENDING ИЗМЕНЕНИЙ ПРИ ВХОДЕ В ГАРАЖ ===
+        this.checkAndApplyPendingChanges();
         
         // КРИТИЧНО: УБРАНА ВСЯ ПРОВЕРКА ТЕРРЕЙНА - ворота открываются сразу, если игрок внутри гаража
         // Проверяем, находится ли игрок внутри гаража ПЕРВЫМ ДЕЛОМ

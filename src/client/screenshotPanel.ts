@@ -434,5 +434,311 @@ export class ScreenshotPanel {
     isVisible(): boolean {
         return this._isVisible;
     }
+    
+    /**
+     * Рендерит контент панели в переданный контейнер (для UnifiedMenu)
+     */
+    renderToContainer(container: HTMLElement): void {
+        container.innerHTML = this.getEmbeddedContentHTML();
+        this.setupEmbeddedEventListeners(container);
+        this.loadEmbeddedSettings(container);
+    }
+    
+    /**
+     * Возвращает HTML контента без overlay wrapper
+     */
+    private getEmbeddedContentHTML(): string {
+        return `
+            <div class="screenshot-embedded-content">
+                <h3 style="color: #0ff; margin: 0 0 16px 0; font-size: 16px; text-shadow: 0 0 8px rgba(0, 255, 255, 0.5);">
+                    📸 Настройки скриншотов
+                </h3>
+                
+                <!-- Формат -->
+                <div style="margin-bottom: 16px;">
+                    <label style="color: #ff0; font-size: 13px; font-weight: bold; display: block; margin-bottom: 6px;">Формат:</label>
+                    <select class="ss-format-embedded" style="
+                        width: 100%;
+                        padding: 6px 8px;
+                        background: rgba(0, 5, 0, 0.5);
+                        border: 1px solid rgba(0, 255, 4, 0.4);
+                        border-radius: 4px;
+                        color: #0f0;
+                        font-family: Consolas, monospace;
+                    ">
+                        <option value="png">PNG</option>
+                        <option value="jpeg">JPEG</option>
+                        <option value="webp">WebP</option>
+                    </select>
+                    <div class="ss-quality-control-embedded" style="display: none; margin-top: 8px;">
+                        <label style="color: #aaa; font-size: 11px; display: block; margin-bottom: 4px;">
+                            Качество: <span class="ss-quality-value-embedded">92%</span>
+                        </label>
+                        <input type="range" class="ss-quality-embedded" min="0" max="100" value="92" style="width: 100%;">
+                    </div>
+                </div>
+                
+                <!-- Режим -->
+                <div style="margin-bottom: 16px;">
+                    <label style="color: #ff0; font-size: 13px; font-weight: bold; display: block; margin-bottom: 6px;">Режим:</label>
+                    <select class="ss-mode-embedded" style="
+                        width: 100%;
+                        padding: 6px 8px;
+                        background: rgba(0, 5, 0, 0.5);
+                        border: 1px solid rgba(0, 255, 4, 0.4);
+                        border-radius: 4px;
+                        color: #0f0;
+                        font-family: Consolas, monospace;
+                    ">
+                        <option value="full">Полный экран</option>
+                        <option value="game">Только игра</option>
+                        <option value="ui">Только UI</option>
+                        <option value="region">Область</option>
+                    </select>
+                </div>
+                
+                <!-- Фильтры -->
+                <div style="margin-bottom: 16px;">
+                    <label style="color: #ff0; font-size: 13px; font-weight: bold; display: block; margin-bottom: 6px;">Фильтры:</label>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <label style="color: #aaa; font-size: 11px;">
+                            Яркость: <span class="ss-brightness-value-embedded">0</span>
+                            <input type="range" class="ss-brightness-embedded" min="-100" max="100" value="0" style="width: 100%;">
+                        </label>
+                        <label style="color: #aaa; font-size: 11px;">
+                            Контраст: <span class="ss-contrast-value-embedded">0</span>
+                            <input type="range" class="ss-contrast-embedded" min="-100" max="100" value="0" style="width: 100%;">
+                        </label>
+                        <label style="color: #aaa; font-size: 11px;">
+                            Насыщенность: <span class="ss-saturation-value-embedded">0</span>
+                            <input type="range" class="ss-saturation-embedded" min="-100" max="100" value="0" style="width: 100%;">
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- Водяной знак -->
+                <div style="margin-bottom: 16px;">
+                    <label style="color: #ff0; font-size: 13px; font-weight: bold; display: block; margin-bottom: 6px;">
+                        <input type="checkbox" class="ss-watermark-enabled-embedded" style="margin-right: 6px;"> Водяной знак
+                    </label>
+                    <div class="ss-watermark-controls-embedded" style="display: none; margin-top: 8px;">
+                        <input type="text" class="ss-watermark-text-embedded" placeholder="Текст водяного знака" style="
+                            width: 100%;
+                            padding: 6px 8px;
+                            background: rgba(0, 5, 0, 0.5);
+                            border: 1px solid rgba(0, 255, 4, 0.4);
+                            border-radius: 4px;
+                            color: #0f0;
+                            margin-bottom: 8px;
+                            box-sizing: border-box;
+                        ">
+                        <select class="ss-watermark-position-embedded" style="
+                            width: 100%;
+                            padding: 6px 8px;
+                            background: rgba(0, 5, 0, 0.5);
+                            border: 1px solid rgba(0, 255, 4, 0.4);
+                            border-radius: 4px;
+                            color: #0f0;
+                        ">
+                            <option value="bottom-right">Справа внизу</option>
+                            <option value="bottom-left">Слева внизу</option>
+                            <option value="top-right">Справа вверху</option>
+                            <option value="top-left">Слева вверху</option>
+                            <option value="center">По центру</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <!-- Кнопки -->
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button class="ss-take-btn-embedded panel-btn primary" style="flex: 1; padding: 10px;">
+                        📸 Сделать скриншот
+                    </button>
+                    <button class="ss-gallery-btn-embedded panel-btn" style="flex: 1; padding: 10px;">
+                        🖼️ Галерея
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+    
+    /**
+     * Привязывает обработчики событий для embedded режима
+     */
+    private setupEmbeddedEventListeners(container: HTMLElement): void {
+        const formatSelect = container.querySelector(".ss-format-embedded") as HTMLSelectElement;
+        const qualityControl = container.querySelector(".ss-quality-control-embedded") as HTMLElement;
+        const qualitySlider = container.querySelector(".ss-quality-embedded") as HTMLInputElement;
+        const qualityValue = container.querySelector(".ss-quality-value-embedded") as HTMLElement;
+        const watermarkEnabled = container.querySelector(".ss-watermark-enabled-embedded") as HTMLInputElement;
+        const watermarkControls = container.querySelector(".ss-watermark-controls-embedded") as HTMLElement;
+        const takeBtn = container.querySelector(".ss-take-btn-embedded");
+        const galleryBtn = container.querySelector(".ss-gallery-btn-embedded");
+        
+        // Формат
+        formatSelect?.addEventListener("change", () => {
+            const format = formatSelect.value;
+            if (qualityControl) {
+                qualityControl.style.display = (format === "jpeg" || format === "webp") ? "block" : "none";
+            }
+            this.saveEmbeddedSettings(container);
+        });
+        
+        // Качество
+        qualitySlider?.addEventListener("input", () => {
+            if (qualityValue) qualityValue.textContent = `${qualitySlider.value}%`;
+            this.saveEmbeddedSettings(container);
+        });
+        
+        // Фильтры
+        ["brightness", "contrast", "saturation"].forEach(filter => {
+            const slider = container.querySelector(`.ss-${filter}-embedded`) as HTMLInputElement;
+            const valueDisplay = container.querySelector(`.ss-${filter}-value-embedded`) as HTMLElement;
+            slider?.addEventListener("input", () => {
+                if (valueDisplay) valueDisplay.textContent = slider.value;
+                this.saveEmbeddedSettings(container);
+            });
+        });
+        
+        // Водяной знак
+        watermarkEnabled?.addEventListener("change", () => {
+            if (watermarkControls) {
+                watermarkControls.style.display = watermarkEnabled.checked ? "block" : "none";
+            }
+            this.saveEmbeddedSettings(container);
+        });
+        
+        // Кнопка скриншота
+        takeBtn?.addEventListener("click", () => this.takeEmbeddedScreenshot(container));
+        
+        // Кнопка галереи
+        galleryBtn?.addEventListener("click", () => this.gallery.show());
+    }
+    
+    /**
+     * Загрузка настроек для embedded режима
+     */
+    private loadEmbeddedSettings(container: HTMLElement): void {
+        const format = localStorage.getItem("ptx_screenshot_format") || "png";
+        const mode = localStorage.getItem("ptx_screenshot_mode") || "full";
+        const quality = localStorage.getItem("ptx_screenshot_quality") || "92";
+        const filters = JSON.parse(localStorage.getItem("ptx_screenshot_filters") || '{"brightness":0,"contrast":0,"saturation":0}');
+        const watermark = JSON.parse(localStorage.getItem("ptx_screenshot_watermark") || '{"enabled":false,"text":"","position":"bottom-right"}');
+        
+        const formatSelect = container.querySelector(".ss-format-embedded") as HTMLSelectElement;
+        const modeSelect = container.querySelector(".ss-mode-embedded") as HTMLSelectElement;
+        const qualitySlider = container.querySelector(".ss-quality-embedded") as HTMLInputElement;
+        const qualityValue = container.querySelector(".ss-quality-value-embedded") as HTMLElement;
+        const qualityControl = container.querySelector(".ss-quality-control-embedded") as HTMLElement;
+        
+        if (formatSelect) formatSelect.value = format;
+        if (modeSelect) modeSelect.value = mode;
+        if (qualitySlider) qualitySlider.value = quality;
+        if (qualityValue) qualityValue.textContent = `${quality}%`;
+        if (qualityControl) {
+            qualityControl.style.display = (format === "jpeg" || format === "webp") ? "block" : "none";
+        }
+        
+        ["brightness", "contrast", "saturation"].forEach(filter => {
+            const slider = container.querySelector(`.ss-${filter}-embedded`) as HTMLInputElement;
+            const valueDisplay = container.querySelector(`.ss-${filter}-value-embedded`) as HTMLElement;
+            if (slider) slider.value = filters[filter] || "0";
+            if (valueDisplay) valueDisplay.textContent = filters[filter] || "0";
+        });
+        
+        const watermarkEnabled = container.querySelector(".ss-watermark-enabled-embedded") as HTMLInputElement;
+        const watermarkText = container.querySelector(".ss-watermark-text-embedded") as HTMLInputElement;
+        const watermarkPosition = container.querySelector(".ss-watermark-position-embedded") as HTMLSelectElement;
+        const watermarkControls = container.querySelector(".ss-watermark-controls-embedded") as HTMLElement;
+        
+        if (watermarkEnabled) watermarkEnabled.checked = watermark.enabled || false;
+        if (watermarkText) watermarkText.value = watermark.text || "";
+        if (watermarkPosition) watermarkPosition.value = watermark.position || "bottom-right";
+        if (watermarkControls) {
+            watermarkControls.style.display = watermark.enabled ? "block" : "none";
+        }
+    }
+    
+    /**
+     * Сохранение настроек для embedded режима
+     */
+    private saveEmbeddedSettings(container: HTMLElement): void {
+        const format = (container.querySelector(".ss-format-embedded") as HTMLSelectElement)?.value || "png";
+        const mode = (container.querySelector(".ss-mode-embedded") as HTMLSelectElement)?.value || "full";
+        const quality = (container.querySelector(".ss-quality-embedded") as HTMLInputElement)?.value || "92";
+        const brightness = (container.querySelector(".ss-brightness-embedded") as HTMLInputElement)?.value || "0";
+        const contrast = (container.querySelector(".ss-contrast-embedded") as HTMLInputElement)?.value || "0";
+        const saturation = (container.querySelector(".ss-saturation-embedded") as HTMLInputElement)?.value || "0";
+        const watermarkEnabled = (container.querySelector(".ss-watermark-enabled-embedded") as HTMLInputElement)?.checked || false;
+        const watermarkText = (container.querySelector(".ss-watermark-text-embedded") as HTMLInputElement)?.value || "";
+        const watermarkPosition = (container.querySelector(".ss-watermark-position-embedded") as HTMLSelectElement)?.value || "bottom-right";
+        
+        localStorage.setItem("ptx_screenshot_format", format);
+        localStorage.setItem("ptx_screenshot_mode", mode);
+        localStorage.setItem("ptx_screenshot_quality", quality);
+        localStorage.setItem("ptx_screenshot_filters", JSON.stringify({ brightness: parseInt(brightness), contrast: parseInt(contrast), saturation: parseInt(saturation) }));
+        localStorage.setItem("ptx_screenshot_watermark", JSON.stringify({ enabled: watermarkEnabled, text: watermarkText, position: watermarkPosition }));
+    }
+    
+    /**
+     * Создание скриншота для embedded режима
+     */
+    private async takeEmbeddedScreenshot(container: HTMLElement): Promise<void> {
+        try {
+            const format = (container.querySelector(".ss-format-embedded") as HTMLSelectElement)?.value || "png";
+            const mode = (container.querySelector(".ss-mode-embedded") as HTMLSelectElement)?.value || "full";
+            const quality = parseFloat((container.querySelector(".ss-quality-embedded") as HTMLInputElement)?.value || "92") / 100;
+            const brightness = parseInt((container.querySelector(".ss-brightness-embedded") as HTMLInputElement)?.value || "0");
+            const contrast = parseInt((container.querySelector(".ss-contrast-embedded") as HTMLInputElement)?.value || "0");
+            const saturation = parseInt((container.querySelector(".ss-saturation-embedded") as HTMLInputElement)?.value || "0");
+            const watermarkEnabled = (container.querySelector(".ss-watermark-enabled-embedded") as HTMLInputElement)?.checked || false;
+            const watermarkText = (container.querySelector(".ss-watermark-text-embedded") as HTMLInputElement)?.value || "";
+            const watermarkPosition = (container.querySelector(".ss-watermark-position-embedded") as HTMLSelectElement)?.value || "bottom-right";
+            
+            const formatMap: { [key: string]: ScreenshotFormat } = {
+                "png": ScreenshotFormat.PNG,
+                "jpeg": ScreenshotFormat.JPEG,
+                "webp": ScreenshotFormat.WEBP
+            };
+            const modeMap: { [key: string]: ScreenshotMode } = {
+                "full": ScreenshotMode.FULL_SCREEN,
+                "game": ScreenshotMode.GAME_ONLY,
+                "ui": ScreenshotMode.UI_ONLY,
+                "region": ScreenshotMode.REGION
+            };
+            
+            const options: ScreenshotOptions = {
+                format: formatMap[format] || ScreenshotFormat.PNG,
+                quality: quality,
+                mode: modeMap[mode] || ScreenshotMode.FULL_SCREEN,
+                filters: (brightness !== 0 || contrast !== 0 || saturation !== 0) ? {
+                    brightness,
+                    contrast,
+                    saturation
+                } : undefined,
+                watermark: watermarkEnabled && watermarkText ? {
+                    text: watermarkText,
+                    position: watermarkPosition as any,
+                    opacity: 0.7,
+                    fontSize: 24
+                } : undefined
+            };
+            
+            const blob = await this.screenshotManager.capture(options);
+            await this.screenshotManager.copyToClipboard(blob);
+            await this.screenshotManager.saveToLocalStorage(blob, options);
+            
+            if (this.game?.hud) {
+                this.game.hud.showMessage("📸 Screenshot saved!", "#0f0", 3000);
+            }
+            
+            logger.log("[ScreenshotPanel] Embedded screenshot taken with options:", options);
+        } catch (error) {
+            logger.error("[ScreenshotPanel] Embedded screenshot failed:", error);
+            if (this.game?.hud) {
+                this.game.hud.showMessage("Screenshot failed", "#f00", 2000);
+            }
+        }
+    }
 }
 

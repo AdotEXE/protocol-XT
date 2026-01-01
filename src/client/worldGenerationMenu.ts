@@ -1388,4 +1388,146 @@ export class WorldGenerationMenu {
     isVisible(): boolean {
         return this.visible;
     }
+    
+    /**
+     * Рендерит контент в переданный контейнер (для UnifiedMenu)
+     */
+    renderToContainer(container: HTMLElement): void {
+        container.innerHTML = this.getEmbeddedContentHTML();
+        this.setupEmbeddedEventListeners(container);
+    }
+    
+    /**
+     * Возвращает HTML контента без overlay wrapper
+     */
+    private getEmbeddedContentHTML(): string {
+        return `
+            <div class="world-embedded-content">
+                <h3 style="color: #0ff; margin: 0 0 16px 0; font-size: 16px; text-shadow: 0 0 8px rgba(0, 255, 255, 0.5);">
+                    🌍 Генерация мира
+                </h3>
+                
+                <!-- Seed -->
+                <div style="margin-bottom: 16px;">
+                    <div style="color: #ff0; font-size: 13px; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid rgba(0, 255, 4, 0.3); padding-bottom: 5px;">
+                        SEED МИРА
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" class="world-seed-emb" placeholder="Автоматически" style="
+                            flex: 1; padding: 8px;
+                            background: rgba(0, 5, 0, 0.5);
+                            border: 1px solid rgba(0, 255, 4, 0.4);
+                            border-radius: 4px; color: #0f0;
+                            font-family: Consolas, Monaco, monospace;
+                        ">
+                        <button class="panel-btn world-random-seed-btn" style="padding: 8px 12px;">🎲</button>
+                    </div>
+                </div>
+                
+                <!-- Размер карты -->
+                <div style="margin-bottom: 16px;">
+                    <div style="color: #ff0; font-size: 13px; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid rgba(0, 255, 4, 0.3); padding-bottom: 5px;">
+                        РАЗМЕР КАРТЫ
+                    </div>
+                    <select class="world-size-emb" style="
+                        width: 100%; padding: 8px;
+                        background: rgba(0, 5, 0, 0.5);
+                        border: 1px solid rgba(0, 255, 4, 0.4);
+                        border-radius: 4px; color: #0f0;
+                        font-family: Consolas, Monaco, monospace;
+                    ">
+                        <option value="small">Маленький (512x512)</option>
+                        <option value="medium" selected>Средний (1024x1024)</option>
+                        <option value="large">Большой (2048x2048)</option>
+                        <option value="huge">Огромный (4096x4096)</option>
+                    </select>
+                </div>
+                
+                <!-- Тип местности -->
+                <div style="margin-bottom: 16px;">
+                    <div style="color: #ff0; font-size: 13px; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid rgba(0, 255, 4, 0.3); padding-bottom: 5px;">
+                        ТИП МЕСТНОСТИ
+                    </div>
+                    <select class="world-biome-emb" style="
+                        width: 100%; padding: 8px;
+                        background: rgba(0, 5, 0, 0.5);
+                        border: 1px solid rgba(0, 255, 4, 0.4);
+                        border-radius: 4px; color: #0f0;
+                        font-family: Consolas, Monaco, monospace;
+                    ">
+                        <option value="plains">Равнины</option>
+                        <option value="desert">Пустыня</option>
+                        <option value="forest">Лес</option>
+                        <option value="mountains">Горы</option>
+                        <option value="mixed" selected>Смешанный</option>
+                    </select>
+                </div>
+                
+                <!-- Плотность объектов -->
+                <div style="margin-bottom: 16px;">
+                    <label style="color: #aaa; font-size: 11px; display: block; margin-bottom: 4px;">
+                        Плотность объектов: <span class="world-density-val" style="color: #0f0;">50%</span>
+                    </label>
+                    <input type="range" class="world-density-emb" min="0" max="100" value="50" style="width: 100%;">
+                </div>
+                
+                <!-- Кнопки -->
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button class="panel-btn primary world-generate-btn" style="flex: 1; padding: 10px;">
+                        🌍 Сгенерировать новый мир
+                    </button>
+                </div>
+                
+                <div style="margin-top: 12px; padding: 10px; background: rgba(255, 0, 0, 0.1); border: 1px solid rgba(255, 0, 0, 0.3); border-radius: 4px;">
+                    <div style="color: #f00; font-size: 11px;">⚠️ Генерация нового мира приведёт к потере текущего прогресса!</div>
+                </div>
+            </div>
+        `;
+    }
+    
+    /**
+     * Привязывает обработчики событий для embedded режима
+     */
+    private setupEmbeddedEventListeners(container: HTMLElement): void {
+        const seedInput = container.querySelector(".world-seed-emb") as HTMLInputElement;
+        const randomSeedBtn = container.querySelector(".world-random-seed-btn");
+        const sizeSelect = container.querySelector(".world-size-emb") as HTMLSelectElement;
+        const biomeSelect = container.querySelector(".world-biome-emb") as HTMLSelectElement;
+        const densitySlider = container.querySelector(".world-density-emb") as HTMLInputElement;
+        const densityVal = container.querySelector(".world-density-val");
+        const generateBtn = container.querySelector(".world-generate-btn");
+        
+        // Генерация случайного seed
+        randomSeedBtn?.addEventListener("click", () => {
+            const randomSeed = Math.floor(Math.random() * 999999999);
+            if (seedInput) seedInput.value = String(randomSeed);
+        });
+        
+        // Обновление значения плотности
+        densitySlider?.addEventListener("input", () => {
+            if (densityVal) densityVal.textContent = `${densitySlider.value}%`;
+        });
+        
+        // Генерация мира
+        generateBtn?.addEventListener("click", () => {
+            const seed = seedInput?.value ? parseInt(seedInput.value) : Math.floor(Math.random() * 999999999);
+            const size = sizeSelect?.value || "medium";
+            const biome = biomeSelect?.value || "mixed";
+            const density = parseInt(densitySlider?.value || "50") / 100;
+            
+            if (this.game?.hud) {
+                this.game.hud.showMessage(`Генерация мира (seed: ${seed})...`, "#0ff", 3000);
+            }
+            
+            // Вызываем генерацию мира
+            if (this.game && (this.game as any).generateWorld) {
+                (this.game as any).generateWorld({ seed, size, biome, density });
+            } else {
+                console.log("[WorldGenerationMenu] World generation params:", { seed, size, biome, density });
+                if (this.game?.hud) {
+                    this.game.hud.showMessage("Генерация мира недоступна в данный момент", "#ff0", 2000);
+                }
+            }
+        });
+    }
 }

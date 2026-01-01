@@ -1874,6 +1874,75 @@ export function createUniqueCannon(
             );
             animationElements.repairGen = repairGenLayers[0];
             break;
+        
+        case "ricochet":
+            // Ricochet Master - Золотой ствол с рифлением и индикаторами отскока
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, { 
+                width: barrelWidth * 1.0,
+                height: barrelWidth * 1.0,
+                depth: barrelLength * 1.0
+            }, scene);
+            
+            // Золотой материал для ствола
+            const ricochetMat = new StandardMaterial("ricochetMat", scene);
+            ricochetMat.diffuseColor = new Color3(1.0, 0.84, 0.0); // Золотой
+            ricochetMat.specularColor = new Color3(1.0, 0.9, 0.5);
+            ricochetMat.specularPower = 64;
+            
+            // Материал для индикаторов рикошета
+            const ricochetIndicatorMat = new StandardMaterial("ricochetIndicatorMat", scene);
+            ricochetIndicatorMat.diffuseColor = new Color3(1.0, 0.5, 0.0); // Оранжевый
+            ricochetIndicatorMat.emissiveColor = new Color3(0.5, 0.25, 0.0);
+            
+            // Рифление ствола - 5 колец (по количеству базовых рикошетов)
+            for (let i = 0; i < 5; i++) {
+                const ringZ = -barrelLength * 0.3 + i * barrelLength * 0.15;
+                const ring = MeshBuilder.CreateBox(`ricochetRing${i}`, {
+                    width: barrelWidth * 1.3,
+                    height: barrelWidth * 1.3,
+                    depth: barrelWidth * 0.08
+                }, scene);
+                ring.position = addZFightingOffset(new Vector3(0, 0, ringZ), "forward");
+                ring.parent = barrel;
+                ring.material = ricochetIndicatorMat;
+            }
+            
+            // Направляющие для рикошета - угловые элементы
+            for (let i = 0; i < 4; i++) {
+                const angle = (i * Math.PI / 2) + Math.PI / 4;
+                const guideX = Math.cos(angle) * barrelWidth * 0.5;
+                const guideY = Math.sin(angle) * barrelWidth * 0.5;
+                
+                const guide = MeshBuilder.CreateBox(`ricochetGuide${i}`, {
+                    width: barrelWidth * 0.15,
+                    height: barrelWidth * 0.15,
+                    depth: barrelLength * 0.6
+                }, scene);
+                guide.position = addZFightingOffset(new Vector3(guideX, guideY, barrelLength * 0.1), "forward");
+                guide.parent = barrel;
+                guide.material = ricochetMat;
+            }
+            
+            // Дульный тормоз с рассекателями
+            const muzzle = MeshBuilder.CreateBox("ricochetMuzzle", {
+                width: barrelWidth * 1.5,
+                height: barrelWidth * 1.5,
+                depth: barrelWidth * 0.3
+            }, scene);
+            muzzle.position = addZFightingOffset(new Vector3(0, 0, barrelLength * 0.5), "forward");
+            muzzle.parent = barrel;
+            muzzle.material = ricochetMat;
+            
+            // Казённик с усилением
+            const ricochetBreech = MeshBuilder.CreateBox("ricochetBreech", {
+                width: barrelWidth * 1.6,
+                height: barrelWidth * 1.6,
+                depth: barrelWidth * 0.5
+            }, scene);
+            ricochetBreech.position = addZFightingOffset(new Vector3(0, 0, -barrelLength * 0.4), "backward");
+            ricochetBreech.parent = barrel;
+            ricochetBreech.material = ricochetIndicatorMat;
+            break;
             
         default: // standard and all other types
             // Standard - Прототип: Т-34-85 / Д-5Т - Классическая советская пушка

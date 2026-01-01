@@ -949,6 +949,221 @@ export class PhysicsEditor {
     isVisible(): boolean {
         return this.visible;
     }
+    
+    /**
+     * Рендерит контент в переданный контейнер (для UnifiedMenu)
+     */
+    renderToContainer(container: HTMLElement): void {
+        container.innerHTML = this.getEmbeddedContentHTML();
+        this.setupEmbeddedEventListeners(container);
+    }
+    
+    /**
+     * Возвращает HTML контента без overlay wrapper
+     */
+    private getEmbeddedContentHTML(): string {
+        return `
+            <div class="physics-editor-embedded-content">
+                <h3 style="color: #0ff; margin: 0 0 16px 0; font-size: 16px; text-shadow: 0 0 8px rgba(0, 255, 255, 0.5);">
+                    🔧 Редактор физики
+                </h3>
+                
+                <div style="margin-bottom: 16px; padding: 10px; background: rgba(255, 255, 0, 0.1); border: 1px solid rgba(255, 255, 0, 0.3); border-radius: 4px;">
+                    <div style="color: #ff0; font-size: 11px;">⚠️ Изменения применяются в реальном времени</div>
+                </div>
+                
+                <!-- Категории параметров -->
+                <div class="pe-tabs" style="display: flex; gap: 4px; margin-bottom: 12px; flex-wrap: wrap;">
+                    <button class="panel-btn pe-tab active" data-tab="tank" style="padding: 6px 10px; font-size: 10px;">🚗 Танк</button>
+                    <button class="panel-btn pe-tab" data-tab="turret" style="padding: 6px 10px; font-size: 10px;">🔫 Башня</button>
+                    <button class="panel-btn pe-tab" data-tab="projectile" style="padding: 6px 10px; font-size: 10px;">💥 Снаряды</button>
+                    <button class="panel-btn pe-tab" data-tab="world" style="padding: 6px 10px; font-size: 10px;">🌍 Мир</button>
+                </div>
+                
+                <!-- Контент вкладок -->
+                <div class="pe-content">
+                    <!-- Танк -->
+                    <div class="pe-tab-content active" data-tab="tank">
+                        <div style="margin-bottom: 12px;">
+                            <label style="color: #aaa; font-size: 11px; display: block; margin-bottom: 4px;">
+                                Макс. скорость: <span class="pe-maxspeed-val" style="color: #0f0;">50</span>
+                            </label>
+                            <input type="range" class="pe-maxspeed" min="10" max="150" value="50" style="width: 100%;">
+                        </div>
+                        <div style="margin-bottom: 12px;">
+                            <label style="color: #aaa; font-size: 11px; display: block; margin-bottom: 4px;">
+                                Ускорение: <span class="pe-accel-val" style="color: #0f0;">20</span>
+                            </label>
+                            <input type="range" class="pe-accel" min="5" max="100" value="20" style="width: 100%;">
+                        </div>
+                        <div style="margin-bottom: 12px;">
+                            <label style="color: #aaa; font-size: 11px; display: block; margin-bottom: 4px;">
+                                Масса: <span class="pe-mass-val" style="color: #0f0;">5000</span> кг
+                            </label>
+                            <input type="range" class="pe-mass" min="1000" max="20000" step="100" value="5000" style="width: 100%;">
+                        </div>
+                    </div>
+                    
+                    <!-- Башня -->
+                    <div class="pe-tab-content" data-tab="turret" style="display: none;">
+                        <div style="margin-bottom: 12px;">
+                            <label style="color: #aaa; font-size: 11px; display: block; margin-bottom: 4px;">
+                                Скорость поворота: <span class="pe-turret-speed-val" style="color: #0f0;">1.0</span>
+                            </label>
+                            <input type="range" class="pe-turret-speed" min="0.1" max="5" step="0.1" value="1" style="width: 100%;">
+                        </div>
+                        <div style="margin-bottom: 12px;">
+                            <label style="color: #aaa; font-size: 11px; display: block; margin-bottom: 4px;">
+                                Угол возвышения: <span class="pe-elevation-val" style="color: #0f0;">30</span>°
+                            </label>
+                            <input type="range" class="pe-elevation" min="0" max="90" value="30" style="width: 100%;">
+                        </div>
+                    </div>
+                    
+                    <!-- Снаряды -->
+                    <div class="pe-tab-content" data-tab="projectile" style="display: none;">
+                        <div style="margin-bottom: 12px;">
+                            <label style="color: #aaa; font-size: 11px; display: block; margin-bottom: 4px;">
+                                Скорость снаряда: <span class="pe-proj-speed-val" style="color: #0f0;">200</span>
+                            </label>
+                            <input type="range" class="pe-proj-speed" min="50" max="500" value="200" style="width: 100%;">
+                        </div>
+                        <div style="margin-bottom: 12px;">
+                            <label style="color: #aaa; font-size: 11px; display: block; margin-bottom: 4px;">
+                                Урон: <span class="pe-damage-val" style="color: #0f0;">50</span>
+                            </label>
+                            <input type="range" class="pe-damage" min="10" max="500" value="50" style="width: 100%;">
+                        </div>
+                    </div>
+                    
+                    <!-- Мир -->
+                    <div class="pe-tab-content" data-tab="world" style="display: none;">
+                        <div style="margin-bottom: 12px;">
+                            <label style="color: #aaa; font-size: 11px; display: block; margin-bottom: 4px;">
+                                Гравитация: <span class="pe-gravity-val" style="color: #0f0;">-9.81</span>
+                            </label>
+                            <input type="range" class="pe-gravity" min="-20" max="0" step="0.1" value="-9.81" style="width: 100%;">
+                        </div>
+                        <div style="margin-bottom: 12px;">
+                            <label style="color: #aaa; font-size: 11px; display: block; margin-bottom: 4px;">
+                                Сопротивление воздуха: <span class="pe-drag-val" style="color: #0f0;">0.1</span>
+                            </label>
+                            <input type="range" class="pe-drag" min="0" max="1" step="0.01" value="0.1" style="width: 100%;">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Кнопки -->
+                <div style="display: flex; gap: 10px; margin-top: 16px;">
+                    <button class="panel-btn primary pe-save-btn" style="flex: 1; padding: 10px;">💾 Сохранить</button>
+                    <button class="panel-btn pe-reset-btn" style="flex: 1; padding: 10px;">↻ Сбросить</button>
+                    <button class="panel-btn pe-export-btn" style="flex: 1; padding: 10px;">📤 Экспорт</button>
+                </div>
+            </div>
+        `;
+    }
+    
+    /**
+     * Привязывает обработчики событий для embedded режима
+     */
+    private setupEmbeddedEventListeners(container: HTMLElement): void {
+        // Обработчики вкладок
+        const tabs = container.querySelectorAll(".pe-tab");
+        tabs.forEach(tab => {
+            tab.addEventListener("click", () => {
+                const tabName = (tab as HTMLElement).dataset.tab;
+                if (!tabName) return;
+                
+                container.querySelectorAll(".pe-tab").forEach(t => t.classList.remove("active"));
+                container.querySelectorAll(".pe-tab-content").forEach(c => {
+                    (c as HTMLElement).style.display = "none";
+                    c.classList.remove("active");
+                });
+                
+                tab.classList.add("active");
+                const content = container.querySelector(`.pe-tab-content[data-tab="${tabName}"]`) as HTMLElement;
+                if (content) {
+                    content.style.display = "block";
+                    content.classList.add("active");
+                }
+            });
+        });
+        
+        // Обработчики слайдеров
+        const setupSlider = (className: string, valClassName: string, suffix = "") => {
+            const slider = container.querySelector(`.${className}`) as HTMLInputElement;
+            const valEl = container.querySelector(`.${valClassName}`);
+            slider?.addEventListener("input", () => {
+                if (valEl) valEl.textContent = slider.value + suffix;
+            });
+        };
+        
+        setupSlider("pe-maxspeed", "pe-maxspeed-val");
+        setupSlider("pe-accel", "pe-accel-val");
+        setupSlider("pe-mass", "pe-mass-val");
+        setupSlider("pe-turret-speed", "pe-turret-speed-val");
+        setupSlider("pe-elevation", "pe-elevation-val", "°");
+        setupSlider("pe-proj-speed", "pe-proj-speed-val");
+        setupSlider("pe-damage", "pe-damage-val");
+        setupSlider("pe-gravity", "pe-gravity-val");
+        setupSlider("pe-drag", "pe-drag-val");
+        
+        // Кнопка сохранения
+        const saveBtn = container.querySelector(".pe-save-btn");
+        saveBtn?.addEventListener("click", () => {
+            // Собираем все значения
+            const config = {
+                tank: {
+                    maxSpeed: parseFloat((container.querySelector(".pe-maxspeed") as HTMLInputElement)?.value || "50"),
+                    acceleration: parseFloat((container.querySelector(".pe-accel") as HTMLInputElement)?.value || "20"),
+                    mass: parseFloat((container.querySelector(".pe-mass") as HTMLInputElement)?.value || "5000"),
+                },
+                turret: {
+                    rotationSpeed: parseFloat((container.querySelector(".pe-turret-speed") as HTMLInputElement)?.value || "1"),
+                    maxElevation: parseFloat((container.querySelector(".pe-elevation") as HTMLInputElement)?.value || "30"),
+                },
+                projectile: {
+                    speed: parseFloat((container.querySelector(".pe-proj-speed") as HTMLInputElement)?.value || "200"),
+                    damage: parseFloat((container.querySelector(".pe-damage") as HTMLInputElement)?.value || "50"),
+                },
+                world: {
+                    gravity: parseFloat((container.querySelector(".pe-gravity") as HTMLInputElement)?.value || "-9.81"),
+                    drag: parseFloat((container.querySelector(".pe-drag") as HTMLInputElement)?.value || "0.1"),
+                }
+            };
+            
+            // Применяем к танку
+            if (this.tank) {
+                this.tank.moveSpeed = config.tank.maxSpeed;
+                (this.tank as any).acceleration = config.tank.acceleration;
+            }
+            
+            localStorage.setItem("ptx_physics_config", JSON.stringify(config));
+            
+            if (this.game?.hud) {
+                this.game.hud.showMessage("Настройки физики сохранены!", "#0f0", 2000);
+            }
+        });
+        
+        // Кнопка сброса
+        const resetBtn = container.querySelector(".pe-reset-btn");
+        resetBtn?.addEventListener("click", () => {
+            localStorage.removeItem("ptx_physics_config");
+            if (this.game?.hud) {
+                this.game.hud.showMessage("Настройки сброшены!", "#ff0", 2000);
+            }
+        });
+        
+        // Кнопка экспорта
+        const exportBtn = container.querySelector(".pe-export-btn");
+        exportBtn?.addEventListener("click", () => {
+            const config = localStorage.getItem("ptx_physics_config") || "{}";
+            navigator.clipboard.writeText(config);
+            if (this.game?.hud) {
+                this.game.hud.showMessage("Конфиг скопирован в буфер!", "#0ff", 2000);
+            }
+        });
+    }
 }
 
 // Singleton instance

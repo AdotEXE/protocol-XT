@@ -261,9 +261,15 @@ export class GameSystems implements Partial<IGameSystems> {
             
             // Create Enemy Manager
             this.enemyManager = new EnemyManager(scene);
-            this.enemyManager.setPlayer(this.tank);
-            this.enemyManager.setEffectsManager(this.effectsManager);
-            this.enemyManager.setSoundManager(this.soundManager);
+            if (this.tank) {
+                this.enemyManager.setPlayer(this.tank);
+            }
+            if (this.effectsManager) {
+                this.enemyManager.setEffectsManager(this.effectsManager);
+            }
+            if (this.soundManager) {
+                this.enemyManager.setSoundManager(this.soundManager);
+            }
             // ОТКЛЮЧЕНО: танк создается в game.ts:init()
             // if (this.tank) {
             //     this.tank.setEnemyManager(this.enemyManager);

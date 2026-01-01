@@ -436,40 +436,9 @@ export class TerrainGenerator {
     }
     
     // Get terrain height at world coordinates with dramatic variations and erosion
+    // ВАЖНО: Логика гаража (плоская область) обрабатывается в ChunkSystem.getWorldHeight()
+    // Этот метод возвращает только "чистую" высоту террейна без учёта гаражей
     getHeight(worldX: number, worldZ: number, biome: string): number {
-        // ИСПРАВЛЕНИЕ: Для гаражей используем высоту террейна вокруг гаража, а не высоту самого гаража
-        // КРИТИЧНО: Если точка в гараже, получаем высоту террейна в небольшом радиусе от гаража
-        // Это нужно для правильного спавна танков НАД террейном, а не под ним
-        if (this.isPositionInGarageArea && this.isPositionInGarageArea(worldX, worldZ, 25)) {
-            // Получаем высоту террейна в небольшом радиусе от гаража (чтобы избежать высоты 0)
-            // Проверяем несколько точек вокруг гаража и берем максимальную высоту
-            const radius = 30; // Радиус проверки вокруг гаража
-            const checkPoints = [
-                { x: worldX + radius, z: worldZ },
-                { x: worldX - radius, z: worldZ },
-                { x: worldX, z: worldZ + radius },
-                { x: worldX, z: worldZ - radius },
-                { x: worldX + radius * 0.707, z: worldZ + radius * 0.707 },
-                { x: worldX - radius * 0.707, z: worldZ - radius * 0.707 },
-                { x: worldX + radius * 0.707, z: worldZ - radius * 0.707 },
-                { x: worldX - radius * 0.707, z: worldZ + radius * 0.707 }
-            ];
-            
-            let maxHeight = 0;
-            for (const point of checkPoints) {
-                // Рекурсивно вызываем getHeight, но с проверкой, чтобы избежать бесконечной рекурсии
-                // Используем флаг для отслеживания, что мы уже проверяем гараж
-                const height = this.getBaseHeight(point.x, point.z, biome);
-                if (height > maxHeight) {
-                    maxHeight = height;
-                }
-            }
-            
-            // Если не нашли высоту, используем минимальную безопасную высоту
-            const finalHeight = maxHeight > 0 ? maxHeight : 2.0;
-            return finalHeight;
-        }
-        
         // Специальная обработка для карты Тартария (реальные данные высот Тарту)
         // ТОЛЬКО для Тартарии используем специальную систему высот
         if (this.mapType === "tartaria") {

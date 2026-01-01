@@ -48,10 +48,10 @@ export interface CoordinatorConfig {
  * Конфигурация по умолчанию
  */
 export const DEFAULT_COORDINATOR_CONFIG: CoordinatorConfig = {
-    updateInterval: 1000,
-    maxSquadSize: 4,
-    coordinationRange: 100,
-    flankDistance: 40
+    updateInterval: 100, // NIGHTMARE: Ещё быстрее координация - 100мс!
+    maxSquadSize: 6, // NIGHTMARE: Больше ботов в отряде
+    coordinationRange: 200, // NIGHTMARE: Огромный радиус координации
+    flankDistance: 45 // NIGHTMARE: Более широкий фланг
 };
 
 /**
@@ -69,6 +69,15 @@ export class AICoordinator {
     private squads: Map<string, string[]> = new Map(); // squadId -> botIds
     private playerPosition: Vector3 = Vector3.Zero();
     private lastUpdateTime: number = 0;
+    
+    // УЛУЧШЕНО: Синхронизация атак
+    private synchronizedAttackTimer = 0;
+    private readonly SYNC_ATTACK_WINDOW = 300; // МАКСИМАЛЬНО: Уменьшено с 500 до 300мс для более быстрой синхронизации
+    private pendingAttackSquad: string | null = null;
+    
+    // УЛУЧШЕНО: Коммуникация между ботами
+    private botMessages: Map<string, { type: string, data: any, timestamp: number }> = new Map();
+    private readonly MESSAGE_TTL = 5000; // Сообщения живут 5 секунд
     
     constructor(config: Partial<CoordinatorConfig> = {}) {
         this.config = { ...DEFAULT_COORDINATOR_CONFIG, ...config };
@@ -167,23 +176,38 @@ export class AICoordinator {
     }
     
     /**
-     * Запрос помощи от бота
+     * УЛУЧШЕНО: Запрос помощи от бота с приоритетом
      */
     requestHelp(botId: string, threatPosition: Vector3): void {
         const bot = this.bots.get(botId);
         if (!bot) return;
         
-        // Найти ближайших союзников
+        // УЛУЧШЕНО: Найти ближайших союзников и отсортировать по расстоянию
         const nearbyBots = this.getNearbyBots(bot.lastPosition, this.config.coordinationRange);
+        nearbyBots.sort((a, b) => {
+            const distA = Vector3.Distance(a.lastPosition, bot.lastPosition);
+            const distB = Vector3.Distance(b.lastPosition, bot.lastPosition);
+            return distA - distB;
+        });
+        
+        // УЛУЧШЕНО: Прикрываем раненых союзников - отправляем ближайших ботов на помощь
+        let helpCount = 0;
+        const maxHelp = 2; // Максимум 2 бота на помощь
         
         for (const nearbyBot of nearbyBots) {
             if (nearbyBot.id === botId) continue;
-            if (nearbyBot.isEngaged) continue;
+            if (helpCount >= maxHelp) break;
             
-            // Направляем на помощь
-            nearbyBot.assignedTarget = botId;
-            
-            logger.debug(`[AICoordinator] Bot ${nearbyBot.id} sent to help ${botId}`);
+            // УЛУЧШЕНО: Support боты имеют приоритет для помощи
+            if (nearbyBot.role === "support" || !nearbyBot.isEngaged) {
+                nearbyBot.assignedTarget = botId;
+                this.sendMessage(nearbyBot.id, "help_request", { 
+                    targetId: botId, 
+                    threatPosition: threatPosition.clone() 
+                });
+                helpCount++;
+                logger.debug(`[AICoordinator] Bot ${nearbyBot.id} sent to help ${botId}`);
+            }
         }
     }
     
@@ -244,9 +268,22 @@ export class AICoordinator {
     }
     
     /**
-     * Обновление тактик отрядов
+     * NIGHTMARE AI: Обновление тактик отрядов с окружением игрока!
      */
     private updateSquadTactics(): void {
+        // NIGHTMARE: Собираем ВСЕХ живых ботов для координированной атаки
+        const allAliveBots: BotData[] = [];
+        for (const bot of this.bots.values()) {
+            if (bot.tank.isAlive) {
+                allAliveBots.push(bot);
+            }
+        }
+        
+        // NIGHTMARE: Если есть 2+ ботов - используем тактику КЛЕЩЕЙ!
+        if (allAliveBots.length >= 2) {
+            this.executePincerMovement(allAliveBots);
+        }
+        
         for (const [squadId, memberIds] of this.squads) {
             const members = memberIds.map(id => this.bots.get(id)).filter(b => b && b.tank.isAlive) as BotData[];
             if (members.length === 0) continue;
@@ -255,66 +292,238 @@ export class AICoordinator {
             const averagePosition = this.getAveragePosition(members);
             const distanceToPlayer = Vector3.Distance(averagePosition, this.playerPosition);
             
-            // Назначаем тактику
-            if (distanceToPlayer < 60) {
+            // NIGHTMARE: Всегда атакуем агрессивно!
+            if (distanceToPlayer < 120) { // NIGHTMARE: Атакуем с большей дистанции!
                 // Близко к игроку - координированная атака
                 this.assignAttackFormation(members);
-            } else if (distanceToPlayer < 120) {
-                // Средняя дистанция - сближение
+            } else if (distanceToPlayer < 200) { // NIGHTMARE: Сближаемся с очень большой дистанции!
+                // Средняя дистанция - АГРЕССИВНОЕ сближение
                 this.assignApproachFormation(members);
             } else {
-                // Далеко - патрулирование
+                // Далеко - АКТИВНОЕ патрулирование с поиском
                 this.assignPatrolFormation(members);
             }
         }
     }
     
     /**
-     * Назначение атакующего построения
+     * NIGHTMARE AI: Тактика "Клещи" - окружение игрока со всех сторон!
+     */
+    private executePincerMovement(bots: BotData[]): void {
+        if (bots.length < 2) return;
+        
+        // NIGHTMARE: Распределяем ботов по кругу вокруг игрока
+        const angleStep = (Math.PI * 2) / bots.length;
+        const baseRadius = 35; // Радиус окружения
+        
+        for (let i = 0; i < bots.length; i++) {
+            const bot = bots[i];
+            const angle = angleStep * i;
+            
+            // Вычисляем позицию окружения
+            const pincerPos = new Vector3(
+                this.playerPosition.x + Math.cos(angle) * baseRadius,
+                this.playerPosition.y,
+                this.playerPosition.z + Math.sin(angle) * baseRadius
+            );
+            
+            // Назначаем позицию для окружения
+            bot.assignedTarget = `pincer_${pincerPos.x.toFixed(0)}_${pincerPos.z.toFixed(0)}`;
+            
+            // Отправляем сообщение боту
+            this.sendMessage(bot.id, "pincer_position", { 
+                position: pincerPos,
+                angle: angle,
+                role: i === 0 ? "primary_attacker" : "encircler"
+            });
+        }
+        
+        logger.debug(`[AICoordinator] NIGHTMARE: Pincer movement with ${bots.length} bots`);
+    }
+    
+    /**
+     * УЛУЧШЕНО: Назначение атакующего построения с синхронизацией
      */
     private assignAttackFormation(members: BotData[]): void {
-        for (const bot of members) {
+        const now = Date.now();
+        const squadId = this.getSquadIdForMembers(members);
+        
+        // УЛУЧШЕНО: Синхронизированная атака - все боты атакуют одновременно
+        if (!this.pendingAttackSquad || this.pendingAttackSquad !== squadId) {
+            // Инициируем синхронизированную атаку
+            this.pendingAttackSquad = squadId;
+            this.synchronizedAttackTimer = now;
+            
+            // Отправляем сообщение всем ботам отряда
+            for (const bot of members) {
+                this.sendMessage(bot.id, "synchronized_attack", { time: now + this.SYNC_ATTACK_WINDOW });
+            }
+        }
+        
+        // УЛУЧШЕНО: Координированные фланги - несколько ботов с разных сторон
+        const flankers = members.filter(b => b.role === "flanker");
+        const flankCount = flankers.length;
+        
+        for (let i = 0; i < members.length; i++) {
+            const bot = members[i]!;
+            
             switch (bot.role) {
                 case "leader":
-                    // Лидер атакует напрямую
+                    // Лидер атакует напрямую, принимает урон
                     bot.assignedTarget = "player";
                     break;
+                    
                 case "flanker":
-                    // Фланкеры обходят
-                    const flankSide = Math.random() > 0.5 ? 1 : -1;
-                    const flankPos = this.calculateFlankPosition(this.playerPosition, bot.lastPosition, flankSide);
-                    // Устанавливаем цель фланга через tank API если доступно
+                    // УЛУЧШЕНО: Фланкеры распределяются по разным сторонам
+                    const flankIndex = flankers.indexOf(bot);
+                    const flankSide = flankIndex % 2 === 0 ? 1 : -1;
+                    const flankOffset = Math.floor(flankIndex / 2) * 15; // Расстояние между фланкерами
+                    const flankPos = this.calculateFlankPosition(
+                        this.playerPosition, 
+                        bot.lastPosition, 
+                        flankSide,
+                        flankOffset
+                    );
+                    bot.assignedTarget = `flank_${flankPos.x}_${flankPos.z}`;
                     break;
+                    
                 case "support":
-                    // Поддержка держит дистанцию
+                    // УЛУЧШЕНО: Поддержка держит дистанцию и прикрывает лидера
+                    const leader = members.find(m => m.role === "leader");
+                    if (leader) {
+                        // Позиция поддержки - за лидером, но с обзором
+                        const supportPos = leader.lastPosition.clone();
+                        const toPlayer = this.playerPosition.subtract(leader.lastPosition).normalize();
+                        supportPos.add(toPlayer.scale(-15)); // 15м за лидером
+                        bot.assignedTarget = `support_${supportPos.x}_${supportPos.z}`;
+                    } else {
+                        bot.assignedTarget = "player";
+                    }
+                    break;
+                    
+                case "scout":
+                    // Разведчик держит максимальную дистанцию
                     bot.assignedTarget = "player";
+                    break;
+                    
+                case "defender":
+                    // Защитник блокирует путь отступления
+                    const retreatBlockPos = this.calculateRetreatBlockPosition(this.playerPosition, bot.lastPosition);
+                    bot.assignedTarget = `block_${retreatBlockPos.x}_${retreatBlockPos.z}`;
                     break;
             }
         }
     }
     
     /**
+     * УЛУЧШЕНО: Вычисление позиции фланга с офсетом
+     */
+    private calculateFlankPosition(targetPos: Vector3, myPos: Vector3, side: number, offset: number = 0): Vector3 {
+        const toTarget = targetPos.subtract(myPos);
+        toTarget.y = 0;
+        toTarget.normalize();
+        
+        const perpendicular = new Vector3(toTarget.z * side, 0, -toTarget.x * side);
+        const flankBase = myPos.add(perpendicular.scale(this.config.flankDistance + offset));
+        
+        // УЛУЧШЕНО: Добавляем смещение вперёд для лучшего угла атаки
+        const forwardOffset = toTarget.scale(offset * 0.3);
+        return flankBase.add(forwardOffset);
+    }
+    
+    /**
+     * УЛУЧШЕНО: Вычисление позиции блокировки отступления
+     */
+    private calculateRetreatBlockPosition(targetPos: Vector3, myPos: Vector3): Vector3 {
+        // Позиция за игроком для блокировки отступления
+        const toPlayer = targetPos.subtract(myPos);
+        toPlayer.y = 0;
+        toPlayer.normalize();
+        
+        // Позиция за игроком на расстоянии 30м
+        return targetPos.add(toPlayer.scale(-30));
+    }
+    
+    /**
+     * УЛУЧШЕНО: Получение ID отряда для ботов
+     */
+    private getSquadIdForMembers(members: BotData[]): string | null {
+        if (members.length === 0) return null;
+        
+        for (const [squadId, memberIds] of this.squads) {
+            if (memberIds.includes(members[0]!.id)) {
+                return squadId;
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * УЛУЧШЕНО: Отправка сообщения боту
+     */
+    private sendMessage(botId: string, type: string, data: any): void {
+        this.botMessages.set(botId, {
+            type,
+            data,
+            timestamp: Date.now()
+        });
+    }
+    
+    /**
+     * УЛУЧШЕНО: Получение сообщений для бота
+     */
+    getMessages(botId: string): Array<{ type: string, data: any }> {
+        const message = this.botMessages.get(botId);
+        if (!message) return [];
+        
+        const now = Date.now();
+        if (now - message.timestamp > this.MESSAGE_TTL) {
+            this.botMessages.delete(botId);
+            return [];
+        }
+        
+        return [{ type: message.type, data: message.data }];
+    }
+    
+    /**
      * Назначение построения сближения
      */
     private assignApproachFormation(members: BotData[]): void {
-        // Все движутся к игроку, но с разных направлений
+        // СУПЕР: Агрессивное сближение с окружением!
         const angleStep = (Math.PI * 2) / Math.max(members.length, 1);
         
         for (let i = 0; i < members.length; i++) {
-            const bot = members[i];
+            const bot = members[i]!;
             const angle = angleStep * i;
-            const offset = new Vector3(Math.cos(angle) * 20, 0, Math.sin(angle) * 20);
-            // Цель с офсетом
+            // СУПЕР: Меньший офсет для более плотного окружения!
+            const offset = new Vector3(Math.cos(angle) * 15, 0, Math.sin(angle) * 15);
+            // Цель с офсетом - идём к игроку с разных сторон
+            const targetPos = this.playerPosition.clone().add(offset);
+            bot.assignedTarget = `approach_${targetPos.x.toFixed(0)}_${targetPos.z.toFixed(0)}`;
         }
     }
     
     /**
-     * Назначение патрульного построения
+     * СУПЕР: Назначение АГРЕССИВНОГО патрульного построения
      */
     private assignPatrolFormation(members: BotData[]): void {
-        // Распределяем по зонам патрулирования
+        // СУПЕР: Активное патрулирование с поиском игрока!
         for (const bot of members) {
-            bot.assignedTarget = null;
+            // СУПЕР: Движемся к последней известной позиции игрока!
+            if (this.playerPosition && this.playerPosition.length() > 0) {
+                const searchRadius = 50 + Math.random() * 50; // 50-100м от игрока
+                const searchAngle = Math.random() * Math.PI * 2;
+                const searchOffset = new Vector3(
+                    Math.cos(searchAngle) * searchRadius,
+                    0,
+                    Math.sin(searchAngle) * searchRadius
+                );
+                const searchPos = this.playerPosition.clone().add(searchOffset);
+                bot.assignedTarget = `search_${searchPos.x.toFixed(0)}_${searchPos.z.toFixed(0)}`;
+            } else {
+                bot.assignedTarget = null;
+            }
         }
     }
     
@@ -324,34 +533,44 @@ export class AICoordinator {
     private generateOrder(bot: BotData, squadMembers: BotData[]): TacticalOrder {
         const distanceToPlayer = Vector3.Distance(bot.lastPosition, this.playerPosition);
         
-        // Базовый приказ на основе роли
+        // СУПЕР: Агрессивные приказы на основе роли!
         switch (bot.role) {
             case "leader":
-                if (distanceToPlayer < 100) {
+                if (distanceToPlayer < 150) { // СУПЕР: Увеличено с 100 до 150!
                     return { type: "attack", targetPosition: this.playerPosition.clone(), priority: 1 };
                 }
                 break;
                 
             case "flanker":
-                if (distanceToPlayer < 100) {
-                    const flankPos = this.calculateFlankPosition(this.playerPosition, bot.lastPosition, 1);
+                if (distanceToPlayer < 150) { // СУПЕР: Увеличено с 100 до 150!
+                    // СУПЕР: Рандомизируем сторону фланга!
+                    const side = Math.random() > 0.5 ? 1 : -1;
+                    const flankPos = this.calculateFlankPosition(this.playerPosition, bot.lastPosition, side);
                     return { type: "flank", targetPosition: flankPos, priority: 2 };
                 }
                 break;
                 
             case "support":
-                // Поддержка следует за лидером
+                // СУПЕР: Поддержка более агрессивна!
                 const leader = squadMembers.find(m => m.role === "leader");
-                if (leader && distanceToPlayer < 120) {
+                if (leader && distanceToPlayer < 150) { // СУПЕР: Увеличено с 120 до 150!
                     return { type: "cover", targetPosition: leader.lastPosition.clone(), priority: 3 };
+                }
+                // СУПЕР: Если нет лидера - атакуем сами!
+                if (distanceToPlayer < 120) {
+                    return { type: "attack", targetPosition: this.playerPosition.clone(), priority: 2 };
                 }
                 break;
                 
             case "scout":
+                // СУПЕР: Разведчик тоже атакует если близко!
+                if (distanceToPlayer < 100) {
+                    return { type: "attack", targetPosition: this.playerPosition.clone(), priority: 3 };
+                }
                 return { type: "patrol", priority: 4 };
                 
             case "defender":
-                if (distanceToPlayer < 80) {
+                if (distanceToPlayer < 120) { // СУПЕР: Увеличено с 80 до 120!
                     return { type: "attack", targetPosition: this.playerPosition.clone(), priority: 2 };
                 }
                 return { type: "patrol", priority: 5 };
@@ -359,18 +578,6 @@ export class AICoordinator {
         
         // По умолчанию - патруль
         return { type: "patrol", priority: 10 };
-    }
-    
-    /**
-     * Вычисление позиции фланга
-     */
-    private calculateFlankPosition(targetPos: Vector3, myPos: Vector3, side: number): Vector3 {
-        const toTarget = targetPos.subtract(myPos);
-        toTarget.y = 0;
-        toTarget.normalize();
-        
-        const perpendicular = new Vector3(toTarget.z * side, 0, -toTarget.x * side);
-        return myPos.add(perpendicular.scale(this.config.flankDistance));
     }
     
     /**

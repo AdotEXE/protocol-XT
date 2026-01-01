@@ -113,9 +113,9 @@ if (require.main === module) {
   const args = process.argv.slice(2);
   
   if (args[0] === 'set' && args.length === 4) {
-    const major = parseInt(args[1]);
-    const minor = parseInt(args[2]);
-    const build = parseInt(args[3]);
+    const major = parseInt(args[1] || '0');
+    const minor = parseInt(args[2] || '0');
+    const build = parseInt(args[3] || '0');
     setVersion(major, minor, build);
   } else if (args[0] === 'increment' || args.length === 0) {
     incrementVersion();

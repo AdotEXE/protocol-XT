@@ -35,7 +35,15 @@ export interface TankPart {
         firepower?: number;
         reload?: number;
         damage?: number;
+        // Дополнительные статы для модулей
+        critChance?: number;
+        evasion?: number;
+        fuelEfficiency?: number;
+        repairRate?: number;
     };
+    // Дополнительные поля для модулей
+    rarity?: "common" | "uncommon" | "rare" | "epic" | "legendary";
+    rarityColor?: string;
 }
 
 /**

@@ -9,7 +9,9 @@ import {
     SKILL_BRANCHES, 
     isNodeUnlocked, 
     getSkillCost,
-    calculateAllNodePositions
+    calculateAllNodePositions,
+    BRANCH_CATEGORIES,
+    CATEGORY_COLORS
 } from "../skillTreeConfig";
 
 export interface PlayerStats {
@@ -33,11 +35,11 @@ export function createSkillsPanelHTML(): string {
         <div class="panel-content">
             <button class="panel-close" id="skills-close">✕</button>
             <div class="panel-title">Навыки</div>
+            <div class="skill-tree-header">
+                <div id="skill-points-display" class="skill-points-pill">Очков навыков: 0</div>
+                <div class="skill-tree-legend" id="skill-tree-legend"></div>
+            </div>
             <div class="skill-tree-wrapper">
-                <div class="skill-tree-header">
-                    <div id="skill-points-display" class="skill-points-pill">Очков навыков: 0</div>
-                    <div class="skill-tree-legend" id="skill-tree-legend"></div>
-                </div>
                 <div class="skill-tree" id="skill-tree"></div>
             </div>
             <div class="panel-buttons">
@@ -50,6 +52,9 @@ export function createSkillsPanelHTML(): string {
 /**
  * Обновляет отображение скил-дерева
  */
+// Глобальное состояние выбранной категории
+let selectedCategory: "combat" | "defense" | "utility" | null = null;
+
 export function updateSkillTreeDisplay(
     stats: PlayerStats,
     callbacks: SkillTreeCallbacks
@@ -74,11 +79,11 @@ export function updateSkillTreeDisplay(
         skillPointsDisplay.textContent = `Очков навыков: ${stats.skillPoints}`;
     }
     
-    // Обновляем легенду веток
+    // Обновляем легенду веток с кликабельностью
     const legend = document.getElementById("skill-tree-legend");
     if (legend) {
         legend.innerHTML = SKILL_BRANCHES.map(branch => 
-            `<span style="border-color: ${branch.color}; color: ${branch.color}">
+            `<span class="skill-branch-filter" data-branch-id="${branch.id}" style="border-color: ${branch.color}; color: ${branch.color}; cursor: pointer;">
                 ${branch.icon} ${branch.name}
             </span>`
         ).join("");
@@ -115,26 +120,26 @@ export function updateSkillTreeDisplay(
         height: 130
     };
 
-    // Вычисляем позиции всех узлов используя новую полярную систему
+    // Вычисляем позиции всех узлов используя новую систему трех деревьев
     const calculatedPositions = calculateAllNodePositions();
     
     // Находим границы дерева для определения размера
-    let minX = 0, maxX = 0, minY = 0, maxY = 0;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     calculatedPositions.forEach((pos) => {
         minX = Math.min(minX, pos.x);
-        maxX = Math.max(maxX, pos.x);
+        maxX = Math.max(maxX, pos.x + layout.width);
         minY = Math.min(minY, pos.y);
-        maxY = Math.max(maxY, pos.y);
+        maxY = Math.max(maxY, pos.y + layout.height);
     });
     
-    // Добавляем отступы
-    const padding = 300;
-    const treeWidth = Math.max(2000, (maxX - minX) + padding * 2);
-    const treeHeight = Math.max(1500, (maxY - minY) + padding * 2);
+    // Добавляем отступы для трех деревьев
+    const padding = 150;
+    const treeWidth = (maxX - minX) + padding * 2;
+    const treeHeight = (maxY - minY) + padding * 2;
     
-    // Смещаем все позиции так, чтобы центральный узел был в центре
-    const offsetX = treeWidth / 2;
-    const offsetY = treeHeight / 2;
+    // Смещаем все позиции так, чтобы начало было в левом верхнем углу (учитываем отрицательные координаты)
+    const offsetX = -minX + padding;
+    const offsetY = -minY + padding;
     
     const nodePositions = new Map<string, { left: number; top: number; centerX: number; centerY: number }>();
     calculatedPositions.forEach((pos, nodeId) => {
@@ -190,12 +195,64 @@ export function updateSkillTreeDisplay(
     skillTree.innerHTML = "";
 
     if (wrapper) {
-        const core = nodePositions.get("commandCore");
-        if (core) {
-            wrapper.scrollLeft = Math.max(core.centerX - wrapper.clientWidth / 2, 0);
-            wrapper.scrollTop = Math.max(core.centerY - wrapper.clientHeight / 2, 0);
-        }
+        // Прокручиваем к началу первого дерева
+        wrapper.scrollLeft = 0;
+        wrapper.scrollTop = 0;
     }
+
+    // Функция для определения категории узла (определяем до использования)
+    const getNodeCategory = (nodeId: string): "combat" | "defense" | "utility" | null => {
+        for (const [category, hubIds] of Object.entries(BRANCH_CATEGORIES)) {
+            if (hubIds.includes(nodeId)) {
+                return category as "combat" | "defense" | "utility";
+            }
+        }
+        // Проверяем родителя
+        const node = SKILL_TREE_NODES.find(n => n.id === nodeId);
+        if (node?.parentId) {
+            return getNodeCategory(node.parentId);
+        }
+        return null;
+    };
+
+    // Функция для проверки, принадлежит ли узел к категории (включая дочерние узлы)
+    const isNodeInCategory = (nodeId: string, category: "combat" | "defense" | "utility"): boolean => {
+        const nodeCategory = getNodeCategory(nodeId);
+        return nodeCategory === category;
+    };
+
+    // Создаем заголовки категорий
+    const categories: Array<{ id: "combat" | "defense" | "utility"; name: string; icon: string }> = [
+        { id: "combat", name: "БОЕВЫЕ", icon: "⚔️" },
+        { id: "defense", name: "ЗАЩИТА", icon: "🛡️" },
+        { id: "utility", name: "УТИЛИТЫ", icon: "🛠️" }
+    ];
+
+    // Находим позиции для заголовков категорий (центр каждого дерева)
+    const categoryHeaders: Array<{ category: "combat" | "defense" | "utility"; x: number; y: number }> = [];
+    categories.forEach((category, treeIndex) => {
+        const hubIds = BRANCH_CATEGORIES[category.id];
+        const categoryHubs = SKILL_TREE_NODES.filter(n => hubIds.includes(n.id));
+        if (categoryHubs.length > 0) {
+            // Находим минимальную X координату для этой категории
+            let minCategoryX = Infinity;
+            let minCategoryY = Infinity;
+            categoryHubs.forEach(hub => {
+                const pos = nodePositions.get(hub.id);
+                if (pos) {
+                    minCategoryX = Math.min(minCategoryX, pos.left);
+                    minCategoryY = Math.min(minCategoryY, pos.top);
+                }
+            });
+            if (minCategoryX !== Infinity) {
+                categoryHeaders.push({
+                    category: category.id,
+                    x: minCategoryX - 50,
+                    y: minCategoryY - 80
+                });
+            }
+        }
+    });
 
     // Создаем SVG для извилистых коннекторов
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -213,33 +270,52 @@ export function updateSkillTreeDisplay(
         const to = nodePositions.get(edge.to);
         if (!from || !to) return;
 
-        // Вычисляем контрольные точки для извилистой кривой
+        // Фильтрация: показываем только линии выбранной категории (если выбрана)
+        if (selectedCategory !== null) {
+            const fromCategory = getNodeCategory(edge.from);
+            const toCategory = getNodeCategory(edge.to);
+            if (fromCategory !== selectedCategory && toCategory !== selectedCategory) {
+                return; // Пропускаем линии не выбранной категории
+            }
+        }
+
+        // Определяем цвет линии по категории
+        const category = getNodeCategory(edge.to) || getNodeCategory(edge.from);
+        const lineColor = category ? CATEGORY_COLORS[category] : "#0f0";
+
+        // Линии с диагональным изгибом под 45° посередине
         const dx = to.centerX - from.centerX;
         const dy = to.centerY - from.centerY;
-        const distance = Math.sqrt(dx * dx + dy * dy);
+        const absDy = Math.abs(dy);
+
+        let pathData = `M ${from.centerX} ${from.centerY}`;
+
+        // Если движение почти горизонтальное - прямая линия
+        if (absDy < 10) {
+            pathData += ` L ${to.centerX} ${to.centerY}`;
+        } else {
+            // Горизонтально -> Диагональ 45° -> Горизонтально
+            // Диагональный сегмент: |dy| по X и |dy| по Y (строго 45°)
+            // Горизонтальные сегменты делят оставшуюся длину пополам
+            const horizontalPart = (Math.abs(dx) - absDy) / 2;
+            const dirY = dy > 0 ? 1 : -1;
+            
+            // Точка начала диагонали
+            const diag1X = from.centerX + horizontalPart;
+            const diag1Y = from.centerY;
+            
+            // Точка конца диагонали (смещение на |dy| по X и dy по Y)
+            const diag2X = diag1X + absDy;
+            const diag2Y = from.centerY + dy;
+            
+            pathData += ` L ${diag1X} ${diag1Y}`; // Горизонтально до начала диагонали
+            pathData += ` L ${diag2X} ${diag2Y}`; // Диагонально под 45°
+            pathData += ` L ${to.centerX} ${to.centerY}`; // Горизонтально до конца
+        }
         
-        // Для веток под углом 135° делаем более плавные кривые
-        // Вычисляем перпендикулярный вектор для изгиба
-        const perpX = -dy / distance;
-        const perpY = dx / distance;
-        
-        // Создаем извилистую кривую с несколькими контрольными точками
-        const controlOffset = Math.min(distance * 0.25, 50);
-        const randomOffset1 = (Math.sin(edge.from.charCodeAt(0) + edge.to.charCodeAt(0)) * controlOffset);
-        const randomOffset2 = (Math.cos(edge.from.charCodeAt(0) + edge.to.charCodeAt(0)) * controlOffset);
-        
-        // Первая контрольная точка (смещение перпендикулярно направлению)
-        const cp1x = from.centerX + dx * 0.35 + perpX * controlOffset * 0.5 + randomOffset1 * 0.3;
-        const cp1y = from.centerY + dy * 0.35 + perpY * controlOffset * 0.5 - randomOffset2 * 0.3;
-        
-        // Вторая контрольная точка
-        const cp2x = from.centerX + dx * 0.65 - perpX * controlOffset * 0.5 - randomOffset1 * 0.3;
-        const cp2y = from.centerY + dy * 0.65 - perpY * controlOffset * 0.5 + randomOffset2 * 0.3;
-        
-        // Создаем кривую Безье (кубическую) для более органичного вида
         const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        path.setAttribute("d", `M ${from.centerX} ${from.centerY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${to.centerX} ${to.centerY}`);
-        path.setAttribute("stroke", "#0f0");
+        path.setAttribute("d", pathData);
+        path.setAttribute("stroke", lineColor);
         path.setAttribute("stroke-width", "2");
         path.setAttribute("fill", "none");
         path.setAttribute("opacity", "0.4");
@@ -274,16 +350,36 @@ export function updateSkillTreeDisplay(
                   .join("")
             : "";
 
-        const borderColor = node.branchColor || (node.type === "hub" ? "#0f0" : node.type === "meta" ? "#5cf" : "#0f0");
-        const isLocked = !isUnlocked && node.type !== "hub" && node.id !== "commandCore";
+        // Определяем цвет границы по категории
+        let borderColor = node.branchColor;
+        if (!borderColor) {
+            const category = getNodeCategory(node.id);
+            if (category) {
+                borderColor = CATEGORY_COLORS[category];
+            } else {
+                borderColor = node.type === "hub" ? "#0f0" : node.type === "meta" ? "#5cf" : "#0f0";
+            }
+        }
+        
+        // Скрываем центральный узел commandCore
+        if (node.id === "commandCore") {
+            return; // Пропускаем центральный узел
+        }
+
+        // Фильтрация: показываем только узлы выбранной категории (если выбрана)
+        if (selectedCategory !== null) {
+            if (!isNodeInCategory(node.id, selectedCategory)) {
+                return; // Пропускаем узлы не выбранной категории
+            }
+        }
+        
+        const isLocked = !isUnlocked && node.type !== "hub";
         
         const nodeEl = document.createElement("div");
         nodeEl.className = `skill-node${node.type === "hub" ? " is-hub" : ""}${node.type === "meta" ? " is-meta" : ""}${isLocked ? " is-locked" : ""}`;
         nodeEl.style.left = `${pos.left}px`;
         nodeEl.style.top = `${pos.top}px`;
-        if (node.branchColor) {
-            nodeEl.style.borderColor = borderColor;
-        }
+        nodeEl.style.borderColor = borderColor;
         
         let moduleInfo = "";
         if (node.moduleId && isUnlocked) {
@@ -323,7 +419,30 @@ export function updateSkillTreeDisplay(
         nodesFragment.appendChild(nodeEl);
     });
 
+    // Создаем заголовки категорий
+    const headersFragment = document.createDocumentFragment();
+    categoryHeaders.forEach((headerInfo) => {
+        const categoryInfo = categories.find(c => c.id === headerInfo.category);
+        if (!categoryInfo) return;
+
+        const headerEl = document.createElement("div");
+        headerEl.className = "skill-category-header";
+        headerEl.dataset.category = headerInfo.category;
+        headerEl.style.left = `${headerInfo.x}px`;
+        headerEl.style.top = `${headerInfo.y}px`;
+        headerEl.style.borderColor = CATEGORY_COLORS[headerInfo.category];
+        headerEl.style.color = CATEGORY_COLORS[headerInfo.category];
+        
+        if (selectedCategory === headerInfo.category) {
+            headerEl.classList.add("active");
+        }
+        
+        headerEl.innerHTML = `${categoryInfo.icon} ${categoryInfo.name}`;
+        headersFragment.appendChild(headerEl);
+    });
+
     skillTree.appendChild(connectors);
+    skillTree.appendChild(headersFragment);
     skillTree.appendChild(nodesFragment);
     
     console.log(`[Skills] Created ${nodesCreated} nodes, ${connectors.children.length} connectors`);
@@ -332,6 +451,110 @@ export function updateSkillTreeDisplay(
     // Проверяем что узлы действительно в DOM
     const renderedNodes = skillTree.querySelectorAll('.skill-node');
     console.log(`[Skills] Rendered nodes in DOM: ${renderedNodes.length}`);
+    
+    // Функция плавного перемещения камеры к позиции
+    const smoothScrollTo = (targetX: number, targetY: number, duration: number = 600) => {
+        if (!wrapper) return;
+        
+        const startX = wrapper.scrollLeft;
+        const startY = wrapper.scrollTop;
+        const distanceX = targetX - startX;
+        const distanceY = targetY - startY;
+        const startTime = performance.now();
+        
+        const animate = (currentTime: number) => {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            
+            // Easing функция (ease-out)
+            const easeOut = 1 - Math.pow(1 - progress, 3);
+            
+            wrapper!.scrollLeft = startX + distanceX * easeOut;
+            wrapper!.scrollTop = startY + distanceY * easeOut;
+            
+            if (progress < 1) {
+                requestAnimationFrame(animate);
+            }
+        };
+        
+        requestAnimationFrame(animate);
+    };
+    
+    // Добавляем обработчики кликов на заголовки категорий
+    skillTree.querySelectorAll(".skill-category-header").forEach((headerEl) => {
+        headerEl.addEventListener("click", () => {
+            const category = (headerEl as HTMLElement).dataset.category as "combat" | "defense" | "utility" | undefined;
+            if (!category) return;
+            
+            // Переключаем выбранную категорию
+            if (selectedCategory === category) {
+                selectedCategory = null; // Снимаем выбор
+            } else {
+                selectedCategory = category;
+            }
+            
+            // Находим позицию для перемещения камеры
+            const headerInfo = categoryHeaders.find(h => h.category === category);
+            if (headerInfo && wrapper) {
+                // Находим первый hub этой категории для центрирования
+                const hubIds = BRANCH_CATEGORIES[category];
+                const categoryHubs = SKILL_TREE_NODES.filter(n => hubIds.includes(n.id));
+                if (categoryHubs.length > 0) {
+                    const firstHub = categoryHubs[0]!;
+                    const hubPos = nodePositions.get(firstHub.id);
+                    if (hubPos) {
+                        const targetX = Math.max(0, hubPos.centerX - wrapper.clientWidth / 2);
+                        const targetY = Math.max(0, hubPos.centerY - wrapper.clientHeight / 2);
+                        smoothScrollTo(targetX, targetY, 500);
+                    }
+                }
+            }
+            
+            // Перерисовываем дерево с фильтрацией
+            updateSkillTreeDisplay(stats, callbacks);
+        });
+    });
+    
+    // Добавляем обработчики кликов для веток в легенде
+    if (legend) {
+        legend.querySelectorAll(".skill-branch-filter").forEach((el) => {
+            el.addEventListener("click", () => {
+                const branchId = (el as HTMLElement).dataset.branchId;
+                if (branchId) {
+                    // Сбрасываем фильтр по категории, чтобы все ветки были видны
+                    if (selectedCategory !== null) {
+                        selectedCategory = null;
+                        // Перерисовываем дерево без фильтра
+                        updateSkillTreeDisplay(stats, callbacks);
+                        // После перерисовки нужно заново получить позицию и прокрутить
+                        setTimeout(() => {
+                            const updatedNodePositions = calculateAllNodePositions();
+                            const hubNode = SKILL_TREE_NODES.find(n => n.id === `${branchId}Hub`);
+                            if (hubNode && wrapper) {
+                                const hubPos = updatedNodePositions.get(hubNode.id);
+                                if (hubPos) {
+                                    const targetX = Math.max(0, hubPos.x + 200 - wrapper.clientWidth / 2);
+                                    const targetY = Math.max(0, hubPos.y + 200 - wrapper.clientHeight / 2);
+                                    smoothScrollTo(targetX, targetY, 500);
+                                }
+                            }
+                        }, 50);
+                    } else {
+                        // Просто прокручиваем к ветке
+                        const hubNode = SKILL_TREE_NODES.find(n => n.id === `${branchId}Hub`);
+                        if (hubNode) {
+                            const hubPos = nodePositions.get(hubNode.id);
+                            if (hubPos && wrapper) {
+                                const targetX = Math.max(0, hubPos.centerX - wrapper.clientWidth / 2);
+                                const targetY = Math.max(0, hubPos.centerY - wrapper.clientHeight / 2);
+                                smoothScrollTo(targetX, targetY, 500);
+                            }
+                        }
+                    }
+                }
+            });
+        });
+    }
 
     skillTree.querySelectorAll(".skill-upgrade-btn").forEach((btn) => {
         btn.addEventListener("click", () => {
@@ -482,19 +705,18 @@ export function setupSkillTreeNavigation(wrapper: HTMLElement | null): void {
         });
     }
 
-    // Wheel zoom - плавный без задержек
+    // Wheel zoom - всегда работает как зум
     wrapper.addEventListener("wheel", (e: WheelEvent) => {
-        // Зум работает всегда (не только с Ctrl)
         e.preventDefault();
         
-        // Вычисляем изменение зума (5-10% за прокрутку)
-        const delta = e.deltaY > 0 ? -ZOOM_SPEED : ZOOM_SPEED;
+        // Вычисляем изменение зума
+        const delta = e.deltaY > 0 ? -ZOOM_SPEED * 1.5 : ZOOM_SPEED * 1.5;
         const newTargetZoom = targetZoom + delta;
         
         // Обновляем targetZoom и применяем зум относительно курсора
         targetZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newTargetZoom));
         
-        // Немедленно применяем зум без throttle
+        // Немедленно применяем зум
         const wrapperRect = wrapper.getBoundingClientRect();
         const mouseX = e.clientX;
         const mouseY = e.clientY;
@@ -533,7 +755,7 @@ export function setupSkillTreeNavigation(wrapper: HTMLElement | null): void {
     
     window.addEventListener("keydown", onKey);
     
-    // Drag для перетаскивания дерева
+    // Drag для перетаскивания дерева - оптимизированная версия
     let isDown = false;
     let startX = 0;
     let startY = 0;
@@ -541,6 +763,12 @@ export function setupSkillTreeNavigation(wrapper: HTMLElement | null): void {
     let scrollTop = 0;
 
     const onMouseDown = (e: MouseEvent) => {
+        // Игнорируем клики на кнопки и интерактивные элементы
+        const target = e.target as HTMLElement;
+        if (target.closest('button') || target.closest('.skill-upgrade-btn') || target.closest('.skill-category-header')) {
+            return;
+        }
+        
         isDown = true;
         wrapper.classList.add("dragging");
         startX = e.clientX;
@@ -552,8 +780,13 @@ export function setupSkillTreeNavigation(wrapper: HTMLElement | null): void {
     const onMouseMove = (e: MouseEvent) => {
         if (!isDown) return;
         e.preventDefault();
-        wrapper.scrollLeft = scrollLeft - (e.clientX - startX);
-        wrapper.scrollTop = scrollTop - (e.clientY - startY);
+        
+        // Прямое обновление позиции для максимальной отзывчивости
+        const deltaX = e.clientX - startX;
+        const deltaY = e.clientY - startY;
+        
+        wrapper.scrollLeft = scrollLeft - deltaX;
+        wrapper.scrollTop = scrollTop - deltaY;
     };
 
     const stopDrag = () => {
@@ -564,6 +797,7 @@ export function setupSkillTreeNavigation(wrapper: HTMLElement | null): void {
     wrapper.addEventListener("mousedown", onMouseDown);
     wrapper.addEventListener("mousemove", onMouseMove);
     wrapper.addEventListener("mouseleave", stopDrag);
+    wrapper.addEventListener("mouseup", stopDrag);
     window.addEventListener("mouseup", stopDrag);
 }
 

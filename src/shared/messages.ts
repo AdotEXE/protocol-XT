@@ -74,6 +74,7 @@ export enum ServerMessageType {
     // Matchmaking
     MATCH_FOUND = "match_found",
     QUEUE_UPDATE = "queue_update",
+    GAME_INVITE = "game_invite",
     
     // Game state
     GAME_START = "game_start",

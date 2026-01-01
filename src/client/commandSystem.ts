@@ -244,10 +244,10 @@ export class CommandSystem {
                 
                 if (game.tank && game.tank.chassis) {
                     // КРИТИЧНО: Вычисляем высоту террейна автоматически
-                    const groundHeight = (game as any).getGroundHeight ? (game as any).getGroundHeight(x, z) : 2.0;
-                    // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
+                    const groundHeight = (game as any).getGroundHeight ? (game as any).getGroundHeight(x, z) : 5.0;
+                    // Безопасная высота: +5м над террейном, минимум 7м
                     // Игнорируем customY если он указан - всегда используем высоту над террейном
-                    const targetY = Math.max(groundHeight + 2.0, 3.0);
+                    const targetY = Math.max(groundHeight + 5.0, 7.0);
                     
                     const targetPos = new Vector3(x, targetY, z);
                     game.tank.chassis.position = targetPos;
@@ -266,7 +266,7 @@ export class CommandSystem {
                     // Обновляем матрицы
                     game.tank.chassis.computeWorldMatrix(true);
                     
-                    return `Teleported to (${x.toFixed(1)}, ${targetY.toFixed(1)}, ${z.toFixed(1)}) - terrain: ${(targetY - 3).toFixed(1)}m`;
+                    return `Teleported to (${x.toFixed(1)}, ${targetY.toFixed(1)}, ${z.toFixed(1)}) - terrain: ${groundHeight.toFixed(1)}m`;
                 }
                 
                 return 'Tank not available';

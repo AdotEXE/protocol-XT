@@ -28,6 +28,7 @@ import { TankController } from "./tankController";
 import { HUD } from "./hud";
 import { SoundManager } from "./soundManager";
 import { EffectsManager } from "./effects";
+import { PostProcessingManager } from "./effects/PostProcessingManager";
 import { EnemyManager } from "./enemy";
 import { ChunkSystem } from "./chunkSystem";
 // Debug tools are lazy loaded (only loaded when F3/F4/F7 are pressed)
@@ -43,9 +44,11 @@ import { ExperienceSystem } from "./experienceSystem";
 import { PlayerProgressionSystem } from "./playerProgression";
 import { AimingSystem } from "./aimingSystem";
 import { AchievementsSystem, Achievement } from "./achievements";
+import { DailyQuestsSystem, BattlePassSystem } from "./dailyQuests";
 import { DestructionSystem } from "./destructionSystem";
 import { MissionSystem, Mission } from "./missionSystem";
 import { PlayerStatsSystem } from "./playerStats";
+import { upgradeManager } from "./upgrade";
 import { MultiplayerManager } from "./multiplayer";
 import { NetworkPlayerTank } from "./networkPlayerTank";
 import { firebaseService, type MatchHistory } from "./firebaseService";
@@ -65,6 +68,7 @@ import type { CheatMenu } from "./cheatMenu";
 import type { NetworkMenu } from "./networkMenu";
 import type { WorldGenerationMenu } from "./worldGenerationMenu";
 import type { HelpMenu } from "./helpMenu";
+import type { UnifiedMenu } from "./unifiedMenu";
 import type { ScreenshotManager } from "./screenshotManager";
 import type { ScreenshotPanel } from "./screenshotPanel";
 import type { BattleRoyaleVisualizer } from "./battleRoyale";
@@ -128,6 +132,9 @@ export class Game {
     // Help menu (lazy loaded)
     helpMenu: HelpMenu | undefined; // Lazy loaded from "./helpMenu"
     
+    // Unified menu (lazy loaded) - заменяет все отдельные меню
+    unifiedMenu: UnifiedMenu | undefined; // Lazy loaded from "./unifiedMenu"
+    
     // Session settings
     sessionSettings: { getSettings: () => { enemyCount?: number; aiDifficulty?: string }; setGame: (game: Game) => void } | undefined;
     
@@ -170,6 +177,15 @@ export class Game {
     
     // Player stats system
     playerStats: PlayerStatsSystem | undefined;
+    
+    // Daily quests system
+    dailyQuestsSystem: DailyQuestsSystem | undefined;
+    
+    // Battle pass system
+    battlePassSystem: BattlePassSystem | undefined;
+    
+    // Post-processing manager
+    postProcessingManager: PostProcessingManager | undefined;
     
     // Aiming system
     aimingSystem: AimingSystem | undefined;
@@ -222,11 +238,7 @@ export class Game {
     // Плавающая сложность врагов (логирование для отладки скейла)
     private _lastAdaptiveDifficultyLogTime = 0;
     
-    // Система волн для карты "Передовая"
-    private frontlineWaveNumber = 0;
-    private frontlineWaveTimer: number | null = null;
-    private frontlineMaxEnemies = 12;
-    private frontlineWaveInterval = 75000; // 75 секунд между волнами
+    // УДАЛЕНО: Система волн для карты "Передовая" - теперь управляется в GameEnemies
     
     // Таймер для проверки видимости меню
     private canvasPointerEventsCheckInterval: number | null = null;
@@ -473,6 +485,11 @@ export class Game {
                     this.mainMenu.setGarage(this.garage);
                 }
                 
+                // Connect garage UI to GameGarage for pending changes
+                if (this.gameGarage) {
+                    this.gameGarage.setGarageUI(this.garage);
+                }
+                
                 logger.log("[Game] Garage loaded");
             }
         } catch (error) {
@@ -485,679 +502,110 @@ export class Game {
     // =====================================================================
     private setupGlobalKeyboardShortcuts(): void {
         console.log("[Game] ========== REGISTERING GLOBAL KEYBOARD SHORTCUTS ==========");
-        logger.log("[Game] setupGlobalKeyboardShortcuts() called - registering Ctrl+0-9 and O+0-9 handlers");
+        logger.log("[Game] setupGlobalKeyboardShortcuts() called - registering F7 handler");
         
-        // Отслеживание зажатых клавиш для комбинаций O+0-9
-        const keysPressed = new Set<string>();
-        
-        // Обработчик отпускания клавиш
-        window.addEventListener("keyup", (e) => {
-            keysPressed.delete(e.code);
-            if (e.code === "KeyO") {
-                logger.log("[Game] O key released");
-                console.log("[Game] O key released, keysPressed:", Array.from(keysPressed));
-            }
-        }, true);
-        
-        // КРИТИЧНО: Обработчик Ctrl+0 с capture phase - должен быть ПЕРВЫМ!
-        const ctrl0Handler = (e: KeyboardEvent) => {
-            if (e.ctrlKey && (e.code === "Digit0" || e.code === "Numpad0")) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                logger.log("[Game] Ctrl+0 pressed - opening Physics Editor (CAPTURE)");
-                console.log("[Game] Ctrl+0 pressed - opening Physics Editor (CAPTURE)", e);
-                
-                if (!this.physicsEditor) {
-                    import("./physicsEditor").then((module) => {
-                        const { getPhysicsEditor } = module;
-                        this.physicsEditor = getPhysicsEditor();
-                        this.physicsEditor.setGame(this);
-                        if (this.tank) {
-                            this.physicsEditor.setTank(this.tank);
-                        }
-                        this.physicsEditor.toggle();
-                        logger.log("[Game] Physics editor opened");
-                        console.log("[Game] Physics editor opened");
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load physics editor:", error);
-                        console.error("[Game] Failed to load physics editor:", error);
-                    });
-                } else {
-                    this.physicsEditor.toggle();
-                    logger.log("[Game] Physics editor toggled");
-                    console.log("[Game] Physics editor toggled");
-                }
-            }
-        };
-        window.addEventListener("keydown", ctrl0Handler, true); // CAPTURE PHASE - срабатывает ПЕРВЫМ!
-        console.log("[Game] Ctrl+0 handler registered with capture phase");
-        
-        // КРИТИЧНО: Единый обработчик Ctrl+1-9 с capture phase - перехватывает ДО браузера!
+        // Обработчик Ctrl+7 для Unified Menu
         const ctrlHotkeysHandler = (e: KeyboardEvent) => {
-            // РАННЯЯ ДИАГНОСТИКА - проверяем что обработчик вообще вызывается
-            if (e.ctrlKey && (e.code.startsWith("Digit") || e.code.startsWith("Numpad"))) {
-                const digit = e.code.replace("Digit", "").replace("Numpad", "");
-                console.log(`[Game] CAPTURE HANDLER: Ctrl+${digit} detected!`, {
-                    code: e.code,
-                    ctrlKey: e.ctrlKey,
-                    defaultPrevented: e.defaultPrevented,
-                    eventPhase: e.eventPhase
-                });
-                logger.log(`[Game] CAPTURE HANDLER: Ctrl+${digit} detected!`);
-            }
-            
             if (!e.ctrlKey) return;
             
-            // ДИАГНОСТИКА
-            if (e.code.startsWith("Digit") || e.code.startsWith("Numpad")) {
-                const digit = e.code.replace("Digit", "").replace("Numpad", "");
-                logger.log(`[Game] Ctrl+${digit} detected in CAPTURE handler`);
-                console.log(`[Game] Ctrl+${digit} detected in CAPTURE handler`, e);
-            }
-            
-            // Ctrl+1: Help/Controls Menu
-            if (e.code === "Digit1" || e.code === "Numpad1") {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                if (!this.helpMenu) {
-                    logger.log("[Game] Loading help menu (Ctrl+1 CAPTURE)...");
-                    console.log("[Game] Loading help menu (Ctrl+1 CAPTURE)...");
-                    import("./helpMenu").then(({ HelpMenu }) => {
-                        console.log("[Game] HelpMenu module loaded, creating instance...");
-                        this.helpMenu = new HelpMenu();
-                        console.log("[Game] HelpMenu instance created:", this.helpMenu);
-                        this.helpMenu.setGame(this);
-                        console.log("[Game] setGame() called");
-                        if (typeof this.helpMenu.toggle === 'function') {
-                            console.log("[Game] Calling helpMenu.toggle()...");
-                            this.helpMenu.toggle();
-                            console.log("[Game] helpMenu.toggle() called");
-                            logger.log("[Game] Help menu loaded and toggled (Ctrl+1)");
-                        } else {
-                            console.error("[Game] helpMenu.toggle is NOT a function!");
-                        }
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load help menu:", error);
-                        console.error("[Game] Failed to load help menu:", error);
-                        this.helpMenu = undefined;
-                    });
-                } else {
-                    console.log("[Game] Help menu exists, calling toggle()...");
-                    if (typeof this.helpMenu.toggle === 'function') {
-                        this.helpMenu.toggle();
-                        logger.log("[Game] Help menu toggled (Ctrl+1)");
-                        console.log("[Game] Help menu toggled (Ctrl+1)");
-                    } else {
-                        console.error("[Game] helpMenu.toggle is NOT a function on existing instance!");
-                    }
-                }
-                return;
-            }
-            
-            // Ctrl+2: Screenshot Panel
-            if (e.code === "Digit2" || e.code === "Numpad2") {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                logger.log("[Game] Ctrl+2 pressed - opening screenshot panel (CAPTURE)");
-                this.openScreenshotPanel().catch(error => {
-                    logger.error("[Game] Failed to open screenshot panel:", error);
-                });
-                return;
-            }
-            
-            // Ctrl+3: Debug Dashboard
-            if (e.code === "Digit3" || e.code === "Numpad3") {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                if (!this.debugDashboard) {
-                    if (!this.engine || !this.scene) {
-                        logger.warn("[Game] Cannot load debug dashboard: engine or scene not initialized");
-                        return;
-                    }
-                    logger.log("[Game] Loading debug dashboard (Ctrl+3 CAPTURE)...");
-                    import("./debugDashboard").then(({ DebugDashboard }) => {
-                        this.debugDashboard = new DebugDashboard(this.engine, this.scene);
-                        if (this.chunkSystem) {
-                            this.debugDashboard.setChunkSystem(this.chunkSystem);
-                        }
-                        this.debugDashboard.setGame(this);
-                        if (this.tank) {
-                            this.debugDashboard.setTank(this.tank);
-                        }
-                        if (typeof this.debugDashboard.toggle === 'function') {
-                            this.debugDashboard.toggle();
-                        }
-                        logger.log("[Game] Debug dashboard loaded (Ctrl+3)");
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load debug dashboard:", error);
-                        this.debugDashboard = undefined;
-                    });
-                } else {
-                    if (typeof this.debugDashboard.toggle === 'function') {
-                        this.debugDashboard.toggle();
-                        logger.log("[Game] Debug dashboard toggled (Ctrl+3)");
-                    }
-                }
-                return;
-            }
-            
-            // Ctrl+4: Physics Panel
-            if (e.code === "Digit4" || e.code === "Numpad4") {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                if (!this.physicsPanel) {
-                    logger.log("[Game] Loading physics panel (Ctrl+4 CAPTURE)...");
-                    import("./physicsPanel").then(({ PhysicsPanel }) => {
-                        this.physicsPanel = new PhysicsPanel();
-                        this.physicsPanel.setGame(this);
-                        if (this.tank) {
-                            this.physicsPanel.setTank(this.tank);
-                        }
-                        if (typeof this.physicsPanel.toggle === 'function') {
-                            this.physicsPanel.toggle();
-                            logger.log("[Game] Physics panel loaded and toggled (Ctrl+4)");
-                        }
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load physics panel:", error);
-                        this.physicsPanel = undefined;
-                    });
-                } else {
-                    if (typeof this.physicsPanel.toggle === 'function') {
-                        this.physicsPanel.toggle();
-                        logger.log("[Game] Physics panel toggled (Ctrl+4)");
-                    }
-                }
-                return;
-            }
-            
-            // Ctrl+5: System Terminal
-            if (e.code === "Digit5" || e.code === "Numpad5") {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                this.ensureChatSystem().then(() => {
-                    if (this.chatSystem && typeof this.chatSystem.toggleTerminal === 'function') {
-                        this.chatSystem.toggleTerminal();
-                        logger.log("[Game] System terminal toggled (Ctrl+5)");
-                    } else {
-                        logger.error("[Game] ChatSystem.toggleTerminal is not available");
-                    }
-                }).catch(error => {
-                    logger.error("[Game] Failed to ensure ChatSystem:", error);
-                });
-                return;
-            }
-            
-            // Ctrl+6: Session Settings
-            if (e.code === "Digit6" || e.code === "Numpad6") {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                if (!this.sessionSettings) {
-                    logger.log("[Game] Loading session settings (Ctrl+6 CAPTURE)...");
-                    import("./sessionSettings").then(({ SessionSettings }) => {
-                        this.sessionSettings = new SessionSettings();
-                        this.sessionSettings.setGame(this);
-                        if (typeof (this.sessionSettings as any).toggle === 'function') {
-                            (this.sessionSettings as any).toggle();
-                            logger.log("[Game] Session settings loaded and toggled (Ctrl+6)");
-                        }
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load session settings:", error);
-                        this.sessionSettings = undefined;
-                    });
-                } else {
-                    if (typeof (this.sessionSettings as any).toggle === 'function') {
-                        (this.sessionSettings as any).toggle();
-                        logger.log("[Game] Session settings toggled (Ctrl+6)");
-                    }
-                }
-                return;
-            }
-            
-            // Ctrl+7: Cheat Menu
+            // Ctrl+7: Unified Menu
             if (e.code === "Digit7" || e.code === "Numpad7") {
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
                 
-                if (!this.cheatMenu) {
-                    logger.log("[Game] Loading cheat menu (Ctrl+7 CAPTURE)...");
-                    import("./cheatMenu").then(({ CheatMenu }) => {
-                        this.cheatMenu = new CheatMenu();
-                        if (this.tank) {
-                            this.cheatMenu.setTank(this.tank);
+                if (!this.unifiedMenu) {
+                    logger.log("[Game] Loading unified menu (Ctrl+7 CAPTURE)...");
+                    import("./unifiedMenu").then(({ UnifiedMenu }) => {
+                        this.unifiedMenu = new UnifiedMenu();
+                        this.unifiedMenu.setGame(this);
+                        if (typeof this.unifiedMenu.toggle === 'function') {
+                            this.unifiedMenu.toggle();
                         }
-                        this.cheatMenu.setGame(this);
-                        if (typeof this.cheatMenu.toggle === 'function') {
-                            this.cheatMenu.toggle();
-                        }
-                        logger.log("[Game] Cheat menu loaded (Ctrl+7)");
+                        logger.log("[Game] Unified menu loaded (Ctrl+7)");
                     }).catch(error => {
-                        logger.error("[Game] Failed to load cheat menu:", error);
-                        this.cheatMenu = undefined;
+                        logger.error("[Game] Failed to load unified menu:", error);
+                        this.unifiedMenu = undefined;
                     });
                 } else {
-                    if (typeof this.cheatMenu.toggle === 'function') {
-                        this.cheatMenu.toggle();
-                        logger.log("[Game] Cheat menu toggled (Ctrl+7)");
-                    }
-                }
-                return;
-            }
-            
-            // Ctrl+8: Network Menu
-            if (e.code === "Digit8" || e.code === "Numpad8") {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                if (!this.networkMenu) {
-                    logger.log("[Game] Loading network menu (Ctrl+8 CAPTURE)...");
-                    import("./networkMenu").then(({ NetworkMenu }) => {
-                        this.networkMenu = new NetworkMenu();
-                        this.networkMenu.setGame(this);
-                        if (typeof this.networkMenu.toggle === 'function') {
-                            this.networkMenu.toggle();
-                            logger.log("[Game] Network menu loaded and toggled (Ctrl+8)");
-                        }
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load network menu:", error);
-                        this.networkMenu = undefined;
-                    });
-                } else {
-                    if (typeof this.networkMenu.toggle === 'function') {
-                        this.networkMenu.toggle();
-                        logger.log("[Game] Network menu toggled (Ctrl+8)");
-                    }
-                }
-                return;
-            }
-            
-            // Ctrl+9: World Generation Menu
-            if (e.code === "Digit9" || e.code === "Numpad9") {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                if (!this.worldGenerationMenu) {
-                    logger.log("[Game] Loading world generation menu (Ctrl+9 CAPTURE)...");
-                    import("./worldGenerationMenu").then(({ WorldGenerationMenu }) => {
-                        this.worldGenerationMenu = new WorldGenerationMenu();
-                        this.worldGenerationMenu.setGame(this);
-                        if (typeof this.worldGenerationMenu.toggle === 'function') {
-                            this.worldGenerationMenu.toggle();
-                            logger.log("[Game] World generation menu loaded and toggled (Ctrl+9)");
-                        }
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load world generation menu:", error);
-                        this.worldGenerationMenu = undefined;
-                    });
-                } else {
-                    if (typeof this.worldGenerationMenu.toggle === 'function') {
-                        this.worldGenerationMenu.toggle();
-                        logger.log("[Game] World generation menu toggled (Ctrl+9)");
-                    } else if (typeof (this.worldGenerationMenu as any).show === 'function') {
-                        (this.worldGenerationMenu as any).show();
-                        logger.log("[Game] World generation menu shown (Ctrl+9)");
+                    if (typeof this.unifiedMenu.toggle === 'function') {
+                        this.unifiedMenu.toggle();
+                        logger.log("[Game] Unified menu toggled (Ctrl+7)");
                     }
                 }
                 return;
             }
         };
         window.addEventListener("keydown", ctrlHotkeysHandler, true); // CAPTURE PHASE!
-        console.log("[Game] Ctrl+1-9 handler registered with capture phase");
+        console.log("[Game] Ctrl+7 handler registered with capture phase");
         
-        // Главный обработчик для O+0-9 и других горячих клавиш (БЕЗ Ctrl+1-9!)
+        // Главный обработчик для F7
         window.addEventListener("keydown", (e) => {
-            // Отслеживание нажатия O (для комбинаций O+0-9)
-            if (e.code === "KeyO" && !e.ctrlKey && !e.altKey && !e.metaKey) {
-                keysPressed.add("KeyO");
-                logger.log("[Game] O key pressed, ready for O+0-9 combinations");
-                console.log("[Game] O key pressed, keysPressed:", Array.from(keysPressed));
-                // Не возвращаем, чтобы O могла использоваться для других целей
-            }
-            
-            // Проверяем, зажата ли клавиша O
-            const oKeyPressed = keysPressed.has("KeyO");
-            
-            // ДИАГНОСТИКА: Логируем все Ctrl+цифры и O+цифры
-            if (e.ctrlKey && (e.code.startsWith("Digit") || e.code.startsWith("Numpad"))) {
-                const digit = e.code.replace("Digit", "").replace("Numpad", "");
-                logger.log(`[Game] Global handler: Ctrl+${digit} detected`);
-                console.log(`[Game] Global handler: Ctrl+${digit} detected`, {
-                    code: e.code,
-                    key: e.key,
-                    ctrlKey: e.ctrlKey,
-                    defaultPrevented: e.defaultPrevented
-                });
-            }
-            
-            if (oKeyPressed && (e.code.startsWith("Digit") || e.code.startsWith("Numpad"))) {
-                const digit = e.code.replace("Digit", "").replace("Numpad", "");
-                logger.log(`[Game] Global handler: O+${digit} detected`);
-                console.log(`[Game] Global handler: O+${digit} detected`, {
-                    code: e.code,
-                    key: e.key,
-                    oKeyPressed: oKeyPressed,
-                    keysPressed: Array.from(keysPressed)
-                });
-            }
-            
-            // =====================================================================
-            // === АЛЬТЕРНАТИВНЫЕ КОМБИНАЦИИ O+0-9 (не конфликтуют с браузером) ===
-            // =====================================================================
-            
-            // O+0: Physics Editor
-            if (oKeyPressed && (e.code === "Digit0" || e.code === "Numpad0")) {
+            // F7: Unified Menu
+            if (e.code === "F7" && !e.ctrlKey && !e.altKey && !e.metaKey) {
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
                 
-                if (!this.physicsEditor) {
-                    import("./physicsEditor").then((module) => {
-                        const { getPhysicsEditor } = module;
-                        this.physicsEditor = getPhysicsEditor();
-                        this.physicsEditor.setGame(this);
-                        if (this.tank) {
-                            this.physicsEditor.setTank(this.tank);
+                if (!this.unifiedMenu) {
+                    logger.log("[Game] Loading unified menu (F7)...");
+                    import("./unifiedMenu").then(({ UnifiedMenu }) => {
+                        this.unifiedMenu = new UnifiedMenu();
+                        this.unifiedMenu.setGame(this);
+                        if (typeof this.unifiedMenu.toggle === 'function') {
+                            this.unifiedMenu.toggle();
                         }
-                        this.physicsEditor.toggle();
-                        logger.log("[Game] Physics editor opened (O+0)");
+                        logger.log("[Game] Unified menu loaded (F7)");
                     }).catch(error => {
-                        logger.error("[Game] Failed to load physics editor:", error);
+                        logger.error("[Game] Failed to load unified menu:", error);
+                        this.unifiedMenu = undefined;
                     });
                 } else {
-                    this.physicsEditor.toggle();
-                    logger.log("[Game] Physics editor toggled (O+0)");
-                }
-                return;
-            }
-            
-            // O+1: Help/Controls Menu
-            if (oKeyPressed && (e.code === "Digit1" || e.code === "Numpad1")) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                if (!this.helpMenu) {
-                    import("./helpMenu").then(({ HelpMenu }) => {
-                        this.helpMenu = new HelpMenu();
-                        this.helpMenu.setGame(this);
-                        if (typeof this.helpMenu.toggle === 'function') {
-                            this.helpMenu.toggle();
-                            logger.log("[Game] Help menu loaded and toggled (O+1)");
-                        }
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load help menu:", error);
-                        this.helpMenu = undefined;
-                    });
-                } else {
-                    if (typeof this.helpMenu.toggle === 'function') {
-                        this.helpMenu.toggle();
-                        logger.log("[Game] Help menu toggled (O+1)");
+                    if (typeof this.unifiedMenu.toggle === 'function') {
+                        this.unifiedMenu.toggle();
+                        logger.log("[Game] Unified menu toggled (F7)");
                     }
                 }
                 return;
-            }
-            
-            // O+2: Screenshot Panel
-            if (oKeyPressed && (e.code === "Digit2" || e.code === "Numpad2")) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                this.openScreenshotPanel().catch(error => {
-                    logger.error("[Game] Failed to open screenshot panel:", error);
-                });
-                logger.log("[Game] Screenshot panel opening (O+2)");
-                return;
-            }
-            
-            // O+3: Debug Dashboard
-            if (oKeyPressed && (e.code === "Digit3" || e.code === "Numpad3")) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                if (!this.debugDashboard) {
-                    if (!this.engine || !this.scene) {
-                        logger.warn("[Game] Cannot load debug dashboard: engine or scene not initialized");
-                        return;
-                    }
-                    import("./debugDashboard").then(({ DebugDashboard }) => {
-                        this.debugDashboard = new DebugDashboard(this.engine, this.scene);
-                        if (this.chunkSystem) {
-                            this.debugDashboard.setChunkSystem(this.chunkSystem);
-                        }
-                        this.debugDashboard.setGame(this);
-                        if (this.tank) {
-                            this.debugDashboard.setTank(this.tank);
-                        }
-                        if (typeof this.debugDashboard.toggle === 'function') {
-                            this.debugDashboard.toggle();
-                        }
-                        logger.log("[Game] Debug dashboard loaded (O+3)");
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load debug dashboard:", error);
-                        this.debugDashboard = undefined;
-                    });
-                } else {
-                    if (typeof this.debugDashboard.toggle === 'function') {
-                        this.debugDashboard.toggle();
-                        logger.log("[Game] Debug dashboard toggled (O+3)");
-                    }
-                }
-                return;
-            }
-            
-            // O+4: Physics Panel
-            if (oKeyPressed && (e.code === "Digit4" || e.code === "Numpad4")) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                if (!this.physicsPanel) {
-                    import("./physicsPanel").then(({ PhysicsPanel }) => {
-                        this.physicsPanel = new PhysicsPanel();
-                        this.physicsPanel.setGame(this);
-                        if (this.tank) {
-                            this.physicsPanel.setTank(this.tank);
-                        }
-                        if (typeof this.physicsPanel.toggle === 'function') {
-                            this.physicsPanel.toggle();
-                            logger.log("[Game] Physics panel loaded and toggled (O+4)");
-                        }
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load physics panel:", error);
-                        this.physicsPanel = undefined;
-                    });
-                } else {
-                    if (typeof this.physicsPanel.toggle === 'function') {
-                        this.physicsPanel.toggle();
-                        logger.log("[Game] Physics panel toggled (O+4)");
-                    }
-                }
-                return;
-            }
-            
-            // O+5: System Terminal
-            if (oKeyPressed && (e.code === "Digit5" || e.code === "Numpad5")) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                this.ensureChatSystem().then(() => {
-                    if (this.chatSystem && typeof this.chatSystem.toggleTerminal === 'function') {
-                        this.chatSystem.toggleTerminal();
-                        logger.log("[Game] System terminal toggled (O+5)");
-                    } else {
-                        logger.error("[Game] ChatSystem.toggleTerminal is not available");
-                    }
-                }).catch(error => {
-                    logger.error("[Game] Failed to ensure ChatSystem:", error);
-                });
-                return;
-            }
-            
-            // O+6: Session Settings
-            if (oKeyPressed && (e.code === "Digit6" || e.code === "Numpad6")) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                if (!this.sessionSettings) {
-                    import("./sessionSettings").then(({ SessionSettings }) => {
-                        this.sessionSettings = new SessionSettings();
-                        this.sessionSettings.setGame(this);
-                        if (typeof (this.sessionSettings as any).toggle === 'function') {
-                            (this.sessionSettings as any).toggle();
-                            logger.log("[Game] Session settings loaded and toggled (O+6)");
-                        }
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load session settings:", error);
-                        this.sessionSettings = undefined;
-                    });
-                } else {
-                    if (typeof (this.sessionSettings as any).toggle === 'function') {
-                        (this.sessionSettings as any).toggle();
-                        logger.log("[Game] Session settings toggled (O+6)");
-                    }
-                }
-                return;
-            }
-            
-            // O+7: Cheat Menu
-            if (oKeyPressed && (e.code === "Digit7" || e.code === "Numpad7")) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                if (!this.cheatMenu) {
-                    import("./cheatMenu").then(({ CheatMenu }) => {
-                        this.cheatMenu = new CheatMenu();
-                        if (this.tank) {
-                            this.cheatMenu.setTank(this.tank);
-                        }
-                        this.cheatMenu.setGame(this);
-                        if (typeof this.cheatMenu.toggle === 'function') {
-                            this.cheatMenu.toggle();
-                        }
-                        logger.log("[Game] Cheat menu loaded (O+7)");
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load cheat menu:", error);
-                        this.cheatMenu = undefined;
-                    });
-                } else {
-                    if (typeof this.cheatMenu.toggle === 'function') {
-                        this.cheatMenu.toggle();
-                        logger.log("[Game] Cheat menu toggled (O+7)");
-                    }
-                }
-                return;
-            }
-            
-            // O+8: Network Menu
-            if (oKeyPressed && (e.code === "Digit8" || e.code === "Numpad8")) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                if (!this.networkMenu) {
-                    import("./networkMenu").then(({ NetworkMenu }) => {
-                        this.networkMenu = new NetworkMenu();
-                        this.networkMenu.setGame(this);
-                        if (typeof this.networkMenu.toggle === 'function') {
-                            this.networkMenu.toggle();
-                            logger.log("[Game] Network menu loaded and toggled (O+8)");
-                        }
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load network menu:", error);
-                        this.networkMenu = undefined;
-                    });
-                } else {
-                    if (typeof this.networkMenu.toggle === 'function') {
-                        this.networkMenu.toggle();
-                        logger.log("[Game] Network menu toggled (O+8)");
-                    }
-                }
-                return;
-            }
-            
-            // O+9: World Generation Menu
-            if (oKeyPressed && (e.code === "Digit9" || e.code === "Numpad9")) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
-                if (!this.worldGenerationMenu) {
-                    import("./worldGenerationMenu").then(({ WorldGenerationMenu }) => {
-                        this.worldGenerationMenu = new WorldGenerationMenu();
-                        this.worldGenerationMenu.setGame(this);
-                        if (typeof this.worldGenerationMenu.toggle === 'function') {
-                            this.worldGenerationMenu.toggle();
-                            logger.log("[Game] World generation menu loaded and toggled (O+9)");
-                        }
-                    }).catch(error => {
-                        logger.error("[Game] Failed to load world generation menu:", error);
-                        this.worldGenerationMenu = undefined;
-                    });
-                } else {
-                    if (typeof this.worldGenerationMenu.toggle === 'function') {
-                        this.worldGenerationMenu.toggle();
-                        logger.log("[Game] World generation menu toggled (O+9)");
-                    }
-                }
-                return;
-            }
-            
-            // === АЛЬТЕРНАТИВНЫЕ F1–F10 ДЛЯ ТЕХ ЖЕ ПАНЕЛЕЙ ===
-            // ВАЖНО: Ctrl+0-9 обрабатываются в отдельном обработчике с capture phase выше
-            // F-клавиши дублируют Ctrl+цифры - РАБОТАЮТ ВСЕГДА
-            if (!e.ctrlKey && !e.altKey && !e.metaKey) {
-                const fKeyToDigit: Record<string, string> = {
-                    F1: "Digit1",
-                    F2: "Digit2",
-                    F3: "Digit3",
-                    F4: "Digit4",
-                    F5: "Digit5",
-                    F6: "Digit6",
-                    F7: "Digit7",
-                    F8: "Digit8",
-                    F9: "Digit9",
-                    F10: "Digit0",
-                };
-                const mapped = fKeyToDigit[e.code as keyof typeof fKeyToDigit];
-                if (mapped) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    // Симулируем нажатие Ctrl+цифра
-                    const synthetic = new KeyboardEvent("keydown", {
-                        key: mapped === "Digit0" ? "0" : mapped.replace("Digit", ""),
-                        code: mapped,
-                        ctrlKey: true,
-                        shiftKey: false,
-                        altKey: false,
-                        metaKey: false,
-                        bubbles: true,
-                        cancelable: true,
-                    });
-                    window.dispatchEvent(synthetic);
-                    return;
-                }
             }
         }, true); // CAPTURE PHASE - срабатывает ПЕРВЫМ!
+        
+        // F2: Скриншот
+        window.addEventListener("keydown", async (e) => {
+            if (e.code === "F2" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                logger.log("[Game] Taking screenshot (F2)...");
+                
+                try {
+                    // Убеждаемся, что screenshotManager инициализирован
+                    if (!this.screenshotManager) {
+                        const { ScreenshotManager } = await import("./screenshotManager");
+                        this.screenshotManager = new ScreenshotManager(this.engine, this.scene, this.hud || null);
+                    }
+                    
+                    // Делаем скриншот
+                    const { ScreenshotFormat, ScreenshotMode } = await import("./screenshotManager");
+                    const blob = await this.screenshotManager.capture({ format: ScreenshotFormat.PNG, mode: ScreenshotMode.FULL_SCREEN });
+                    await this.screenshotManager.copyToClipboard(blob);
+                    await this.screenshotManager.saveToLocalStorage(blob, { format: ScreenshotFormat.PNG, mode: ScreenshotMode.FULL_SCREEN });
+                    
+                    if (this.hud) {
+                        this.hud.showMessage("📸 Скриншот сохранён! [F2]", "#0f0", 2000);
+                    }
+                    logger.log("[Game] Screenshot taken successfully (F2)");
+                } catch (error) {
+                    logger.error("[Game] Screenshot failed:", error);
+                    if (this.hud) {
+                        this.hud.showMessage("❌ Ошибка скриншота", "#f00", 2000);
+                    }
+                }
+                return;
+            }
+        }, true);
+        console.log("[Game] F2 screenshot handler registered");
         
         console.log("[Game] ========== GLOBAL KEYBOARD SHORTCUTS REGISTERED ==========");
         logger.log("[Game] Global keyboard shortcuts registered successfully");
@@ -1923,6 +1371,13 @@ export class Game {
             document.exitFullscreen().catch(() => {});
         }
         
+        // Post-processing effects (bloom, motion blur)
+        if (this.postProcessingManager) {
+            this.postProcessingManager.setBloom(this.settings.bloom ?? false);
+            this.postProcessingManager.setMotionBlur(this.settings.motionBlur ?? false);
+            this.postProcessingManager.setFXAA(this.settings.antiAliasing ?? true);
+        }
+        
         logger.debug("Graphics settings applied");
     }
     
@@ -2460,7 +1915,8 @@ export class Game {
                 "tartaria": "Тартария"
             };
             const mapName = mapNames[this.currentMapType] || this.currentMapType;
-            this.hud.showMessage(`🗺️ КАРТА: ${mapName}`, "#0ff", 4000);
+            // ОТКЛЮЧЕНО: Уведомление о карте слишком отвлекает
+            // this.hud.showMessage(`🗺️ КАРТА: ${mapName}`, "#0ff", 4000);
         }
         
         // Apply mouse sensitivity from settings (1-10 scale to 0.001-0.006)
@@ -2737,11 +2193,7 @@ export class Game {
             this.canvasPointerEventsCheckInterval = null;
         }
         
-        // Останавливаем таймер волн фронтлайна
-        if (this.frontlineWaveTimer !== null) {
-            clearInterval(this.frontlineWaveTimer);
-            this.frontlineWaveTimer = null;
-        }
+        // Останавливаем таймер волн фронтлайна (теперь управляется в GameEnemies.clearEnemies())
     }
 
     // Инициализирует игру: создает сцену, загружает ресурсы, настраивает системы
@@ -3136,6 +2588,23 @@ export class Game {
             // Контролы уже настроены через setupCameraInput(), не нужно вызывать attachControls
             logger.log("[Game] Camera created and set as active");
             
+            // Инициализация постпроцессинга (bloom, motion blur и др.)
+            this.postProcessingManager = new PostProcessingManager(this.scene);
+            this.postProcessingManager.initialize(this.camera);
+            
+            // ИСПРАВЛЕНИЕ: Добавляем aimCamera к пайплайну постпроцессинга
+            // чтобы эффекты (vignette, exposure и др.) применялись одинаково к обеим камерам
+            if (this.aimCamera) {
+                this.postProcessingManager.addCamera(this.aimCamera);
+            }
+            
+            // Применяем настройки постпроцессинга из settings
+            if (this.settings) {
+                this.postProcessingManager.setBloom(this.settings.bloom ?? false);
+                this.postProcessingManager.setMotionBlur(this.settings.motionBlur ?? false);
+            }
+            logger.log("[Game] PostProcessingManager initialized");
+            
             // Create HUD (может вызвать ошибку, но камера уже создана)
             // ВАЖНО: GUI texture требует, чтобы renderTargetsEnabled был включен
             // AdvancedDynamicTexture создает свой render target
@@ -3295,6 +2764,17 @@ export class Game {
             }
             this.playerProgression.setChatSystem(this.chatSystem);
             this.playerProgression.setSoundManager(this.soundManager);
+            
+            // Глобальная функция для восстановления уровня игрока (вызов из консоли браузера)
+            // Использование: window.setPlayerLevel(17) - установит 17 уровень
+            (window as any).setPlayerLevel = (level: number) => {
+                if (this.playerProgression) {
+                    this.playerProgression.setLevel(level);
+                    logger.log(`[Game] Уровень игрока установлен: ${level}`);
+                    return `Уровень установлен: ${level}`;
+                }
+                return "PlayerProgression не инициализирован";
+            };
             if (this.hud) {
                 this.playerProgression.setHUD(this.hud);
             }
@@ -3432,6 +2912,13 @@ export class Game {
             // Оптимизируем все статические меши
             this.performanceOptimizer.optimizeAllStaticMeshes();
             
+            // Инициализация системы ежедневных заданий
+            this.dailyQuestsSystem = new DailyQuestsSystem();
+            
+            // Инициализация системы боевого пропуска
+            this.battlePassSystem = new BattlePassSystem();
+            this.battlePassSystem.initializeSeason("season_1", "Первый сезон", 90);
+            
             // Connect enemy manager to tank for hit detection
             this.tank.setEnemyManager(this.enemyManager);
             
@@ -3441,6 +2928,14 @@ export class Game {
                 if (this.hud) {
                     this.hud.addKill();
                     logger.log("[GAME] Kill added to HUD (turret)");
+                }
+                // Обновляем прогресс ежедневных заданий
+                if (this.dailyQuestsSystem) {
+                    this.dailyQuestsSystem.updateProgress("daily_kills", 1);
+                }
+                // Добавляем опыт в боевой пропуск
+                if (this.battlePassSystem) {
+                    this.battlePassSystem.addExperience(10);
                 }
                 // Начисляем валюту за уничтожение турели
                 if (this.currencyManager) {
@@ -3521,7 +3016,12 @@ export class Game {
             
             // Initialize game modules after systems are created
             // GameGarage уже инициализирован в конструкторе, но обновляем ссылки
-            this.gameGarage.initialize(this.scene, this.chunkSystem, this.tank, this.hud, this.enemyTanks);
+            this.gameGarage.initialize(this.scene, this.chunkSystem, this.tank, this.hud, this.enemyTanks, this.garage);
+            
+            // Если гараж загружен позже, обновляем ссылку
+            if (this.garage) {
+                this.gameGarage.setGarageUI(this.garage);
+            }
             this.gameConsumables.initialize(
                 this.tank, 
                 this.chunkSystem, 
@@ -3561,7 +3061,8 @@ export class Game {
                 mainMenu: this.mainMenu,
                 currentMapType: this.currentMapType,
                 gameStarted: this.gameStarted,
-                survivalStartTime: this.survivalStartTime
+                survivalStartTime: this.survivalStartTime,
+                aiCoordinator: this.aiCoordinator // УЛУЧШЕНО: Передаём AI Coordinator
             });
             // Синхронизируем массив врагов
             this.enemyTanks = this.gameEnemies.enemyTanks;
@@ -3703,7 +3204,7 @@ export class Game {
                 isMultiplayer: this.isMultiplayer,
                 setIsMultiplayer: (v) => { this.isMultiplayer = v; },
                 processPendingNetworkPlayers: () => {
-                    (this.gameMultiplayerCallbacks as any).processPendingNetworkPlayers();
+                    this.gameMultiplayerCallbacks?.processPendingNetworkPlayers();
                 },
                 setBattleRoyaleVisualizer: (v) => { this.battleRoyaleVisualizer = v; },
                 setCTFVisualizer: (v) => { this.ctfVisualizer = v; },
@@ -3893,7 +3394,8 @@ export class Game {
             currentMapType: this.currentMapType,
             gameStarted: this.gameStarted,
             survivalStartTime: this.survivalStartTime,
-            isMultiplayer: this.isMultiplayer // Передаем флаг мультиплеера
+            isMultiplayer: this.isMultiplayer, // Передаем флаг мультиплеера
+            aiCoordinator: this.aiCoordinator // УЛУЧШЕНО: Передаём AI Coordinator
         });
         
         // Синхронизируем массив врагов
@@ -3948,399 +3450,11 @@ export class Game {
         // Остальная логика теперь в GameEnemies.spawnEnemies()
     }
     
-    // Спавн тренировочных ботов для режима полигона
-    spawnPolygonTrainingBots() {
-        if (!this.soundManager || !this.effectsManager) return;
-        
-        logger.log("[Game] Polygon mode: Spawning training bots in combat zone");
-        
-        // Зона боя - юго-восточный квадрант (x > 20, z < -20)
-        // Арена 200x200, центр в (0,0)
-        const combatZoneMinX = 30;
-        const combatZoneMaxX = 90;
-        const combatZoneMinZ = -90;
-        const combatZoneMaxZ = -30;
-        
-        const trainingBotCount = 4; // Меньше ботов для тренировки
-        const spawnPositions: Vector3[] = [];
-        
-        for (let i = 0; i < trainingBotCount; i++) {
-            let attempts = 0;
-            let pos: Vector3;
-            
-            do {
-                // Случайная позиция в зоне боя
-                const spawnX = combatZoneMinX + Math.random() * (combatZoneMaxX - combatZoneMinX);
-                const spawnZ = combatZoneMinZ + Math.random() * (combatZoneMaxZ - combatZoneMinZ);
-                let spawnY = 2.0; // Fallback высота (увеличено с 1.2 до 2.0)
-                
-                // ИСПРАВЛЕНИЕ: Получаем высоту земли и спавним танк немного над поверхностью
-                // КРИТИЧНО: Сначала пытаемся использовать raycast для получения реальной высоты меша террейна
-                let groundHeight = 0;
-                const rayStart = new Vector3(spawnX, 100, spawnZ); // Увеличена начальная высота для лучшего raycast
-                const rayDir = Vector3.Down();
-                const ray = new Ray(rayStart, rayDir, 200); // Увеличена длина луча
-                const hit = this.scene.pickWithRay(ray, (mesh) => {
-                    if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
-                    // Проверяем все меши террейна
-                    return (mesh.name.startsWith("ground_") || 
-                            mesh.name.includes("terrain") || 
-                            mesh.name.includes("chunk")) && 
-                           mesh.isEnabled();
-                });
-                
-                if (hit && hit.hit && hit.pickedPoint) {
-                    groundHeight = hit.pickedPoint.y;
-                } else if (this.chunkSystem && this.chunkSystem.terrainGenerator) {
-                    // Fallback: используем terrain generator если raycast не нашел меш
-                    groundHeight = this.chunkSystem.terrainGenerator.getHeight(spawnX, spawnZ, "dirt");
-                }
-                
-                // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-                spawnY = Math.max(groundHeight + 2.0, 3.0);
-                
-                pos = new Vector3(spawnX, spawnY, spawnZ);
-                
-                // Проверяем минимальное расстояние между ботами
-                let tooClose = false;
-                for (const existingPos of spawnPositions) {
-                    if (Vector3.Distance(pos, existingPos) < 20) {
-                        tooClose = true;
-                        break;
-                    }
-                }
-                
-                if (!tooClose) break;
-                attempts++;
-            } while (attempts < 30);
-            
-            spawnPositions.push(pos);
-        }
-        
-        spawnPositions.forEach((pos) => {
-            // Для полигона используем лёгкую сложность - тренировочные боты
-            const difficulty = "easy";
-            // Тренировочные боты всегда без дополнительного скейла сложности
-            const enemyTank = new EnemyTank(this.scene, pos, this.soundManager!, this.effectsManager!, difficulty, 1);
-            if (this.tank) {
-                enemyTank.setTarget(this.tank);
-            }
-            
-            // При уничтожении - быстрый респавн для тренировки
-            enemyTank.onDeathObservable.add(() => {
-                logger.log("[GAME] Training bot destroyed!");
-                if (this.hud) {
-                    this.hud.addKill();
-                }
-                // Track achievements (training bots count too)
-                if (this.achievementsSystem) {
-                    this.achievementsSystem.updateProgress("first_blood", 1);
-                    this.achievementsSystem.updateProgress("tank_hunter", 1);
-                }
-                // Track missions
-                if (this.missionSystem) {
-                    this.missionSystem.updateProgress("kill", 1);
-                }
-                // Меньше награда за тренировочных ботов
-                const baseReward = 50;
-                const reward = Math.round(baseReward * this.getDifficultyRewardMultiplier());
-                if (this.currencyManager) {
-                    this.currencyManager.addCurrency(reward);
-                    if (this.hud) {
-                        this.hud.setCurrency(this.currencyManager.getCurrency());
-                        this.hud.showMessage(`+${reward} кредитов (тренировка)`, "#ffaa00", 2000);
-                    }
-                }
-                // Добавляем опыт
-                if (this.experienceSystem && this.tank) {
-                    this.experienceSystem.recordKill(
-                        this.tank.chassisType.id,
-                        this.tank.cannonType.id,
-                        false
-                    );
-                }
-                // Записываем в прогресс
-                if (this.playerProgression) {
-                    this.playerProgression.recordKill();
-                    this.playerProgression.addCredits(reward);
-                }
-                
-                // Удаляем из массива
-                const idx = this.enemyTanks.indexOf(enemyTank);
-                if (idx !== -1) this.enemyTanks.splice(idx, 1);
-                
-                // Быстрый респавн для полигона - через 30 секунд
-                setTimeout(() => {
-                    if (this.currentMapType === "polygon" && this.soundManager && this.effectsManager) {
-                        // Новая случайная позиция в зоне боя
-                        const newPos = new Vector3(
-                            combatZoneMinX + Math.random() * (combatZoneMaxX - combatZoneMinX),
-                            1.2,
-                            combatZoneMinZ + Math.random() * (combatZoneMaxZ - combatZoneMinZ)
-                        );
-                        
-                        const newBot = new EnemyTank(this.scene, newPos, this.soundManager!, this.effectsManager!, "easy", 1);
-                        if (this.tank) {
-                            newBot.setTarget(this.tank);
-                        }
-                        this.enemyTanks.push(newBot);
-                        logger.log("[GAME] Training bot respawned");
-                    }
-                }, 30000); // 30 секунд
-            });
-            
-            this.enemyTanks.push(enemyTank);
-        });
-        
-        logger.log(`[Game] Polygon: Spawned ${this.enemyTanks.length} training bots`);
-    }
-    
-    // Система волн врагов для карты "Передовая"
-    spawnFrontlineEnemies() {
-        if (!this.soundManager || !this.effectsManager) return;
-        
-        logger.log("[Game] Frontline mode: Initializing wave system");
-        
-        // Сбрасываем счётчик волн
-        this.frontlineWaveNumber = 0;
-        
-        // Спавним начальных защитников на восточной стороне (оборона)
-        this.spawnFrontlineDefenders();
-        
-        // Спавним первую атакующую волну через 10 секунд
-        setTimeout(() => {
-            this.spawnFrontlineWave();
-        }, 10000);
-        
-        // Запускаем таймер волн
-        this.frontlineWaveTimer = window.setInterval(() => {
-            this.spawnFrontlineWave();
-        }, this.frontlineWaveInterval);
-    }
-    
-    // Спавн защитников на вражеской базе (восточная сторона)
-    private spawnFrontlineDefenders() {
-        if (!this.soundManager || !this.effectsManager) return;
-        
-        // Позиции защитников на восточной стороне (x > 100)
-        const defenderPositionsRaw = [
-            { x: 180, z: 50 },
-            { x: 200, z: -30 },
-            { x: 220, z: 80 },
-            { x: 160, z: -100 },
-        ];
-        
-        defenderPositionsRaw.forEach((rawPos) => {
-            // КРИТИЧНО: Получаем высоту террейна для спавна
-            let groundHeight = 0;
-            const rayStart = new Vector3(rawPos.x, 50, rawPos.z);
-            const rayDir = Vector3.Down();
-            const ray = new Ray(rayStart, rayDir, 200); // Увеличена длина луча
-            // КРИТИЧНО: Улучшенный фильтр для raycast - проверяем все меши террейна
-            const hit = this.scene.pickWithRay(ray, (mesh) => {
-                if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
-                // Проверяем все меши террейна (ground_, terrain, и т.д.)
-                return (mesh.name.startsWith("ground_") || 
-                        mesh.name.includes("terrain") || 
-                        mesh.name.includes("chunk")) && 
-                       mesh.isEnabled();
-            });
-            
-            if (hit && hit.hit && hit.pickedPoint) {
-                groundHeight = hit.pickedPoint.y;
-            } else if (this.chunkSystem && this.chunkSystem.terrainGenerator) {
-                groundHeight = this.chunkSystem.terrainGenerator.getHeight(rawPos.x, rawPos.z, "dirt");
-            }
-            
-            const spawnY = Math.max(groundHeight, 0) + 1.2; // Высота чуть выше hover height для плавного приземления
-            const pos = new Vector3(rawPos.x, spawnY, rawPos.z);
-            // Защитники - сложность берём из текущих настроек (sessionSettings/меню)
-            const difficulty = this.getCurrentEnemyDifficulty();
-            const difficultyScale = this.getAdaptiveEnemyDifficultyScale();
-            const defender = new EnemyTank(this.scene, pos, this.soundManager!, this.effectsManager!, difficulty, difficultyScale);
-            if (this.tank) {
-                defender.setTarget(this.tank);
-            }
-            
-            defender.onDeathObservable.add(() => {
-                this.handleFrontlineEnemyDeath(defender, pos, "defender");
-            });
-            
-            this.enemyTanks.push(defender);
-        });
-        
-        logger.log(`[Game] Frontline: Spawned ${defenderPositionsRaw.length} defenders`);
-    }
-    
-    // Спавн волны атакующих врагов
-    private spawnFrontlineWave() {
-        if (!this.soundManager || !this.effectsManager) return;
-        if (this.currentMapType !== "frontline") {
-            // Остановить таймер если карта сменилась
-            if (this.frontlineWaveTimer) {
-                clearInterval(this.frontlineWaveTimer);
-                this.frontlineWaveTimer = null;
-            }
-            return;
-        }
-        
-        // Проверяем максимум врагов
-        if (this.enemyTanks.length >= this.frontlineMaxEnemies) {
-            logger.log("[Game] Frontline: Max enemies reached, skipping wave");
-            return;
-        }
-        
-        this.frontlineWaveNumber++;
-        
-        // Количество врагов в волне растёт с номером волны и плавным множителем сложности
-        const baseCount = 3;
-        const waveBonus = Math.min(this.frontlineWaveNumber - 1, 4); // +1 за волну, макс +4
-        const capacity = this.frontlineMaxEnemies - this.enemyTanks.length;
-        if (capacity <= 0) {
-            logger.log("[Game] Frontline: No capacity for new enemies, skipping wave");
-            return;
-        }
-        const adaptiveScale = this.getAdaptiveEnemyDifficultyScale();
-        const scaledBase = Math.max(1, Math.round(baseCount * (0.8 + (adaptiveScale - 1) * 0.5))); // ~0.8..1.4
-        let waveCount = Math.min(scaledBase + waveBonus, capacity);
-        
-        // Не даём волне быть слишком маленькой на высоких уровнях и слишком большой в начале
-        const minWaveCount = Math.min(capacity, Math.max(1, Math.floor((baseCount + waveBonus) * 0.6)));
-        if (waveCount < minWaveCount) {
-            waveCount = minWaveCount;
-        }
-        
-        if (waveCount <= 0) return;
-        
-        // Уведомление в HUD
-        if (this.hud) {
-            this.hud.showMessage(`⚔️ ВОЛНА ${this.frontlineWaveNumber}: ${waveCount} врагов!`, "#ff4444", 3000);
-        }
-        
-        logger.log(`[Game] Frontline: Spawning wave ${this.frontlineWaveNumber} with ${waveCount} attackers`);
-        
-        // Атакующие спавнятся на восточной границе и идут к игроку
-        const spawnX = 250 + Math.random() * 40; // Восточный край
-        
-        for (let i = 0; i < waveCount; i++) {
-            const spawnZ = -200 + Math.random() * 400; // По всей ширине
-            
-            // КРИТИЧНО: Получаем высоту террейна для спавна
-            let groundHeight = 0;
-            const rayStart = new Vector3(spawnX, 50, spawnZ);
-            const rayDir = Vector3.Down();
-            const ray = new Ray(rayStart, rayDir, 200); // Увеличена длина луча
-            // КРИТИЧНО: Улучшенный фильтр для raycast - проверяем все меши террейна
-            const hit = this.scene.pickWithRay(ray, (mesh) => {
-                if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
-                // Проверяем все меши террейна (ground_, terrain, и т.д.)
-                return (mesh.name.startsWith("ground_") || 
-                        mesh.name.includes("terrain") || 
-                        mesh.name.includes("chunk")) && 
-                       mesh.isEnabled();
-            });
-            
-            if (hit && hit.hit && hit.pickedPoint) {
-                groundHeight = hit.pickedPoint.y;
-            } else if (this.chunkSystem && this.chunkSystem.terrainGenerator) {
-                groundHeight = this.chunkSystem.terrainGenerator.getHeight(spawnX, spawnZ, "dirt");
-            }
-            
-            const spawnY = Math.max(groundHeight, 0) + 1.2; // Высота чуть выше hover height для плавного приземления
-            const pos = new Vector3(spawnX, spawnY, spawnZ);
-            
-            // Сложность растёт с волнами
-            let difficulty: "easy" | "medium" | "hard" = "easy";
-            if (this.frontlineWaveNumber >= 3) difficulty = "medium";
-            if (this.frontlineWaveNumber >= 6) difficulty = "hard";
-            
-            const attacker = new EnemyTank(this.scene, pos, this.soundManager!, this.effectsManager!, difficulty, adaptiveScale);
-            if (this.tank) {
-                attacker.setTarget(this.tank);
-            }
-            
-            attacker.onDeathObservable.add(() => {
-                this.handleFrontlineEnemyDeath(attacker, pos, "attacker");
-            });
-            
-            this.enemyTanks.push(attacker);
-        }
-    }
-    
-    // Обработка смерти врага на передовой
-    private handleFrontlineEnemyDeath(enemy: EnemyTank, _originalPos: Vector3, type: "defender" | "attacker") {
-        logger.log(`[GAME] Frontline ${type} destroyed!`);
-        
-        if (this.hud) {
-            this.hud.addKill();
-        }
-        
-        // Track achievements
-        if (this.achievementsSystem) {
-            this.achievementsSystem.updateProgress("first_blood", 1);
-            this.achievementsSystem.updateProgress("tank_hunter", 1);
-            this.achievementsSystem.updateProgress("tank_ace", 1);
-            if (this.tank && this.tank.currentHealth / this.tank.maxHealth < 0.2) {
-                this.achievementsSystem.updateProgress("comeback", 1);
-            }
-        }
-        
-        // Награда зависит от типа врага и сложности
-        const baseReward = type === "defender" ? 120 : 80; // Защитники ценнее
-        const reward = Math.round(baseReward * this.getDifficultyRewardMultiplier());
-        if (this.currencyManager) {
-            this.currencyManager.addCurrency(reward);
-            if (this.hud) {
-                this.hud.setCurrency(this.currencyManager.getCurrency());
-                this.hud.showMessage(`+${reward} кредитов!`, "#ffaa00", 2000);
-            }
-        }
-        
-        // Опыт
-        if (this.experienceSystem && this.tank) {
-            this.experienceSystem.recordKill(
-                this.tank.chassisType.id,
-                this.tank.cannonType.id,
-                false
-            );
-        }
-        
-        // Прогресс
-        if (this.playerProgression) {
-            this.playerProgression.recordKill();
-            this.playerProgression.addCredits(reward);
-        }
-        
-        // Удаляем из массива
-        const idx = this.enemyTanks.indexOf(enemy);
-        if (idx !== -1) this.enemyTanks.splice(idx, 1);
-        
-        // Защитники респавнятся через 60 секунд
-        if (type === "defender" && this.currentMapType === "frontline") {
-            setTimeout(() => {
-                if (this.currentMapType === "frontline" && this.soundManager && this.effectsManager) {
-                    // Респавн в той же зоне
-                    const newX = 150 + Math.random() * 100;
-                    const newZ = -150 + Math.random() * 300;
-                    const newPos = new Vector3(newX, 0.6, newZ);
-                    
-                    const difficulty = this.getCurrentEnemyDifficulty();
-                    const difficultyScale = this.getAdaptiveEnemyDifficultyScale();
-                    const newDefender = new EnemyTank(this.scene, newPos, this.soundManager!, this.effectsManager!, difficulty, difficultyScale);
-                    if (this.tank) {
-                        newDefender.setTarget(this.tank);
-                    }
-                    
-                    newDefender.onDeathObservable.add(() => {
-                        this.handleFrontlineEnemyDeath(newDefender, newPos, "defender");
-                    });
-                    
-                    this.enemyTanks.push(newDefender);
-                    logger.log("[Game] Frontline: Defender respawned");
-                }
-            }, 60000); // 60 секунд
-        }
-    }
+    // УДАЛЕНО: spawnPolygonTrainingBots() - логика перенесена в GameEnemies.spawnPolygonBots()
+    // УДАЛЕНО: spawnFrontlineEnemies() - логика перенесена в GameEnemies.spawnFrontlineEnemies()
+    // УДАЛЕНО: spawnFrontlineDefenders() - логика перенесена в GameEnemies.spawnFrontlineDefenders()
+    // УДАЛЕНО: spawnFrontlineWave() - логика перенесена в GameEnemies.spawnFrontlineWave()
+    // УДАЛЕНО: handleFrontlineEnemyDeath() - логика перенесена в GameEnemies.handleFrontlineEnemyDeath()
     
     // Ожидание генерации гаражей и спавн игрока/врагов
     waitForGaragesAndSpawn() {
@@ -4731,8 +3845,8 @@ export class Game {
         safetyTexture.update();
         safetyMaterial.diffuseTexture = safetyTexture;
         // Масштабируем текстуру так, чтобы 1 метр = 1 единица в игре
-        safetyMaterial.diffuseTexture.uScale = metersPerTexture; // 2000 метров по ширине
-        safetyMaterial.diffuseTexture.vScale = metersPerTexture; // 2000 метров по высоте
+        safetyTexture.uScale = metersPerTexture; // 2000 метров по ширине
+        safetyTexture.vScale = metersPerTexture; // 2000 метров по высоте
         
         // Устанавливаем материал
         safetyPlaneMesh.material = safetyMaterial;
@@ -4791,8 +3905,8 @@ export class Game {
         
         // Используем улучшенный метод получения высоты террейна
         const groundHeight = this.getGroundHeight(randomX, randomZ);
-        // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-        const spawnY = Math.max(groundHeight + 2.0, 3.0);
+        // Безопасная высота: +5м над террейном, минимум 7м
+        const spawnY = Math.max(groundHeight + 5.0, 7.0);
         
         const spawnPos = new Vector3(randomX, spawnY, randomZ);
         this.gameGarage.setPlayerGaragePosition(spawnPos.clone());
@@ -4905,8 +4019,9 @@ export class Game {
         // Сохраняем позицию гаража для респавна (ВСЕГДА в этом же гараже!)
         // КРИТИЧНО: Используем улучшенный метод получения высоты террейна
         const terrainHeight = this.getGroundHeight(selectedGarage.x, selectedGarage.z);
-        // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-        const garageY = Math.max(terrainHeight + 2.0, 3.0);
+        // Высота пола гаража: верхняя поверхность пола на groundHeight + 0.15
+        // Спавн на 1 метр выше пола: groundHeight + 0.15 + 1.0 = groundHeight + 1.15
+        const garageY = terrainHeight + 1.15;
         
         this.gameGarage.setPlayerGaragePosition(new Vector3(selectedGarage.x, garageY, selectedGarage.z));
         logger.log(`[Game] Garage position saved for respawn: (${this.gameGarage.playerGaragePosition!.x.toFixed(2)}, ${this.gameGarage.playerGaragePosition!.y.toFixed(2)}, ${this.gameGarage.playerGaragePosition!.z.toFixed(2)})`);
@@ -4962,24 +4077,14 @@ export class Game {
                 groundHeight = this.getGroundHeight(selectedGarage.x, selectedGarage.z);
             }
             
-            // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-            // Это гарантирует, что танк не застрянет в террейне
-            // Минимальная абсолютная высота - 3.0 единиц (на случай если groundHeight = 0)
-            let spawnHeight = Math.max(groundHeight + 2.0, 3.0);
+            // Высота пола гаража: верхняя поверхность пола на groundHeight + 0.15
+            // Спавн на 1 метр выше пола: groundHeight + 0.15 + 1.0 = groundHeight + 1.15
+            let spawnHeight = groundHeight + 1.15;
             
-            // Дополнительная проверка: убеждаемся что мы всегда минимум 2.0 метра над террейном
-            if (groundHeight > 0 && spawnHeight < groundHeight + 2.0) {
-                spawnHeight = groundHeight + 2.0;
-                logger.warn(`[Game] Corrected player spawn Y to ${spawnHeight.toFixed(2)} at (${selectedGarage.x.toFixed(1)}, ${selectedGarage.z.toFixed(1)})`);
-            }
-            
-            // Финальная проверка безопасности - минимум 2.0 над террейном и минимум 3.0 абсолютной высоты
-            spawnHeight = Math.max(spawnHeight, groundHeight + 2.0, 3.0);
-            
-            // КРИТИЧЕСКАЯ ЗАЩИТА: Если высота всё ещё подозрительно низкая, используем фиксированную безопасную высоту
-            if (spawnHeight < 3.0) {
-                logger.error(`[Game] CRITICAL: Spawn height too low (${spawnHeight.toFixed(2)}), forcing to 3.0`);
-                spawnHeight = 3.0;
+            // Минимальная защита: если высота слишком низкая (меньше 1.0), используем безопасное значение
+            if (spawnHeight < 1.0) {
+                logger.warn(`[Game] Spawn height too low (${spawnHeight.toFixed(2)}), using safe default 2.15`);
+                spawnHeight = 2.15; // Минимум 1 метр над полом при groundHeight = 1.0
             }
             
             logger.log(`[Game] Player spawn height: ${spawnHeight.toFixed(2)} (ground: ${groundHeight.toFixed(2)})`);
@@ -5181,8 +4286,8 @@ export class Game {
                 }
             }
             
-            // ИСПРАВЛЕНИЕ: Спавн на 2 метра выше фактического террейна
-            const spawnY = Math.max(groundHeight + 2.0, 3.0);
+            // Безопасная высота: +5м над террейном, минимум 7м
+            const spawnY = Math.max(groundHeight + 5.0, 7.0);
             
             const garagePos = new Vector3(garage.x, spawnY, garage.z);
             
@@ -5196,6 +4301,12 @@ export class Game {
                 enemyTank.setTarget(this.tank);
             }
             
+            // УЛУЧШЕНО: Регистрируем бота в AI Coordinator
+            if (this.aiCoordinator) {
+                enemyTank.setAiCoordinator(this.aiCoordinator);
+                this.aiCoordinator.registerBot(enemyTank);
+            }
+            
             // Store garage position for this tank
             const enemyGaragePos = garagePos.clone();
             
@@ -5204,6 +4315,14 @@ export class Game {
                 logger.log("[GAME] Enemy tank destroyed! Adding kill...");
                 if (this.hud) {
                     this.hud.addKill();
+                }
+                // Обновляем прогресс ежедневных заданий
+                if (this.dailyQuestsSystem) {
+                    this.dailyQuestsSystem.updateProgress("daily_kills", 1);
+                }
+                // Добавляем опыт в боевой пропуск
+                if (this.battlePassSystem) {
+                    this.battlePassSystem.addExperience(25);
                 }
                 const baseReward = 100;
                 const reward = Math.round(baseReward * this.getDifficultyRewardMultiplier());
@@ -5226,6 +4345,9 @@ export class Game {
                         this.playerProgression.recordKill();
                         this.playerProgression.addCredits(reward);
                     }
+                    // UpgradeManager: XP и кредиты за убийство
+                    upgradeManager.addXpForKill();
+                    upgradeManager.addCredits(reward, "battle", "Enemy tank destroyed");
                 }
                 const idx = this.enemyTanks.indexOf(enemyTank);
                 if (idx !== -1) this.enemyTanks.splice(idx, 1);
@@ -5254,6 +4376,16 @@ export class Game {
         
         if (this.hud) {
             this.hud.addKill();
+        }
+        
+        // Обновляем прогресс ежедневных заданий
+        if (this.dailyQuestsSystem) {
+            this.dailyQuestsSystem.updateProgress("daily_kills", 1);
+        }
+        
+        // Добавляем опыт в боевой пропуск
+        if (this.battlePassSystem) {
+            this.battlePassSystem.addExperience(25);
         }
         
         // Track achievements
@@ -5671,10 +4803,12 @@ export class Game {
                     this.virtualTurretTarget = null;
                     this.lastMouseControlTime = 0;
                     
-                    // Отменяем центрирование башни при движении мыши
-                    if (this.tank && Math.abs(evt.movementX) > 0.1) {
+                    // Отменяем центрирование башни ТОЛЬКО при значительном движении мыши
+                    // Порог увеличен, чтобы случайные микродвижения не отменяли центровку
+                    if (this.tank && this.tank.isAutoCentering && Math.abs(evt.movementX) > 5) {
                         this.tank.isAutoCentering = false;
                         window.dispatchEvent(new CustomEvent("stopCenterCamera"));
+                        console.log("[Game] Центровка отменена движением мыши");
                     }
                 }
             }
@@ -5687,6 +4821,10 @@ export class Game {
             // Показ/скрытие прицела
             if (this.hud) {
                 this.hud.setAimMode(this.isAiming);
+            }
+            // ИСПРАВЛЕНИЕ: Сбрасываем экспозицию чтобы экран не затемнялся при прицеливании
+            if (this.postProcessingManager) {
+                this.postProcessingManager.resetExposure();
             }
             
             if (this.isAiming) {
@@ -6411,6 +5549,7 @@ export class Game {
                     // КРИТИЧНО: Используем кэшированный chassisRotY из updateEnemyPositionsCache
                     // Это избегает дорогого toEulerAngles() вызова
                     const cached = cachedEnemies[index];
+                    if (!cached) continue;
                     const chassisRotY = cached.chassisRotY ?? (t.chassis.rotationQuaternion 
                         ? t.chassis.rotationQuaternion.toEulerAngles().y 
                         : t.chassis.rotation.y);
@@ -6754,7 +5893,9 @@ export class Game {
         // Получаем направление ствола и создаём луч от ствола
         const barrelPos = this.tank.barrel.getAbsolutePosition();
         const barrelDir = this.tank.barrel.getDirection(Vector3.Forward()).normalize();
-        const ray = new Ray(barrelPos, barrelDir, 100);
+        // ИСПРАВЛЕНО: Уменьшена дистанция raycast до 80 единиц
+        // Полоска HP показывается только для врагов в пределах реальной видимости
+        const ray = new Ray(barrelPos, barrelDir, 80);
         
         // Используем pickWithRay для raycast от ствола
         const pick = this.scene.pickWithRay(ray);
@@ -6762,12 +5903,7 @@ export class Game {
         // Hide all labels by default
         // ОПТИМИЗАЦИЯ: Используем кэшированную позицию
         const playerPos = this.tank && this.tank.chassis ? this.tank.getCachedChassisPosition() : undefined;
-        // ОПТИМИЗАЦИЯ: Используем обычный for цикл вместо forEach
-        const enemyCount = this.enemyTanks.length;
-        for (let i = 0; i < enemyCount; i++) {
-            const enemy = this.enemyTanks[i];
-            if (enemy) enemy.setHpVisible(false, playerPos);
-        }
+        // Скрываем HP билборды турелей (у вражеских танков HP bar удалён - используется HUD target info)
         if (this.enemyManager) {
             const turrets = this.enemyManager.turrets;
             const turretCount = turrets.length;
@@ -6783,16 +5919,15 @@ export class Game {
         
         if (pick && pick.hit && pick.pickedMesh) {
             const pickedMesh = pick.pickedMesh as any; // Приведение типа для isPartOf
-            // Check enemy tanks
+            // Check enemy tanks - HP bar удалён, используем только HUD target info
             const tank = this.enemyTanks.find(et => et.isPartOf && et.isPartOf(pickedMesh));
             if (tank) {
-                tank.setHpVisible(true, playerPos);
-                // ИСПРАВЛЕНО: Показываем HUD индикатор только при точном попадании raycast
+                // Показываем HUD индикатор при точном попадании raycast
                 if (this.hud && playerPos) {
                     const enemyPos = tank.chassis?.getAbsolutePosition();
                     const distance = enemyPos ? Vector3.Distance(playerPos, enemyPos) : 0;
                     this.hud.setTargetInfo({
-                        name: tank.name || "Enemy Tank",
+                        name: "Enemy Tank",
                         health: tank.currentHealth || 0,
                         maxHealth: tank.maxHealth || 100,
                         distance: distance,
@@ -6812,7 +5947,7 @@ export class Game {
                         const turretPos = turret.base?.getAbsolutePosition();
                         const distance = turretPos ? Vector3.Distance(playerPos, turretPos) : 0;
                         this.hud.setTargetInfo({
-                            name: turret.name || "Turret",
+                            name: "Turret",
                             health: turret.health || 0,
                             maxHealth: turret.maxHealth || 100,
                             distance: distance,
@@ -7218,7 +6353,7 @@ export class Game {
     // === FIREBASE INTEGRATION ===
     
     // Открыть панель настроек скриншотов
-    private async ensureChatSystem(): Promise<void> {
+    public async ensureChatSystem(): Promise<void> {
         if (this.chatSystem) {
             return; // Already initialized
         }
@@ -7340,6 +6475,7 @@ export class Game {
         this.gamePersistence.saveAllGameData();
     }
 }
+
 
 
 

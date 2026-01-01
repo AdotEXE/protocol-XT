@@ -587,6 +587,70 @@ export class EffectsManager {
         setTimeout(() => spark.dispose(), 100);
     }
     
+    // Ricochet spark - более яркий и заметный эффект рикошета
+    createRicochetSpark(position: Vector3, direction?: Vector3): void {
+        // Используем улучшенную систему частиц если доступна
+        if (this.particleEffects && direction) {
+            this.particleEffects.createHit(position, direction);
+        }
+        
+        // Основная искра - золотой цвет
+        const spark = MeshBuilder.CreateBox("ricochetSpark", { size: 0.4 }, this.scene);
+        spark.position = position.clone();
+        
+        const sparkMat = new StandardMaterial("ricochetSparkMat", this.scene);
+        sparkMat.diffuseColor = new Color3(1.0, 0.84, 0.0); // Золотой
+        sparkMat.emissiveColor = new Color3(1.0, 0.7, 0.0);
+        sparkMat.disableLighting = true;
+        spark.material = sparkMat;
+        
+        // Дополнительные искры - разлетаются в стороны
+        const particleCount = 5;
+        const particles: Mesh[] = [];
+        for (let i = 0; i < particleCount; i++) {
+            const particle = MeshBuilder.CreateBox(`ricochetParticle${i}`, { size: 0.15 }, this.scene);
+            particle.position = position.clone();
+            
+            const particleMat = new StandardMaterial(`ricochetParticleMat${i}`, this.scene);
+            particleMat.diffuseColor = new Color3(1.0, 0.5 + Math.random() * 0.5, 0.0);
+            particleMat.emissiveColor = new Color3(0.8, 0.4, 0.0);
+            particleMat.disableLighting = true;
+            particle.material = particleMat;
+            
+            particles.push(particle);
+        }
+        
+        // Анимация
+        let frame = 0;
+        const animate = () => {
+            frame++;
+            
+            // Основная искра уменьшается
+            const scale = 1 - frame * 0.1;
+            if (scale > 0) {
+                spark.scaling.setAll(scale);
+            }
+            
+            // Частицы разлетаются
+            particles.forEach((p, i) => {
+                const angle = (i / particleCount) * Math.PI * 2;
+                p.position.x += Math.cos(angle) * 0.3;
+                p.position.y += 0.15 - frame * 0.02;
+                p.position.z += Math.sin(angle) * 0.3;
+                p.scaling.setAll(1 - frame * 0.15);
+            });
+            
+            if (frame < 8) {
+                setTimeout(animate, 30);
+            } else {
+                spark.dispose();
+                sparkMat.dispose();
+                particles.forEach(p => p.dispose());
+            }
+        };
+        animate();
+    }
+    
     // Эффект респавна - светящееся кольцо и частицы
     createRespawnEffect(position: Vector3): void {
         // Основное светящееся кольцо (replaced cylinder with box)
