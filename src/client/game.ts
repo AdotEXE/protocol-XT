@@ -2207,6 +2207,9 @@ export class Game {
             if (firebaseInitialized) {
                 // logger.log("[Game] Firebase initialized successfully");
                 
+                // Устанавливаем firebaseService в window для доступа из других модулей
+                (window as any).firebaseService = firebaseService;
+                
                 // Initialize social system (friends & clans)
                 await socialSystem.initialize();
                 logger.log("[Game] Social system initialized");
@@ -3786,14 +3789,14 @@ export class Game {
         }
         
         // Создаём большую горизонтальную плоскость под картой
-        // Размер: 2000x2000 единиц (достаточно для большой карты)
+        // Размер: 5500x5500 единиц (достаточно для карты 5000x5000 с запасом)
         // CreateGround создаёт горизонтальную плоскость в плоскости XZ
-        // ОПТИМИЗАЦИЯ: Уменьшено subdivisions с 2000 до 50 для производительности
-        // Это создает 51x51 = 2601 вершин вместо 2001x2001 = 4,004,001 вершин!
+        // ОПТИМИЗАЦИЯ: Уменьшено subdivisions для производительности
+        // Это создает 51x51 = 2601 вершин
         const safetyPlaneMesh = MeshBuilder.CreateGround("safetyPlane", {
-            width: 2000,
-            height: 2000,
-            subdivisions: 50 // ОПТИМИЗИРОВАНО: Уменьшено с 2000 до 50 для производительности
+            width: 5500,
+            height: 5500,
+            subdivisions: 50 // ОПТИМИЗИРОВАНО: Уменьшено для производительности
         }, this.scene);
         
         // ИСПРАВЛЕНО: Плоскость на Z=-10

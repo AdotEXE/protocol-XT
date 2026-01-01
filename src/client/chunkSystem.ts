@@ -213,11 +213,12 @@ export class ChunkSystem {
             this.config.mapType // Передаем mapType для специальной обработки (например, tartaria)
         );
         
+        // Create separate noise generator for biome transitions (different seed offset)
+        // Инициализируем для всех типов карт (нужно для горного барьера)
+        this.biomeNoise = new NoiseGenerator(this.config.worldSeed + 12345);
+        
         // Initialize road network and terrain generator for normal map
         if (this.config.mapType === "normal") {
-            // Create separate noise generator for biome transitions (different seed offset)
-            this.biomeNoise = new NoiseGenerator(this.config.worldSeed + 12345);
-            
             this.roadNetwork = new RoadNetwork(
                 this.scene, 
                 {
@@ -2605,6 +2606,71 @@ export class ChunkSystem {
         // Это гарантирует бесшовность между чанками с разными биомами
         // Биом чанка влияет только на текстуру, но НЕ на геометрию
         let height = this.terrainGenerator.getHeight(x, z, "park");
+        
+        // ЕСТЕСТВЕННЫЙ ГОРНЫЙ БАРЬЕР по периметру карты
+        // Границы карты: -2500 до 2500 (размер 5000x5000)
+        const MAP_BOUNDS = { minX: -2500, maxX: 2500, minZ: -2500, maxZ: 2500 };
+        const MOUNTAIN_BARRIER_WIDTH = 300; // Ширина горного барьера от края (увеличено для плавности)
+        const MOUNTAIN_MAX_HEIGHT = 140; // Максимальная высота гор
+        const MOUNTAIN_BASE_HEIGHT = 20; // Базовая высота начала гор (низкие холмы)
+        
+        // Вычисляем расстояние до ближайшего края карты
+        const distToMinX = x - MAP_BOUNDS.minX;
+        const distToMaxX = MAP_BOUNDS.maxX - x;
+        const distToMinZ = z - MAP_BOUNDS.minZ;
+        const distToMaxZ = MAP_BOUNDS.maxZ - z;
+        const minDistToEdge = Math.min(distToMinX, distToMaxX, distToMinZ, distToMaxZ);
+        
+        // Если близко к краю, добавляем естественную горную высоту
+        if (minDistToEdge < MOUNTAIN_BARRIER_WIDTH) {
+            // Плавный переход: 0 на расстоянии MOUNTAIN_BARRIER_WIDTH, 1 на краю
+            // Используем более плавную кривую для естественного перехода
+            const normalizedDist = minDistToEdge / MOUNTAIN_BARRIER_WIDTH;
+            const mountainBlend = 1 - normalizedDist;
+            
+            // Используем smoothstep для плавного перехода
+            const smoothBlend = mountainBlend * mountainBlend * (3 - 2 * mountainBlend);
+            
+            // ЕСТЕСТВЕННАЯ ВАРИАЦИЯ: Используем noise для создания естественных горных хребтов
+            let mountainVariation = 1.0;
+            if (this.biomeNoise) {
+                // Масштаб шума для гор (крупные естественные формы)
+                const noiseScale = 0.015; // Масштаб для крупных горных массивов
+                
+                // Используем ridged noise для создания горных хребтов и пиков
+                const ridgedNoise = this.biomeNoise.ridged(x * noiseScale, z * noiseScale, 4, 2.0, 0.6);
+                // Нормализуем ridged noise (обычно 0-1, но может быть больше)
+                const normalizedRidged = Math.min(1.0, Math.max(0, ridgedNoise));
+                
+                // Добавляем fbm для более плавной детализации и вариации
+                const fbmNoise = (this.biomeNoise.fbm(x * noiseScale * 0.4, z * noiseScale * 0.4, 3, 2.0, 0.5) + 1) / 2;
+                
+                // Добавляем мелкомасштабный шум для деталей поверхности
+                const detailNoise = (this.biomeNoise.fbm(x * noiseScale * 2.0, z * noiseScale * 2.0, 2, 2.0, 0.4) + 1) / 2;
+                
+                // Комбинируем: ridged создает основные формы, fbm добавляет плавность, detail добавляет детали
+                mountainVariation = normalizedRidged * 0.6 + fbmNoise * 0.3 + detailNoise * 0.1;
+                
+                // Масштабируем к диапазону 0.75-1.25 для естественной вариации высоты гор
+                // Это создает горы разной высоты, но не слишком экстремальные
+                mountainVariation = 0.75 + mountainVariation * 0.5;
+            }
+            
+            // Базовая высота гор с плавным нарастанием
+            const baseMountainHeight = MOUNTAIN_BASE_HEIGHT + smoothBlend * (MOUNTAIN_MAX_HEIGHT - MOUNTAIN_BASE_HEIGHT);
+            
+            // Применяем вариацию для создания естественных гор
+            const mountainHeight = baseMountainHeight * mountainVariation;
+            
+            // Плавно смешиваем с базовой высотой террейна
+            // На большом расстоянии от края горы незначительно влияют, на краю доминируют
+            const blendFactor = smoothBlend * smoothBlend; // Квадратичная кривая для более плавного перехода
+            height = height * (1 - blendFactor) + mountainHeight * blendFactor;
+            
+            // Гарантируем что горы достаточно высоки для непроходимости
+            const minMountainHeight = MOUNTAIN_BASE_HEIGHT * 0.8 + smoothBlend * (MOUNTAIN_MAX_HEIGHT * 0.9 - MOUNTAIN_BASE_HEIGHT * 0.8);
+            height = Math.max(height, minMountainHeight);
+        }
         
         // Смешивание с высотой гаража (0) для плавного перехода
         if (garageBlend > 0) {

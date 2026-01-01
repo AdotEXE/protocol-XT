@@ -34,10 +34,18 @@ export function createSkillsPanelHTML(): string {
     return `
         <div class="panel-content">
             <button class="panel-close" id="skills-close">✕</button>
+            <div class="skills-main-title">TX</div>
             <div class="panel-title">Навыки</div>
+            <div class="skill-category-tabs" id="skill-category-tabs">
+                <button class="skill-category-tab active" data-category="attack">⚔️ Атака</button>
+                <button class="skill-category-tab" data-category="defense">🛡️ Защита</button>
+                <button class="skill-category-tab" data-category="mobility">🏃 Мобильность</button>
+                <button class="skill-category-tab" data-category="tech">🔧 Технологии</button>
+                <button class="skill-category-tab" data-category="stealth">👁️ Скрытность</button>
+                <button class="skill-category-tab" data-category="leadership">🎖️ Лидерство</button>
+            </div>
             <div class="skill-tree-header">
-                <div id="skill-points-display" class="skill-points-pill">Очков навыков: 0</div>
-                <div class="skill-tree-legend" id="skill-tree-legend"></div>
+                <div id="skill-points-display" class="skill-points-pill">ОЧКОВ НАВЫКОВ: 0</div>
             </div>
             <div class="skill-tree-wrapper">
                 <div class="skill-tree" id="skill-tree"></div>
@@ -54,6 +62,8 @@ export function createSkillsPanelHTML(): string {
  */
 // Глобальное состояние выбранной категории
 let selectedCategory: "combat" | "defense" | "utility" | null = null;
+// Глобальное состояние выбранной ветки (для вкладок)
+let selectedBranch: string | null = "attack"; // По умолчанию выбрана вкладка "Атака"
 
 export function updateSkillTreeDisplay(
     stats: PlayerStats,
@@ -76,7 +86,7 @@ export function updateSkillTreeDisplay(
     const wrapper = skillTree.closest(".skill-tree-wrapper") as HTMLElement | null;
     
     if (skillPointsDisplay) {
-        skillPointsDisplay.textContent = `Очков навыков: ${stats.skillPoints}`;
+        skillPointsDisplay.textContent = `ОЧКОВ НАВЫКОВ: ${stats.skillPoints}`;
     }
     
     // Обновляем легенду веток с кликабельностью
@@ -220,6 +230,22 @@ export function updateSkillTreeDisplay(
         const nodeCategory = getNodeCategory(nodeId);
         return nodeCategory === category;
     };
+    
+    // Функция для проверки, принадлежит ли узел к ветке
+    const isNodeInBranch = (nodeId: string, branchId: string): boolean => {
+        const node = SKILL_TREE_NODES.find(n => n.id === nodeId);
+        if (!node) return false;
+        
+        // Проверяем, является ли узел хабом этой ветки
+        if (nodeId === `${branchId}Hub`) return true;
+        
+        // Проверяем родителя рекурсивно
+        if (node.parentId) {
+            return isNodeInBranch(node.parentId, branchId);
+        }
+        
+        return false;
+    };
 
     // Создаем заголовки категорий
     const categories: Array<{ id: "combat" | "defense" | "utility"; name: string; icon: string }> = [
@@ -270,8 +296,12 @@ export function updateSkillTreeDisplay(
         const to = nodePositions.get(edge.to);
         if (!from || !to) return;
 
-        // Фильтрация: показываем только линии выбранной категории (если выбрана)
-        if (selectedCategory !== null) {
+        // Фильтрация: показываем только линии выбранной категории или ветки (если выбрана)
+        if (selectedBranch !== null) {
+            if (!isNodeInBranch(edge.from, selectedBranch) && !isNodeInBranch(edge.to, selectedBranch)) {
+                return; // Пропускаем линии не выбранной ветки
+            }
+        } else if (selectedCategory !== null) {
             const fromCategory = getNodeCategory(edge.from);
             const toCategory = getNodeCategory(edge.to);
             if (fromCategory !== selectedCategory && toCategory !== selectedCategory) {
@@ -366,8 +396,12 @@ export function updateSkillTreeDisplay(
             return; // Пропускаем центральный узел
         }
 
-        // Фильтрация: показываем только узлы выбранной категории (если выбрана)
-        if (selectedCategory !== null) {
+        // Фильтрация: показываем только узлы выбранной категории или ветки (если выбрана)
+        if (selectedBranch !== null) {
+            if (!isNodeInBranch(node.id, selectedBranch)) {
+                return; // Пропускаем узлы не выбранной ветки
+            }
+        } else if (selectedCategory !== null) {
             if (!isNodeInCategory(node.id, selectedCategory)) {
                 return; // Пропускаем узлы не выбранной категории
             }
@@ -582,6 +616,74 @@ export function updateSkillTreeDisplay(
     });
 
     setupSkillTreeNavigation(wrapper);
+    
+    // Настройка обработчиков вкладок категорий
+    setupCategoryTabs(stats, callbacks);
+    
+    // Инициализация активной вкладки при первой загрузке
+    const tabsContainer = document.getElementById("skill-category-tabs");
+    if (tabsContainer) {
+        const activeTab = tabsContainer.querySelector(".skill-category-tab.active");
+        if (activeTab) {
+            const category = (activeTab as HTMLElement).dataset.category;
+            if (category) {
+                const branchToCategoryMap: Record<string, "combat" | "defense" | "utility"> = {
+                    "attack": "combat",
+                    "defense": "defense",
+                    "mobility": "defense",
+                    "tech": "utility",
+                    "stealth": "utility",
+                    "leadership": "utility"
+                };
+                selectedCategory = branchToCategoryMap[category] || null;
+                selectedBranch = category;
+            }
+        }
+    }
+}
+
+/**
+ * Настраивает обработчики кликов для вкладок категорий
+ */
+function setupCategoryTabs(
+    stats: PlayerStats,
+    callbacks: SkillTreeCallbacks
+): void {
+    const tabsContainer = document.getElementById("skill-category-tabs");
+    if (!tabsContainer) return;
+    
+    const flag = "_categoryTabsBound";
+    if ((tabsContainer as any)[flag]) return;
+    (tabsContainer as any)[flag] = true;
+    
+    const tabs = tabsContainer.querySelectorAll(".skill-category-tab");
+    tabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+            // Убираем активный класс со всех вкладок
+            tabs.forEach(t => t.classList.remove("active"));
+            // Добавляем активный класс к выбранной вкладке
+            tab.classList.add("active");
+            
+            const category = (tab as HTMLElement).dataset.category;
+            if (category) {
+                // Маппинг веток к категориям для фильтрации
+                const branchToCategoryMap: Record<string, "combat" | "defense" | "utility"> = {
+                    "attack": "combat",
+                    "defense": "defense",
+                    "mobility": "defense",
+                    "tech": "utility",
+                    "stealth": "utility",
+                    "leadership": "utility"
+                };
+                
+                selectedCategory = branchToCategoryMap[category] || null;
+                selectedBranch = category;
+                
+                // Перерисовываем дерево с фильтрацией
+                updateSkillTreeDisplay(stats, callbacks);
+            }
+        });
+    });
 }
 
 /**

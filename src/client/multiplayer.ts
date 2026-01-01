@@ -166,8 +166,8 @@ export interface NetworkPlayer {
 
 /**
  * Автоматически определяет WebSocket URL на основе текущего hostname
- * Если игра загружена с 192.168.3.4:5000, вернет ws://192.168.3.4:8000
- * Если игра загружена с localhost:5000, вернет ws://localhost:8000
+ * Если игра загружена с 192.168.3.4:5000, вернет ws://192.168.3.4:8080
+ * Если игра загружена с localhost:5000, вернет ws://localhost:8080
  */
 /**
  * Validate WebSocket URL format
@@ -181,7 +181,7 @@ function validateWebSocketUrl(url: string): boolean {
     }
 }
 
-function getWebSocketUrl(defaultPort: number = 8000): string {
+function getWebSocketUrl(defaultPort: number = 8080): string {
     // Проверяем переменную окружения (приоритет)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const envUrl = (import.meta as any).env?.VITE_WS_SERVER_URL;
@@ -470,7 +470,7 @@ export class MultiplayerManager {
                 if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
                     logger.error("[Multiplayer] Connection failed. Check:");
                     logger.error("  1. Server is running on", this.serverUrl);
-                    logger.error("  2. Firewall allows connection on port", this.serverUrl.split(':')[2] || '8000');
+                    logger.error("  2. Firewall allows connection on port", this.serverUrl.split(':')[2] || '8080');
                     logger.error("  3. URL format is correct (ws://host:port)");
                 }
             };

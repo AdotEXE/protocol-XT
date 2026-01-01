@@ -78,7 +78,7 @@ export class GameRoom {
         player.roomId = this.id;
         
         // Assign team for team-based modes
-        if (this.mode === "tdm" || this.mode === "ctf") {
+        if (this.mode === "tdm" || this.mode === "ctf" || this.mode === "control_point" || this.mode === "escort") {
             player.team = this.players.size % 2 === 0 ? 1 : 0;
         }
         
@@ -146,7 +146,7 @@ export class GameRoom {
         
         // Spawn enemies for multiplayer modes (синхронизированные боты для всех режимов)
         // В мультиплеере боты должны быть синхронизированы между всеми клиентами
-        if (this.mode === "coop" || this.mode === "ffa" || this.mode === "tdm") {
+        if (this.mode === "coop" || this.mode === "ffa" || this.mode === "tdm" || this.mode === "survival" || this.mode === "raid") {
             this.spawnEnemies();
         }
     }

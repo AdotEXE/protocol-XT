@@ -1734,14 +1734,140 @@ export class MainMenu {
                 max-width: min(95vw, 1700px);
                 width: min(95vw, 1700px);
                 max-height: min(95vh, 956px);
+                display: flex;
+                flex-direction: column;
+            }
+            
+            /* Заголовок TX */
+            .skills-main-title {
+                font-size: 48px;
+                color: #fff;
+                text-align: center;
+                margin-bottom: 10px;
+                font-weight: bold;
+                text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+                font-family: 'Press Start 2P', monospace;
+            }
+            
+            /* Вкладки категорий */
+            .skill-category-tabs {
+                display: flex;
+                gap: 8px;
+                margin-bottom: 15px;
+                justify-content: center;
+                flex-wrap: wrap;
+            }
+            
+            .skill-category-tab {
+                padding: 10px 16px;
+                background: rgba(0, 20, 0, 0.3);
+                border: 2px solid rgba(0, 255, 4, 0.3);
+                color: #0f0;
+                cursor: pointer;
+                font-size: 11px;
+                font-weight: bold;
+                font-family: 'Press Start 2P', monospace;
+                transition: all 0.2s;
+                border-radius: 4px;
+                white-space: nowrap;
+            }
+            
+            .skill-category-tab:hover {
+                background: rgba(0, 40, 0, 0.5);
+                border-color: rgba(0, 255, 4, 0.6);
+            }
+            
+            .skill-category-tab.active {
+                background: rgba(0, 255, 4, 0.2);
+                border-color: rgba(0, 255, 4, 0.8);
+                color: #0f0;
+                box-shadow: 0 0 10px rgba(0, 255, 4, 0.4);
+            }
+            
+            /* Специальные цвета для разных вкладок */
+            .skill-category-tab[data-category="attack"] {
+                border-color: rgba(255, 0, 0, 0.5);
+                color: #f00;
+            }
+            
+            .skill-category-tab[data-category="attack"]:hover,
+            .skill-category-tab[data-category="attack"].active {
+                border-color: rgba(255, 0, 0, 0.8);
+                background: rgba(255, 0, 0, 0.2);
+                color: #f00;
+            }
+            
+            .skill-category-tab[data-category="defense"] {
+                border-color: rgba(0, 0, 255, 0.5);
+                color: #00f;
+            }
+            
+            .skill-category-tab[data-category="defense"]:hover,
+            .skill-category-tab[data-category="defense"].active {
+                border-color: rgba(0, 0, 255, 0.8);
+                background: rgba(0, 0, 255, 0.2);
+                color: #00f;
+            }
+            
+            .skill-category-tab[data-category="mobility"] {
+                border-color: rgba(0, 255, 255, 0.5);
+                color: #0ff;
+            }
+            
+            .skill-category-tab[data-category="mobility"]:hover,
+            .skill-category-tab[data-category="mobility"].active {
+                border-color: rgba(0, 255, 255, 0.8);
+                background: rgba(0, 255, 255, 0.2);
+                color: #0ff;
+            }
+            
+            .skill-category-tab[data-category="tech"] {
+                border-color: rgba(255, 255, 0, 0.5);
+                color: #ff0;
+            }
+            
+            .skill-category-tab[data-category="tech"]:hover,
+            .skill-category-tab[data-category="tech"].active {
+                border-color: rgba(255, 255, 0, 0.8);
+                background: rgba(255, 255, 0, 0.2);
+                color: #ff0;
+            }
+            
+            .skill-category-tab[data-category="stealth"] {
+                border-color: rgba(255, 140, 0, 0.5);
+                color: #ff8c00;
+            }
+            
+            .skill-category-tab[data-category="stealth"]:hover,
+            .skill-category-tab[data-category="stealth"].active {
+                border-color: rgba(255, 140, 0, 0.8);
+                background: rgba(255, 140, 0, 0.2);
+                color: #ff8c00;
+            }
+            
+            .skill-category-tab[data-category="leadership"] {
+                border-color: rgba(0, 255, 0, 0.5);
+                color: #0f0;
+            }
+            
+            .skill-category-tab[data-category="leadership"]:hover,
+            .skill-category-tab[data-category="leadership"].active {
+                border-color: rgba(0, 255, 0, 0.8);
+                background: rgba(0, 255, 0, 0.2);
+                color: #0f0;
             }
             
             .panel-title {
-                font-size: 16px;
+                font-size: 18px;
                 color: #0f0;
                 text-align: center;
-                margin-bottom: 20px;
+                margin-bottom: 15px;
                 text-shadow: 0 0 10px #0f0;
+                font-weight: bold;
+            }
+            
+            #skills-panel .panel-title {
+                margin-bottom: 10px;
             }
             
             .play-menu-section {
@@ -2063,6 +2189,17 @@ export class MainMenu {
                 display: flex;
                 gap: 10px;
                 margin-top: 20px;
+                justify-content: center;
+            }
+            
+            #skills-panel .panel-buttons {
+                margin-top: 15px;
+            }
+            
+            #skills-panel .panel-btn {
+                min-width: 200px;
+                padding: 14px 24px;
+                font-size: 12px;
             }
             
             .panel-btn {
@@ -2150,33 +2287,37 @@ export class MainMenu {
                 border-right: none;
                 border-bottom: none;
                 padding: 16px;
-                max-height: 72vh;
+                max-height: calc(95vh - 350px);
+                min-height: 500px;
                 overflow: auto;
                 box-shadow: 0 0 20px rgba(0,255,100,0.15);
                 cursor: grab;
+                flex: 1;
             }
 
             .skill-tree-header {
                 display: flex;
                 flex-wrap: wrap;
-                justify-content: flex-start;
+                justify-content: center;
                 align-items: center;
                 gap: 8px;
                 padding: 10px 12px;
                 background: linear-gradient(180deg, rgba(0,30,0,0.98), rgba(0,15,0,0.95));
                 border-bottom: 2px solid #0f0;
                 box-shadow: 0 4px 20px rgba(0,0,0,0.8);
+                margin-bottom: 10px;
             }
 
             .skill-points-pill {
-                padding: 8px 12px;
+                padding: 10px 16px;
                 background: rgba(0,255,140,0.12);
-                border: 1px solid #0f0;
+                border: 2px solid #0f0;
                 color: #9f9;
-                font-size: 10px;
+                font-size: 12px;
                 text-transform: uppercase;
-                letter-spacing: 0.5px;
+                letter-spacing: 1px;
                 box-shadow: 0 0 12px rgba(0,255,80,0.2);
+                font-weight: bold;
             }
 
             .skill-tree-legend {
@@ -4766,6 +4907,22 @@ export class MainMenu {
                             <span class="btn-icon">🚩</span>
                             <span class="btn-label">Capture the Flag</span>
                         </button>
+                        <button class="menu-btn secondary" id="btn-mode-control-point" data-mode="control_point">
+                            <span class="btn-icon">📍</span>
+                            <span class="btn-label">Control Point</span>
+                        </button>
+                        <button class="menu-btn secondary" id="btn-mode-escort" data-mode="escort">
+                            <span class="btn-icon">🚛</span>
+                            <span class="btn-label">Escort</span>
+                        </button>
+                        <button class="menu-btn secondary" id="btn-mode-survival" data-mode="survival">
+                            <span class="btn-icon">⚔️</span>
+                            <span class="btn-label">Survival</span>
+                        </button>
+                        <button class="menu-btn secondary" id="btn-mode-raid" data-mode="raid">
+                            <span class="btn-icon">👹</span>
+                            <span class="btn-label">Raid</span>
+                        </button>
                     </div>
                 </div>
                 
@@ -4792,7 +4949,7 @@ export class MainMenu {
                         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
                             <div style="display: flex; flex-direction: column; gap: 4px;">
                                 <div id="mp-server-info" style="font-size: 11px; color: #666; font-family: monospace;">
-                                    ws://localhost:8000
+                                    ws://localhost:8080
                                 </div>
                                 <div id="mp-server-hint" style="font-size: 9px; color: #888; font-style: italic; max-width: 300px;">
                                     Для подключения с другого ПК используйте IP-адрес сервера вместо localhost
@@ -4856,6 +5013,42 @@ export class MainMenu {
                                         <span class="btn-label" style="font-weight: 600;">Capture the Flag</span>
                                     </div>
                                     <span style="font-size: 10px; opacity: 0.7; text-align: left; line-height: 1.2;">Захват флага противника</span>
+                                </div>
+                            </button>
+                            <button class="menu-btn secondary mp-mode-btn" id="mp-btn-control-point" data-mp-mode="control_point" data-mp-desc="Захват контрольных точек. Команда, захватившая большинство точек, побеждает.">
+                                <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span class="btn-icon">📍</span>
+                                        <span class="btn-label" style="font-weight: 600;">Control Point</span>
+                                    </div>
+                                    <span style="font-size: 10px; opacity: 0.7; text-align: left; line-height: 1.2;">Захват контрольных точек</span>
+                                </div>
+                            </button>
+                            <button class="menu-btn secondary mp-mode-btn" id="mp-btn-escort" data-mp-mode="escort" data-mp-desc="Охрана конвоя. Одна команда защищает, другая атакует. Доставьте цель до финиша или уничтожьте её.">
+                                <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span class="btn-icon">🚛</span>
+                                        <span class="btn-label" style="font-weight: 600;">Escort</span>
+                                    </div>
+                                    <span style="font-size: 10px; opacity: 0.7; text-align: left; line-height: 1.2;">Охрана конвоя</span>
+                                </div>
+                            </button>
+                            <button class="menu-btn secondary mp-mode-btn" id="mp-btn-survival" data-mp-mode="survival" data-mp-desc="Выживание. Кооперативный режим против волн врагов. Выживите как можно дольше.">
+                                <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span class="btn-icon">⚔️</span>
+                                        <span class="btn-label" style="font-weight: 600;">Survival</span>
+                                    </div>
+                                    <span style="font-size: 10px; opacity: 0.7; text-align: left; line-height: 1.2;">Волны врагов</span>
+                                </div>
+                            </button>
+                            <button class="menu-btn secondary mp-mode-btn" id="mp-btn-raid" data-mp-mode="raid" data-mp-desc="Рейд. Кооперативный режим против мощных боссов. Победите всех боссов для победы.">
+                                <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span class="btn-icon">👹</span>
+                                        <span class="btn-label" style="font-weight: 600;">Raid</span>
+                                    </div>
+                                    <span style="font-size: 10px; opacity: 0.7; text-align: left; line-height: 1.2;">Против боссов</span>
                                 </div>
                             </button>
                         </div>
@@ -5907,7 +6100,7 @@ export class MainMenu {
                 const hintEl = document.getElementById("mp-server-hint");
                 if (hintEl) {
                     if (cleanUrl.includes("localhost") || cleanUrl.includes("127.0.0.1")) {
-                        hintEl.textContent = "⚠️ Для подключения с другого ПК используйте IP-адрес сервера (например: ws://192.168.1.100:8000)";
+                        hintEl.textContent = "⚠️ Для подключения с другого ПК используйте IP-адрес сервера (например: ws://192.168.1.100:8080)";
                         hintEl.style.color = "#fa0";
                     } else {
                         hintEl.textContent = `✅ Адрес сервера: ${cleanUrl} (можно использовать с других ПК в той же сети)`;

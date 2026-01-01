@@ -64,7 +64,7 @@ export class NetworkMenu {
             multiplayerEnabled: false,
             autoConnect: false,
             serverAddress: "localhost",
-            port: 8000,
+            port: 8080,
             reconnectAttempts: 5,
             reconnectDelay: 3000,
             pingInterval: 1000,
@@ -874,7 +874,7 @@ export class NetworkMenu {
         });
         
         portInput?.addEventListener("change", () => {
-            this.settings.port = parseInt(portInput.value) || 8000;
+            this.settings.port = parseInt(portInput.value) || 8080;
             this.saveSettings();
         });
         
@@ -894,17 +894,11 @@ export class NetworkMenu {
         });
         
         connectBtn?.addEventListener("click", () => {
-            if (this.game?.hud) {
-                this.game.hud.showMessage("Подключение к серверу...", "#0ff", 2000);
-            }
-            // TODO: Реальная логика подключения
+            this.connect();
         });
         
         disconnectBtn?.addEventListener("click", () => {
-            if (this.game?.hud) {
-                this.game.hud.showMessage("Отключено от сервера", "#f00", 2000);
-            }
-            // TODO: Реальная логика отключения
+            this.disconnect();
         });
     }
 }

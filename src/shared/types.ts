@@ -1,6 +1,6 @@
 import { Vector3 } from "@babylonjs/core";
 
-export type GameMode = "ffa" | "tdm" | "coop" | "battle_royale" | "ctf";
+export type GameMode = "ffa" | "tdm" | "coop" | "battle_royale" | "ctf" | "control_point" | "escort" | "survival" | "raid";
 
 // Vector3Data - сериализуемая версия Vector3 для передачи по сети
 export interface Vector3Data {

@@ -259,7 +259,7 @@ export class GameMultiplayerCallbacks {
         const mm = this.deps.multiplayerManager;
         if (!mm) return;
         
-        const serverUrl = mm.getServerUrl() || "ws://localhost:8000";
+        const serverUrl = mm.getServerUrl() || "ws://localhost:8080";
         const roomId = data.roomId || mm.getRoomId();
         const playerId = mm.getPlayerId();
         

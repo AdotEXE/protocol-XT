@@ -72,8 +72,8 @@ export interface TerrainConfig {
 }
 
 export const DEFAULT_TERRAIN_CONFIG: TerrainConfig = {
-    width: 1000,
-    depth: 1000,
+    width: 5000,
+    depth: 5000,
     subdivisions: 128,
     minHeight: 0,
     maxHeight: 50,
@@ -142,12 +142,12 @@ export interface WorldBounds {
 }
 
 export const DEFAULT_WORLD_BOUNDS: WorldBounds = {
-    minX: -500,
-    maxX: 500,
+    minX: -2500,
+    maxX: 2500,
     minY: -50,
     maxY: 200,
-    minZ: -500,
-    maxZ: 500
+    minZ: -2500,
+    maxZ: 2500
 };
 
 // ============================================
