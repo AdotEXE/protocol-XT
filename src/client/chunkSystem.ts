@@ -16,6 +16,12 @@ import {
     EdgesRenderer
 } from "@babylonjs/core";
 import { MapType } from "./menu";
+
+// Интерфейс для requestIdleCallback (не во всех версиях TypeScript)
+interface IdleDeadline {
+    didTimeout: boolean;
+    timeRemaining: () => number;
+}
 import { RoadNetwork } from "./roadNetwork";
 import { TerrainGenerator, NoiseGenerator } from "./noiseGenerator";
 import { CoverGenerator } from "./coverGenerator";
@@ -180,6 +186,59 @@ export class ChunkSystem {
         lastUpdateTime: 0
     };
     
+    // Границы карты для ограничения генерации террейна
+    private mapBounds: { minX: number; maxX: number; minZ: number; maxZ: number } | null = null;
+    
+    /**
+     * Получить границы карты для текущего типа карты
+     * Все карты имеют ограниченный размер с естественными горными барьерами по краям
+     */
+    public getMapBounds(): { minX: number; maxX: number; minZ: number; maxZ: number } | null {
+        if (this.mapBounds) return this.mapBounds;
+        
+        const mapType = this.config.mapType;
+        
+        switch (mapType) {
+            case "polygon":
+                // Polygon arena: 1000x1000 (как в PolygonGenerator)
+                this.mapBounds = { minX: -500, maxX: 500, minZ: -500, maxZ: 500 };
+                break;
+            case "frontline":
+                // Frontline arena: 1000x1000 (как в FrontlineGenerator)
+                this.mapBounds = { minX: -500, maxX: 500, minZ: -500, maxZ: 500 };
+                break;
+            case "sandbox":
+                // Sandbox: небольшая зона 400x400
+                this.mapBounds = { minX: -200, maxX: 200, minZ: -200, maxZ: 200 };
+                break;
+            case "normal":
+            case "tartaria":
+            default:
+                // Normal и Tartaria: ограниченный размер 2500x2500
+                this.mapBounds = { minX: -1250, maxX: 1250, minZ: -1250, maxZ: 1250 };
+        }
+        
+        return this.mapBounds;
+    }
+    
+    /**
+     * Проверить, находится ли чанк в границах карты
+     */
+    private isChunkInBounds(cx: number, cz: number): boolean {
+        const bounds = this.getMapBounds();
+        if (!bounds) return true; // Бесконечный мир - все чанки разрешены
+        
+        const chunkSize = this.config.chunkSize;
+        const chunkMinX = cx * chunkSize;
+        const chunkMaxX = chunkMinX + chunkSize;
+        const chunkMinZ = cz * chunkSize;
+        const chunkMaxZ = chunkMinZ + chunkSize;
+        
+        // Чанк в границах если хотя бы частично пересекает границы карты
+        return !(chunkMaxX < bounds.minX || chunkMinX > bounds.maxX ||
+                 chunkMaxZ < bounds.minZ || chunkMinZ > bounds.maxZ);
+    }
+    
     // ОПТИМИЗАЦИЯ: Прогрессивная загрузка чанков
     private chunkLoadQueue: Array<{cx: number, cz: number, priority: number}> = [];
     private chunksLoading: Set<string> = new Set();
@@ -191,12 +250,16 @@ export class ChunkSystem {
     private totalChunksInRadius = 0; // Общее количество чанков в радиусе видимости
     private loadedChunksInRadius = 0; // Загруженные чанки в радиусе
     
+    // ОПТИМИЗАЦИЯ FPS: Очередь для ленивой генерации деталей через requestIdleCallback
+    private detailsQueue: Array<{cx: number, cz: number, chunkParent: TransformNode, seed: number}> = [];
+    private isProcessingDetails = false;
+    
     constructor(scene: Scene, config?: Partial<ChunkConfig>) {
         this.scene = scene;
         this.config = {
             chunkSize: 50,
-            renderDistance: 1.5,
-            unloadDistance: 3,
+            renderDistance: 2, // ОПТИМИЗАЦИЯ: Увеличено с 1.5 для лучшей видимости
+            unloadDistance: 4, // ОПТИМИЗАЦИЯ: Увеличено для плавной выгрузки
             worldSeed: Date.now(),
             mapType: "normal", // По умолчанию
             enableTerrainEdges: false, // Линии рёбер террейна выключены по умолчанию
@@ -303,11 +366,12 @@ export class ChunkSystem {
         const polygonGen = new PolygonGenerator();
         polygonGen.initialize(genContext);
         MapGeneratorFactory.register(polygonGen);
-        logger.log(`[ChunkSystem] Registered PolygonGenerator, mapType: ${polygonGen.mapType}`);
+        // logger.log(`[ChunkSystem] Registered PolygonGenerator, mapType: ${polygonGen.mapType}`);
         
         const frontlineGen = new FrontlineGenerator();
         frontlineGen.initialize(genContext);
         MapGeneratorFactory.register(frontlineGen);
+        // logger.log(`[ChunkSystem] Registered FrontlineGenerator, mapType: ${frontlineGen.mapType}`);
         
         const ruinsGen = new RuinsGenerator();
         ruinsGen.initialize(genContext);
@@ -554,6 +618,7 @@ export class ChunkSystem {
     /**
      * Получить биом для позиции с учётом плавного перехода через шум.
      * Используется для vertex color blending на границах биомов.
+     * УЛУЧШЕНО: Добавлены дополнительные слои шума для более плавных переходов между чанками.
      */
     private getBiomeColorAtPosition(worldX: number, worldZ: number): { r: number; g: number; b: number } {
         if (!this.biomeNoise) {
@@ -564,13 +629,22 @@ export class ChunkSystem {
         const transitionScale = 0.015; // ~40-60m transition zones
         const detailScale = 0.008; // Крупномасштабный шум для основных зон
         
-        // Используем многослойный шум для естественных переходов
+        // БАЗОВЫЕ слои шума для естественных переходов
         const n1 = (this.biomeNoise.fbm(worldX * detailScale, worldZ * detailScale, 3, 2.0, 0.5) + 1) / 2;
         const n2 = (this.biomeNoise.fbm(worldX * transitionScale + 500, worldZ * transitionScale + 500, 2, 2.0, 0.6) + 1) / 2;
         const n3 = (this.biomeNoise.fbm(worldX * detailScale * 0.5 - 300, worldZ * detailScale * 0.5 - 300, 2, 2.0, 0.4) + 1) / 2;
         
-        // Комбинированный шум для более естественных переходов
-        const blendNoise = n1 * 0.5 + n2 * 0.3 + n3 * 0.2;
+        // НОВЫЕ: Дополнительные слои шума для более плавных переходов между чанками
+        // Мелкомасштабный шум для детализации переходов
+        const n4 = (this.biomeNoise.fbm(worldX * transitionScale * 2.5 + 1000, worldZ * transitionScale * 2.5 + 1000, 2, 2.0, 0.5) + 1) / 2;
+        // Среднемасштабный шум для плавного смешивания
+        const n5 = (this.biomeNoise.fbm(worldX * transitionScale * 1.5 - 800, worldZ * transitionScale * 1.5 - 800, 3, 2.0, 0.55) + 1) / 2;
+        // Высокочастотный шум для естественных вариаций
+        const n6 = (this.biomeNoise.fbm(worldX * transitionScale * 4.0 + 2000, worldZ * transitionScale * 4.0 + 2000, 2, 2.0, 0.45) + 1) / 2;
+        
+        // Комбинированный шум с дополнительными слоями для более плавных переходов
+        // Базовые слои: 40%, новые слои: 60% для лучшего смешивания
+        const blendNoise = n1 * 0.2 + n2 * 0.15 + n3 * 0.1 + n4 * 0.2 + n5 * 0.2 + n6 * 0.15;
         
         // Расстояние от центра карты влияет на распределение биомов
         const dist = Math.sqrt(worldX * worldX + worldZ * worldZ);
@@ -586,32 +660,41 @@ export class ChunkSystem {
             military: 0
         };
         
+        // УЛУЧШЕНО: Используем smoothstep для более плавного смешивания весов
+        const smoothBlend = blendNoise * blendNoise * (3 - 2 * blendNoise); // smoothstep для blendNoise
+        
         // Центральная зона - больше города
         if (dist < 120) {
-            weights.city = 0.6 - distFactor * 0.3;
-            weights.industrial = 0.2 + blendNoise * 0.15;
+            // Используем smoothstep для плавных переходов
+            const cityWeight = 0.6 - distFactor * 0.3;
+            weights.city = cityWeight * (1 - smoothBlend * 0.2) + (cityWeight * 0.8) * (smoothBlend * 0.2);
+            weights.industrial = 0.2 + smoothBlend * 0.15;
             weights.residential = 0.15;
-            weights.park = 0.05 + n2 * 0.1;
+            weights.park = 0.05 + smoothBlend * 0.1;
         }
         // Средняя зона - смешанная
         else if (dist < 250) {
             const zoneFactor = (dist - 120) / 130; // 0 to 1
-            weights.city = (0.3 - zoneFactor * 0.2) * (1 - blendNoise * 0.3);
-            weights.industrial = 0.2 + zoneFactor * 0.1;
-            weights.residential = 0.25 + zoneFactor * 0.1;
-            weights.park = 0.15 + blendNoise * 0.2;
-            weights.wasteland = zoneFactor * 0.1;
-            weights.military = zoneFactor * 0.05 * n3;
+            // Smoothstep для zoneFactor для более плавных переходов
+            const smoothZoneFactor = zoneFactor * zoneFactor * (3 - 2 * zoneFactor);
+            weights.city = (0.3 - smoothZoneFactor * 0.2) * (1 - smoothBlend * 0.3);
+            weights.industrial = 0.2 + smoothZoneFactor * 0.1 + smoothBlend * 0.05;
+            weights.residential = 0.25 + smoothZoneFactor * 0.1;
+            weights.park = 0.15 + smoothBlend * 0.2;
+            weights.wasteland = smoothZoneFactor * 0.1 + smoothBlend * 0.05;
+            weights.military = smoothZoneFactor * 0.05 * smoothBlend;
         }
         // Внешняя зона - природа и военные объекты
         else {
             const outerFactor = Math.min((dist - 250) / 200, 1);
-            weights.city = 0.05 * (1 - outerFactor);
-            weights.industrial = 0.1 * (1 - outerFactor * 0.5);
-            weights.residential = 0.15 * (1 - outerFactor * 0.7);
-            weights.park = 0.3 + blendNoise * 0.15;
-            weights.wasteland = 0.25 + outerFactor * 0.2 + n1 * 0.1;
-            weights.military = 0.15 + outerFactor * 0.15 * n3;
+            // Smoothstep для outerFactor
+            const smoothOuterFactor = outerFactor * outerFactor * (3 - 2 * outerFactor);
+            weights.city = 0.05 * (1 - smoothOuterFactor) * (1 - smoothBlend * 0.3);
+            weights.industrial = 0.1 * (1 - smoothOuterFactor * 0.5) * (1 - smoothBlend * 0.2);
+            weights.residential = 0.15 * (1 - smoothOuterFactor * 0.7) * (1 - smoothBlend * 0.15);
+            weights.park = 0.3 + smoothBlend * 0.15 + smoothOuterFactor * 0.05;
+            weights.wasteland = 0.25 + smoothOuterFactor * 0.2 + smoothBlend * 0.1;
+            weights.military = 0.15 + smoothOuterFactor * 0.15 * smoothBlend;
         }
         
         // Нормализуем веса
@@ -703,10 +786,23 @@ export class ChunkSystem {
                         // Получаем цвет биома с плавным переходом
                         const biomeColor = this.getBiomeColorAtPosition(worldX, worldZ);
                         
-                        // Применяем яркость к цвету биома
-                        r = biomeColor.r * clampedBrightness;
-                        g = biomeColor.g * clampedBrightness;
-                        b = biomeColor.b * clampedBrightness;
+                        // УЛУЧШЕНО: Добавляем дополнительный слой шума для вариации яркости
+                        // Это создаёт более естественные переходы между чанками
+                        let brightnessVariation = 1.0;
+                        if (this.biomeNoise) {
+                            // Высокочастотный шум для мелких вариаций яркости
+                            const brightnessNoise = (this.biomeNoise.fbm(worldX * 0.05, worldZ * 0.05, 2, 2.0, 0.5) + 1) / 2;
+                            // Среднечастотный шум для плавных переходов
+                            const smoothNoise = (this.biomeNoise.fbm(worldX * 0.02, worldZ * 0.02, 2, 2.0, 0.6) + 1) / 2;
+                            // Комбинируем для естественной вариации
+                            brightnessVariation = 0.92 + (brightnessNoise * 0.5 + smoothNoise * 0.5) * 0.16; // От 0.92 до 1.08
+                        }
+                        
+                        // Применяем яркость с вариацией к цвету биома
+                        const finalBrightness = clampedBrightness * brightnessVariation;
+                        r = biomeColor.r * finalBrightness;
+                        g = biomeColor.g * finalBrightness;
+                        b = biomeColor.b * finalBrightness;
                     } else {
                         // Без biome blending - только яркость (серый)
                         r = clampedBrightness;
@@ -1089,8 +1185,8 @@ export class ChunkSystem {
         
         // ПОЗИЦИЯ СПАВНА - ТОЧНО В ЦЕНТРЕ ГАРАЖА!
         // Гараж: X=0, Z=0, глубина=20 (от Z=-10 до Z=+10), ширина=16 (от X=-8 до X=+8)
-        // Танк спавнится в центре гаража, близко к земле
-        const spawnPos = new Vector3(garageX, 1.2, garageZ);
+        // Танк спавнится в центре гаража, 1 метр над полом
+        const spawnPos = new Vector3(garageX, 2.0, garageZ);
         this.garagePositions.push(spawnPos);
         
         // КРИТИЧНО: Сохраняем область гаража с УВЕЛИЧЕННЫМ запасом для 100% гарантии
@@ -2010,6 +2106,9 @@ export class ChunkSystem {
                     const cx = this.spawnChunk.x + dx;
                     const cz = this.spawnChunk.z + dz;
                     
+                    // Проверяем границы карты - не добавляем чанки за пределами
+                    if (!this.isChunkInBounds(cx, cz)) continue;
+                    
                     // Проверяем, что чанк в радиусе видимости
                     const distFromPlayer = Math.max(Math.abs(cx - playerCx), Math.abs(cz - playerCz));
                     if (distFromPlayer > renderDistance) continue;
@@ -2052,9 +2151,10 @@ export class ChunkSystem {
     }
     
     /**
-     * Получить прогресс загрузки чанков (0-100%)
+     * Получить прогресс загрузки чанков (0-100%) - для совместимости
+     * @deprecated Используйте getMapLoadingProgress() для детальной информации
      */
-    getLoadingProgress(): number {
+    getChunkLoadingProgress(): number {
         if (!this.progressiveLoadingEnabled || this.totalChunksInRadius === 0) {
             return 100; // Если прогрессивная загрузка не включена, считаем что все загружено
         }
@@ -2111,31 +2211,356 @@ export class ChunkSystem {
         this.chunksLoading.clear();
     }
     
+    /**
+     * КРИТИЧНО: Предзагрузка ВСЕЙ карты в пределах границ (СИНХРОННАЯ - вызывает freeze!)
+     * @deprecated Используйте preloadEntireMapProgressive() для плавной загрузки
+     */
+    public preloadEntireMap(): void {
+        const bounds = this.getMapBounds();
+        if (!bounds) {
+            logger.warn("[ChunkSystem] Cannot preload map: no bounds defined");
+            return;
+        }
+        
+        const chunkSize = this.config.chunkSize;
+        
+        // Вычисляем диапазон чанков для загрузки
+        const minChunkX = Math.floor(bounds.minX / chunkSize);
+        const maxChunkX = Math.ceil(bounds.maxX / chunkSize);
+        const minChunkZ = Math.floor(bounds.minZ / chunkSize);
+        const maxChunkZ = Math.ceil(bounds.maxZ / chunkSize);
+        
+        const totalChunks = (maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1);
+        logger.log(`[ChunkSystem] Preloading entire map: chunks X[${minChunkX}..${maxChunkX}] Z[${minChunkZ}..${maxChunkZ}], total: ${totalChunks}`);
+        
+        let loadedCount = 0;
+        for (let cx = minChunkX; cx <= maxChunkX; cx++) {
+            for (let cz = minChunkZ; cz <= maxChunkZ; cz++) {
+                const key = this.getChunkKey(cx, cz);
+                if (!this.chunks.has(key)) {
+                    this.loadChunk(cx, cz);
+                    loadedCount++;
+                }
+            }
+        }
+        
+        logger.log(`[ChunkSystem] Preloaded ${loadedCount} chunks for entire map`);
+    }
+    
+    // Флаг для отслеживания прогрессивной загрузки карты
+    private isProgressiveMapLoading = false;
+    private progressiveLoadTotal = 0;
+    private progressiveLoadCurrent = 0;
+    private onProgressiveLoadComplete: (() => void) | null = null;
+    
+    /**
+     * ПРОГРЕССИВНАЯ загрузка карты - загружает чанки пакетами по N штук за кадр
+     * НЕ вызывает freeze, позволяет игре работать во время загрузки
+     * 
+     * @param chunksPerFrame Количество чанков за один кадр (рекомендуется 5-10)
+     * @param onProgress Callback для отслеживания прогресса (loaded, total)
+     * @returns Promise который резолвится когда вся карта загружена
+     */
+    public async preloadEntireMapProgressive(
+        chunksPerFrame: number = 8,
+        onProgress?: (loaded: number, total: number) => void
+    ): Promise<void> {
+        const bounds = this.getMapBounds();
+        if (!bounds) {
+            logger.warn("[ChunkSystem] Cannot preload map: no bounds defined");
+            return;
+        }
+        
+        const chunkSize = this.config.chunkSize;
+        
+        // Вычисляем диапазон чанков для загрузки
+        const minChunkX = Math.floor(bounds.minX / chunkSize);
+        const maxChunkX = Math.ceil(bounds.maxX / chunkSize);
+        const minChunkZ = Math.floor(bounds.minZ / chunkSize);
+        const maxChunkZ = Math.ceil(bounds.maxZ / chunkSize);
+        
+        // Собираем все чанки в очередь (спиральная загрузка от центра)
+        const chunkQueue: Array<{cx: number, cz: number, priority: number}> = [];
+        const centerX = Math.floor((minChunkX + maxChunkX) / 2);
+        const centerZ = Math.floor((minChunkZ + maxChunkZ) / 2);
+        
+        for (let cx = minChunkX; cx <= maxChunkX; cx++) {
+            for (let cz = minChunkZ; cz <= maxChunkZ; cz++) {
+                const key = this.getChunkKey(cx, cz);
+                if (!this.chunks.has(key) && this.isChunkInBounds(cx, cz)) {
+                    // Приоритет - расстояние от центра (ближе к центру = выше приоритет)
+                    const distFromCenter = Math.abs(cx - centerX) + Math.abs(cz - centerZ);
+                    chunkQueue.push({ cx, cz, priority: distFromCenter });
+                }
+            }
+        }
+        
+        // Сортируем: сначала центральные чанки, потом периферия
+        chunkQueue.sort((a, b) => a.priority - b.priority);
+        
+        const totalChunks = chunkQueue.length;
+        this.progressiveLoadTotal = totalChunks;
+        this.progressiveLoadCurrent = 0;
+        this.isProgressiveMapLoading = true;
+        
+        logger.log(`[ChunkSystem] Progressive loading: ${totalChunks} chunks, ${chunksPerFrame} per frame`);
+        
+        // Загружаем пакетами
+        let loadedCount = 0;
+        while (chunkQueue.length > 0) {
+            const batch = chunkQueue.splice(0, chunksPerFrame);
+            
+            for (const { cx, cz } of batch) {
+                const key = this.getChunkKey(cx, cz);
+                if (!this.chunks.has(key)) {
+                    this.loadChunk(cx, cz);
+                    loadedCount++;
+                    this.progressiveLoadCurrent = loadedCount;
+                }
+            }
+            
+            // Callback прогресса
+            if (onProgress) {
+                onProgress(loadedCount, totalChunks);
+            }
+            
+            // Логируем каждые 10% прогресса
+            const progress = Math.floor((loadedCount / totalChunks) * 100);
+            // Логируем только каждые 25% для снижения спама
+            if (progress % 25 === 0 && loadedCount > 0 && progress > 0) {
+                logger.log(`[ChunkSystem] Loading: ${progress}%`);
+            }
+            
+            // Ждём следующий кадр перед загрузкой следующего пакета
+            if (chunkQueue.length > 0) {
+                await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+            }
+        }
+        
+        this.isProgressiveMapLoading = false;
+        logger.log(`[ChunkSystem] Progressive loading complete: ${loadedCount} chunks loaded`);
+        
+        if (this.onProgressiveLoadComplete) {
+            this.onProgressiveLoadComplete();
+            this.onProgressiveLoadComplete = null;
+        }
+    }
+    
+    /**
+     * Получить прогресс загрузки карты
+     * @returns { loaded, total, percent, isLoading }
+     */
+    public getLoadingProgress(): { loaded: number; total: number; percent: number; isLoading: boolean } {
+        return {
+            loaded: this.progressiveLoadCurrent,
+            total: this.progressiveLoadTotal,
+            percent: this.progressiveLoadTotal > 0 
+                ? Math.floor((this.progressiveLoadCurrent / this.progressiveLoadTotal) * 100)
+                : 100,
+            isLoading: this.isProgressiveMapLoading
+        };
+    }
+    
     private loadChunk(cx: number, cz: number): void {
+        // Проверяем границы карты - не генерируем чанки за пределами арены
+        if (!this.isChunkInBounds(cx, cz)) {
+            return; // Чанк за пределами карты - пропускаем
+        }
+        
         const key = this.getChunkKey(cx, cz);
         const chunkSize = this.config.chunkSize;
         
         // cornerX, cornerZ - это координаты УГЛА чанка (левый нижний)
-        // Чанк (0,0) занимает область от (0,0) до (chunkSize, chunkSize)
-        // Чанк (1,0) занимает область от (chunkSize,0) до (2*chunkSize, chunkSize)
         const cornerX = cx * chunkSize;
         const cornerZ = cz * chunkSize;
         
         const chunkParent = new TransformNode(`chunk_${key}`, this.scene);
-        // Родитель позиционируется в углу чанка
         chunkParent.position = new Vector3(cornerX, 0, cornerZ);
         
         const chunk: ChunkData = {
             x: cx, z: cz, node: chunkParent, meshes: [], loaded: true, lastAccess: Date.now()
         };
         
-        // Генерируем контент чанка
-        this.generateChunkContent(cx, cz, cornerX, cornerZ, chunkParent);
+        const seed = this.config.worldSeed + cx * 10000 + cz;
         
-        // Сохраняем чанк
+        // ФАЗА 1: БЫСТРАЯ - создаём только базовый terrain (синхронно, ~5ms)
+        this.createBaseTerrain(cx, cz, cornerX, cornerZ, chunkParent, seed);
+        
+        // Сохраняем чанк СРАЗУ (terrain уже готов)
         this.chunks.set(key, chunk);
         
-        // ОПТИМИЗАЦИЯ: Объединяем статичные меши для уменьшения draw calls
+        // ФАЗА 2: ЛЕНИВАЯ - детали через requestIdleCallback (не блокирует FPS)
+        this.scheduleDetailsGeneration(cx, cz, chunkParent, seed);
+    }
+    
+    /**
+     * ФАЗА 1: Быстрое создание базового terrain (только ground mesh)
+     * Выполняется синхронно, занимает ~5ms
+     */
+    private createBaseTerrain(cx: number, cz: number, worldX: number, worldZ: number, chunkParent: TransformNode, seed: number): void {
+        const size = this.config.chunkSize;
+        const random = new SeededRandom(seed);
+        
+        // Sandbox - просто плоская земля
+        if (this.config.mapType === "sandbox") {
+            this.createGround(cx, cz, worldX, worldZ, size, "wasteland", random, chunkParent);
+            return;
+        }
+        
+        // Специальные карты
+        const mapType = this.config.mapType || "normal";
+        const specialMaps = ["polygon", "frontline", "ruins", "canyon", "industrial", "urban_warfare", "underground", "coastal"];
+        
+        if (specialMaps.includes(mapType)) {
+            const groundBiome = this.config.mapType === "polygon" ? "military" : 
+                               this.config.mapType === "frontline" ? "wasteland" :
+                               this.config.mapType === "ruins" ? "wasteland" :
+                               this.config.mapType === "canyon" ? "park" :
+                               this.config.mapType === "industrial" ? "industrial" :
+                               this.config.mapType === "urban_warfare" ? "city" :
+                               this.config.mapType === "underground" ? "wasteland" :
+                               this.config.mapType === "coastal" ? "park" : "military";
+            this.createGround(cx, cz, worldX, worldZ, size, groundBiome, random, chunkParent);
+            return;
+        }
+        
+        // Normal/tartaria карты - определяем биом
+        let biome: BiomeType;
+        if (this.config.mapType === "normal") {
+            biome = this.getRandomBiome(worldX + size/2, worldZ + size/2, random);
+        } else {
+            biome = this.getBiome(worldX + size/2, worldZ + size/2, random);
+        }
+        
+        // Создаём только ground mesh
+        this.createGround(cx, cz, worldX, worldZ, size, biome, random, chunkParent);
+    }
+    
+    /**
+     * Планирует генерацию деталей через requestIdleCallback
+     * Не блокирует FPS - выполняется когда браузер свободен
+     */
+    private scheduleDetailsGeneration(cx: number, cz: number, chunkParent: TransformNode, seed: number): void {
+        this.detailsQueue.push({ cx, cz, chunkParent, seed });
+        
+        if (!this.isProcessingDetails) {
+            this.processDetailsQueue();
+        }
+    }
+    
+    /**
+     * Обрабатывает очередь деталей через requestIdleCallback
+     */
+    private processDetailsQueue(): void {
+        if (this.detailsQueue.length === 0) {
+            this.isProcessingDetails = false;
+            return;
+        }
+        
+        this.isProcessingDetails = true;
+        
+        const processOne = (deadline: IdleDeadline) => {
+            // Обрабатываем пока есть время (минимум 10ms) или таймаут
+            while (this.detailsQueue.length > 0 && (deadline.timeRemaining() > 10 || deadline.didTimeout)) {
+                const item = this.detailsQueue.shift();
+                if (item && this.chunks.has(this.getChunkKey(item.cx, item.cz))) {
+                    this.generateChunkDetails(item.cx, item.cz, item.chunkParent, item.seed);
+                }
+                
+                // Ограничиваем количество за один idle callback
+                if (deadline.timeRemaining() < 5) break;
+            }
+            
+            // Продолжаем если есть ещё элементы
+            if (this.detailsQueue.length > 0) {
+                if ('requestIdleCallback' in window) {
+                    (window as any).requestIdleCallback(processOne, { timeout: 1000 });
+                } else {
+                    setTimeout(() => processOne({ timeRemaining: () => 50, didTimeout: true } as IdleDeadline), 16);
+                }
+            } else {
+                this.isProcessingDetails = false;
+            }
+        };
+        
+        if ('requestIdleCallback' in window) {
+            (window as any).requestIdleCallback(processOne, { timeout: 1000 });
+        } else {
+            // Fallback для браузеров без requestIdleCallback
+            setTimeout(() => processOne({ timeRemaining: () => 50, didTimeout: true } as IdleDeadline), 16);
+        }
+    }
+    
+    /**
+     * ФАЗА 2: Генерация деталей чанка (здания, деревья, дороги)
+     * Вызывается асинхронно через requestIdleCallback
+     */
+    private generateChunkDetails(cx: number, cz: number, chunkParent: TransformNode, seed: number): void {
+        const size = this.config.chunkSize;
+        const worldX = cx * size;
+        const worldZ = cz * size;
+        const random = new SeededRandom(seed);
+        
+        // Sandbox - без деталей
+        if (this.config.mapType === "sandbox") {
+            return;
+        }
+        
+        const mapType = this.config.mapType || "normal";
+        const specialMaps = ["polygon", "frontline", "ruins", "canyon", "industrial", "urban_warfare", "underground", "coastal"];
+        
+        if (specialMaps.includes(mapType)) {
+            const generator = MapGeneratorFactory.get(mapType);
+            if (generator) {
+                const groundBiome = this.config.mapType === "polygon" ? "military" : 
+                                   this.config.mapType === "frontline" ? "wasteland" : "military";
+                const chunkContext: ChunkGenerationContext = {
+                    scene: this.scene,
+                    chunkX: cx,
+                    chunkZ: cz,
+                    worldX,
+                    worldZ,
+                    size,
+                    random: new MapsSeededRandom(seed),
+                    chunkParent,
+                    biome: groundBiome
+                };
+                try {
+                    generator.generateContent(chunkContext);
+                } catch (error) {
+                    logger.error(`[ChunkSystem] Error generating details for ${mapType}:`, error);
+                }
+            }
+            // Merge после генерации деталей
+            this.mergeStaticMeshesInChunk(chunkParent);
+            return;
+        }
+        
+        // Normal/tartaria карты
+        let biome: BiomeType;
+        if (this.config.mapType === "normal") {
+            biome = this.getRandomBiome(worldX + size/2, worldZ + size/2, random);
+        } else {
+            biome = this.getBiome(worldX + size/2, worldZ + size/2, random);
+        }
+        
+        // Гаражи
+        this.generateGarages(cx, cz, worldX, worldZ, size, random, chunkParent);
+        
+        // Дороги
+        this.createRoads(cx, cz, size, random, biome, chunkParent);
+        
+        // Контент по биому
+        switch (biome) {
+            case "city": this.generateCity(cx, cz, size, random, chunkParent); break;
+            case "industrial": this.generateIndustrial(cx, cz, size, random, chunkParent); break;
+            case "residential": this.generateResidential(cx, cz, size, random, chunkParent); break;
+            case "park": this.generatePark(cx, cz, size, random, chunkParent); break;
+            case "wasteland": this.generateWasteland(cx, cz, size, random, chunkParent); break;
+            case "military": this.generateMilitary(cx, cz, size, random, chunkParent); break;
+        }
+        
+        // Merge после генерации деталей
         this.mergeStaticMeshesInChunk(chunkParent);
     }
     
@@ -2456,13 +2881,24 @@ export class ChunkSystem {
             
             // Отладочное логирование
             if (mapType === "polygon") {
-                logger.log(`[ChunkSystem] Polygon map detected, generator found: ${generator !== undefined}`);
+                // logger.log(`[ChunkSystem] Polygon map detected, generator found: ${generator !== undefined}`);
                 if (!generator) {
                     const available = MapGeneratorFactory.getAvailableMapTypes();
                     logger.error(`[ChunkSystem] Polygon generator not found! Available generators: ${available.join(", ")}`);
                     // Fallback на старую логику если генератор не найден
                 } else {
-                    logger.log(`[ChunkSystem] Using PolygonGenerator for chunk (${chunkX}, ${chunkZ})`);
+                    // logger.log(`[ChunkSystem] Using PolygonGenerator for chunk (${chunkX}, ${chunkZ})`);
+                }
+            }
+            
+            // Отладочное логирование для frontline
+            if (mapType === "frontline") {
+                // logger.log(`[ChunkSystem] Frontline map detected, generator found: ${generator !== undefined}`);
+                if (!generator) {
+                    const available = MapGeneratorFactory.getAvailableMapTypes();
+                    logger.error(`[ChunkSystem] Frontline generator not found! Available generators: ${available.join(", ")}`);
+                } else {
+                    // logger.log(`[ChunkSystem] Using FrontlineGenerator for chunk (${chunkX}, ${chunkZ})`);
                 }
             }
             
@@ -2479,6 +2915,11 @@ export class ChunkSystem {
                                    this.config.mapType === "underground" ? "wasteland" :
                                    this.config.mapType === "coastal" ? "park" : "military";
                 
+                // Логируем создание ground mesh для отладки
+                // Отключено для снижения спама
+                // if (mapType === "frontline") {
+                //     logger.log(`[ChunkSystem] Creating ground mesh for frontline chunk (${chunkX}, ${chunkZ}) with biome: ${groundBiome}`);
+                // }
                 this.createGround(chunkX, chunkZ, worldX, worldZ, size, groundBiome, random, chunkParent);
                 
                 // Создаём контекст генерации чанка
@@ -2497,11 +2938,20 @@ export class ChunkSystem {
                 // Генерируем контент через генератор (холмы, здания, препятствия и т.д.)
                 try {
                     generator.generateContent(chunkContext);
+                    // Логируем успешную генерацию контента для frontline
+                    // Отключено для снижения спама
+                    // if (mapType === "frontline") {
+                    //     logger.log(`[ChunkSystem] FrontlineGenerator.generateContent completed for chunk (${chunkX}, ${chunkZ})`);
+                    // }
                 } catch (error) {
                     logger.error(`[ChunkSystem] Error generating content for ${mapType}:`, error);
                     // Fallback на старую логику при ошибке
                     if (mapType === "polygon") {
                         this.generatePolygonContent(chunkX, chunkZ, worldX, worldZ, size, random, chunkParent);
+                    }
+                    // Для frontline ground mesh уже создан выше, просто логируем ошибку
+                    if (mapType === "frontline") {
+                        logger.warn(`[ChunkSystem] FrontlineGenerator.generateContent failed, but ground mesh was already created for chunk (${chunkX}, ${chunkZ})`);
                     }
                 }
                 return;
@@ -2510,6 +2960,12 @@ export class ChunkSystem {
                 logger.warn(`[ChunkSystem] Generator for ${mapType} not found, using fallback`);
                 if (mapType === "polygon") {
                     this.generatePolygonContent(chunkX, chunkZ, worldX, worldZ, size, random, chunkParent);
+                    return;
+                }
+                // Fallback для frontline: создаём ground mesh даже если генератор не найден
+                if (mapType === "frontline") {
+                    logger.warn(`[ChunkSystem] Frontline generator not found, creating fallback ground mesh for chunk (${chunkX}, ${chunkZ})`);
+                    this.createGround(chunkX, chunkZ, worldX, worldZ, size, "wasteland", random, chunkParent);
                     return;
                 }
             }
@@ -2607,12 +3063,16 @@ export class ChunkSystem {
         // Биом чанка влияет только на текстуру, но НЕ на геометрию
         let height = this.terrainGenerator.getHeight(x, z, "park");
         
-        // ЕСТЕСТВЕННЫЙ ГОРНЫЙ БАРЬЕР по периметру карты
-        // Границы карты: -2500 до 2500 (размер 5000x5000)
-        const MAP_BOUNDS = { minX: -2500, maxX: 2500, minZ: -2500, maxZ: 2500 };
-        const MOUNTAIN_BARRIER_WIDTH = 300; // Ширина горного барьера от края (увеличено для плавности)
-        const MOUNTAIN_MAX_HEIGHT = 140; // Максимальная высота гор
-        const MOUNTAIN_BASE_HEIGHT = 20; // Базовая высота начала гор (низкие холмы)
+        // ЕСТЕСТВЕННЫЙ ГОРНЫЙ БАРЬЕР ТОЛЬКО ПО КРАЯМ КАРТЫ
+        // Все карты теперь имеют ограниченный размер с естественными границами
+        const MAP_BOUNDS = this.getMapBounds()!; // Всегда не-null после изменений
+        
+        // ВЫСОКИЕ УЗКИЕ горы на краях карты - видимые издалека!
+        // 8% от ширины карты, минимум 50, максимум 200 единиц
+        const mapWidth = MAP_BOUNDS.maxX - MAP_BOUNDS.minX;
+        const MOUNTAIN_BARRIER_WIDTH = Math.max(50, Math.min(200, mapWidth * 0.08));
+        const MOUNTAIN_MAX_HEIGHT = 180; // Высокие горы - видны издалека!
+        const MOUNTAIN_BASE_HEIGHT = 40; // Высокий базовый уровень подъёма
         
         // Вычисляем расстояние до ближайшего края карты
         const distToMinX = x - MAP_BOUNDS.minX;
@@ -2624,52 +3084,50 @@ export class ChunkSystem {
         // Если близко к краю, добавляем естественную горную высоту
         if (minDistToEdge < MOUNTAIN_BARRIER_WIDTH) {
             // Плавный переход: 0 на расстоянии MOUNTAIN_BARRIER_WIDTH, 1 на краю
-            // Используем более плавную кривую для естественного перехода
             const normalizedDist = minDistToEdge / MOUNTAIN_BARRIER_WIDTH;
             const mountainBlend = 1 - normalizedDist;
             
-            // Используем smoothstep для плавного перехода
+            // Smoothstep для более естественного перехода
             const smoothBlend = mountainBlend * mountainBlend * (3 - 2 * mountainBlend);
             
-            // ЕСТЕСТВЕННАЯ ВАРИАЦИЯ: Используем noise для создания естественных горных хребтов
+            // ЕСТЕСТВЕННАЯ ВАРИАЦИЯ через noise - создаёт неровную линию гор
             let mountainVariation = 1.0;
             if (this.biomeNoise) {
-                // Масштаб шума для гор (крупные естественные формы)
-                const noiseScale = 0.015; // Масштаб для крупных горных массивов
+                // Масштаб шума - крупные естественные формы горного хребта
+                const noiseScale = 0.02;
                 
-                // Используем ridged noise для создания горных хребтов и пиков
-                const ridgedNoise = this.biomeNoise.ridged(x * noiseScale, z * noiseScale, 4, 2.0, 0.6);
-                // Нормализуем ridged noise (обычно 0-1, но может быть больше)
+                // Ridged noise для горных хребтов (пики и ущелья)
+                const ridgedNoise = this.biomeNoise.ridged(x * noiseScale, z * noiseScale, 3, 2.0, 0.5);
                 const normalizedRidged = Math.min(1.0, Math.max(0, ridgedNoise));
                 
-                // Добавляем fbm для более плавной детализации и вариации
-                const fbmNoise = (this.biomeNoise.fbm(x * noiseScale * 0.4, z * noiseScale * 0.4, 3, 2.0, 0.5) + 1) / 2;
+                // FBM для плавной вариации
+                const fbmNoise = (this.biomeNoise.fbm(x * noiseScale * 0.5, z * noiseScale * 0.5, 2, 2.0, 0.5) + 1) / 2;
                 
-                // Добавляем мелкомасштабный шум для деталей поверхности
-                const detailNoise = (this.biomeNoise.fbm(x * noiseScale * 2.0, z * noiseScale * 2.0, 2, 2.0, 0.4) + 1) / 2;
+                // Мелкие детали поверхности
+                const detailNoise = (this.biomeNoise.fbm(x * noiseScale * 3.0, z * noiseScale * 3.0, 2, 2.0, 0.4) + 1) / 2;
                 
-                // Комбинируем: ridged создает основные формы, fbm добавляет плавность, detail добавляет детали
-                mountainVariation = normalizedRidged * 0.6 + fbmNoise * 0.3 + detailNoise * 0.1;
+                // Комбинируем для естественного вида
+                mountainVariation = normalizedRidged * 0.5 + fbmNoise * 0.35 + detailNoise * 0.15;
                 
-                // Масштабируем к диапазону 0.75-1.25 для естественной вариации высоты гор
-                // Это создает горы разной высоты, но не слишком экстремальные
-                mountainVariation = 0.75 + mountainVariation * 0.5;
+                // Диапазон 0.6-1.4 для заметной но не экстремальной вариации
+                mountainVariation = 0.6 + mountainVariation * 0.8;
             }
             
-            // Базовая высота гор с плавным нарастанием
+            // Высота гор нарастает к краю
             const baseMountainHeight = MOUNTAIN_BASE_HEIGHT + smoothBlend * (MOUNTAIN_MAX_HEIGHT - MOUNTAIN_BASE_HEIGHT);
             
-            // Применяем вариацию для создания естественных гор
+            // Применяем естественную вариацию
             const mountainHeight = baseMountainHeight * mountainVariation;
             
-            // Плавно смешиваем с базовой высотой террейна
-            // На большом расстоянии от края горы незначительно влияют, на краю доминируют
-            const blendFactor = smoothBlend * smoothBlend; // Квадратичная кривая для более плавного перехода
+            // Плавное смешивание с базовым террейном
+            const blendFactor = smoothBlend * smoothBlend;
             height = height * (1 - blendFactor) + mountainHeight * blendFactor;
             
-            // Гарантируем что горы достаточно высоки для непроходимости
-            const minMountainHeight = MOUNTAIN_BASE_HEIGHT * 0.8 + smoothBlend * (MOUNTAIN_MAX_HEIGHT * 0.9 - MOUNTAIN_BASE_HEIGHT * 0.8);
-            height = Math.max(height, minMountainHeight);
+            // Минимальная высота для непроходимости у самого края
+            if (smoothBlend > 0.7) {
+                const minHeight = MOUNTAIN_BASE_HEIGHT + (smoothBlend - 0.7) / 0.3 * (MOUNTAIN_MAX_HEIGHT * 0.6);
+                height = Math.max(height, minHeight);
+            }
         }
         
         // Смешивание с высотой гаража (0) для плавного перехода
@@ -2712,6 +3170,11 @@ export class ChunkSystem {
             case "wasteland": groundMat = "dirt"; break;
             case "military": groundMat = "sand"; break;
             default: groundMat = typeof biome === "string" ? biome : "dirt";
+        }
+        
+        // Защитная проверка: если terrainGenerator отсутствует, логируем предупреждение
+        if (!this.terrainGenerator) {
+            logger.warn(`[ChunkSystem] createGround: terrainGenerator is null for chunk (${chunkX}, ${chunkZ}), using flat fallback ground`);
         }
         
         // Если есть terrain generator - создаём heightmap terrain
@@ -2791,10 +3254,17 @@ export class ChunkSystem {
             
             this.optimizeMesh(ground);
             new PhysicsAggregate(ground, PhysicsShapeType.MESH, { mass: 0 }, this.scene);
+            
+            // Логируем успешное создание ground mesh для отладки
+            // Отключено для снижения спама
+            // if (this.config.mapType === "frontline") {
+            //     logger.log(`[ChunkSystem] Ground mesh created successfully for frontline chunk (${chunkX}, ${chunkZ})`);
+            // }
             return;
         }
         
         // Fallback: плоская земля если нет terrain generator
+        logger.warn(`[ChunkSystem] createGround: Using flat fallback ground for chunk (${chunkX}, ${chunkZ}), biome: ${biome}`);
         const ground = MeshBuilder.CreateBox(`ground_${chunkX}_${chunkZ}`, { 
             width: chunkSize, 
             height: 0.1, 
@@ -2807,6 +3277,12 @@ export class ChunkSystem {
         ground.parent = chunkParent;
         this.optimizeMesh(ground);
         new PhysicsAggregate(ground, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        
+        // Логируем создание fallback ground для отладки
+        // Отключено для снижения спама
+        // if (this.config.mapType === "frontline") {
+        //     logger.log(`[ChunkSystem] Fallback flat ground mesh created for frontline chunk (${chunkX}, ${chunkZ})`);
+        // }
     }
     
     private createRoads(chunkX: number, chunkZ: number, size: number, random: SeededRandom, biome: BiomeType | undefined, chunkParent: TransformNode): void {
@@ -7175,7 +7651,19 @@ export class ChunkSystem {
     private destroyChunk(key: string): void {
         const chunk = this.chunks.get(key);
         if (!chunk) return;
-        chunk.meshes.forEach(mesh => mesh.dispose());
+        
+        // ИСПРАВЛЕНИЕ: Удаляем ВСЕ дочерние меши рекурсивно
+        // chunk.meshes массив всегда пуст (все push закомментированы),
+        // поэтому нужно удалять через getDescendants
+        const descendants = chunk.node.getDescendants(false);
+        for (const child of descendants) {
+            if (child instanceof Mesh && !child.isDisposed()) {
+                // Удаляем меш, но НЕ удаляем материалы (они переиспользуются)
+                child.dispose(false, false);
+            }
+        }
+        
+        // Теперь безопасно удаляем сам узел
         chunk.node.dispose();
         this.chunks.delete(key);
     }
