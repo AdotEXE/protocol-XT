@@ -10,6 +10,7 @@ import type { ChunkSystem } from "../chunkSystem";
 import type { TankController } from "../tankController";
 import type { HUD } from "../hud";
 import type { EnemyTank } from "../enemyTank";
+import { saveSelectedSkin, getSkinById, applySkinToTank } from "../tank/tankSkins";
 
 /**
  * GameGarage - Логика гаражей
@@ -289,8 +290,14 @@ export class GameGarage {
      * Проверить находится ли игрок внутри любого гаража
      */
     isPlayerInAnyGarage(): boolean {
-        if (!this.chunkSystem || !this.chunkSystem.garageDoors) return false;
-        if (!this.tank || !this.tank.chassis || !this.tank.isAlive) return false;
+        if (!this.chunkSystem || !this.chunkSystem.garageDoors) {
+            // logger.log(`[GameGarage] isPlayerInAnyGarage: no chunkSystem or garageDoors`);
+            return false;
+        }
+        if (!this.tank || !this.tank.chassis || !this.tank.isAlive) {
+            // logger.log(`[GameGarage] isPlayerInAnyGarage: no tank or tank not alive`);
+            return false;
+        }
         
         const playerPos = this.tank.chassis.getAbsolutePosition();
         const doors = this.chunkSystem.garageDoors;
@@ -309,10 +316,43 @@ export class GameGarage {
                 playerPos.z <= garagePos.z + garageDepth / 2
             );
             
-            if (isInside) return true;
+            if (isInside) {
+                // logger.log(`[GameGarage] isPlayerInAnyGarage: TRUE - player at (${playerPos.x.toFixed(2)}, ${playerPos.z.toFixed(2)}), garage at (${garagePos.x.toFixed(2)}, ${garagePos.z.toFixed(2)})`);
+                return true;
+            }
         }
         
         return false;
+    }
+    
+    /**
+     * Проверить есть ли pending изменения в localStorage
+     */
+    private hasPendingChangesFromStorage(): boolean {
+        const hasChassis = !!localStorage.getItem("pendingChassis");
+        const hasCannon = !!localStorage.getItem("pendingCannon");
+        const hasTrack = !!localStorage.getItem("pendingTrack");
+        const hasSkin = !!localStorage.getItem("pendingSkin");
+        const result = hasChassis || hasCannon || hasTrack || hasSkin;
+        
+        // Логируем только если есть изменения (чтобы не спамить)
+        if (result && Math.random() < 0.1) { // 10% вероятность
+            logger.log(`[GameGarage] hasPendingChangesFromStorage: chassis=${hasChassis}, cannon=${hasCannon}, track=${hasTrack}, skin=${hasSkin}`);
+        }
+        
+        return result;
+    }
+    
+    /**
+     * Получить pending изменения из localStorage
+     */
+    private getPendingFromStorage() {
+        return {
+            chassisId: localStorage.getItem("pendingChassis"),
+            cannonId: localStorage.getItem("pendingCannon"),
+            trackId: localStorage.getItem("pendingTrack"),
+            skinId: localStorage.getItem("pendingSkin")
+        };
     }
     
     /**
@@ -321,9 +361,20 @@ export class GameGarage {
     checkAndApplyPendingChanges(): void {
         const isInGarage = this.isPlayerInAnyGarage();
         
-        // Детектируем МОМЕНТ ВХОДА в гараж (переход из false в true)
-        if (isInGarage && !this.wasPlayerInGarage && !this.isApplyingChanges) {
-            this.applyPendingGarageChanges();
+        // Проверяем pending изменения, если игрок в гараже
+        // Применяем изменения при входе в гараж (переход из false в true)
+        // или если игрок уже в гараже и есть pending изменения
+        if (isInGarage && !this.isApplyingChanges) {
+            const hasPending = this.hasPendingChangesFromStorage();
+            if (hasPending) {
+                // Применяем изменения при входе в гараж
+                if (!this.wasPlayerInGarage) {
+                    logger.log(`[GameGarage] Player entered garage. Checking for pending changes...`);
+                    const pending = this.getPendingFromStorage();
+                    logger.log(`[GameGarage] Pending changes: chassis=${pending.chassisId}, cannon=${pending.cannonId}, track=${pending.trackId}, skin=${pending.skinId}`);
+                    this.applyPendingGarageChanges();
+                }
+            }
         }
         
         this.wasPlayerInGarage = isInGarage;
@@ -333,44 +384,155 @@ export class GameGarage {
      * Применить pending изменения с анимацией
      */
     private applyPendingGarageChanges(): void {
-        if (!this.garageUI) return;
-        
-        // Проверяем есть ли pending изменения
-        if (typeof this.garageUI.hasPendingChanges !== 'function') return;
-        if (!this.garageUI.hasPendingChanges()) return;
-        
-        this.isApplyingChanges = true;
-        
-        // Получаем pending изменения
-        const pending = this.garageUI.getPendingChanges();
-        logger.log(`[GameGarage] Applying pending changes: chassis=${pending.chassisId}, cannon=${pending.cannonId}, track=${pending.trackId}, skin=${pending.skinId}`);
-        
-        // Запускаем анимацию смены частей
-        if (this.tank && typeof (this.tank as any).playPartChangeAnimation === 'function') {
-            const applied = this.garageUI.applyPendingChangesToTank();
+        // Если есть garageUI - используем его
+        if (this.garageUI && typeof this.garageUI.hasPendingChanges === 'function' && this.garageUI.hasPendingChanges()) {
+            this.isApplyingChanges = true;
             
-            // Запускаем анимацию для каждой измененной части
-            (this.tank as any).playPartChangeAnimation(applied, () => {
+            // Получаем pending изменения
+            const pending = this.garageUI.getPendingChanges();
+            logger.log(`[GameGarage] Applying pending changes via garageUI: chassis=${pending.chassisId}, cannon=${pending.cannonId}, track=${pending.trackId}, skin=${pending.skinId}`);
+            
+            // Запускаем анимацию смены частей
+            if (this.tank && typeof (this.tank as any).playPartChangeAnimation === 'function') {
+                const applied = this.garageUI.applyPendingChangesToTank();
+                
+                // Запускаем анимацию для каждой измененной части
+                (this.tank as any).playPartChangeAnimation(applied, () => {
+                    this.isApplyingChanges = false;
+                    
+                    // Показываем уведомление
+                    if (this.hud && typeof this.hud.showNotification === 'function') {
+                        this.hud.showNotification("🔧 Оборудование установлено!", "success");
+                    }
+                    
+                    logger.log("[GameGarage] Part change animation complete");
+                });
+            } else {
+                // Если анимации нет, просто применяем изменения
+                this.garageUI.applyPendingChangesToTank();
                 this.isApplyingChanges = false;
                 
-                // Показываем уведомление
                 if (this.hud && typeof this.hud.showNotification === 'function') {
                     this.hud.showNotification("🔧 Оборудование установлено!", "success");
                 }
                 
-                logger.log("[GameGarage] Part change animation complete");
-            });
-        } else {
-            // Если анимации нет, просто применяем изменения
-            this.garageUI.applyPendingChangesToTank();
-            this.isApplyingChanges = false;
-            
-            if (this.hud && typeof this.hud.showNotification === 'function') {
-                this.hud.showNotification("🔧 Оборудование установлено!", "success");
+                logger.log("[GameGarage] Pending changes applied (no animation)");
             }
-            
-            logger.log("[GameGarage] Pending changes applied (no animation)");
+        } else {
+            // Fallback: применяем напрямую через localStorage
+            this.applyChangesDirectly();
         }
+    }
+    
+    /**
+     * Применить изменения напрямую из localStorage (без garageUI)
+     */
+    private applyChangesDirectly(): void {
+        const pending = this.getPendingFromStorage();
+        if (!this.tank) {
+            logger.log("[GameGarage] applyChangesDirectly: no tank");
+            return;
+        }
+        
+        logger.log(`[GameGarage] Applying changes directly: chassis=${pending.chassisId}, cannon=${pending.cannonId}, track=${pending.trackId}, skin=${pending.skinId}`);
+        
+        this.isApplyingChanges = true;
+        
+        const tankController = this.tank as any;
+        
+        // Сохраняем выбранные части в localStorage (чтобы они использовались при респавне)
+        // НЕ вызываем setChassisType/setCannonType/setTrackType здесь - они обновят типы,
+        // и respawn() не увидит изменений. Вместо этого просто сохраняем в localStorage,
+        // и respawn() сам перезагрузит типы и пересоздаст части.
+        if (pending.chassisId) {
+            localStorage.setItem("selectedChassis", pending.chassisId);
+        }
+        if (pending.cannonId) {
+            localStorage.setItem("selectedCannon", pending.cannonId);
+        }
+        if (pending.trackId) {
+            localStorage.setItem("selectedTrack", pending.trackId);
+        }
+        if (pending.skinId) {
+            saveSelectedSkin(pending.skinId);
+            const skin = getSkinById(pending.skinId);
+            if (skin && tankController.chassis?.material && tankController.turret?.material) {
+                const skinColors = applySkinToTank(skin);
+                (tankController.chassis.material as StandardMaterial).diffuseColor = skinColors.chassisColor;
+                (tankController.turret.material as StandardMaterial).diffuseColor = skinColors.turretColor;
+            }
+        }
+        
+        // Очищаем pending изменения из localStorage
+        localStorage.removeItem("pendingChassis");
+        localStorage.removeItem("pendingCannon");
+        localStorage.removeItem("pendingTrack");
+        localStorage.removeItem("pendingSkin");
+        
+        // Для пересоздания визуальных частей нужен respawn
+        // (setChassisType/setCannonType только обновляют статистику, не пересоздают визуал)
+        if (pending.chassisId || pending.cannonId || pending.trackId) {
+            // Сохраняем текущую позицию для респавна
+            const currentPos = tankController.chassis?.position?.clone() || new Vector3(0, 1.2, 0);
+            
+            logger.log(`[GameGarage] Current tank position: ${currentPos.x.toFixed(2)}, ${currentPos.y.toFixed(2)}, ${currentPos.z.toFixed(2)}`);
+            logger.log(`[GameGarage] Current types before respawn: chassis=${tankController.chassisType?.id}, cannon=${tankController.cannonType?.id}, track=${tankController.trackType?.id}`);
+            
+            // Определяем, какие части изменились (для анимации)
+            const applied = {
+                chassis: !!pending.chassisId && pending.chassisId !== (tankController.chassisType?.id || ""),
+                cannon: !!pending.cannonId && pending.cannonId !== (tankController.cannonType?.id || ""),
+                track: !!pending.trackId && pending.trackId !== (tankController.trackType?.id || ""),
+                skin: !!pending.skinId
+            };
+            
+            logger.log(`[GameGarage] Parts to change: chassis=${applied.chassis}, cannon=${applied.cannon}, track=${applied.track}, skin=${applied.skin}`);
+            
+            // Вызываем respawn для пересоздания танка с новыми частями
+            if (typeof tankController.respawn === 'function') {
+                // Временно устанавливаем callback для сохранения позиции
+                const originalCallback = tankController.respawnPositionCallback;
+                tankController.setRespawnPositionCallback(() => {
+                    logger.log(`[GameGarage] Respawn callback called, returning position: ${currentPos.x.toFixed(2)}, ${currentPos.y.toFixed(2)}, ${currentPos.z.toFixed(2)}`);
+                    return currentPos;
+                });
+                
+                logger.log(`[GameGarage] Calling respawn()...`);
+                // Вызываем respawn (он пересоздаст части)
+                tankController.respawn();
+                
+                // Восстанавливаем оригинальный callback
+                if (originalCallback) {
+                    tankController.setRespawnPositionCallback(originalCallback);
+                } else {
+                    tankController.respawnPositionCallback = null;
+                }
+                
+                logger.log(`[GameGarage] Respawn completed. New types: chassis=${tankController.chassisType?.id}, cannon=${tankController.cannonType?.id}, track=${tankController.trackType?.id}`);
+                
+                // После respawn запускаем анимацию (если есть изменённые части)
+                if ((applied.chassis || applied.cannon || applied.track) && typeof (tankController as any).playPartChangeAnimation === 'function') {
+                    logger.log(`[GameGarage] Starting part change animation...`);
+                    // Небольшая задержка, чтобы части успели пересоздаться
+                    setTimeout(() => {
+                        (tankController as any).playPartChangeAnimation(applied, () => {
+                            logger.log("[GameGarage] Part change animation complete");
+                        });
+                    }, 100);
+                }
+            } else {
+                logger.error(`[GameGarage] tankController.respawn is not a function!`);
+            }
+        }
+        
+        this.isApplyingChanges = false;
+        
+        // Показываем уведомление
+        if (this.hud && typeof this.hud.showNotification === 'function') {
+            this.hud.showNotification("🔧 Оборудование установлено!", "success");
+        }
+        
+        logger.log("[GameGarage] Pending changes applied directly (with respawn)");
     }
     
     /**
@@ -383,6 +545,27 @@ export class GameGarage {
         
         // === ПРОВЕРКА PENDING ИЗМЕНЕНИЙ ПРИ ВХОДЕ В ГАРАЖ ===
         this.checkAndApplyPendingChanges();
+        
+        // АГРЕССИВНАЯ ПРОВЕРКА: если игрок в гараже и есть pending изменения, применяем их СРАЗУ
+        // (независимо от wasPlayerInGarage - на случай, если логика входа не сработала)
+        const isInGarage = this.isPlayerInAnyGarage();
+        const hasPending = this.hasPendingChangesFromStorage();
+        
+        // Логируем состояние каждые 60 кадров (примерно раз в секунду) для отладки
+        if (Math.random() < 0.016) { // ~1/60 вероятность
+            logger.log(`[GameGarage] DEBUG: isInGarage=${isInGarage}, hasPending=${hasPending}, wasPlayerInGarage=${this.wasPlayerInGarage}, isApplyingChanges=${this.isApplyingChanges}`);
+            if (hasPending) {
+                const pending = this.getPendingFromStorage();
+                logger.log(`[GameGarage] DEBUG: Pending values: chassis=${pending.chassisId}, cannon=${pending.cannonId}, track=${pending.trackId}, skin=${pending.skinId}`);
+            }
+        }
+        
+        if (isInGarage && !this.isApplyingChanges && hasPending) {
+            logger.log(`[GameGarage] ⚠️ AGGRESSIVE CHECK: Player in garage with pending changes! Applying now...`);
+            const pending = this.getPendingFromStorage();
+            logger.log(`[GameGarage] Pending: chassis=${pending.chassisId}, cannon=${pending.cannonId}, track=${pending.trackId}, skin=${pending.skinId}`);
+            this.applyPendingGarageChanges();
+        }
         
         // КРИТИЧНО: УБРАНА ВСЯ ПРОВЕРКА ТЕРРЕЙНА - ворота открываются сразу, если игрок внутри гаража
         // Проверяем, находится ли игрок внутри гаража ПЕРВЫМ ДЕЛОМ

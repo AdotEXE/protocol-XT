@@ -64,6 +64,14 @@ export class GameEnemies {
     private frontlineMaxEnemies = 12;
     private frontlineWaveInterval = 75000; // 75 секунд между волнами
     
+    // Система постепенного спавна ботов
+    private gradualSpawnTimer: number | null = null;
+    private gradualSpawnEnabled = true; // Включить постепенный спавн
+    private gradualSpawnMaxBots = 5; // Максимум ботов при постепенном спавне
+    private gradualSpawnInterval = 1000; // 1 секунда между спавнами
+    private gradualSpawnDelay = 2000; // Задержка перед началом спавна (2 секунды)
+    private gradualSpawnCount = 0; // Текущий счётчик заспавненных ботов
+    
     // Логирование адаптивной сложности
     private _lastAdaptiveDifficultyLogTime = 0;
     
@@ -163,6 +171,9 @@ export class GameEnemies {
             clearInterval(this.frontlineWaveTimer);
             this.frontlineWaveTimer = null;
         }
+        
+        // Останавливаем постепенный спавн
+        this.stopGradualSpawning();
         
         this.frontlineWaveNumber = 0;
         
@@ -772,8 +783,122 @@ export class GameEnemies {
     
     /**
      * Стандартный спавн врагов для других карт
+     * Использует постепенный спавн: начинается со 2-й секунды, по 1 боту каждую секунду, макс 5 ботов
      */
     spawnStandardEnemies(): void {
+        if (!this.systems?.soundManager || !this.systems.effectsManager) return;
+        
+        // Используем постепенный спавн если включен
+        if (this.gradualSpawnEnabled) {
+            this.startGradualSpawning();
+            return;
+        }
+        
+        // Fallback - мгновенный спавн (старое поведение)
+        this.spawnAllEnemiesAtOnce();
+    }
+    
+    /**
+     * Запуск постепенного спавна ботов
+     * Начинается через 2 секунды, затем по 1 боту каждую секунду, максимум 5 ботов
+     */
+    private startGradualSpawning(): void {
+        if (!this.systems?.soundManager || !this.systems.effectsManager) return;
+        
+        // Сбрасываем счётчик
+        this.gradualSpawnCount = 0;
+        
+        logger.log(`[GameEnemies] Starting gradual spawn: delay=${this.gradualSpawnDelay}ms, interval=${this.gradualSpawnInterval}ms, maxBots=${this.gradualSpawnMaxBots}`);
+        
+        // Запускаем спавн через 2 секунды
+        setTimeout(() => {
+            if (!this.systems) return;
+            
+            // Спавним первого бота сразу
+            this.spawnSingleBot();
+            
+            // Затем спавним остальных с интервалом 1 секунда
+            this.gradualSpawnTimer = window.setInterval(() => {
+                if (this.gradualSpawnCount >= this.gradualSpawnMaxBots) {
+                    // Достигли максимума - останавливаем таймер
+                    if (this.gradualSpawnTimer !== null) {
+                        clearInterval(this.gradualSpawnTimer);
+                        this.gradualSpawnTimer = null;
+                    }
+                    logger.log(`[GameEnemies] Gradual spawn complete: ${this.gradualSpawnCount} bots spawned`);
+                    return;
+                }
+                
+                this.spawnSingleBot();
+            }, this.gradualSpawnInterval);
+        }, this.gradualSpawnDelay);
+    }
+    
+    /**
+     * Спавн одного бота для постепенного спавна
+     */
+    private spawnSingleBot(): void {
+        if (!this.systems?.soundManager || !this.systems.effectsManager) return;
+        if (this.gradualSpawnCount >= this.gradualSpawnMaxBots) return;
+        
+        const minDistance = 60;
+        const maxDistance = 180;
+        
+        const aiDifficulty = this.getCurrentDifficulty();
+        const difficultyScale = this.getAdaptiveDifficultyScale();
+        
+        let attempts = 0;
+        let pos: Vector3;
+        
+        do {
+            const angle = Math.random() * Math.PI * 2;
+            const distance = minDistance + Math.random() * (maxDistance - minDistance);
+            const spawnX = Math.cos(angle) * distance;
+            const spawnZ = Math.sin(angle) * distance;
+            const groundInfo = this.getGroundInfo(spawnX, spawnZ);
+            // Спавн на 5 метров выше террейна для гарантии
+            const spawnY = Math.max(groundInfo.height + 5.0, 7.0);
+            
+            pos = new Vector3(spawnX, spawnY, spawnZ);
+            
+            // Проверяем расстояние до других врагов
+            let tooClose = false;
+            for (const existingEnemy of this.enemyTanks) {
+                if (existingEnemy.chassis && Vector3.Distance(pos, existingEnemy.chassis.absolutePosition) < 25) {
+                    tooClose = true;
+                    break;
+                }
+            }
+            
+            if (!tooClose) {
+                (pos as any).groundNormal = groundInfo.normal;
+                break;
+            }
+            attempts++;
+        } while (attempts < 30);
+        
+        const groundNormal = (pos as any).groundNormal || Vector3.Up();
+        const enemy = this.createEnemy(pos, aiDifficulty, difficultyScale, () => {
+            this.handleStandardEnemyDeath(enemy!);
+        }, groundNormal);
+        
+        if (enemy) {
+            this.enemyTanks.push(enemy);
+            this.gradualSpawnCount++;
+            
+            // Устанавливаем цель для нового бота
+            if (this.systems?.tank) {
+                enemy.setTarget(this.systems.tank);
+            }
+            
+            logger.log(`[GameEnemies] Bot ${this.gradualSpawnCount}/${this.gradualSpawnMaxBots} spawned at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`);
+        }
+    }
+    
+    /**
+     * Мгновенный спавн всех врагов (старое поведение, fallback)
+     */
+    private spawnAllEnemiesAtOnce(): void {
         if (!this.systems?.soundManager || !this.systems.effectsManager) return;
         
         const minDistance = 60;
@@ -861,6 +986,17 @@ export class GameEnemies {
         }
         
         logger.log(`[GameEnemies] Spawned ${this.enemyTanks.length} enemies`);
+    }
+    
+    /**
+     * Остановка постепенного спавна (если запущен)
+     */
+    stopGradualSpawning(): void {
+        if (this.gradualSpawnTimer !== null) {
+            clearInterval(this.gradualSpawnTimer);
+            this.gradualSpawnTimer = null;
+        }
+        this.gradualSpawnCount = 0;
     }
     
     /**

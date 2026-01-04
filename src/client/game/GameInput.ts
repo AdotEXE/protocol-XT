@@ -450,7 +450,7 @@ export class GameInput {
             }
         }
         
-        // Переключаем ворота
+        // Переключаем ТОЛЬКО ОДНУ ворота (НЕ обе одновременно!)
         if (hitDoor === "front") {
             doorData.frontDoorOpen = !doorData.frontDoorOpen;
             logger.debug(`Front garage door ${doorData.frontDoorOpen ? 'opening' : 'closing'} manually (G key)`);
@@ -458,10 +458,21 @@ export class GameInput {
             doorData.backDoorOpen = !doorData.backDoorOpen;
             logger.debug(`Back garage door ${doorData.backDoorOpen ? 'opening' : 'closing'} manually (G key)`);
         } else {
-            // Fallback: переключаем обе
-            logger.debug(`Could not determine which door, toggling both`);
-            doorData.frontDoorOpen = !doorData.frontDoorOpen;
-            doorData.backDoorOpen = !doorData.backDoorOpen;
+            // КРИТИЧНО: Fallback - выбираем БЛИЖАЙШУЮ ворота к игроку, а не обе!
+            const garageDepth = doorData.garageDepth || 20;
+            const playerPos = this.tank.chassis.absolutePosition;
+            const frontDoorZ = doorData.position.z + garageDepth / 2;
+            const backDoorZ = doorData.position.z - garageDepth / 2;
+            const distToFront = Math.abs(playerPos.z - frontDoorZ);
+            const distToBack = Math.abs(playerPos.z - backDoorZ);
+            
+            if (distToFront < distToBack) {
+                doorData.frontDoorOpen = !doorData.frontDoorOpen;
+                logger.debug(`Fallback: Front door (closer) ${doorData.frontDoorOpen ? 'opening' : 'closing'} manually (G key)`);
+            } else {
+                doorData.backDoorOpen = !doorData.backDoorOpen;
+                logger.debug(`Fallback: Back door (closer) ${doorData.backDoorOpen ? 'opening' : 'closing'} manually (G key)`);
+            }
         }
         
         doorData.manualControl = true;

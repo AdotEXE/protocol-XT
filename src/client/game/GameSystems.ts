@@ -287,8 +287,8 @@ export class GameSystems implements Partial<IGameSystems> {
             const isProduction = (import.meta as any).env?.PROD || false;
             this.chunkSystem = new ChunkSystem(scene, {
                 chunkSize: 80,
-                renderDistance: isProduction ? 1.2 : 1.5,
-                unloadDistance: 3,  // ОПТИМИЗАЦИЯ: Уменьшено с 4 до 3
+                renderDistance: isProduction ? 1.5 : 2,
+                unloadDistance: 4,
                 worldSeed: worldSeed,
                 mapType: currentMapType as any
             });

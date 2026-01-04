@@ -7,6 +7,7 @@ export { GameCore } from "./GameCore";
 export { GameSystems } from "./GameSystems";
 export { GameInput } from "./GameInput";
 export { GameCamera } from "./GameCamera";
+export type { GameCameraContext } from "./GameCamera";
 export { GameMultiplayer } from "./GameMultiplayer";
 export { GameSpectator } from "./GameSpectator";
 export { GameGarage } from "./GameGarage";
