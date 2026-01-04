@@ -4,13 +4,14 @@
     "@types/three": "^0.181.0",
     "@types/ws": "^8.5.13",
     "rollup-plugin-visualizer": "^6.0.5",
+    "terser": "^5.44.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vite": "^7.2.6",
     "vite-plugin-compression": "^0.5.1"
   },
   "name": "tx",
-  "version": "0.4.20069",
+  "version": "0.4.20091",
   "description": "Protocol TX - Advanced tank combat simulator with procedural world generation, multiplayer support, and extensive customization",
   "main": "index.js",
   "directories": {

@@ -307,8 +307,8 @@ export default defineConfig({
         tryCatchDeoptimization: false,
       },
     },
-    // Минификация (esbuild - быстрее и встроен в Vite)
-    minify: 'esbuild',
+    // Минификация (terser - лучше обрабатывает порядок инициализации классов)
+    minify: 'terser',
     // Оптимизация размера
     cssMinify: true,
     // Отключаем source maps в production для производительности
