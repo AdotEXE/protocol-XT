@@ -343,20 +343,23 @@ export class Game {
     constructor() {
         console.log("[Game] ========== GAME CONSTRUCTOR STARTED ==========");
         
-        // Initialize game modules
-        this.gameGarage = new GameGarage();
-        this.gameConsumables = new GameConsumables();
+        // Initialize game modules in dependency order
+        // Independent modules first (no dependencies on other Game modules)
         this.gameProjectile = new GameProjectile();
+        this.gamePhysics = new GamePhysics();
+        this.gameConsumables = new GameConsumables();
         this.gameVisibility = new GameVisibility();
         this.gamePersistence = new GamePersistence();
         this.gameLoaders = new GameLoaders();
-        this.gameEnemies = new GameEnemies();
-        this.gameUI = new GameUI();
-        this.gamePhysics = new GamePhysics();
+        this.gamePOI = new GamePOI();
         this.gameAudio = new GameAudio();
         this.gameStats = new GameStats();
-        this.gamePOI = new GamePOI();
         this.gameStatsOverlay = new GameStatsOverlay();
+        
+        // Dependent modules (may depend on other Game modules)
+        this.gameGarage = new GameGarage();
+        this.gameEnemies = new GameEnemies();
+        this.gameUI = new GameUI();
         this.gameMultiplayerCallbacks = new GameMultiplayerCallbacks();
         this.gameUpdate = new GameUpdate();
         
