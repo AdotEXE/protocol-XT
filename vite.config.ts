@@ -288,8 +288,15 @@ export default defineConfig({
         assetFileNames: 'assets/[name]-[hash].[ext]',
       },
       // Более агрессивное удаление неиспользуемого кода
+      // ВАЖНО: moduleSideEffects должен быть функцией для модулей игры, чтобы сохранить порядок инициализации
       treeshake: {
-        moduleSideEffects: false,
+        moduleSideEffects(id) {
+          // Сохраняем side effects для модулей игры, чтобы избежать проблем с порядком инициализации
+          if (id.includes('/src/client/game/')) {
+            return true;
+          }
+          return false;
+        },
         propertyReadSideEffects: false,
         tryCatchDeoptimization: false,
       },
