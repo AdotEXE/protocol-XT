@@ -378,5 +378,236 @@ export class InputValidator {
         
         return { valid: true };
     }
+    
+    /**
+     * Detect potential aimbot usage based on turret rotation patterns
+     * Aimbots typically have:
+     * - Extremely fast turret snapping to targets
+     * - Inhuman reaction times (< 50ms)
+     * - Perfect accuracy over long periods
+     */
+    static detectAimbot(
+        turretHistory: Array<{ time: number; rotation: number; targetHit?: boolean }>
+    ): { suspicious: boolean; score: number; reasons: string[] } {
+        const reasons: string[] = [];
+        let score = 0;
+        
+        if (turretHistory.length < 5) {
+            return { suspicious: false, score: 0, reasons: [] };
+        }
+        
+        // Track turret angular velocity
+        const angularVelocities: number[] = [];
+        for (let i = 1; i < turretHistory.length; i++) {
+            const prev = turretHistory[i - 1];
+            const curr = turretHistory[i];
+            if (!prev || !curr) continue;
+            
+            const timeDelta = (curr.time - prev.time) / 1000; // seconds
+            if (timeDelta <= 0) continue;
+            
+            // Calculate angular difference (handle wraparound)
+            let angleDiff = curr.rotation - prev.rotation;
+            while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+            while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+            
+            const angularVel = Math.abs(angleDiff) / timeDelta; // rad/s
+            angularVelocities.push(angularVel);
+        }
+        
+        if (angularVelocities.length > 0) {
+            const maxAngularVel = Math.max(...angularVelocities);
+            const avgAngularVel = angularVelocities.reduce((a, b) => a + b, 0) / angularVelocities.length;
+            
+            // Inhuman turret speed (> 20 rad/s is ~3 full rotations per second)
+            const MAX_HUMAN_ANGULAR_VEL = 15; // rad/s
+            if (maxAngularVel > MAX_HUMAN_ANGULAR_VEL) {
+                reasons.push(`Inhuman turret speed: ${maxAngularVel.toFixed(2)} rad/s`);
+                score += 30;
+            }
+            
+            // Check for instant snapping (sudden large rotations followed by stop)
+            let snapCount = 0;
+            for (let i = 1; i < angularVelocities.length - 1; i++) {
+                const prev = angularVelocities[i - 1] || 0;
+                const curr = angularVelocities[i] || 0;
+                const next = angularVelocities[i + 1] || 0;
+                
+                // Snap pattern: low -> very high -> low
+                if (prev < 2 && curr > 10 && next < 2) {
+                    snapCount++;
+                }
+            }
+            
+            if (snapCount > turretHistory.length * 0.3) {
+                reasons.push(`Frequent target snapping detected: ${snapCount} snaps`);
+                score += 25;
+            }
+        }
+        
+        // Check hit accuracy if data is available
+        const hits = turretHistory.filter(h => h.targetHit).length;
+        const totalShots = turretHistory.filter(h => h.targetHit !== undefined).length;
+        if (totalShots >= 10) {
+            const accuracy = hits / totalShots;
+            if (accuracy > 0.95) { // > 95% accuracy is suspicious
+                reasons.push(`Suspiciously high accuracy: ${(accuracy * 100).toFixed(1)}%`);
+                score += 20;
+            }
+        }
+        
+        return {
+            suspicious: score > 40,
+            score,
+            reasons
+        };
+    }
+    
+    /**
+     * Enhanced speed hack detection with multiple analysis methods
+     */
+    static detectSpeedHack(
+        positionHistory: Array<{ time: number; position: Vector3 }>,
+        maxSpeed: number = 40
+    ): { suspicious: boolean; score: number; reasons: string[] } {
+        const reasons: string[] = [];
+        let score = 0;
+        
+        if (positionHistory.length < 5) {
+            return { suspicious: false, score: 0, reasons: [] };
+        }
+        
+        // Calculate speeds
+        const speeds: number[] = [];
+        const accelerations: number[] = [];
+        
+        for (let i = 1; i < positionHistory.length; i++) {
+            const prev = positionHistory[i - 1];
+            const curr = positionHistory[i];
+            if (!prev || !curr) continue;
+            
+            const timeDelta = (curr.time - prev.time) / 1000;
+            if (timeDelta <= 0) continue;
+            
+            const distance = Vector3.Distance(prev.position, curr.position);
+            const speed = distance / timeDelta;
+            speeds.push(speed);
+            
+            // Calculate acceleration
+            if (speeds.length >= 2) {
+                const prevSpeed = speeds[speeds.length - 2] || 0;
+                const acceleration = Math.abs(speed - prevSpeed) / timeDelta;
+                accelerations.push(acceleration);
+            }
+        }
+        
+        if (speeds.length > 0) {
+            const maxSpeedObserved = Math.max(...speeds);
+            const avgSpeed = speeds.reduce((a, b) => a + b, 0) / speeds.length;
+            
+            // Check for exceeding max speed
+            if (maxSpeedObserved > maxSpeed * 1.5) {
+                reasons.push(`Speed exceeds limit: ${maxSpeedObserved.toFixed(2)} units/s (max: ${maxSpeed * 1.5})`);
+                score += 35;
+            }
+            
+            // Check for sustained high speed (speed hack often maintains constant high speed)
+            const highSpeedFrames = speeds.filter(s => s > maxSpeed * 1.2).length;
+            if (highSpeedFrames > speeds.length * 0.5) {
+                reasons.push(`Sustained high speed: ${highSpeedFrames}/${speeds.length} frames above limit`);
+                score += 25;
+            }
+            
+            // Check for impossible acceleration
+            if (accelerations.length > 0) {
+                const maxAccel = Math.max(...accelerations);
+                const MAX_ACCELERATION = 100; // units/s^2 (reasonable for a tank)
+                if (maxAccel > MAX_ACCELERATION) {
+                    reasons.push(`Impossible acceleration: ${maxAccel.toFixed(2)} units/s²`);
+                    score += 20;
+                }
+            }
+        }
+        
+        return {
+            suspicious: score > 40,
+            score,
+            reasons
+        };
+    }
+}
+
+/**
+ * Rate limiter for per-player action limits
+ */
+export class RateLimiter {
+    private counters: Map<string, { count: number; resetTime: number }> = new Map();
+    
+    /**
+     * Check if action is allowed for player
+     * @param playerId Player ID
+     * @param actionType Type of action (e.g., "input", "shoot", "chat")
+     * @param maxPerSecond Maximum allowed actions per second
+     * @returns true if action is allowed, false if rate limited
+     */
+    checkLimit(playerId: string, actionType: string, maxPerSecond: number): boolean {
+        const key = `${playerId}:${actionType}`;
+        const now = Date.now();
+        
+        let entry = this.counters.get(key);
+        if (!entry || now - entry.resetTime >= 1000) {
+            // Reset counter every second
+            entry = { count: 0, resetTime: now };
+            this.counters.set(key, entry);
+        }
+        
+        entry.count++;
+        
+        if (entry.count > maxPerSecond) {
+            return false; // Rate limited
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Get current rate for player action
+     */
+    getRate(playerId: string, actionType: string): number {
+        const key = `${playerId}:${actionType}`;
+        const entry = this.counters.get(key);
+        return entry?.count || 0;
+    }
+    
+    /**
+     * Reset all counters for a player (e.g., when they disconnect)
+     */
+    resetPlayer(playerId: string): void {
+        const keysToDelete: string[] = [];
+        for (const key of this.counters.keys()) {
+            if (key.startsWith(`${playerId}:`)) {
+                keysToDelete.push(key);
+            }
+        }
+        for (const key of keysToDelete) {
+            this.counters.delete(key);
+        }
+    }
+    
+    /**
+     * Cleanup old entries (call periodically)
+     */
+    cleanup(): void {
+        const now = Date.now();
+        const keysToDelete: string[] = [];
+        for (const [key, entry] of this.counters.entries()) {
+            if (now - entry.resetTime > 10000) { // Cleanup entries older than 10 seconds
+                keysToDelete.push(key);
+            }
+        }
+        for (const key of keysToDelete) {
+            this.counters.delete(key);
+        }
+    }
 }
 

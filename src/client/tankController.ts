@@ -1943,7 +1943,140 @@ export class TankController {
     respawn() {
         logger.log("[TANK] Respawning...");
         
-        // Перезагружаем конфигурацию корпуса и пушки (на случай если игрок выбрал новые)
+        // Перезагружаем конфигурацию корпуса и пушки из localStorage (на случай если игрок выбрал новые)
+        const savedChassisId = localStorage.getItem("selectedChassis") || "medium";
+        const savedCannonId = localStorage.getItem("selectedCannon") || "standard";
+        const savedTrackId = localStorage.getItem("selectedTrack") || "standard";
+        
+        logger.log(`[TANK] Respawn: current types - chassis=${this.chassisType?.id}, cannon=${this.cannonType?.id}, track=${this.trackType?.id}`);
+        logger.log(`[TANK] Respawn: saved types - chassis=${savedChassisId}, cannon=${savedCannonId}, track=${savedTrackId}`);
+        
+        // Проверяем, изменились ли типы частей
+        // Сравниваем строки, приводим к нижнему регистру для надёжности
+        const currentChassisId = (this.chassisType?.id || "").toLowerCase();
+        const currentCannonId = (this.cannonType?.id || "").toLowerCase();
+        const currentTrackId = (this.trackType?.id || "").toLowerCase();
+        const savedChassisIdLower = savedChassisId.toLowerCase();
+        const savedCannonIdLower = savedCannonId.toLowerCase();
+        const savedTrackIdLower = savedTrackId.toLowerCase();
+        
+        const chassisChanged = currentChassisId !== savedChassisIdLower;
+        const cannonChanged = currentCannonId !== savedCannonIdLower;
+        const trackChanged = currentTrackId !== savedTrackIdLower;
+        const needsRecreation = chassisChanged || cannonChanged || trackChanged;
+        
+        logger.log(`[TANK] Parts comparison: current(${currentChassisId}, ${currentCannonId}, ${currentTrackId}) vs saved(${savedChassisIdLower}, ${savedCannonIdLower}, ${savedTrackIdLower})`);
+        logger.log(`[TANK] Parts changed: chassis=${chassisChanged}, cannon=${cannonChanged}, track=${trackChanged}, needsRecreation=${needsRecreation}`);
+        
+        if (needsRecreation) {
+            logger.log(`[TANK] Recreating parts...`);
+            
+            // Сохраняем текущую позицию
+            const currentPos = this.chassis?.position?.clone() || new Vector3(0, 1.2, 0);
+            
+            // Обновляем типы
+            this.chassisType = getChassisById(savedChassisId);
+            this.cannonType = getCannonById(savedCannonId);
+            this.trackType = getTrackById(savedTrackId);
+            
+            // Обновляем параметры
+            this.mass = this.chassisType.mass;
+            this.moveSpeed = this.chassisType.moveSpeed;
+            this.turnSpeed = this.chassisType.turnSpeed;
+            this.acceleration = this.chassisType.acceleration;
+            this.maxHealth = this.chassisType.maxHealth;
+            this.cooldown = this.cannonType.cooldown;
+            this.baseCooldown = this.cannonType.cooldown;
+            this.damage = this.cannonType.damage;
+            this.projectileSpeed = this.cannonType.projectileSpeed;
+            this.projectileSize = this.cannonType.projectileSize;
+            
+            // Dispose старых частей
+            if (this.chassis && !this.chassis.isDisposed()) {
+                this.chassis.dispose();
+            }
+            if (this.turret && !this.turret.isDisposed()) {
+                this.turret.dispose();
+            }
+            if (this.barrel && !this.barrel.isDisposed()) {
+                this.barrel.dispose();
+            }
+            if (this.leftTrack && !this.leftTrack.isDisposed()) {
+                this.leftTrack.dispose();
+            }
+            if (this.rightTrack && !this.rightTrack.isDisposed()) {
+                this.rightTrack.dispose();
+            }
+            
+            // Пересоздаём части
+            this.chassis = this.visualsModule.createUniqueChassis(this.scene, currentPos);
+            this.visualsModule.createVisualWheels();
+            
+            // Пересоздаём башню и пушку
+            const turretWidth = this.chassisType.width * 0.65;
+            const turretHeight = this.chassisType.height * 0.75;
+            const turretDepth = this.chassisType.depth * 0.6;
+            
+            const uniqueTurretId = `turret_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            this.turret = MeshBuilder.CreateBox(uniqueTurretId, { 
+                width: turretWidth, 
+                height: turretHeight, 
+                depth: turretDepth 
+            }, this.scene);
+            this.turret.position = new Vector3(0, this.chassisType.height / 2 + turretHeight / 2, 0);
+            this.turret.parent = this.chassis;
+            
+            const turretMat = new StandardMaterial("turretMat", this.scene);
+            const selectedSkinId = loadSelectedSkin();
+            if (selectedSkinId) {
+                const skin = getSkinById(selectedSkinId);
+                if (skin) {
+                    const skinColors = applySkinToTank(skin);
+                    turretMat.diffuseColor = skinColors.turretColor;
+                }
+            } else {
+                turretMat.diffuseColor = new Color3(0.3, 0.3, 0.3);
+            }
+            turretMat.specularColor = Color3.Black();
+            this.turret.material = turretMat;
+            
+            // Пересоздаём пушку
+            const barrelWidth = this.cannonType.barrelWidth;
+            const barrelLength = this.cannonType.barrelLength;
+            const baseBarrelZ = turretDepth / 2 + barrelLength / 2;
+            this.barrel = this.visualsModule.createUniqueCannon(this.scene, barrelWidth, barrelLength);
+            this.barrel.position = new Vector3(0, 0, baseBarrelZ);
+            this.barrel.parent = this.turret;
+            (this.barrel as any)._isChildMesh = true;
+            (this.barrel as any)._shouldBeChild = true;
+            
+            // Применяем скин к корпусу
+            if (selectedSkinId && this.chassis.material) {
+                const skin = getSkinById(selectedSkinId);
+                if (skin) {
+                    const skinColors = applySkinToTank(skin);
+                    (this.chassis.material as StandardMaterial).diffuseColor = skinColors.chassisColor;
+                }
+            }
+            
+            // Восстанавливаем физику (dispose старой, если есть)
+            if (this.physicsBody) {
+                try {
+                    (this.physicsBody as any).dispose();
+                } catch (e) {
+                    logger.warn(`[TANK] Error disposing old physics body: ${e}`);
+                }
+                (this as any).physicsBody = null;
+            }
+            
+            // Также очищаем physicsBody из chassis, если есть
+            if ((this.chassis as any).physicsBody) {
+                (this.chassis as any).physicsBody = null;
+            }
+            
+            logger.log(`[TANK] Parts recreated. Chassis: ${this.chassis?.name}, Turret: ${this.turret?.name}, Barrel: ${this.barrel?.name}`);
+        }
+        
         // Применяем улучшения заново
         this.applyUpgrades();
         

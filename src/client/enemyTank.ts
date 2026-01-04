@@ -78,8 +78,12 @@ export class EnemyTank {
     private turretCurrentAngle = 0;
     private turretAcceleration = 0;
     private turretAccelStartTime = 0;
-    private turretSpeed = 0.04; // Базовая скорость вращения башни (рад/кадр), как у игрока
-    private turretLerpSpeed = 0.15; // Скорость интерполяции башни, как у игрока
+    private turretSpeed = 0.12; // УВЕЛИЧЕНО: Быстрое наведение башни (было 0.04)
+    
+    // Barrel pitch control (vertical aiming)
+    private barrelTargetPitch = 0; // Целевой угол наклона ствола
+    private barrelCurrentPitch = 0; // Текущий угол (для плавного наведения)
+    private turretLerpSpeed = 0.25; // УВЕЛИЧЕНО: Быстрая интерполяция башни (было 0.15)
     
     // Спавн: нормаль поверхности для выравнивания
     private spawnGroundNormal: Vector3 = Vector3.Up();
@@ -99,56 +103,57 @@ export class EnemyTank {
     private targetPOI: { position: Vector3, type: string, id: string } | null = null;
     private poiCaptureTime = 0; // Time spent at POI
     
-    // AI properties - УЛУЧШЕНО: Увеличен радиус атаки для более агрессивного ИИ
-    private attackRange = 140; // УВЕЛИЧЕНО с 120 до 140 для ещё более активного боя
+    // AI properties - EXTREME: Максимально агрессивный ИИ
+    private attackRange = 200; // EXTREME: +43% (было 140) - атакуют с большей дистанции
     
     // AI Decisions
     private lastDecisionTime = 0;
-    private decisionInterval = 0; // NIGHTMARE AI: МГНОВЕННЫЕ решения - 0мс задержки!
+    private decisionInterval = 0; // EXTREME NIGHTMARE AI: МГНОВЕННЫЕ решения - 0мс задержки!
     private flankDirection = 1; // 1 = right, -1 = left
     private evadeDirection = new Vector3(0, 0, 0);
     private lastTargetPos = new Vector3(0, 0, 0);
     private targetVelocity = new Vector3(0, 0, 0);
     
-    // NIGHTMARE AI: Подавляющий огонь по последней известной позиции
+    // Подавляющий огонь по последней известной позиции (уменьшено для точности)
     private lastTargetSeenTime = 0; // Время последнего наблюдения цели
-    private readonly SUPPRESSIVE_FIRE_DURATION = 3000; // 3 секунды подавляющего огня
+    private readonly SUPPRESSIVE_FIRE_DURATION = 500; // 0.5 секунды подавляющего огня (уменьшено с 3000)
+    private readonly MAX_SUPPRESSIVE_DISTANCE = 50; // Макс. расстояние между lastTargetPos и текущей позицией для suppressive fire
     
-    // УЛУЧШЕНО: История движения цели для улучшенного предсказания
+    // EXTREME: История движения цели для максимально точного предсказания
     private targetPositionHistory: Array<{ pos: Vector3, time: number }> = [];
-    private readonly MAX_POSITION_HISTORY = 30; // МАКСИМАЛЬНО: Увеличено с 20 до 30 для лучшего анализа
-    private readonly POSITION_HISTORY_INTERVAL = 100; // Обновляем каждые 100мс
+    private readonly MAX_POSITION_HISTORY = 50; // EXTREME: +67% (было 30) - глубокий анализ траектории
+    private readonly POSITION_HISTORY_INTERVAL = 50; // EXTREME: -50% (было 100) - быстрее обновление
     private lastPositionHistoryUpdate = 0;
     
-    // УЛУЧШЕНО: Анализ паттернов движения
+    // EXTREME: Анализ паттернов движения
     private movementPattern: "linear" | "zigzag" | "circular" | "erratic" = "linear";
     private movementPatternConfidence = 0.0; // 0.0 - 1.0
     private lastPatternAnalysisTime = 0;
-    private readonly PATTERN_ANALYSIS_INTERVAL = 2000; // Анализируем паттерн каждые 2 секунды
+    private readonly PATTERN_ANALYSIS_INTERVAL = 1000; // EXTREME: -50% (было 2000) - чаще анализ
     
-    // УЛУЧШЕНО: Система уклонения от снарядов игрока
+    // EXTREME: Система уклонения от снарядов игрока
     private incomingProjectiles: Array<{ mesh: AbstractMesh, velocity: Vector3, lastUpdate: number }> = [];
     private lastProjectileScanTime = 0;
-    private readonly PROJECTILE_SCAN_INTERVAL = 30; // МАКСИМАЛЬНО: Уменьшено с 50 до 30мс для максимальной частоты сканирования
-    private readonly PROJECTILE_DETECTION_RANGE = 100; // Радиус обнаружения снарядов (метры)
-    private readonly PROJECTILE_DODGE_TIME_MIN = 0.5; // Минимальное время до попадания для уклонения (сек)
-    private readonly PROJECTILE_DODGE_TIME_MAX = 1.5; // Максимальное время до попадания для уклонения (сек)
+    private readonly PROJECTILE_SCAN_INTERVAL = 15; // EXTREME: -50% (было 30) - максимальная частота сканирования
+    private readonly PROJECTILE_DETECTION_RANGE = 150; // EXTREME: +50% (было 100) - дальше видят снаряды
+    private readonly PROJECTILE_DODGE_TIME_MIN = 0.3; // EXTREME: -40% (было 0.5) - раньше начинают уклонение
+    private readonly PROJECTILE_DODGE_TIME_MAX = 2.0; // EXTREME: +33% (было 1.5) - дольше уклоняются
     private isDodgingProjectile = false;
     private dodgeDirection = Vector3.Zero();
     private dodgeEndTime = 0;
     
-    // УЛУЧШЕНО: Групповое поведение
+    // EXTREME: Групповое поведение
     private nearbyEnemies: EnemyTank[] = []; // Близкие союзники для координации
     private lastGroupCheckTime = 0;
-    private readonly GROUP_CHECK_INTERVAL = 500; // МАКСИМАЛЬНО: Уменьшено с 1000 до 500мс для максимальной скорости координации
+    private readonly GROUP_CHECK_INTERVAL = 250; // EXTREME: -50% (было 500) - мгновенная координация
     
-    // УЛУЧШЕНО: Интеграция с AI Coordinator
+    // EXTREME: Интеграция с AI Coordinator
     private aiCoordinator: AICoordinator | null = null;
-    private readonly GROUP_COORDINATION_RANGE = 120; // МАКСИМАЛЬНО: Увеличен радиус координации с 100 до 120 для максимальной координации между ботами!
+    private readonly GROUP_COORDINATION_RANGE = 200; // EXTREME: +67% (было 120) - огромный радиус координации!
     
-    // УЛУЧШЕНО: Система укрытий и тактического позиционирования
+    // EXTREME: Система укрытий и тактического позиционирования
     private lastCoverCheckTime = 0;
-    private readonly COVER_CHECK_INTERVAL = 800; // МАКСИМАЛЬНО: Уменьшено с 1500 до 800мс для максимальной скорости принятия решений
+    private readonly COVER_CHECK_INTERVAL = 400; // EXTREME: -50% (было 800) - мгновенный поиск укрытий
     private currentCoverPosition: Vector3 | null = null;
     private seekingCover = false;
     private coverType: "full" | "partial" | "temporary" | null = null; // Тип текущего укрытия
@@ -168,47 +173,47 @@ export class EnemyTank {
     private currentPath: Vector3[] = [];
     private currentPathIndex = 0;
     
-    // УЛУЧШЕНО: Адаптация к стилю игры игрока
+    // EXTREME: Мгновенная адаптация к стилю игры игрока
     private playerStyle: "aggressive" | "defensive" | "balanced" = "balanced";
     private playerStyleSamples: number[] = []; // История расстояний до игрока
     private lastStyleUpdateTime = 0;
-    private readonly STYLE_UPDATE_INTERVAL = 1000; // СУПЕР: Уменьшено с 2000 до 1000мс для мгновенной адаптации к стилю игрока!
+    private readonly STYLE_UPDATE_INTERVAL = 500; // EXTREME: -50% (было 1000) - мгновенная адаптация!
     
-    // УЛУЧШЕНО: Реакция на урон
+    // EXTREME: Молниеносная реакция на урон
     private lastDamageTime = 0;
     private damageReactionCooldown = 0;
     private consecutiveHits = 0;
     
-    // УЛУЧШЕНО: Синхронизация групповых атак
+    // EXTREME: Синхронизация групповых атак
     private lastGroupAttackTime = 0;
-    private readonly GROUP_ATTACK_SYNC_WINDOW = 500; // Окно синхронизации 500мс
+    private readonly GROUP_ATTACK_SYNC_WINDOW = 250; // EXTREME: -50% (было 500) - мгновенная синхронизация!
     private groupAttackCooldown = 0;
     
-    // УЛУЧШЕНО: Использование рельефа
+    // EXTREME: Постоянное использование рельефа
     private lastTerrainCheckTime = 0;
-    private readonly TERRAIN_CHECK_INTERVAL = 4000; // УЛУЧШЕНО: Увеличено с 3000 до 4000мс для лучшей производительности
+    private readonly TERRAIN_CHECK_INTERVAL = 2000; // EXTREME: -50% (было 4000) - чаще проверяют рельеф
     private preferredHeightPosition: Vector3 | null = null;
     
-    // УЛУЧШЕНО: Продвинутые тактики
+    // EXTREME: Продвинутые тактики
     private ambushPosition: Vector3 | null = null;
     private ambushTimer = 0;
-    private readonly AMBUSH_DURATION = 8000; // 8 секунд в засаде
+    private readonly AMBUSH_DURATION = 12000; // EXTREME: +50% (было 8000) - дольше в засаде
     private baitPosition: Vector3 | null = null;
     private baitTimer = 0;
-    private readonly BAIT_DURATION = 5000; // 5 секунд заманивания
+    private readonly BAIT_DURATION = 8000; // EXTREME: +60% (было 5000) - дольше заманивают
     private lastHighGroundCheck = 0;
-    private readonly HIGH_GROUND_CHECK_INTERVAL = 5000; // Проверка высот каждые 5 секунд
+    private readonly HIGH_GROUND_CHECK_INTERVAL = 2500; // EXTREME: -50% (было 5000) - чаще ищут высоты
     private highGroundPosition: Vector3 | null = null;
     
-    // УЛУЧШЕНО: Эскалация сложности
+    // EXTREME: Максимальная эскалация сложности
     private combatTime = 0; // Время в бою
     private killsCount = 0; // Количество убийств (для эскалации)
-    private adaptiveIntelligence = 2.5; // NIGHTMARE: Начальный интеллект МАКСИМАЛЬНЫЙ - 2.5!
+    private adaptiveIntelligence = 3.0; // EXTREME: +20% (было 2.5) - ЕЩЁ умнее!
     
-    // УЛУЧШЕНО: Приоритизация целей
+    // EXTREME: Быстрая приоритизация целей
     private targetPriority = 0; // 0 = нет цели, 1-10 = приоритет цели
     private lastTargetEvaluationTime = 0;
-    private readonly TARGET_EVAL_INTERVAL = 2500; // УЛУЧШЕНО: Увеличено с 2000 до 2500мс для лучшей производительности
+    private readonly TARGET_EVAL_INTERVAL = 1000; // EXTREME: -60% (было 2500) - быстрее оценивают цели
     
     // === Stats ===
     maxHealth = 100;
@@ -220,14 +225,14 @@ export class EnemyTank {
     private markedUntil = 0;
     private markGlow: Mesh | null = null;
     
-    // === Combat ===
+    // === Combat === EXTREME AI
     private lastShotTime = 0;
-    private cooldown = 2200; // УЛУЧШЕНО: Уменьшено с 2.5 до 2.2 секунд для более динамичного боя (будет перезаписано из пушки)
+    private cooldown = 1800; // EXTREME: -18% (было 2200) - быстрее перезарядка
     private isReloading = false;
-    private range = 60;           // Дальность атаки
-    private detectRange = 250;    // УЛУЧШЕНО: Увеличен с 200 до 250м для лучшего обнаружения
-    private optimalRange = 35;     // Оптимальная дистанция боя
-    private aimAccuracy = 0.98;   // УЛУЧШЕНО: Увеличена с 0.95 до 0.98 для более точной стрельбы
+    private range = 100;           // EXTREME: +67% (было 60) - дальность атаки
+    private detectRange = 600;    // УВЕЛИЧЕНО: +50% (было 400) - ещё больший радиус обнаружения
+    private optimalRange = 50;     // EXTREME: +43% (было 35) - дальше оптимальная дистанция
+    private aimAccuracy = 1.0;   // EXTREME: Идеальная точность (было 0.98)
     
     // Параметры из пушки (устанавливаются в applyDifficultySettings)
     private damage = 25; // Будет перезаписано из cannonType
@@ -261,8 +266,8 @@ export class EnemyTank {
         const distancePenalty = Math.min(distancePenaltyMax, distance / 350); // УЛУЧШЕНО: Больше дистанция без штрафа
         const healthPenalty = (1.0 - this.currentHealth / this.maxHealth) * healthPenaltyMax;
         
-        // МАКСИМАЛЬНО: Практически идеальная минимальная точность на всех уровнях!
-        const minAccuracy = this.difficulty === "hard" ? 0.98 : (this.difficulty === "medium" ? 0.88 : 0.82); // МАКСИМАЛЬНО: Увеличено с 0.94 до 0.98 для hard!
+        // EXTREME: Идеальная минимальная точность на всех уровнях!
+        const minAccuracy = this.difficulty === "hard" ? 1.0 : (this.difficulty === "medium" ? 0.97 : 0.94); // EXTREME: Идеальная точность!
         return Math.max(minAccuracy, baseAccuracy * difficultyMultiplier - distancePenalty - healthPenalty);
     }
     
@@ -307,18 +312,23 @@ export class EnemyTank {
     private _fallCheckFrame = 0; // Кадр последней проверки проваливания
     
     // Переиспользуемые векторы для оптимизации памяти
-    private _tmpPos?: Vector3;
-    private _tmpForward?: Vector3;
+    // ИСПРАВЛЕНО: Инициализируем сразу, чтобы fire() мог использовать до первого update()
+    private _tmpPos: Vector3 = new Vector3();
+    private _tmpForward: Vector3 = new Vector3();
     
     // КРИТИЧНО: Кэш для getWorldMatrix() - очень дорогая операция
     private _cachedWorldMatrix?: Matrix;
-    private _tmpRight?: Vector3;
-    private _tmpUp?: Vector3;
+    private _tmpRight: Vector3 = new Vector3();
+    private _tmpUp: Vector3 = new Vector3();
     
     // === SPAWN STABILIZATION ===
     private _spawnStabilizing = true;
     private _spawnWarmupTime = 1000; // NIGHTMARE AI: Сразу готов к бою - без разгона!
     private readonly SPAWN_WARMUP_DURATION = 0; // NIGHTMARE AI: Мгновенный старт!
+    
+    // === SMOOTH SPAWN FADE ===
+    private spawnStartTime = 0;
+    private spawnFadeDuration = 1500; // Длительность анимации появления в миллисекундах
     
     // Для отслеживания застревания в воздухе
     private _airStuckTimer = 0;
@@ -404,6 +414,19 @@ export class EnemyTank {
         this.turret = this.createTurret();
         this.barrel = this.createBarrel();
         this.createTracks();
+        
+        // УЛУЧШЕНО: Плавное появление ботов - устанавливаем начальную прозрачность на 0
+        this.spawnStartTime = Date.now();
+        this.spawnFadeDuration = 1500; // 1.5 секунды для плавного появления
+        if (this.chassis) {
+            this.chassis.visibility = 0;
+        }
+        if (this.turret) {
+            this.turret.visibility = 0;
+        }
+        if (this.barrel) {
+            this.barrel.visibility = 0;
+        }
         
         // КРИТИЧНО: Предотвращаем исчезновение при frustum culling (когда камера за стеной)
         // FIX: alwaysSelectAsActiveMesh только для корневого меша (chassis)!
@@ -545,31 +568,31 @@ export class EnemyTank {
         this.projectileSpeed = this.cannonType.projectileSpeed;
         this.projectileSize = this.cannonType.projectileSize;
         
-        // УЛУЧШЕНО: Применяем ТОЛЬКО AI-параметры из сложности (nightmare level)
+        // EXTREME: Применяем AI-параметры - ВСЕ уровни сложности значительно усилены!
         switch (this.difficulty) {
             case "easy":
-                // Легкая сложность: улучшенная реакция и точность
-                this.aimAccuracy = 0.90; // МАКСИМАЛЬНО: Увеличено с 0.85 до 0.90
-                this.detectRange = 200; // УЛУЧШЕНО: с 180
-                this.range = 70; // УЛУЧШЕНО: с 65
-                this.optimalRange = 35; // УЛУЧШЕНО: с 32
-                this.decisionInterval = 16; // NIGHTMARE: почти мгновенно (1 кадр)
+                // EXTREME Easy: Уже сложнее чем было hard!
+                this.aimAccuracy = 0.96; // EXTREME: +6.7% (было 0.90)
+                this.detectRange = 500; // УВЕЛИЧЕНО: +56% (было 320)
+                this.range = 100; // EXTREME: +43% (было 70)
+                this.optimalRange = 50; // EXTREME: +43% (было 35)
+                this.decisionInterval = 0; // EXTREME: мгновенная реакция!
                 break;
             case "medium":
-                // Средняя сложность: очень быстрая реакция, высокая точность
-                this.aimAccuracy = 0.98; // МАКСИМАЛЬНО: Увеличено с 0.95 до 0.98
-                this.detectRange = 250; // УЛУЧШЕНО: с 220
-                this.range = 85; // УЛУЧШЕНО: с 75
-                this.optimalRange = 42; // УЛУЧШЕНО: с 38
-                this.decisionInterval = 0; // NIGHTMARE: мгновенная реакция!
+                // EXTREME Medium: Почти идеальный AI
+                this.aimAccuracy = 0.99; // EXTREME: +1% (было 0.98)
+                this.detectRange = 600; // УВЕЛИЧЕНО: +50% (было 400)
+                this.range = 120; // EXTREME: +41% (было 85)
+                this.optimalRange = 60; // EXTREME: +43% (было 42)
+                this.decisionInterval = 0; // EXTREME: мгновенная реакция!
                 break;
             case "hard":
-                // Сложная сложность: МАКСИМАЛЬНАЯ реакция, ИДЕАЛЬНАЯ точность (nightmare)
-                this.aimAccuracy = 1.0; // МАКСИМАЛЬНО: Увеличено с 0.99 до 1.0 (идеальная точность!)
-                this.detectRange = 320; // УЛУЧШЕНО: с 280 (больше радиус обнаружения)
-                this.range = 100; // УЛУЧШЕНО: с 85 (больше радиус атаки)
-                this.optimalRange = 55; // УЛУЧШЕНО: с 45 (больше оптимальная дистанция)
-                this.decisionInterval = 0; // NIGHTMARE AI: МГНОВЕННАЯ реакция - 0мс!
+                // EXTREME Hard: АБСОЛЮТНО ИДЕАЛЬНЫЙ NIGHTMARE AI
+                this.aimAccuracy = 1.0; // EXTREME: Идеальная точность
+                this.detectRange = 800; // УВЕЛИЧЕНО: +60% (было 500) - видят ВЕЗДЕ!
+                this.range = 150; // EXTREME: +50% (было 100) - атакуют издалека
+                this.optimalRange = 80; // EXTREME: +45% (было 55) - комфортная дистанция
+                this.decisionInterval = 0; // EXTREME NIGHTMARE: МГНОВЕННАЯ реакция!
                 break;
         }
         
@@ -888,6 +911,39 @@ export class EnemyTank {
         
         this._tick++;
         
+        // УЛУЧШЕНО: Плавное появление ботов - анимация прозрачности от 0 до 1
+        if (this.spawnStartTime > 0) {
+            const elapsed = Date.now() - this.spawnStartTime;
+            if (elapsed < this.spawnFadeDuration) {
+                // Плавная интерполяция от 0 до 1
+                const alpha = Math.min(1.0, elapsed / this.spawnFadeDuration);
+                // Используем ease-out для более плавного появления
+                const easedAlpha = 1 - Math.pow(1 - alpha, 3);
+                
+                if (this.chassis) {
+                    this.chassis.visibility = easedAlpha;
+                }
+                if (this.turret) {
+                    this.turret.visibility = easedAlpha;
+                }
+                if (this.barrel) {
+                    this.barrel.visibility = easedAlpha;
+                }
+            } else {
+                // Анимация завершена - устанавливаем полную видимость
+                if (this.chassis) {
+                    this.chassis.visibility = 1.0;
+                }
+                if (this.turret) {
+                    this.turret.visibility = 1.0;
+                }
+                if (this.barrel) {
+                    this.barrel.visibility = 1.0;
+                }
+                this.spawnStartTime = 0; // Сбрасываем таймер
+            }
+        }
+        
         // Update tracer mark status
         this.updateMarkStatus();
         
@@ -1001,10 +1057,7 @@ export class EnemyTank {
             }
             const rotMatrix = this._cachedWorldMatrix;
             
-            if (!this._tmpForward) this._tmpForward = new Vector3();
-            if (!this._tmpRight) this._tmpRight = new Vector3();
-            if (!this._tmpUp) this._tmpUp = new Vector3();
-            
+            // _tmpForward, _tmpRight, _tmpUp уже инициализированы при объявлении
             const forward = Vector3.TransformNormalToRef(Vector3.Forward(), rotMatrix, this._tmpForward);
             forward.normalize();
             const right = Vector3.TransformNormalToRef(Vector3.Right(), rotMatrix, this._tmpRight);
@@ -1330,8 +1383,8 @@ export class EnemyTank {
         if (moved < this.STUCK_THRESHOLD && isAttemptingMove) {
             this.consecutiveStuckCount++;
             
-            // УСКОРЕНО: 2 проверки вместо 3 (2 * 400мс = 800мс)
-            if (this.consecutiveStuckCount >= 2) {
+            // УЛУЧШЕНО: Более быстрая реакция на застревание - 1 проверка вместо 2
+            if (this.consecutiveStuckCount >= 1) {
                 logger.debug(`[EnemyTank ${this.id}] Stuck in place (moved ${moved.toFixed(2)}), forcing unstuck`);
                 this.forceUnstuck();
                 this.consecutiveStuckCount = 0;
@@ -1345,14 +1398,14 @@ export class EnemyTank {
             }
         }
         
-        // Проверка 4: Застревание в бою (стреляем, но не двигаемся)
-        if (this.state === "attack" && moved < 0.5 && this.target) {
+        // Проверка 4: Застревание в бою или при преследовании (стреляем/преследуем, но не двигаемся)
+        if ((this.state === "attack" || this.state === "chase") && moved < 0.5 && this.target) {
             const timeSinceUnstuck = now - this.lastUnstuckTime;
-            if (timeSinceUnstuck > 2000) { // Не чаще чем раз в 2 секунды
-                // УЛУЧШЕНО: Плавное маневрирование в бою вместо резких изменений
-                const newThrottle = (Math.random() - 0.5) * 1.5;
-                const newSteer = (Math.random() - 0.5) * 2.0;
-                const maxChange = 0.15; // Плавное изменение
+            if (timeSinceUnstuck > 1500) { // УЛУЧШЕНО: Более частая проверка (1.5 сек вместо 2)
+                // УЛУЧШЕНО: Более агрессивное маневрирование для выхода из застревания
+                const newThrottle = (Math.random() - 0.5) * 1.8; // Увеличено с 1.5
+                const newSteer = (Math.random() - 0.5) * 2.2; // Увеличено с 2.0
+                const maxChange = 0.20; // УЛУЧШЕНО: Более быстрое изменение (0.20 вместо 0.15)
                 const throttleChange = Math.max(-maxChange, Math.min(maxChange, newThrottle - this.throttleTarget));
                 const steerChange = Math.max(-maxChange, Math.min(maxChange, newSteer - this.steerTarget));
                 this.throttleTarget = Math.max(-1, Math.min(1, this.throttleTarget + throttleChange));
@@ -1605,10 +1658,19 @@ export class EnemyTank {
         while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
         while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
         
-        // КРИТИЧНО: Используем turretSpeed вместо захардкоженного значения
-        const rotationDelta = angleDiff * this.turretSpeed * Math.max(0.3, this.turretAcceleration);
+        // ИСПРАВЛЕНО: Быстрое наведение башни на цель
+        const rotationDelta = angleDiff * this.turretSpeed * Math.max(0.6, this.turretAcceleration);
         this.turretCurrentAngle += rotationDelta;
         this.turret.rotation.y = this.turretCurrentAngle;
+        
+        // === ВЕРТИКАЛЬНОЕ НАВЕДЕНИЕ СТВОЛА ===
+        // Плавно наводим ствол вертикально
+        const pitchDiff = this.barrelTargetPitch - this.barrelCurrentPitch;
+        this.barrelCurrentPitch += pitchDiff * 0.15;
+        // Ограничиваем угол (-15° до +10°)
+        this.barrelCurrentPitch = Math.max(-Math.PI / 12, Math.min(Math.PI / 18, this.barrelCurrentPitch));
+        // Применяем к стволу (инвертируем знак как у игрока)
+        this.barrel.rotation.x = -this.barrelCurrentPitch;
     }
     
     // === AI SYSTEM ===
@@ -1928,11 +1990,14 @@ export class EnemyTank {
             // Проверка видимости через raycast (оптимизированная)
             let canSeeTarget = false;
             
-            // Для дальних врагов (> 100м) используем простую проверку расстояния без raycast
-            if (distance > 100) {
-                // Простая проверка: если в радиусе обнаружения, считаем что видим (для оптимизации)
-                canSeeTarget = distance < this.detectRange;
-            } else if (distance < this.detectRange) {
+            // УПРОЩЕНО: Всегда считаем что видим цель если в радиусе обнаружения
+            // Это исправляет проблему с "невидящими" ботами
+            if (distance < this.detectRange) {
+                canSeeTarget = true;
+            }
+            
+            // Для близких врагов (< 100м) дополнительно используем кэшированный raycast
+            if (distance < 100 && distance < this.detectRange) {
                 // Для близких врагов (< 100м) используем кэшированный raycast
                 const currentFrame = this._tick;
                 
@@ -1989,7 +2054,7 @@ export class EnemyTank {
                     this.targetVelocity = Vector3.Zero();
                 }
                 this.lastTargetPos.copyFrom(targetPos);
-                this.lastTargetSeenTime = now; // NIGHTMARE: Запоминаем время последнего наблюдения
+                this.lastTargetSeenTime = now; // Запоминаем время последнего наблюдения
                 
                 // УЛУЧШЕНО: Обновляем историю позиций для улучшенного предсказания
                 if (now - this.lastPositionHistoryUpdate >= this.POSITION_HISTORY_INTERVAL) {
@@ -2002,6 +2067,12 @@ export class EnemyTank {
                     this.analyzeMovementPattern();
                     this.lastPatternAnalysisTime = now;
                 }
+            } else if (distance > this.detectRange * 1.5) {
+                // ИСПРАВЛЕНИЕ: Цель слишком далеко - сбрасываем кэшированную позицию
+                // Это предотвращает стрельбу в старую позицию (например, в гараж)
+                this.lastTargetPos.set(0, 0, 0);
+                this.targetVelocity.set(0, 0, 0);
+                this.targetPositionHistory = [];
             }
             
             // КРИТИЧНО: makeDecision() вызывается ВСЕГДА, не только при видимости цели!
@@ -2027,7 +2098,7 @@ export class EnemyTank {
     }
     
     /**
-     * NIGHTMARE AI: Подавляющий огонь по последней известной позиции цели
+     * Подавляющий огонь по последней известной позиции цели (только если цель рядом с lastTargetPos)
      */
     private doSuppressiveFire(now: number): void {
         // Проверяем условия для подавляющего огня:
@@ -2035,18 +2106,32 @@ export class EnemyTank {
         // 2. У нас есть последняя известная позиция
         // 3. Cooldown готов
         // 4. Последняя позиция в радиусе атаки
+        // 5. НОВОЕ: Текущая позиция цели близка к lastTargetPos (< MAX_SUPPRESSIVE_DISTANCE)
         
         if (this.lastTargetPos.length() < 1) return; // Нет данных о позиции
         
         const timeSinceSeen = now - this.lastTargetSeenTime;
         if (timeSinceSeen <= 0 || timeSinceSeen > this.SUPPRESSIVE_FIRE_DURATION) return;
         
+        // ИСПРАВЛЕНИЕ: Проверяем, что цель не ушла далеко от lastTargetPos
+        // Если цель видна и далеко от lastTargetPos - не используем suppressive fire
+        if (this.target && this.target.isAlive && this.target.chassis) {
+            const currentTargetPos = this.target.chassis.absolutePosition;
+            const distanceFromLastKnown = Vector3.Distance(currentTargetPos, this.lastTargetPos);
+            if (distanceFromLastKnown > this.MAX_SUPPRESSIVE_DISTANCE) {
+                // Цель переместилась далеко - сбрасываем lastTargetPos и не стреляем
+                this.lastTargetPos.set(0, 0, 0);
+                this.targetVelocity.set(0, 0, 0);
+                return;
+            }
+        }
+        
         const myPos = this.chassis.absolutePosition;
         const distanceToLastPos = Vector3.Distance(myPos, this.lastTargetPos);
         
         if (distanceToLastPos > this.attackRange * 1.5) return; // Слишком далеко
         
-        // NIGHTMARE: Стреляем по последней известной позиции!
+        // Стреляем по последней известной позиции (короткое время)
         if (now - this.lastShotTime >= this.cooldown) {
             // Наводим башню на последнюю позицию
             const dx = this.lastTargetPos.x - myPos.x;
@@ -2061,7 +2146,7 @@ export class EnemyTank {
             while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
             while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
             
-            if (Math.abs(angleDiff) < 0.4) { // NIGHTMARE: Широкий допуск для suppressive fire
+            if (Math.abs(angleDiff) < 0.3) { // Уменьшен допуск для большей точности
                 this.fire();
                 this.lastShotTime = now;
             }
@@ -2498,24 +2583,35 @@ export class EnemyTank {
     }
     
     private doChase(): void {
-        if (!this.target) return;
+        if (!this.target || !this.target.isAlive || !this.target.chassis) {
+            // Если цель недействительна - переключаемся на патруль
+            this.state = "patrol";
+            return;
+        }
         
         const targetPos = this.target.chassis.absolutePosition;
         const myPos = this.chassis.absolutePosition;
         const distance = Vector3.Distance(targetPos, myPos);
         
+        // УЛУЧШЕНО: Более агрессивное преследование - всегда на максимальной скорости
         // СУПЕР-УМНОЕ преследование с идеальным предсказанием движения цели!
         // Предсказываем, где будет цель через оптимальное время для максимально точного перехвата
         // NIGHTMARE AI: Сверх-упреждение для перехвата цели!
         const predictionTime = this.difficulty === "hard" ? 1.8 : (this.difficulty === "medium" ? 1.3 : 1.0);
         const predictedTargetPos = targetPos.add(this.targetVelocity.scale(predictionTime));
         
+        // УЛУЧШЕНО: Всегда преследуем на максимальной скорости, даже если цель далеко
         // Едем к предсказанной позиции для более эффективного перехвата
-        this.driveToward(predictedTargetPos, 1.0);
+        this.driveToward(predictedTargetPos, 1.0); // Всегда максимальная скорость
         this.aimAtTarget();
         
-        // NIGHTMARE AI: Непрерывный огонь во время преследования!
+        // УЛУЧШЕНО: Более частая проверка застревания во время преследования
         const now = Date.now();
+        if (now - this.stuckTimer > this.STUCK_CHECK_INTERVAL * 0.5) { // Проверяем в 2 раза чаще
+            this.checkAndFixStuck();
+        }
+        
+        // NIGHTMARE AI: Непрерывный огонь во время преследования!
         if (distance < this.attackRange && now - this.lastShotTime >= this.cooldown) {
             this.fire();
             this.lastShotTime = now;
@@ -2533,6 +2629,7 @@ export class EnemyTank {
         const targetPos = this.target.chassis.absolutePosition;
         const myPos = this.chassis.absolutePosition;
         const distance = Vector3.Distance(targetPos, myPos);
+        
         const healthPercent = this.currentHealth / this.maxHealth;
         const targetHealthPercent = this.target?.currentHealth ? this.target.currentHealth / 100 : 1.0;
         
@@ -3352,44 +3449,35 @@ export class EnemyTank {
         const targetPos = this.target.chassis.absolutePosition.clone();
         const myPos = this.chassis.absolutePosition;
         
-        // === УЛУЧШЕННОЕ ПРЕДСКАЗАНИЕ: Используем историю и паттерны движения! ===
+        // === ИСПРАВЛЕНО: Правильный расчёт скорости снаряда ===
+        // Импульс = 3 * (projectileSpeed / 200), масса = 0.001
+        // Реальная скорость = импульс / масса = 3 * projectileSpeed / 200 / 0.001 = 15 * projectileSpeed
         const distance = Vector3.Distance(targetPos, myPos);
-        const bulletSpeed = this.projectileSpeed || 240; // Используем скорость из пушки
-        const flightTime = distance / bulletSpeed;
+        const realBulletSpeed = 15 * (this.projectileSpeed || 200); // ~3000 м/с для стандартной пушки
+        const flightTime = distance / realBulletSpeed;
         
-        // NIGHTMARE AI: СВЕРХ-ПРЕДСКАЗАНИЕ с упреждением и учётом ускорения!
+        // ИСПРАВЛЕНО: Простое линейное предсказание (снаряды очень быстрые!)
+        // При скорости 3000 м/с на 100м снаряд летит 0.033 секунды - почти мгновенно
         let predictedPos: Vector3;
-        if (this.targetPositionHistory.length >= 3) {
-            // Используем продвинутое предсказание с историей
-            predictedPos = this.predictTargetPosition(flightTime);
+        
+        // Для близких целей (<50м) - целимся прямо в центр
+        if (distance < 50) {
+            predictedPos = targetPos.clone();
+            // Небольшая коррекция по высоте - целимся в центр танка
+            predictedPos.y += 0.5;
         } else {
-            // NIGHTMARE: СВЕРХ-ПРЕДСКАЗАНИЕ - упреждаем движение игрока!
+            // Для дальних целей - минимальное предсказание
             const targetSpeed = this.targetVelocity.length();
-            let predictionFactor: number;
             
-            if (this.difficulty === "hard") {
-                // NIGHTMARE: 1.3 = предсказание с УПРЕЖДЕНИЕМ (опережаем игрока!)
-                predictionFactor = 1.3;
-            } else if (this.difficulty === "medium") {
-                predictionFactor = 1.1; // Небольшое упреждение
+            // Предсказание только если цель быстро движется
+            if (targetSpeed > 5) {
+                // Простое линейное предсказание
+                predictedPos = targetPos.add(this.targetVelocity.scale(flightTime));
             } else {
-                predictionFactor = 1.0;
+                // Цель медленная или стоит - целимся прямо
+                predictedPos = targetPos.clone();
             }
-            
-            // NIGHTMARE: Учитываем УСКОРЕНИЕ цели (квадратичное предсказание!)
-            let targetAcceleration = Vector3.Zero();
-            if (this.targetVelocity.length() > 0.1) {
-                // Рассчитываем ускорение из последних данных
-                const accelScale = this.difficulty === "hard" ? 5.0 : 3.0;
-                targetAcceleration = this.targetVelocity.normalize().scale(accelScale);
-            }
-            
-            // NIGHTMARE: Квадратичное предсказание позиции!
-            // pos = pos0 + vel * t + 0.5 * accel * t^2
-            predictedPos = targetPos.add(
-                this.targetVelocity.scale(flightTime * predictionFactor)
-                    .add(targetAcceleration.scale(flightTime * flightTime * 0.5))
-            );
+            predictedPos.y += 0.5; // Коррекция высоты
         }
         
         // КРИТИЧНО: Для hard режима - НУЛЕВОЙ разброс для идеальной меткости!
@@ -3421,13 +3509,19 @@ export class EnemyTank {
         const chassisQuat = this.chassis.rotationQuaternion;
         const chassisAngle = chassisQuat ? chassisQuat.toEulerAngles().y : 0;
         
-        // Calculate relative angle for turret
+        // Calculate relative angle for turret (horizontal)
         const worldAngle = Math.atan2(dx, dz);
         this.turretTargetAngle = worldAngle - chassisAngle;
         
         // Normalize
         while (this.turretTargetAngle > Math.PI) this.turretTargetAngle -= Math.PI * 2;
         while (this.turretTargetAngle < -Math.PI) this.turretTargetAngle += Math.PI * 2;
+        
+        // === ВЕРТИКАЛЬНОЕ НАВЕДЕНИЕ СТВОЛА ===
+        // Рассчитываем вертикальный угол до цели
+        const dy = predictedPos.y - myPos.y;
+        const horizontalDistance = Math.sqrt(dx * dx + dz * dz);
+        this.barrelTargetPitch = Math.atan2(dy, horizontalDistance);
     }
     
     private isAimedAtTarget(): boolean {
@@ -3438,11 +3532,11 @@ export class EnemyTank {
         while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
         while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
         
-        // NIGHTMARE AI: БОЛЬШОЙ допуск для подавляющего огня!
-        // Hard: 0.25 радиан (~14 градусов) - агрессивная стрельба
-        // Medium: 0.20 радиан (~11 градусов)
-        // Easy: 0.18 радиан (~10 градусов)
-        const tolerance = this.difficulty === "hard" ? 0.25 : (this.difficulty === "medium" ? 0.20 : 0.18);
+        // ИСПРАВЛЕНО: Уменьшен допуск для более точной стрельбы
+        // Hard: 0.08 радиан (~4.5 градуса) - точная стрельба
+        // Medium: 0.10 радиан (~5.7 градусов)
+        // Easy: 0.12 радиан (~7 градусов)
+        const tolerance = this.difficulty === "hard" ? 0.08 : (this.difficulty === "medium" ? 0.10 : 0.12);
         return Math.abs(angleDiff) < tolerance;
     }
     
@@ -3450,6 +3544,11 @@ export class EnemyTank {
     
     private fire(): void {
         if (!this.isAlive) return;
+        
+        // ИСПРАВЛЕНО: Не стреляем если башня не наведена на цель!
+        if (!this.isAimedAtTarget()) {
+            return; // Ждём пока башня наведётся
+        }
         
         logger.debug(`[EnemyTank ${this.id}] FIRE!`);
         
@@ -3518,11 +3617,10 @@ export class EnemyTank {
         const barrelWorldPos = this.barrel.getAbsolutePosition();
         const chassisPos = this.chassis.absolutePosition;
         const torqueDir = barrelWorldPos.subtract(chassisPos).normalize();
-        // Используем переиспользуемый вектор для torque отдачи
-        const recoilTorque = this._tmpRight!;
+        // Используем переиспользуемый вектор для torque отдачи (уже инициализирован)
         const recoilTorqueBase = 2000;
-        recoilTorque.set(-torqueDir.z * recoilTorqueBase * this.cannonType.recoilMultiplier, 0, torqueDir.x * recoilTorqueBase * this.cannonType.recoilMultiplier);
-        this.applyTorque(recoilTorque);
+        this._tmpRight.set(-torqueDir.z * recoilTorqueBase * this.cannonType.recoilMultiplier, 0, torqueDir.x * recoilTorqueBase * this.cannonType.recoilMultiplier);
+        this.applyTorque(this._tmpRight);
         
         // === HIT DETECTION ===
         // КРИТИЧНО: Урон берется из выбранной пушки (уже установлен в applyDifficultySettings)
@@ -3540,9 +3638,33 @@ export class EnemyTank {
         const maxRicochets = DEFAULT_RICOCHET_CONFIG.maxRicochets;
         
         const target = this.target;
+        // Минимальная скорость снаряда для нанесения урона (м/с)
+        // Если снаряд лежит на земле или почти остановился - он не взрывается
+        const MIN_DAMAGE_SPEED = 5.0;
+        const MIN_DAMAGE_SPEED_SQ = MIN_DAMAGE_SPEED * MIN_DAMAGE_SPEED;
         
         const checkHit = () => {
             if (hasHit || ball.isDisposed()) return;
+            
+            // КРИТИЧНО: Проверяем скорость снаряда перед нанесением урона
+            // Если снаряд лежит на земле (низкая скорость) - он НЕ взрывается и не наносит урон
+            const velocity = body.getLinearVelocity();
+            const speedSq = velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z;
+            if (speedSq < MIN_DAMAGE_SPEED_SQ) {
+                // Снаряд почти остановился - удаляем его без урона
+                if (!ball.metadata) ball.metadata = {};
+                if (!ball.metadata._lowSpeedStartTime) {
+                    ball.metadata._lowSpeedStartTime = Date.now();
+                }
+                // Если снаряд лежит более 2 секунд - удаляем
+                if (Date.now() - ball.metadata._lowSpeedStartTime > 2000) {
+                    ball.dispose();
+                }
+                return;
+            } else {
+                // Сбрасываем таймер низкой скорости если снаряд снова набрал скорость
+                if (ball.metadata) ball.metadata._lowSpeedStartTime = null;
+            }
             
             const bulletPos = ball.absolutePosition;
             

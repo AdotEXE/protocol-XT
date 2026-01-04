@@ -47,6 +47,10 @@ export class GameRoom {
     // World seed for deterministic generation
     worldSeed: number;
     
+    // Room deletion timer
+    deletionTimer: NodeJS.Timeout | null = null;
+    emptySince: number | null = null; // Time when room became empty (for logging)
+    
     constructor(mode: GameMode, maxPlayers: number = 32, isPrivate: boolean = false, worldSeed?: number, roomId?: string) {
         // ВСЕГДА используем переданный roomId (простой формат 0001, 0002...)
         // Если roomId не передан, это ошибка - используем fallback, но логируем предупреждение
@@ -320,16 +324,27 @@ export class GameRoom {
                 if (player.status !== "alive") continue;
                 
                 // Enhanced lag compensation: check hit at position when shot was fired
-                // Use full RTT for more accurate compensation (client sends timestamp when shot was fired)
-                const rewindTime = projectile.spawnTime - projectile.shooterRTT; // Full RTT for better accuracy
-                const targetPos = player.getPositionAtTime(rewindTime) || player.position;
+                // Rewind to when the shooter saw the target (accounting for network latency)
+                const shooterRTT = projectile.shooterRTT || 100; // Default 100ms if not available
+                const MAX_REWIND_TIME = 300; // Maximum rewind of 300ms (protection against high latency abuse)
+                const effectiveRTT = Math.min(shooterRTT, MAX_REWIND_TIME);
                 
-                // Fallback to current position if history is not available
-                if (!targetPos || Vector3.Distance(targetPos, Vector3.Zero()) < 0.1) {
-                    const fallbackPos = player.position;
-                    if (fallbackPos) {
-                        targetPos.copyFrom(fallbackPos);
-                    }
+                // Calculate rewind time: current time - half RTT (when shooter saw the target)
+                const rewindTime = currentTime - (effectiveRTT / 2);
+                
+                // Get target position at the rewound time
+                let targetPos = player.getPositionAtTime(rewindTime);
+                
+                // Fallback to current position if history is not available or position is invalid
+                if (!targetPos || !Number.isFinite(targetPos.x) || !Number.isFinite(targetPos.y) || !Number.isFinite(targetPos.z)) {
+                    targetPos = player.position.clone();
+                }
+                
+                // Additional validation: if rewound position is too far from current, use interpolated position
+                const maxRewindDistance = 20; // Maximum distance for valid rewind (units)
+                if (Vector3.Distance(targetPos, player.position) > maxRewindDistance) {
+                    // Position seems invalid, fallback to slightly rewound current position
+                    targetPos = player.position.clone();
                 }
                 
                 if (projectile.checkHit(targetPos)) {
@@ -484,6 +499,45 @@ export class GameRoom {
     
     isEmpty(): boolean {
         return this.players.size === 0;
+    }
+    
+    /**
+     * Schedule room deletion after specified delay
+     * @param delay - Delay in milliseconds before deletion
+     * @param onDelete - Callback to execute when deletion timer expires
+     */
+    scheduleDeletion(delay: number, onDelete: () => void): void {
+        // Cancel existing timer if any
+        this.cancelDeletion();
+        
+        // Set empty timestamp
+        this.emptySince = Date.now();
+        
+        // Schedule deletion
+        this.deletionTimer = setTimeout(() => {
+            const emptyDuration = this.emptySince ? Date.now() - this.emptySince : 0;
+            serverLogger.log(`[Room] Комната ${this.id} удалена после ${Math.round(emptyDuration / 1000)} секунд пустоты`);
+            this.deletionTimer = null;
+            this.emptySince = null;
+            onDelete();
+        }, delay);
+        
+        serverLogger.log(`[Room] Комната ${this.id} запланирована на удаление через ${Math.round(delay / 1000)} секунд`);
+    }
+    
+    /**
+     * Cancel scheduled room deletion
+     */
+    cancelDeletion(): void {
+        if (this.deletionTimer) {
+            clearTimeout(this.deletionTimer);
+            this.deletionTimer = null;
+            if (this.emptySince) {
+                const emptyDuration = Date.now() - this.emptySince;
+                serverLogger.log(`[Room] Удаление комнаты ${this.id} отменено (была пустой ${Math.round(emptyDuration / 1000)} секунд)`);
+            }
+            this.emptySince = null;
+        }
     }
 }
 

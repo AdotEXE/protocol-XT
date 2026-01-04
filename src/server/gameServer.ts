@@ -10,7 +10,7 @@ import { createServerMessage, deserializeMessage, serializeMessage } from "../sh
 import type { ClientMessage, ServerMessage, PongData } from "../shared/messages";
 import { ClientMessageType, ServerMessageType } from "../shared/messages";
 import type { GameMode } from "../shared/types";
-import { InputValidator } from "./validation";
+import { InputValidator, RateLimiter } from "./validation";
 import { DeltaCompressor, PrioritizedBroadcaster } from "./deltaCompression";
 import { initializeFirebaseAdmin, verifyIdToken } from "./auth";
 import { MonitoringAPI } from "./monitoring";
@@ -18,6 +18,7 @@ import { serverLogger } from "./logger";
 
 const TICK_RATE = 60; // 60 Hz
 const TICK_INTERVAL = 1000 / TICK_RATE; // ~16.67ms
+const ROOM_DELETION_DELAY = 5 * 60 * 1000; // 5 minutes in milliseconds
 
 export class GameServer {
     private wss: WebSocketServer;
@@ -31,6 +32,7 @@ export class GameServer {
     private prioritizedBroadcaster: PrioritizedBroadcaster = new PrioritizedBroadcaster();
     private monitoringAPI: MonitoringAPI;
     private monitoringClients: Set<WebSocket> = new Set();
+    private rateLimiter: RateLimiter = new RateLimiter(); // Per-player rate limiting
     
     // Счетчики для простой системы наименований
     private guestPlayerCounter: number = 0; // Счетчик для гостей (ID и имя: 0001, 0002...)
@@ -132,10 +134,20 @@ export class GameServer {
             
             ws.on("message", (data: Buffer) => {
                 try {
-                    const dataStr = data.toString();
-                    
-                    // Try to parse as JSON first (for monitoring messages)
                     let message: any;
+                    
+                    // Try to deserialize binary data first (for game messages)
+                    // Buffer in Node.js extends Uint8Array, so we can pass it directly
+                    try {
+                        message = deserializeMessage<ClientMessage>(data);
+                        this.handleMessage(ws, message);
+                        return;
+                    } catch (binaryError) {
+                        // Not binary format, try JSON fallback
+                    }
+                    
+                    // Fallback: try to parse as JSON (for monitoring messages)
+                    const dataStr = data.toString();
                     try {
                         message = JSON.parse(dataStr);
                         // Check if it's a monitoring message
@@ -143,13 +155,15 @@ export class GameServer {
                             this.handleMessage(ws, message);
                             return;
                         }
-                    } catch (e) {
-                        // Not JSON, continue with deserialize
+                        // Also handle regular JSON messages for backward compatibility
+                        this.handleMessage(ws, message);
+                    } catch (jsonError) {
+                        // Neither binary nor JSON
+                        if (!this.monitoringClients.has(ws)) {
+                            serverLogger.error("[Server] Error parsing message - not binary or JSON");
+                            this.sendError(ws, "INVALID_MESSAGE", "Failed to parse message");
+                        }
                     }
-                    
-                    // Try to deserialize as ClientMessage
-                    message = deserializeMessage<ClientMessage>(dataStr);
-                    this.handleMessage(ws, message);
                 } catch (error) {
                     // Only send error for game clients, not monitoring clients
                     if (!this.monitoringClients.has(ws)) {
@@ -169,6 +183,9 @@ export class GameServer {
         });
     }
     
+    // Соединения для голосового чата (НЕ создаём для них игроков)
+    private voiceClients: Set<WebSocket> = new Set();
+    
     private handleMessage(ws: WebSocket, message: ClientMessage | any): void {
         // Check for monitoring messages first (before parsing as ClientMessage)
         if (message && typeof message === 'object' && message.type) {
@@ -183,10 +200,31 @@ export class GameServer {
                 this.monitoringClients.delete(ws);
                 return;
             }
+            
+            // КРИТИЧНО: Voice соединения НЕ создают игроков
+            if (message.type === "voice_join") {
+                this.voiceClients.add(ws);
+                serverLogger.log(`[Server] Voice client connected for room ${message.roomId}, player ${message.playerId}`);
+                // TODO: Можно добавить логику для WebRTC signaling
+                return;
+            }
+            
+            // Другие voice сообщения
+            if (message.type === "voice_offer" || message.type === "voice_answer" || 
+                message.type === "voice_ice_candidate" || message.type === "voice_leave") {
+                // Обрабатываем voice сигналы без создания игрока
+                // TODO: Реализовать WebRTC signaling
+                return;
+            }
         }
         
         // Skip game message handling for monitoring clients
         if (this.monitoringClients.has(ws)) {
+            return;
+        }
+        
+        // Skip game message handling for voice clients
+        if (this.voiceClients.has(ws)) {
             return;
         }
         
@@ -392,6 +430,9 @@ export class GameServer {
         if (room.addPlayer(player)) {
             serverLogger.log(`[Server] Игрок ${player.id} (${player.name}) присоединился к комнате ${room.id}, игроков в комнате: ${room.players.size}/${room.maxPlayers}`);
             
+            // Cancel deletion timer if room was scheduled for deletion
+            room.cancelDeletion();
+            
             // Notify player
             this.send(player.socket, createServerMessage(ServerMessageType.ROOM_JOINED, {
                 roomId: room.id,
@@ -433,12 +474,17 @@ export class GameServer {
                 playerId: player.id
             }));
             
-            // Clean up empty rooms
+            // Schedule room deletion if empty, otherwise cancel any existing deletion timer
             if (room.isEmpty()) {
-                this.rooms.delete(room.id);
-                serverLogger.log(`[Server] Комната ${room.id} удалена (пустая)`);
-                // Отправляем обновленный список комнат всем подключенным клиентам
-                this.broadcastRoomListToAll();
+                // Schedule deletion after delay
+                room.scheduleDeletion(ROOM_DELETION_DELAY, () => {
+                    this.rooms.delete(room.id);
+                    // Отправляем обновленный список комнат всем подключенным клиентам
+                    this.broadcastRoomListToAll();
+                });
+            } else {
+                // Room is not empty, cancel deletion timer if it was scheduled
+                room.cancelDeletion();
             }
         }
         
@@ -615,16 +661,17 @@ export class GameServer {
         const room = this.rooms.get(player.roomId);
         if (!room || !room.isActive) return;
         
-        // Rate limiting: reset counter every second
-        const now = Date.now();
-        if (now - player.inputCountResetTime >= 1000) {
-            player.inputCount = 0;
-            player.inputCountResetTime = now;
-        }
-        player.inputCount++;
-        
-        if (player.inputCount > 60) { // Max 60 inputs per second
-            serverLogger.warn(`[Server] Rate limit exceeded for player ${player.id}: ${player.inputCount} inputs/sec`);
+        // Rate limiting using RateLimiter (max 120 inputs per second - allows for some network bursts)
+        if (!this.rateLimiter.checkLimit(player.id, "input", 120)) {
+            const currentRate = this.rateLimiter.getRate(player.id, "input");
+            serverLogger.warn(`[Server] Input rate limit exceeded for player ${player.id}: ${currentRate} inputs/sec`);
+            
+            // Increment violation count for potential kick
+            player.violationCount++;
+            if (player.violationCount > 100) {
+                serverLogger.warn(`[Server] Kicking player ${player.id} for excessive rate limit violations`);
+                this.kickPlayer(player, "Rate limit violation");
+            }
             return;
         }
         
@@ -639,8 +686,23 @@ export class GameServer {
         
         if (!validation.valid) {
             serverLogger.warn(`[Server] Invalid input from player ${player.id}: ${validation.reason}`);
-            // Don't process invalid input, but don't disconnect player
+            player.violationCount++;
+            // Don't process invalid input, but don't disconnect player immediately
             return;
+        }
+        
+        // Enhanced speed hack detection using position history
+        const speedHackCheck = InputValidator.detectSpeedHack(player.positionHistory, 40);
+        if (speedHackCheck.suspicious) {
+            serverLogger.warn(`[Server] Potential speedhack detected for player ${player.id}: ${speedHackCheck.reasons.join(", ")}`);
+            player.violationCount += speedHackCheck.score;
+            
+            // Kick if too many violations
+            if (player.violationCount > 150) {
+                serverLogger.warn(`[Server] Kicking player ${player.id} for suspected cheating (speedhack)`);
+                this.kickPlayer(player, "Suspected speedhack");
+                return;
+            }
         }
         
         // Update last valid position
@@ -650,6 +712,9 @@ export class GameServer {
         if (data.sequence !== undefined && typeof data.sequence === 'number') {
             player.lastProcessedSequence = data.sequence;
         }
+        
+        // Track turret rotation for aimbot detection
+        this.trackTurretRotation(player, data.turretRotation);
         
         player.updateFromInput(data);
         
@@ -664,6 +729,64 @@ export class GameServer {
         // Position will be updated in game loop
     }
     
+    /**
+     * Track turret rotation history for aimbot detection
+     */
+    private turretHistory: Map<string, Array<{ time: number; rotation: number }>> = new Map();
+    
+    private trackTurretRotation(player: ServerPlayer, turretRotation: number): void {
+        const now = Date.now();
+        
+        if (!this.turretHistory.has(player.id)) {
+            this.turretHistory.set(player.id, []);
+        }
+        
+        const history = this.turretHistory.get(player.id)!;
+        history.push({ time: now, rotation: turretRotation });
+        
+        // Keep only last 60 entries (1 second at 60Hz)
+        if (history.length > 60) {
+            history.shift();
+        }
+        
+        // Check for aimbot periodically (every 30 frames)
+        if (history.length >= 30 && history.length % 30 === 0) {
+            const aimbotCheck = InputValidator.detectAimbot(history);
+            if (aimbotCheck.suspicious) {
+                serverLogger.warn(`[Server] Potential aimbot detected for player ${player.id}: ${aimbotCheck.reasons.join(", ")}`);
+                player.violationCount += aimbotCheck.score;
+                
+                if (player.violationCount > 150) {
+                    serverLogger.warn(`[Server] Kicking player ${player.id} for suspected cheating (aimbot)`);
+                    this.kickPlayer(player, "Suspected aimbot");
+                }
+            }
+        }
+    }
+    
+    /**
+     * Kick player from server
+     */
+    private kickPlayer(player: ServerPlayer, reason: string): void {
+        serverLogger.log(`[Server] Kicking player ${player.id} (${player.name}): ${reason}`);
+        
+        // Send error message before disconnecting
+        this.send(player.socket, createServerMessage(ServerMessageType.ERROR, {
+            code: "KICKED",
+            message: `You have been kicked: ${reason}`
+        }));
+        
+        // Clean up rate limiter
+        this.rateLimiter.resetPlayer(player.id);
+        
+        // Clean up turret history
+        this.turretHistory.delete(player.id);
+        
+        // Disconnect player
+        player.disconnect();
+        this.handleDisconnect(player.socket);
+    }
+    
     private handlePlayerShoot(player: ServerPlayer, data: any): void {
         if (!player.roomId) return;
         
@@ -672,16 +795,11 @@ export class GameServer {
         
         if (player.status !== "alive") return;
         
-        // Rate limiting for shoots
-        const now = Date.now();
-        if (now - player.shootCountResetTime >= 1000) {
-            player.shootCount = 0;
-            player.shootCountResetTime = now;
-        }
-        player.shootCount++;
-        
-        if (player.shootCount > 10) { // Max 10 shots per second
-            serverLogger.warn(`[Server] Shoot rate limit exceeded for player ${player.id}: ${player.shootCount} shots/sec`);
+        // Rate limiting for shoots using RateLimiter (max 10 shots per second)
+        if (!this.rateLimiter.checkLimit(player.id, "shoot", 10)) {
+            const currentRate = this.rateLimiter.getRate(player.id, "shoot");
+            serverLogger.warn(`[Server] Shoot rate limit exceeded for player ${player.id}: ${currentRate} shots/sec`);
+            player.violationCount += 5; // Shooting violations are more serious
             return;
         }
         
@@ -727,6 +845,19 @@ export class GameServer {
         
         const room = this.rooms.get(player.roomId);
         if (!room) return;
+        
+        // Rate limiting for chat messages (max 5 messages per second)
+        if (!this.rateLimiter.checkLimit(player.id, "chat", 5)) {
+            serverLogger.warn(`[Server] Chat rate limit exceeded for player ${player.id}`);
+            return;
+        }
+        
+        // Validate chat message
+        const validation = InputValidator.validateChatMessage(data.message);
+        if (!validation.valid) {
+            serverLogger.warn(`[Server] Invalid chat message from player ${player.id}: ${validation.reason}`);
+            return;
+        }
         
         const chatData = {
             playerId: player.id,
@@ -862,9 +993,21 @@ export class GameServer {
             return;
         }
         
+        // Check if it's a voice client (НЕ создаёт игрока)
+        if (this.voiceClients.has(ws)) {
+            this.voiceClients.delete(ws);
+            serverLogger.log("[Server] Voice client disconnected");
+            return;
+        }
+        
         const player = this.getPlayerBySocket(ws);
         if (player) {
             serverLogger.log(`[Server] Player disconnected: ${player.id}`);
+            
+            // Clean up rate limiter and turret history
+            this.rateLimiter.resetPlayer(player.id);
+            this.turretHistory.delete(player.id);
+            
             this.handleLeaveRoom(player);
             // Remove from all queues
             for (const mode of ["ffa", "tdm", "coop", "battle_royale", "ctf"] as GameMode[]) {
@@ -967,6 +1110,11 @@ export class GameServer {
     }
     
     private update(deltaTime: number): void {
+        // Periodic rate limiter cleanup (every 600 ticks = ~10 seconds at 60Hz)
+        if (this.tickCount % 600 === 0) {
+            this.rateLimiter.cleanup();
+        }
+        
         // Update all active rooms
         for (const room of this.rooms.values()) {
             if (room.isActive) {

@@ -188,6 +188,15 @@ export interface PhysicsConfig {
             fwdDrag: number;
             angularDrag: number;
             pitchTorque: number; // Крутящий момент для наклона при движении
+            pitchAccelerationBoost: number; // Множитель наклона при старте движения
+            pitchDamping: number; // Демпфирование для плавного возврата pitch
+        };
+        airborne: {
+            threshold: number; // Высота над землёй для определения "в воздухе" (м)
+            hoverReduction: number; // Коэффициент ослабления hover в воздухе (0.0-1.0)
+            dampingReduction: number; // Коэффициент ослабления демпфирования в воздухе (0.0-1.0)
+            uprightReduction: number; // Коэффициент ослабления выравнивания в воздухе
+            emergencyDampingThreshold: number; // Порог скорости для emergency damping (м/с)
         };
         climbing: {
             climbAssistForce: number;
@@ -209,7 +218,7 @@ export interface PhysicsConfig {
             wallAngularDamping: number;
         };
         speedLimits: {
-            maxUpwardSpeed: number;
+            maxUpwardSpeed: number; // Максимальная скорость вверх (м/с) - для инерции при прыжках
             maxDownwardSpeed: number;
             maxAngularSpeed: number;
         };
@@ -336,7 +345,7 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
     },
     tank: {
         basic: {
-            mass: 10000, // 10 тонн
+            mass: 40000, // 40 тонн (x4)
             hoverHeight: 1.0,
             moveSpeed: 24,
             turnSpeed: 2.5,
@@ -365,7 +374,16 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
             sideDrag: 8000,
             fwdDrag: 7000,
             angularDrag: 5000,
-            pitchTorque: 8000, // Крутящий момент для наклона при движении (Н·м)
+            pitchTorque: 15000, // УВЕЛИЧЕНО: Крутящий момент для наклона при движении (Н·м)
+            pitchAccelerationBoost: 2.5, // НОВОЕ: Множитель наклона при старте движения
+            pitchDamping: 0.85, // НОВОЕ: Демпфирование для плавного возврата pitch
+        },
+        airborne: {
+            threshold: 0.8, // НОВОЕ: Высота над землёй для определения "в воздухе" (м)
+            hoverReduction: 0.1, // НОВОЕ: Ослабление hover в воздухе (10% от нормы)
+            dampingReduction: 0.3, // НОВОЕ: Ослабление демпфирования в воздухе (30% от нормы)
+            uprightReduction: 0.4, // НОВОЕ: Ослабление выравнивания в воздухе (40% от нормы)
+            emergencyDampingThreshold: 10.0, // НОВОЕ: Порог скорости для emergency damping (м/с)
         },
         climbing: {
             climbAssistForce: 40000,
@@ -387,7 +405,7 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
             wallAngularDamping: 0.85,
         },
         speedLimits: {
-            maxUpwardSpeed: 4.0,
+            maxUpwardSpeed: 15.0, // УВЕЛИЧЕНО с 4.0: позволяет танку лететь с трамплинов
             maxDownwardSpeed: 35,
             maxAngularSpeed: 2.5,
         },
@@ -409,8 +427,8 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
         arcade: {
             antiRollFactor: 0, // ОТКЛЮЧЕНО
             downforceFactor: 0, // ОТКЛЮЧЕНО
-            airControl: 0, // ОТКЛЮЧЕНО
-            angularDragAir: 0, // ОТКЛЮЧЕНО
+            airControl: 0.15, // ВКЛЮЧЕНО: управление в воздухе для траекторных прыжков
+            angularDragAir: 0.5, // ВКЛЮЧЕНО: предотвращает бесконечное вращение в воздухе
             uprightForce: 0, // ОТКЛЮЧЕНО (не используется в arcade)
             uprightDamp: 0, // ОТКЛЮЧЕНО (не используется в arcade)
             emergencyForce: 0, // ОТКЛЮЧЕНО (не используется в arcade)
@@ -437,8 +455,8 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
             projectileSize: 0.2,
         },
         recoil: {
-            force: 10000, // x4 (было 2500)
-            torque: 40000, // x4 (было 10000)
+            force: 20000, // x2 (было 10000)
+            torque: 80000, // x2 (было 40000)
             barrelRecoilSpeed: 0.3,
             barrelRecoilAmount: -1.6,
             applicationPoint: "center",
@@ -463,33 +481,33 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
         },
     },
     enemyTank: {
-        // СИНХРОНИЗИРОВАНО С ИГРОКОМ: параметры физики теперь идентичны tank!
+        // EXTREME NIGHTMARE AI: Боты ЗНАЧИТЕЛЬНО превосходят игрока!
         basic: {
-            mass: 10000, // СИНХРОНИЗИРОВАНО с игроком (10 тонн)
+            mass: 40000, // 40 тонн (x4) - синхронизировано с игроком
             hoverHeight: 1.0,
-            moveSpeed: 24, // Идентично игроку
-            turnSpeed: 2.5, // Идентично игроку
-            acceleration: 40000, // Такой же как у игрока
+            moveSpeed: 36, // EXTREME: +50% скорость (было 24)
+            turnSpeed: 4.0, // EXTREME: +60% скорость поворота (было 2.5)
+            acceleration: 80000, // EXTREME: +100% ускорение (было 40000)
         },
         stability: {
-            hoverStiffness: 7000, // СИНХРОНИЗИРОВАНО с игроком
-            hoverDamping: 18000, // СИНХРОНИЗИРОВАНО с игроком
-            linearDamping: 0.8, // СИНХРОНИЗИРОВАНО с игроком
-            angularDamping: 4.0, // СИНХРОНИЗИРОВАНО с игроком
-            uprightForce: 18000, // СИНХРОНИЗИРОВАНО с игроком
-            uprightDamp: 8000, // СИНХРОНИЗИРОВАНО с игроком
-            emergencyForce: 18000, // СИНХРОНИЗИРОВАНО с игроком
+            hoverStiffness: 9000, // EXTREME: Улучшенная стабильность для высокой скорости
+            hoverDamping: 22000, // EXTREME: Улучшенное демпфирование
+            linearDamping: 0.6, // EXTREME: Меньше сопротивление для большей скорости
+            angularDamping: 3.5, // EXTREME: Быстрее повороты
+            uprightForce: 22000, // EXTREME: Лучше держатся на ногах
+            uprightDamp: 10000, // EXTREME: Быстрее восстанавливаются
+            emergencyForce: 25000, // EXTREME: Сильнее аварийное восстановление
         },
         movement: {
-            pitchTorque: 8000, // СИНХРОНИЗИРОВАНО с игроком (Н·м)
+            pitchTorque: 12000, // EXTREME: Лучший контроль тангажа (было 8000)
         },
         climbing: {
-            climbAssistForce: 40000, // СИНХРОНИЗИРОВАНО с игроком (было 120000)
-            maxClimbHeight: 1.5, // СИНХРОНИЗИРОВАНО с игроком (было 3.0)
-            slopeBoostMax: 1.8, // СИНХРОНИЗИРОВАНО с игроком (было 2.5)
-            frontClimbForce: 60000, // СИНХРОНИЗИРОВАНО с игроком (было 180000)
-            wallPushForce: 25000, // СИНХРОНИЗИРОВАНО с игроком (было 80000)
-            climbTorque: 12000, // СИНХРОНИЗИРОВАНО с игроком (было 25000)
+            climbAssistForce: 60000, // EXTREME: +50% (было 40000) - лучше преодолевают препятствия
+            maxClimbHeight: 2.0, // EXTREME: +33% (было 1.5) - выше забираются
+            slopeBoostMax: 2.2, // EXTREME: +22% (было 1.8) - лучше на склонах
+            frontClimbForce: 90000, // EXTREME: +50% (было 60000)
+            wallPushForce: 40000, // EXTREME: +60% (было 25000) - лучше отталкиваются от стен
+            climbTorque: 18000, // EXTREME: +50% (было 12000)
         },
         centerOfMass: new Vector3(0, -0.3, -0.3), // Смещён назад // СИНХРОНИЗИРОВАНО с игроком
         collisionFilters: {
@@ -566,7 +584,7 @@ function createDefaultConfig(): PhysicsConfig {
         },
         tank: {
             basic: {
-                mass: 10000, // 10 тонн
+                mass: 40000, // 40 тонн (x4)
                 hoverHeight: 1.0,
                 moveSpeed: 24,
                 turnSpeed: 2.5,
@@ -595,7 +613,16 @@ function createDefaultConfig(): PhysicsConfig {
                 sideDrag: 8000,
                 fwdDrag: 7000,
                 angularDrag: 5000,
-                pitchTorque: 8000, // Крутящий момент для наклона при движении (Н·м)
+                pitchTorque: 15000, // УВЕЛИЧЕНО: Крутящий момент для наклона при движении (Н·м)
+                pitchAccelerationBoost: 2.5, // НОВОЕ: Множитель наклона при старте движения
+                pitchDamping: 0.85, // НОВОЕ: Демпфирование для плавного возврата pitch
+            },
+            airborne: {
+                threshold: 0.8, // НОВОЕ: Высота над землёй для определения "в воздухе" (м)
+                hoverReduction: 0.1, // НОВОЕ: Ослабление hover в воздухе (10% от нормы)
+                dampingReduction: 0.3, // НОВОЕ: Ослабление демпфирования в воздухе (30% от нормы)
+                uprightReduction: 0.4, // НОВОЕ: Ослабление выравнивания в воздухе (40% от нормы)
+                emergencyDampingThreshold: 10.0, // НОВОЕ: Порог скорости для emergency damping (м/с)
             },
             climbing: {
                 climbAssistForce: 40000,
@@ -617,7 +644,7 @@ function createDefaultConfig(): PhysicsConfig {
                 wallAngularDamping: 0.85,
             },
             speedLimits: {
-                maxUpwardSpeed: 4.0,
+                maxUpwardSpeed: 15.0, // УВЕЛИЧЕНО с 4.0: позволяет танку лететь с трамплинов
                 maxDownwardSpeed: 35,
                 maxAngularSpeed: 2.5,
             },
@@ -639,8 +666,8 @@ function createDefaultConfig(): PhysicsConfig {
             arcade: {
                 antiRollFactor: 0, // ОТКЛЮЧЕНО
                 downforceFactor: 0, // ОТКЛЮЧЕНО
-                airControl: 0, // ОТКЛЮЧЕНО
-                angularDragAir: 0, // ОТКЛЮЧЕНО
+                airControl: 0.15, // ВКЛЮЧЕНО: управление в воздухе для траекторных прыжков
+                angularDragAir: 0.5, // ВКЛЮЧЕНО: предотвращает бесконечное вращение в воздухе
                 uprightForce: 0, // ОТКЛЮЧЕНО (не используется в arcade)
                 uprightDamp: 0, // ОТКЛЮЧЕНО (не используется в arcade)
                 emergencyForce: 0, // ОТКЛЮЧЕНО (не используется в arcade)
@@ -667,8 +694,8 @@ function createDefaultConfig(): PhysicsConfig {
                 projectileSize: 0.2,
             },
             recoil: {
-                force: 2500,
-                torque: 10000,
+                force: 5000, // x2 (было 2500)
+                torque: 20000, // x2 (было 10000)
                 barrelRecoilSpeed: 0.3,
                 barrelRecoilAmount: -1.6,
                 applicationPoint: "center",
@@ -695,7 +722,7 @@ function createDefaultConfig(): PhysicsConfig {
         enemyTank: {
             // DEFAULT: Синхронизированные параметры с игроком
             basic: {
-                mass: 10000, // СИНХРОНИЗИРОВАНО с игроком (10 тонн)
+                mass: 40000, // СИНХРОНИЗИРОВАНО с игроком (40 тонн, x4)
                 hoverHeight: 1.0,
                 moveSpeed: 24, // Идентично игроку
                 turnSpeed: 2.5, // Идентично игроку

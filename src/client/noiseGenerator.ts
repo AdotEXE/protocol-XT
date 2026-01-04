@@ -637,11 +637,26 @@ export class TerrainGenerator {
         // ИСПРАВЛЕНИЕ: Clamp для предотвращения экстремальных значений ПЕРЕД проверкой соседей
         height = this.noise.clamp(height, -25, 35); // Ограничиваем диапазон высот
         
+        // КРИТИЧНО: ПРОВЕРКА ГРАНИЧНЫХ ВЕРШИН (на границах чанков)
+        // Чанки могут быть размером 50 или 80, проверяем оба варианта
+        const chunkSizes = [50, 80];
+        let isOnChunkBoundary = false;
+        for (const chunkSize of chunkSizes) {
+            const modX = Math.abs(worldX % chunkSize);
+            const modZ = Math.abs(worldZ % chunkSize);
+            // Проверяем близость к границам чанка (в пределах 2 единиц)
+            if (modX < 2 || modX > chunkSize - 2 || modZ < 2 || modZ > chunkSize - 2) {
+                isOnChunkBoundary = true;
+                break;
+            }
+        }
+        
         // КРИТИЧНО: МНОГОУРОВНЕВАЯ ПРОВЕРКА СОСЕДЕЙ С ИСПОЛЬЗОВАНИЕМ КЭША
         // Используем кэш для получения уже вычисленных высот соседей (если они есть)
-        const neighborCheckDist1 = 1.0;  // Близкие соседи
-        const neighborCheckDist2 = 2.0;  // Средние соседи
-        const neighborCheckDist3 = 4.0;  // Дальние соседи для контекста (увеличено с 3.0)
+        // Для граничных вершин используем больше соседей для лучшей проверки
+        const neighborCheckDist1 = isOnChunkBoundary ? 0.5 : 1.0;  // Близкие соседи (ближе для границ)
+        const neighborCheckDist2 = isOnChunkBoundary ? 1.0 : 2.0;  // Средние соседи
+        const neighborCheckDist3 = isOnChunkBoundary ? 2.0 : 4.0;  // Дальние соседи (ближе для границ)
         
         const neighborHeights: number[] = [];
         const neighborKeys: string[] = [];
@@ -732,7 +747,8 @@ export class TerrainGenerator {
         }
         
         // КРИТИЧНО: ГЛОБАЛЬНАЯ МИНИМАЛЬНАЯ ВЫСОТА - ПЕРЕД КВАНТОВАНИЕМ
-        const minHeight = 2.0; // УВЕЛИЧЕНО с 1.5 до 2.0 для полного предотвращения дыр
+        // УВЕЛИЧЕНО с 2.0 до 2.5 для большей безопасности, особенно на границах чанков
+        const minHeight = isOnChunkBoundary ? 2.5 : 2.5; // Единая минимальная высота 2.5
         if (height < minHeight) {
             height = minHeight;
         }
@@ -743,6 +759,23 @@ export class TerrainGenerator {
         // ФИНАЛЬНАЯ ПРОВЕРКА: После квантования снова проверяем минимальную высоту
         if (height < minHeight) {
             height = Math.ceil(minHeight / stepSize) * stepSize; // Округляем вверх до ближайшего шага
+        }
+        
+        // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА ДЛЯ ГРАНИЧНЫХ ВЕРШИН: дополнительный проход сглаживания
+        if (isOnChunkBoundary && neighborHeights.length > 0) {
+            const avgClose = neighborHeights.slice(0, 8).reduce((a, b) => a + b, 0) / Math.min(8, neighborHeights.length);
+            const minNeighbor = Math.min(...neighborHeights);
+            
+            // Для граничных вершин более агрессивная проверка
+            if (height < minNeighbor - 0.3) {
+                height = Math.max(minNeighbor - 0.2, minHeight);
+                height = Math.round(height / stepSize) * stepSize;
+            }
+            
+            // Дополнительное сглаживание для граничных вершин
+            const boundarySmoothing = 0.3;
+            height = height * (1 - boundarySmoothing) + avgClose * boundarySmoothing;
+            height = Math.round(height / stepSize) * stepSize;
         }
         
         // КРИТИЧНО: ФИНАЛЬНАЯ МНОГОУРОВНЕВАЯ ПРОВЕРКА НА ДЫРЫ ПОСЛЕ ВСЕХ ВЫЧИСЛЕНИЙ
@@ -766,7 +799,8 @@ export class TerrainGenerator {
         }
         
         // КРИТИЧНО: АБСОЛЮТНАЯ МИНИМАЛЬНАЯ ВЫСОТА - ПОСЛЕДНЯЯ ПРОВЕРКА
-        const absoluteMinHeight = 2.0;
+        // УВЕЛИЧЕНО с 2.0 до 2.5 для полного предотвращения дыр
+        const absoluteMinHeight = 2.5;
         if (height < absoluteMinHeight) {
             height = absoluteMinHeight;
         }

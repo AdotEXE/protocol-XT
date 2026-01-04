@@ -76,36 +76,36 @@ export interface AIConfig {
 }
 
 export const DEFAULT_AI_CONFIG: AIConfig = {
-    // Восприятие
-    viewDistance: 150,
-    viewAngle: 120,
-    hearingDistance: 50,
-    alertDuration: 10000,
+    // EXTREME: Восприятие - видят всё!
+    viewDistance: 300, // EXTREME: +100% (было 150)
+    viewAngle: 180, // EXTREME: +50% (было 120) - почти полный обзор!
+    hearingDistance: 100, // EXTREME: +100% (было 50) - слышат издалека
+    alertDuration: 20000, // EXTREME: +100% (было 10000) - долго помнят угрозу
     
-    // Поведение
+    // EXTREME: Поведение - максимальная агрессия!
     behaviorType: "aggressive",
-    aggressionLevel: 0.7,
-    cautiousness: 0.3,
-    teamworkLevel: 0.5,
+    aggressionLevel: 0.95, // EXTREME: +36% (было 0.7)
+    cautiousness: 0.1, // EXTREME: -67% (было 0.3) - меньше осторожности
+    teamworkLevel: 0.9, // EXTREME: +80% (было 0.5) - отличная координация
     
-    // Движение
-    moveSpeed: 10,
-    turnSpeed: 2,
-    patrolRadius: 50,
-    chaseDistance: 100,
-    retreatHealthThreshold: 0.2,
+    // EXTREME: Движение - быстрые и манёвренные!
+    moveSpeed: 18, // EXTREME: +80% (было 10)
+    turnSpeed: 4, // EXTREME: +100% (было 2)
+    patrolRadius: 100, // EXTREME: +100% (было 50) - патрулируют большую область
+    chaseDistance: 200, // EXTREME: +100% (было 100) - преследуют дальше
+    retreatHealthThreshold: 0.05, // EXTREME: -75% (было 0.2) - сражаются до последнего!
     
-    // Стрельба
-    accuracy: 0.6,
-    reactionTime: 500,
-    burstLength: 3,
-    burstPause: 1000,
+    // EXTREME: Стрельба - идеальная точность!
+    accuracy: 0.95, // EXTREME: +58% (было 0.6)
+    reactionTime: 100, // EXTREME: -80% (было 500) - молниеносная реакция!
+    burstLength: 5, // EXTREME: +67% (было 3) - длиннее очереди
+    burstPause: 500, // EXTREME: -50% (было 1000) - короче пауза
     leadTarget: true,
     
-    // Тактика
+    // EXTREME: Тактика - все тактики включены!
     useСover: true,
     flanksAllowed: true,
-    retreatAllowed: true,
+    retreatAllowed: false, // EXTREME: НЕ отступают!
     supportAllies: true
 };
 
@@ -113,47 +113,57 @@ export const DEFAULT_AI_CONFIG: AIConfig = {
 // ПРЕСЕТЫ ПОВЕДЕНИЯ
 // ============================================
 
+// EXTREME: Все пресеты значительно усилены!
 export const AI_PRESETS: Record<AIBehaviorType, Partial<AIConfig>> = {
     aggressive: {
-        aggressionLevel: 0.9,
-        cautiousness: 0.1,
+        aggressionLevel: 1.0, // EXTREME: Максимальная агрессия!
+        cautiousness: 0.0, // EXTREME: Нет осторожности!
         retreatAllowed: false,
-        chaseDistance: 150
+        chaseDistance: 300, // EXTREME: +100% (было 150)
+        reactionTime: 50, // EXTREME: Мгновенная реакция!
+        accuracy: 1.0 // EXTREME: Идеальная точность!
     },
     defensive: {
-        aggressionLevel: 0.4,
-        cautiousness: 0.7,
+        aggressionLevel: 0.7, // EXTREME: +75% (было 0.4)
+        cautiousness: 0.4, // EXTREME: -43% (было 0.7)
         useСover: true,
-        patrolRadius: 30
+        patrolRadius: 60, // EXTREME: +100% (было 30)
+        accuracy: 0.95 // EXTREME: Высокая точность!
     },
     flanker: {
-        aggressionLevel: 0.6,
+        aggressionLevel: 0.9, // EXTREME: +50% (было 0.6)
         flanksAllowed: true,
-        moveSpeed: 12,
-        cautiousness: 0.4
+        moveSpeed: 24, // EXTREME: +100% (было 12)
+        turnSpeed: 5, // EXTREME: Быстрый поворот!
+        cautiousness: 0.2 // EXTREME: -50% (было 0.4)
     },
     sniper: {
-        accuracy: 0.9,
-        viewDistance: 250,
-        chaseDistance: 50,
-        cautiousness: 0.8
+        accuracy: 1.0, // EXTREME: Идеальная точность (было 0.9)
+        viewDistance: 400, // EXTREME: +60% (было 250)
+        chaseDistance: 100, // EXTREME: +100% (было 50)
+        cautiousness: 0.5, // EXTREME: -37% (было 0.8)
+        reactionTime: 100 // EXTREME: Быстрая реакция!
     },
     support: {
-        teamworkLevel: 0.9,
+        teamworkLevel: 1.0, // EXTREME: Идеальная координация (было 0.9)
         supportAllies: true,
-        aggressionLevel: 0.3
+        aggressionLevel: 0.6, // EXTREME: +100% (было 0.3)
+        accuracy: 0.9 // EXTREME: Хорошая точность!
     },
     kamikaze: {
         aggressionLevel: 1.0,
         cautiousness: 0,
         retreatAllowed: false,
-        chaseDistance: 200
+        chaseDistance: 400, // EXTREME: +100% (было 200)
+        moveSpeed: 30, // EXTREME: Максимальная скорость!
+        reactionTime: 0 // EXTREME: Мгновенная реакция!
     },
     coward: {
-        aggressionLevel: 0.1,
-        cautiousness: 0.9,
-        retreatHealthThreshold: 0.5,
-        retreatAllowed: true
+        aggressionLevel: 0.3, // EXTREME: +200% (было 0.1) - даже трусы атакуют!
+        cautiousness: 0.6, // EXTREME: -33% (было 0.9)
+        retreatHealthThreshold: 0.2, // EXTREME: -60% (было 0.5)
+        retreatAllowed: true,
+        accuracy: 0.85 // EXTREME: Неплохая точность!
     }
 };
 

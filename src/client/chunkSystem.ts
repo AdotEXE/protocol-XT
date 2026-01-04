@@ -2391,6 +2391,14 @@ export class ChunkSystem {
         
         // ФАЗА 2: ЛЕНИВАЯ - детали через requestIdleCallback (не блокирует FPS)
         this.scheduleDetailsGeneration(cx, cz, chunkParent, seed);
+        
+        // ОПТИМИЗАЦИЯ: Сразу скрываем чанк если он за пределами unloadDistance от игрока
+        // Это предотвращает рендеринг далёких чанков при фоновой загрузке карты
+        const playerChunk = this.lastPlayerChunk;
+        const dist = Math.max(Math.abs(cx - playerChunk.x), Math.abs(cz - playerChunk.z));
+        if (dist > this.config.unloadDistance) {
+            this.hideChunk(chunk);
+        }
     }
     
     /**
@@ -3063,72 +3071,8 @@ export class ChunkSystem {
         // Биом чанка влияет только на текстуру, но НЕ на геометрию
         let height = this.terrainGenerator.getHeight(x, z, "park");
         
-        // ЕСТЕСТВЕННЫЙ ГОРНЫЙ БАРЬЕР ТОЛЬКО ПО КРАЯМ КАРТЫ
-        // Все карты теперь имеют ограниченный размер с естественными границами
-        const MAP_BOUNDS = this.getMapBounds()!; // Всегда не-null после изменений
-        
-        // ВЫСОКИЕ УЗКИЕ горы на краях карты - видимые издалека!
-        // 8% от ширины карты, минимум 50, максимум 200 единиц
-        const mapWidth = MAP_BOUNDS.maxX - MAP_BOUNDS.minX;
-        const MOUNTAIN_BARRIER_WIDTH = Math.max(50, Math.min(200, mapWidth * 0.08));
-        const MOUNTAIN_MAX_HEIGHT = 180; // Высокие горы - видны издалека!
-        const MOUNTAIN_BASE_HEIGHT = 40; // Высокий базовый уровень подъёма
-        
-        // Вычисляем расстояние до ближайшего края карты
-        const distToMinX = x - MAP_BOUNDS.minX;
-        const distToMaxX = MAP_BOUNDS.maxX - x;
-        const distToMinZ = z - MAP_BOUNDS.minZ;
-        const distToMaxZ = MAP_BOUNDS.maxZ - z;
-        const minDistToEdge = Math.min(distToMinX, distToMaxX, distToMinZ, distToMaxZ);
-        
-        // Если близко к краю, добавляем естественную горную высоту
-        if (minDistToEdge < MOUNTAIN_BARRIER_WIDTH) {
-            // Плавный переход: 0 на расстоянии MOUNTAIN_BARRIER_WIDTH, 1 на краю
-            const normalizedDist = minDistToEdge / MOUNTAIN_BARRIER_WIDTH;
-            const mountainBlend = 1 - normalizedDist;
-            
-            // Smoothstep для более естественного перехода
-            const smoothBlend = mountainBlend * mountainBlend * (3 - 2 * mountainBlend);
-            
-            // ЕСТЕСТВЕННАЯ ВАРИАЦИЯ через noise - создаёт неровную линию гор
-            let mountainVariation = 1.0;
-            if (this.biomeNoise) {
-                // Масштаб шума - крупные естественные формы горного хребта
-                const noiseScale = 0.02;
-                
-                // Ridged noise для горных хребтов (пики и ущелья)
-                const ridgedNoise = this.biomeNoise.ridged(x * noiseScale, z * noiseScale, 3, 2.0, 0.5);
-                const normalizedRidged = Math.min(1.0, Math.max(0, ridgedNoise));
-                
-                // FBM для плавной вариации
-                const fbmNoise = (this.biomeNoise.fbm(x * noiseScale * 0.5, z * noiseScale * 0.5, 2, 2.0, 0.5) + 1) / 2;
-                
-                // Мелкие детали поверхности
-                const detailNoise = (this.biomeNoise.fbm(x * noiseScale * 3.0, z * noiseScale * 3.0, 2, 2.0, 0.4) + 1) / 2;
-                
-                // Комбинируем для естественного вида
-                mountainVariation = normalizedRidged * 0.5 + fbmNoise * 0.35 + detailNoise * 0.15;
-                
-                // Диапазон 0.6-1.4 для заметной но не экстремальной вариации
-                mountainVariation = 0.6 + mountainVariation * 0.8;
-            }
-            
-            // Высота гор нарастает к краю
-            const baseMountainHeight = MOUNTAIN_BASE_HEIGHT + smoothBlend * (MOUNTAIN_MAX_HEIGHT - MOUNTAIN_BASE_HEIGHT);
-            
-            // Применяем естественную вариацию
-            const mountainHeight = baseMountainHeight * mountainVariation;
-            
-            // Плавное смешивание с базовым террейном
-            const blendFactor = smoothBlend * smoothBlend;
-            height = height * (1 - blendFactor) + mountainHeight * blendFactor;
-            
-            // Минимальная высота для непроходимости у самого края
-            if (smoothBlend > 0.7) {
-                const minHeight = MOUNTAIN_BASE_HEIGHT + (smoothBlend - 0.7) / 0.3 * (MOUNTAIN_MAX_HEIGHT * 0.6);
-                height = Math.max(height, minHeight);
-            }
-        }
+        // УДАЛЕНО: Горный барьер по краям карты (вызывал проблемы с производительностью)
+        // Теперь края карты плоские
         
         // Смешивание с высотой гаража (0) для плавного перехода
         if (garageBlend > 0) {
@@ -4226,75 +4170,7 @@ export class ChunkSystem {
             // chunk.meshes.push(car);
         }
         
-        // TREES with clustering (groves) and more variety
-        const treeCount = random.int(2, 5);
-        const treeClusterCount = Math.min(treeCount, 3);
-        const treePositions = this.generateClusteredPositions(
-            treeCount,
-            size,
-            3, // min distance between trees
-            15, // max distance from cluster center (groves)
-            treeClusterCount,
-            random
-        );
-        
-        for (const treePos of treePositions) {
-            const tx = treePos.x;
-            const tz = treePos.z;
-            
-            // Проверяем, не находится ли дерево внутри гаража
-            const tWorldX = chunkX * this.config.chunkSize + tx;
-            const tWorldZ = chunkZ * this.config.chunkSize + tz;
-            if (this.isPositionInGarageArea(tWorldX, tWorldZ, 1)) {
-                continue; // Пропускаем это дерево
-            }
-            
-            // Avoid placing trees on roads
-            if (this.isPositionNearRoad(tWorldX, tWorldZ, 3)) {
-                continue;
-            }
-            
-            // More variety in tree sizes and shapes
-            const treeType = random.pick(["tall", "medium", "short", "wide"]);
-            let th: number, tw: number, td: number;
-            
-            switch (treeType) {
-                case "tall":
-                    th = random.range(8, 12);
-                    tw = random.range(2, 3.5);
-                    td = random.range(2, 3.5);
-                    break;
-                case "medium":
-                    th = random.range(5, 8);
-                    tw = random.range(2.5, 4);
-                    td = random.range(2.5, 4);
-                    break;
-                case "short":
-                    th = random.range(3, 6);
-                    tw = random.range(3, 5);
-                    td = random.range(3, 5);
-                    break;
-                case "wide":
-                    th = random.range(4, 7);
-                    tw = random.range(4, 6);
-                    td = random.range(4, 6);
-                    break;
-                default:
-                    th = random.range(5, 8);
-                    tw = random.range(2, 4);
-                    td = random.range(2, 4);
-            }
-            
-            // Adjust height based on terrain
-            const terrainHeight = this.getTerrainHeight(tWorldX, tWorldZ, "residential");
-            
-            const tree = MeshBuilder.CreateBox("t", { width: tw, height: th, depth: td }, this.scene);
-            tree.position = new Vector3(tx, th / 2 + terrainHeight, tz);
-            tree.material = this.getMat("leaves");
-            tree.parent = chunkParent;
-            tree.freezeWorldMatrix();
-            // chunk.meshes.push(tree);
-        }
+        // УДАЛЕНО: Деревья в жилых районах (оптимизация производительности)
         
         // MAILBOX
         if (random.chance(0.3)) {
@@ -4360,58 +4236,7 @@ export class ChunkSystem {
     }
     
     private generatePark(chunkX: number, chunkZ: number, size: number, random: SeededRandom, chunkParent: TransformNode): void {
-        // Trees in groves with more variety - увеличено количество
-        const treeCount = random.int(12, 25);
-        const groveCount = random.int(4, 8);
-        const treePositions = this.generateClusteredPositions(
-            treeCount,
-            size,
-            2, // min distance between trees (can be closer in groves)
-            12, // max distance from cluster center (grove radius)
-            groveCount,
-            random
-        );
-        
-        const existingObjects: Array<{ pos: Vector3, radius: number }> = [];
-        
-        for (const treePos of treePositions) {
-            const tx = treePos.x;
-            const tz = treePos.z;
-            
-            // Проверяем, не находится ли дерево внутри гаража
-            const tWorldX = chunkX * this.config.chunkSize + tx;
-            const tWorldZ = chunkZ * this.config.chunkSize + tz;
-            if (this.isPositionInGarageArea(tWorldX, tWorldZ, 2)) {
-                continue; // Пропускаем это дерево
-            }
-            
-            // Avoid roads
-            if (this.isPositionNearRoad(tWorldX, tWorldZ, 3)) {
-                continue;
-            }
-            
-            // Check collision
-            if (this.checkObjectCollision(new Vector3(tx, 0, tz), 2, existingObjects)) {
-                continue;
-            }
-            
-            // More variety in tree sizes and shapes
-            const h = random.range(5, 9);
-            const w = random.range(2, 5);
-            const d = random.range(2, 5);
-            
-            // Adjust height based on terrain
-            const terrainHeight = this.getTerrainHeight(tWorldX, tWorldZ, "park");
-            
-            const tree = MeshBuilder.CreateBox("t", { width: w, height: h, depth: d }, this.scene);
-            tree.position = new Vector3(tx, h / 2 + terrainHeight, tz);
-            tree.material = this.getMat("leaves");
-            tree.parent = chunkParent;
-            tree.freezeWorldMatrix();
-            // chunk.meshes.push(tree);
-            
-            existingObjects.push({ pos: new Vector3(tx, 0, tz), radius: Math.max(w, d) / 2 });
-        }
+        // УДАЛЕНО: Деревья в парках (оптимизация производительности)
         
         // Bench - увеличена вероятность
         if (random.chance(0.6)) {
@@ -7418,57 +7243,7 @@ export class ChunkSystem {
                     }
                 }
             } else if (kind === 10) {
-                // Лес - РАЗНООБРАЗНЫЕ размеры
-                const forestSize = random.int(0, 2);
-                if (forestSize === 0) {
-                    // Маленькая роща
-                    const treeCount = random.int(3, 6);
-                for (let t = 0; t < treeCount; t++) {
-                        const tx = x + random.range(-5, 5);
-                        const tz = z + random.range(-5, 5);
-                    const th = random.range(3, 6);
-                        const tw = random.range(1.5, 2.5);
-                        const tree = MeshBuilder.CreateBox("t", { width: tw, height: th, depth: tw }, this.scene);
-                    tree.position = new Vector3(tx, th / 2 + 0.01, tz);
-                    tree.material = this.getMat("leaves");
-                    tree.parent = chunkParent;
-                    tree.freezeWorldMatrix();
-                    // chunk.meshes.push(tree);
-                        // Убрана физика для декоративных деревьев (оптимизация)
-                    }
-                } else if (forestSize === 1) {
-                    // Средний лес
-                    const treeCount = random.int(5, 10);
-                    for (let t = 0; t < treeCount; t++) {
-                        const tx = x + random.range(-8, 8);
-                        const tz = z + random.range(-8, 8);
-                        const th = random.range(4, 7);
-                        const tw = random.range(2, 3);
-                        const tree = MeshBuilder.CreateBox("t", { width: tw, height: th, depth: tw }, this.scene);
-                        tree.position = new Vector3(tx, th / 2 + 0.01, tz);
-                        tree.material = this.getMat("leaves");
-                        tree.parent = chunkParent;
-                        tree.freezeWorldMatrix();
-                        // chunk.meshes.push(tree);
-                        new PhysicsAggregate(tree, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
-                    }
-                } else {
-                    // Большой лес
-                    const treeCount = random.int(8, 15);
-                    for (let t = 0; t < treeCount; t++) {
-                        const tx = x + random.range(-12, 12);
-                        const tz = z + random.range(-12, 12);
-                        const th = random.range(5, 8);
-                        const tw = random.range(2.5, 4);
-                        const tree = MeshBuilder.CreateBox("t", { width: tw, height: th, depth: tw }, this.scene);
-                        tree.position = new Vector3(tx, th / 2 + 0.01, tz);
-                        tree.material = this.getMat("leaves");
-                        tree.parent = chunkParent;
-                        tree.freezeWorldMatrix();
-                        // chunk.meshes.push(tree);
-                        new PhysicsAggregate(tree, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
-                    }
-                }
+                // УДАЛЕНО: Леса (оптимизация производительности)
             } else if (kind === 11) {
                 // ДОПОЛНИТЕЛЬНЫЕ ЗДАНИЯ - маленькие структуры
                 const structType = random.int(0, 3);
@@ -7640,11 +7415,26 @@ export class ChunkSystem {
     
     private showChunk(chunk: ChunkData): void {
         chunk.node.setEnabled(true);
+        // Принудительно показываем все дочерние меши
+        const descendants = chunk.node.getDescendants(false);
+        for (const child of descendants) {
+            if (child instanceof Mesh && !child.isDisposed()) {
+                child.isVisible = true;
+            }
+        }
         chunk.loaded = true;
     }
     
     private hideChunk(chunk: ChunkData): void {
         chunk.node.setEnabled(false);
+        // ИСПРАВЛЕНИЕ: Принудительно скрываем все дочерние меши
+        // setEnabled(false) может не работать для мешей с физикой
+        const descendants = chunk.node.getDescendants(false);
+        for (const child of descendants) {
+            if (child instanceof Mesh && !child.isDisposed()) {
+                child.isVisible = false;
+            }
+        }
         chunk.loaded = false;
     }
     
@@ -8339,26 +8129,7 @@ export class ChunkSystem {
             this.createRiver(chunkX, chunkZ, startX, startZ, endX, endZ, random.range(3, 6), random, chunkParent);
         }
         
-        // Create forests in valleys - увеличена плотность (10-20 деревьев на чанк)
-        const treeCount = random.int(10, 20);
-        const treePositions = this.generateClusteredPositions(treeCount, size, 2, 15, random.int(2, 4), random);
-        
-        for (const pos of treePositions) {
-            const tWorldX = chunkX * this.config.chunkSize + pos.x;
-            const tWorldZ = chunkZ * this.config.chunkSize + pos.z;
-            if (this.isPositionInGarageArea(tWorldX, tWorldZ, 2)) continue;
-            
-            const th = random.range(5, 10);
-            const tw = random.range(2, 4);
-            const terrainHeight = this.getTerrainHeight(tWorldX, tWorldZ, "park");
-            
-            const tree = MeshBuilder.CreateBox("tree", { width: tw, height: th, depth: tw }, this.scene);
-            tree.position = new Vector3(pos.x, th / 2 + terrainHeight, pos.z);
-            tree.material = this.getMat("leaves");
-            tree.parent = chunkParent;
-            tree.freezeWorldMatrix();
-            // chunk.meshes.push(tree);
-        }
+        // УДАЛЕНО: Леса в долинах каньона (оптимизация производительности)
         
         // Create small villages - увеличена вероятность и размер деревень (5-10 домов)
         if (random.chance(0.6)) {
@@ -9856,22 +9627,7 @@ export class ChunkSystem {
             }
         }
         
-        // Coastal vegetation - увеличено количество
-        for (let i = 0; i < random.int(8, 15); i++) {
-            const vx = random.range(5, size - 5);
-            const vz = random.range(5, size - 5);
-            const vWorldX = chunkX * this.config.chunkSize + vx;
-            const vWorldZ = chunkZ * this.config.chunkSize + vz;
-            
-            if (this.isPositionInGarageArea(vWorldX, vWorldZ, 1)) continue;
-            
-            const bush = MeshBuilder.CreateBox("coastalBush", { width: 2, height: 1.5, depth: 2 }, this.scene);
-            bush.position = new Vector3(vx, 0.75, vz);
-            bush.material = this.getMat("leaves");
-            bush.parent = chunkParent;
-            bush.freezeWorldMatrix();
-            // chunk.meshes.push(bush);
-        }
+        // УДАЛЕНО: Прибрежная растительность (оптимизация производительности)
         
         this.createRoads(chunkX, chunkZ, size, random, "park", chunkParent);
         

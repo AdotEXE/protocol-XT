@@ -394,8 +394,8 @@ export class HUD {
         this._createFPSCounter();      // FPS счётчик
         this._createKillCounter();     // Скрытый счётчик убийств (для статистики)
         this._createCurrencyDisplay(); // Скрытый дисплей кредитов (для статистики)
-        // УДАЛЕНО: Индикатор прогрузки карты больше не нужен
-        // this.createMapLoadingIndicator();
+        // ОПТИМИЗАЦИЯ: Индикатор прогрузки карты в нижнем левом углу
+        this.createMapLoadingIndicator();
         
         // Инициализируем значения блока состояния (если есть начальные значения)
         if (this.tankStatusContainer && this.currentHealth > 0 && this.maxHealth > 0) {
@@ -2475,10 +2475,10 @@ export class HUD {
         // УВЕЛИЧЕНО: Размеры с правильными отступами для лучшей читаемости
         const RADAR_SIZE = 220;           // Размер круга радара (УВЕЛИЧЕНО с 200)
         const RADAR_INNER = 180;          // Внутренняя область (уменьшена)
-        const HEADER_HEIGHT = 26;         // Заголовок
+        const HEADER_HEIGHT = 20;         // Заголовок (уменьшен для компактности)
         const INFO_HEIGHT = 36;           // Нижняя панель (УВЕЛИЧЕНА для читаемости)
-        const STATUS_WIDTH = 105;         // Блок статуса (УВЕЛИЧЕН для видимости текста)
-        const GAP = 10;                   // Отступы между элементами (УВЕЛИЧЕНО с 8)
+        const STATUS_WIDTH = 130;         // Блок статуса (УВЕЛИЧЕН для читаемости текста)
+        const GAP = 4;                    // Отступы между элементами (уменьшены для компактности)
         const PADDING = 10;               // Внутренние отступы (УВЕЛИЧЕНО с 8)
         
         // Общие размеры контейнера
@@ -2563,71 +2563,80 @@ export class HUD {
         this.tankStatusContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.tankStatusContainer.left = this.scalePx(PADDING);
         this.tankStatusContainer.top = this.scalePx(centerY);
+        // КРИТИЧНО: Обнуляем внутренние отступы контейнера
+        this.tankStatusContainer.paddingTop = "0px";
+        this.tankStatusContainer.paddingBottom = "0px";
+        this.tankStatusContainer.paddingLeft = "0px";
+        this.tankStatusContainer.paddingRight = "0px";
         this.minimapContainer.addControl(this.tankStatusContainer);
         
         // Равномерное распределение сверху вниз по высоте контейнера
-        const rowHeight = 22; // Высота одной строки (увеличена для читаемости)
-        const startY = 8; // КРАСНАЯ ЛИНИЯ - отступ сверху для лучшей читаемости
-        const leftPadding = 10; // Увеличенный отступ слева
+        const rowHeight = 28; // Высота одной строки (УВЕЛИЧЕНА для читаемости)
+        const startY = 0; // ИСПРАВЛЕНО: Начало с самого верха контейнера (было 4)
+        const leftPadding = 8; // Отступ слева
         
         // === HP ROW ===
         this.tankStatusHealthText = new TextBlock("tankStatusHealth");
         this.tankStatusHealthText.text = "HP:100%";
         this.tankStatusHealthText.color = "#00ff00";
-        this.tankStatusHealthText.fontSize = this.scaleFontSize(10, 8, 12); // Увеличенный шрифт для читаемости
+        this.tankStatusHealthText.fontSize = this.scaleFontSize(11, 9, 13); // Уменьшен чтобы влезал
         this.tankStatusHealthText.fontWeight = "bold";
         this.tankStatusHealthText.fontFamily = "'Press Start 2P', monospace";
         this.tankStatusHealthText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.tankStatusHealthText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP; // КРИТИЧНО: Текст сверху
         this.tankStatusHealthText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.tankStatusHealthText.top = this.scalePx(startY);
-        this.tankStatusHealthText.left = this.scalePx(leftPadding); // Увеличенный отступ слева
+        this.tankStatusHealthText.left = this.scalePx(leftPadding);
+        this.tankStatusHealthText.height = this.scalePx(rowHeight); // КРИТИЧНО: Явная высота
         this.tankStatusHealthText.zIndex = 1000;
-        this.tankStatusHealthText.width = "100%";
         this.tankStatusContainer.addControl(this.tankStatusHealthText);
         
         // === FUEL ROW ===
         this.tankStatusFuelText = new TextBlock("tankStatusFuel");
         this.tankStatusFuelText.text = "FL:100%";
         this.tankStatusFuelText.color = "#f90";
-        this.tankStatusFuelText.fontSize = this.scaleFontSize(10, 8, 12); // Увеличенный шрифт для читаемости
+        this.tankStatusFuelText.fontSize = this.scaleFontSize(11, 9, 13); // Уменьшен чтобы влезал
         this.tankStatusFuelText.fontWeight = "bold";
         this.tankStatusFuelText.fontFamily = "'Press Start 2P', monospace";
         this.tankStatusFuelText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.tankStatusFuelText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP; // КРИТИЧНО: Текст сверху
         this.tankStatusFuelText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.tankStatusFuelText.top = this.scalePx(startY + rowHeight);
-        this.tankStatusFuelText.left = this.scalePx(leftPadding); // Увеличенный отступ слева
+        this.tankStatusFuelText.left = this.scalePx(leftPadding);
+        this.tankStatusFuelText.height = this.scalePx(rowHeight); // КРИТИЧНО: Явная высота
         this.tankStatusFuelText.zIndex = 1000;
-        this.tankStatusFuelText.width = "100%";
         this.tankStatusContainer.addControl(this.tankStatusFuelText);
         
         // === ARMOR ROW ===
         this.tankStatusArmorText = new TextBlock("tankStatusArmor");
         this.tankStatusArmorText.text = "AR:0%";
         this.tankStatusArmorText.color = "#0cc";
-        this.tankStatusArmorText.fontSize = this.scaleFontSize(10, 8, 12); // Увеличенный шрифт для читаемости
+        this.tankStatusArmorText.fontSize = this.scaleFontSize(11, 9, 13); // Уменьшен чтобы влезал
         this.tankStatusArmorText.fontWeight = "bold";
         this.tankStatusArmorText.fontFamily = "'Press Start 2P', monospace";
         this.tankStatusArmorText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.tankStatusArmorText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP; // КРИТИЧНО: Текст сверху
         this.tankStatusArmorText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.tankStatusArmorText.top = this.scalePx(startY + rowHeight * 2);
-        this.tankStatusArmorText.left = this.scalePx(leftPadding); // Увеличенный отступ слева
+        this.tankStatusArmorText.left = this.scalePx(leftPadding);
+        this.tankStatusArmorText.height = this.scalePx(rowHeight); // КРИТИЧНО: Явная высота
         this.tankStatusArmorText.zIndex = 1000;
-        this.tankStatusArmorText.width = "100%";
         this.tankStatusContainer.addControl(this.tankStatusArmorText);
         
         // === KILLS ROW ===
         const killsText = new TextBlock("killsText");
         killsText.text = "K:0"; // K = Kills
         killsText.color = "#f60";
-        killsText.fontSize = this.scaleFontSize(10, 8, 12); // Увеличенный шрифт для читаемости
+        killsText.fontSize = this.scaleFontSize(11, 9, 13); // Уменьшен чтобы влезал
         killsText.fontWeight = "bold";
         killsText.fontFamily = "'Press Start 2P', monospace";
         killsText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        killsText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP; // КРИТИЧНО: Текст сверху
         killsText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         killsText.top = this.scalePx(startY + rowHeight * 3);
-        killsText.left = this.scalePx(leftPadding); // Увеличенный отступ слева
+        killsText.left = this.scalePx(leftPadding);
+        killsText.height = this.scalePx(rowHeight); // КРИТИЧНО: Явная высота
         killsText.zIndex = 1000;
-        killsText.width = "100%";
         this.tankStatusContainer.addControl(killsText);
         (this.tankStatusContainer as any)._killsValue = killsText;
         
@@ -2635,15 +2644,16 @@ export class HUD {
         const altText = new TextBlock("altText");
         altText.text = "A:0"; // A = Altitude
         altText.color = "#0cf";
-        altText.fontSize = this.scaleFontSize(10, 8, 12); // Увеличенный шрифт для читаемости
+        altText.fontSize = this.scaleFontSize(11, 9, 13); // Уменьшен чтобы влезал
         altText.fontWeight = "bold";
         altText.fontFamily = "'Press Start 2P', monospace";
         altText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        altText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP; // КРИТИЧНО: Текст сверху
         altText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         altText.top = this.scalePx(startY + rowHeight * 4);
-        altText.left = this.scalePx(leftPadding); // Увеличенный отступ слева
+        altText.left = this.scalePx(leftPadding);
+        altText.height = this.scalePx(rowHeight); // КРИТИЧНО: Явная высота
         altText.zIndex = 1000;
-        altText.width = "100%";
         this.tankStatusContainer.addControl(altText);
         (this.tankStatusContainer as any)._altValue = altText;
         
@@ -2854,7 +2864,7 @@ export class HUD {
         speedText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         speedText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         speedText.left = this.scalePx(6);
-        speedText.top = "0px";
+        speedText.top = "2px"; // Опущен для симметричного расположения
         speedText.zIndex = 1000;
         speedText.width = "30%"; // Увеличено для лучшей видимости
         speedText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
@@ -2876,7 +2886,7 @@ export class HUD {
         barrelAngleText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         barrelAngleText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         barrelAngleText.left = this.scalePx(95); // Смещение для увеличенного текста
-        barrelAngleText.top = "0px";
+        barrelAngleText.top = "2px"; // Опущен для симметричного расположения
         barrelAngleText.width = "20%"; // Увеличено для читаемости
         barrelAngleText.zIndex = 1000;
         barrelAngleText.textWrapping = false;
@@ -2918,7 +2928,7 @@ export class HUD {
         posText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         posText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         posText.left = this.scalePx(-4); // Отступ справа
-        posText.top = "0px";
+        posText.top = "2px"; // Опущен для симметричного расположения
         posText.zIndex = 1000;
         // КРИТИЧНО: Достаточная ширина для формата [-999 -999 -999]
         posText.width = "52%"; // Ширина для координат
@@ -3543,6 +3553,11 @@ export class HUD {
     setHealth(current: number, max: number = this.maxHealth) {
         this.currentHealth = Math.max(0, Math.min(max, current));
         this.maxHealth = max;
+        
+        // ИСПРАВЛЕНИЕ: Проверяем существование healthFill перед обновлением
+        if (!this.healthFill || !this.healthBar) {
+            return;
+        }
         
         const percent = (this.currentHealth / this.maxHealth) * 100;
         const smoothPercent = Math.max(0, Math.min(100, percent));
@@ -6601,6 +6616,11 @@ export class HUD {
     updateTankStatus(health: number, maxHealth: number, fuel: number, maxFuel: number, armor: number): void {
         if (!this.tankStatusContainer) return;
         
+        // ИСПРАВЛЕНИЕ: Обновляем HP бар через setHealth() для правильного обновления healthFill
+        if (this.healthFill && this.healthBar) {
+            this.setHealth(health, maxHealth);
+        }
+        
         // Обновляем здоровье - компактный формат ❤ XX%
         if (this.tankStatusHealthText) {
             const healthPercent = Math.max(0, Math.min(100, (health / maxHealth) * 100));
@@ -7693,7 +7713,22 @@ export class HUD {
         team?: number;
         isAlive: boolean;
     }>, localPlayerId: string): void {
-        if (!this.playerListContainer) return;
+        // ДИАГНОСТИКА: Логируем вызов updatePlayerList с детальной информацией
+        const localPlayer = players.find(p => p.id === localPlayerId);
+        const networkPlayers = players.filter(p => p.id !== localPlayerId);
+        
+        console.log(`[HUD] 🔍 updatePlayerList called with ${players.length} players:`);
+        console.log(`  - Local player: ${localPlayer ? `YES (${localPlayer.name})` : 'NO'}`);
+        console.log(`  - Network players: ${networkPlayers.length} (${networkPlayers.map(p => `${p.name}(${p.id}, alive=${p.isAlive})`).join(', ')})`);
+        
+        if (players.length === 0) {
+            console.warn(`[HUD] ⚠️ updatePlayerList called with empty players array!`);
+        }
+        
+        if (!this.playerListContainer) {
+            console.warn(`[HUD] ⚠️ updatePlayerList: playerListContainer is not initialized`);
+            return;
+        }
         
         // Clear existing items
         for (const item of this.playerListItems.values()) {

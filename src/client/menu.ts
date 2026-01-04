@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 // Импорты для скил-дерева перенесены в menu/skillTreeUI.ts
-import { createSkillsPanelHTML, updateSkillTreeDisplay, type PlayerStats, type SkillTreeCallbacks } from "./menu/skillTreeUI";
+import { createSkillsPanelHTML, updateSkillTreeDisplay, saveSkillTreeCameraPosition, type PlayerStats, type SkillTreeCallbacks } from "./menu/skillTreeUI";
 import { Scene, Engine } from "@babylonjs/core";
 // Garage is lazy loaded - imported dynamically when needed
 import { CurrencyManager } from "./currencyManager";
@@ -2570,7 +2570,7 @@ export class MainMenu {
             }
 
             .skill-connectors-svg path {
-                filter: drop-shadow(0 0 4px rgba(0,255,80,0.6));
+                /* Свечение наследует цвет stroke линии */
             }
 
             .skill-category-header {
@@ -6293,6 +6293,20 @@ export class MainMenu {
                 // Настраиваем колбэки если gameMultiplayerCallbacks существует
                 if (game.gameMultiplayerCallbacks) {
                     try {
+                        // КРИТИЧНО: Проверяем, что scene доступна перед настройкой колбэков
+                        if (!game.scene) {
+                            debugWarn("[Menu] Game scene not available, waiting for initialization...");
+                            // Ждём инициализации игры
+                            let waitAttempts = 0;
+                            while (!game.scene && waitAttempts < 50) {
+                                await new Promise(resolve => setTimeout(resolve, 100));
+                                waitAttempts++;
+                            }
+                            if (!game.scene) {
+                                throw new Error("Game scene not available after waiting");
+                            }
+                        }
+                        
                         game.gameMultiplayerCallbacks.updateDependencies({
                             multiplayerManager: multiplayerManager,
                             scene: game.scene,
@@ -6300,10 +6314,12 @@ export class MainMenu {
                             hud: game.hud,
                             mainMenu: this,
                             achievementsSystem: game.achievementsSystem,
-                            chunkSystem: game.chunkSystem
+                            chunkSystem: game.chunkSystem,
+                            networkPlayerTanks: game.networkPlayerTanks
                         });
-                        game.gameMultiplayerCallbacks.setupCallbacks();
-                        debugLog("[Menu] Multiplayer callbacks configured");
+                        // ИСПРАВЛЕНО: Было setupCallbacks(), должно быть setup()
+                        game.gameMultiplayerCallbacks.setup();
+                        debugLog("[Menu] Multiplayer callbacks configured with scene available");
                     } catch (callbackError) {
                         debugWarn("[Menu] Failed to setup multiplayer callbacks:", callbackError);
                     }
@@ -6487,22 +6503,34 @@ export class MainMenu {
                 roomItem.style.background = "rgba(0, 0, 0, 0.3)";
                 roomItem.style.borderColor = "rgba(102, 126, 234, 0.3)";
             };
+            // Одинарный клик - открыть детали комнаты
             roomItem.onclick = () => {
-                // Открываем детальное меню комнаты
                 this.showRoomDetails(room);
+            };
+            // Двойной клик - сразу присоединиться к комнате
+            roomItem.ondblclick = () => {
+                const game = (window as any).gameInstance as any;
+                if (game?.multiplayerManager) {
+                    console.log(`[Menu] 🎮 Быстрое присоединение к комнате ${room.id} (двойной клик)`);
+                    game.multiplayerManager.joinRoom(room.id);
+                }
             };
             
             const statusColor = room.isActive ? "#4ade80" : "#a78bfa";
             const statusText = room.isActive ? "Игра идет" : "Ожидание";
+            const isFull = room.players >= room.maxPlayers;
             
             roomItem.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                     <div style="font-weight: bold; color: #fff; font-size: 13px;">Комната ${room.id}</div>
                     <div style="font-size: 11px; color: ${statusColor}; background: rgba(0, 0, 0, 0.3); padding: 2px 6px; border-radius: 4px;">${statusText}</div>
                 </div>
-                <div style="display: flex; justify-content: space-between; font-size: 11px; color: #aaa;">
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #aaa;">
                     <span>Режим: <span style="color: #fff;">${room.mode.toUpperCase()}</span></span>
-                    <span>Игроков: <span style="color: #4ade80;">${room.players}/${room.maxPlayers}</span></span>
+                    <span>Игроков: <span style="color: ${isFull ? '#ef4444' : '#4ade80'};">${room.players}/${room.maxPlayers}</span></span>
+                </div>
+                <div style="margin-top: 8px; text-align: center; font-size: 10px; color: #667eea; opacity: 0.7;">
+                    Клик — детали • Двойной клик — войти
                 </div>
             `;
             
@@ -7451,6 +7479,9 @@ export class MainMenu {
     private hideSkills(): void {
         debugLog("[Menu] hideSkills() called");
         if (this.skillsPanel) {
+            // Сохраняем позицию камеры перед закрытием
+            saveSkillTreeCameraPosition();
+            
             this.skillsPanel.classList.remove("visible");
             // Сбрасываем inline стили для гарантии скрытия
             this.skillsPanel.style.setProperty("display", "none", "important");
@@ -8320,6 +8351,21 @@ export class MainMenu {
         this.container.classList.add("hidden");
         this.container.classList.remove("in-battle");
         document.body.classList.remove("menu-visible");
+        
+        // КРИТИЧНО: Скрываем ВСЕ панели при входе в битву
+        this.hideSettings();
+        this.hideStats();
+        this.hideSkills();
+        this.hideProgress();
+        this.hideMapSelection();
+        
+        // Скрываем playMenuPanel если открыто
+        if (this.playMenuPanel) {
+            this.playMenuPanel.classList.remove("visible");
+            this.playMenuPanel.style.setProperty("display", "none", "important");
+            this.playMenuPanel.style.setProperty("visibility", "hidden", "important");
+        }
+        
         // Разрешаем pointer-events на canvas и восстанавливаем видимость
         this.enforceCanvasPointerEvents();
         

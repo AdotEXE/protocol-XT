@@ -48,8 +48,8 @@ export const TANK_CONSTANTS = {
     // Отдача
     BARREL_RECOIL_SPEED: 0.3,    // Скорость возврата пушки
     BARREL_RECOIL_AMOUNT: -1.6,  // Величина отката пушки
-    RECOIL_FORCE: 2500,          // Сила отдачи
-    RECOIL_TORQUE: 10000,        // Сила угловой отдачи
+    RECOIL_FORCE: 5000,          // Сила отдачи (x2)
+    RECOIL_TORQUE: 20000,        // Сила угловой отдачи (x2)
 } as const;
 
 // Типы для констант

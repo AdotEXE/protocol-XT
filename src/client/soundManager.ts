@@ -36,9 +36,9 @@ export class SoundManager {
     // Volume settings - сбалансированные уровни громкости
     public masterVolume = 0.9; // Чуть ниже 1.0, чтобы избежать клиппинга
     public engineVolume = 0.7; // Менее агрессивный двигатель по умолчанию
-    public shootVolume = 0.8;
+    public shootVolume = 1.5; // УВЕЛИЧЕНО: Звуки выстрелов должны быть хорошо слышны
     public explosionVolume = 0.8;
-    public hitVolume = 0.55;
+    public hitVolume = 1.2; // УВЕЛИЧЕНО: Звуки попаданий должны быть хорошо слышны
     public reloadVolume = 0.5;
     public movementVolume = 0.35;
     public pickupVolume = 0.6;
@@ -66,8 +66,29 @@ export class SoundManager {
     
     constructor() {
         this.initAudio();
+        this.setupUserInteractionResume();
         // ОТКЛЮЧЕНО: startAmbient() - фоновый звук
         // this.startAmbient();
+    }
+    
+    /**
+     * Настройка автоматического возобновления AudioContext при первом взаимодействии пользователя.
+     * Браузеры блокируют автозапуск звуков до взаимодействия пользователя (click, keydown, touch).
+     */
+    private setupUserInteractionResume() {
+        const resumeOnInteraction = () => {
+            if (this.audioContext?.state === 'suspended') {
+                this.audioContext.resume().catch(() => {
+                    // Silent fail
+                });
+            }
+        };
+        
+        // Подключаем к разным типам взаимодействий для максимальной совместимости
+        document.addEventListener('click', resumeOnInteraction, { once: true });
+        document.addEventListener('keydown', resumeOnInteraction, { once: true });
+        document.addEventListener('touchstart', resumeOnInteraction, { once: true });
+        document.addEventListener('mousedown', resumeOnInteraction, { once: true });
     }
     
     private initAudio() {
@@ -120,10 +141,8 @@ export class SoundManager {
             // Главный gain для реверберации
             this.reverbGain = this.audioContext.createGain();
             this.reverbGain.gain.value = 0.18;
-            
-            console.log("[SoundManager] Enhanced audio initialized with 3D support and multi-tap reverb");
         } catch (e) {
-            console.warn("[SoundManager] Web Audio not supported:", e);
+            // Silent fail
         }
     }
     
@@ -161,9 +180,9 @@ export class SoundManager {
             const panner = this.audioContext.createPanner();
             panner.panningModel = "HRTF"; // Более реалистичная модель
             panner.distanceModel = "inverse";
-            panner.refDistance = 1;
+            panner.refDistance = 5; // УВЕЛИЧЕНО: Звуки слышны лучше на расстоянии
             panner.maxDistance = this.maxDistance;
-            panner.rolloffFactor = 1.2; // Более резкое затухание
+            panner.rolloffFactor = 0.8; // УМЕНЬШЕНО: Медленнее затухание для лучшей слышимости
             
             if (position) {
                 if ((panner as any).positionX) {
@@ -286,8 +305,6 @@ export class SoundManager {
         synthOsc.stop(now + 1.5);
         beepOsc.start(now + 0.5);
         beepOsc.stop(now + 0.8);
-        
-        console.log("[SoundManager] Intro sound played");
     }
     
     // Tank engine starting sound (when clicking play) - Realistic diesel engine
@@ -466,8 +483,6 @@ export class SoundManager {
         midOsc1.stop(now + duration);
         midOsc2.start(now + 0.8);
         midOsc2.stop(now + duration);
-        
-        console.log("[SoundManager] Diesel engine start sound played");
     }
     
     // ═══════════════════════════════════════════════════════════════════════
@@ -476,11 +491,9 @@ export class SoundManager {
     
     startEngine() {
         if (!this.audioContext || !this.masterGain) {
-            console.warn("[SoundManager] Cannot start engine: audio context not initialized");
             return;
         }
         if (this.engineRunning) {
-            console.log("[SoundManager] Engine already running");
             return;
         }
         
@@ -488,10 +501,8 @@ export class SoundManager {
         
         // Убеждаемся, что аудио контекст активен
         if (this.audioContext.state === 'suspended') {
-            this.audioContext.resume().then(() => {
-                console.log("[SoundManager] Audio context resumed");
-            }).catch(e => {
-                console.error("[SoundManager] Failed to resume audio context:", e);
+            this.audioContext.resume().catch(() => {
+                // Silent fail
             });
         }
         
@@ -638,16 +649,6 @@ export class SoundManager {
         (this.engineOscillator as any)._midGain2 = midGain2;
         (this.engineOscillator as any)._highGain = highGain;
         (this.engineOscillator as any)._compressionGain = compressionGain;
-        
-        console.log("[SoundManager] Realistic diesel engine started", {
-            engineVolume: this.engineVolume,
-            masterVolume: this.masterVolume,
-            bassGain1: bassGain1.gain.value,
-            mainGain: mainGain.gain.value,
-            engineGain: this.engineGain.gain.value,
-            audioContextState: this.audioContext.state,
-            engineRunning: this.engineRunning
-        });
     }
     
     stopEngine() {
@@ -963,7 +964,9 @@ export class SoundManager {
     // ═══════════════════════════════════════════════════════════════════════
     
     playShoot(cannonType: string = "standard", position?: Vector3, velocity?: Vector3) {
-        if (!this.audioContext || !this.masterGain) return;
+        if (!this.audioContext || !this.masterGain) {
+            return;
+        }
         this.resume();
         
         const now = this.audioContext.currentTime;

@@ -24,18 +24,76 @@ export class NetworkPlayerTank {
     private positionHistory: Array<{ time: number; position: Vector3; rotation: number }> = [];
     private readonly MAX_HISTORY_TIME = 1000; // 1 second of history
     
+    // Diagnostic logging
+    private _lastDiagnosticLog: number = 0;
+    
     constructor(scene: Scene, networkPlayer: NetworkPlayer) {
         this.scene = scene;
         this.playerId = networkPlayer.id;
         this.networkPlayer = networkPlayer;
+        
+        // Validate scene
+        if (!scene) {
+            console.error(`[NetworkPlayerTank] Cannot create tank: scene is null for player ${this.playerId}`);
+            throw new Error("Scene is required to create NetworkPlayerTank");
+        }
+        
+        // Validate network player
+        if (!networkPlayer || !networkPlayer.position) {
+            console.error(`[NetworkPlayerTank] Cannot create tank: invalid networkPlayer for ${this.playerId}`);
+            throw new Error("Valid networkPlayer with position is required");
+        }
         
         // Create visuals (similar to TankController)
         this.chassis = this.createChassis();
         this.turret = this.createTurret();
         this.barrel = this.createBarrel();
         
-        // Set initial position
+        // КРИТИЧНО: Убеждаемся, что все меши добавлены в сцену и видимы
+        this.ensureMeshesInScene();
+        
+        // КРИТИЧНО: Устанавливаем начальную позицию ПЕРЕД вызовом updateVisuals
+        // Это гарантирует, что танк появится в правильной позиции сразу
+        if (networkPlayer.position) {
+            this.chassis.position.copyFrom(networkPlayer.position);
+            console.log(`[NetworkPlayerTank] ✅ Initial position set: (${networkPlayer.position.x.toFixed(2)}, ${networkPlayer.position.y.toFixed(2)}, ${networkPlayer.position.z.toFixed(2)})`);
+        } else {
+            console.warn(`[NetworkPlayerTank] ⚠️ No initial position for ${this.playerId}, using (0, 2, 0)`);
+            this.chassis.position.set(0, 2, 0);
+        }
+        
+        // Set initial visuals (rotation, turret, etc.)
         this.updateVisuals();
+        
+        // ДИАГНОСТИКА: Проверяем финальное состояние
+        const finalPos = this.chassis.position;
+        const finalStatus = this.networkPlayer.status;
+        const finalVisible = this.chassis.isVisible && this.chassis.isEnabled();
+        const finalInScene = this.scene.meshes.includes(this.chassis);
+        console.log(`[NetworkPlayerTank] ✅ Tank created for ${this.playerId}: pos=(${finalPos.x.toFixed(2)}, ${finalPos.y.toFixed(2)}, ${finalPos.z.toFixed(2)}), status=${finalStatus}, visible=${finalVisible}, inScene=${finalInScene}`);
+    }
+    
+    /**
+     * Убедиться, что все меши добавлены в сцену и видимы
+     */
+    private ensureMeshesInScene(): void {
+        if (!this.scene) return;
+        
+        const meshes = [this.chassis, this.turret, this.barrel].filter(m => m !== null && m !== undefined);
+        
+        for (const mesh of meshes) {
+            if (!mesh) continue;
+            
+            // Убеждаемся, что меш видим
+            mesh.isVisible = true;
+            mesh.setEnabled(true);
+            
+            // Убеждаемся, что меш добавлен в сцену
+            if (!this.scene.meshes.includes(mesh)) {
+                this.scene.addMesh(mesh);
+                console.log(`[NetworkPlayerTank] ✅ Added mesh ${mesh.name} to scene for player ${this.playerId}`);
+            }
+        }
     }
     
     private createChassis(): Mesh {
@@ -130,11 +188,27 @@ export class NetworkPlayerTank {
     }
     
     update(deltaTime: number): void {
+        // ДИАГНОСТИКА: Проверяем что танк существует и валиден
+        if (!this.chassis || !this.networkPlayer) {
+            console.error(`[NetworkPlayerTank] ⚠️ Invalid tank state for ${this.playerId}: chassis=${!!this.chassis}, networkPlayer=${!!this.networkPlayer}`);
+            return;
+        }
+        
         const currentTime = Date.now();
         
         // Calculate time since last network update
         const timeSinceUpdate = currentTime - this.lastNetworkUpdateTime;
         const needsExtrapolation = timeSinceUpdate > 50; // More than 50ms since last update
+        
+        // ДИАГНОСТИКА: Логируем позицию и статус (только раз в секунду)
+        if (!this._lastDiagnosticLog || currentTime - this._lastDiagnosticLog > 1000) {
+            const pos = this.chassis.position;
+            const status = this.networkPlayer.status;
+            const visible = this.chassis.isVisible && this.chassis.isEnabled();
+            const inScene = this.scene.meshes.includes(this.chassis);
+            console.log(`[NetworkPlayerTank] 🔍 ${this.playerId}: pos=(${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}), status=${status}, visible=${visible}, inScene=${inScene}`);
+            this._lastDiagnosticLog = currentTime;
+        }
         
         // Store position history for lag compensation
         if (this.lastNetworkUpdateTime > 0) {
@@ -287,7 +361,16 @@ export class NetworkPlayerTank {
                 );
             }
         } else {
+            // Интерполяция завершена - устанавливаем позицию напрямую
             currentPos.copyFrom(targetPos);
+            
+            // ДИАГНОСТИКА: Проверяем что позиция действительно обновилась
+            const distance = Vector3.Distance(currentPos, targetPos);
+            if (distance > 0.1) {
+                console.warn(`[NetworkPlayerTank] ⚠️ Position mismatch for ${this.playerId}: current=(${currentPos.x.toFixed(2)}, ${currentPos.y.toFixed(2)}, ${currentPos.z.toFixed(2)}), target=(${targetPos.x.toFixed(2)}, ${targetPos.y.toFixed(2)}, ${targetPos.z.toFixed(2)}), distance=${distance.toFixed(2)})`);
+                // Принудительно устанавливаем позицию
+                currentPos.set(targetPos.x, targetPos.y, targetPos.z);
+            }
         }
         
         // Interpolate rotation with smoothstep
@@ -331,10 +414,37 @@ export class NetworkPlayerTank {
         
         // Update visibility based on status
         const isVisible = this.networkPlayer.status === "alive";
-        this.chassis.setEnabled(isVisible);
-        this.turret.setEnabled(isVisible);
-        this.barrel.setEnabled(isVisible);
+        
+        // КРИТИЧНО: Если статус не "alive", но танк должен быть виден, логируем
+        if (!isVisible) {
+            const now = Date.now();
+            if (!this._lastVisibilityWarning || now - this._lastVisibilityWarning > 1000) {
+                console.warn(`[NetworkPlayerTank] ⚠️ Tank ${this.playerId} will be hidden: status=${this.networkPlayer.status}, position=(${this.chassis.position.x.toFixed(1)}, ${this.chassis.position.y.toFixed(1)}, ${this.chassis.position.z.toFixed(1)})`);
+                this._lastVisibilityWarning = now;
+            }
+        }
+        
+        // КРИТИЧНО: Всегда устанавливаем видимость, даже если статус не "alive" (для отладки)
+        // В продакшене можно вернуть проверку статуса
+        const shouldBeVisible = isVisible || true; // ВРЕМЕННО: всегда видим для отладки
+        
+        this.chassis.setEnabled(shouldBeVisible);
+        this.turret.setEnabled(shouldBeVisible);
+        this.barrel.setEnabled(shouldBeVisible);
+        
+        // КРИТИЧНО: Также устанавливаем isVisible напрямую (setEnabled может не работать в некоторых случаях)
+        this.chassis.isVisible = shouldBeVisible;
+        this.turret.isVisible = shouldBeVisible;
+        this.barrel.isVisible = shouldBeVisible;
+        
+        // КРИТИЧНО: Убеждаемся, что меши в сцене
+        if (this.chassis && !this.scene.meshes.includes(this.chassis)) {
+            console.warn(`[NetworkPlayerTank] ⚠️ Tank ${this.playerId} chassis not in scene! Adding...`);
+            this.scene.addMesh(this.chassis);
+        }
     }
+    
+    private _lastVisibilityWarning: number = 0;
     
     /**
      * Smoothstep function for smooth interpolation (cubic)
@@ -349,6 +459,16 @@ export class NetworkPlayerTank {
         this.interpolationAlpha = 0;
         this.lastNetworkUpdateTime = Date.now();
         this.networkPlayer = networkPlayer;
+    }
+    
+    /**
+     * Mark that a network update was received.
+     * This resets interpolation and updates the timestamp so that
+     * dead reckoning/extrapolation works correctly.
+     */
+    public markNetworkUpdate(): void {
+        this.lastNetworkUpdateTime = Date.now();
+        this.interpolationAlpha = 0; // Reset interpolation to start fresh
     }
     
     dispose(): void {

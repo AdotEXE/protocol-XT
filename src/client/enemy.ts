@@ -310,12 +310,34 @@ export class EnemyTurret {
             const target = this.target;
             const damage = this.damage;
             const effects = this.effectsManager;
+            // Минимальная скорость снаряда для нанесения урона (м/с)
+            const MIN_DAMAGE_SPEED = 5.0;
+            const MIN_DAMAGE_SPEED_SQ = MIN_DAMAGE_SPEED * MIN_DAMAGE_SPEED;
             
             const checkHit = () => {
                 if (bullet.isDisposed()) return;
                 if (!target || !target.isAlive || !target.chassis || target.chassis.isDisposed()) {
                     bullet.dispose();
                     return;
+                }
+                
+                // КРИТИЧНО: Проверяем скорость снаряда перед нанесением урона
+                // Если снаряд лежит на земле (низкая скорость) - он НЕ взрывается и не наносит урон
+                const velocity = body.getLinearVelocity();
+                const speedSq = velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z;
+                if (speedSq < MIN_DAMAGE_SPEED_SQ) {
+                    // Снаряд почти остановился - удаляем его без урона
+                    if (!bullet.metadata) bullet.metadata = {};
+                    if (!bullet.metadata._lowSpeedStartTime) {
+                        bullet.metadata._lowSpeedStartTime = Date.now();
+                    }
+                    // Если снаряд лежит более 2 секунд - удаляем
+                    if (Date.now() - bullet.metadata._lowSpeedStartTime > 2000) {
+                        bullet.dispose();
+                    }
+                    return;
+                } else {
+                    if (bullet.metadata) bullet.metadata._lowSpeedStartTime = null;
                 }
                 
                 const bulletPos = bullet.absolutePosition;

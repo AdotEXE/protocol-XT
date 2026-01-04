@@ -9,7 +9,8 @@ import type { ClientMessage, ServerMessage } from "./messages";
 
 // Configuration flag - set to true to enable binary serialization
 // Uses custom binary format with quantization (no external dependencies)
-const USE_BINARY_SERIALIZATION = true;
+// TEMPORARILY DISABLED: Custom binary format has deserialization issues
+const USE_BINARY_SERIALIZATION = false;
 
 /**
  * Convert message to plain object with Vector3 handling
@@ -226,20 +227,58 @@ export function serializeMessage(message: ClientMessage | ServerMessage): string
 }
 
 /**
+ * Check if data is binary (Buffer, Uint8Array, or ArrayBuffer)
+ */
+function isBinaryData(data: any): data is Uint8Array | ArrayBuffer {
+    // Check for Node.js Buffer first (it extends Uint8Array but instanceof may fail across realms)
+    if (typeof Buffer !== 'undefined' && Buffer.isBuffer(data)) {
+        return true;
+    }
+    // Check for ArrayBuffer
+    if (data instanceof ArrayBuffer) {
+        return true;
+    }
+    // Check for Uint8Array (and other typed arrays)
+    if (data instanceof Uint8Array) {
+        return true;
+    }
+    // Duck typing fallback: check for buffer-like properties
+    if (data && typeof data === 'object' && typeof data.byteLength === 'number' && 
+        (data.buffer instanceof ArrayBuffer || ArrayBuffer.isView(data))) {
+        return true;
+    }
+    return false;
+}
+
+/**
  * Deserialize message from string (JSON) or ArrayBuffer/Uint8Array (Binary)
  */
 export function deserializeMessage<T extends ClientMessage | ServerMessage>(data: string | ArrayBuffer | Uint8Array): T {
     if (USE_BINARY_SERIALIZATION) {
         // Handle binary data
         let buffer: ArrayBuffer;
-        if (data instanceof Uint8Array) {
-            buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
-        } else if (data instanceof ArrayBuffer) {
-            buffer = data;
-        } else {
+        
+        // Use our robust binary detection
+        if (isBinaryData(data)) {
+            // Handle Node.js Buffer and Uint8Array
+            if (typeof Buffer !== 'undefined' && Buffer.isBuffer(data)) {
+                // Node.js Buffer - convert to ArrayBuffer
+                buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+            } else if (data instanceof Uint8Array) {
+                buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+            } else if (data instanceof ArrayBuffer) {
+                buffer = data;
+            } else {
+                // Duck typed buffer-like object
+                const view = data as Uint8Array;
+                buffer = view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer;
+            }
+        } else if (typeof data === 'string') {
             // Fallback to JSON if string received
-            const parsed = JSON.parse(data as string);
+            const parsed = JSON.parse(data);
             return plainObjectToMessage<T>(parsed);
+        } else {
+            throw new Error(`Unsupported data type for deserialization: ${typeof data}`);
         }
         
         const decoded = deserializeFromBinary(buffer);

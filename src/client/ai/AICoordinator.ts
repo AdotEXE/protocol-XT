@@ -48,10 +48,10 @@ export interface CoordinatorConfig {
  * Конфигурация по умолчанию
  */
 export const DEFAULT_COORDINATOR_CONFIG: CoordinatorConfig = {
-    updateInterval: 100, // NIGHTMARE: Ещё быстрее координация - 100мс!
-    maxSquadSize: 6, // NIGHTMARE: Больше ботов в отряде
-    coordinationRange: 200, // NIGHTMARE: Огромный радиус координации
-    flankDistance: 45 // NIGHTMARE: Более широкий фланг
+    updateInterval: 50, // EXTREME: -50% (было 100) - мгновенная координация!
+    maxSquadSize: 8, // EXTREME: +33% (было 6) - огромные отряды
+    coordinationRange: 350, // EXTREME: +75% (было 200) - глобальная координация!
+    flankDistance: 60 // EXTREME: +33% (было 45) - широкие фланговые охваты
 };
 
 /**
@@ -70,14 +70,14 @@ export class AICoordinator {
     private playerPosition: Vector3 = Vector3.Zero();
     private lastUpdateTime: number = 0;
     
-    // УЛУЧШЕНО: Синхронизация атак
+    // EXTREME: Мгновенная синхронизация атак
     private synchronizedAttackTimer = 0;
-    private readonly SYNC_ATTACK_WINDOW = 300; // МАКСИМАЛЬНО: Уменьшено с 500 до 300мс для более быстрой синхронизации
+    private readonly SYNC_ATTACK_WINDOW = 150; // EXTREME: -50% (было 300) - молниеносная синхронизация!
     private pendingAttackSquad: string | null = null;
     
-    // УЛУЧШЕНО: Коммуникация между ботами
+    // EXTREME: Улучшенная коммуникация между ботами
     private botMessages: Map<string, { type: string, data: any, timestamp: number }> = new Map();
-    private readonly MESSAGE_TTL = 5000; // Сообщения живут 5 секунд
+    private readonly MESSAGE_TTL = 10000; // EXTREME: +100% (было 5000) - дольше помнят сообщения
     
     constructor(config: Partial<CoordinatorConfig> = {}) {
         this.config = { ...DEFAULT_COORDINATOR_CONFIG, ...config };
@@ -292,11 +292,11 @@ export class AICoordinator {
             const averagePosition = this.getAveragePosition(members);
             const distanceToPlayer = Vector3.Distance(averagePosition, this.playerPosition);
             
-            // NIGHTMARE: Всегда атакуем агрессивно!
-            if (distanceToPlayer < 120) { // NIGHTMARE: Атакуем с большей дистанции!
+            // EXTREME NIGHTMARE: Максимально агрессивные атаки!
+            if (distanceToPlayer < 200) { // EXTREME: +67% (было 120) - атакуем с огромной дистанции!
                 // Близко к игроку - координированная атака
                 this.assignAttackFormation(members);
-            } else if (distanceToPlayer < 200) { // NIGHTMARE: Сближаемся с очень большой дистанции!
+            } else if (distanceToPlayer < 350) { // EXTREME: +75% (было 200) - сближаемся издалека!
                 // Средняя дистанция - АГРЕССИВНОЕ сближение
                 this.assignApproachFormation(members);
             } else {
@@ -307,14 +307,14 @@ export class AICoordinator {
     }
     
     /**
-     * NIGHTMARE AI: Тактика "Клещи" - окружение игрока со всех сторон!
+     * EXTREME NIGHTMARE AI: Тактика "Клещи" - окружение игрока со всех сторон!
      */
     private executePincerMovement(bots: BotData[]): void {
         if (bots.length < 2) return;
         
-        // NIGHTMARE: Распределяем ботов по кругу вокруг игрока
+        // EXTREME: Распределяем ботов по кругу вокруг игрока - ближе и плотнее!
         const angleStep = (Math.PI * 2) / bots.length;
-        const baseRadius = 35; // Радиус окружения
+        const baseRadius = 25; // EXTREME: -29% (было 35) - ещё ближе окружение!
         
         for (let i = 0; i < bots.length; i++) {
             const bot = bots[i];

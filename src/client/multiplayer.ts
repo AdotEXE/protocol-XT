@@ -301,6 +301,7 @@ export class MultiplayerManager {
     private onGameInviteCallback: ((data: { fromPlayerId: string; fromPlayerName: string; roomId?: string; gameMode?: string; worldSeed?: number }) => void) | null = null;
     private onReconciliationCallback: ((data: { serverState?: PlayerData; predictedState?: PredictedState; unconfirmedStates?: PredictedState[]; positionDiff?: number; rotationDiff?: number; needsReapplication?: boolean }) => void) | null = null;
     private onRoomCreatedCallback: ((data: RoomCreatedData) => void) | null = null;
+    private onRoomJoinedCallback: ((data: RoomJoinedData) => void) | null = null;
     private onRoomListCallback: ((rooms: RoomData[]) => void) | null = null;
     private onErrorCallback: ((data: ErrorData) => void) | null = null;
     
@@ -559,6 +560,7 @@ export class MultiplayerManager {
         this.onQueueUpdateCallback = null;
         this.onMatchFoundCallback = null;
         this.onRoomCreatedCallback = null;
+        this.onRoomJoinedCallback = null;
         this.onRoomListCallback = null;
         this.onErrorCallback = null;
         
@@ -1102,10 +1104,7 @@ export class MultiplayerManager {
         this.roomId = data.roomId;
         this.gameMode = data.mode;
         this._isRoomCreator = data.isCreator ?? true; // По умолчанию создатель, если не указано
-        logger.log(`[Multiplayer] Room created: ${this.roomId}, isCreator: ${this._isRoomCreator}`);
-        // Выводим номер комнаты в консоль с форматированием
-        console.log(`%c🎮 НОМЕР КОМНАТЫ: ${this.roomId}`, 'color: #4ade80; font-size: 14px; font-weight: bold; padding: 4px; background: rgba(74, 222, 128, 0.1); border-radius: 4px;');
-        console.log(`%cРежим: ${data.mode?.toUpperCase() || 'UNKNOWN'}`, 'color: #a78bfa; font-size: 12px;');
+        logger.log(`[Multiplayer] Room created: ${this.roomId}, mode: ${data.mode}`);
         if (this.onRoomCreatedCallback) {
             this.onRoomCreatedCallback(data);
         }
@@ -1133,10 +1132,12 @@ export class MultiplayerManager {
         
         logger.log(`[Multiplayer] Joined room: ${this.roomId}, seed: ${data.worldSeed}, isCreator: ${this._isRoomCreator}, isActive: ${this._roomIsActive}`);
         // Выводим номер комнаты в консоль с форматированием
-        const statusText = this._roomIsActive ? "ИГРА ИДЕТ" : "ОЖИДАНИЕ";
-        const statusColor = this._roomIsActive ? "#ef4444" : "#4ade80";
-        console.log(`%c🔗 ПОДКЛЮЧЕН К КОМНАТЕ: ${this.roomId}`, 'color: #4ade80; font-size: 14px; font-weight: bold; padding: 4px; background: rgba(74, 222, 128, 0.1); border-radius: 4px;');
-        console.log(`%cРежим: ${data.mode?.toUpperCase() || 'UNKNOWN'} | Игроков: ${data.players?.length || 0} | Статус: ${statusText}`, `color: ${statusColor}; font-size: 12px;`);
+        logger.log(`[Multiplayer] Joined room: ${this.roomId}, players: ${data.players?.length || 0}, active: ${this._roomIsActive}`);
+        
+        // Вызываем callback для обработки ROOM_JOINED
+        if (this.onRoomJoinedCallback) {
+            this.onRoomJoinedCallback(data);
+        }
     }
     
     private handleRoomList(data: { rooms: RoomData[] }): void {
@@ -1367,6 +1368,7 @@ export class MultiplayerManager {
     
     /**
      * Process jitter buffer and apply updates in correct order
+     * Handles out-of-order packets, packet loss, and adaptive timing
      */
     private processJitterBuffer(currentTime: number): void {
         // Sort buffer if needed (only when necessary)
@@ -1400,11 +1402,55 @@ export class MultiplayerManager {
             readyEntries.sort((a, b) => a.sequence - b.sequence);
         }
         
+        // Detect and handle packet loss
+        if (readyEntries.length > 0 && this.lastProcessedSequence >= 0) {
+            const nextExpectedSequence = this.lastProcessedSequence + 1;
+            const oldestReadySequence = readyEntries[0]?.sequence ?? nextExpectedSequence;
+            
+            // If there's a gap in sequences (packet loss detected)
+            if (oldestReadySequence > nextExpectedSequence) {
+                const gapSize = oldestReadySequence - nextExpectedSequence;
+                
+                // If gap is small (1-3 packets), wait a bit more for late arrivals
+                if (gapSize <= 3 && validEntries.length > 0) {
+                    const waitTime = this.jitterBufferTargetDelay + (gapSize * 16); // Wait extra 16ms per missing packet
+                    const oldestReady = readyEntries[0];
+                    if (oldestReady && (currentTime - oldestReady.timestamp) < waitTime) {
+                        // Don't process yet, wait for potential late packet
+                        return;
+                    }
+                }
+                
+                // Gap too large or waited long enough - skip missing packets
+                if (gapSize > 0) {
+                    logger.warn(`[Multiplayer] Packet loss detected: ${gapSize} packets skipped (seq ${nextExpectedSequence} to ${oldestReadySequence - 1})`);
+                    
+                    // Track packet loss for metrics
+                    const totalPackets = this.networkMetrics.pingHistory.length + gapSize;
+                    this.networkMetrics.packetLoss = gapSize / Math.max(1, totalPackets);
+                    
+                    // Increase jitter buffer delay on packet loss
+                    this.jitterBufferTargetDelay = Math.min(200, this.jitterBufferTargetDelay + 10);
+                }
+            }
+        }
+        
         // Process ready entries in sequence order
         for (const entry of readyEntries) {
             // Skip if we already processed this sequence or newer
             if (entry.sequence <= this.lastProcessedSequence && entry.sequence >= 0) {
                 continue;
+            }
+            
+            // Handle out-of-order: if this packet is much newer than expected, 
+            // it means we missed some packets - update lastProcessedSequence accordingly
+            const expectedNext = this.lastProcessedSequence + 1;
+            if (entry.sequence > expectedNext && this.lastProcessedSequence >= 0) {
+                // Update packet loss metric
+                const missed = entry.sequence - expectedNext;
+                if (missed > 0) {
+                    // Already logged above, just update sequence
+                }
             }
             
             this.lastProcessedSequence = Math.max(this.lastProcessedSequence, entry.sequence);
@@ -1413,6 +1459,15 @@ export class MultiplayerManager {
         
         // Update buffer with remaining valid entries
         this.jitterBuffer = validEntries.filter(entry => !readyEntries.includes(entry));
+        
+        // Adaptive delay recovery: gradually reduce delay if no packet loss
+        if (readyEntries.length > 0 && this.networkMetrics.packetLoss < 0.01) {
+            // Slowly reduce delay back towards base
+            const baseDelay = 30 + (this.networkMetrics.jitter * 2);
+            if (this.jitterBufferTargetDelay > baseDelay) {
+                this.jitterBufferTargetDelay = Math.max(baseDelay, this.jitterBufferTargetDelay - 1);
+            }
+        }
     }
     
     /**
@@ -1421,8 +1476,13 @@ export class MultiplayerManager {
     private applyPlayerStates(statesData: PlayerStatesData): void {
         // Фильтрация аномальных/подозрительных состояний игроков (простая защита от мусорных пакетов)
         const rawPlayers = statesData.players || [];
+        
+        // ДИАГНОСТИКА: Логируем количество игроков до фильтрации
+        logger.log(`[Multiplayer] applyPlayerStates: Received ${rawPlayers.length} players before filtering`);
+        
         const players = rawPlayers.filter((p) => {
             if (!p || !p.position) {
+                logger.warn(`[Multiplayer] Dropping player state: missing player or position for ${p?.id || 'unknown'}`);
                 return false;
             }
             const { x, y, z } = p.position;
@@ -1439,8 +1499,33 @@ export class MultiplayerManager {
             }
             return true;
         });
+        
+        // ДИАГНОСТИКА: Логируем количество игроков после фильтрации
+        logger.log(`[Multiplayer] applyPlayerStates: ${players.length} players after filtering (dropped ${rawPlayers.length - players.length})`);
+        
         const gameTime = statesData.gameTime || 0;
         const serverSequence = statesData.serverSequence;
+        
+        // КРИТИЧНО: Очистка networkPlayers от локального игрока и игроков, которых нет в списке
+        const validPlayerIds = new Set(players.map(p => p.id).filter(id => id !== this.playerId));
+        const playersToRemove: string[] = [];
+        
+        this.networkPlayers.forEach((np, id) => {
+            // Удаляем локального игрока, если он попал в networkPlayers
+            if (id === this.playerId) {
+                playersToRemove.push(id);
+                logger.warn(`[Multiplayer] ❌ Found local player (${id}) in networkPlayers! Removing...`);
+            }
+            // Удаляем игроков, которых нет в текущем списке (возможно, они отключились)
+            // НО: не удаляем сразу, так как они могут быть в процессе отключения
+            // Вместо этого просто не обновляем их
+        });
+        
+        // Удаляем найденных игроков
+        playersToRemove.forEach(id => {
+            this.networkPlayers.delete(id);
+            logger.log(`[Multiplayer] ✅ Removed invalid player ${id} from networkPlayers`);
+        });
         
         // Find local player for reconciliation
         let localPlayerData: PlayerData | null = null;
@@ -1451,7 +1536,9 @@ export class MultiplayerManager {
                 if (serverSequence !== undefined) {
                     this.reconcileServerState(serverSequence, localPlayerData);
                 }
+                // КРИТИЧНО: НЕ добавляем локального игрока в networkPlayers
             } else {
+                // Обновляем или добавляем сетевого игрока
                 this.updateNetworkPlayer(playerData, gameTime);
             }
         }
@@ -1462,14 +1549,28 @@ export class MultiplayerManager {
         }
         
         // ИСПРАВЛЕНИЕ: Сохраняем lastPlayerStates для использования в HUD
+        // КРИТИЧНО: Сохраняем ДО вызова callback, чтобы данные были доступны даже если callback не настроен
+        // КРИТИЧНО: Сохраняем ВСЕХ игроков, включая локального, для правильного отображения в HUD
         (this as any).lastPlayerStates = players;
         
-        logger.log(`[Multiplayer] applyPlayerStates: Processing ${players.length} players, callback set: ${!!this.onPlayerStatesCallback}`);
+        // ДИАГНОСТИКА: Логируем детальную информацию о сохраненных игроках
+        const localPlayerInList = players.find(p => p.id === this.playerId);
+        const networkPlayersInList = players.filter(p => p.id !== this.playerId);
+        logger.log(`[Multiplayer] applyPlayerStates: Saved ${players.length} players to lastPlayerStates:`);
+        logger.log(`  - Local player: ${localPlayerInList ? `YES (${localPlayerInList.name || localPlayerInList.id})` : 'NO'}`);
+        logger.log(`  - Network players: ${networkPlayersInList.length} (${networkPlayersInList.map(p => `${p.name || p.id}(${p.id})`).join(', ')})`);
+        logger.log(`[Multiplayer] applyPlayerStates: Processing ${players.length} players, callback set: ${!!this.onPlayerStatesCallback}, saved to lastPlayerStates`);
+        
         if (this.onPlayerStatesCallback) {
             logger.log(`[Multiplayer] Calling onPlayerStatesCallback with ${players.length} players`);
-            this.onPlayerStatesCallback(players);
+            try {
+                this.onPlayerStatesCallback(players);
+            } catch (error) {
+                logger.error(`[Multiplayer] Error in onPlayerStatesCallback:`, error);
+            }
         } else {
-            logger.warn(`[Multiplayer] onPlayerStatesCallback is not set!`);
+            logger.warn(`[Multiplayer] ⚠️ onPlayerStatesCallback is not set! Players data saved to lastPlayerStates but tanks won't be created.`);
+            // КРИТИЧНО: Даже если callback не настроен, данные сохранены в lastPlayerStates для HUD
         }
     }
     
@@ -1546,10 +1647,19 @@ export class MultiplayerManager {
             return;
         }
         
-        // FIX: Защита от добавления локального игрока в networkPlayers
+        // КРИТИЧНО: Защита от добавления локального игрока в networkPlayers
         // Это предотвращает создание сетевого танка для локального игрока (дублирование)
         if (playerData.id === this.playerId) {
-            logger.warn("[Multiplayer] Attempted to add local player to networkPlayers, skipping");
+            logger.warn(`[Multiplayer] ❌ Attempted to add local player (${this.playerId}) to networkPlayers, skipping`);
+            console.warn(`%c[Multiplayer] ❌ Попытка добавить локального игрока в networkPlayers!`, 'color: #ef4444; font-weight: bold;');
+            return;
+        }
+        
+        // КРИТИЧНО: Проверяем, не является ли это дубликатом
+        if (this.networkPlayers.has(playerData.id)) {
+            logger.log(`[Multiplayer] Player ${playerData.id} already in networkPlayers, updating instead of adding`);
+            // Обновляем существующего игрока вместо создания дубликата
+            this.updateNetworkPlayer(playerData, 0);
             return;
         }
         
@@ -1585,7 +1695,7 @@ export class MultiplayerManager {
             aimPitch: aimPitch,
             health: health,
             maxHealth: maxHealth,
-            status: playerData.status || "alive",
+            status: playerData.status || "alive", // КРИТИЧНО: По умолчанию "alive"
             team: playerData.team,
             // Tank customization
             chassisType: playerData.chassisType,
@@ -1599,7 +1709,7 @@ export class MultiplayerManager {
         };
         
         this.networkPlayers.set(playerData.id, networkPlayer);
-        logger.log(`[Multiplayer] ✅ Network player added: ${playerData.id} (${playerData.name || 'Unknown'}) at (${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)})`);
+        logger.log(`[Multiplayer] ✅ Network player added: ${playerData.id} (${playerData.name || 'Unknown'}) at (${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)}), status=${networkPlayer.status}`);
     }
     
     private updateNetworkPlayer(playerData: PlayerData, _gameTime: number): void {
@@ -1655,7 +1765,15 @@ export class MultiplayerManager {
         networkPlayer.aimPitch = playerData.aimPitch;
         networkPlayer.health = playerData.health;
         networkPlayer.maxHealth = playerData.maxHealth;
-        networkPlayer.status = playerData.status || networkPlayer.status;
+        // КРИТИЧНО: Обновляем статус, но если не указан, сохраняем текущий (не сбрасываем в undefined)
+        if (playerData.status !== undefined && playerData.status !== null) {
+            networkPlayer.status = playerData.status;
+        } else {
+            // Если статус не указан, используем "alive" по умолчанию (не скрываем танк)
+            if (!networkPlayer.status) {
+                networkPlayer.status = "alive";
+            }
+        }
         networkPlayer.team = playerData.team;
         
         // Update customization (only if changed)
@@ -1707,16 +1825,16 @@ export class MultiplayerManager {
     
     /**
      * Store predicted state for client-side prediction and reconciliation
+     * Called by TankController with actual position after applying input locally
      */
     private storePredictedState(sequence: number, input: PlayerInput): void {
-        // Note: Actual position/rotation will be stored by TankController after applying input
-        // This is just a placeholder - the actual state will be updated when we receive
-        // the local player's state from the game
+        // Create predicted state with placeholder values
+        // Position/rotation will be updated immediately by updatePredictedState()
         const predictedState: PredictedState = {
             sequence,
             timestamp: input.timestamp,
-            position: new Vector3(0, 0, 0), // Will be updated by TankController
-            rotation: 0, // Will be updated by TankController
+            position: this._lastKnownLocalPosition?.clone() || new Vector3(0, 0, 0),
+            rotation: this._lastKnownLocalRotation || 0,
             turretRotation: input.turretRotation,
             aimPitch: input.aimPitch,
             input
@@ -1727,6 +1845,10 @@ export class MultiplayerManager {
         // Clean up old states beyond maxHistorySize (batch cleanup for efficiency)
         this.cleanupOldPredictedStates();
     }
+    
+    // Track last known local player position for prediction
+    private _lastKnownLocalPosition: Vector3 | null = null;
+    private _lastKnownLocalRotation: number = 0;
     
     /**
      * Clean up old predicted states efficiently
@@ -1756,17 +1878,83 @@ export class MultiplayerManager {
      * @param position - Actual position after applying input
      * @param rotation - Actual rotation after applying input
      */
+    /**
+     * Update predicted state with actual position after applying input locally
+     * Called by TankController immediately after applying input
+     */
     updatePredictedState(sequence: number, position: Vector3, rotation: number): void {
         const state = this.predictionState.predictedStates.get(sequence);
         if (state) {
             state.position = position.clone();
             state.rotation = rotation;
         }
+        
+        // Also update last known position for next prediction
+        this._lastKnownLocalPosition = position.clone();
+        this._lastKnownLocalRotation = rotation;
+    }
+    
+    /**
+     * Set current local player position (called before sending input)
+     * Ensures predicted states have accurate starting positions
+     */
+    setLocalPlayerPosition(position: Vector3, rotation: number): void {
+        this._lastKnownLocalPosition = position.clone();
+        this._lastKnownLocalRotation = rotation;
+    }
+    
+    /**
+     * Get all unconfirmed inputs that need to be re-applied after server reconciliation
+     * Returns inputs in order (oldest first)
+     */
+    getUnconfirmedInputs(): PlayerInput[] {
+        const confirmedSeq = this.predictionState.confirmedSequence;
+        const unconfirmedInputs: PlayerInput[] = [];
+        
+        // Get all sequences after confirmed
+        const sequences = Array.from(this.predictionState.predictedStates.keys())
+            .filter(seq => seq > confirmedSeq)
+            .sort((a, b) => a - b);
+        
+        for (const seq of sequences) {
+            const state = this.predictionState.predictedStates.get(seq);
+            if (state && state.input) {
+                unconfirmedInputs.push(state.input);
+            }
+        }
+        
+        return unconfirmedInputs;
+    }
+    
+    /**
+     * Get the last confirmed server state for reconciliation
+     */
+    getLastServerState(): PlayerData | null {
+        return this.predictionState.lastServerState;
+    }
+    
+    /**
+     * Check if reconciliation is needed (position difference exceeds threshold)
+     */
+    needsReconciliation(currentPosition: Vector3, threshold: number = 0.5): boolean {
+        const serverState = this.predictionState.lastServerState;
+        if (!serverState) return false;
+        
+        const diff = Vector3.Distance(currentPosition, serverState.position);
+        return diff > threshold;
     }
     
     /**
      * Reconcile server state with client predictions
      * Implements proper rollback and re-application of inputs
+     * 
+     * Algorithm:
+     * 1. Find the predicted state for the server's confirmed sequence
+     * 2. Compare server position with predicted position
+     * 3. If difference exceeds threshold:
+     *    - Reset local position to server position
+     *    - Re-apply all unconfirmed inputs to get new predicted position
+     * 4. Clean up confirmed states from history
      */
     private reconcileServerState(serverSequence: number | undefined, serverPlayerData: PlayerData | null): void {
         if (serverSequence === undefined || serverSequence < 0 || !serverPlayerData) {
@@ -1774,38 +1962,47 @@ export class MultiplayerManager {
             return;
         }
         
+        // Skip if this is an old/duplicate update
+        if (serverSequence <= this.predictionState.confirmedSequence) {
+            return;
+        }
+        
         // Check if we need to reconcile (server state differs from our prediction)
         const predictedState = this.predictionState.predictedStates.get(serverSequence);
+        let needsReapplication = false;
+        let posDiff = 0;
+        let rotationDiff = 0;
+        
         if (predictedState) {
             const serverPos = serverPlayerData.position;
             const predictedPos = predictedState.position;
             
             // Calculate position difference
-            const posDiff = Vector3.Distance(serverPos, predictedPos);
-            const rotationDiff = Math.abs((serverPlayerData.rotation || 0) - predictedState.rotation);
+            posDiff = Vector3.Distance(serverPos, predictedPos);
+            rotationDiff = Math.abs((serverPlayerData.rotation || 0) - predictedState.rotation);
+            
+            // Normalize rotation difference to [-PI, PI]
+            while (rotationDiff > Math.PI) rotationDiff -= Math.PI * 2;
+            rotationDiff = Math.abs(rotationDiff);
             
             // If difference is significant, we need to reconcile
             const POSITION_THRESHOLD = 0.5; // 0.5 units
             const ROTATION_THRESHOLD = 0.1; // ~6 degrees
             
-            if (posDiff > POSITION_THRESHOLD || rotationDiff > ROTATION_THRESHOLD) {
-                logger.log(`[Multiplayer] Reconciliation needed: posDiff=${posDiff.toFixed(2)}, rotDiff=${rotationDiff.toFixed(2)}`);
-                
-                // Trigger reconciliation callback if available
-                if (this.onReconciliationCallback) {
-                    this.onReconciliationCallback({
-                        serverState: serverPlayerData,
-                        predictedState: predictedState,
-                        positionDiff: posDiff,
-                        rotationDiff: rotationDiff
-                    });
-                }
+            needsReapplication = posDiff > POSITION_THRESHOLD || rotationDiff > ROTATION_THRESHOLD;
+            
+            if (needsReapplication) {
+                logger.log(`[Multiplayer] Reconciliation needed: seq=${serverSequence}, posDiff=${posDiff.toFixed(2)}, rotDiff=${rotationDiff.toFixed(2)}`);
             }
         }
         
-        // Update confirmed sequence
+        // Update confirmed sequence and last server state
         this.predictionState.confirmedSequence = serverSequence;
         this.predictionState.lastServerState = serverPlayerData;
+        
+        // Update last known position from server
+        this._lastKnownLocalPosition = serverPlayerData.position.clone();
+        this._lastKnownLocalRotation = serverPlayerData.rotation || 0;
         
         // Remove confirmed states from prediction history (batch deletion for efficiency)
         const sequencesToRemove: number[] = [];
@@ -1823,35 +2020,38 @@ export class MultiplayerManager {
         // Clean up any remaining old states
         this.cleanupOldPredictedStates();
         
-        // Re-apply unconfirmed inputs after server state
         // Get all unconfirmed sequences (after serverSequence)
         const unconfirmedSequences = Array.from(this.predictionState.predictedStates.keys())
             .filter(seq => seq > serverSequence)
             .sort((a, b) => a - b);
         
-        // If we have unconfirmed states, they need to be re-applied
-        // This will be handled by the game's TankController through reconciliation callback
-        if (unconfirmedSequences.length > 0 && this.onReconciliationCallback) {
-            const unconfirmedStates = unconfirmedSequences.map(seq => 
-                this.predictionState.predictedStates.get(seq)
-            ).filter(state => state !== undefined);
-            
-            if (unconfirmedStates.length > 0) {
+        // Collect unconfirmed inputs for re-application
+        const unconfirmedInputs: PlayerInput[] = [];
+        const unconfirmedStates: PredictedState[] = [];
+        
+        for (const seq of unconfirmedSequences) {
+            const state = this.predictionState.predictedStates.get(seq);
+            if (state) {
+                unconfirmedStates.push(state);
+                if (state.input) {
+                    unconfirmedInputs.push(state.input);
+                }
+            }
+        }
+        
+        // Always trigger callback if we have significant difference or unconfirmed states
+        if (this.onReconciliationCallback) {
+            if (needsReapplication || unconfirmedStates.length > 0) {
                 this.onReconciliationCallback({
                     serverState: serverPlayerData,
-                    unconfirmedStates: unconfirmedStates as PredictedState[],
-                    needsReapplication: true
+                    predictedState: predictedState,
+                    unconfirmedStates: unconfirmedStates.length > 0 ? unconfirmedStates : undefined,
+                    positionDiff: posDiff,
+                    rotationDiff: rotationDiff,
+                    needsReapplication: needsReapplication
                 });
             }
         }
-    }
-    
-    /**
-     * Get the last confirmed server state (for reconciliation)
-     * @returns Last confirmed server state or null if not available
-     */
-    getLastServerState(): PlayerData | null {
-        return this.predictionState.lastServerState;
     }
     
     /**
@@ -2244,6 +2444,10 @@ export class MultiplayerManager {
     
     onRoomCreated(callback: (data: RoomCreatedData) => void): void {
         this.onRoomCreatedCallback = callback;
+    }
+    
+    onRoomJoined(callback: (data: RoomJoinedData) => void): void {
+        this.onRoomJoinedCallback = callback;
     }
     
     onRoomList(callback: (rooms: RoomData[]) => void): void {

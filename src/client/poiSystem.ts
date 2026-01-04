@@ -1407,7 +1407,8 @@ export class POISystem {
             poiIds.push(id);
             createdPOIs.push(poi);
             
-            console.log(`[POI] Generated ${poi.type} at (${Math.round(x)}, ${Math.round(z)}) in ${biome}`);
+            // Отключено для снижения спама в консоли
+            // console.log(`[POI] Generated ${poi.type} at (${Math.round(x)}, ${Math.round(z)}) in ${biome}`);
         }
         
         this.chunkPOIs.set(key, poiIds);

@@ -418,6 +418,12 @@ export class PostProcessingManager {
         if (this.defaultPipeline?.imageProcessing) {
             this.defaultPipeline.imageProcessing.exposure = 1.0;
             this.defaultPipeline.imageProcessing.contrast = 1.0;
+            // Убеждаемся, что яркость не затемнена
+            this.defaultPipeline.imageProcessing.brightness = 0;
+            // Отключаем виньетку если она затемняет экран
+            if (this.defaultPipeline.imageProcessing.vignetteEnabled) {
+                this.defaultPipeline.imageProcessing.vignetteWeight = Math.min(0.3, this.config.vignetteWeight);
+            }
         }
     }
     

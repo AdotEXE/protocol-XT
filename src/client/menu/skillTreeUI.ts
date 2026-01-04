@@ -65,6 +65,13 @@ let selectedCategory: "combat" | "defense" | "utility" | null = null;
 // Глобальное состояние выбранной ветки (для вкладок)
 let selectedBranch: string | null = "attack"; // По умолчанию выбрана вкладка "Атака"
 
+// === СОХРАНЕНИЕ ПОЗИЦИИ КАМЕРЫ ===
+// Сохранённая позиция скролла для восстановления при повторном открытии
+let savedSkillTreeScrollX: number | null = null;
+let savedSkillTreeScrollY: number | null = null;
+// Флаг первого открытия (для позиционирования на начало дерева)
+let isFirstSkillTreeOpen = true;
+
 export function updateSkillTreeDisplay(
     stats: PlayerStats,
     callbacks: SkillTreeCallbacks
@@ -204,10 +211,18 @@ export function updateSkillTreeDisplay(
     console.log(`[Skills] Tree size: ${treeWidth}x${treeHeight}, calculated positions: ${calculatedPositions.size}`);
     skillTree.innerHTML = "";
 
+    // === ВОССТАНОВЛЕНИЕ/ИНИЦИАЛИЗАЦИЯ ПОЗИЦИИ КАМЕРЫ ===
     if (wrapper) {
-        // Прокручиваем к началу первого дерева
-        wrapper.scrollLeft = 0;
-        wrapper.scrollTop = 0;
+        if (savedSkillTreeScrollX !== null && savedSkillTreeScrollY !== null) {
+            // Восстанавливаем сохранённую позицию при повторном открытии
+            wrapper.scrollLeft = savedSkillTreeScrollX;
+            wrapper.scrollTop = savedSkillTreeScrollY;
+            console.log(`[Skills] Restored camera position: ${savedSkillTreeScrollX}, ${savedSkillTreeScrollY}`);
+        } else if (isFirstSkillTreeOpen) {
+            // При первом открытии - позиционируем на выбранную ветку (attack по умолчанию)
+            // Позиция будет установлена после создания узлов (см. ниже)
+            isFirstSkillTreeOpen = false;
+        }
     }
 
     // Функция для определения категории узла (определяем до использования)
@@ -223,6 +238,26 @@ export function updateSkillTreeDisplay(
             return getNodeCategory(node.parentId);
         }
         return null;
+    };
+
+    // Функция для получения цвета ветки узла (branchColor)
+    const getNodeBranchColor = (nodeId: string, depth: number = 0): string => {
+        if (depth > 50) return "#0f0"; // Защита от бесконечной рекурсии
+        
+        const node = SKILL_TREE_NODES.find(n => n.id === nodeId);
+        if (!node) return "#0f0"; // Зелёный по умолчанию
+        
+        // Если у узла есть branchColor - возвращаем его
+        if (node.branchColor) {
+            return node.branchColor;
+        }
+        
+        // Иначе ищем у родителя
+        if (node.parentId) {
+            return getNodeBranchColor(node.parentId, depth + 1);
+        }
+        
+        return "#0f0"; // Зелёный по умолчанию
     };
 
     // Функция для проверки, принадлежит ли узел к категории (включая дочерние узлы)
@@ -309,9 +344,8 @@ export function updateSkillTreeDisplay(
             }
         }
 
-        // Определяем цвет линии по категории
-        const category = getNodeCategory(edge.to) || getNodeCategory(edge.from);
-        const lineColor = category ? CATEGORY_COLORS[category] : "#0f0";
+        // Определяем цвет линии по ветке (используем цвет ветки целевого узла)
+        const lineColor = getNodeBranchColor(edge.to);
 
         // Линии с диагональным изгибом под 45° посередине
         const dx = to.centerX - from.centerX;
@@ -640,6 +674,33 @@ export function updateSkillTreeDisplay(
             }
         }
     }
+    
+    // === ПОЗИЦИОНИРОВАНИЕ КАМЕРЫ ПРИ ПЕРВОМ ОТКРЫТИИ ===
+    // Если это первое открытие и нет сохранённой позиции - центрируем на выбранной ветке
+    if (wrapper && savedSkillTreeScrollX === null && savedSkillTreeScrollY === null) {
+        // Используем requestAnimationFrame для гарантии что DOM обновлён
+        requestAnimationFrame(() => {
+            // Находим позицию хаба выбранной ветки (по умолчанию attack)
+            const targetBranch = selectedBranch || "attack";
+            const hubId = `${targetBranch}Hub`;
+            const hubPos = nodePositions.get(hubId);
+            
+            if (hubPos && wrapper) {
+                // Центрируем view на хабе выбранной ветки
+                const targetX = Math.max(0, hubPos.centerX - wrapper.clientWidth / 2);
+                const targetY = Math.max(0, hubPos.centerY - wrapper.clientHeight / 2);
+                
+                wrapper.scrollLeft = targetX;
+                wrapper.scrollTop = targetY;
+                
+                // Сохраняем начальную позицию
+                savedSkillTreeScrollX = targetX;
+                savedSkillTreeScrollY = targetY;
+                
+                console.log(`[Skills] Initial camera positioned on ${hubId}: ${targetX}, ${targetY}`);
+            }
+        });
+    }
 }
 
 /**
@@ -901,6 +962,30 @@ export function setupSkillTreeNavigation(wrapper: HTMLElement | null): void {
     wrapper.addEventListener("mouseleave", stopDrag);
     wrapper.addEventListener("mouseup", stopDrag);
     window.addEventListener("mouseup", stopDrag);
+}
+
+/**
+ * Сохраняет текущую позицию камеры (скролла) в меню навыков.
+ * Вызывать при закрытии панели навыков.
+ */
+export function saveSkillTreeCameraPosition(): void {
+    const wrapper = document.querySelector(".skill-tree-wrapper") as HTMLElement | null;
+    if (wrapper) {
+        savedSkillTreeScrollX = wrapper.scrollLeft;
+        savedSkillTreeScrollY = wrapper.scrollTop;
+        console.log(`[Skills] Camera position saved: ${savedSkillTreeScrollX}, ${savedSkillTreeScrollY}`);
+    }
+}
+
+/**
+ * Сбрасывает сохранённую позицию камеры.
+ * Вызывать если нужно вернуть камеру в начало при следующем открытии.
+ */
+export function resetSkillTreeCameraPosition(): void {
+    savedSkillTreeScrollX = null;
+    savedSkillTreeScrollY = null;
+    isFirstSkillTreeOpen = true;
+    console.log("[Skills] Camera position reset");
 }
 
 

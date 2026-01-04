@@ -94,13 +94,13 @@ class LoggingSettings {
                     this.enabledCategories = new Map(Object.entries(settings.enabledCategories).map(([k, v]) => [k as LogCategory, v as boolean]));
                 }
             } else {
-                // По умолчанию: только INFO в development
-                this.level = isDevelopment ? LogLevel.INFO : LogLevel.WARN;
+                // По умолчанию: WARN для оптимальной производительности
+                this.level = LogLevel.WARN;
                 this.categories = new Set([LogCategory.GENERAL]);
             }
         } catch (e) {
             // Используем значения по умолчанию
-            this.level = isDevelopment ? LogLevel.INFO : LogLevel.WARN;
+            this.level = LogLevel.WARN;
         }
     }
 
