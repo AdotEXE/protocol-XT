@@ -73,25 +73,28 @@ import type { ScreenshotManager } from "./screenshotManager";
 import type { ScreenshotPanel } from "./screenshotPanel";
 import type { BattleRoyaleVisualizer } from "./battleRoyale";
 import type { CTFVisualizer } from "./ctfVisualizer";
-// Game modules
-import { 
-    GameGarage, 
-    GameConsumables, 
-    GameProjectile, 
-    GameVisibility, 
-    GamePersistence, 
-    GameLoaders,
-    GameCamera,
-    GameEnemies,
-    GameUI,
-    GamePhysics,
-    GameAudio,
-    GameStats,
-    GamePOI,
-    GameStatsOverlay,
-    GameMultiplayerCallbacks,
-    GameUpdate
-} from "./game/index";
+// Game modules - direct imports to avoid initialization order issues
+import { GameProjectile } from "./game/GameProjectile";
+import { GamePhysics, DEFAULT_PHYSICS_CONFIG } from "./game/GamePhysics";
+import type { PhysicsConfig } from "./game/GamePhysics";
+import { GameConsumables } from "./game/GameConsumables";
+import { GameVisibility } from "./game/GameVisibility";
+import { GamePersistence } from "./game/GamePersistence";
+import { GameLoaders } from "./game/GameLoaders";
+import { GamePOI } from "./game/GamePOI";
+import { GameAudio } from "./game/GameAudio";
+import { GameStats } from "./game/GameStats";
+import { GameStatsOverlay } from "./game/GameStatsOverlay";
+import { GameEvents } from "./game/GameEvents";
+import { GameCamera } from "./game/GameCamera";
+import type { GameCameraContext } from "./game/GameCamera";
+import { GameGarage } from "./game/GameGarage";
+import { GameEnemies } from "./game/GameEnemies";
+import { GameUpdate } from "./game/GameUpdate";
+import { GameUI } from "./game/GameUI";
+import { GameMultiplayer } from "./game/GameMultiplayer";
+import { GameSpectator } from "./game/GameSpectator";
+import { GameMultiplayerCallbacks } from "./game/GameMultiplayerCallbacks";
 
 export class Game {
     engine!: Engine; // Инициализируется в init()
