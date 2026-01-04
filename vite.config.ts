@@ -224,6 +224,12 @@ export default defineConfig({
           
           // Собственные модули - ОПТИМИЗИРОВАННОЕ РАЗДЕЛЕНИЕ
           if (id.includes('/src/client/')) {
+            // КРИТИЧНО: Game modules должны быть в game-core chunk вместе с game.ts
+            // для правильного порядка инициализации
+            if (id.includes('/src/client/game/')) {
+              return 'game-core';
+            }
+            
             // Основной код игры + UI
             if (id.includes('/game.ts') || id.includes('/tankController.ts') || id.includes('/enemyTank.ts') ||
                 id.includes('/menu.ts') || id.includes('/garage.ts') || id.includes('/hud.ts') || 
