@@ -896,14 +896,31 @@ export class GameEnemies {
         let attempts = 0;
         let pos: Vector3;
         
+        // Для карты "sand" используем границы карты вместо радиального спавна
+        const mapBounds = this.systems.currentMapType === "sand" 
+            ? getMapBoundsFromConfig("sand") 
+            : null;
+        
         do {
-            const angle = Math.random() * Math.PI * 2;
-            const distance = minDistance + Math.random() * (maxDistance - minDistance);
-            const spawnX = Math.cos(angle) * distance;
-            const spawnZ = Math.sin(angle) * distance;
+            let spawnX: number, spawnZ: number;
+            
+            if (mapBounds) {
+                // Для карты "sand" спавним внутри границ карты
+                spawnX = mapBounds.minX + Math.random() * (mapBounds.maxX - mapBounds.minX);
+                spawnZ = mapBounds.minZ + Math.random() * (mapBounds.maxZ - mapBounds.minZ);
+            } else {
+                // Для других карт используем радиальный спавн
+                const angle = Math.random() * Math.PI * 2;
+                const distance = minDistance + Math.random() * (maxDistance - minDistance);
+                spawnX = Math.cos(angle) * distance;
+                spawnZ = Math.sin(angle) * distance;
+            }
+            
             const groundInfo = this.getGroundInfo(spawnX, spawnZ);
-            // Спавн на 5 метров выше террейна для гарантии
-            const spawnY = Math.max(groundInfo.height + 5.0, 7.0);
+            // Спавн на 5 метров выше террейна для гарантии (для sand достаточно +2м)
+            const spawnY = this.systems.currentMapType === "sand" 
+                ? Math.max(groundInfo.height + 2.0, 2.0)
+                : Math.max(groundInfo.height + 5.0, 7.0);
             
             pos = new Vector3(spawnX, spawnY, spawnZ);
             
@@ -987,18 +1004,35 @@ export class GameEnemies {
         const spawnPositions: Vector3[] = [];
         const difficultyScale = this.getAdaptiveDifficultyScale();
         
+        // Для карты "sand" используем границы карты вместо радиального спавна
+        const mapBounds = this.systems.currentMapType === "sand" 
+            ? getMapBoundsFromConfig("sand") 
+            : null;
+        
         for (let i = 0; i < enemyCount; i++) {
             let attempts = 0;
             let pos: Vector3;
             
             do {
-                const angle = Math.random() * Math.PI * 2;
-                const distance = minDistance + Math.random() * (maxDistance - minDistance);
-                const spawnX = Math.cos(angle) * distance;
-                const spawnZ = Math.sin(angle) * distance;
+                let spawnX: number, spawnZ: number;
+                
+                if (mapBounds) {
+                    // Для карты "sand" спавним внутри границ карты
+                    spawnX = mapBounds.minX + Math.random() * (mapBounds.maxX - mapBounds.minX);
+                    spawnZ = mapBounds.minZ + Math.random() * (mapBounds.maxZ - mapBounds.minZ);
+                } else {
+                    // Для других карт используем радиальный спавн
+                    const angle = Math.random() * Math.PI * 2;
+                    const distance = minDistance + Math.random() * (maxDistance - minDistance);
+                    spawnX = Math.cos(angle) * distance;
+                    spawnZ = Math.sin(angle) * distance;
+                }
+                
                 const groundInfo = this.getGroundInfo(spawnX, spawnZ);
-                // Спавн на 5 метров выше террейна для гарантии
-                const spawnY = Math.max(groundInfo.height + 5.0, 7.0);
+                // Спавн на 5 метров выше террейна для гарантии (для sand достаточно +2м)
+                const spawnY = this.systems.currentMapType === "sand" 
+                    ? Math.max(groundInfo.height + 2.0, 2.0)
+                    : Math.max(groundInfo.height + 5.0, 7.0);
                 
                 pos = new Vector3(spawnX, spawnY, spawnZ);
                 

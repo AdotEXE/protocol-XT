@@ -29,6 +29,7 @@ export { IndustrialGenerator, DEFAULT_INDUSTRIAL_CONFIG } from './industrial';
 export { UrbanWarfareGenerator, DEFAULT_URBAN_CONFIG } from './urban_warfare';
 export { UndergroundGenerator, DEFAULT_UNDERGROUND_CONFIG } from './underground';
 export { CoastalGenerator, DEFAULT_COASTAL_CONFIG } from './coastal';
+export { SandGenerator, DEFAULT_SAND_CONFIG } from './sand';
 
 // Map info exports
 export { POLYGON_MAP_INFO } from './polygon';
@@ -40,6 +41,7 @@ export { URBAN_WARFARE_MAP_INFO } from './urban_warfare';
 export { UNDERGROUND_MAP_INFO } from './underground';
 export { COASTAL_MAP_INFO } from './coastal';
 export { SANDBOX_MAP_INFO } from './sandbox';
+export { SAND_MAP_INFO } from './sand';
 export { NORMAL_MAP_INFO, BIOME_WEIGHTS } from './normal';
 
 /**
@@ -56,6 +58,7 @@ export const ALL_MAPS = [
     'underground',
     'coastal',
     'sandbox',
+    'sand',
     'tartaria'
 ] as const;
 

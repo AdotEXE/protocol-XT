@@ -3594,11 +3594,11 @@ export class Game {
                 return;
             }
             
-            // Для карты Тартария спавним в случайном месте, для остальных - в гараже
-            // ЗАЩИТНАЯ ПРОВЕРКА: только явно "tartaria", не undefined и не другие значения
-            if ((this.currentMapType !== undefined && this.currentMapType === "tartaria") || this.chunkSystem.garagePositions.length >= 1) {
-                if (this.currentMapType !== undefined && (this.currentMapType as string) === "tartaria") {
-                    logger.log(`[Game] Tartaria map: spawning player at random location...`);
+            // Для карт Тартария и Песок спавним в случайном месте, для остальных - в гараже
+            // ЗАЩИТНАЯ ПРОВЕРКА: только явно "tartaria" или "sand", не undefined и не другие значения
+            if ((this.currentMapType !== undefined && (this.currentMapType === "tartaria" || this.currentMapType === "sand")) || this.chunkSystem.garagePositions.length >= 1) {
+                if (this.currentMapType !== undefined && (this.currentMapType === "tartaria" || this.currentMapType === "sand")) {
+                    logger.log(`[Game] ${this.currentMapType} map: spawning player at random location...`);
                     this.spawnPlayerRandom();
                 } else {
                     logger.log(`[Game] Found ${this.chunkSystem.garagePositions.length} garages, spawning player...`);
@@ -3648,9 +3648,9 @@ export class Game {
                     }
                     
                     // КРИТИЧЕСКИ ВАЖНО: ВСЕГДА спавним врагов на карте для всех режимов (кроме sandbox)
-                    // Для карты Тартария спавним только в случайных местах, без гаражей
+                    // Для карт Тартария и Песок спавним только в случайных местах, без гаражей
                     let enemiesSpawned = false;
-                    if (this.currentMapType !== "tartaria" && this.chunkSystem && this.chunkSystem.garagePositions.length >= 2) {
+                    if (this.currentMapType !== "tartaria" && this.currentMapType !== "sand" && this.chunkSystem && this.chunkSystem.garagePositions.length >= 2) {
                         logger.log("[Game] Attempting to spawn enemies in garages...");
                         const beforeCount = this.enemyTanks.length;
                         this.gameEnemies.spawnEnemiesInGarages(
@@ -4009,7 +4009,52 @@ export class Game {
         }
         
         // Генерируем случайную позицию в пределах карты
-        const spawnRadius = 200;
+        // Используем границы карты из MapConstants
+        const mapBounds = this.chunkSystem.getMapBounds();
+        let spawnRadius = 200; // По умолчанию
+        if (mapBounds) {
+            // Используем меньший радиус для маленьких карт
+            const mapSize = Math.max(mapBounds.maxX - mapBounds.minX, mapBounds.maxZ - mapBounds.minZ);
+            spawnRadius = Math.min(mapSize * 0.4, 200); // 40% от размера карты, но не больше 200
+        }
+        
+        // Для карты "sand" используем границы карты
+        if (this.currentMapType === "sand" && mapBounds) {
+            const randomX = mapBounds.minX + Math.random() * (mapBounds.maxX - mapBounds.minX);
+            const randomZ = mapBounds.minZ + Math.random() * (mapBounds.maxZ - mapBounds.minZ);
+            const groundHeight = this.getGroundHeight(randomX, randomZ);
+            const spawnY = Math.max(groundHeight + 2.0, 2.0); // Для плоской карты достаточно +2м
+            const spawnPos = new Vector3(randomX, spawnY, randomZ);
+            this.gameGarage.setPlayerGaragePosition(spawnPos.clone());
+            logger.log(`[Game] Sand: Player spawned at random location (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
+            
+            // Устанавливаем позицию танка
+            if (this.tank.chassis && this.tank.physicsBody) {
+                this.tank.chassis.position.copyFrom(spawnPos);
+                this.tank.chassis.rotationQuaternion = Quaternion.Identity();
+                this.tank.chassis.rotation.set(0, 0, 0);
+                if (this.tank.turret) this.tank.turret.rotation.set(0, 0, 0);
+                if (this.tank.barrel) this.tank.barrel.rotation.set(0, 0, 0);
+                
+                this.tank.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
+                this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                
+                this.tank.physicsBody.disablePreStep = false;
+                this.tank.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
+                this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                
+                setTimeout(() => {
+                    if (this.tank?.physicsBody) {
+                        this.tank.physicsBody.disablePreStep = true;
+                    }
+                }, 0);
+            }
+            return;
+        }
+        
+        // Для других карт (например, tartaria) используем старую логику
         const randomX = (Math.random() - 0.5) * spawnRadius * 2;
         const randomZ = (Math.random() - 0.5) * spawnRadius * 2;
         
@@ -4021,7 +4066,7 @@ export class Game {
         const spawnPos = new Vector3(randomX, spawnY, randomZ);
         this.gameGarage.setPlayerGaragePosition(spawnPos.clone());
         
-        logger.log(`[Game] Tartaria: Player spawned at random location (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)}) - ground: ${groundHeight.toFixed(2)}`);
+        logger.log(`[Game] ${this.currentMapType || "Unknown"}: Player spawned at random location (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)}) - ground: ${groundHeight.toFixed(2)}`);
         
         // Устанавливаем позицию и состояние танка
         if (this.tank.chassis && this.tank.physicsBody) {
@@ -4641,6 +4686,10 @@ export class Game {
     lastMouseControlTime = 0; // Время последнего управления мышкой
     lastChassisRotation = 0; // Последний угол корпуса для отслеживания поворота
     
+    // КРИТИЧНО: Время последнего респавна для блокировки центрирования
+    lastRespawnTime = 0; // Время последнего респавна
+    
+    
     // Методы calculateProjectileRange и findMaxPitchForRange перенесены в GameProjectile
     
     setupCameraInput() {
@@ -5049,6 +5098,72 @@ export class Game {
                 this.cameraYaw = e.detail.turretRotY;
             }
         }) as EventListener);
+        
+        // КРИТИЧНО: Сбрасываем углы камеры после респавна для восстановления поворота башни
+        window.addEventListener("tankRespawned", ((e: CustomEvent) => {
+            if (e.detail && this.tank && this.tank.turret) {
+                const { turretRotY, chassisRotY } = e.detail;
+                
+                logger.log(`[Game] Respawn event received: turretRotY=${turretRotY}, chassisRotY=${chassisRotY}`);
+                
+                // КРИТИЧНО: ПОЛНЫЙ СБРОС ВСЕХ БЛОКИРОВОК ПОВОРОТА БАШНИ
+                // 1. Сбрасываем все флаги управления
+                this.isFreeLook = false;
+                this.tank.isKeyboardTurretControl = false;
+                this.tank.isAutoCentering = false;
+                
+                // 2. Очищаем виртуальную фиксацию
+                this.virtualTurretTarget = null;
+                
+                // 3. Сбрасываем все переменные поворота башни в танке
+                this.tank.turretTurnTarget = 0;
+                this.tank.turretTurnSmooth = 0;
+                (this.tank as any).turretAcceleration = 0;
+                (this.tank as any).turretAccelStartTime = 0;
+                
+                // 4. Сбрасываем углы камеры
+                this.cameraYaw = turretRotY || 0;
+                this.aimYaw = (chassisRotY || 0) + (turretRotY || 0);
+                this.targetAimYaw = this.aimYaw;
+                this.aimPitch = 0;
+                this.targetAimPitch = 0;
+                
+                // 5. Сбрасываем текущий угол камеры
+                this.currentCameraAlpha = -((chassisRotY || 0) + (turretRotY || 0)) - Math.PI / 2;
+                this.targetCameraAlpha = this.currentCameraAlpha;
+                
+                // 6. Синхронизируем rotationQuaternion
+                if (this.tank.turret.rotationQuaternion) {
+                    this.tank.turret.rotationQuaternion = Quaternion.RotationYawPitchRoll(
+                        this.tank.turret.rotation.y,
+                        this.tank.turret.rotation.x,
+                        this.tank.turret.rotation.z
+                    );
+                }
+                
+                // 7. Обновляем матрицу башни
+                this.tank.turret.computeWorldMatrix(true);
+                
+                // 8. Проверяем turretSpeed
+                const turretSpeed = (this.tank as any).turretSpeed || (this.tank as any).baseTurretSpeed || 0.03;
+                if (turretSpeed === 0) {
+                    (this.tank as any).turretSpeed = 0.04;
+                    (this.tank as any).baseTurretSpeed = 0.04;
+                }
+                
+                // 9. Отменяем все события центрирования
+                window.dispatchEvent(new CustomEvent("stopCenterCamera"));
+                
+                // 10. Запоминаем время респавна
+                this.lastRespawnTime = Date.now();
+                this.lastMouseControlTime = Date.now();
+                this.lastChassisRotation = chassisRotY || 0;
+                
+                logger.log(`[Game] Башня полностью разблокирована после респавна: cameraYaw=${this.cameraYaw.toFixed(3)}, turretRotY=${this.tank.turret.rotation.y.toFixed(3)}, isAutoCentering=${this.tank.isAutoCentering}, isKeyboardTurretControl=${this.tank.isKeyboardTurretControl}, virtualTurretTarget=${this.virtualTurretTarget}`);
+            } else {
+                logger.warn(`[Game] Respawn event received but tank or turret is missing!`);
+            }
+        }) as EventListener);
     }
     
     updateCamera() {
@@ -5348,7 +5463,7 @@ export class Game {
                     this.currentCameraAlpha += diff * cameraLerpSpeed;
                     
                     // === БАШНЯ ДОГОНЯЕТ КАМЕРУ (если не Shift/freelook и не клавиатурное управление) ===
-                    if (!this.isFreeLook && this.tank.turret && this.tank.chassis) {
+                    if (!this.isFreeLook && this.tank && this.tank.turret && this.tank.chassis && !this.tank.turret.isDisposed()) {
                         // Проверяем клавиатурное управление башней (Z/X)
                         if (this.tank.isKeyboardTurretControl) {
                             // При клавиатурном управлении: камера следует за башней
@@ -5366,6 +5481,10 @@ export class Game {
                             // ОПТИМИЗАЦИЯ: Используем кэшированный угол корпуса
                             const currentChassisRotY = this._cachedChassisRotY;
                             
+                            // КРИТИЧНО: Проверяем, не был ли только что респавн (в течение 5 секунд после респавна не центрируем)
+                            const timeSinceRespawn = this.lastRespawnTime ? Date.now() - this.lastRespawnTime : Infinity;
+                            const justRespawned = timeSinceRespawn < 5000; // 5 секунд после респавна
+                            
                             // Обычное поведение: башня догоняет камеру
                             const targetTurretRot = this.cameraYaw;
                             const currentTurretRot = this.tank.turret.rotation.y;
@@ -5379,12 +5498,32 @@ export class Game {
                             const turretSpeed = this.tank.turretSpeed || 0.03;
                             
                             // Башня догоняет камеру с ограниченной скоростью
-                            if (Math.abs(turretDiff) > 0.01) {
+                            // КРИТИЧНО: Проверяем, что башня не заблокирована и может поворачиваться
+                            // КРИТИЧНО: После респавна разрешаем поворот даже если разница очень мала (чтобы башня могла двигаться)
+                            const minDiff = justRespawned ? 0.0001 : 0.01; // После респавна ОЧЕНЬ чувствительный порог
+                            
+                            // КРИТИЧНО: После респавна ПРИНУДИТЕЛЬНО разрешаем поворот башни
+                            if ((Math.abs(turretDiff) > minDiff || justRespawned) && !this.tank.turret.isDisposed()) {
                                 const rotationAmount = Math.sign(turretDiff) * Math.min(Math.abs(turretDiff), turretSpeed);
-                                this.tank.turret.rotation.y += rotationAmount;
+                                // КРИТИЧНО: Проверяем, что rotationAmount валиден перед применением
+                                if (isFinite(rotationAmount) && !isNaN(rotationAmount)) {
+                                    this.tank.turret.rotation.y += rotationAmount;
+                                    // Синхронизируем rotationQuaternion если используется
+                                    if (this.tank.turret.rotationQuaternion) {
+                                        this.tank.turret.rotationQuaternion = Quaternion.RotationYawPitchRoll(
+                                            this.tank.turret.rotation.y,
+                                            this.tank.turret.rotation.x,
+                                            this.tank.turret.rotation.z
+                                        );
+                                    }
+                                } else {
+                                    logger.warn(`[Game] Invalid rotationAmount: ${rotationAmount}, turretDiff: ${turretDiff}, turretSpeed: ${turretSpeed}`);
+                                }
                             } else {
                                 // Башня догнала камеру - сохраняем виртуальную точку (только если виртуальная фиксация включена)
-                                if (this.settings.virtualTurretFixation && !this.virtualTurretTarget) {
+                                // КРИТИЧНО: Не сохраняем виртуальную точку сразу после респавна (используем уже объявленную переменную justRespawned)
+                                
+                                if (!justRespawned && this.settings.virtualTurretFixation && !this.virtualTurretTarget) {
                                     const turretRotY = this.tank.turret.rotation.y;
                                     const totalWorldAngle = currentChassisRotY + turretRotY;
                                     
@@ -5401,9 +5540,13 @@ export class Game {
                             }
                             
                             // Если корпус повернулся и есть виртуальная точка - фиксируем башню на ней (только если виртуальная фиксация включена)
-                            if (this.settings.virtualTurretFixation) {
+                            // КРИТИЧНО: Пропускаем виртуальную фиксацию если башня только что зареспавнилась (используем уже объявленную переменную justRespawned)
+                            
+                            if (this.settings.virtualTurretFixation && this.virtualTurretTarget && !justRespawned) {
                                 const chassisRotDiff = currentChassisRotY - this.lastChassisRotation;
-                                if (Math.abs(chassisRotDiff) > 0.01 && this.virtualTurretTarget) {
+                                // КРИТИЧНО: Не фиксируем башню если она в центре (только что зареспавнилась)
+                                const turretIsCentered = Math.abs(this.tank.turret.rotation.y) < 0.1;
+                                if (Math.abs(chassisRotDiff) > 0.01 && !turretIsCentered) {
                                     // Вычисляем направление к виртуальной точке
                                     // ОПТИМИЗАЦИЯ: Используем кэшированную позицию башни
                                     if (this._cachedTurretPosFrame !== this._updateTick && (this._updateTick % 2 === 0)) {

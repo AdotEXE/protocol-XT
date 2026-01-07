@@ -91,6 +91,24 @@ export class GameGarage {
      * Получить позицию гаража игрока для респавна
      */
     getPlayerGaragePosition(camera?: any): Vector3 | null {
+        // Для карты "sand" возвращаем случайную позицию внутри карты (если сохранена)
+        if (this.chunkSystem && this.chunkSystem.config?.mapType === "sand") {
+            if (this.playerGaragePosition) {
+                // Используем сохранённую позицию (установлена при спавне)
+                return this.playerGaragePosition.clone();
+            }
+            // Если позиция не сохранена, генерируем случайную внутри границ карты
+            const mapBounds = this.chunkSystem.getMapBounds();
+            if (mapBounds) {
+                const randomX = mapBounds.minX + Math.random() * (mapBounds.maxX - mapBounds.minX);
+                const randomZ = mapBounds.minZ + Math.random() * (mapBounds.maxZ - mapBounds.minZ);
+                const randomY = 2.0; // Для плоской карты
+                const randomPos = new Vector3(randomX, randomY, randomZ);
+                this.playerGaragePosition = randomPos.clone();
+                return randomPos;
+            }
+        }
+        
         // Если есть система чанков с гаражами - ищем ближайший к текущей позиции танка
         if (this.chunkSystem && this.chunkSystem.garagePositions.length > 0) {
             // Получаем текущую позицию танка (или камеры, если танк не инициализирован)

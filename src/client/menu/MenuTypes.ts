@@ -8,6 +8,7 @@
 export type MapType = 
     | "normal" 
     | "sandbox" 
+    | "sand"
     | "polygon" 
     | "frontline" 
     | "ruins" 

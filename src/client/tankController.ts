@@ -2158,8 +2158,14 @@ export class TankController {
             // 2. Сбрасываем вращение
             this.chassis.rotationQuaternion = Quaternion.Identity();
             this.chassis.rotation.set(0, 0, 0);
-            if (this.turret) this.turret.rotation.set(0, 0, 0);
-            if (this.barrel) this.barrel.rotation.set(0, 0, 0);
+            if (this.turret) {
+                this.turret.rotationQuaternion = Quaternion.Identity();
+                this.turret.rotation.set(0, 0, 0);
+            }
+            if (this.barrel) {
+                this.barrel.rotationQuaternion = Quaternion.Identity();
+                this.barrel.rotation.set(0, 0, 0);
+            }
             
             // 3. Обновляем матрицы ПРИНУДИТЕЛЬНО
             this.chassis.computeWorldMatrix(true);
@@ -2342,6 +2348,10 @@ export class TankController {
         this.turretAcceleration = 0;
         this.turretAccelStartTime = 0;
         
+        // КРИТИЧНО: Сбрасываем флаги управления башней для восстановления поворота
+        this.isKeyboardTurretControl = false;
+        this.isAutoCentering = false;
+        
         // Сбрасываем наклон ствола
         this.barrelPitchTarget = 0;
         this.barrelPitchSmooth = 0;
@@ -2353,6 +2363,44 @@ export class TankController {
         if (this.isAiming) {
             this.toggleAimMode(false);
         }
+        
+        // КРИТИЧНО: Отправляем событие для сброса углов камеры в game.ts ПОСЛЕ сброса вращения
+        // Используем несколько попыток чтобы убедиться, что башня уже сброшена
+        const sendRespawnEvent = () => {
+            if (!this.turret || this.turret.isDisposed()) {
+                logger.warn(`[TANK] Cannot send respawn event - turret is missing or disposed!`);
+                return;
+            }
+            
+            const turretRotY = this.turret.rotation.y;
+            const chassisRotY = this.chassis.rotationQuaternion 
+                ? this.chassis.rotationQuaternion.toEulerAngles().y 
+                : this.chassis.rotation.y;
+            
+            // КРИТИЧНО: Принудительно сбрасываем флаги управления башней перед отправкой события
+            this.isKeyboardTurretControl = false;
+            this.isAutoCentering = false;
+            
+            // КРИТИЧНО: Убеждаемся, что turretSpeed не равен 0
+            if (!this.turretSpeed || this.turretSpeed === 0) {
+                this.turretSpeed = 0.04; // Восстанавливаем стандартную скорость
+                logger.warn(`[TANK] turretSpeed was 0, resetting to 0.04`);
+            }
+            
+            window.dispatchEvent(new CustomEvent("tankRespawned", { 
+                detail: { 
+                    turretRotY: turretRotY,
+                    chassisRotY: chassisRotY
+                } 
+            }));
+            
+            logger.log(`[TANK] Respawn event sent: turretRotY=${turretRotY.toFixed(3)}, chassisRotY=${chassisRotY.toFixed(3)}, isKeyboardTurretControl=${this.isKeyboardTurretControl}, isAutoCentering=${this.isAutoCentering}, turretSpeed=${this.turretSpeed}`);
+        };
+        
+        // Отправляем событие с несколькими попытками для гарантии
+        setTimeout(sendRespawnEvent, 0);
+        setTimeout(sendRespawnEvent, 50);
+        setTimeout(sendRespawnEvent, 100);
         
         // Сообщение в чат о респавне (БЕЗ визуальных эффектов - пункт 16!)
         if (this.chatSystem) {
@@ -5496,11 +5544,20 @@ export class TankController {
             // Применяем скорость башни при клавиатурном управлении (Z/X) ИЛИ автоцентрировании (C)
             // Когда isKeyboardTurretControl = false И isAutoCentering = false, game.ts управляет башней через мышь/камеру
             // ИСПРАВЛЕНИЕ: Добавлена проверка isAutoCentering для работы центровки башни (C key)
+            // КРИТИЧНО: Проверяем, что башня существует и не удалена
             if (this.turret && !this.turret.isDisposed() && (this.isKeyboardTurretControl || this.isAutoCentering)) {
                 this.turretTurnSmooth += (this.turretTurnTarget - this.turretTurnSmooth) * this.turretLerpSpeed;
                 const rotationDelta = this.turretTurnSmooth * this.baseTurretSpeed * this.turretAcceleration;
-                if (isFinite(rotationDelta)) {
+                if (isFinite(rotationDelta) && !isNaN(rotationDelta)) {
                     this.turret.rotation.y += rotationDelta;
+                    // Синхронизируем rotationQuaternion если используется
+                    if (this.turret.rotationQuaternion) {
+                        this.turret.rotationQuaternion = Quaternion.RotationYawPitchRoll(
+                            this.turret.rotation.y,
+                            this.turret.rotation.x,
+                            this.turret.rotation.z
+                        );
+                    }
                     // Debug logging for centering
                     if (this.isAutoCentering && Math.abs(rotationDelta) > 0.001) {
                         console.log(`[Tank] Turret centering: rotation=${this.turret.rotation.y.toFixed(3)}, delta=${rotationDelta.toFixed(4)}`);

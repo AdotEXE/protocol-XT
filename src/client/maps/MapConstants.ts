@@ -106,6 +106,17 @@ export const MAP_SIZES: Record<string, MapSizeConfig> = {
         maxZ: 250,
         playerGaragePosition: [0, 0], // Центр
         wallHeight: 6
+    },
+    
+    // Песок - компактная двухуровневая арена
+    sand: {
+        size: 150,
+        minX: -75,
+        maxX: 75,
+        minZ: -75,
+        maxZ: 75,
+        playerGaragePosition: [-50, -50], // Юго-западная база
+        wallHeight: 4
     }
 };
 

@@ -3712,6 +3712,8 @@ export class EnemyTank {
         }, this.scene);
         shape.filterMembershipMask = 16; // Enemy bullet
         shape.filterCollideMask = 1 | 2 | 32;  // Player (1), environment (2), and protective walls (32)
+        // КРИТИЧНО: Отключаем отскок для снарядов противника (одноразовые снаряды)
+        shape.material = { friction: 0, restitution: 0.0 };
         
         const body = new PhysicsBody(ball, PhysicsMotionType.DYNAMIC, false, this.scene);
         body.shape = shape;
@@ -3750,9 +3752,9 @@ export class EnemyTank {
         let hasHit = false;
         let ricochetCount = 0;
         
-        // Система рикошета для врагов
+        // Система рикошета для врагов - ОТКЛЮЧЕНА (снаряды противника одноразовые, без рикошета)
         const ricochetSystem = new RicochetSystem(DEFAULT_RICOCHET_CONFIG);
-        const maxRicochets = DEFAULT_RICOCHET_CONFIG.maxRicochets;
+        const maxRicochets = 0; // Снаряды противника не рикошетят
         
         const target = this.target;
         // Минимальная скорость снаряда для нанесения урона (м/с)
@@ -3861,31 +3863,14 @@ export class EnemyTank {
                 }
             }
             
-            // Ground ricochet (используем RicochetSystem)
-            if (bulletPos.y < 0.6 && ricochetCount < maxRicochets) {
-                const velocity = body.getLinearVelocity();
-                if (velocity) {
-                    const groundNormal = new Vector3(0, 1, 0);
-                    
-                    const result = ricochetSystem.calculate({
-                        velocity,
-                        hitPoint: bulletPos.clone(),
-                        hitNormal: groundNormal,
-                        surfaceMaterial: "ground",
-                        currentRicochetCount: ricochetCount
-                    });
-                    
-                    if (result.shouldRicochet) {
-                        ricochetCount = result.ricochetCount;
-                        body.setLinearVelocity(result.newVelocity);
-                        ball.position.y = 0.7;
-                        ball.lookAt(ball.position.add(result.newVelocity.normalize()));
-                        this.effectsManager.createHitSpark(bulletPos);
-                        if (result.sound) {
-                            this.soundManager.playRicochet(bulletPos);
-                        }
-                    }
-                }
+            // Ground ricochet - ОТКЛЮЧЕН для снарядов противника (одноразовые снаряды)
+            // Снаряды противника не рикошетят, при попадании в землю исчезают
+            if (bulletPos.y < 0.3) {
+                // Снаряд попал в землю - удаляем его без рикошета
+                hasHit = true;
+                this.effectsManager.createHitSpark(bulletPos);
+                ball.dispose();
+                return;
             }
             
             // Bounds check

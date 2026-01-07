@@ -98,6 +98,7 @@ export type MapType =
     | "coastal"
     | "tartaria"
     | "sandbox"
+    | "sand"
     | "normal";
 
 /**
@@ -124,6 +125,7 @@ export const MAP_TYPES: MapTypeInfo[] = [
     { id: "coastal", name: "Побережье", description: "Прибрежная зона с портом" },
     { id: "tartaria", name: "Тартария", description: "Загадочные руины древней цивилизации" },
     { id: "sandbox", name: "Песочница", description: "Свободный режим для тестов" },
+    { id: "sand", name: "Песок", description: "Компактная двухуровневая арена в стиле Песочницы" },
     { id: "normal", name: "Обычная", description: "Стандартная карта с городами и природой" }
 ];
 

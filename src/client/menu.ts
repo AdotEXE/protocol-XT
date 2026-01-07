@@ -102,6 +102,8 @@ const LANG = {
         normalMapDesc: "Полностью случайная генерация с разнообразными биомами, дорогами и природой",
         sandboxMap: "Песочница",
         sandboxMapDesc: "Чистая плоская поверхность для тестирования",
+        sandMap: "Песок",
+        sandMapDesc: "Компактная двухуровневая арена в стиле Песочницы",
         polygonMap: "Полигон",
         polygonMapDesc: "Военный полигон с ангарами, техникой, складами, кранами и вышками",
         frontlineMap: "Передовая",
@@ -220,6 +222,8 @@ const LANG = {
         normalMapDesc: "Fully random generation with diverse biomes, roads and nature",
         sandboxMap: "Sandbox",
         sandboxMapDesc: "Clean flat surface for testing",
+        sandMap: "Sand",
+        sandMapDesc: "Compact two-level arena in Sandbox style",
         polygonMap: "Training Ground",
         polygonMapDesc: "Military training ground with hangars, vehicles, warehouses, cranes and watchtowers",
         frontlineMap: "Frontline",
@@ -345,7 +349,7 @@ const DEFAULT_TANK: TankConfig = {
     firepower: 2
 };
 
-export type MapType = "normal" | "sandbox" | "polygon" | "frontline" | "ruins" | "canyon" | "industrial" | "urban_warfare" | "underground" | "coastal" | "tartaria";
+export type MapType = "normal" | "sandbox" | "sand" | "polygon" | "frontline" | "ruins" | "canyon" | "industrial" | "urban_warfare" | "underground" | "coastal" | "tartaria";
 
 export class MainMenu {
     private container!: HTMLDivElement;
@@ -4750,6 +4754,13 @@ export class MainMenu {
                         </div>
                         <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.sandboxMapDesc}</div>
                     </button>
+                    <button class="menu-btn" id="btn-map-sand" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="btn-icon">🏜</span>
+                            <span class="btn-label">${L.sandMap}</span>
+                        </div>
+                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.sandMapDesc}</div>
+                    </button>
                     <button class="menu-btn" id="btn-map-polygon" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <span class="btn-icon">🎯</span>
@@ -4839,6 +4850,7 @@ export class MainMenu {
         
         addMapButtonHandler("btn-map-normal", "normal");
         addMapButtonHandler("btn-map-sandbox", "sandbox");
+        addMapButtonHandler("btn-map-sand", "sand");
         addMapButtonHandler("btn-map-polygon", "polygon");
         addMapButtonHandler("btn-map-frontline", "frontline");
         addMapButtonHandler("btn-map-ruins", "ruins");
@@ -5479,6 +5491,10 @@ export class MainMenu {
                             <span class="btn-icon">🏖</span>
                             <span class="btn-label">${L.sandboxMap}</span>
                         </button>
+                        <button class="menu-btn" id="play-btn-map-sand" data-map="sand">
+                            <span class="btn-icon">🏜</span>
+                            <span class="btn-label">${L.sandMap}</span>
+                        </button>
                         <button class="menu-btn" id="play-btn-map-polygon" data-map="polygon">
                             <span class="btn-icon">🎯</span>
                             <span class="btn-label">${L.polygonMap}</span>
@@ -5595,7 +5611,7 @@ export class MainMenu {
         document.getElementById("btn-mode-ctf")?.addEventListener("click", () => this.selectGameMode("ctf"));
         
         // Обработчики выбора карты
-        const mapButtons = ["normal", "sandbox", "polygon", "frontline", "ruins", "canyon", "industrial", "urban_warfare", "underground", "coastal", "tartaria"];
+        const mapButtons = ["normal", "sandbox", "sand", "polygon", "frontline", "ruins", "canyon", "industrial", "urban_warfare", "underground", "coastal", "tartaria"];
         
         mapButtons.forEach(map => {
             const button = document.getElementById(`play-btn-map-${map}`);
