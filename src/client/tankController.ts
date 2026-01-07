@@ -330,12 +330,22 @@ export class TankController {
     private module8Cooldown = 20000; // Кулдаун модуля 8 (20 секунд)
     private module8LastUse = 0; // Время последнего использования модуля 8
     private module8LastAutoFire = 0; // Время последнего автострельбы
-    private module9Active = false; // Маневрирование (кнопка 9)
-    private module9Timeout: number | null = null; // Используется в setTimeout callback
-    private module9Cooldown = 12000; // Кулдаун модуля 9 (12 секунд)
+    // Модуль 9: Платформа (поднимающаяся платформа под танком)
+    private module9Active = false; // Платформа существует
+    private module9Platform: Mesh | null = null; // Меш платформы
+    private module9PlatformPhysics: PhysicsBody | null = null; // Физика платформы
+    private module9StartTime = 0; // Время начала подъёма
+    private module9CurrentY = 0; // Текущая высота платформы
+    private module9GroundY = 0; // Высота поверхности
+    private module9Cooldown = 15000; // Кулдаун модуля 9 (15 секунд)
     private module9LastUse = 0; // Время последнего использования модуля 9
-    private module9ManeuverDirection = 1; // Направление маневрирования (-1 или 1)
-    private module9LastManeuverChange = 0; // Время последней смены направления
+    private module9ReleaseTime = 0; // Время отпускания кнопки
+    private module9State: "idle" | "rising" | "staying" | "falling" = "idle"; // Состояние платформы
+    private readonly MODULE9_MAX_DURATION = 10000; // Максимальная длительность подъёма (10 секунд)
+    private readonly MODULE9_LIFT_SPEED = 3; // Скорость подъёма (метров в секунду)
+    private readonly MODULE9_FALL_SPEED = 5; // Скорость опускания (метров в секунду)
+    private readonly MODULE9_MAX_HEIGHT = 30; // Максимальная высота подъёма (30 метров)
+    private readonly MODULE9_STAY_DURATION = 3000; // Время удержания после отпускания (3 секунды)
     private module0Charging = false; // Прыжок с зажатием (кнопка 0)
     private module0ChargeStart = 0; // Время начала зарядки
     private module0ChargePower = 0; // Накопленная сила прыжка (используется в updateModules)
@@ -1449,7 +1459,7 @@ export class TankController {
     
     // Создать визуальные меши для модулей
     // Модули размещаются в фиксированных слотах:
-    // - На корпусе: модули 6 (щит), 9 (маневрирование), 0 (прыжок)
+    // - На корпусе: модули 6 (щит), 9 (платформа), 0 (прыжок)
     // - На башне: модуль 8 (автонаводка)
     // - На пушке: модуль 7 (ускоренная стрельба)
     private createModuleVisuals(): void {
@@ -1527,30 +1537,33 @@ export class TankController {
         this.moduleVisuals.set(8, meshes);
     }
     
-    // Модуль 9 - Маневрирование (реактивные ускорители по бокам)
+    // Модуль 9 - Платформа (гидравлические опоры снизу корпуса)
     private createModule9Visual(w: number, h: number, d: number): void {
         const meshes: Mesh[] = [];
         
-        // Реактивные ускорители по бокам корпуса
-        for (let i = 0; i < 2; i++) {
-            const thruster = MeshBuilder.CreateBox(`module9_thruster_${i}`, {
-                width: 0.4,
+        // Гидравлические опоры по углам корпуса (для подъёма платформы)
+        const positions = [
+            new Vector3(-w * 0.35, -h * 0.4, d * 0.35),
+            new Vector3(w * 0.35, -h * 0.4, d * 0.35),
+            new Vector3(-w * 0.35, -h * 0.4, -d * 0.35),
+            new Vector3(w * 0.35, -h * 0.4, -d * 0.35)
+        ];
+        
+        for (let i = 0; i < 4; i++) {
+            const piston = MeshBuilder.CreateCylinder(`module9_piston_${i}`, {
                 height: 0.4,
-                depth: 0.6
+                diameterTop: 0.15,
+                diameterBottom: 0.2
             }, this.scene);
-            thruster.position = new Vector3(
-                (i === 0 ? -1 : 1) * w * 0.45,
-                h * 0.2,
-                -d * 0.3
-            );
-            thruster.parent = this.chassis;
+            piston.position = positions[i]!;
+            piston.parent = this.chassis;
             
-            const thrusterMat = new StandardMaterial(`module9Mat_${i}`, this.scene);
-            thrusterMat.diffuseColor = new Color3(0.2, 0.8, 0.8); // Голубой/циан
-            thrusterMat.emissiveColor = new Color3(0.1, 0.4, 0.4);
-            thrusterMat.specularColor = Color3.Black();
-            thruster.material = thrusterMat;
-            meshes.push(thruster);
+            const pistonMat = new StandardMaterial(`module9Mat_${i}`, this.scene);
+            pistonMat.diffuseColor = new Color3(1, 0.6, 0.1); // Оранжевый (гидравлика)
+            pistonMat.emissiveColor = new Color3(0.4, 0.2, 0);
+            pistonMat.specularColor = new Color3(0.3, 0.3, 0.3);
+            piston.material = pistonMat;
+            meshes.push(piston);
         }
         
         this.moduleVisuals.set(9, meshes);
@@ -2590,6 +2603,13 @@ export class TankController {
         
         const handleKeyUp = (evt: KeyboardEvent) => {
             this._inputMap[evt.code] = false;
+            
+            // Модуль 9: Останавливаем платформу при отпускании кнопки
+            if (evt.code === "Digit9" || evt.code === "Numpad9") {
+                if (this.module9Active) {
+                    this.deactivateModule9Platform();
+                }
+            }
             
             // Модуль 0: Выполняем прыжок при отпускании кнопки
             // Игнорируем, если была нажата Ctrl (используется для других функций, например Ctrl+0 для редактора физики)
@@ -3800,6 +3820,11 @@ export class TankController {
             const dz = center.z - enemyPos.z;
             const distSq = dx * dx + dy * dy + dz * dz;
             if (distSq <= radiusSq3) {
+                // ИСПРАВЛЕНИЕ: Проверяем, блокирует ли защитная стенка взрывную волну
+                if (this.isExplosionBlockedByWall(center, enemyPos)) {
+                    continue; // Стенка блокирует AOE урон
+                }
+                
                 // Вычисляем реальное расстояние только для damageMultiplier
                 const dist = Math.sqrt(distSq);
                 // Damage falls off with distance
@@ -5991,6 +6016,100 @@ export class TankController {
         return { hit: false, wallMesh: null, hitPoint: null, wallType: null };
     }
     
+    /**
+     * Проверяет, блокирует ли защитная стенка взрывную волну между двумя точками
+     * Используется для защиты от AOE урона взрывов
+     */
+    private isExplosionBlockedByWall(explosionCenter: Vector3, targetPos: Vector3): boolean {
+        // Направление от взрыва к цели
+        const direction = targetPos.subtract(explosionCenter).normalize();
+        const distance = Vector3.Distance(explosionCenter, targetPos);
+        
+        // Проверяем защитные стены игрока
+        for (const wallData of this.module6Walls) {
+            if (!wallData.mesh || wallData.mesh.isDisposed()) continue;
+            
+            const wallMesh = wallData.mesh;
+            const wallPos = wallMesh.absolutePosition;
+            const wallRotation = wallMesh.rotation.y;
+            
+            // Размеры защитной стенки: width=6, height=4, depth=0.5
+            const wallHalfWidth = 3;
+            const wallHalfHeight = 2;
+            
+            // Проверяем пересечение луча со стенкой
+            // Упрощённая проверка: стенка как плоскость
+            const toWall = wallPos.subtract(explosionCenter);
+            const wallNormal = new Vector3(
+                Math.sin(wallRotation),
+                0,
+                Math.cos(wallRotation)
+            );
+            
+            // Проверяем, пересекает ли луч плоскость стенки
+            const denom = Vector3.Dot(direction, wallNormal);
+            if (Math.abs(denom) < 0.0001) continue; // Луч параллелен стенке
+            
+            const t = Vector3.Dot(toWall, wallNormal) / denom;
+            if (t < 0 || t > distance) continue; // Пересечение за пределами отрезка
+            
+            // Точка пересечения
+            const hitPoint = explosionCenter.add(direction.scale(t));
+            
+            // Проверяем, находится ли точка пересечения в пределах стенки
+            const localHit = hitPoint.subtract(wallPos);
+            const cosY = Math.cos(-wallRotation);
+            const sinY = Math.sin(-wallRotation);
+            const localX = localHit.x * cosY - localHit.z * sinY;
+            const localY = localHit.y;
+            
+            if (Math.abs(localX) < wallHalfWidth && Math.abs(localY) < wallHalfHeight) {
+                return true; // Стенка блокирует взрывную волну
+            }
+        }
+        
+        // Проверяем стены врагов
+        const enemyWalls = this.scene.meshes.filter(mesh => 
+            mesh.metadata && mesh.metadata.type === "enemyWall" && !mesh.isDisposed()
+        );
+        
+        for (const wall of enemyWalls) {
+            const wallMesh = wall as Mesh;
+            const wallPos = wallMesh.absolutePosition;
+            const wallRotation = wallMesh.rotation.y;
+            
+            // Размеры стенки врага: width=5, height=3.5, depth=0.4
+            const wallHalfWidth = 2.5;
+            const wallHalfHeight = 1.75;
+            
+            const toWall = wallPos.subtract(explosionCenter);
+            const wallNormal = new Vector3(
+                Math.sin(wallRotation),
+                0,
+                Math.cos(wallRotation)
+            );
+            
+            const denom = Vector3.Dot(direction, wallNormal);
+            if (Math.abs(denom) < 0.0001) continue;
+            
+            const t = Vector3.Dot(toWall, wallNormal) / denom;
+            if (t < 0 || t > distance) continue;
+            
+            const hitPoint = explosionCenter.add(direction.scale(t));
+            const localHit = hitPoint.subtract(wallPos);
+            const cosY = Math.cos(-wallRotation);
+            const sinY = Math.sin(-wallRotation);
+            const localX = localHit.x * cosY - localHit.z * sinY;
+            const localY = localHit.y;
+            
+            if (Math.abs(localX) < wallHalfWidth && Math.abs(localY) < wallHalfHeight) {
+                return true;
+            }
+        }
+        
+        return false; // Ничего не блокирует взрывную волну
+    }
+    
     // Проверка препятствий перед стволом перед выстрелом
     private checkBarrelObstacle(muzzlePos: Vector3, direction: Vector3, maxDistance: number = 1.5): boolean {
         const ray = new Ray(muzzlePos, direction, maxDistance);
@@ -6352,7 +6471,7 @@ export class TankController {
         }, 10000);
     }
     
-    // Модуль 9: Автоматическое маневрирование от выстрелов (10 секунд)
+    // Модуль 9: Платформа - поднимает платформу под танком пока зажата кнопка (макс 10 сек)
     private activateModule9(): void {
         // Проверка кулдауна
         const now = Date.now();
@@ -6365,40 +6484,247 @@ export class TankController {
         }
         
         if (this.module9Active) return;
-        
-        // Очищаем предыдущий timeout если есть
-        if (this.module9Timeout !== null) {
-            clearTimeout(this.module9Timeout);
-            this.module9Timeout = null;
-        }
+        if (!this.chassis) return;
         
         this.module9Active = true;
+        this.module9State = "rising";
         this.module9LastUse = now;
-        this.module9ManeuverDirection = 1;
-        this.module9LastManeuverChange = Date.now();
+        this.module9StartTime = now;
+        
+        // Определяем высоту поверхности под танком
+        const tankPos = this.chassis.absolutePosition;
+        const rayStart = new Vector3(tankPos.x, tankPos.y + 2, tankPos.z);
+        const rayDirection = new Vector3(0, -1, 0);
+        const ray = new Ray(rayStart, rayDirection, 30);
+        
+        let groundY = 0;
+        let surfaceColor = new Color3(0.4, 0.4, 0.4);
+        
+        const pick = this.scene.pickWithRay(ray, (mesh) => {
+            if (!mesh || !mesh.isEnabled()) return false;
+            const meta = mesh.metadata;
+            if (meta && (meta.type === "playerTank" || meta.type === "bullet" || meta.type === "platform")) return false;
+            if (mesh.name.includes("billboard") || mesh.name.includes("hp")) return false;
+            return mesh.isPickable && mesh.visibility > 0.5;
+        });
+        
+        if (pick && pick.hit && pick.pickedPoint) {
+            groundY = pick.pickedPoint.y;
+            if (pick.pickedMesh && pick.pickedMesh.material) {
+                const material = pick.pickedMesh.material;
+                if (material instanceof StandardMaterial) {
+                    surfaceColor = material.diffuseColor.clone();
+                }
+            }
+        }
+        
+        this.module9GroundY = groundY;
+        
+        // Создаём платформу (прямоугольник под танком) - размер 1.2x от размера танка
+        const platformWidth = this.chassisType.width * 1.2;
+        const platformDepth = this.chassisType.depth * 1.2;
+        const platformHeight = 0.5;
+        
+        // Начальная высота - чуть ниже танка (под его дном)
+        // Это гарантирует что платформа сразу начнёт поднимать танк
+        const tankBottomY = tankPos.y - this.chassisType.height / 2;
+        const startY = tankBottomY - 0.1; // Чуть ниже дна танка
+        this.module9CurrentY = startY;
+        
+        this.module9Platform = MeshBuilder.CreateBox(`platform_${Date.now()}`, {
+            width: platformWidth,
+            height: platformHeight,
+            depth: platformDepth
+        }, this.scene);
+        
+        // Начальная позиция - чуть ниже танка (верхняя грань касается дна танка)
+        this.module9Platform.position = new Vector3(
+            tankPos.x,
+            startY + platformHeight / 2, // Верхняя грань чуть ниже танка
+            tankPos.z
+        );
+        
+        // Поворачиваем платформу в направлении танка
+        const chassisRot = this.chassis.rotationQuaternion 
+            ? this.chassis.rotationQuaternion.toEulerAngles().y 
+            : this.chassis.rotation.y;
+        this.module9Platform.rotation.y = chassisRot;
+        
+        // Материал платформы - цвет поверхности
+        const platformMat = new StandardMaterial(`platformMat_${Date.now()}`, this.scene);
+        platformMat.diffuseColor = surfaceColor.scale(1.1); // Немного светлее поверхности
+        platformMat.emissiveColor = surfaceColor.scale(0.15);
+        platformMat.specularColor = Color3.Black();
+        this.module9Platform.material = platformMat;
+        
+        // Метаданные
+        this.module9Platform.metadata = { type: "platform", owner: this };
+        
+        // Физика платформы (ANIMATED для движения с коллизиями)
+        const shape = new PhysicsShape({
+            type: PhysicsShapeType.BOX,
+            parameters: { extents: new Vector3(platformWidth, platformHeight, platformDepth) }
+        }, this.scene);
+        shape.filterMembershipMask = 2; // Как окружение/terrain
+        shape.filterCollideMask = 1 | 8; // Игрок (1), враги (8)
+        
+        this.module9PlatformPhysics = new PhysicsBody(this.module9Platform, PhysicsMotionType.ANIMATED, false, this.scene);
+        this.module9PlatformPhysics.shape = shape;
         
         if (this.hud) {
-            this.hud.addActiveEffect("Маневрирование", "💨", "#0f0", 10000);
+            this.hud.addActiveEffect("Платформа", "⬆️", "#f80", this.MODULE9_MAX_DURATION);
             this.hud.setModuleCooldown(9, this.module9Cooldown);
         }
         if (this.chatSystem) {
-            this.chatSystem.success("💨 Маневрирование активировано!");
+            this.chatSystem.success("⬆️ Платформа поднимается!");
         }
         if (this.soundManager) {
             this.soundManager.playShoot();
         }
+    }
+    
+    /**
+     * Вызывается при отпускании кнопки 9 - переводит платформу в состояние "staying"
+     */
+    private deactivateModule9Platform(): void {
+        if (!this.module9Active) return;
+        if (this.module9State !== "rising") return; // Только из rising можно перейти в staying
         
-        // Отключаем через 10 секунд
-        this.module9Timeout = window.setTimeout(() => {
-            this.module9Active = false;
-            this.module9Timeout = null;
-            if (this.hud) {
-                this.hud.removeActiveEffect("Маневрирование");
+        // Переходим в состояние удержания (платформа остаётся на месте 3 секунды)
+        this.module9State = "staying";
+        this.module9ReleaseTime = Date.now();
+        
+        if (this.chatSystem) {
+            this.chatSystem.log("Платформа удерживается...");
+        }
+    }
+    
+    /**
+     * Полностью удаляет платформу и сбрасывает состояние
+     */
+    private destroyModule9Platform(): void {
+        // Удаляем физику
+        if (this.module9PlatformPhysics) {
+            this.module9PlatformPhysics.dispose();
+            this.module9PlatformPhysics = null;
+        }
+        
+        // Удаляем меш
+        if (this.module9Platform && !this.module9Platform.isDisposed()) {
+            this.module9Platform.dispose();
+            this.module9Platform = null;
+        }
+        
+        // Сбрасываем состояние
+        this.module9Active = false;
+        this.module9State = "idle";
+        
+        if (this.hud) {
+            this.hud.removeActiveEffect("Платформа");
+        }
+        if (this.chatSystem) {
+            this.chatSystem.log("Платформа опустилась");
+        }
+    }
+    
+    /**
+     * Обновление платформы (вызывается каждый кадр)
+     * State machine: idle → rising → staying → falling → idle
+     */
+    private updateModule9Platform(): void {
+        if (!this.module9Active || !this.module9Platform || this.module9Platform.isDisposed()) {
+            if (this.module9State !== "idle") {
+                this.module9State = "idle";
             }
-            if (this.chatSystem) {
-                this.chatSystem.log("Маневрирование закончилось");
+            return;
+        }
+        if (!this.chassis) return;
+        
+        const now = Date.now();
+        // Используем реальное время кадра для плавного движения
+        const deltaTimeMs = this.scene.getEngine().getDeltaTime();
+        const deltaTime = deltaTimeMs / 1000; // Конвертируем в секунды
+        const platformHeight = 0.5;
+        
+        switch (this.module9State) {
+            case "rising": {
+                // Платформа поднимается пока кнопка зажата
+                const elapsed = now - this.module9StartTime;
+                
+                // Проверяем максимальную длительность подъёма (10 секунд)
+                if (elapsed >= this.MODULE9_MAX_DURATION) {
+                    // Автоматически переходим в staying
+                    this.module9State = "staying";
+                    this.module9ReleaseTime = now;
+                    if (this.chatSystem) {
+                        this.chatSystem.log("Максимальная высота достигнута!");
+                    }
+                    return;
+                }
+                
+                // Плавно поднимаем платформу каждый кадр
+                const maxY = this.module9GroundY + this.MODULE9_MAX_HEIGHT;
+                this.module9CurrentY += this.MODULE9_LIFT_SPEED * deltaTime;
+                
+                // Ограничиваем максимальную высоту
+                if (this.module9CurrentY >= maxY) {
+                    this.module9CurrentY = maxY;
+                    this.module9State = "staying";
+                    this.module9ReleaseTime = now;
+                    if (this.chatSystem) {
+                        this.chatSystem.log("Максимальная высота достигнута!");
+                    }
+                }
+                break;
             }
-        }, 10000);
+            
+            case "staying": {
+                // Платформа стоит на месте 3 секунды после отпускания
+                const stayElapsed = now - this.module9ReleaseTime;
+                
+                if (stayElapsed >= this.MODULE9_STAY_DURATION) {
+                    // Переходим к опусканию
+                    this.module9State = "falling";
+                    if (this.chatSystem) {
+                        this.chatSystem.log("Платформа опускается...");
+                    }
+                }
+                // Высота не меняется во время staying
+                break;
+            }
+            
+            case "falling": {
+                // Платформа опускается обратно в землю
+                this.module9CurrentY -= this.MODULE9_FALL_SPEED * deltaTime;
+                
+                // Если достигли уровня земли - удаляем платформу
+                if (this.module9CurrentY <= this.module9GroundY) {
+                    this.module9CurrentY = this.module9GroundY;
+                    this.destroyModule9Platform();
+                    return;
+                }
+                break;
+            }
+            
+            case "idle":
+            default:
+                return;
+        }
+        
+        // Обновляем позицию платформы (верхняя грань на текущей высоте)
+        this.module9Platform.position.y = this.module9CurrentY + platformHeight / 2;
+        
+        // Обновляем физику для ANIMATED body
+        if (this.module9PlatformPhysics) {
+            const chassisRot = this.chassis.rotationQuaternion 
+                ? this.chassis.rotationQuaternion.toEulerAngles().y 
+                : this.chassis.rotation.y;
+                
+            this.module9PlatformPhysics.setTargetTransform(
+                this.module9Platform.position,
+                Quaternion.FromEulerAngles(0, chassisRot, 0)
+            );
+        }
     }
     
     // Модуль 0: Выполнение прыжка с накопленной силой
@@ -7400,60 +7726,8 @@ export class TankController {
             }
         }
         
-        // Модуль 9: Маневрирование от выстрелов
-        if (this.module9Active && this.enemyTanks && this.enemyTanks.length > 0) {
-            // ОПТИМИЗАЦИЯ: Используем кэшированную позицию вместо absolutePosition
-            const tankPos = this.getCachedChassisPosition();
-            const now = Date.now();
-            
-            // Меняем направление маневрирования каждые 1.5 секунды
-            if (now - this.module9LastManeuverChange > 1500) {
-                this.module9ManeuverDirection *= -1;
-                this.module9LastManeuverChange = now;
-            }
-            
-            // Находим ближайшего врага
-            let nearestEnemy: any = null;
-            let nearestDist = Infinity;
-            
-            // ОПТИМИЗАЦИЯ: Используем квадрат расстояния вместо Vector3.Distance
-            const enemyCount = this.enemyTanks.length;
-            let nearestDistSq = nearestDist * nearestDist;
-            for (let i = 0; i < enemyCount; i++) {
-                const enemy = this.enemyTanks[i];
-                if (!enemy || !enemy.chassis || !enemy.isAlive) continue;
-                
-                // КРИТИЧНО: Используем absolutePosition для правильной позиции в мировых координатах
-                const enemyPos = enemy.chassis.absolutePosition;
-                const dx = tankPos.x - enemyPos.x;
-                const dy = tankPos.y - enemyPos.y;
-                const dz = tankPos.z - enemyPos.z;
-                const distSq = dx * dx + dy * dy + dz * dz;
-                
-                if (distSq < nearestDistSq) {
-                    nearestDist = Math.sqrt(distSq);
-                    nearestDistSq = distSq;
-                    nearestEnemy = enemy;
-                }
-            }
-            
-            // Если враг близко, маневрируем
-            if (nearestEnemy && nearestDist < 80) {
-                const enemyPos = nearestEnemy.chassis.absolutePosition;
-                const toPlayer = tankPos.subtract(enemyPos).normalize();
-                
-                // Вычисляем перпендикулярное направление для маневрирования
-                const right = Vector3.Cross(toPlayer, Vector3.Up()).normalize();
-                
-                // Применяем силу в направлении маневрирования (зигзаг)
-                const maneuverForce = right.scale(10000 * this.module9ManeuverDirection);
-                this.physicsBody.applyImpulse(maneuverForce, tankPos);
-                
-                // Также добавляем небольшое движение вперёд/назад для более сложного маневрирования
-                const forwardComponent = toPlayer.scale(-5000); // Отдаляемся от врага
-                this.physicsBody.applyImpulse(forwardComponent, tankPos);
-            }
-        }
+        // Модуль 9: Обновление платформы (поднимается пока зажата кнопка)
+        this.updateModule9Platform();
         
         // Модуль 0: Обновление зарядки прыжка
         if (this.module0Charging) {

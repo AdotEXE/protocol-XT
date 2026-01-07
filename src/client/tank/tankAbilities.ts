@@ -214,7 +214,8 @@ export type ModuleId =
     | "module_speed_boost"
     | "module_repair"
     | "module_mines"
-    | "module_smoke";
+    | "module_smoke"
+    | "module_platform";
 
 export const MODULE_ABILITIES: Record<ModuleId, AbilityData> = {
     module_jump: {
@@ -319,6 +320,17 @@ export const MODULE_ABILITIES: Record<ModuleId, AbilityData> = {
         cooldown: 20000,
         duration: 15000,
         energyCost: 20
+    },
+    module_platform: {
+        id: "module_platform",
+        name: "Платформа",
+        description: "Поднимает платформу под танком (удерживание)",
+        icon: "⬆️",
+        type: "charged",
+        target: "self",
+        cooldown: 15000,
+        duration: 10000, // Максимум 10 секунд
+        energyCost: 25
     }
 };
 
@@ -508,7 +520,7 @@ export class TankAbilitiesModule {
     }
     
     /**
-     * Активация модуля 9 (Дополнительный урон)
+     * Активация модуля 9 (Платформа)
      */
     activateModule9(): void {
         (this.tank as any).activateModule9?.();

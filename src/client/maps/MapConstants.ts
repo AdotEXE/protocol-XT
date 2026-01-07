@@ -39,72 +39,73 @@ export interface MapSizeConfig {
 
 /**
  * Размеры всех карт - ЕДИНЫЙ ИСТОЧНИК ИСТИНЫ
+ * ВСЕ КАРТЫ ТЕПЕРЬ 500x500! Ничего не должно спавниться за границами!
  */
 export const MAP_SIZES: Record<string, MapSizeConfig> = {
     // Полигон - военный тренировочный полигон
     polygon: {
-        size: 1000,
-        minX: -500,
-        maxX: 500,
-        minZ: -500,
-        maxZ: 500,
-        playerGaragePosition: [-70, -70], // Юго-западный угол
+        size: 500,
+        minX: -250,
+        maxX: 250,
+        minZ: -250,
+        maxZ: 250,
+        playerGaragePosition: [-50, -50], // Юго-западный угол
         wallHeight: 6
     },
     
     // Передовая - поле боя WW1 стиля
     frontline: {
-        size: 1000,
-        minX: -500,
-        maxX: 500,
-        minZ: -500,
-        maxZ: 500,
-        playerGaragePosition: [-400, 0], // Западная сторона (база игрока)
+        size: 500,
+        minX: -250,
+        maxX: 250,
+        minZ: -250,
+        maxZ: 250,
+        playerGaragePosition: [-100, 0], // Западная сторона
         wallHeight: 8
     },
     
     // Каньон - горное ущелье
     canyon: {
-        size: 800,
-        minX: -400,
-        maxX: 400,
-        minZ: -400,
-        maxZ: 400,
-        playerGaragePosition: [0, -350], // Южная сторона
+        size: 500,
+        minX: -250,
+        maxX: 250,
+        minZ: -250,
+        maxZ: 250,
+        playerGaragePosition: [0, -200], // Южная сторона
         wallHeight: 10
     },
     
-    // Песочница - маленькая тестовая зона
+    // Песочница - тестовая зона
     sandbox: {
-        size: 400,
-        minX: -200,
-        maxX: 200,
-        minZ: -200,
-        maxZ: 200,
+        size: 500,
+        minX: -250,
+        maxX: 250,
+        minZ: -250,
+        maxZ: 250,
         playerGaragePosition: [0, 0], // Центр
         wallHeight: 0
     },
     
-    // Нормальная карта - большой открытый мир
+    // Нормальная карта
     normal: {
-        size: 2500,
-        minX: -1250,
-        maxX: 1250,
-        minZ: -1250,
-        maxZ: 1250,
+        size: 500,
+        minX: -250,
+        maxX: 250,
+        minZ: -250,
+        maxZ: 250,
         playerGaragePosition: [0, 0], // Центр
-        wallHeight: 0 // Естественные горные барьеры
+        wallHeight: 6
     },
     
-    // Тартария - большой открытый мир с городом
+    // Тартария
     tartaria: {
-        size: 2500,
-        minX: -1250,
-        maxX: 1250,
-        minZ: -1250,
-        maxZ: 1250,
-        playerGaragePosition: [0, 0], // Случайный спавн
-        wallHeight: 0 // Естественные горные барьеры
+        size: 500,
+        minX: -250,
+        maxX: 250,
+        minZ: -250,
+        maxZ: 250,
+        playerGaragePosition: [0, 0], // Центр
+        wallHeight: 6
     }
 };
 

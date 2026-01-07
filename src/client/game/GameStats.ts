@@ -253,10 +253,16 @@ export class GameStats {
                 </div>
             ` : '<span style="color:#f00; font-size:10px">DEAD</span>';
             
+            // Формируем строку снаряжения (сокращённо для компактности)
+            const equipmentDisplay = bot.equipment ? `<span style="color:#888; font-size:9px">${bot.equipment}</span>` : '';
+            
             botsHTML += `
                 <tr style="opacity:${rowOpacity}; border-bottom:1px solid #222">
                     <td style="padding:8px 12px; color:${statusColor}">${statusIcon}</td>
-                    <td style="padding:8px 12px; color:#f80">${bot.name}</td>
+                    <td style="padding:8px 12px">
+                        <div style="color:#f80">${bot.name}</div>
+                        ${equipmentDisplay}
+                    </td>
                     <td style="padding:8px 12px; text-align:center; color:#0f0">${bot.kills}</td>
                     <td style="padding:8px 12px; text-align:center; color:#f00">${bot.deaths}</td>
                     <td style="padding:8px 12px; text-align:center">${healthBar}</td>
@@ -454,21 +460,34 @@ export class GameStats {
     /**
      * Получение данных о ботах
      */
-    private getBotsData(): { name: string; kills: number; deaths: number; health: number; isAlive: boolean }[] {
-        const bots: { name: string; kills: number; deaths: number; health: number; isAlive: boolean }[] = [];
+    private getBotsData(): { name: string; kills: number; deaths: number; health: number; isAlive: boolean; equipment?: string }[] {
+        const bots: { name: string; kills: number; deaths: number; health: number; isAlive: boolean; equipment?: string }[] = [];
         
         if (!this.systems) return bots;
         
-        // Вражеские танки
+        // Вражеские танки - используем реальную статистику из EnemyTank
         this.systems.enemyTanks.forEach((tank, index) => {
             const currentHealth = tank.currentHealth || 0;
             const maxHealth = tank.maxHealth || 100;
+            
+            // Получаем реальную статистику бота (kills/deaths)
+            const kills = typeof tank.getKillsCount === 'function' ? tank.getKillsCount() : 0;
+            const deaths = typeof tank.getDeathsCount === 'function' ? tank.getDeathsCount() : 0;
+            
+            // Получаем информацию о снаряжении для отображения
+            let equipmentInfo = '';
+            if (typeof tank.getEquipmentInfo === 'function') {
+                const eq = tank.getEquipmentInfo();
+                equipmentInfo = `${eq.chassis} | ${eq.cannon}`;
+            }
+            
             bots.push({
                 name: `BOT_${index + 1}`,
-                kills: Math.floor(Math.random() * 5), // Боты не отслеживают киллы
-                deaths: 0,
+                kills: kills,
+                deaths: deaths,
                 health: Math.round((currentHealth / maxHealth) * 100),
-                isAlive: currentHealth > 0
+                isAlive: currentHealth > 0,
+                equipment: equipmentInfo
             });
         });
         

@@ -188,8 +188,8 @@ export class TankHealthModule {
         }, this.invulnerabilityDuration);
     }
     
-    // Деактивировать защиту от урона
-    private deactivateInvulnerability(): void {
+    // Деактивировать защиту от урона (публичный метод для вызова из die())
+    deactivateInvulnerability(): void {
         this.isInvulnerable = false;
         
         // Удаляем визуальный эффект
@@ -207,6 +207,12 @@ export class TankHealthModule {
     // Создать визуальный эффект защиты
     private createInvulnerabilityGlow(): void {
         if (!this.tank.chassis) return;
+        
+        // ВАЖНО: Сначала удаляем старый эффект если он есть (предотвращаем дублирование)
+        if (this.invulnerabilityGlow && !this.invulnerabilityGlow.isDisposed()) {
+            this.invulnerabilityGlow.dispose();
+            this.invulnerabilityGlow = null;
+        }
         
         // Создаём светящееся кольцо вокруг танка
         const glow = MeshBuilder.CreateCylinder("invulnerabilityGlow", { 
@@ -324,8 +330,14 @@ export class TankHealthModule {
             this.tank.experienceSystem.recordDeath();
         }
         
-        // Respawn after 3 seconds
-        console.log("[TANK] Scheduling respawn in 3 seconds...");
+        // ВАЖНО: Деактивируем неуязвимость при смерти (чтобы голубой элемент не остался)
+        if (this.isInvulnerable) {
+            this.deactivateInvulnerability();
+        }
+        
+        // Respawn после 4 секунд:
+        // 3 секунды обратный отсчёт + 0.5 сек "RESPAWNING..." + 0.5 сек задержка после скрытия экрана смерти
+        console.log("[TANK] Scheduling respawn in 4 seconds (after death screen closes)...");
         setTimeout(() => {
             console.log("[TANK] Respawn timer fired!");
             if (!this.tank.isAlive && this.tank.respawn) {
@@ -333,7 +345,7 @@ export class TankHealthModule {
             } else {
                 console.log("[TANK] Already alive, skipping respawn");
             }
-        }, 3000);
+        }, 4000);
     }
     
     /**

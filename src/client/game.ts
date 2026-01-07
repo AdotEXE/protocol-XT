@@ -1445,6 +1445,24 @@ export class Game {
         logger.debug("Graphics settings applied");
     }
     
+    /**
+     * Настраивает серый туман для плавного перехода на границе видимости
+     * ВСЕ КАРТЫ ТЕПЕРЬ 500x500 - единые настройки тумана
+     */
+    private setupFog(): void {
+        if (!this.scene) return;
+        
+        // Все карты теперь 500x500 - единые настройки тумана
+        // Туман начинается на 60% дистанции, заканчивается на границе карты
+        const fogStart = 180;  // Начало тумана
+        const fogEnd = 280;    // Полный туман (немного за границей 250)
+        
+        this.scene.fogStart = fogStart;
+        this.scene.fogEnd = fogEnd;
+        
+        logger.log(`[Game] Fog setup: start=${fogStart}, end=${fogEnd} (all maps 500x500)`);
+    }
+    
     private applyAudioSettings(): void {
         if (this.mainMenu) {
             const settings = this.mainMenu.getSettings();
@@ -2385,7 +2403,14 @@ export class Game {
             // === SCENE OPTIMIZATIONS ===
             this.scene.blockMaterialDirtyMechanism = true; // Prevent material updates
             this.scene.useRightHandedSystem = false;
-            this.scene.fogEnabled = false; // No fog
+            
+            // === FOG SETUP - серый туман для плавного перехода на границе видимости ===
+            this.scene.fogEnabled = true;
+            this.scene.fogMode = Scene.FOGMODE_LINEAR;
+            this.scene.fogColor = new Color3(0.45, 0.48, 0.52); // Серый с лёгким синеватым оттенком
+            // Дистанции тумана зависят от типа карты (рассчитываются в setupFog)
+            this.setupFog();
+            
             this.scene.lightsEnabled = true;
             // Shadows and particles will be set by applyGraphicsSettings()
             this.scene.spritesEnabled = false;
@@ -3154,7 +3179,8 @@ export class Game {
                 multiplayerManager: this.multiplayerManager,
                 enemyTanks: this.enemyTanks,
                 enemyManager: this.enemyManager,
-                getIsMultiplayer: () => this.isMultiplayer
+                getIsMultiplayer: () => this.isMultiplayer,
+                currentMapType: this.currentMapType
             });
             
             // Initialize GameCamera if not already initialized
@@ -3238,16 +3264,19 @@ export class Game {
             
             this.updateLoadingProgress(90, "Завершение инициализации...");
             
-            // ОПТИМИЗАЦИЯ: Включаем прогрессивную загрузку чанков
+            // ПОЛНАЯ ЗАГРУЗКА КАРТЫ: Загружаем ВСЮ карту сразу при старте
             // Используем позицию гаража из MapConstants для места спавна
             const garagePos = getPlayerGaragePosition(this.currentMapType);
             const initialPos = garagePos 
                 ? new Vector3(garagePos[0], 2, garagePos[1]) 
                 : new Vector3(0, 2, 0);
             if (this.chunkSystem) {
-                this.chunkSystem.enableProgressiveLoading(initialPos);
-                // Загружаем начальные чанки вокруг места спавна (радиус 1)
+                // Загружаем ВСЮ карту сразу - без дыр и непрогруженных чанков
+                logger.log("[Game] Preloading entire map...");
+                this.chunkSystem.preloadEntireMap();
+                // Обновляем позицию игрока
                 this.chunkSystem.update(initialPos);
+                logger.log("[Game] Map preloading complete!");
             }
             
             // === DEBUG TOOLS (Lazy loaded) ===

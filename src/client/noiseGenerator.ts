@@ -469,6 +469,40 @@ export class TerrainGenerator {
             }
         }
         
+        // Специальные карты Frontline и Polygon - уменьшенные перепады высот
+        // Вычисляем стандартную высоту и делим на 3 для более пологого рельефа
+        if (this.mapType === "frontline" || this.mapType === "polygon") {
+            const cacheKey = `${Math.floor(worldX)}_${Math.floor(worldZ)}_${biome}`;
+            if (this.heightCache.has(cacheKey)) {
+                return this.heightCache.get(cacheKey)!;
+            }
+            
+            // Используем wasteland биом для этих карт с уменьшенной амплитудой
+            const scale = 0.008;
+            const wasteBase = this.noise.fbm(worldX * scale, worldZ * scale, 5, 2, 0.5) * 18;
+            const craters = this.noise.enhancedTurbulence(worldX * scale * 2, worldZ * scale * 2, 4) * 12;
+            const canyons = this.noise.enhancedRidged(worldX * scale * 1.2, worldZ * scale * 1.2, 3, 2, 0.6) * 10;
+            const wasteHills = this.noise.fbm(worldX * scale * 0.8, worldZ * scale * 0.8, 4, 2, 0.5) * 5;
+            const detailLayer = this.noise.enhancedTurbulence(worldX * scale * 4, worldZ * scale * 4, 3) * 3;
+            const fineDetailLayer = this.noise.fbm(worldX * scale * 12, worldZ * scale * 12, 2, 2, 0.5) * 1.5;
+            
+            let height = wasteBase + craters - Math.abs(canyons) * 0.8 + wasteHills + detailLayer + fineDetailLayer;
+            
+            // Делим на 3 для уменьшения перепадов высот
+            height = height / 3;
+            
+            // Валидация
+            if (!isFinite(height) || isNaN(height)) {
+                height = 0;
+            }
+            
+            this.heightCache.set(cacheKey, height);
+            if (this.heightCache.size > TerrainGenerator.MAX_CACHE_SIZE) {
+                this.heightCache.clear();
+            }
+            return height;
+        }
+        
         // Check cache
         const cacheKey = `${Math.floor(worldX)}_${Math.floor(worldZ)}_${biome}`;
         if (this.heightCache.has(cacheKey)) {

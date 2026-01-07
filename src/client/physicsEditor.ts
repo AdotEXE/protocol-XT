@@ -493,7 +493,7 @@ export class PhysicsEditor {
             </div>
             
             <div class="physics-editor-section">
-                <div class="physics-editor-section-title">Модуль 9 (Маневрирование)</div>
+                <div class="physics-editor-section-title">Модуль 9 (Платформа)</div>
                 ${this.createSlider("modules.module9.cooldown", "Кулдаун", config.module9.cooldown, 1000, 60000, 1000, "мс")}
             </div>
             

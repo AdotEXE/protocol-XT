@@ -161,13 +161,16 @@ export class PolygonGenerator extends BaseMapGenerator {
             
             if (this.isPositionInGarageArea(hWorldX, hWorldZ, 5)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const terrainHeight = this.getTerrainHeight(hWorldX, hWorldZ, "wasteland");
+            
             const hillSize = random.range(8, 15);
             const hillHeight = random.range(2, 5);
             
             this.createBox(
                 "polygon_hill",
                 { width: hillSize, height: hillHeight, depth: hillSize },
-                new Vector3(hx, hillHeight / 2, hz),
+                new Vector3(hx, terrainHeight + hillHeight / 2, hz),
                 "dirt",
                 chunkParent,
                 true
@@ -293,11 +296,14 @@ export class PolygonGenerator extends BaseMapGenerator {
             const worldZ = chunkZ * size + z;
             if (this.isPositionInGarageArea(worldX, worldZ, 3)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             // Основа мишени - вертикальный столб
             const pole = this.createBox(
                 "target_pole",
                 { width: 0.3, height: 3, depth: 0.3 },
-                new Vector3(x, 1.5, z),
+                new Vector3(x, terrainHeight + 1.5, z),
                 "metal",
                 chunkParent,
                 false
@@ -311,7 +317,7 @@ export class PolygonGenerator extends BaseMapGenerator {
                 height: targetHeight,
                 depth: 0.2
             }, this.scene);
-            target.position = new Vector3(x, targetHeight / 2 + 1, z + 0.3);
+            target.position = new Vector3(x, terrainHeight + targetHeight / 2 + 1, z + 0.3);
             
             // Красная мишень
             const targetMat = new StandardMaterial("targetMat", this.scene);
@@ -333,7 +339,7 @@ export class PolygonGenerator extends BaseMapGenerator {
                 const top = this.createBox(
                     "ring_top",
                     { width: ringSize * 2, height: ringThickness, depth: ringThickness },
-                    new Vector3(x, 2 + targetHeight / 2, z + 0.35 - ringSize),
+                    new Vector3(x, terrainHeight + 2 + targetHeight / 2, z + 0.35 - ringSize),
                     ringMat,
                     chunkParent,
                     false
@@ -343,7 +349,7 @@ export class PolygonGenerator extends BaseMapGenerator {
                 const bottom = this.createBox(
                     "ring_bottom",
                     { width: ringSize * 2, height: ringThickness, depth: ringThickness },
-                    new Vector3(x, 2 + targetHeight / 2, z + 0.35 + ringSize),
+                    new Vector3(x, terrainHeight + 2 + targetHeight / 2, z + 0.35 + ringSize),
                     ringMat,
                     chunkParent,
                     false
@@ -353,7 +359,7 @@ export class PolygonGenerator extends BaseMapGenerator {
                 const left = this.createBox(
                     "ring_left",
                     { width: ringThickness, height: ringThickness, depth: ringSize * 2 },
-                    new Vector3(x - ringSize, 2 + targetHeight / 2, z + 0.35),
+                    new Vector3(x - ringSize, terrainHeight + 2 + targetHeight / 2, z + 0.35),
                     ringMat,
                     chunkParent,
                     false
@@ -363,7 +369,7 @@ export class PolygonGenerator extends BaseMapGenerator {
                 const right = this.createBox(
                     "ring_right",
                     { width: ringThickness, height: ringThickness, depth: ringSize * 2 },
-                    new Vector3(x + ringSize, 2 + targetHeight / 2, z + 0.35),
+                    new Vector3(x + ringSize, terrainHeight + 2 + targetHeight / 2, z + 0.35),
                     ringMat,
                     chunkParent,
                     false
@@ -374,10 +380,13 @@ export class PolygonGenerator extends BaseMapGenerator {
         // Добавляем рельсы для движущихся мишеней
         if (random.chance(0.5)) {
             const railZ = random.range(size * 0.3, size * 0.7);
+            const railWorldX = chunkX * size + size / 2;
+            const railWorldZ = chunkZ * size + railZ;
+            const railTerrainHeight = this.getTerrainHeight(railWorldX, railWorldZ, "wasteland");
             const rail = this.createBox(
                 "rail",
                 { width: size - 20, height: 0.1, depth: 0.5 },
-                new Vector3(size / 2, 0.05, railZ),
+                new Vector3(size / 2, railTerrainHeight + 0.05, railZ),
                 "metalRust",
                 chunkParent,
                 false
@@ -406,12 +415,15 @@ export class PolygonGenerator extends BaseMapGenerator {
             const worldZ = chunkZ * size + railZ;
             if (this.isPositionInGarageArea(worldX, worldZ, 3)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             // Рельсы для движущейся мишени
             const railLength = Math.abs(endX - startX);
             const rail = this.createBox(
                 "moving_rail",
                 { width: railLength, height: 0.1, depth: 0.5 },
-                new Vector3((startX + endX) / 2, 0.05, railZ),
+                new Vector3((startX + endX) / 2, terrainHeight + 0.05, railZ),
                 "metalRust",
                 chunkParent,
                 false
@@ -425,7 +437,7 @@ export class PolygonGenerator extends BaseMapGenerator {
                 height: targetHeight,
                 depth: 0.2
             }, this.scene);
-            target.position = new Vector3(startX, targetHeight / 2 + 1, railZ + 0.3);
+            target.position = new Vector3(startX, terrainHeight + targetHeight / 2 + 1, railZ + 0.3);
             
             const targetMat = new StandardMaterial("movingTargetMat", this.scene);
             targetMat.diffuseColor = new Color3(0.9, 0.1, 0.1);
@@ -471,6 +483,9 @@ export class PolygonGenerator extends BaseMapGenerator {
             const worldZ = chunkZ * size + z;
             if (this.isPositionInGarageArea(worldX, worldZ, 4)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             const rampWidth = random.range(4, 8);
             const rampHeight = random.range(1, 2.5);
             const rampDepth = random.range(6, 10);
@@ -480,7 +495,7 @@ export class PolygonGenerator extends BaseMapGenerator {
                 height: rampHeight,
                 depth: rampDepth
             }, this.scene);
-            ramp.position = new Vector3(x, rampHeight / 2, z);
+            ramp.position = new Vector3(x, terrainHeight + rampHeight / 2, z);
             ramp.rotation.x = -Math.PI * 0.1; // Небольшой наклон
             ramp.material = this.getMat("concrete");
             ramp.parent = chunkParent;
@@ -498,6 +513,9 @@ export class PolygonGenerator extends BaseMapGenerator {
             const worldZ = chunkZ * size + z;
             if (this.isPositionInGarageArea(worldX, worldZ, 2)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const blockTerrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             const blockW = random.range(2, 4);
             const blockH = random.range(1, 2);
             const blockD = random.range(2, 4);
@@ -505,7 +523,7 @@ export class PolygonGenerator extends BaseMapGenerator {
             const block = this.createBox(
                 "block",
                 { width: blockW, height: blockH, depth: blockD },
-                new Vector3(x, blockH / 2, z),
+                new Vector3(x, blockTerrainHeight + blockH / 2, z),
                 "concrete",
                 chunkParent,
                 true
@@ -523,6 +541,9 @@ export class PolygonGenerator extends BaseMapGenerator {
             const worldZ = chunkZ * size + z;
             if (this.isPositionInGarageArea(worldX, worldZ, 2)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const hedgehogTerrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             // Создаём "ёж" из 3 пересекающихся балок
             const beamLength = 3;
             const beamThickness = 0.3;
@@ -533,7 +554,7 @@ export class PolygonGenerator extends BaseMapGenerator {
                     height: beamLength,
                     depth: beamThickness
                 }, this.scene);
-                beam.position = new Vector3(x, beamLength / 2 * 0.7, z);
+                beam.position = new Vector3(x, hedgehogTerrainHeight + beamLength / 2 * 0.7, z);
                 beam.rotation.x = Math.PI / 4;
                 beam.rotation.y = (j * Math.PI) / 3;
                 beam.material = this.getMat("metalRust");
@@ -547,7 +568,7 @@ export class PolygonGenerator extends BaseMapGenerator {
                 height: 2,
                 depth: 2
             }, this.scene);
-            hedgehogPhysics.position = new Vector3(x, 1, z);
+            hedgehogPhysics.position = new Vector3(x, hedgehogTerrainHeight + 1, z);
             hedgehogPhysics.isVisible = false;
             hedgehogPhysics.parent = chunkParent;
             new PhysicsAggregate(hedgehogPhysics, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
@@ -562,10 +583,13 @@ export class PolygonGenerator extends BaseMapGenerator {
             const worldZ = chunkZ * size + z;
             if (this.isPositionInGarageArea(worldX, worldZ, 2)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const toothTerrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             const tooth = this.createBox(
                 "dragonTooth",
                 { width: 1.5, height: 1.5, depth: 1.5 },
-                new Vector3(x, 0.75, z),
+                new Vector3(x, toothTerrainHeight + 0.75, z),
                 "concrete",
                 chunkParent,
                 true
@@ -582,12 +606,15 @@ export class PolygonGenerator extends BaseMapGenerator {
             const worldZ = chunkZ * size + z;
             if (this.isPositionInGarageArea(worldX, worldZ, 10)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const trenchTerrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             const trenchLength = random.range(15, 30);
             const trenchWidth = random.range(3, 5);
             const trench = this.createBox(
                 "trench",
                 { width: trenchWidth, height: 1.5, depth: trenchLength },
-                new Vector3(x, -0.5, z),
+                new Vector3(x, trenchTerrainHeight - 0.5, z),
                 "dirt",
                 chunkParent,
                 false
@@ -604,13 +631,16 @@ export class PolygonGenerator extends BaseMapGenerator {
             const worldZ = chunkZ * size + z;
             if (this.isPositionInGarageArea(worldX, worldZ, 3)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const wireTerrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             // Столбики
             const wireLength = random.range(5, 12);
             for (let p = 0; p <= wireLength / 2; p++) {
                 const post = this.createBox(
                     "wirePost",
                     { width: 0.1, height: 1.2, depth: 0.1 },
-                    new Vector3(x + p * 2, 0.6, z),
+                    new Vector3(x + p * 2, wireTerrainHeight + 0.6, z),
                     "metalRust",
                     chunkParent,
                     false
@@ -621,7 +651,7 @@ export class PolygonGenerator extends BaseMapGenerator {
             const wire = this.createBox(
                 "wire",
                 { width: wireLength, height: 0.05, depth: 0.05 },
-                new Vector3(x + wireLength / 2, 1, z),
+                new Vector3(x + wireLength / 2, wireTerrainHeight + 1, z),
                 "metalRust",
                 chunkParent,
                 false
@@ -630,7 +660,7 @@ export class PolygonGenerator extends BaseMapGenerator {
             const wire2 = this.createBox(
                 "wire2",
                 { width: wireLength, height: 0.05, depth: 0.05 },
-                new Vector3(x + wireLength / 2, 0.5, z),
+                new Vector3(x + wireLength / 2, wireTerrainHeight + 0.5, z),
                 "metalRust",
                 chunkParent,
                 false
@@ -646,12 +676,15 @@ export class PolygonGenerator extends BaseMapGenerator {
             const worldZ = chunkZ * size + z;
             if (this.isPositionInGarageArea(worldX, worldZ, 6)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const jumpRampTerrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             const jumpRamp = MeshBuilder.CreateBox("jumpRamp", {
                 width: 6,
                 height: 2,
                 depth: 8
             }, this.scene);
-            jumpRamp.position = new Vector3(x, 0.5, z);
+            jumpRamp.position = new Vector3(x, jumpRampTerrainHeight + 0.5, z);
             jumpRamp.rotation.x = -0.3; // Наклон
             jumpRamp.rotation.y = random.range(0, Math.PI * 2);
             jumpRamp.material = this.getMat("concrete");
@@ -679,6 +712,9 @@ export class PolygonGenerator extends BaseMapGenerator {
             const worldZ = chunkZ * size + z;
             if (this.isPositionInGarageArea(worldX, worldZ, 3)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             // Низкая стена-укрытие
             const coverWidth = random.range(4, 8);
             const coverHeight = random.range(1.5, 2.5);
@@ -686,7 +722,7 @@ export class PolygonGenerator extends BaseMapGenerator {
             const cover = this.createBox(
                 "cover",
                 { width: coverWidth, height: coverHeight, depth: 1 },
-                new Vector3(x, coverHeight / 2, z),
+                new Vector3(x, terrainHeight + coverHeight / 2, z),
                 "concrete",
                 chunkParent,
                 true
@@ -704,6 +740,9 @@ export class PolygonGenerator extends BaseMapGenerator {
             const worldZ = chunkZ * size + z;
             if (this.isPositionInGarageArea(worldX, worldZ, 2)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const sandbagTerrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             // Куча мешков
             for (let row = 0; row < 3; row++) {
                 for (let col = 0; col < 3 - row; col++) {
@@ -712,7 +751,7 @@ export class PolygonGenerator extends BaseMapGenerator {
                         { width: 1.2, height: 0.4, depth: 0.6 },
                         new Vector3(
                             x + col * 1.3 - (3 - row) * 0.65 + 0.65,
-                            row * 0.4 + 0.2,
+                            sandbagTerrainHeight + row * 0.4 + 0.2,
                             z
                         ),
                         "sand",
@@ -728,7 +767,7 @@ export class PolygonGenerator extends BaseMapGenerator {
                 height: 1.2,
                 depth: 1
             }, this.scene);
-            sandbagPhysics.position = new Vector3(x, 0.6, z);
+            sandbagPhysics.position = new Vector3(x, sandbagTerrainHeight + 0.6, z);
             sandbagPhysics.isVisible = false;
             sandbagPhysics.parent = chunkParent;
             new PhysicsAggregate(sandbagPhysics, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
@@ -743,6 +782,9 @@ export class PolygonGenerator extends BaseMapGenerator {
             const worldZ = chunkZ * size + z;
             if (this.isPositionInGarageArea(worldX, worldZ, 3)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const tireTerrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             const stackHeight = random.int(2, 4);
             for (let h = 0; h < stackHeight; h++) {
                 const tire = MeshBuilder.CreateBox("tire", {
@@ -752,7 +794,7 @@ export class PolygonGenerator extends BaseMapGenerator {
                 }, this.scene);
                 tire.position = new Vector3(
                     x + random.range(-0.1, 0.1),
-                    h * 0.4 + 0.2,
+                    tireTerrainHeight + h * 0.4 + 0.2,
                     z + random.range(-0.1, 0.1)
                 );
                 const tireMat = new StandardMaterial("tireMat", this.scene);
@@ -768,7 +810,7 @@ export class PolygonGenerator extends BaseMapGenerator {
                 height: stackHeight * 0.4,
                 depth: 1.5
             }, this.scene);
-            tirePhys.position = new Vector3(x, stackHeight * 0.2, z);
+            tirePhys.position = new Vector3(x, tireTerrainHeight + stackHeight * 0.2, z);
             tirePhys.isVisible = false;
             tirePhys.parent = chunkParent;
             new PhysicsAggregate(tirePhys, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
@@ -783,12 +825,15 @@ export class PolygonGenerator extends BaseMapGenerator {
             const worldZ = chunkZ * size + z;
             if (this.isPositionInGarageArea(worldX, worldZ, 2)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const barrelTerrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             const barrel = MeshBuilder.CreateBox("barrel", {
                 width: 0.8,
                 height: 1.2,
                 depth: 0.8
             }, this.scene);
-            barrel.position = new Vector3(x, 0.6, z);
+            barrel.position = new Vector3(x, barrelTerrainHeight + 0.6, z);
             const barrelMat = new StandardMaterial("barrelMat", this.scene);
             barrelMat.diffuseColor = random.chance(0.5) ? new Color3(0.1, 0.4, 0.1) : new Color3(0.6, 0.1, 0.1);
             barrel.material = barrelMat;
@@ -806,12 +851,15 @@ export class PolygonGenerator extends BaseMapGenerator {
             const worldZ = chunkZ * size + z;
             if (this.isPositionInGarageArea(worldX, worldZ, 2)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const crateTerrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             const crate = MeshBuilder.CreateBox("ammoCrate", {
                 width: 1.5,
                 height: 0.8,
                 depth: 1
             }, this.scene);
-            crate.position = new Vector3(x, 0.4, z);
+            crate.position = new Vector3(x, crateTerrainHeight + 0.4, z);
             crate.rotation.y = random.range(0, Math.PI);
             const crateMat = new StandardMaterial("crateMat", this.scene);
             crateMat.diffuseColor = new Color3(0.3, 0.25, 0.1);
@@ -830,11 +878,14 @@ export class PolygonGenerator extends BaseMapGenerator {
             const worldZ = chunkZ * size + z;
             if (this.isPositionInGarageArea(worldX, worldZ, 2)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const dummyTerrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             // Столб
             const pole = this.createBox(
                 "dummyPole",
                 { width: 0.15, height: 2, depth: 0.15 },
-                new Vector3(x, 1, z),
+                new Vector3(x, dummyTerrainHeight + 1, z),
                 "metal",
                 chunkParent,
                 false
@@ -846,7 +897,7 @@ export class PolygonGenerator extends BaseMapGenerator {
                 height: 1.6,
                 depth: 0.1
             }, this.scene);
-            dummy.position = new Vector3(x, 1.3, z + 0.1);
+            dummy.position = new Vector3(x, dummyTerrainHeight + 1.3, z + 0.1);
             const dummyMat = new StandardMaterial("dummyMat", this.scene);
             dummyMat.diffuseColor = new Color3(0.2, 0.15, 0.1);
             dummy.material = dummyMat;
@@ -861,13 +912,16 @@ export class PolygonGenerator extends BaseMapGenerator {
             const worldX = chunkX * size + x;
             const worldZ = chunkZ * size + z;
             if (!this.isPositionInGarageArea(worldX, worldZ, 5)) {
+                // Получаем высоту террейна в этой точке
+                const wreckTerrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+                
                 // Корпус разрушенного танка
                 const hull = MeshBuilder.CreateBox("wreckHull", {
                     width: 3,
                     height: 1.2,
                     depth: 5
                 }, this.scene);
-                hull.position = new Vector3(x, 0.6, z);
+                hull.position = new Vector3(x, wreckTerrainHeight + 0.6, z);
                 hull.rotation.y = random.range(0, Math.PI * 2);
                 const wreckMat = new StandardMaterial("wreckMat", this.scene);
                 wreckMat.diffuseColor = new Color3(0.2, 0.15, 0.1);
@@ -897,6 +951,9 @@ export class PolygonGenerator extends BaseMapGenerator {
             
             if (this.isPositionInGarageArea(hWorldX, hWorldZ, 15)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const hangarTerrainHeight = this.getTerrainHeight(hWorldX, hWorldZ, "wasteland");
+            
             const hangarW = random.range(20, 30);
             const hangarH = random.range(6, 10);
             const hangarD = random.range(25, 35);
@@ -905,7 +962,7 @@ export class PolygonGenerator extends BaseMapGenerator {
             const hangar = this.createBox(
                 "hangar",
                 { width: hangarW, height: hangarH, depth: hangarD },
-                new Vector3(hx, hangarH / 2, hz),
+                new Vector3(hx, hangarTerrainHeight + hangarH / 2, hz),
                 "metal",
                 chunkParent,
                 true
@@ -916,7 +973,7 @@ export class PolygonGenerator extends BaseMapGenerator {
             const leftFrame = this.createBox(
                 "doorFrame",
                 { width: 1, height: doorHeight, depth: 1 },
-                new Vector3(hx - hangarW / 2 + 1, doorHeight / 2, hz - hangarD / 2),
+                new Vector3(hx - hangarW / 2 + 1, hangarTerrainHeight + doorHeight / 2, hz - hangarD / 2),
                 "metal",
                 chunkParent,
                 false
@@ -925,7 +982,7 @@ export class PolygonGenerator extends BaseMapGenerator {
             const rightFrame = this.createBox(
                 "doorFrame",
                 { width: 1, height: doorHeight, depth: 1 },
-                new Vector3(hx + hangarW / 2 - 1, doorHeight / 2, hz - hangarD / 2),
+                new Vector3(hx + hangarW / 2 - 1, hangarTerrainHeight + doorHeight / 2, hz - hangarD / 2),
                 "metal",
                 chunkParent,
                 false
@@ -934,7 +991,7 @@ export class PolygonGenerator extends BaseMapGenerator {
             const topFrame = this.createBox(
                 "doorFrame",
                 { width: hangarW - 2, height: 1, depth: 1 },
-                new Vector3(hx, doorHeight, hz - hangarD / 2),
+                new Vector3(hx, hangarTerrainHeight + doorHeight, hz - hangarD / 2),
                 "metal",
                 chunkParent,
                 false
@@ -942,7 +999,7 @@ export class PolygonGenerator extends BaseMapGenerator {
             
             // Vehicles inside hangar (occasionally)
             if (random.chance(0.5)) {
-                this.createMilitaryVehicle(hx, hz, random, random.pick(["tank", "truck", "apc"]), chunkParent);
+                this.createMilitaryVehicle(hx, hz, random, random.pick(["tank", "truck", "apc"]), chunkParent, hangarTerrainHeight);
             }
         }
         
@@ -1388,13 +1445,13 @@ export class PolygonGenerator extends BaseMapGenerator {
     /**
      * Создать военную технику
      */
-    private createMilitaryVehicle(x: number, z: number, random: any, type: "tank" | "truck" | "apc" = "tank", chunkParent: any): void {
+    private createMilitaryVehicle(x: number, z: number, random: any, type: "tank" | "truck" | "apc" = "tank", chunkParent: any, terrainHeight: number = 0): void {
         if (type === "tank") {
             // Tank wreck
             const body = this.createBox(
                 "tankWreck",
                 { width: 4, height: 2, depth: 6 },
-                new Vector3(x, 1, z),
+                new Vector3(x, terrainHeight + 1, z),
                 "metalRust",
                 chunkParent,
                 true
@@ -1406,7 +1463,7 @@ export class PolygonGenerator extends BaseMapGenerator {
                 const turret = this.createBox(
                     "tankTurret",
                     { width: 2.5, height: 1.5, depth: 2.5 },
-                    new Vector3(x + random.range(-2, 2), 0.75, z + random.range(-2, 2)),
+                    new Vector3(x + random.range(-2, 2), terrainHeight + 0.75, z + random.range(-2, 2)),
                     "metalRust",
                     chunkParent,
                     false
@@ -1417,7 +1474,7 @@ export class PolygonGenerator extends BaseMapGenerator {
             const cab = this.createBox(
                 "truckCab",
                 { width: 2.5, height: 2, depth: 3 },
-                new Vector3(x, 1, z),
+                new Vector3(x, terrainHeight + 1, z),
                 "metalRust",
                 chunkParent,
                 false
@@ -1427,7 +1484,7 @@ export class PolygonGenerator extends BaseMapGenerator {
             const trailer = this.createBox(
                 "truckTrailer",
                 { width: 2.5, height: 2.5, depth: 6 },
-                new Vector3(x, 1.25, z - 4.5),
+                new Vector3(x, terrainHeight + 1.25, z - 4.5),
                 "metalRust",
                 chunkParent,
                 false

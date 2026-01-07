@@ -17,6 +17,7 @@ import type { PlayerProgressionSystem } from "../playerProgression";
 import type { AchievementsSystem } from "../achievements";
 import type { MissionSystem } from "../missionSystem";
 import type { MapType, GameSettings } from "../menu";
+import { MAP_SIZES, getMapBoundsFromConfig } from "../maps/MapConstants";
 
 /**
  * Интерфейс для доступа к системам игры
@@ -525,13 +526,19 @@ export class GameEnemies {
         
         logger.log("[GameEnemies] Polygon: Spawning training bots");
         
-        // Зона боя - юго-восточный квадрант
+        // Зона боя - используем размеры карты из MapConstants
+        const mapBounds = getMapBoundsFromConfig("polygon");
+        const arenaHalf = (mapBounds?.maxX ?? 500) * 0.5; // Половина от границы
+        
+        // Боты спавнятся в центральной области карты
         const combatZone = {
-            minX: 30, maxX: 90,
-            minZ: -90, maxZ: -30
+            minX: -arenaHalf * 0.5,
+            maxX: arenaHalf * 0.5,
+            minZ: -arenaHalf * 0.5,
+            maxZ: arenaHalf * 0.5
         };
         
-        const botCount = 4;
+        const botCount = 6; // Увеличиваем для большей карты
         const spawnPositions: Vector3[] = [];
         
         for (let i = 0; i < botCount; i++) {
@@ -646,11 +653,18 @@ export class GameEnemies {
      * Спавн защитников на Frontline
      */
     private spawnFrontlineDefenders(): void {
+        // Используем размеры карты из MapConstants
+        const mapBounds = getMapBoundsFromConfig("frontline");
+        const arenaHalf = mapBounds?.maxX ?? 500;
+        
+        // Защитники спавнятся в центральной-восточной области (между игроком и врагами)
+        // Игрок на западе (-150, 0), враги на востоке
+        const defenderX = arenaHalf * 0.3; // 30% от края к центру (около 150)
         const defenderPositions = [
-            { x: 180, z: 50 },
-            { x: 200, z: -30 },
-            { x: 220, z: 80 },
-            { x: 160, z: -100 },
+            { x: defenderX, z: arenaHalf * 0.1 },      // ~50
+            { x: defenderX + 20, z: -arenaHalf * 0.06 },  // ~-30
+            { x: defenderX + 40, z: arenaHalf * 0.16 },   // ~80
+            { x: defenderX - 20, z: -arenaHalf * 0.2 },   // ~-100
         ];
         
         for (const rawPos of defenderPositions) {
@@ -708,11 +722,16 @@ export class GameEnemies {
         
         logger.log(`[GameEnemies] Frontline: Wave ${this.frontlineWaveNumber} with ${waveCount} attackers`);
         
-        // Спавн атакующих
-        const spawnX = 250 + Math.random() * 40;
+        // Спавн атакующих - на восточной стороне карты (враги)
+        const mapBounds = getMapBoundsFromConfig("frontline");
+        const arenaHalf = mapBounds?.maxX ?? 500;
+        
+        // Атакующие спавнятся на восточной стороне (50-60% от края)
+        const spawnX = arenaHalf * 0.5 + Math.random() * (arenaHalf * 0.1);
         
         for (let i = 0; i < waveCount; i++) {
-            const spawnZ = -200 + Math.random() * 400;
+            // Спавн по всей ширине карты
+            const spawnZ = -arenaHalf * 0.4 + Math.random() * (arenaHalf * 0.8);
             const groundHeight = this.getGroundHeight(spawnX, spawnZ);
             // Спавн на 5 метров выше террейна для гарантии
             const spawnY = Math.max(groundHeight + 5.0, 7.0);
@@ -758,8 +777,12 @@ export class GameEnemies {
                 if (this.systems?.currentMapType === "frontline" && 
                     this.systems.soundManager && this.systems.effectsManager) {
                     
-                    const newX = 150 + Math.random() * 100;
-                    const newZ = -150 + Math.random() * 300;
+                    // Респавн в центральной области - используем MapConstants
+                    const mapBounds = getMapBoundsFromConfig("frontline");
+                    const arenaHalf = mapBounds?.maxX ?? 500;
+                    
+                    const newX = arenaHalf * 0.3 + Math.random() * (arenaHalf * 0.2);
+                    const newZ = -arenaHalf * 0.3 + Math.random() * (arenaHalf * 0.6);
                     const groundHeight = this.getGroundHeight(newX, newZ);
                     // Спавн на 5 метров выше террейна для гарантии
                     const spawnY = Math.max(groundHeight + 5.0, 7.0);
@@ -800,13 +823,36 @@ export class GameEnemies {
     
     /**
      * Запуск постепенного спавна ботов
-     * Начинается через 2 секунды, затем по 1 боту каждую секунду, максимум 5 ботов
+     * Начинается через 2 секунды, затем по 1 боту каждую секунду
+     * Количество ботов берётся из настроек или рассчитывается автоматически
      */
     private startGradualSpawning(): void {
         if (!this.systems?.soundManager || !this.systems.effectsManager) return;
         
         // Сбрасываем счётчик
         this.gradualSpawnCount = 0;
+        
+        // Определяем реальное количество ботов из настроек (как в spawnAllEnemiesAtOnce)
+        let targetBotCount = this.getDefaultEnemyCount();
+        
+        // Проверяем настройки сессии/меню
+        if (this.systems.sessionSettings) {
+            const sessionSettings = this.systems.sessionSettings.getSettings();
+            if (sessionSettings.enemyCount && sessionSettings.enemyCount > 0) {
+                targetBotCount = sessionSettings.enemyCount;
+            }
+        } else if (this.systems.mainMenu) {
+            const menuSettings = this.systems.mainMenu.getSettings();
+            if (menuSettings?.enemyCount && menuSettings.enemyCount > 0) {
+                targetBotCount = menuSettings.enemyCount;
+            }
+        }
+        
+        // Минимум 3 бота
+        targetBotCount = Math.max(3, targetBotCount);
+        
+        // Устанавливаем максимум для постепенного спавна
+        this.gradualSpawnMaxBots = targetBotCount;
         
         logger.log(`[GameEnemies] Starting gradual spawn: delay=${this.gradualSpawnDelay}ms, interval=${this.gradualSpawnInterval}ms, maxBots=${this.gradualSpawnMaxBots}`);
         

@@ -265,6 +265,9 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const worldZ = chunkZ * size + z;
             if (this.isPositionInGarageArea(worldX, worldZ, 8)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             const trenchLength = random.range(15, 30);
             const trenchWidth = 3;
             const trenchDepth = 1.5;
@@ -274,7 +277,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const leftWall = this.createBox(
                 "trench_l",
                 { width: trenchLength, height: trenchDepth, depth: 0.8 },
-                new Vector3(x, trenchDepth / 2, z - trenchWidth / 2),
+                new Vector3(x, terrainHeight + trenchDepth / 2, z - trenchWidth / 2),
                 "dirt",
                 chunkParent,
                 true
@@ -284,7 +287,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const rightWall = this.createBox(
                 "trench_r",
                 { width: trenchLength, height: trenchDepth, depth: 0.8 },
-                new Vector3(x, trenchDepth / 2, z + trenchWidth / 2),
+                new Vector3(x, terrainHeight + trenchDepth / 2, z + trenchWidth / 2),
                 "dirt",
                 chunkParent,
                 true
@@ -298,7 +301,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
                         { width: 1.2, height: 0.4, depth: 0.6 },
                         new Vector3(
                             x - trenchLength / 2 + bag * 2 + random.range(-0.5, 0.5),
-                            trenchDepth + 0.2,
+                            terrainHeight + trenchDepth + 0.2,
                             z - trenchWidth / 2
                         ),
                         "sand",
@@ -327,6 +330,9 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const worldZ = chunkZ * size + z;
             if (this.isPositionInGarageArea(worldX, worldZ, 10)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             const bunkerW = random.range(8, 14);
             const bunkerH = random.range(3, 5);
             const bunkerD = random.range(6, 10);
@@ -334,7 +340,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const bunker = this.createBox(
                 "bunker",
                 { width: bunkerW, height: bunkerH, depth: bunkerD },
-                new Vector3(x, bunkerH / 2, z),
+                new Vector3(x, terrainHeight + bunkerH / 2, z),
                 "concrete",
                 chunkParent,
                 true
@@ -349,7 +355,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
             }, this.scene);
             // Амбразура направлена к центру карты
             const slitZ = side === "allied" ? z + bunkerD / 2 : z - bunkerD / 2;
-            slit.position = new Vector3(x, bunkerH - 0.6, slitZ);
+            slit.position = new Vector3(x, terrainHeight + bunkerH - 0.6, slitZ);
             const slitMat = new StandardMaterial("slitMat", this.scene);
             slitMat.diffuseColor = new Color3(0.05, 0.05, 0.05);
             slit.material = slitMat;
@@ -375,6 +381,9 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const worldZ = chunkZ * size + z;
             if (this.isPositionInGarageArea(worldX, worldZ, 5)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             const craterRadius = random.range(3, 8);
             const craterDepth = random.range(0.5, 1.5);
             
@@ -387,7 +396,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const rimN = this.createBox(
                 "crater_rim_n",
                 { width: craterRadius * 2.2, height: rimHeight, depth: rimW },
-                new Vector3(x, rimHeight / 2, z - craterRadius - rimW / 2),
+                new Vector3(x, terrainHeight + rimHeight / 2, z - craterRadius - rimW / 2),
                 "dirt",
                 chunkParent,
                 false
@@ -397,7 +406,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const rimS = this.createBox(
                 "crater_rim_s",
                 { width: craterRadius * 2.2, height: rimHeight, depth: rimW },
-                new Vector3(x, rimHeight / 2, z + craterRadius + rimW / 2),
+                new Vector3(x, terrainHeight + rimHeight / 2, z + craterRadius + rimW / 2),
                 "dirt",
                 chunkParent,
                 false
@@ -407,7 +416,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const rimE = this.createBox(
                 "crater_rim_e",
                 { width: rimW, height: rimHeight, depth: craterRadius * 2.2 },
-                new Vector3(x + craterRadius + rimW / 2, rimHeight / 2, z),
+                new Vector3(x + craterRadius + rimW / 2, terrainHeight + rimHeight / 2, z),
                 "dirt",
                 chunkParent,
                 false
@@ -417,7 +426,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const rimWest = this.createBox(
                 "crater_rim_w",
                 { width: rimW, height: rimHeight, depth: craterRadius * 2.2 },
-                new Vector3(x - craterRadius - rimW / 2, rimHeight / 2, z),
+                new Vector3(x - craterRadius - rimW / 2, terrainHeight + rimHeight / 2, z),
                 "dirt",
                 chunkParent,
                 false
@@ -442,6 +451,9 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const worldZ = chunkZ * size + z;
             if (this.isPositionInGarageArea(worldX, worldZ, 3)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             const wireLength = random.range(8, 20);
             const wireHeight = 1.2;
             
@@ -451,7 +463,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
                 const postMesh = this.createBox(
                     "wire_post",
                     { width: 0.15, height: wireHeight + 0.3, depth: 0.15 },
-                    new Vector3(postX, (wireHeight + 0.3) / 2, z),
+                    new Vector3(postX, terrainHeight + (wireHeight + 0.3) / 2, z),
                     "metalRust",
                     chunkParent,
                     false
@@ -460,7 +472,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
             
             // Проволока (несколько горизонтальных линий)
             for (let line = 0; line < 3; line++) {
-                const lineY = 0.3 + line * 0.4;
+                const lineY = terrainHeight + 0.3 + line * 0.4;
                 const wireMesh = MeshBuilder.CreateBox("wire", {
                     width: wireLength,
                     height: 0.05,
@@ -482,7 +494,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
                 height: wireHeight,
                 depth: 0.5
             }, this.scene);
-            wirePhysics.position = new Vector3(x, wireHeight / 2, z);
+            wirePhysics.position = new Vector3(x, terrainHeight + wireHeight / 2, z);
             wirePhysics.isVisible = false;
             wirePhysics.parent = chunkParent;
             new PhysicsAggregate(wirePhysics, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
@@ -506,6 +518,9 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const worldZ = chunkZ * size + z;
             if (this.isPositionInGarageArea(worldX, worldZ, 8)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             // Подбитый танк (силуэт)
             const hullW = random.range(4, 6);
             const hullH = random.range(1.5, 2.5);
@@ -516,7 +531,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
                 height: hullH,
                 depth: hullD
             }, this.scene);
-            hull.position = new Vector3(x, hullH / 2, z);
+            hull.position = new Vector3(x, terrainHeight + hullH / 2, z);
             hull.rotation.y = random.range(0, Math.PI * 2);
             
             // Тёмный обгоревший материал
@@ -541,14 +556,14 @@ export class FrontlineGenerator extends BaseMapGenerator {
                     // Башня сбита - лежит рядом
                     turret.position = new Vector3(
                         x + random.range(-3, 3),
-                        turretSize * 0.35,
+                        terrainHeight + turretSize * 0.35,
                         z + random.range(-3, 3)
                     );
                     turret.rotation.x = random.range(-0.5, 0.5);
                     turret.rotation.z = random.range(-0.5, 0.5);
                 } else {
                     // Башня на месте
-                    turret.position = new Vector3(x, hullH + turretSize * 0.35, z);
+                    turret.position = new Vector3(x, terrainHeight + hullH + turretSize * 0.35, z);
                 }
                 turret.rotation.y = random.range(0, Math.PI * 2);
                 turret.material = wreckMat;
@@ -562,7 +577,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
                     diameter: 1.5,
                     height: 4
                 }, this.scene);
-                smoke.position = new Vector3(x, hullH + 2, z);
+                smoke.position = new Vector3(x, terrainHeight + hullH + 2, z);
                 const smokeMat = new StandardMaterial("smokeMat", this.scene);
                 smokeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
                 smokeMat.alpha = 0.4;
@@ -590,6 +605,9 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const worldZ = chunkZ * size + z;
             if (this.isPositionInGarageArea(worldX, worldZ, 3)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             const barricadeType = random.int(0, 2);
             
             if (barricadeType === 0) {
@@ -599,7 +617,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
                 const block = this.createBox(
                     "barricade",
                     { width: blockW, height: blockH, depth: 1.5 },
-                    new Vector3(x, blockH / 2, z),
+                    new Vector3(x, terrainHeight + blockH / 2, z),
                     "concrete",
                     chunkParent,
                     true
@@ -616,7 +634,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
                         height: beamLength,
                         depth: beamThickness
                     }, this.scene);
-                    beam.position = new Vector3(x, beamLength / 2 * 0.7, z);
+                    beam.position = new Vector3(x, terrainHeight + beamLength / 2 * 0.7, z);
                     beam.rotation.x = Math.PI / 4;
                     beam.rotation.y = (j * Math.PI) / 3;
                     beam.material = this.getMat("metalRust");
@@ -630,7 +648,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
                     height: 2.5,
                     depth: 2.5
                 }, this.scene);
-                hedgehogPhysics.position = new Vector3(x, 1.2, z);
+                hedgehogPhysics.position = new Vector3(x, terrainHeight + 1.2, z);
                 hedgehogPhysics.isVisible = false;
                 hedgehogPhysics.parent = chunkParent;
                 new PhysicsAggregate(hedgehogPhysics, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
@@ -641,7 +659,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
                         const bag = this.createBox(
                             "sandbag",
                             { width: 1.2, height: 0.4, depth: 0.6 },
-                            new Vector3(x + col * 1.3 - 2, row * 0.4 + 0.2, z),
+                            new Vector3(x + col * 1.3 - 2, terrainHeight + row * 0.4 + 0.2, z),
                             "sand",
                             chunkParent,
                             false
@@ -655,7 +673,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
                     height: 0.8,
                     depth: 1
                 }, this.scene);
-                sbPhysics.position = new Vector3(x, 0.4, z);
+                sbPhysics.position = new Vector3(x, terrainHeight + 0.4, z);
                 sbPhysics.isVisible = false;
                 sbPhysics.parent = chunkParent;
                 new PhysicsAggregate(sbPhysics, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
@@ -679,6 +697,9 @@ export class FrontlineGenerator extends BaseMapGenerator {
         const worldZ = chunkZ * size + z;
         if (this.isPositionInGarageArea(worldX, worldZ, 10)) return;
         
+        // Получаем высоту террейна в этой точке
+        const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+        
         const ruinW = random.range(8, 15);
         const ruinH = random.range(2, 5);
         const ruinD = random.range(8, 12);
@@ -688,7 +709,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
         const backWall = this.createBox(
             "ruin_back",
             { width: ruinW, height: ruinH, depth: 0.5 },
-            new Vector3(x, ruinH / 2, z - ruinD / 2),
+            new Vector3(x, terrainHeight + ruinH / 2, z - ruinD / 2),
             "brick",
             chunkParent,
             true
@@ -700,7 +721,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const leftWall = this.createBox(
                 "ruin_left",
                 { width: 0.5, height: leftH, depth: ruinD * 0.7 },
-                new Vector3(x - ruinW / 2, leftH / 2, z),
+                new Vector3(x - ruinW / 2, terrainHeight + leftH / 2, z),
                 "brick",
                 chunkParent,
                 true
@@ -713,7 +734,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const rightWall = this.createBox(
                 "ruin_right",
                 { width: 0.5, height: rightH, depth: ruinD * 0.5 },
-                new Vector3(x + ruinW / 2, rightH / 2, z + ruinD * 0.2),
+                new Vector3(x + ruinW / 2, terrainHeight + rightH / 2, z + ruinD * 0.2),
                 "brickDark",
                 chunkParent,
                 true
@@ -732,7 +753,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const debris = this.createBox(
                 "debris",
                 { width: debrisW, height: debrisH, depth: debrisD },
-                new Vector3(debrisX, debrisH / 2, debrisZ),
+                new Vector3(debrisX, terrainHeight + debrisH / 2, debrisZ),
                 random.pick(["brick", "concrete", "brickDark"]),
                 chunkParent,
                 true
@@ -770,6 +791,9 @@ export class FrontlineGenerator extends BaseMapGenerator {
             
             if (this.isPositionInGarageArea(worldX, worldZ, 3)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            
             // Create sandbag pile
             for (let row = 0; row < 3; row++) {
                 for (let col = 0; col < 3 - row; col++) {
@@ -778,7 +802,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
                         { width: 1.2, height: 0.4, depth: 0.6 },
                         new Vector3(
                             x + (col - (3 - row - 1) / 2) * 1.2,
-                            row * 0.4,
+                            terrainHeight + row * 0.4,
                             z + random.range(-0.5, 0.5)
                         ),
                         "dirt",
@@ -804,11 +828,14 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const aWorldZ = chunkZ * size + az;
             if (this.isPositionInGarageArea(aWorldX, aWorldZ, 5)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const terrainHeight = this.getTerrainHeight(aWorldX, aWorldZ, "wasteland");
+            
             // Основание орудия
             const base = this.createBox(
                 "artilleryBase",
                 { width: 3, height: 0.5, depth: 4 },
-                new Vector3(ax, 0.25, az),
+                new Vector3(ax, terrainHeight + 0.25, az),
                 "metalRust",
                 chunkParent,
                 true
@@ -819,7 +846,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const barrel = this.createBox(
                 "artilleryBarrel",
                 { width: 0.4, height: 0.4, depth: 4 },
-                new Vector3(ax, 1.2, az + 2),
+                new Vector3(ax, terrainHeight + 1.2, az + 2),
                 "metal",
                 chunkParent,
                 false
@@ -830,7 +857,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const shield = this.createBox(
                 "artilleryShield",
                 { width: 2.5, height: 1.5, depth: 0.1 },
-                new Vector3(ax, 1, az),
+                new Vector3(ax, terrainHeight + 1, az),
                 "metalRust",
                 chunkParent,
                 false
@@ -846,7 +873,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
                 }, this.scene);
                 crate.position = new Vector3(
                     ax + random.range(-2, 2),
-                    0.25,
+                    terrainHeight + 0.25,
                     az + random.range(-2, 2)
                 );
                 const crateMat = new StandardMaterial("crateMat", this.scene);
@@ -872,6 +899,9 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const dWorldZ = chunkZ * size + dz;
             if (this.isPositionInGarageArea(dWorldX, dWorldZ, 6)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const terrainHeight = this.getTerrainHeight(dWorldX, dWorldZ, "wasteland");
+            
             // Блиндаж - полузаглублённое укрытие
             const dugoutW = random.range(6, 10);
             const dugoutD = random.range(8, 12);
@@ -882,7 +912,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
                 height: 0.8,
                 depth: dugoutD
             }, this.scene);
-            roof.position = new Vector3(dx, 0.8, dz);
+            roof.position = new Vector3(dx, terrainHeight + 0.8, dz);
             const roofMat = new StandardMaterial("roofMat", this.scene);
             roofMat.diffuseColor = new Color3(0.35, 0.25, 0.15);
             roof.material = roofMat;
@@ -894,7 +924,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const embankment = this.createBox(
                 "embankment",
                 { width: dugoutW + 2, height: 1.2, depth: dugoutD + 2 },
-                new Vector3(dx, 0.2, dz),
+                new Vector3(dx, terrainHeight + 0.2, dz),
                 "dirt",
                 chunkParent,
                 false
@@ -904,7 +934,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const entrance = this.createBox(
                 "entrance",
                 { width: 2, height: 1.5, depth: 1 },
-                new Vector3(dx, 0.5, dz + dugoutD / 2 + 0.5),
+                new Vector3(dx, terrainHeight + 0.5, dz + dugoutD / 2 + 0.5),
                 "dirt",
                 chunkParent,
                 false
@@ -926,6 +956,9 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const cWorldZ = chunkZ * size + cz;
             if (this.isPositionInGarageArea(cWorldX, cWorldZ, 4)) continue;
             
+            // Получаем высоту террейна в этой точке
+            const terrainHeight = this.getTerrainHeight(cWorldX, cWorldZ, "wasteland");
+            
             const radius = random.range(3, 6);
             
             // Затопленная воронка
@@ -933,7 +966,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
                 diameter: radius * 2,
                 height: 0.1
             }, this.scene);
-            water.position = new Vector3(cx, -0.3, cz);
+            water.position = new Vector3(cx, terrainHeight - 0.3, cz);
             water.material = this.getMat("water");
             water.parent = chunkParent;
             water.freezeWorldMatrix();
@@ -946,7 +979,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
                     { width: 1.5, height: 0.4, depth: 1.5 },
                     new Vector3(
                         cx + Math.cos(angle) * (radius - 0.5),
-                        0.1,
+                        terrainHeight + 0.1,
                         cz + Math.sin(angle) * (radius - 0.5)
                     ),
                     "dirt",

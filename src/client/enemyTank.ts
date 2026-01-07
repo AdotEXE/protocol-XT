@@ -24,6 +24,8 @@ import { AIPathfinding } from "./ai/AIPathfinding";
 import type { RoadNetwork } from "./roadNetwork";
 import { PHYSICS_CONFIG } from "./config/physicsConfig";
 import { CHASSIS_TYPES, CANNON_TYPES, ChassisType, CannonType } from "./tankTypes";
+import { TRACK_TYPES, TrackType } from "./trackTypes";
+import { MODULE_PRESETS, ModuleType } from "./tank/modules/ModuleTypes";
 import type { AICoordinator } from "./ai/AICoordinator";
 import { RicochetSystem, DEFAULT_RICOCHET_CONFIG } from "./tank/combat/RicochetSystem";
 
@@ -91,6 +93,8 @@ export class EnemyTank {
     // === Equipment (random selection) ===
     private chassisType!: ChassisType;
     private cannonType!: CannonType;
+    private trackType!: TrackType;
+    private modules: ModuleType[] = [];
     
     // === AI State ===
     private target: { chassis: Mesh, isAlive: boolean, currentHealth?: number, turret?: Mesh, barrel?: Mesh } | null = null;
@@ -207,7 +211,8 @@ export class EnemyTank {
     
     // EXTREME: Максимальная эскалация сложности
     private combatTime = 0; // Время в бою
-    private killsCount = 0; // Количество убийств (для эскалации)
+    private killsCount = 0; // Количество убийств (для эскалации и статистики)
+    private deathsCount = 0; // Количество смертей (для статистики TAB меню)
     private adaptiveIntelligence = 3.0; // EXTREME: +20% (было 2.5) - ЕЩЁ умнее!
     
     // EXTREME: Быстрая приоритизация целей
@@ -294,6 +299,30 @@ export class EnemyTank {
     // Публичный геттер для id (для AICoordinator)
     public getId(): number {
         return this.id;
+    }
+    
+    // Публичные геттеры для статистики (для TAB меню)
+    public getKillsCount(): number {
+        return this.killsCount;
+    }
+    
+    public getDeathsCount(): number {
+        return this.deathsCount;
+    }
+    
+    // Увеличить счётчик убийств (когда бот убивает игрока)
+    public recordKill(): void {
+        this.killsCount++;
+    }
+    
+    // Публичные геттеры для информации о снаряжении (для отладки и UI)
+    public getEquipmentInfo(): { chassis: string; cannon: string; track: string; modules: string[] } {
+        return {
+            chassis: this.chassisType?.name || "Unknown",
+            cannon: this.cannonType?.name || "Unknown",
+            track: this.trackType?.name || "Unknown",
+            modules: this.modules.map(m => m.name)
+        };
     }
     
     // Tick counter
@@ -394,6 +423,10 @@ export class EnemyTank {
         this.chassisType = CHASSIS_TYPES[Math.floor(Math.random() * CHASSIS_TYPES.length)]!;
         // Выбираем случайную пушку
         this.cannonType = CANNON_TYPES[Math.floor(Math.random() * CANNON_TYPES.length)]!;
+        // Выбираем случайные гусеницы
+        this.trackType = TRACK_TYPES[Math.floor(Math.random() * TRACK_TYPES.length)]!;
+        // Выбираем 0-3 случайных модуля (боты могут иметь разное количество модулей)
+        this.modules = this.selectRandomModules();
         
         // Применяем настройки сложности (теперь только AI-параметры, параметры из снаряжения применяются внутри)
         this.applyDifficultySettings();
@@ -572,6 +605,40 @@ export class EnemyTank {
         this.projectileSpeed = this.cannonType.projectileSpeed;
         this.projectileSize = this.cannonType.projectileSize;
         
+        // Применяем бонусы от гусениц
+        if (this.trackType?.stats) {
+            if (this.trackType.stats.speedBonus) {
+                this.moveSpeed *= (1 + this.trackType.stats.speedBonus);
+            }
+            if (this.trackType.stats.armorBonus) {
+                this.maxHealth *= (1 + this.trackType.stats.armorBonus);
+            }
+        }
+        
+        // Применяем бонусы от модулей
+        for (const module of this.modules) {
+            if (module.stats.armor) {
+                this.maxHealth *= (1 + module.stats.armor);
+            }
+            if (module.stats.health) {
+                this.maxHealth *= (1 + module.stats.health);
+            }
+            if (module.stats.speed) {
+                this.moveSpeed *= (1 + module.stats.speed);
+            }
+            if (module.stats.damage) {
+                this.damage *= (1 + module.stats.damage);
+            }
+            if (module.stats.reload) {
+                this.cooldown *= (1 + module.stats.reload); // reload -0.15 означает -15% cooldown
+            }
+        }
+        
+        // Округляем значения после всех модификаций
+        this.maxHealth = Math.round(this.maxHealth);
+        this.damage = Math.round(this.damage);
+        this.cooldown = Math.round(this.cooldown);
+        
         // EXTREME: Применяем AI-параметры - ВСЕ уровни сложности значительно усилены!
         switch (this.difficulty) {
             case "easy":
@@ -616,7 +683,36 @@ export class EnemyTank {
         // Синхронизируем текущее здоровье с новым максимумом
         this.currentHealth = this.maxHealth;
         
-        logger.debug(`[EnemyTank ${this.id}] Equipment: ${this.chassisType.name} chassis, ${this.cannonType.name} cannon | Speed: ${this.moveSpeed}, HP: ${this.maxHealth}, Cooldown: ${this.cooldown}ms`);
+        logger.debug(`[EnemyTank ${this.id}] Equipment: ${this.chassisType.name} chassis, ${this.cannonType.name} cannon, ${this.trackType?.name || 'standard'} tracks | Modules: ${this.modules.length} | Speed: ${this.moveSpeed.toFixed(1)}, HP: ${this.maxHealth}, Damage: ${this.damage}, Cooldown: ${this.cooldown}ms`);
+    }
+    
+    /**
+     * Выбрать случайное количество случайных модулей для бота
+     * Боты могут иметь 0-3 модуля, вероятность уменьшается с количеством
+     */
+    private selectRandomModules(): ModuleType[] {
+        const modules: ModuleType[] = [];
+        
+        // Определяем количество модулей (0-3, чаще меньше)
+        // 40% шанс на 0, 30% на 1, 20% на 2, 10% на 3
+        const roll = Math.random();
+        let moduleCount: number;
+        if (roll < 0.4) moduleCount = 0;
+        else if (roll < 0.7) moduleCount = 1;
+        else if (roll < 0.9) moduleCount = 2;
+        else moduleCount = 3;
+        
+        // Выбираем случайные модули без повторений
+        const availableModules = [...MODULE_PRESETS];
+        for (let i = 0; i < moduleCount && availableModules.length > 0; i++) {
+            const index = Math.floor(Math.random() * availableModules.length);
+            const selectedModule = availableModules.splice(index, 1)[0];
+            if (selectedModule) {
+                modules.push(selectedModule);
+            }
+        }
+        
+        return modules;
     }
     
     // === VISUALS (same as player) ===
@@ -3744,8 +3840,20 @@ export class EnemyTank {
                 if (dist < 3.5) {
                     hasHit = true;
                     logger.debug(`[EnemyTank ${this.id}] HIT PLAYER! Damage: ${damage}`);
+                    
+                    // Запоминаем здоровье цели до нанесения урона
+                    const healthBefore = (target as any).currentHealth || 0;
+                    
                     // Передаём позицию атакующего для индикатора направления урона
                     (target as any).takeDamage(damage, this.chassis.absolutePosition.clone());
+                    
+                    // Проверяем, убили ли мы игрока этим выстрелом
+                    const healthAfter = (target as any).currentHealth || 0;
+                    if (healthBefore > 0 && healthAfter <= 0) {
+                        this.killsCount++; // Записываем убийство для статистики
+                        logger.log(`[EnemyTank ${this.id}] KILLED PLAYER! Total kills: ${this.killsCount}`);
+                    }
+                    
                     this.effectsManager.createExplosion(bulletPos, 0.8);
                     this.soundManager.playHit("normal", bulletPos);
                 ball.dispose();
@@ -4031,6 +4139,7 @@ export class EnemyTank {
     
     private die(): void {
         this.isAlive = false;
+        this.deathsCount++; // Увеличиваем счётчик смертей для статистики
         console.log(`[EnemyTank ${this.id}] DESTROYED!`);
         
         // УЛУЧШЕНО: Отписываемся от AI Coordinator при смерти
