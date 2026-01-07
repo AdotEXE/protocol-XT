@@ -31,6 +31,7 @@ import { EffectsManager } from "./effects";
 import { PostProcessingManager } from "./effects/PostProcessingManager";
 import { EnemyManager } from "./enemy";
 import { ChunkSystem } from "./chunkSystem";
+import { getPlayerGaragePosition } from "./maps/MapConstants";
 // Debug tools are lazy loaded (only loaded when F3/F4/F7 are pressed)
 import { EnemyTank } from "./enemyTank";
 import { AICoordinator } from "./ai/AICoordinator";
@@ -209,23 +210,137 @@ export class Game {
     isSpectating: boolean = false;
     spectatingPlayerId: string | null = null;
     
-    // Game modules
-    private gameGarage: GameGarage;
-    private gameConsumables: GameConsumables;
-    private gameProjectile: GameProjectile;
-    private gameVisibility: GameVisibility;
-    private gamePersistence: GamePersistence;
-    private gameLoaders: GameLoaders;
-    private gameCamera: GameCamera | undefined;
-    private gameEnemies: GameEnemies;
-    private gameUI: GameUI;
-    private gamePhysics: GamePhysics;
-    private gameAudio: GameAudio;
-    private gameStats: GameStats;
-    private gamePOI: GamePOI;
-    private gameStatsOverlay: GameStatsOverlay;
-    private gameMultiplayerCallbacks: GameMultiplayerCallbacks;
-    private gameUpdate: GameUpdate;
+    // Game modules - lazy initialization to prevent initialization order issues
+    private _gameGarage: GameGarage | undefined;
+    private _gameConsumables: GameConsumables | undefined;
+    private _gameProjectile: GameProjectile | undefined;
+    private _gameVisibility: GameVisibility | undefined;
+    private _gamePersistence: GamePersistence | undefined;
+    private _gameLoaders: GameLoaders | undefined;
+    private _gameCamera: GameCamera | undefined;
+    private _gameEnemies: GameEnemies | undefined;
+    private _gameUI: GameUI | undefined;
+    private _gamePhysics: GamePhysics | undefined;
+    private _gameAudio: GameAudio | undefined;
+    private _gameStats: GameStats | undefined;
+    private _gamePOI: GamePOI | undefined;
+    private _gameStatsOverlay: GameStatsOverlay | undefined;
+    private _gameMultiplayerCallbacks: GameMultiplayerCallbacks | undefined;
+    private _gameUpdate: GameUpdate | undefined;
+    
+    // Lazy getters for game modules
+    private get gameGarage(): GameGarage {
+        if (!this._gameGarage) {
+            this._gameGarage = new GameGarage();
+        }
+        return this._gameGarage;
+    }
+    
+    private get gameConsumables(): GameConsumables {
+        if (!this._gameConsumables) {
+            this._gameConsumables = new GameConsumables();
+        }
+        return this._gameConsumables;
+    }
+    
+    private get gameProjectile(): GameProjectile {
+        if (!this._gameProjectile) {
+            this._gameProjectile = new GameProjectile();
+        }
+        return this._gameProjectile;
+    }
+    
+    private get gameVisibility(): GameVisibility {
+        if (!this._gameVisibility) {
+            this._gameVisibility = new GameVisibility();
+        }
+        return this._gameVisibility;
+    }
+    
+    private get gamePersistence(): GamePersistence {
+        if (!this._gamePersistence) {
+            this._gamePersistence = new GamePersistence();
+        }
+        return this._gamePersistence;
+    }
+    
+    private get gameLoaders(): GameLoaders {
+        if (!this._gameLoaders) {
+            this._gameLoaders = new GameLoaders();
+        }
+        return this._gameLoaders;
+    }
+    
+    private get gameCamera(): GameCamera | undefined {
+        return this._gameCamera;
+    }
+    
+    private set gameCamera(value: GameCamera | undefined) {
+        this._gameCamera = value;
+    }
+    
+    private get gameEnemies(): GameEnemies {
+        if (!this._gameEnemies) {
+            this._gameEnemies = new GameEnemies();
+        }
+        return this._gameEnemies;
+    }
+    
+    private get gameUI(): GameUI {
+        if (!this._gameUI) {
+            this._gameUI = new GameUI();
+        }
+        return this._gameUI;
+    }
+    
+    private get gamePhysics(): GamePhysics {
+        if (!this._gamePhysics) {
+            this._gamePhysics = new GamePhysics();
+        }
+        return this._gamePhysics;
+    }
+    
+    private get gameAudio(): GameAudio {
+        if (!this._gameAudio) {
+            this._gameAudio = new GameAudio();
+        }
+        return this._gameAudio;
+    }
+    
+    private get gameStats(): GameStats {
+        if (!this._gameStats) {
+            this._gameStats = new GameStats();
+        }
+        return this._gameStats;
+    }
+    
+    private get gamePOI(): GamePOI {
+        if (!this._gamePOI) {
+            this._gamePOI = new GamePOI();
+        }
+        return this._gamePOI;
+    }
+    
+    private get gameStatsOverlay(): GameStatsOverlay {
+        if (!this._gameStatsOverlay) {
+            this._gameStatsOverlay = new GameStatsOverlay();
+        }
+        return this._gameStatsOverlay;
+    }
+    
+    private get gameMultiplayerCallbacks(): GameMultiplayerCallbacks {
+        if (!this._gameMultiplayerCallbacks) {
+            this._gameMultiplayerCallbacks = new GameMultiplayerCallbacks();
+        }
+        return this._gameMultiplayerCallbacks;
+    }
+    
+    private get gameUpdate(): GameUpdate {
+        if (!this._gameUpdate) {
+            this._gameUpdate = new GameUpdate();
+        }
+        return this._gameUpdate;
+    }
     
     // Main menu (lazy loaded)
     mainMenu: MainMenu | undefined; // Lazy loaded from "./menu"
@@ -343,25 +458,8 @@ export class Game {
     constructor() {
         console.log("[Game] ========== GAME CONSTRUCTOR STARTED ==========");
         
-        // Initialize game modules in dependency order
-        // Independent modules first (no dependencies on other Game modules)
-        this.gameProjectile = new GameProjectile();
-        this.gamePhysics = new GamePhysics();
-        this.gameConsumables = new GameConsumables();
-        this.gameVisibility = new GameVisibility();
-        this.gamePersistence = new GamePersistence();
-        this.gameLoaders = new GameLoaders();
-        this.gamePOI = new GamePOI();
-        this.gameAudio = new GameAudio();
-        this.gameStats = new GameStats();
-        this.gameStatsOverlay = new GameStatsOverlay();
-        
-        // Dependent modules (may depend on other Game modules)
-        this.gameGarage = new GameGarage();
-        this.gameEnemies = new GameEnemies();
-        this.gameUI = new GameUI();
-        this.gameMultiplayerCallbacks = new GameMultiplayerCallbacks();
-        this.gameUpdate = new GameUpdate();
+        // Game modules are now lazily initialized via getters to prevent initialization order issues
+        // Modules are created on first access, ensuring correct initialization order
         
         // КРИТИЧНО: Регистрируем горячие клавиши СРАЗУ в конструкторе,
         // независимо от загрузки меню! Это должно быть в НАЧАЛЕ конструктора!
@@ -719,9 +817,12 @@ export class Game {
                         this.debugDashboard.setChunkSystem(this.chunkSystem);
                     }
                     
-                    // Обновляем чанки
-                    const initialPos = new Vector3(0, 2, 0);
-                    this.chunkSystem.update(initialPos);
+                    // Обновляем чанки - используем позицию гаража
+                    const mapGaragePos = getPlayerGaragePosition(this.currentMapType);
+                    const mapInitialPos = mapGaragePos 
+                        ? new Vector3(mapGaragePos[0], 2, mapGaragePos[1]) 
+                        : new Vector3(0, 2, 0);
+                    this.chunkSystem.update(mapInitialPos);
                     
                     // Восстанавливаем здоровье танка при смене карты
                     if (this.tank) {
@@ -828,7 +929,22 @@ export class Game {
         
         // Обработчики для игровых клавиш (B, G, Tab, ESC, M, N, 1-5)
         // ВАЖНО: Ctrl+0-9 обрабатываются в setupGlobalKeyboardShortcuts()
+        // ЗАЩИТА: Предотвращаем двойную регистрацию обработчика
+        if ((this as any)._gameKeyboardHandlerRegistered) {
+            console.log("[Game] Game keyboard handler already registered, skipping duplicate registration");
+            return;
+        }
+        (this as any)._gameKeyboardHandlerRegistered = true;
+        console.log("[Game] ========== REGISTERING GAME KEYBOARD HANDLER (B, G, J, M, Tab, ESC) ==========");
         window.addEventListener("keydown", (e) => {
+            // DEBUG: Логируем нажатия клавиш J/M в начале обработчика
+            if (e.code === "KeyJ" || e.code === "KeyM") {
+                console.log(`[Game] KEYDOWN EVENT: ${e.code}`, { 
+                    gameStarted: this.gameStarted, 
+                    hasHud: !!this.hud,
+                    menuVisible: this.mainMenu?.isVisible?.() ?? "unknown"
+                });
+            }
             // Open/Close garage MENU with B key - В ЛЮБОЙ МОМЕНТ (даже до старта игры)
             // G key используется для управления воротами гаража во время игры
             if (e.code === "KeyB" || e.key === "b" || e.key === "B") {
@@ -914,125 +1030,59 @@ export class Game {
                 return;
             }
             
-            // Ручное управление воротами гаража клавишей G (только во время игры, если меню гаража закрыто)
-            // G key открывает/закрывает ТОЛЬКО ту ворота, на которую смотрит пушка танка
-            if ((e.code === "KeyG" || e.key === "g" || e.key === "G") && this.gameStarted && this.chunkSystem && this.chunkSystem.garageDoors && 
+            // === ЗАКРЫТИЕ UI ГАРАЖА (G key) ===
+            // Если гараж открыт, G закрывает его
+            if (e.code === "KeyG" && this.garage && this.garage.isGarageOpen()) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                this.garage.close();
+                logger.log("[Game] Garage closed by G key");
+                return;
+            }
+            
+            // === ВОРОТА ГАРАЖА (G key) - ПРОСТАЯ СИСТЕМА ===
+            // Смотришь на ворота башней + нажимаешь G = переключаешь состояние
+            if (e.code === "KeyG" && this.gameStarted && this.tank?.barrel && 
                 (!this.garage || !this.garage.isGarageOpen())) {
-                e.preventDefault(); // Предотвращаем другие обработчики
-                e.stopPropagation(); // Останавливаем распространение события
-                e.stopImmediatePropagation(); // Останавливаем все обработчики
-                // Переключаем состояние ворот ближайшего гаража (только той, на которую смотрит пушка)
-                if (this.tank && this.tank.chassis && this.tank.barrel) {
-                    // ОПТИМИЗАЦИЯ: Используем кэшированную позицию вместо absolutePosition
-                    const playerPos = this.tank.getCachedChassisPosition();
-                    type NearestGarageType = { doorData: any; distance: number; };
-                    let nearestGarage: NearestGarageType | null = null;
-                    
-                    // ОПТИМИЗАЦИЯ: Используем обычный for цикл и переиспользуем Vector3
-                    const doors = this.chunkSystem.garageDoors;
-                    const doorCount = doors.length;
-                    const tmpVec1 = new Vector3();
-                    const tmpVec2 = new Vector3();
-                    for (let i = 0; i < doorCount; i++) {
-                        const doorData = doors[i];
-                        if (!doorData) continue;
-                        const garagePos = doorData.position;
-                        tmpVec1.set(garagePos.x, 0, garagePos.z);
-                        tmpVec2.set(playerPos.x, 0, playerPos.z);
-                        const distance = Vector3.Distance(tmpVec1, tmpVec2);
-                        
-                        if (nearestGarage === null || distance < nearestGarage.distance) {
-                            nearestGarage = { doorData, distance };
-                        }
-                    }
-                    
-                    // Если игрок рядом с гаражом (в пределах 50 единиц), переключаем ворота
-                    if (nearestGarage === null) {
-                        logger.warn(`No garage found`);
-                    } else {
-                        const ng: NearestGarageType = nearestGarage; // Явное указание типа для TypeScript
-                        if (ng.distance < 50) {
-                            const doorData = ng.doorData;
-                            
-                            // Получаем направление пушки и позицию
-                            // КРИТИЧНО: Для raycast нужна МИРОВАЯ позиция ствола, не локальная!
-                            const barrelWorldMatrix = this.tank.barrel.getWorldMatrix();
-                            const barrelDir = Vector3.TransformNormal(Vector3.Forward(), barrelWorldMatrix).normalize();
-                            // ОПТИМИЗАЦИЯ: Используем кэшированную позицию ствола
-                            // Для raycast нужна абсолютная позиция ствола в мировых координатах
-                            const barrelPos = this.tank.barrel ? 
-                                (this.tank.barrel.getAbsolutePosition ? this.tank.barrel.getAbsolutePosition() : this.tank.barrel.position) :
-                                new Vector3(0, 2.5, 0);
-                            
-                            // Используем raycast для точного определения, какая ворота попадает в луч
-                            const rayDistance = 100; // Максимальная дистанция луча
-                            const ray = new Ray(barrelPos, barrelDir, rayDistance);
-                            
-                            // Используем raycast для точного определения, какая ворота попадает в луч
-                            // Также проверяем расстояние до ворот напрямую, если рейкаст не сработал
-                            let hitDoor: "front" | "back" | null = null;
-                            
-                            // Сначала пробуем рейкаст
+                e.preventDefault();
+                
+                // Получаем направление и позицию ствола
+                const barrel = this.tank.barrel;
+                const barrelPos = barrel.getAbsolutePosition();
+                const barrelMatrix = barrel.getWorldMatrix();
+                const barrelDir = Vector3.TransformNormal(Vector3.Forward(), barrelMatrix).normalize();
+                
+                // Raycast для поиска ворот
+                const ray = new Ray(barrelPos, barrelDir, 100);
                             const pick = this.scene.pickWithRay(ray, (mesh) => {
                                 if (!mesh || !mesh.isEnabled()) return false;
-                                // Проверяем, что это ворота гаража (убираем проверку visibility, так как ворота могут быть полупрозрачными)
-                                return (mesh.name.includes("garageFrontDoor") || mesh.name.includes("garageBackDoor")) &&
-                                       mesh.isPickable;
-                            });
-                            
-                            if (pick && pick.hit && pick.pickedMesh) {
-                                if (pick.pickedMesh.name.includes("garageFrontDoor")) {
-                                    hitDoor = "front";
-                                } else if (pick.pickedMesh.name.includes("garageBackDoor")) {
-                                    hitDoor = "back";
-                                }
-                            }
-                            
-                            // Если рейкаст не сработал, проверяем расстояние до ворот и направление пушки
-                            if (!hitDoor) {
-                                const garageDepth = doorData.garageDepth || 20;
-                                const frontDoorPos = new Vector3(doorData.position.x, 0, doorData.position.z + garageDepth / 2);
-                                const backDoorPos = new Vector3(doorData.position.x, 0, doorData.position.z - garageDepth / 2);
-                                
-                                // Проверяем, в какую сторону смотрит пушка относительно позиции ворот
-                                const toFrontDoor = frontDoorPos.subtract(barrelPos).normalize();
-                                const toBackDoor = backDoorPos.subtract(barrelPos).normalize();
-                                
-                                const frontDot = Vector3.Dot(barrelDir, toFrontDoor);
-                                const backDot = Vector3.Dot(barrelDir, toBackDoor);
-                                
-                                // Если пушка смотрит в направлении ворот (скалярное произведение > 0.5)
-                                if (frontDot > backDot && frontDot > 0.3) {
-                                    hitDoor = "front";
-                                } else if (backDot > frontDot && backDot > 0.3) {
-                                    hitDoor = "back";
-                                }
-                            }
-                            
-                            // Если определили ворота, переключаем их
-                            if (hitDoor === "front") {
+                    return mesh.name.includes("garageFrontDoor") || mesh.name.includes("garageBackDoor");
+                });
+                
+                if (pick?.hit && pick.pickedMesh) {
+                    const meshName = pick.pickedMesh.name;
+                    console.log(`[Game] G pressed - raycast hit: ${meshName}`);
+                    
+                    // Находим данные ворот по мешу
+                    const doorData = this.chunkSystem?.garageDoors?.find(d => 
+                        d.frontDoor === pick.pickedMesh || d.backDoor === pick.pickedMesh
+                    );
+                    
+                    if (doorData) {
+                        if (meshName.includes("Front")) {
                                 doorData.frontDoorOpen = !doorData.frontDoorOpen;
-                                logger.debug(`Front garage door ${doorData.frontDoorOpen ? 'opening' : 'closing'} manually (G key)`);
-                            } else if (hitDoor === "back") {
-                                doorData.backDoorOpen = !doorData.backDoorOpen;
-                                logger.debug(`Back garage door ${doorData.backDoorOpen ? 'opening' : 'closing'} manually (G key)`);
+                            console.log(`[Game] Front door toggled: ${doorData.frontDoorOpen ? 'OPEN' : 'CLOSED'}`);
                             } else {
-                                // Не удалось определить ворота - переключаем обе (fallback)
-                                logger.debug(`Could not determine which door, toggling both`);
-                                doorData.frontDoorOpen = !doorData.frontDoorOpen;
                                 doorData.backDoorOpen = !doorData.backDoorOpen;
+                            console.log(`[Game] Back door toggled: ${doorData.backDoorOpen ? 'OPEN' : 'CLOSED'}`);
                             }
-                            
-                            // Ворота остаются в выбранном состоянии (ручное управление постоянно активно)
                             doorData.manualControl = true;
                             doorData.manualControlTime = Date.now();
-                            
-                            // Принудительно вызываем обновление ворот
-                            this.gameGarage.updateGarageDoors();
-                        } else {
-                            logger.debug(`No garage nearby (distance: ${ng.distance.toFixed(1)})`);
-                        }
+                        this.gameGarage?.updateGarageDoors();
                     }
+                        } else {
+                    console.log("[Game] G pressed but no door in sight");
                 }
                 return;
             }
@@ -1040,6 +1090,7 @@ export class Game {
             // ПОКАЗАТЬ stats panel при ЗАЖАТИИ Tab (пункт 13: K/D, убийства, смерти, credits)
             if (e.code === "Tab" && this.gameStarted) {
                 e.preventDefault(); // Предотвращаем переключение фокуса
+                console.log("[Game] Tab pressed - showing stats overlay");
                 this.gameStats.show(); // Показываем при нажатии
                 return;
             }
@@ -1053,15 +1104,22 @@ export class Game {
                 return;
             }
             
-            // Открыть/закрыть панель миссий клавишей N
-            if (e.code === "KeyN" && this.gameStarted && this.hud) {
+            // Открыть/закрыть панель миссий клавишей J
+            // ИСПРАВЛЕНИЕ: Панель миссий работает если есть HUD (не требует gameStarted)
+            if (e.code === "KeyJ" && this.hud) {
                 e.preventDefault();
-                this.hud.toggleMissionPanel?.();
+                e.stopPropagation();
+                console.log("[Game] J pressed - toggling mission panel, gameStarted:", this.gameStarted);
+                this.hud.toggleMissionPanel();
+                return;
             }
             
             // Открыть/закрыть карту клавишей M
-            if (e.code === "KeyM" && this.gameStarted && this.hud) {
+            // ИСПРАВЛЕНИЕ: Карта работает если есть HUD (не требует gameStarted)
+            if (e.code === "KeyM" && this.hud) {
                 e.preventDefault();
+                e.stopPropagation();
+                console.log("[Game] M pressed - toggling full map");
                 // Закрываем гараж при открытии карты
                 if (this.garage && this.garage.isGarageOpen()) {
                     this.garage.close();
@@ -2543,7 +2601,12 @@ export class Game {
             }
             
             this.updateLoadingProgress(40, "Создание танка...");
-            this.tank = new TankController(this.scene, new Vector3(0, 1.2, 0));
+            // Используем позицию гаража из MapConstants для спавна танка
+            const tankGaragePos = getPlayerGaragePosition(this.currentMapType);
+            const tankSpawnPos = tankGaragePos 
+                ? new Vector3(tankGaragePos[0], 1.2, tankGaragePos[1]) 
+                : new Vector3(0, 1.2, 0);
+            this.tank = new TankController(this.scene, tankSpawnPos);
             
             // Обновляем ссылки в модулях
             this.gameGarage.updateReferences({ tank: this.tank });
@@ -2591,6 +2654,12 @@ export class Game {
             this.aimCamera.fov = this.aimFOV;
             this.aimCamera.inputs.clear();
             this.aimCamera.setEnabled(false);
+            // ИСПРАВЛЕНИЕ: Устанавливаем начальную цель для предотвращения чёрного экрана
+            const initialAimTarget = initialAimCameraPos.add(new Vector3(0, 1, 10));
+            this.aimCamera.setTarget(initialAimTarget);
+            this.aimCamera.minZ = 0.1; // Минимальное расстояние отсечения
+            this.aimCamera.maxZ = 10000; // Максимальное расстояние отсечения (далёкие объекты видны)
+            console.log("[Game] AimCamera created with minZ=0.1, maxZ=10000");
             
             // Устанавливаем камеру как активную СРАЗУ
             this.scene.activeCamera = this.camera;
@@ -3085,7 +3154,7 @@ export class Game {
                 multiplayerManager: this.multiplayerManager,
                 enemyTanks: this.enemyTanks,
                 enemyManager: this.enemyManager,
-                isMultiplayer: this.isMultiplayer
+                getIsMultiplayer: () => this.isMultiplayer
             });
             
             // Initialize GameCamera if not already initialized
@@ -3170,8 +3239,11 @@ export class Game {
             this.updateLoadingProgress(90, "Завершение инициализации...");
             
             // ОПТИМИЗАЦИЯ: Включаем прогрессивную загрузку чанков
-            // Используем позицию танка (0, 2, 0) для места спавна
-            const initialPos = new Vector3(0, 2, 0);
+            // Используем позицию гаража из MapConstants для места спавна
+            const garagePos = getPlayerGaragePosition(this.currentMapType);
+            const initialPos = garagePos 
+                ? new Vector3(garagePos[0], 2, garagePos[1]) 
+                : new Vector3(0, 2, 0);
             if (this.chunkSystem) {
                 this.chunkSystem.enableProgressiveLoading(initialPos);
                 // Загружаем начальные чанки вокруг места спавна (радиус 1)
@@ -3210,7 +3282,7 @@ export class Game {
                 ctfVisualizer: this.ctfVisualizer,
                 replayRecorder: this.replayRecorder,
                 realtimeStatsTracker: this.realtimeStatsTracker,
-                isMultiplayer: this.isMultiplayer,
+                getIsMultiplayer: () => this.isMultiplayer,
                 setIsMultiplayer: (v) => { this.isMultiplayer = v; },
                 processPendingNetworkPlayers: () => {
                     this.gameMultiplayerCallbacks?.processPendingNetworkPlayers();
@@ -4496,7 +4568,7 @@ export class Game {
     aimingTransitionProgress = 0.0; // 0.0 = обычный режим, 1.0 = полный режим прицеливания
     private _aimCameraStartPos: Vector3 | null = null; // Начальная позиция для плавного перехода в режим прицеливания
     private _aimCameraStartTarget: Vector3 | null = null; // Начальный target для плавного перехода
-    aimingTransitionSpeed = 0.12; // Скорость перехода (чем больше, тем быстрее)
+    aimingTransitionSpeed = 0.17; // ~0.1 сек при 60 FPS (6 кадров * 0.17 ≈ 1.0)
     
     normalRadius = 12;
     aimRadius = 6;     // Ближе к танку в режиме прицеливания
@@ -4505,15 +4577,15 @@ export class Game {
     
     // FOV settings for aim mode  
     normalFOV = 0.8;   // Обычный угол обзора (радианы)
-    aimFOV = 0.4;      // 2x зум для разумного обзора поля боя
+    aimFOV = 0.75;     // Почти без зума при входе в режим прицеливания (колёсико мыши для зума)
     
     // Mouse control for aiming
     aimMouseSensitivity = 0.00015; // Базовая чувствительность мыши в режиме прицеливания (горизонтальная) - такая же как вертикальная
     aimMouseSensitivityVertical = 0.00015; // Базовая вертикальная чувствительность в режиме прицеливания
     // ИСПРАВЛЕНИЕ: Увеличена максимальная скорость мыши для режима прицеливания (убрано ограничение)
     aimMaxMouseSpeed = 200; // Максимальная скорость движения мыши (пиксели за кадр) - увеличено с 25 до 200 для разумной чувствительности
-    aimPitchSmoothing = 0.12; // Коэффициент сглаживания для вертикального прицеливания (улучшено для плавности)
-    aimYawSmoothing = 0.18; // Коэффициент сглаживания для горизонтального прицеливания (для плавности)
+    aimPitchSmoothing = 0.35; // Резкое управление стволом
+    aimYawSmoothing = 0.35; // Резкое управление башней
     targetAimPitch = 0; // Целевой угол вертикального прицеливания (для плавной интерполяции)
     targetAimYaw = 0; // Целевой угол горизонтального прицеливания (для плавной интерполяции)
     isPointerLocked = false; // Флаг блокировки указателя
@@ -4616,6 +4688,7 @@ export class Game {
             // === ОТПУСТИЛИ TAB - скрыть stats overlay ===
             if (evt.code === "Tab" && this.gameStarted) {
                 evt.preventDefault();
+                console.log("[Game] Tab released - hiding stats overlay");
                 this.gameStats.hide();
             }
             
@@ -4826,7 +4899,7 @@ export class Game {
         // Listen for aim mode changes from tank
         window.addEventListener("aimModeChanged", ((e: CustomEvent) => {
             this.isAiming = e.detail.aiming;
-            logger.log(`[Camera] Aim mode: ${this.isAiming}`);
+            console.log(`[Game] Aim mode changed: ${this.isAiming}`);
             // Показ/скрытие прицела
             if (this.hud) {
                 this.hud.setAimMode(this.isAiming);
@@ -5047,7 +5120,9 @@ export class Game {
             const t = this.aimingTransitionProgress; // 0.0 - 1.0
             
             // ИСПРАВЛЕНО: Инициализируем позицию aimCamera ПРИВЯЗАННУЮ К ТАНКУ при первом обнаружении перехода в режим прицеливания
-            if (this.isAiming && this._aimCameraStartPos === null && this.camera && this.aimCamera && this.tank && this.tank.chassis) {
+            // ВАЖНО: Инициализируем КАЖДЫЙ РАЗ когда входим в режим прицеливания (не только когда _aimCameraStartPos === null)
+            if (this.isAiming && this.camera && this.aimCamera && this.tank && this.tank.chassis && 
+                (this._aimCameraStartPos === null || this.aimingTransitionProgress < 0.02)) {
                 // ПРИВЯЗЫВАЕМ КАМЕРУ К ПОЗИЦИИ ТАНКА - используем кэшированную позицию для производительности
                 const tankPos = this.tank.getCachedChassisPosition();
                 const cameraTarget = this.camera.getTarget();
@@ -5082,45 +5157,24 @@ export class Game {
                 });
             }
             
-            // Плавное переключение камер
+            // Переключение камер
             if (t > 0.01) {
-                // Переключаемся на aim камеру (когда прогресс > 1%)
-                if (this.camera) {
-                    this.camera.setEnabled(false);
-                }
+                // Включаем aim камеру
+                if (this.camera) this.camera.setEnabled(false);
                 if (this.aimCamera) {
-                    // КРИТИЧЕСКИ ВАЖНО: Убеждаемся, что позиция установлена ПЕРЕД активацией
-                    if (this._aimCameraStartPos) {
-                        this.aimCamera.position.copyFrom(this._aimCameraStartPos);
-                    } else if (this.tank && this.tank.chassis) {
-                        // Fallback: если позиция не установлена, используем кэшированную позицию танка
-                        const tankPos = this.tank.getCachedChassisPosition();
-                        this.aimCamera.position.copyFrom(tankPos.add(new Vector3(0, 3, -8)));
-                        // ОПТИМИЗАЦИЯ: Используем переиспользуемый вектор вместо clone()
-                        this._tmpAimPos.copyFrom(this.aimCamera.position);
-                        this._aimCameraStartPos = this._tmpAimPos.clone(); // Нужен новый объект для сохранения
-                    }
                     this.aimCamera.setEnabled(true);
                     this.scene.activeCamera = this.aimCamera;
                 }
             } else {
-                // Переключаемся обратно на основную камеру
-                if (this.aimCamera) {
-                    this.aimCamera.setEnabled(false);
-                }
+                // Включаем основную камеру
+                if (this.aimCamera) this.aimCamera.setEnabled(false);
                 if (this.camera) {
                     this.camera.setEnabled(true);
                     this.scene.activeCamera = this.camera;
                 }
-                // Сбрасываем начальную позицию при выходе из режима прицеливания
-                if (!this.isAiming) {
-                    this._aimCameraStartPos = null;
-                    this._aimCameraStartTarget = null;
-                }
             }
             
             // В режиме прицеливания ВСЕ элементы танка остаются ВИДИМЫМИ
-            // Никаких изменений visibility - танк всегда виден полностью
             if (this.tank.turret) {
                 this.tank.turret.visibility = 1.0;
             }
@@ -5133,109 +5187,44 @@ export class Game {
             
             // ПЛАВНЫЙ переход FOV с учётом зума
             if (this.aimCamera && t > 0.01) {
-                // Базовый FOV в режиме прицеливания делим на зум (0 = без зума = FOV 1.0)
-                const effectiveZoom = this.aimZoom <= 0 ? 1.0 : (1.0 + this.aimZoom * 0.5); // 0->1x, 1->1.5x, 2->2x, 4->3x
+                const effectiveZoom = this.aimZoom <= 0 ? 1.0 : (1.0 + this.aimZoom * 0.5);
                 const zoomedAimFOV = this.aimFOV / effectiveZoom;
-                // Интерполируем FOV от normalFOV к зуммированному aimFOV
                 const targetFOV = this.normalFOV + (zoomedAimFOV - this.normalFOV) * t;
                 const currentFOV = this.aimCamera.fov;
-                // Плавная интерполяция для FOV
                 this.aimCamera.fov += (targetFOV - currentFOV) * 0.15;
             }
             
-            // === AIMING CAMERA: SYNCHRONIZED WITH BARREL ===
-            if (t > 0.01 && this.aimCamera) {
-                // ОПТИМИЗАЦИЯ: getWorldMatrix() автоматически обновит матрицу если нужно
-                // Get BARREL direction from mesh - this is the ACTUAL direction the gun is pointing
-                // barrel is child of turret, which is child of chassis
-                // So getDirection returns world direction accounting for all rotations
-                // КРИТИЧНО: ОПТИМИЗАЦИЯ - getWorldMatrix() очень дорогая операция, кэшируем результат
-                if (this._cachedBarrelWorldDirFrame !== this._updateTick && (this._updateTick % 2 === 0)) {
-                    const barrelWorldMatrix = this.tank.barrel.getWorldMatrix();
-                    this._cachedBarrelWorldDir = Vector3.TransformNormal(Vector3.Forward(), barrelWorldMatrix).normalize();
-                    this._cachedBarrelWorldDirFrame = this._updateTick;
-                }
-                const barrelWorldDir = this._cachedBarrelWorldDir;
+            // === AIMING CAMERA: ПРЯМО ИЗ БАШНИ С ПЛАВНЫМ ПЕРЕХОДОМ ===
+            if (t > 0.01 && this.aimCamera && this.tank.turret && this.tank.barrel) {
+                // Целевая позиция: башня + немного вверх
+                const turretPos = this.tank.turret.getAbsolutePosition();
+                const targetCameraPos = turretPos.clone();
+                targetCameraPos.y += 0.5;
                 
-                // ОПТИМИЗАЦИЯ: Используем кэшированную позицию ствола (обновляем каждые 2 кадра)
-                if (this._cachedBarrelWorldPosFrame !== this._updateTick && (this._updateTick % 2 === 0)) {
-                    this._cachedBarrelWorldPos = this.tank.barrel.getAbsolutePosition();
-                    this._cachedBarrelWorldPosFrame = this._updateTick;
-                }
-                const barrelWorldPos = this._cachedBarrelWorldPos;
-                const muzzlePos = barrelWorldPos.add(barrelWorldDir.scale(1.6));
+                // Направление ствола
+                const barrelMatrix = this.tank.barrel.getWorldMatrix();
+                const barrelDir = Vector3.TransformNormal(Vector3.Forward(), barrelMatrix).normalize();
                 
-                // Calculate FULL aiming direction with pitch applied
-                // Horizontal direction from barrel + vertical from aimPitch
-                const aimDirection = new Vector3(
-                    barrelWorldDir.x * Math.cos(this.aimPitch),
-                    Math.sin(this.aimPitch),
-                    barrelWorldDir.z * Math.cos(this.aimPitch)
-                ).normalize();
+                // Целевая точка взгляда
+                const targetLookAt = targetCameraPos.add(barrelDir.scale(100));
                 
-                // ИСПРАВЛЕНО: Camera position для видимости ствола снизу по середине
-                // Камера должна быть выше и смотреть вниз, чтобы ствол был виден в нижней части экрана
-                const backOffset = 5.0 - this.aimZoom * 0.75;
+                // Плавный ПЕРЕХОД (t < 1), но РЕЗКОЕ следование когда полностью в режиме (t ≈ 1)
+                const currentPos = this.aimCamera.position;
+                const currentTarget = this.aimCamera.getTarget();
                 
-                // Камера позади и ВЫШЕ ствола, чтобы видеть ствол снизу
-                const cameraPos = muzzlePos.add(aimDirection.scale(-backOffset));
-                
-                // ИСПРАВЛЕНО: Увеличиваем высоту камеры, чтобы ствол был виден снизу по середине
-                const heightOffset = 2.5 - this.aimZoom * 0.2; // Увеличено с 1.0 до 2.5
-                cameraPos.y += heightOffset;
-                
-                // Slight right offset for better view
-                const rightDir = Vector3.Cross(Vector3.Up(), barrelWorldDir).normalize();
-                cameraPos.addInPlace(rightDir.scale(0.2));
-                
-                // ИСПРАВЛЕНО: Плавный переход от позиции основной камеры (третье лицо) к позиции прицеливания
-                // ВСЕГДА ПРИВЯЗЫВАЕМ К ПОЗИЦИИ ТАНКА
-                // ОПТИМИЗАЦИЯ: Используем кэшированную позицию танка
-                const tankPos = this.tank.getCachedChassisPosition();
-                
-                // Используем начальную позицию из основной камеры для плавного перехода
-                // Fallback: если начальная позиция не установлена или неправильная, используем позицию танка
-                let startPos = this._aimCameraStartPos;
-                // ОПТИМИЗАЦИЯ: Используем квадрат расстояния вместо Vector3.Distance (быстрее)
-                if (!startPos || startPos.length() < 0.1) {
-                    startPos = tankPos.add(new Vector3(0, 3, -8));
-                    this._aimCameraStartPos = startPos.clone();
+                // Во время перехода (t < 0.85) - очень быстрая интерполяция
+                // После перехода (t >= 0.85) - мгновенное следование
+                if (t < 0.85) {
+                    // Очень быстрый переход камеры
+                    const transitionSpeed = 0.5;
+                    const newPos = Vector3.Lerp(currentPos, targetCameraPos, transitionSpeed);
+                    this.aimCamera.position.copyFrom(newPos);
+                    const newTarget = Vector3.Lerp(currentTarget, targetLookAt, transitionSpeed);
+                    this.aimCamera.setTarget(newTarget);
                 } else {
-                    const dx = startPos.x - tankPos.x;
-                    const dy = startPos.y - tankPos.y;
-                    const dz = startPos.z - tankPos.z;
-                    const distSq = dx * dx + dy * dy + dz * dz;
-                    if (distSq > 10000) { // 100 в квадрате
-                        // Если позиция слишком далеко от танка - используем позицию танка
-                        startPos = tankPos.add(new Vector3(0, 3, -8));
-                        // ОПТИМИЗАЦИЯ: Используем переиспользуемый вектор вместо clone()
-                        this._tmpAimPos.copyFrom(startPos);
-                        this._aimCameraStartPos = this._tmpAimPos.clone(); // Нужен новый объект для сохранения
-                    }
-                }
-                
-                // Easing функция для более плавного перехода (ease-in-out)
-                const easeT = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-                
-                const newPos = Vector3.Lerp(startPos, cameraPos, easeT);
-                this.aimCamera.position.copyFrom(newPos);
-                
-                // ИСПРАВЛЕНО: LOOK TARGET - смотрим немного ниже, чтобы ствол был виден в нижней части экрана
-                const lookAtDistance = 300;
-                let lookAtPos = muzzlePos.add(aimDirection.scale(lookAtDistance));
-                // Смещаем target немного вниз, чтобы ствол был виден снизу по середине
-                lookAtPos.y -= 0.5;
-                
-                // ИСПРАВЛЕНО: Плавный переход target от начального target основной камеры к target прицеливания
-                const startTarget = this._aimCameraStartTarget || this.aimCamera.getTarget();
-                const lerpedTarget = Vector3.Lerp(startTarget, lookAtPos, easeT);
-                this.aimCamera.setTarget(lerpedTarget);
-                
-                // Apply camera shake
-                if (this.cameraShakeIntensity > 0.01) {
-                    // ОПТИМИЗАЦИЯ: Используем переиспользуемый вектор вместо clone()
-                    this._tmpCameraPos.copyFrom(this.aimCamera.position);
-                    this.aimCamera.position = this._tmpCameraPos.add(this.cameraShakeOffset.scale(0.4));
+                    // Полный режим прицеливания - камера МГНОВЕННО следует за башней
+                    this.aimCamera.position.copyFrom(targetCameraPos);
+                    this.aimCamera.setTarget(targetLookAt);
                 }
             }
             
@@ -5249,23 +5238,11 @@ export class Game {
                 this.camera.fov += (targetFOV - currentFOV) * 0.2;
             }
             
-            // Применяем смещение от тряски к камере
-            // КРИТИЧЕСКИ ВАЖНО: Используем absolutePosition для получения актуальной позиции после обновления физики
-            // ИСПРАВЛЕНО: Обновляем основную камеру только когда НЕ в режиме прицеливания
+            // Применяем смещение от тряски к основной камере (когда НЕ в режиме прицеливания)
             if (t < 0.99 && this.camera && this.cameraShakeIntensity > 0.01) {
-                // ИСПРАВЛЕНИЕ JITTER: Используем absolutePosition вместо кэшированной позиции
-                // Кэш обновляется в onBeforePhysicsObservable, а камера в onAfterPhysicsObservable
-                // Поэтому кэш содержит позицию от прошлого кадра, что вызывает дёргание
                 this._tmpCameraPos.copyFrom(this.tank.chassis.absolutePosition);
                 this._tmpCameraPos.y += 2;
                 this.camera.position = this._tmpCameraPos.add(this.cameraShakeOffset);
-            }
-            
-            // ИСПРАВЛЕНО: Применяем тряску только когда в режиме прицеливания (t > 0.01)
-            if (t > 0.01 && this.aimCamera && this.cameraShakeIntensity > 0.01) {
-                    // ОПТИМИЗАЦИЯ: Используем переиспользуемый вектор вместо clone()
-                    this._tmpCameraPos.copyFrom(this.aimCamera.position);
-                    this.aimCamera.position = this._tmpCameraPos.add(this.cameraShakeOffset.scale(0.5)); // Меньше тряски в режиме прицеливания
             }
             
             // Third-person smooth follow (для обычного режима, когда не в режиме прицеливания)
@@ -5452,13 +5429,37 @@ export class Game {
     }
     
     // Обновить эффект тряски камеры
+    // ОПТИМИЗИРОВАНО: Тряска только при ОЧЕНЬ быстром движении танка (80%+ скорости)
     private updateCameraShake(): void {
         if (this.cameraShakeIntensity > 0.01) {
-            // Генерируем случайное смещение
+            // Проверяем скорость танка - тряска только при 80%+ скорости
+            let speedFactor = 0;
+            if (this.tank && typeof (this.tank as any).getSpeed === 'function') {
+                const speed = Math.abs((this.tank as any).getSpeed());
+                const maxSpeed = (this.tank as any).moveSpeed || 24;
+                const speedRatio = speed / maxSpeed;
+                const minThreshold = 0.80; // Тряска только при 80%+ скорости
+                
+                if (speedRatio >= minThreshold) {
+                    // Нормализуем от 0 до 1 (80% -> 0, 100% -> 1)
+                    const normalizedSpeed = (speedRatio - minThreshold) / (1 - minThreshold);
+                    speedFactor = normalizedSpeed * normalizedSpeed;
+                }
+            }
+            
+            // Если скорость ниже порога - нет тряски
+            if (speedFactor <= 0) {
+                this.cameraShakeIntensity *= this.cameraShakeDecay;
+                this.cameraShakeOffset = Vector3.Zero();
+                return;
+            }
+            
+            // Генерируем случайное смещение с учётом скорости
             this.cameraShakeTime += 0.1;
-            const shakeX = (Math.random() - 0.5) * this.cameraShakeIntensity;
-            const shakeY = (Math.random() - 0.5) * this.cameraShakeIntensity;
-            const shakeZ = (Math.random() - 0.5) * this.cameraShakeIntensity;
+            const effectiveIntensity = this.cameraShakeIntensity * speedFactor * 0.5; // Уменьшенная интенсивность
+            const shakeX = (Math.random() - 0.5) * effectiveIntensity;
+            const shakeY = (Math.random() - 0.5) * effectiveIntensity;
+            const shakeZ = (Math.random() - 0.5) * effectiveIntensity;
             
             this.cameraShakeOffset = new Vector3(shakeX, shakeY, shakeZ);
             
@@ -5487,7 +5488,7 @@ export class Game {
             experienceSystem: this.experienceSystem,
             realtimeStatsTracker: this.realtimeStatsTracker,
             multiplayerManager: this.multiplayerManager,
-            isMultiplayer: this.isMultiplayer,
+            getIsMultiplayer: () => this.isMultiplayer,
             currentMapType: this.currentMapType
         });
         this.gameStatsOverlay.show();
@@ -5820,7 +5821,7 @@ export class Game {
         if (this._updateTick % 2 === 0 && this.chunkSystem && this.hud) {
             try {
                 const progress = this.chunkSystem.getLoadingProgress();
-                this.hud.updateMapLoadingProgress(progress);
+                this.hud.updateMapLoadingProgress(progress.percent);
             } catch (e) {
                 // Игнорируем ошибки
             }

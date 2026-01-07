@@ -8,7 +8,7 @@
  * - Нейтральная полоса (nomansland) - воронки и разрушения
  * - Вражеская территория (enemy) - вражеские позиции
  * 
- * Размер арены: 800x800 единиц
+ * Размер арены: определяется в MapConstants.ts (по умолчанию 1000x1000)
  * 
  * @example
  * ```typescript
@@ -29,6 +29,7 @@ import { PhysicsAggregate } from "@babylonjs/core/Physics/v2/physicsAggregate";
 import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import { BaseMapGenerator } from "../shared/BaseMapGenerator";
 import { ChunkGenerationContext } from "../shared/MapGenerator";
+import { MAP_SIZES } from "../MapConstants";
 
 /**
  * Тип зоны линии фронта
@@ -53,9 +54,10 @@ export interface FrontlineConfig {
 
 /**
  * Конфигурация по умолчанию
+ * Использует централизованные константы из MapConstants.ts
  */
 export const DEFAULT_FRONTLINE_CONFIG: FrontlineConfig = {
-    arenaSize: 1000,  // Ограничено для тестов
+    arenaSize: MAP_SIZES.frontline?.size ?? 1000,  // Из централизованных констант
     noMansLandWidth: 100,
     trenchDensity: 0.6,
     craterDensity: 0.8,
@@ -63,9 +65,9 @@ export const DEFAULT_FRONTLINE_CONFIG: FrontlineConfig = {
 };
 
 /**
- * Высота стен периметра
+ * Высота стен периметра - из централизованных констант
  */
-const FRONTLINE_WALL_HEIGHT = 8;
+const FRONTLINE_WALL_HEIGHT = MAP_SIZES.frontline?.wallHeight ?? 8;
 
 /**
  * Генератор карты "Линия фронта"

@@ -27,6 +27,7 @@ import { TerrainGenerator, NoiseGenerator } from "./noiseGenerator";
 import { CoverGenerator } from "./coverGenerator";
 import { POISystem, POI } from "./poiSystem";
 import { logger } from "./utils/logger";
+import { getMapBoundsFromConfig, getMapSize, getWallHeight, getPlayerGaragePosition, MAP_SIZES } from "./maps/MapConstants";
 // Импорт генераторов карт и фабрики
 import {
     MapGeneratorFactory,
@@ -192,30 +193,21 @@ export class ChunkSystem {
     /**
      * Получить границы карты для текущего типа карты
      * Все карты имеют ограниченный размер с естественными горными барьерами по краям
+     * 
+     * ВАЖНО: Использует централизованные константы из MapConstants.ts
      */
     public getMapBounds(): { minX: number; maxX: number; minZ: number; maxZ: number } | null {
         if (this.mapBounds) return this.mapBounds;
         
-        const mapType = this.config.mapType;
+        const mapType = this.config.mapType ?? "normal";
         
-        switch (mapType) {
-            case "polygon":
-                // Polygon arena: 1000x1000 (как в PolygonGenerator)
-                this.mapBounds = { minX: -500, maxX: 500, minZ: -500, maxZ: 500 };
-                break;
-            case "frontline":
-                // Frontline arena: 1000x1000 (как в FrontlineGenerator)
-                this.mapBounds = { minX: -500, maxX: 500, minZ: -500, maxZ: 500 };
-                break;
-            case "sandbox":
-                // Sandbox: небольшая зона 400x400
-                this.mapBounds = { minX: -200, maxX: 200, minZ: -200, maxZ: 200 };
-                break;
-            case "normal":
-            case "tartaria":
-            default:
-                // Normal и Tartaria: ограниченный размер 2500x2500
-                this.mapBounds = { minX: -1250, maxX: 1250, minZ: -1250, maxZ: 1250 };
+        // Используем централизованные константы из MapConstants.ts
+        const bounds = getMapBoundsFromConfig(mapType);
+        if (bounds) {
+            this.mapBounds = bounds;
+        } else {
+            // Fallback для неизвестных карт - большой открытый мир
+            this.mapBounds = { minX: -1250, maxX: 1250, minZ: -1250, maxZ: 1250 };
         }
         
         return this.mapBounds;
@@ -868,17 +860,28 @@ export class ChunkSystem {
         
         // В режиме полигона создаём гараж в углу арены
         if (this.config.mapType === "polygon") {
-            // Гараж в юго-западном углу арены (арена 200x200)
-            this.createGarageAt(-70, -70, 0);
+            // Позиция гаража из централизованных констант MapConstants.ts
+            const garagePos = getPlayerGaragePosition("polygon") ?? [-70, -70];
+            this.createGarageAt(garagePos[0], garagePos[1], 0);
             // Polygon mode: Created garage and capture points
             return;
         }
         
         // В режиме передовой создаём гараж на западной стороне (база игрока)
         if (this.config.mapType === "frontline") {
-            // Гараж на западной стороне карты (600x600)
-            this.createGarageAt(-250, 0, 0);
+            // Позиция гаража из централизованных констант MapConstants.ts
+            const garagePos = getPlayerGaragePosition("frontline") ?? [-400, 0];
+            this.createGarageAt(garagePos[0], garagePos[1], 0);
             // Frontline mode: Created garage and capture points
+            return;
+        }
+        
+        // В режиме каньона создаём гараж на южной стороне
+        if (this.config.mapType === "canyon") {
+            // Позиция гаража из централизованных констант MapConstants.ts
+            const garagePos = getPlayerGaragePosition("canyon") ?? [0, -350];
+            this.createGarageAt(garagePos[0], garagePos[1], 0);
+            // Canyon mode: Created garage and capture points
             return;
         }
         
@@ -4807,9 +4810,13 @@ export class ChunkSystem {
     
     // === POLYGON (Training Ground) GENERATION ===
     
-    // Размер арены полигона
-    private readonly POLYGON_ARENA_SIZE = 600;
-    private readonly POLYGON_WALL_HEIGHT = 6;
+    // Размер арены полигона - использует централизованные константы из MapConstants.ts
+    private get POLYGON_ARENA_SIZE(): number {
+        return getMapSize("polygon");
+    }
+    private get POLYGON_WALL_HEIGHT(): number {
+        return getWallHeight("polygon");
+    }
     private _polygonInitialized = false;
     
     private generatePolygonContent(chunkX: number, chunkZ: number, worldX: number, worldZ: number, size: number, random: SeededRandom, chunkParent: TransformNode): void {
@@ -4882,17 +4889,20 @@ export class ChunkSystem {
             return "empty";
         }
         
-        // Квадранты арены для 600x600:
-        // Северо-восток (x > 50, z > 50) - стрельбище
-        // Северо-запад (x < -50, z > 50) - полоса препятствий
-        // Юго-восток (x > 50, z < -50) - зона боя
-        // Юго-запад (x < -50, z < -50) - военная база (рядом с гаражом)
-        // Центр (-50 до 50): пустое пространство
+        // Зоны пропорциональны размеру арены (центральная зона = 10% от половины арены)
+        const centerZone = arenaHalf * 0.1;
         
-        if (x > 50 && z > 50) return "shooting";
-        if (x < -50 && z > 50) return "obstacles";
-        if (x > 50 && z < -50) return "combat";
-        if (x < -50 && z < -50) return "base";
+        // Квадранты арены:
+        // Северо-восток (x > centerZone, z > centerZone) - стрельбище
+        // Северо-запад (x < -centerZone, z > centerZone) - полоса препятствий
+        // Юго-восток (x > centerZone, z < -centerZone) - зона боя
+        // Юго-запад (x < -centerZone, z < -centerZone) - военная база (рядом с гаражом)
+        // Центр: пустое пространство
+        
+        if (x > centerZone && z > centerZone) return "shooting";
+        if (x < -centerZone && z > centerZone) return "obstacles";
+        if (x > centerZone && z < -centerZone) return "combat";
+        if (x < -centerZone && z < -centerZone) return "base";
         
         return "empty"; // Центральная область - пустое пространство
     }
@@ -5903,9 +5913,13 @@ export class ChunkSystem {
     
     // === FRONTLINE (Передовая) MAP GENERATION ===
     
-    // Размер арены передовой
-    private readonly FRONTLINE_ARENA_SIZE = 600;
-    private readonly FRONTLINE_WALL_HEIGHT = 8;
+    // Размер арены передовой - использует централизованные константы из MapConstants.ts
+    private get FRONTLINE_ARENA_SIZE(): number {
+        return getMapSize("frontline");
+    }
+    private get FRONTLINE_WALL_HEIGHT(): number {
+        return getWallHeight("frontline");
+    }
     
     private generateFrontlineContent(chunkX: number, chunkZ: number, worldX: number, worldZ: number, size: number, random: SeededRandom, chunkParent: TransformNode): void {
         // Земля военного типа (грязь)
@@ -5958,11 +5972,14 @@ export class ChunkSystem {
             return "outside";
         }
         
-        // Западная сторона (x < -150) - союзники (улучшены границы для 600x600)
-        if (x < -150) return "allied";
-        // Восточная сторона (x > 150) - враги
-        if (x > 150) return "enemy";
-        // Нейтральная полоса (-150 <= x <= 150) - более широкая зона
+        // Зоны пропорциональны размеру арены (25% по краям, 50% в центре)
+        const zoneWidth = arenaHalf * 0.5; // 25% от всей арены с каждой стороны
+        
+        // Западная сторона - союзники (25% карты)
+        if (x < -zoneWidth) return "allied";
+        // Восточная сторона - враги (25% карты)
+        if (x > zoneWidth) return "enemy";
+        // Нейтральная полоса (50% карты в центре)
         return "nomansland";
     }
     

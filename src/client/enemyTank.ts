@@ -427,6 +427,10 @@ export class EnemyTank {
         if (this.barrel) {
             this.barrel.visibility = 0;
         }
+        // ИСПРАВЛЕНО: Гусеницы тоже должны появляться плавно
+        for (const wheel of this.wheels) {
+            wheel.visibility = 0;
+        }
         
         // КРИТИЧНО: Предотвращаем исчезновение при frustum culling (когда камера за стеной)
         // FIX: alwaysSelectAsActiveMesh только для корневого меша (chassis)!
@@ -929,6 +933,10 @@ export class EnemyTank {
                 if (this.barrel) {
                     this.barrel.visibility = easedAlpha;
                 }
+                // ИСПРАВЛЕНО: Обновляем visibility для гусениц
+                for (const wheel of this.wheels) {
+                    wheel.visibility = easedAlpha;
+                }
             } else {
                 // Анимация завершена - устанавливаем полную видимость
                 if (this.chassis) {
@@ -939,6 +947,10 @@ export class EnemyTank {
                 }
                 if (this.barrel) {
                     this.barrel.visibility = 1.0;
+                }
+                // ИСПРАВЛЕНО: Устанавливаем полную видимость для гусениц
+                for (const wheel of this.wheels) {
+                    wheel.visibility = 1.0;
                 }
                 this.spawnStartTime = 0; // Сбрасываем таймер
             }
@@ -961,9 +973,18 @@ export class EnemyTank {
         // Боты должны реагировать МГНОВЕННО как профессиональные игроки!
         this.updateAI();
         
+        // ДИАГНОСТИКА AI: Логируем состояние каждые 3 секунды
+        if (this._tick % 180 === 0) { // ~3 секунды при 60 FPS
+            const hasTarget = !!this.target;
+            const targetAlive = this.target?.isAlive ?? false;
+            const targetChassis = !!this.target?.chassis;
+            const dist = distSq < 1000000 ? Math.sqrt(distSq).toFixed(1) : "1000+";
+            logger.warn(`[EnemyTank ${this.id}] DIAG: state=${this.state}, hasTarget=${hasTarget}, targetAlive=${targetAlive}, targetChassis=${targetChassis}, dist=${dist}m, pos=(${this.chassis.position.x.toFixed(1)}, ${this.chassis.position.z.toFixed(1)})`);
+        }
+        
         // ИСПРАВЛЕНО: Обновляем движение и башню каждый кадр для всех ботов
         // Это критично для работающего AI
-            this.executeState();
+        this.executeState();
         
         // ИСПРАВЛЕНО: Башня ВСЕГДА обновляется каждый кадр
             this.updateTurret();

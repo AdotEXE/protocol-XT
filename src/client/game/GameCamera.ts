@@ -568,6 +568,15 @@ export class GameCamera {
         // Обновляем тряску камеры
         this.updateCameraShake();
         
+        // ОПТИМИЗАЦИЯ: Обновляем Motion Blur в зависимости от скорости танка
+        // Motion Blur включается только при 80%+ скорости для производительности
+        if (this.gameContext?.postProcessingManager && typeof (this.tank as any).getSpeed === 'function') {
+            const speed = Math.abs((this.tank as any).getSpeed());
+            const maxSpeed = (this.tank as any).moveSpeed || 24;
+            const speedRatio = speed / maxSpeed;
+            (this.gameContext.postProcessingManager as any).updateMotionBlurBySpeed?.(speedRatio);
+        }
+        
         // Применяем тряску к позиции камеры
         const shakeOffset = this.cameraShakeOffset;
         const targetPos = tankPos.add(shakeOffset);
@@ -706,58 +715,44 @@ export class GameCamera {
     
     /**
      * Обновление тряски камеры
+     * ОПТИМИЗИРОВАНО: Тряска только при ОЧЕНЬ быстром движении танка (80%+ скорости)
+     * Тряска от вращения башни ОТКЛЮЧЕНА для комфорта игрока
      */
     private updateCameraShake(): void {
         if (this.cameraShakeIntensity > 0.01) {
             this.cameraShakeTime += 0.1;
-            // УМЕНЬШЕНО: Интенсивность тряски уменьшена в 2 раза (было 0.1, стало 0.05)
-            let baseIntensity = this.cameraShakeIntensity * 0.05;
+            // УМЕНЬШЕНО: Базовая интенсивность минимальная для мягкого эффекта
+            let baseIntensity = this.cameraShakeIntensity * 0.012;
             
-            // Тряска зависит от скорости танка И башни
-            // ИСПРАВЛЕНО: Плавное нарастание от 0 (при остановке) до 1 (при максимальной скорости)
+            // Тряска зависит ТОЛЬКО от скорости танка (башня отключена)
             let tankSpeedFactor = 0; // Начинаем с 0 - нет тряски при остановке
-            let turretSpeedFactor = 0; // Начинаем с 0
             
             if (this.tank && typeof (this.tank as any).getSpeed === 'function') {
-                // Фактор скорости движения танка с плавным нарастанием
+                // Фактор скорости движения танка
                 const speed = Math.abs((this.tank as any).getSpeed());
-                const maxSpeed = (this.tank as any).moveSpeed || 24; // Максимальная скорость танка
+                const maxSpeed = (this.tank as any).moveSpeed || 24;
                 const speedRatio = speed / maxSpeed;
-                const minThreshold = 0.15; // Тряска начинается только при 15% от макс. скорости
+                // ИЗМЕНЕНО: Тряска только при 80%+ от максимальной скорости
+                const minThreshold = 0.80;
                 
                 if (speedRatio < minThreshold) {
-                    tankSpeedFactor = 0; // Нет тряски при медленном движении
+                    tankSpeedFactor = 0; // Нет тряски при обычном движении
                 } else {
-                    // Нормализуем от 0 до 1 после порога
+                    // Нормализуем от 0 до 1 после порога (80% -> 0, 100% -> 1)
                     const normalizedSpeed = (speedRatio - minThreshold) / (1 - minThreshold);
                     // Квадратичная кривая для плавного нарастания
                     tankSpeedFactor = normalizedSpeed * normalizedSpeed;
                 }
             }
             
-            // Фактор скорости вращения башни
+            // ОТКЛЮЧЕНО: Тряска от вращения башни убрана для комфорта игрока
+            // Обновляем lastTurretAngle для корректной работы, но не используем для тряски
             if (this.tank && this.tank.turret && !this.tank.turret.isDisposed()) {
-                const currentTurretAngle = this.tank.turret.rotation.y;
-                // Вычисляем скорость вращения башни (разница углов между кадрами)
-                let angleDiff = currentTurretAngle - this.lastTurretAngle;
-                // Нормализуем разницу в диапазон [-PI, PI]
-                while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-                while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-                
-                const turretRotationSpeed = Math.abs(angleDiff);
-                // Максимальная скорость башни (примерно baseTurretSpeed * 60 FPS = 0.06 * 60 = 3.6 рад/сек)
-                // Но на кадр это примерно 0.06 рад/кадр при 60 FPS
-                const maxTurretSpeed = ((this.tank as any).baseTurretSpeed || 0.06) * 1.5; // Немного больше для учета ускорения
-                // ИСПРАВЛЕНО: Убран минимум 0.3, теперь плавно от 0 до 1
-                turretSpeedFactor = Math.min(1.0, turretRotationSpeed / maxTurretSpeed);
-                
-                // Сохраняем текущий угол для следующего кадра
-                this.lastTurretAngle = currentTurretAngle;
+                this.lastTurretAngle = this.tank.turret.rotation.y;
             }
             
-            // Объединяем факторы: используем максимальное значение для более заметного эффекта
-            const combinedSpeedFactor = Math.max(tankSpeedFactor, turretSpeedFactor);
-            baseIntensity *= combinedSpeedFactor;
+            // Используем только фактор скорости танка
+            baseIntensity *= tankSpeedFactor;
             
             const shakeX = (Math.random() - 0.5) * baseIntensity;
             const shakeY = (Math.random() - 0.5) * baseIntensity;
@@ -783,51 +778,161 @@ export class GameCamera {
     }
     
     /**
+     * Фильтр мешей для raycast коллизий камеры
+     * Возвращает true если меш должен блокировать камеру
+     */
+    private cameraCollisionMeshFilter(mesh: any): boolean {
+        if (!mesh || !mesh.isEnabled()) return false;
+        
+        // Игнорируем части танка игрока
+        if (mesh === this.tank?.chassis || 
+            mesh === this.tank?.turret || 
+            mesh === this.tank?.barrel) {
+            return false;
+        }
+        
+        const name = mesh.name.toLowerCase();
+        
+        // ВАЖНО: Террейн и земля должны блокировать камеру даже если isPickable = false
+        // Это критично для предотвращения "проваливания" камеры в горы/землю
+        const isTerrain = name.startsWith("ground_") || 
+                          name.includes("terrain") || 
+                          name.includes("mountain") ||
+                          name.includes("hill") ||
+                          name.includes("rock") ||
+                          name.startsWith("chunk_");
+        
+        // Также включаем стены гаража и зданий
+        const isStructure = name.startsWith("garage") ||
+                           name.includes("wall") ||
+                           name.includes("building") ||
+                           name.includes("floor") ||
+                           name.includes("roof") ||
+                           name.includes("door");
+        
+        // Если это террейн или структура - блокируем камеру независимо от isPickable
+        if (isTerrain || isStructure) {
+            // Но игнорируем прозрачные (visibility < 0.3 для ворот гаража которые 0.5)
+            if (mesh.visibility !== undefined && mesh.visibility < 0.3) return false;
+            return true;
+        }
+        
+        // Для остальных объектов проверяем isPickable
+        if (!mesh.isPickable) return false;
+        
+        // Игнорируем прозрачные объекты
+        if (mesh.visibility !== undefined && mesh.visibility < 0.5) return false;
+        
+        // Игнорируем эффекты, частицы и другие невидимые объекты
+        if (name.includes("particle") || name.includes("effect") || 
+            name.includes("trail") || name.includes("bullet") ||
+            name.includes("projectile") || name.includes("muzzle") ||
+            name.includes("explosion") || name.includes("spark") ||
+            name.includes("smoke") || name.includes("fire") ||
+            name.includes("billboard") || name.includes("hp") ||
+            name.includes("label") || name.includes("indicator") ||
+            name.includes("debug") || name.includes("gizmo")) {
+            return false;
+        }
+        
+        // Игнорируем вражеские танки и сетевых игроков (их меши)
+        const meta = mesh.metadata;
+        if (meta && (meta.type === "bullet" || meta.type === "consumable" || 
+                     meta.type === "playerTank" || meta.type === "enemyTank" ||
+                     meta.type === "networkPlayer")) {
+            return false;
+        }
+        
+        // Все остальные объекты блокируют камеру
+        return true;
+    }
+    
+    /**
      * Предотвращение захода камеры за текстуры/стены
+     * УЛУЧШЕНО: Корректная работа с ArcRotateCamera через изменение radius
+     * Работает как в обычном режиме, так и в режиме прицеливания
      */
     adjustCameraForCollision(aimingTransitionProgress: number): void {
         if (!this.camera || !this.tank || !this.tank.chassis || !this.scene) return;
         
-        // Только для обычной камеры (не в режиме прицеливания)
         const t = aimingTransitionProgress || 0;
-        if (t > 0.01) return; // В режиме прицеливания не применяем
-        
         const tankPos = this.tank.chassis.getAbsolutePosition();
-        const cameraPos = this.camera.position;
+        
+        // Точка от которой стреляем луч (выше танка)
+        const rayOrigin = tankPos.add(new Vector3(0, 1.5, 0));
+        
+        // Получаем текущую позицию камеры
+        const cameraPos = this.camera.position.clone();
         
         // Направление от танка к камере
-        const direction = cameraPos.subtract(tankPos.add(new Vector3(0, 1.0, 0)));
-        const distance = direction.length();
+        const direction = cameraPos.subtract(rayOrigin);
+        const currentDistance = direction.length();
+        
+        // Если расстояние слишком маленькое, пропускаем
+        if (currentDistance < 0.5) return;
+        
         direction.normalize();
         
-        // Минимальное расстояние до камеры
-        const minDistance = 2.0;
+        // Параметры зависят от режима
+        const isAiming = t > 0.01;
+        const minDistance = isAiming ? 1.5 : 3.0;
+        const wallBuffer = isAiming ? 0.3 : 0.8; // Меньший буфер в режиме прицеливания
+        const reactionSpeed = isAiming ? 0.9 : 0.7; // Быстрее реагируем в режиме прицеливания
+        const returnSpeed = isAiming ? 0.1 : 0.05; // Скорость возвращения к нормальному радиусу
         
         // Проверяем коллизию с мешами
-        const ray = new Ray(tankPos.add(new Vector3(0, 1.0, 0)), direction);
-        const hit = this.scene.pickWithRay(ray, (mesh) => {
-            if (!mesh || !mesh.isEnabled() || 
-                mesh === this.tank?.chassis || 
-                mesh === this.tank?.turret || 
-                mesh === this.tank?.barrel) {
-                return false;
-            }
-            // Игнорируем эффекты, частицы и другие невидимые объекты
-            if (mesh.name.includes("particle") || mesh.name.includes("effect") || 
-                mesh.name.includes("trail") || mesh.name.includes("bullet")) {
-                return false;
-            }
-            return true;
-        });
+        const ray = new Ray(rayOrigin, direction, currentDistance + 1);
+        const hit = this.scene.pickWithRay(ray, (mesh) => this.cameraCollisionMeshFilter(mesh));
         
-        if (hit && hit.hit && hit.distance !== null && hit.distance < distance) {
-            // Есть коллизия - перемещаем камеру ближе к танку
-            const safeDistance = Math.max(minDistance, hit.distance - 0.5);
-            const newCameraPos = tankPos.add(new Vector3(0, 1.0, 0)).add(direction.clone().scale(safeDistance));
+        if (hit && hit.hit && hit.distance !== null && hit.distance < currentDistance) {
+            // Есть коллизия - вычисляем безопасный радиус
+            const safeDistance = Math.max(minDistance, hit.distance - wallBuffer);
             
-            // Плавно перемещаем камеру к безопасной позиции
-            this.camera.position = Vector3.Lerp(cameraPos, newCameraPos, 0.3);
+            // ИСПРАВЛЕНО: Корректно работаем с ArcRotateCamera через radius
+            const targetRadius = safeDistance;
+            this.camera.radius = this.camera.radius + (targetRadius - this.camera.radius) * reactionSpeed;
+            
+            // Ограничиваем минимальный радиус
+            if (this.camera.radius < minDistance) {
+                this.camera.radius = minDistance;
+            }
+        } else if (!isAiming) {
+            // Нет коллизии и не в режиме прицеливания - плавно возвращаем камеру к нормальному радиусу
+            const targetRadius = this.normalRadius;
+            this.camera.radius = this.camera.radius + (targetRadius - this.camera.radius) * returnSpeed;
         }
+        // В режиме прицеливания радиус управляется из updateAimingMode, не трогаем его здесь
+    }
+    
+    /**
+     * Проверка коллизий камеры в режиме прицеливания
+     * Вызывается из updateAimingMode
+     */
+    checkAimingCameraCollision(targetCamPos: Vector3): Vector3 {
+        if (!this.scene || !this.tank || !this.tank.chassis) return targetCamPos;
+        
+        const tankPos = this.tank.chassis.getAbsolutePosition();
+        const rayOrigin = tankPos.add(new Vector3(0, 1.5, 0));
+        
+        // Направление от танка к целевой позиции камеры
+        const direction = targetCamPos.subtract(rayOrigin);
+        const targetDistance = direction.length();
+        direction.normalize();
+        
+        const minDistance = 1.5;
+        const wallBuffer = 0.5;
+        
+        // Проверяем коллизию
+        const ray = new Ray(rayOrigin, direction, targetDistance + 1);
+        const hit = this.scene.pickWithRay(ray, (mesh) => this.cameraCollisionMeshFilter(mesh));
+        
+        if (hit && hit.hit && hit.distance !== null && hit.distance < targetDistance) {
+            // Есть коллизия - возвращаем безопасную позицию
+            const safeDistance = Math.max(minDistance, hit.distance - wallBuffer);
+            return rayOrigin.add(direction.scale(safeDistance));
+        }
+        
+        return targetCamPos;
     }
     
     /**

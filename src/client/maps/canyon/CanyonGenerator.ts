@@ -3,6 +3,7 @@
  * @description Генератор контента для карты "Каньон"
  * 
  * Каньон - горное ущелье с реками и мостами.
+ * Размер арены: определяется в MapConstants.ts (по умолчанию 800x800)
  * 
  * @see {@link BaseMapGenerator} - базовый класс
  */
@@ -13,14 +14,22 @@ import { PhysicsAggregate } from "@babylonjs/core/Physics/v2/physicsAggregate";
 import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import { BaseMapGenerator } from "../shared/BaseMapGenerator";
 import { ChunkGenerationContext } from "../shared/MapGenerator";
+import { MAP_SIZES } from "../MapConstants";
 
 export interface CanyonConfig {
+    /** Размер арены (из MapConstants.ts) */
+    arenaSize: number;
     mountainHeight: number;
     riverWidth: number;
     bridgeDensity: number;
 }
 
+/**
+ * Конфигурация по умолчанию
+ * Использует централизованные константы из MapConstants.ts
+ */
 export const DEFAULT_CANYON_CONFIG: CanyonConfig = {
+    arenaSize: MAP_SIZES.canyon?.size ?? 800,  // Из централизованных констант
     mountainHeight: 30,
     riverWidth: 10,
     bridgeDensity: 0.3

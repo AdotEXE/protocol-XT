@@ -278,7 +278,7 @@ export class TankController {
     // Скорость вращения башни (публичная для game.ts)
     turretSpeed = 0.04; // Базовая скорость вращения башни (рад/кадр)
     baseTurretSpeed = 0.06; // Базовая скорость башни для центрирования
-    turretLerpSpeed = 0.15; // Скорость интерполяции башни
+    turretLerpSpeed = 0.25; // Резкая реакция башни
     
     // Barrel pitch control (vertical tilt of barrel) - keyboard R/F
     barrelPitchTarget = 0; // Целевое направление наклона ствола (-1, 0, +1)
@@ -2631,29 +2631,39 @@ export class TankController {
         // ВАЖНО: Управление мышкой обрабатывается в game.ts для синхронизации с режимом прицеливания
         // Здесь только клавиатурное управление (Z, X, C) - работает ВСЕГДА
         
+        // Prevent context menu on RMB (используем уже объявленный canvas)
+        if (canvas) {
+            canvas.addEventListener("contextmenu", (e) => {
+                e.preventDefault();
+                return false;
+            });
+        }
+        
         // Left click - enter pointer lock and ALWAYS shoot
         this.scene.onPointerDown = (evt) => {
+            console.log(`[Tank] onPointerDown: button=${evt.button}`);
              if (evt.button === 0) { // Left click
                  // Pointer lock handled by browser
                  if (canvas) {
-                     
                      try {
                          canvas.requestPointerLock();
-                         
                      } catch (err) {
-                         
+                         console.error("[Tank] Pointer lock error:", err);
                      }
                  }
                  // LMB ALWAYS fires in all modes
                  this.fire();
              }
              if (evt.button === 2) { // Right click - AIM MODE
+                 console.log("[Tank] RMB pressed - toggling aim mode ON");
                  this.toggleAimMode(true);
              }
         };
         
         this.scene.onPointerUp = (evt) => {
+            console.log(`[Tank] onPointerUp: button=${evt.button}`);
             if (evt.button === 2) { // Release right click
+                console.log("[Tank] RMB released - toggling aim mode OFF");
                 this.toggleAimMode(false);
             }
         };
@@ -2661,11 +2671,13 @@ export class TankController {
         // Ctrl key for aim mode too
         window.addEventListener("keydown", (e) => {
             if (e.code === "ControlLeft" || e.code === "ControlRight") {
+                console.log(`[Tank] CTRL keydown: ${e.code} - toggling aim mode ON`);
                 this.toggleAimMode(true);
             }
         });
         window.addEventListener("keyup", (e) => {
             if (e.code === "ControlLeft" || e.code === "ControlRight") {
+                console.log(`[Tank] CTRL keyup: ${e.code} - toggling aim mode OFF`);
                 this.toggleAimMode(false);
             }
         });
@@ -2675,11 +2687,13 @@ export class TankController {
     isAiming = false;
     
     toggleAimMode(enabled: boolean) {
+        console.log(`[Tank] toggleAimMode called: enabled=${enabled}, current isAiming=${this.isAiming}`);
         if (this.isAiming === enabled) return;
         this.isAiming = enabled;
         
         // Dispatch event for camera to handle zoom
         window.dispatchEvent(new CustomEvent("aimModeChanged", { detail: { aiming: enabled } }));
+        console.log(`[Tank] aimModeChanged event dispatched: aiming=${enabled}`);
         
         if (this.hud) {
             this.hud.setAimMode(enabled);
@@ -5454,14 +5468,18 @@ export class TankController {
                 this.turretAcceleration *= 0.8; // Плавное торможение
             }
             
-            // Применяем скорость башни ТОЛЬКО при клавиатурном управлении (Z/X)
-            // Когда isKeyboardTurretControl = false, game.ts управляет башней через мышь/камеру
-            // Двойное обновление вызывает дёргание/мерцание танка при движении
-            if (this.turret && !this.turret.isDisposed() && this.isKeyboardTurretControl) {
+            // Применяем скорость башни при клавиатурном управлении (Z/X) ИЛИ автоцентрировании (C)
+            // Когда isKeyboardTurretControl = false И isAutoCentering = false, game.ts управляет башней через мышь/камеру
+            // ИСПРАВЛЕНИЕ: Добавлена проверка isAutoCentering для работы центровки башни (C key)
+            if (this.turret && !this.turret.isDisposed() && (this.isKeyboardTurretControl || this.isAutoCentering)) {
                 this.turretTurnSmooth += (this.turretTurnTarget - this.turretTurnSmooth) * this.turretLerpSpeed;
                 const rotationDelta = this.turretTurnSmooth * this.baseTurretSpeed * this.turretAcceleration;
                 if (isFinite(rotationDelta)) {
                     this.turret.rotation.y += rotationDelta;
+                    // Debug logging for centering
+                    if (this.isAutoCentering && Math.abs(rotationDelta) > 0.001) {
+                        console.log(`[Tank] Turret centering: rotation=${this.turret.rotation.y.toFixed(3)}, delta=${rotationDelta.toFixed(4)}`);
+                    }
                 }
             }
             

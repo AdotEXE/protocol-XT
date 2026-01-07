@@ -9,6 +9,32 @@ import { CHASSIS_TYPES, CANNON_TYPES } from "./tankTypes";
 // ТИПЫ И ИНТЕРФЕЙСЫ
 // ───────────────────────────────────────────────────────────────────────────
 
+// Интерфейсы для внешних зависимостей
+export interface ExperienceChatSystem {
+    success: (message: string, duration?: number) => void;
+    info?: (message: string, duration?: number) => void;
+    combat?: (message: string, duration?: number) => void;
+}
+
+export interface ExperienceHUD {
+    showMessage: (message: string, color: string, duration: number) => void;
+    showLevelUp?: (level: number, title: string) => void;
+    showExperienceGain?: (amount: number, source: string) => void;
+}
+
+export interface ExperienceEffectsManager {
+    createLevelUpEffect: (position: Vector3) => void;
+}
+
+export interface ExperienceSoundManager {
+    play: (sound: string, volume?: number) => void;
+    playSuccess?: () => void;
+}
+
+export interface ExperiencePlayerProgression {
+    addExperience: (amount: number) => void;
+}
+
 export interface PartExperience {
     id: string;
     type: "chassis" | "cannon";
@@ -155,11 +181,11 @@ export const CANNON_ACHIEVEMENTS: Achievement[] = [
 export class ExperienceSystem {
     private chassisExperience: Map<string, PartExperience> = new Map();
     private cannonExperience: Map<string, PartExperience> = new Map();
-    private chatSystem: { success: (message: string, duration?: number) => void; info?: (message: string, duration?: number) => void; combat?: (message: string, duration?: number) => void } | null = null;
-    private hud: { showMessage: (message: string, color: string, duration: number) => void; showLevelUp?: (level: number, title: string) => void; showExperienceGain?: (amount: number, source: string) => void } | null = null; // HUD для визуальных эффектов
-    private effectsManager: { createLevelUpEffect: (position: Vector3) => void } | null = null; // EffectsManager для эффектов повышения уровня
-    private soundManager: { play: (sound: string, volume?: number) => void; playSuccess?: () => void } | null = null; // SoundManager для звуков опыта
-    private playerProgression: { addExperience: (amount: number) => void } | null = null; // PlayerProgressionSystem для передачи опыта игроку
+    private chatSystem: ExperienceChatSystem | null = null;
+    private hud: ExperienceHUD | null = null;
+    private effectsManager: ExperienceEffectsManager | null = null;
+    private soundManager: ExperienceSoundManager | null = null;
+    private playerProgression: ExperiencePlayerProgression | null = null;
     // Мультипликатор XP для игрока в зависимости от сложности
     private xpDifficultyMultiplier: number = 1.0;
     

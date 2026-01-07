@@ -19,6 +19,35 @@ import { SKIN_PRESETS, saveSelectedSkin, loadSelectedSkin, getSkinById, applySki
 import { MODULE_PRESETS } from "./tank/modules";
 
 // ============ INTERFACES ============
+
+// Interfaces for external systems
+export interface GarageTankController {
+    chassis: Mesh;
+    turret: Mesh;
+    barrel: Mesh;
+    respawn: () => void;
+    setChassisType?: (id: string) => void;
+    setCannonType?: (id: string) => void;
+    setTrackType?: (id: string) => void;
+}
+
+export interface GarageSoundManager {
+    play: (sound: string, volume?: number) => void;
+    playGarageOpen?: () => void;
+}
+
+export interface GarageChatSystem {
+    success: (message: string, duration?: number) => void;
+}
+
+export interface GarageExperienceSystem {
+    addExperience: (partId: string, type: "chassis" | "cannon", amount: number) => void;
+}
+
+export interface GaragePlayerProgression {
+    addExperience: (amount: number) => void;
+}
+
 export interface TankUpgrade {
     id: string;
     name: string;
@@ -56,11 +85,11 @@ export class Garage {
     private isOpen: boolean = false;
     
     // External systems
-    private _chatSystem: { success: (message: string, duration?: number) => void } | null = null;
-    private tankController: { chassis: Mesh; turret: Mesh; barrel: Mesh; respawn: () => void; setChassisType?: (id: string) => void; setCannonType?: (id: string) => void; setTrackType?: (id: string) => void } | null = null;
-    private _experienceSystem: { addExperience: (partId: string, type: "chassis" | "cannon", amount: number) => void } | null = null;
-    private _playerProgression: { addExperience: (amount: number) => void } | null = null;
-    private soundManager: { play: (sound: string, volume?: number) => void; playGarageOpen?: () => void } | null = null;
+    private _chatSystem: GarageChatSystem | null = null;
+    private tankController: GarageTankController | null = null;
+    private _experienceSystem: GarageExperienceSystem | null = null;
+    private _playerProgression: GaragePlayerProgression | null = null;
+    private soundManager: GarageSoundManager | null = null;
     private onCloseCallback: (() => void) | null = null;
     
     // HTML Elements
@@ -4018,7 +4047,14 @@ export class Garage {
         window.addEventListener('keydown', (e) => {
             if (!this.isOpen) return;
             
-            if (e.code === 'Escape') { e.preventDefault(); this.close(); return; }
+            // Закрытие гаража: Escape, G или B
+            if (e.code === 'Escape' || e.code === 'KeyG' || e.code === 'KeyB') { 
+                e.preventDefault(); 
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                this.close(); 
+                return; 
+            }
             
             const cats: CategoryType[] = ['chassis', 'cannons', 'tracks', 'modules', 'supplies', 'shop', 'skins', 'presets'];
             for (let i = 1; i <= 8; i++) {

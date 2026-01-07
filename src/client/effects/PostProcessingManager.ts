@@ -216,7 +216,9 @@ export class PostProcessingManager {
                     1.0, // ratio
                     this.camera
                 );
-                this.motionBlur.isObjectBased = true;
+                // ИСПРАВЛЕНО: isObjectBased = false - blur только от движения камеры
+                // Это убирает размытие башни при вращении
+                this.motionBlur.isObjectBased = false;
                 
                 this.motionBlur.motionStrength = this.config.motionBlurIntensity;
                 this.motionBlur.motionBlurSamples = this.config.motionBlurSamples;
@@ -255,6 +257,67 @@ export class PostProcessingManager {
             this.config.motionBlurIntensity = intensity;
         }
         this.updateMotionBlur();
+    }
+    
+    /**
+     * Динамическое обновление интенсивности Motion Blur в зависимости от скорости танка
+     * ОПТИМИЗИРОВАНО: Motion Blur включается только при 80%+ скорости танка
+     * @param speedRatio - Соотношение текущей скорости к максимальной (0.0 - 1.0)
+     */
+    updateMotionBlurBySpeed(speedRatio: number): void {
+        // Если motion blur отключен в настройках, не делаем ничего
+        if (!this.config.motionBlurEnabled) {
+            // Удаляем blur если он существует но отключен
+            if (this.motionBlur) {
+                this.motionBlur.dispose();
+                this.motionBlur = null;
+            }
+            return;
+        }
+        
+        // Порог скорости для активации blur (80%)
+        const minSpeedThreshold = 0.80;
+        
+        if (speedRatio < minSpeedThreshold) {
+            // Ниже порога - убираем motion blur для производительности
+            if (this.motionBlur) {
+                this.motionBlur.dispose();
+                this.motionBlur = null;
+            }
+            return;
+        }
+        
+        // Выше порога - включаем/обновляем motion blur
+        // Нормализуем от 0 до 1 (80% -> 0, 100% -> 1)
+        const normalizedSpeed = (speedRatio - minSpeedThreshold) / (1 - minSpeedThreshold);
+        // Квадратичная кривая для плавного нарастания
+        const blurIntensityFactor = normalizedSpeed * normalizedSpeed;
+        
+        if (!this.motionBlur && this.camera) {
+            // Создаём motion blur при достижении порога
+            try {
+                this.motionBlur = new MotionBlurPostProcess(
+                    "motionBlur",
+                    this.scene,
+                    1.0,
+                    this.camera
+                );
+                // ИСПРАВЛЕНО: isObjectBased = false - blur только от движения камеры
+                // Это убирает размытие башни при вращении
+                this.motionBlur.isObjectBased = false;
+                this.motionBlur.motionBlurSamples = this.config.motionBlurSamples;
+            } catch (error) {
+                logger.error("[PostProcessing] Failed to create dynamic motion blur:", error);
+                return;
+            }
+        }
+        
+        // Обновляем интенсивность
+        if (this.motionBlur) {
+            // Интенсивность растёт от 0 до maxIntensity в зависимости от скорости
+            const maxIntensity = this.config.motionBlurIntensity;
+            this.motionBlur.motionStrength = maxIntensity * blurIntensityFactor;
+        }
     }
     
     /**
@@ -390,6 +453,7 @@ export class PostProcessingManager {
     
     /**
      * Добавить камеру к пайплайну (для поддержки нескольких камер, например aimCamera)
+     * ИСПРАВЛЕНО: Пересоздаём пайплайн с обеими камерами, т.к. просто push не работает
      */
     addCamera(camera: Camera): void {
         if (!this.defaultPipeline) {
@@ -397,18 +461,52 @@ export class PostProcessingManager {
             return;
         }
         
-        // Добавляем камеру к пайплайну
-        const cameras = this.defaultPipeline.cameras;
-        if (!cameras.includes(camera)) {
-            cameras.push(camera);
-            logger.log("[PostProcessing] Added camera to pipeline:", camera.name);
+        // Get current cameras and check if already added
+        const currentCameras = [...this.defaultPipeline.cameras];
+        if (currentCameras.includes(camera)) {
+            logger.log("[PostProcessing] Camera already in pipeline:", camera.name);
+            return;
         }
+        currentCameras.push(camera);
         
-        // ВАЖНО: Применяем нейтральные настройки для предотвращения затемнения
+        // Save current settings before disposing
+        const bloomEnabled = this.defaultPipeline.bloomEnabled;
+        const bloomWeight = this.defaultPipeline.bloomWeight;
+        const bloomThreshold = this.defaultPipeline.bloomThreshold;
+        const bloomScale = this.defaultPipeline.bloomScale;
+        const fxaaEnabled = this.defaultPipeline.fxaaEnabled;
+        const sharpenEnabled = this.defaultPipeline.sharpenEnabled;
+        const chromaticAberrationEnabled = this.defaultPipeline.chromaticAberrationEnabled;
+        const grainEnabled = this.defaultPipeline.grainEnabled;
+        
+        // Dispose old pipeline
+        this.defaultPipeline.dispose();
+        
+        // Recreate with all cameras
+        this.defaultPipeline = new DefaultRenderingPipeline(
+            "defaultPipeline",
+            false, // HDR отключён
+            this.scene,
+            currentCameras
+        );
+        
+        // Restore settings
+        this.defaultPipeline.bloomEnabled = bloomEnabled;
+        this.defaultPipeline.bloomWeight = bloomWeight;
+        this.defaultPipeline.bloomThreshold = bloomThreshold;
+        this.defaultPipeline.bloomScale = bloomScale;
+        this.defaultPipeline.fxaaEnabled = fxaaEnabled;
+        this.defaultPipeline.sharpenEnabled = sharpenEnabled;
+        this.defaultPipeline.chromaticAberrationEnabled = chromaticAberrationEnabled;
+        this.defaultPipeline.grainEnabled = grainEnabled;
+        
+        // Применяем нейтральные настройки
         if (this.defaultPipeline.imageProcessing) {
             this.defaultPipeline.imageProcessing.exposure = 1.0;
             this.defaultPipeline.imageProcessing.contrast = 1.0;
         }
+        
+        logger.log("[PostProcessing] Pipeline recreated with cameras:", currentCameras.map(c => c.name));
     }
     
     /**
@@ -418,8 +516,6 @@ export class PostProcessingManager {
         if (this.defaultPipeline?.imageProcessing) {
             this.defaultPipeline.imageProcessing.exposure = 1.0;
             this.defaultPipeline.imageProcessing.contrast = 1.0;
-            // Убеждаемся, что яркость не затемнена
-            this.defaultPipeline.imageProcessing.brightness = 0;
             // Отключаем виньетку если она затемняет экран
             if (this.defaultPipeline.imageProcessing.vignetteEnabled) {
                 this.defaultPipeline.imageProcessing.vignetteWeight = Math.min(0.3, this.config.vignetteWeight);

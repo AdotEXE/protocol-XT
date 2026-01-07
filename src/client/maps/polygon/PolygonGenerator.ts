@@ -8,7 +8,7 @@
  * - Боевая зона (combat) - укрытия для тренировки
  * - Военная база (base) - ангары и здания
  * 
- * Размер арены: 600x600 единиц
+ * Размер арены: определяется в MapConstants.ts (по умолчанию 1000x1000)
  * 
  * @example
  * ```typescript
@@ -29,6 +29,7 @@ import { PhysicsAggregate } from "@babylonjs/core/Physics/v2/physicsAggregate";
 import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import { BaseMapGenerator } from "../shared/BaseMapGenerator";
 import { ChunkGenerationContext } from "../shared/MapGenerator";
+import { MAP_SIZES } from "../MapConstants";
 
 /**
  * Тип зоны полигона
@@ -51,18 +52,19 @@ export interface PolygonConfig {
 
 /**
  * Конфигурация по умолчанию
+ * Использует централизованные константы из MapConstants.ts
  */
 export const DEFAULT_POLYGON_CONFIG: PolygonConfig = {
-    arenaSize: 1000,  // Ограничено для тестов
+    arenaSize: MAP_SIZES.polygon?.size ?? 1000,  // Из централизованных констант
     fenceHeight: 3,
     obstacleDensity: 0.7,
     targetDensity: 0.8
 };
 
 /**
- * Высота стен периметра
+ * Высота стен периметра - из централизованных констант
  */
-const POLYGON_WALL_HEIGHT = 6;
+const POLYGON_WALL_HEIGHT = MAP_SIZES.polygon?.wallHeight ?? 6;
 
 /**
  * Генератор карты "Полигон"

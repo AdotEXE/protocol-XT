@@ -318,6 +318,7 @@ export class AICoordinator {
         
         for (let i = 0; i < bots.length; i++) {
             const bot = bots[i];
+            if (!bot) continue;
             const angle = angleStep * i;
             
             // Вычисляем позицию окружения

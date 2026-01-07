@@ -214,6 +214,30 @@ function getSelect(id: string, def: string): string {
 }
 
 /**
+ * Получает выбранный язык из кнопок
+ */
+function getLanguageFromButtons(def: string): string {
+    const ruBtn = document.getElementById("lang-ru");
+    const enBtn = document.getElementById("lang-en");
+    if (ruBtn?.classList.contains("active")) return "ru";
+    if (enBtn?.classList.contains("active")) return "en";
+    return def;
+}
+
+/**
+ * Получает выбранную сложность из кнопок
+ */
+function getDifficultyFromButtons(def: "easy" | "medium" | "hard"): "easy" | "medium" | "hard" {
+    const easyBtn = document.getElementById("diff-easy");
+    const mediumBtn = document.getElementById("diff-medium");
+    const hardBtn = document.getElementById("diff-hard");
+    if (easyBtn?.classList.contains("active")) return "easy";
+    if (mediumBtn?.classList.contains("active")) return "medium";
+    if (hardBtn?.classList.contains("active")) return "hard";
+    return def;
+}
+
+/**
  * Сохраняет настройки из UI элементов формы
  */
 export function saveSettingsFromUI(): GameSettings {
@@ -242,8 +266,8 @@ export function saveSettingsFromUI(): GameSettings {
         showDamageNumbers: getBool("set-damage-numbers", true),
         screenShake: getBool("set-screen-shake", true),
         virtualTurretFixation: getBool("set-virtual-fixation", false),
-        language: getSelect("set-language", "ru"),
-        enemyDifficulty: getSelect("set-difficulty", "medium") as "easy" | "medium" | "hard",
+        language: getLanguageFromButtons("ru"),
+        enemyDifficulty: getDifficultyFromButtons("medium"),
         worldSeed: worldSeed,
         useRandomSeed: useRandomSeed,
         

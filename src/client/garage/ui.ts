@@ -807,8 +807,11 @@ export function setupGarageKeyboardNavigation(
             return;
         }
         
-        if (e.code === 'Escape') {
+        // Закрытие гаража: Escape, G или B
+        if (e.code === 'Escape' || e.code === 'KeyG' || e.code === 'KeyB') {
             e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
             callbacks.onEscape();
             return;
         }

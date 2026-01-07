@@ -134,7 +134,11 @@ export class MonitoringAPI {
             tdm: 0,
             coop: 0,
             battle_royale: 0,
-            ctf: 0
+            ctf: 0,
+            survival: 0,
+            control_point: 0,
+            escort: 0,
+            raid: 0
         };
         rooms.forEach(room => {
             roomsByMode[room.mode] = (roomsByMode[room.mode] || 0) + 1;
@@ -147,7 +151,11 @@ export class MonitoringAPI {
             tdm: 0,
             coop: 0,
             battle_royale: 0,
-            ctf: 0
+            ctf: 0,
+            survival: 0,
+            control_point: 0,
+            escort: 0,
+            raid: 0
         };
         let totalInQueue = 0;
         

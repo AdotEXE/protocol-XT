@@ -993,14 +993,11 @@ export class HUD {
     // Обновление эффектов свечения
     private updateGlowEffects() {
         // ОПТИМИЗАЦИЯ: Обычный for вместо forEach
-        const glowEntries = Array.from(this.glowElements.values());
-        for (let i = 0; i < glowEntries.length; i++) {
-            const glow = glowEntries[i];
-            if (!glow) continue;
+        this.glowElements.forEach((glow) => {
             const pulse = (Math.sin(this.animationTime * 2) + 1) / 2; // 0-1
             const color = this.interpolateColor(glow.baseColor, glow.glowColor, pulse * 0.5);
             glow.element.color = color;
-        }
+        });
     }
     
     // Интерполяция цвета
@@ -6023,9 +6020,15 @@ export class HUD {
     }
     
     toggleFullMap(): void {
+        // ИСПРАВЛЕНИЕ: Создаём карту если она ещё не создана
+        if (!this.fullMapContainer) {
+            console.log("[HUD] Creating fullMap container on first toggle");
+            this.createFullMap();
+        }
         this.fullMapVisible = !this.fullMapVisible;
         if (this.fullMapContainer) {
             this.fullMapContainer.isVisible = this.fullMapVisible;
+            console.log(`[HUD] Full map visibility: ${this.fullMapVisible}`);
         }
     }
     
@@ -8108,38 +8111,58 @@ export class HUD {
     // === MISSION PANEL ===
     
     private createMissionPanel(): void {
-        // Mission panel (top right, below compass)
-        this.missionPanel = new Rectangle("missionPanel");
-        this.missionPanel.width = "280px";
-        this.missionPanel.height = "220px";
-        this.missionPanel.cornerRadius = 5;
-        this.missionPanel.thickness = 2;
-        this.missionPanel.color = "#0f0";
-        this.missionPanel.background = "rgba(0, 10, 0, 0.85)";
-        this.missionPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        this.missionPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.missionPanel.left = "-10px";
-        this.missionPanel.top = "100px";
-        this.missionPanel.isVisible = false;
-        this.guiTexture.addControl(this.missionPanel);
-        
-        // Title
-        const title = new TextBlock("missionTitle");
-        title.text = "📋 МИССИИ [N]";
-        title.color = "#0ff";
-        title.fontSize = "13px";
-        title.fontWeight = "bold";
-        title.fontFamily = "Consolas, monospace";
-        title.top = "8px";
-        title.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.missionPanel.addControl(title);
+        console.log("[HUD] createMissionPanel() called");
+        try {
+            // Mission panel (top right, below compass)
+            this.missionPanel = new Rectangle("missionPanel");
+            this.missionPanel.width = "280px";
+            this.missionPanel.height = "220px";
+            this.missionPanel.cornerRadius = 5;
+            this.missionPanel.thickness = 2;
+            this.missionPanel.color = "#0f0";
+            this.missionPanel.background = "rgba(0, 10, 0, 0.85)";
+            this.missionPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            this.missionPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            this.missionPanel.left = "-10px";
+            this.missionPanel.top = "100px";
+            this.missionPanel.isVisible = false;
+            this.missionPanel.zIndex = 200; // High z-index to be above other elements
+            this.guiTexture.addControl(this.missionPanel);
+            
+            // Title
+            const title = new TextBlock("missionTitle");
+            title.text = "📋 МИССИИ [J]";
+            title.color = "#0ff";
+            title.fontSize = "13px";
+            title.fontWeight = "bold";
+            title.fontFamily = "Consolas, monospace";
+            title.top = "8px";
+            title.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            this.missionPanel.addControl(title);
+            
+            console.log("[HUD] Mission panel created successfully");
+        } catch (error) {
+            console.error("[HUD] ERROR creating mission panel:", error);
+        }
     }
     
-    toggleMissionPanel(): void {
+    public toggleMissionPanel(): void {
+        console.log("[HUD] toggleMissionPanel() called");
+        
+        // ИСПРАВЛЕНИЕ: Создаём панель миссий если она ещё не создана
+        if (!this.missionPanel) {
+            console.log("[HUD] Creating mission panel on first toggle");
+            this.createMissionPanel();
+        }
+        
         if (this.missionPanel) {
             this.missionPanelVisible = !this.missionPanelVisible;
             this.missionPanel.isVisible = this.missionPanelVisible;
+            this.missionPanel.zIndex = 200; // Ensure high z-index
+            console.log(`[HUD] Mission panel visibility: ${this.missionPanelVisible}, zIndex: ${this.missionPanel.zIndex}`);
             // Если панель открывается, обновление списка миссий выполняется из game.ts (update)
+        } else {
+            console.error("[HUD] ERROR: missionPanel is null after creation attempt!");
         }
     }
     

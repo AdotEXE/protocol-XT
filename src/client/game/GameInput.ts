@@ -212,6 +212,16 @@ export class GameInput {
             return true;
         }
         
+        // Закрытие UI гаража клавишей G
+        if ((e.code === "KeyG" || e.key === "g" || e.key === "G") && 
+            this.garage && this.garage.isGarageOpen()) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            this.garage.close();
+            return true;
+        }
+        
         // Ручное управление воротами гаража клавишей G
         if ((e.code === "KeyG" || e.key === "g" || e.key === "G") && 
             this.gameStarted && 

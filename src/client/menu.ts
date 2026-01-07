@@ -71,7 +71,8 @@ const debugError = (...args: any[]) => {
 // Импорт функций настроек
 import { 
     loadSettings as loadSettingsModule, 
-    saveSettingsFromUI as saveSettingsFromUIModule, 
+    saveSettingsFromUI as saveSettingsFromUIModule,
+    saveSettings as saveSettingsModule,
     DEFAULT_SETTINGS, 
     type GameSettings 
 } from "./menu/settings";
@@ -4305,8 +4306,10 @@ export class MainMenu {
         });
         
         document.getElementById("settings-reset")?.addEventListener("click", () => {
+            // ИСПРАВЛЕНО: Сбрасываем настройки к значениям по умолчанию и сохраняем их напрямую
             this.settings = { ...DEFAULT_SETTINGS };
-            this.saveSettingsFromUI();
+            saveSettingsModule(this.settings); // Сохраняем DEFAULT_SETTINGS напрямую
+            window.dispatchEvent(new CustomEvent("settingsChanged", { detail: this.settings }));
             location.reload();
         });
         
