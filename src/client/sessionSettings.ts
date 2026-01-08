@@ -78,14 +78,20 @@ export class SessionSettings {
     private game: Game | null = null;
     private worldManager: WorldManager | null = null;
     private waveEditor: WaveEditor | null = null;
+    private embedded: boolean = false;
     
-    constructor() {
+    constructor(embedded: boolean = false) {
         this.settings = this.getDefaultSettings();
-        this.createUI();
-        this.setupToggle();
-        this.visible = false;
-        this.container.classList.add("hidden");
-        this.container.style.display = "none";
+        this.embedded = embedded;
+        
+        // Не создаём overlay UI если панель будет встроена в другое меню
+        if (!embedded) {
+            this.createUI();
+            this.setupToggle();
+            this.visible = false;
+            this.container.classList.add("hidden");
+            this.container.style.display = "none";
+        }
     }
     
     setGame(game: Game | null): void {
@@ -509,6 +515,13 @@ export class SessionSettings {
         this.visible = true;
         this.container.classList.remove("hidden");
         this.container.style.display = "flex";
+        
+        // Показываем курсор и выходим из pointer lock
+        if (document.pointerLockElement) {
+            document.exitPointerLock();
+        }
+        document.body.style.cursor = 'default';
+        
         this.updateUI();
     }
     

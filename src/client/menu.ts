@@ -365,7 +365,7 @@ const DEFAULT_TANK: TankConfig = {
     firepower: 2
 };
 
-export type MapType = "normal" | "sandbox" | "sand" | "polygon" | "frontline" | "ruins" | "canyon" | "industrial" | "urban_warfare" | "underground" | "coastal" | "tartaria";
+export type MapType = "normal" | "sandbox" | "sand" | "madness" | "expo" | "brest" | "arena" | "polygon" | "frontline" | "ruins" | "canyon" | "industrial" | "urban_warfare" | "underground" | "coastal" | "tartaria";
 
 export class MainMenu {
     private container!: HTMLDivElement;
@@ -1759,6 +1759,132 @@ export class MainMenu {
                 flex-direction: column;
             }
             
+            /* Панель выбора карт - расширенная для сетки */
+            #map-selection-panel .panel-content {
+                max-width: min(95vw, 1050px);
+                width: min(95vw, 1050px);
+                max-height: min(95vh, 850px);
+            }
+            
+            /* Сетка карт */
+            .map-grid {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 12px;
+                margin-top: 20px;
+            }
+            
+            /* Карточка карты */
+            .map-card {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: flex-start;
+                padding: 15px 10px;
+                background: rgba(0, 20, 0, 0.4);
+                border: 2px solid rgba(0, 255, 80, 0.3);
+                border-radius: 8px;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                min-height: 140px;
+                text-align: center;
+            }
+            
+            .map-card:hover {
+                background: rgba(0, 40, 0, 0.6);
+                border-color: #0f0;
+                box-shadow: 0 0 15px rgba(0, 255, 80, 0.4);
+                transform: translateY(-2px);
+            }
+            
+            .map-card.recommended {
+                border-color: #0f0;
+                background: rgba(0, 40, 0, 0.5);
+                box-shadow: 0 0 10px rgba(0, 255, 80, 0.2);
+            }
+            
+            .map-card.recommended::before {
+                content: "★";
+                position: absolute;
+                top: 5px;
+                right: 8px;
+                color: #0f0;
+                font-size: 12px;
+            }
+            
+            .map-card {
+                position: relative;
+            }
+            
+            .map-card-icon {
+                font-size: 32px;
+                margin-bottom: 8px;
+                filter: drop-shadow(0 0 4px rgba(0, 255, 80, 0.5));
+            }
+            
+            .map-card-name {
+                font-family: 'Press Start 2P', monospace;
+                font-size: 10px;
+                color: #0f0;
+                margin-bottom: 6px;
+                line-height: 1.3;
+            }
+            
+            .map-card-desc {
+                font-size: 8px;
+                color: rgba(0, 255, 80, 0.7);
+                line-height: 1.4;
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            
+            .map-card-new {
+                position: absolute;
+                top: 5px;
+                left: 5px;
+                background: #f00;
+                color: #fff;
+                font-size: 7px;
+                padding: 2px 5px;
+                border-radius: 3px;
+                font-family: 'Press Start 2P', monospace;
+                animation: pulse-new 1.5s ease-in-out infinite;
+            }
+            
+            @keyframes pulse-new {
+                0%, 100% { opacity: 1; transform: scale(1); }
+                50% { opacity: 0.8; transform: scale(1.05); }
+            }
+            
+            /* Адаптивность сетки карт */
+            @media (max-width: 900px) {
+                .map-grid {
+                    grid-template-columns: repeat(3, 1fr);
+                }
+            }
+            
+            @media (max-width: 650px) {
+                .map-grid {
+                    grid-template-columns: repeat(2, 1fr);
+                }
+                
+                .map-card {
+                    min-height: 120px;
+                    padding: 12px 8px;
+                }
+                
+                .map-card-icon {
+                    font-size: 28px;
+                }
+                
+                .map-card-name {
+                    font-size: 9px;
+                }
+            }
+            
             /* Заголовок TX */
             .skills-main-title {
                 font-size: 48px;
@@ -1937,6 +2063,78 @@ export class MainMenu {
 
             .play-window.visible {
                 display: flex !important;
+            }
+
+            /* Широкое окно для сетки карт */
+            .play-window.play-window-wide {
+                width: min(95vw, 950px) !important;
+                left: 50% !important;
+                right: auto !important;
+                transform: translateX(-50%) !important;
+            }
+            
+            /* Компактные карточки в play-window (без описаний) */
+            .play-window .map-grid {
+                margin-top: 15px;
+                display: grid !important;
+                grid-template-columns: repeat(4, 1fr) !important;
+                gap: 10px;
+            }
+            
+            .play-window .map-card {
+                min-height: 80px;
+                padding: 10px 6px;
+            }
+            
+            .play-window .map-card-icon {
+                font-size: 24px;
+                margin-bottom: 4px;
+            }
+            
+            .play-window .map-card-name {
+                font-size: 8px;
+                line-height: 1.2;
+            }
+            
+            /* Адаптивность для play-window */
+            @media (max-width: 800px) {
+                .play-window .map-grid {
+                    grid-template-columns: repeat(3, 1fr) !important;
+                }
+            }
+            
+            @media (max-width: 600px) {
+                .play-window .map-grid {
+                    grid-template-columns: repeat(2, 1fr) !important;
+                }
+            }
+            
+            /* Сетка режимов игры */
+            .gamemode-grid {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 10px;
+            }
+            
+            .gamemode-btn {
+                padding: 15px 10px !important;
+                text-align: center;
+            }
+            
+            .gamemode-btn .btn-icon {
+                display: block;
+                font-size: 24px;
+                margin-bottom: 5px;
+            }
+            
+            .gamemode-btn .btn-label {
+                font-size: 10px;
+            }
+            
+            @media (max-width: 600px) {
+                .gamemode-grid {
+                    grid-template-columns: repeat(2, 1fr);
+                }
             }
 
             .play-window-header {
@@ -2436,7 +2634,7 @@ export class MainMenu {
             .skill-zoom-controls {
                 position: absolute;
                 top: 10px;
-                right: 10px;
+                left: 10px;
                 display: flex;
                 align-items: center;
                 gap: 6px;
@@ -4013,6 +4211,10 @@ export class MainMenu {
                             <input type="checkbox" class="setting-checkbox" id="set-show-ammo-counter" ${this.settings.showAmmoCounter ? 'checked' : ''}>
                         </div>
                         <div class="setting-row">
+                            <span class="setting-label">Панель характеристик танка</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-show-tank-stats-panel" ${this.settings.showTankStatsPanel ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
                             <span class="setting-label">Автосохранение</span>
                             <input type="checkbox" class="setting-checkbox" id="set-auto-save" ${this.settings.autoSave ? 'checked' : ''}>
                         </div>
@@ -4754,119 +4956,88 @@ export class MainMenu {
                 <button class="panel-close" id="map-selection-close">✕</button>
                 <div class="panel-title">${L.mapSelection}</div>
                 
-                <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 20px; max-height: 70vh; overflow-y: auto; padding-right: 10px; scrollbar-width: thin;">
-                    <button class="menu-btn play-btn" id="btn-map-normal" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <span class="btn-icon">🗺</span>
-                            <span class="btn-label">${L.normalMap}</span>
-                        </div>
-                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.normalMapDesc}</div>
-                    </button>
-                    <button class="menu-btn secondary" id="btn-map-sandbox" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <span class="btn-icon">🏖</span>
-                            <span class="btn-label">${L.sandboxMap}</span>
-                        </div>
-                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.sandboxMapDesc}</div>
-                    </button>
-                    <button class="menu-btn" id="btn-map-sand" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <span class="btn-icon">🏜</span>
-                            <span class="btn-label">${L.sandMap}</span>
-                        </div>
-                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.sandMapDesc}</div>
-                    </button>
-                    <button class="menu-btn" id="btn-map-madness" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <span class="btn-icon">🌉</span>
-                            <span class="btn-label">${L.madnessMap}</span>
-                        </div>
-                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.madnessMapDesc}</div>
-                    </button>
-                    <button class="menu-btn" id="btn-map-expo" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <span class="btn-icon">🏆</span>
-                            <span class="btn-label">${L.expoMap}</span>
-                        </div>
-                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.expoMapDesc}</div>
-                    </button>
-                    <button class="menu-btn" id="btn-map-brest" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <span class="btn-icon">🏰</span>
-                            <span class="btn-label">${L.brestMap}</span>
-                        </div>
-                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.brestMapDesc}</div>
-                    </button>
-                    <button class="menu-btn" id="btn-map-arena" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <span class="btn-icon">⚔️</span>
-                            <span class="btn-label">${L.arenaMap}</span>
-                        </div>
-                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.arenaMapDesc}</div>
-                    </button>
-                    <button class="menu-btn" id="btn-map-polygon" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <span class="btn-icon">🎯</span>
-                            <span class="btn-label">${L.polygonMap}</span>
-                        </div>
-                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.polygonMapDesc}</div>
-                    </button>
-                    <button class="menu-btn" id="btn-map-frontline" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <span class="btn-icon">⚔️</span>
-                            <span class="btn-label">${L.frontlineMap}</span>
-                        </div>
-                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.frontlineMapDesc}</div>
-                    </button>
-                    <button class="menu-btn" id="btn-map-ruins" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <span class="btn-icon">🏚</span>
-                            <span class="btn-label">${L.ruinsMap}</span>
-                        </div>
-                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.ruinsMapDesc}</div>
-                    </button>
-                    <button class="menu-btn" id="btn-map-canyon" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <span class="btn-icon">⛰</span>
-                            <span class="btn-label">${L.canyonMap}</span>
-                        </div>
-                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.canyonMapDesc}</div>
-                    </button>
-                    <button class="menu-btn" id="btn-map-industrial" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <span class="btn-icon">🏭</span>
-                            <span class="btn-label">${L.industrialMap}</span>
-                        </div>
-                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.industrialMapDesc}</div>
-                    </button>
-                    <button class="menu-btn" id="btn-map-urban_warfare" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <span class="btn-icon">🏙</span>
-                            <span class="btn-label">${L.urbanWarfareMap}</span>
-                        </div>
-                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.urbanWarfareMapDesc}</div>
-                    </button>
-                    <button class="menu-btn" id="btn-map-underground" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <span class="btn-icon">🕳</span>
-                            <span class="btn-label">${L.undergroundMap}</span>
-                        </div>
-                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.undergroundMapDesc}</div>
-                    </button>
-                    <button class="menu-btn" id="btn-map-coastal" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <span class="btn-icon">🌊</span>
-                            <span class="btn-label">${L.coastalMap}</span>
-                        </div>
-                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.coastalMapDesc}</div>
-                    </button>
-                    <button class="menu-btn" id="btn-map-tartaria" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <span class="btn-icon">🏛</span>
-                            <span class="btn-label">${L.tartariaMap}</span>
-                        </div>
-                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.tartariaMapDesc}</div>
-                    </button>
+                <div class="map-grid">
+                    <div class="map-card recommended" id="btn-map-normal">
+                        <span class="map-card-icon">🗺</span>
+                        <span class="map-card-name">${L.normalMap}</span>
+                        <span class="map-card-desc">${L.normalMapDesc}</span>
+                    </div>
+                    <div class="map-card" id="btn-map-sandbox">
+                        <span class="map-card-icon">🏖</span>
+                        <span class="map-card-name">${L.sandboxMap}</span>
+                        <span class="map-card-desc">${L.sandboxMapDesc}</span>
+                    </div>
+                    <div class="map-card" id="btn-map-sand">
+                        <span class="map-card-icon">🏜</span>
+                        <span class="map-card-name">${L.sandMap}</span>
+                        <span class="map-card-desc">${L.sandMapDesc}</span>
+                    </div>
+                    <div class="map-card" id="btn-map-madness">
+                        <span class="map-card-icon">🌉</span>
+                        <span class="map-card-name">${L.madnessMap}</span>
+                        <span class="map-card-desc">${L.madnessMapDesc}</span>
+                    </div>
+                    <div class="map-card" id="btn-map-expo">
+                        <span class="map-card-icon">🏆</span>
+                        <span class="map-card-name">${L.expoMap}</span>
+                        <span class="map-card-desc">${L.expoMapDesc}</span>
+                    </div>
+                    <div class="map-card" id="btn-map-brest">
+                        <span class="map-card-icon">🏰</span>
+                        <span class="map-card-name">${L.brestMap}</span>
+                        <span class="map-card-desc">${L.brestMapDesc}</span>
+                    </div>
+                    <div class="map-card" id="btn-map-arena">
+                        <span class="map-card-icon">⚔️</span>
+                        <span class="map-card-name">${L.arenaMap}</span>
+                        <span class="map-card-desc">${L.arenaMapDesc}</span>
+                    </div>
+                    <div class="map-card" id="btn-map-polygon">
+                        <span class="map-card-icon">🎯</span>
+                        <span class="map-card-name">${L.polygonMap}</span>
+                        <span class="map-card-desc">${L.polygonMapDesc}</span>
+                    </div>
+                    <div class="map-card" id="btn-map-frontline">
+                        <span class="map-card-icon">💥</span>
+                        <span class="map-card-name">${L.frontlineMap}</span>
+                        <span class="map-card-desc">${L.frontlineMapDesc}</span>
+                    </div>
+                    <div class="map-card" id="btn-map-ruins">
+                        <span class="map-card-icon">🏚</span>
+                        <span class="map-card-name">${L.ruinsMap}</span>
+                        <span class="map-card-desc">${L.ruinsMapDesc}</span>
+                    </div>
+                    <div class="map-card" id="btn-map-canyon">
+                        <span class="map-card-icon">⛰</span>
+                        <span class="map-card-name">${L.canyonMap}</span>
+                        <span class="map-card-desc">${L.canyonMapDesc}</span>
+                    </div>
+                    <div class="map-card" id="btn-map-industrial">
+                        <span class="map-card-icon">🏭</span>
+                        <span class="map-card-name">${L.industrialMap}</span>
+                        <span class="map-card-desc">${L.industrialMapDesc}</span>
+                    </div>
+                    <div class="map-card" id="btn-map-urban_warfare">
+                        <span class="map-card-icon">🏙</span>
+                        <span class="map-card-name">${L.urbanWarfareMap}</span>
+                        <span class="map-card-desc">${L.urbanWarfareMapDesc}</span>
+                    </div>
+                    <div class="map-card" id="btn-map-underground">
+                        <span class="map-card-icon">🕳</span>
+                        <span class="map-card-name">${L.undergroundMap}</span>
+                        <span class="map-card-desc">${L.undergroundMapDesc}</span>
+                    </div>
+                    <div class="map-card" id="btn-map-coastal">
+                        <span class="map-card-icon">🌊</span>
+                        <span class="map-card-name">${L.coastalMap}</span>
+                        <span class="map-card-desc">${L.coastalMapDesc}</span>
+                    </div>
+                    <div class="map-card" id="btn-map-tartaria">
+                        <span class="map-card-new">NEW</span>
+                        <span class="map-card-icon">🏛</span>
+                        <span class="map-card-name">${L.tartariaMap}</span>
+                        <span class="map-card-desc">${L.tartariaMapDesc}</span>
+                    </div>
                 </div>
                 
                 <div class="panel-buttons" style="margin-top: 20px;">
@@ -4929,59 +5100,72 @@ export class MainMenu {
                 <div class="panel-content" style="position: relative; min-height: 100vh; height: 100%;">
                 <div class="panel-title">${L.play || "ИГРАТЬ"}</div>
                 
-                <!-- 1. Выбор режима игры -->
+                <!-- 1. Выбор типа игры (Одиночная / Мультиплеер) -->
                 <div class="play-window" id="play-window-mode" data-order="0" data-step="0" style="display: none;">
                     <div class="play-window-header">
-                        <div class="play-window-title">/[user_id]/mode</div>
+                        <div class="play-window-title">/[user_id]/type</div>
                         <div class="window-actions">
-                            <button class="window-btn" data-nav="back" data-step="0">⟵</button>
-                            <button class="window-btn" data-nav="forward" data-step="0">⟶</button>
                             <button class="window-btn" data-nav="close" data-step="0">✕</button>
                         </div>
                     </div>
-                    <div class="section-title">1. Выбор режима игры</div>
-                    <div class="mode-buttons" style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px;">
-                        <button class="menu-btn play-btn" id="btn-mode-single" data-mode="single">
-                            <span class="btn-icon">🎮</span>
-                            <span class="btn-label">Одиночная игра</span>
+                    <div class="section-title">1. Выбор типа игры</div>
+                    <div class="mode-buttons" style="display: flex; flex-direction: column; gap: 15px; margin-top: 20px;">
+                        <button class="menu-btn play-btn game-type-btn" id="btn-type-single" data-type="single" style="padding: 25px 20px;">
+                            <span class="btn-icon" style="font-size: 32px;">🎮</span>
+                            <span class="btn-label" style="font-size: 16px;">ОДИНОЧНАЯ ИГРА</span>
                         </button>
-                        <button class="menu-btn play-btn" id="btn-mode-multiplayer" data-mode="multiplayer" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                            <span class="btn-icon">🌐</span>
-                            <span class="btn-label">МУЛЬТИПЛЕЕР</span>
+                        <button class="menu-btn play-btn game-type-btn" id="btn-type-multiplayer" data-type="multiplayer" style="padding: 25px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                            <span class="btn-icon" style="font-size: 32px;">🌐</span>
+                            <span class="btn-label" style="font-size: 16px;">МУЛЬТИПЛЕЕР</span>
                         </button>
-                        <button class="menu-btn secondary" id="btn-mode-ffa" data-mode="ffa">
+                    </div>
+                </div>
+                
+                <!-- 2. Выбор режима игры -->
+                <div class="play-window" id="play-window-gamemode" data-order="1" data-step="1" style="display: none;">
+                    <div class="play-window-header">
+                        <div class="play-window-title">/[user_id]/single/mode</div>
+                        <div class="window-actions">
+                            <button class="window-btn" data-nav="back" data-step="1">⟵</button>
+                            <button class="window-btn" data-nav="forward" data-step="1">⟶</button>
+                            <button class="window-btn" data-nav="close" data-step="1">✕</button>
+                        </div>
+                    </div>
+                    <div class="section-title">2. Выбор режима игры</div>
+                    <div class="gamemode-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 15px;">
+                        <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-ffa" data-gamemode="ffa">
                             <span class="btn-icon">⚔️</span>
                             <span class="btn-label">Free-for-All</span>
                         </button>
-                        <button class="menu-btn secondary" id="btn-mode-tdm" data-mode="tdm">
+                        <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-tdm" data-gamemode="tdm">
                             <span class="btn-icon">👥</span>
                             <span class="btn-label">Team Deathmatch</span>
                         </button>
-                        <button class="menu-btn secondary" id="btn-mode-coop" data-mode="coop">
+                        <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-coop" data-gamemode="coop">
                             <span class="btn-icon">🤝</span>
                             <span class="btn-label">Co-op PvE</span>
                         </button>
-                        <button class="menu-btn secondary" id="btn-mode-br" data-mode="battle_royale">
+                        <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-br" data-gamemode="battle_royale">
                             <span class="btn-icon">👑</span>
                             <span class="btn-label">Battle Royale</span>
                         </button>
-                        <button class="menu-btn secondary" id="btn-mode-ctf" data-mode="ctf">
+                        <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-ctf" data-gamemode="ctf">
                             <span class="btn-icon">🚩</span>
                             <span class="btn-label">Capture the Flag</span>
                         </button>
-                        <button class="menu-btn secondary" id="btn-mode-control-point" data-mode="control_point">
+                        <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-control-point" data-gamemode="control_point">
                             <span class="btn-icon">📍</span>
                             <span class="btn-label">Control Point</span>
                         </button>
-                        <button class="menu-btn secondary" id="btn-mode-escort" data-mode="escort">
+                        <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-escort" data-gamemode="escort">
                             <span class="btn-icon">🚛</span>
                             <span class="btn-label">Escort</span>
                         </button>
-                        <button class="menu-btn secondary" id="btn-mode-survival" data-mode="survival">
+                        <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-survival" data-gamemode="survival">
                             <span class="btn-icon">⚔️</span>
                             <span class="btn-label">Survival</span>
                         </button>
-                        <button class="menu-btn secondary" id="btn-mode-raid" data-mode="raid">
+                        <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-raid" data-gamemode="raid">
                             <span class="btn-icon">👹</span>
                             <span class="btn-label">Raid</span>
                         </button>
@@ -5518,93 +5702,94 @@ export class MainMenu {
                     </style>
                 </div>
                 
-                <!-- 2. Выбор карты -->
-                <div class="play-window" id="play-window-map" data-order="1" data-step="1">
+                <!-- 3. Выбор карты -->
+                <div class="play-window play-window-wide" id="play-window-map" data-order="2" data-step="2">
                     <div class="play-window-header">
-                        <div class="play-window-title">/[user_id]/mode/map</div>
-                        <div class="window-actions">
-                            <button class="window-btn" data-nav="back" data-step="1">⟵</button>
-                            <button class="window-btn" data-nav="forward" data-step="1">⟶</button>
-                            <button class="window-btn" data-nav="close" data-step="1">✕</button>
-                        </div>
-                    </div>
-                    <div class="section-title">2. Выбор карты</div>
-                    <div class="map-buttons" style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px;">
-                        <button class="menu-btn play-btn" id="play-btn-map-normal" data-map="normal">
-                            <span class="btn-icon">🗺</span>
-                            <span class="btn-label">${L.normalMap}</span>
-                        </button>
-                        <button class="menu-btn secondary" id="play-btn-map-sandbox" data-map="sandbox">
-                            <span class="btn-icon">🏖</span>
-                            <span class="btn-label">${L.sandboxMap}</span>
-                        </button>
-                        <button class="menu-btn" id="play-btn-map-sand" data-map="sand">
-                            <span class="btn-icon">🏜</span>
-                            <span class="btn-label">${L.sandMap}</span>
-                        </button>
-                        <button class="menu-btn" id="play-btn-map-madness" data-map="madness">
-                            <span class="btn-icon">🌉</span>
-                            <span class="btn-label">${L.madnessMap}</span>
-                        </button>
-                        <button class="menu-btn" id="play-btn-map-expo" data-map="expo">
-                            <span class="btn-icon">🏆</span>
-                            <span class="btn-label">${L.expoMap}</span>
-                        </button>
-                        <button class="menu-btn" id="play-btn-map-brest" data-map="brest">
-                            <span class="btn-icon">🏰</span>
-                            <span class="btn-label">${L.brestMap}</span>
-                        </button>
-                        <button class="menu-btn" id="play-btn-map-arena" data-map="arena">
-                            <span class="btn-icon">⚔️</span>
-                            <span class="btn-label">${L.arenaMap}</span>
-                        </button>
-                        <button class="menu-btn" id="play-btn-map-polygon" data-map="polygon">
-                            <span class="btn-icon">🎯</span>
-                            <span class="btn-label">${L.polygonMap}</span>
-                        </button>
-                        <button class="menu-btn" id="play-btn-map-frontline" data-map="frontline">
-                            <span class="btn-icon">⚔️</span>
-                            <span class="btn-label">${L.frontlineMap}</span>
-                        </button>
-                        <button class="menu-btn" id="play-btn-map-ruins" data-map="ruins">
-                            <span class="btn-icon">🏚</span>
-                            <span class="btn-label">${L.ruinsMap}</span>
-                        </button>
-                        <button class="menu-btn" id="play-btn-map-canyon" data-map="canyon">
-                            <span class="btn-icon">⛰</span>
-                            <span class="btn-label">${L.canyonMap}</span>
-                        </button>
-                        <button class="menu-btn" id="play-btn-map-industrial" data-map="industrial">
-                            <span class="btn-icon">🏭</span>
-                            <span class="btn-label">${L.industrialMap}</span>
-                        </button>
-                        <button class="menu-btn" id="play-btn-map-urban_warfare" data-map="urban_warfare">
-                            <span class="btn-icon">🏙</span>
-                            <span class="btn-label">${L.urbanWarfareMap}</span>
-                        </button>
-                        <button class="menu-btn" id="play-btn-map-underground" data-map="underground">
-                            <span class="btn-icon">🕳</span>
-                            <span class="btn-label">${L.undergroundMap}</span>
-                        </button>
-                        <button class="menu-btn" id="play-btn-map-coastal" data-map="coastal">
-                            <span class="btn-icon">🌊</span>
-                            <span class="btn-label">${L.coastalMap}</span>
-                        </button>
-                        <button class="menu-btn" id="play-btn-map-tartaria" data-map="tartaria">
-                            <span class="btn-icon">🏛</span>
-                            <span class="btn-label">${L.tartariaMap}</span>
-                        </button>
-                    </div>
-                </div>
-                
-                <!-- 3. Выбор танка -->
-                <div class="play-window" id="play-window-tank" data-order="2" data-step="2">
-                    <div class="play-window-header">
-                        <div class="play-window-title">/[user_id]/mode/map/preset</div>
+                        <div class="play-window-title">/[user_id]/single/mode/map</div>
                         <div class="window-actions">
                             <button class="window-btn" data-nav="back" data-step="2">⟵</button>
                             <button class="window-btn" data-nav="forward" data-step="2">⟶</button>
                             <button class="window-btn" data-nav="close" data-step="2">✕</button>
+                        </div>
+                    </div>
+                    <div class="section-title">3. Выбор карты</div>
+                    <div class="map-grid">
+                        <div class="map-card recommended" id="play-btn-map-normal" data-map="normal">
+                            <span class="map-card-icon">🗺</span>
+                            <span class="map-card-name">${L.normalMap}</span>
+                        </div>
+                        <div class="map-card" id="play-btn-map-sandbox" data-map="sandbox">
+                            <span class="map-card-icon">🏖</span>
+                            <span class="map-card-name">${L.sandboxMap}</span>
+                        </div>
+                        <div class="map-card" id="play-btn-map-sand" data-map="sand">
+                            <span class="map-card-icon">🏜</span>
+                            <span class="map-card-name">${L.sandMap}</span>
+                        </div>
+                        <div class="map-card" id="play-btn-map-madness" data-map="madness">
+                            <span class="map-card-icon">🌉</span>
+                            <span class="map-card-name">${L.madnessMap}</span>
+                        </div>
+                        <div class="map-card" id="play-btn-map-expo" data-map="expo">
+                            <span class="map-card-icon">🏆</span>
+                            <span class="map-card-name">${L.expoMap}</span>
+                        </div>
+                        <div class="map-card" id="play-btn-map-brest" data-map="brest">
+                            <span class="map-card-icon">🏰</span>
+                            <span class="map-card-name">${L.brestMap}</span>
+                        </div>
+                        <div class="map-card" id="play-btn-map-arena" data-map="arena">
+                            <span class="map-card-icon">⚔️</span>
+                            <span class="map-card-name">${L.arenaMap}</span>
+                        </div>
+                        <div class="map-card" id="play-btn-map-polygon" data-map="polygon">
+                            <span class="map-card-icon">🎯</span>
+                            <span class="map-card-name">${L.polygonMap}</span>
+                        </div>
+                        <div class="map-card" id="play-btn-map-frontline" data-map="frontline">
+                            <span class="map-card-icon">💥</span>
+                            <span class="map-card-name">${L.frontlineMap}</span>
+                        </div>
+                        <div class="map-card" id="play-btn-map-ruins" data-map="ruins">
+                            <span class="map-card-icon">🏚</span>
+                            <span class="map-card-name">${L.ruinsMap}</span>
+                        </div>
+                        <div class="map-card" id="play-btn-map-canyon" data-map="canyon">
+                            <span class="map-card-icon">⛰</span>
+                            <span class="map-card-name">${L.canyonMap}</span>
+                        </div>
+                        <div class="map-card" id="play-btn-map-industrial" data-map="industrial">
+                            <span class="map-card-icon">🏭</span>
+                            <span class="map-card-name">${L.industrialMap}</span>
+                        </div>
+                        <div class="map-card" id="play-btn-map-urban_warfare" data-map="urban_warfare">
+                            <span class="map-card-icon">🏙</span>
+                            <span class="map-card-name">${L.urbanWarfareMap}</span>
+                        </div>
+                        <div class="map-card" id="play-btn-map-underground" data-map="underground">
+                            <span class="map-card-icon">🕳</span>
+                            <span class="map-card-name">${L.undergroundMap}</span>
+                        </div>
+                        <div class="map-card" id="play-btn-map-coastal" data-map="coastal">
+                            <span class="map-card-icon">🌊</span>
+                            <span class="map-card-name">${L.coastalMap}</span>
+                        </div>
+                        <div class="map-card" id="play-btn-map-tartaria" data-map="tartaria">
+                            <span class="map-card-new">NEW</span>
+                            <span class="map-card-icon">🏛</span>
+                            <span class="map-card-name">${L.tartariaMap}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 4. Выбор танка -->
+                <div class="play-window" id="play-window-tank" data-order="3" data-step="3">
+                    <div class="play-window-header">
+                        <div class="play-window-title">/[user_id]/single/mode/map/preset</div>
+                        <div class="window-actions">
+                            <button class="window-btn" data-nav="back" data-step="3">⟵</button>
+                            <button class="window-btn" data-nav="forward" data-step="3">⟶</button>
+                            <button class="window-btn" data-nav="close" data-step="3">✕</button>
                         </div>
                     </div>
                     <div class="section-title">3. Выбор танка</div>
@@ -5664,14 +5849,20 @@ export class MainMenu {
         // Заполняем опции танков
         this.populateTankOptions();
         
-        // Обработчики выбора режима
-        document.getElementById("btn-mode-single")?.addEventListener("click", () => this.selectGameMode("single"));
-        document.getElementById("btn-mode-multiplayer")?.addEventListener("click", () => this.selectGameMode("multiplayer"));
-        document.getElementById("btn-mode-ffa")?.addEventListener("click", () => this.selectGameMode("ffa"));
-        document.getElementById("btn-mode-tdm")?.addEventListener("click", () => this.selectGameMode("tdm"));
-        document.getElementById("btn-mode-coop")?.addEventListener("click", () => this.selectGameMode("coop"));
-        document.getElementById("btn-mode-br")?.addEventListener("click", () => this.selectGameMode("battle_royale"));
-        document.getElementById("btn-mode-ctf")?.addEventListener("click", () => this.selectGameMode("ctf"));
+        // Обработчики выбора типа игры (шаг 1)
+        document.getElementById("btn-type-single")?.addEventListener("click", () => this.selectGameType("single"));
+        document.getElementById("btn-type-multiplayer")?.addEventListener("click", () => this.selectGameType("multiplayer"));
+        
+        // Обработчики выбора режима игры (шаг 2)
+        document.getElementById("btn-gamemode-ffa")?.addEventListener("click", () => this.selectGameMode("ffa"));
+        document.getElementById("btn-gamemode-tdm")?.addEventListener("click", () => this.selectGameMode("tdm"));
+        document.getElementById("btn-gamemode-coop")?.addEventListener("click", () => this.selectGameMode("coop"));
+        document.getElementById("btn-gamemode-br")?.addEventListener("click", () => this.selectGameMode("battle_royale"));
+        document.getElementById("btn-gamemode-ctf")?.addEventListener("click", () => this.selectGameMode("ctf"));
+        document.getElementById("btn-gamemode-control-point")?.addEventListener("click", () => this.selectGameMode("control_point"));
+        document.getElementById("btn-gamemode-escort")?.addEventListener("click", () => this.selectGameMode("escort"));
+        document.getElementById("btn-gamemode-survival")?.addEventListener("click", () => this.selectGameMode("survival"));
+        document.getElementById("btn-gamemode-raid")?.addEventListener("click", () => this.selectGameMode("raid"));
         
         // Обработчики выбора карты
         const mapButtons = ["normal", "sandbox", "sand", "madness", "expo", "brest", "arena", "polygon", "frontline", "ruins", "canyon", "industrial", "urban_warfare", "underground", "coastal", "tartaria"];
@@ -5764,17 +5955,22 @@ export class MainMenu {
         }
     }
     
-    private selectGameMode(mode: string): void {
-        this.selectedGameMode = mode;
-        debugLog("[Menu] Selected game mode:", mode);
+    private selectedGameType: string = "single";
+    
+    private selectGameType(type: string): void {
+        this.selectedGameType = type;
+        debugLog("[Menu] Selected game type:", type);
         
         // Обновляем визуал выбранной кнопки
-        document.querySelectorAll("[data-mode]").forEach(btn => {
+        document.querySelectorAll("[data-type]").forEach(btn => {
             const button = btn as HTMLButtonElement;
-            if (button.dataset.mode === mode) {
-                button.className = "menu-btn play-btn";
+            if (button.dataset.type === type) {
+                button.className = "menu-btn play-btn game-type-btn";
             } else {
-                button.className = "menu-btn secondary";
+                button.className = "menu-btn play-btn game-type-btn";
+                if (button.dataset.type === "multiplayer") {
+                    button.style.background = "linear-gradient(135deg, #667eea 0%, #764ba2 100%)";
+                }
             }
         });
         
@@ -5782,13 +5978,34 @@ export class MainMenu {
         this.updateTerminalTitles();
         
         // Для мультиплеера показываем специальное меню
-        if (mode === "multiplayer") {
+        if (type === "multiplayer") {
             this.showPlayWindow("play-window-multiplayer", 0.5, 0.5);
             this.initMultiplayerMenu();
         } else {
-            // Показываем следующий шаг - выбор карты
-            this.showPlayWindow("play-window-map", 1, 1);
+            // Показываем следующий шаг - выбор режима игры
+            this.showPlayWindow("play-window-gamemode", 1, 1);
         }
+    }
+    
+    private selectGameMode(mode: string): void {
+        this.selectedGameMode = mode;
+        debugLog("[Menu] Selected game mode:", mode);
+        
+        // Обновляем визуал выбранной кнопки
+        document.querySelectorAll("[data-gamemode]").forEach(btn => {
+            const button = btn as HTMLButtonElement;
+            if (button.dataset.gamemode === mode) {
+                button.className = "menu-btn play-btn gamemode-btn";
+            } else {
+                button.className = "menu-btn secondary gamemode-btn";
+            }
+        });
+        
+        // Update terminal titles
+        this.updateTerminalTitles();
+        
+        // Показываем следующий шаг - выбор карты
+        this.showPlayWindow("play-window-map", 2, 2);
     }
     
     private queueTimer: number = 0;
@@ -6992,10 +7209,35 @@ export class MainMenu {
         // Update terminal titles
         this.updateTerminalTitles();
         
-        // Показываем следующий шаг - выбор танка поверх
-        this.showPlayWindow("play-window-tank", 2, 2);
+        // Используем сохранённый выбор или значения по умолчанию
+        const savedChassis = localStorage.getItem("selectedChassis") || "medium";
+        const savedCannon = localStorage.getItem("selectedCannon") || "standard";
+        
+        this.selectedChassis = savedChassis;
+        this.selectedCannon = savedCannon;
+        localStorage.setItem("selectedChassis", savedChassis);
+        localStorage.setItem("selectedCannon", savedCannon);
+        
+        // Всегда показываем окно выбора танка - там кнопка "В БОЙ!"
+        this.showPlayWindow("play-window-tank", 3, 3);
         
         this.checkCanStartGame();
+    }
+    
+    /**
+     * Проверяет наличие сохранённых пользовательских пресетов танков
+     */
+    private checkHasSavedPresets(): boolean {
+        try {
+            const saved = localStorage.getItem("savedTankConfigurations");
+            if (saved) {
+                const configs = JSON.parse(saved);
+                return Array.isArray(configs) && configs.length > 0;
+            }
+        } catch (e) {
+            debugLog("[Menu] Error checking saved presets:", e);
+        }
+        return false;
     }
     
     private selectChassis(chassisId: string): void {
@@ -7188,35 +7430,43 @@ export class MainMenu {
     private updateTerminalTitles(): void {
         const userId = this.getUserName();
         const basePath = `/${userId}`;
+        const typePath = this.selectedGameType || "single";
         
-        // Update mode terminal title
-        const modeTitle = document.querySelector("#play-window-mode .play-window-title");
-        if (modeTitle) {
-            modeTitle.textContent = `${basePath}/mode`;
+        // Update type selection terminal title (step 1)
+        const typeTitle = document.querySelector("#play-window-mode .play-window-title");
+        if (typeTitle) {
+            typeTitle.textContent = `${basePath}/type`;
         }
         
-        // Update map terminal title
+        // Update gamemode terminal title (step 2)
+        const gamemodeTitle = document.querySelector("#play-window-gamemode .play-window-title");
+        if (gamemodeTitle) {
+            gamemodeTitle.textContent = `${basePath}/${typePath}/mode`;
+        }
+        
+        // Update map terminal title (step 3)
         const mapTitle = document.querySelector("#play-window-map .play-window-title");
         if (mapTitle) {
+            let path = `${basePath}/${typePath}`;
             if (this.selectedGameMode) {
                 const modeName = this.getModeDisplayName(this.selectedGameMode);
-                mapTitle.textContent = `${basePath}/mode/${modeName}/map`;
-            } else {
-                mapTitle.textContent = `${basePath}/mode/map`;
+                path += `/${modeName}`;
             }
+            path += "/map";
+            mapTitle.textContent = path;
         }
         
-        // Update tank terminal title
+        // Update tank terminal title (step 4)
         const tankTitle = document.querySelector("#play-window-tank .play-window-title");
         if (tankTitle) {
-            let path = basePath;
+            let path = `${basePath}/${typePath}`;
             if (this.selectedGameMode) {
                 const modeName = this.getModeDisplayName(this.selectedGameMode);
-                path += `/mode/${modeName}`;
+                path += `/${modeName}`;
             }
             if (this.selectedMapType) {
                 const mapName = this.getMapDisplayName(this.selectedMapType);
-                path += `/map/${mapName}`;
+                path += `/${mapName}`;
             }
             path += "/preset";
             tankTitle.textContent = path;
@@ -7257,7 +7507,7 @@ export class MainMenu {
     }
 
     private navigatePlayStep(targetStep: number): void {
-        const steps = ["play-window-mode", "play-window-map", "play-window-tank"];
+        const steps = ["play-window-mode", "play-window-gamemode", "play-window-map", "play-window-tank"];
         const clamped = Math.max(0, Math.min(targetStep, steps.length - 1));
         this.hideAllPlayWindows();
         const id = steps[clamped];
@@ -7430,6 +7680,9 @@ export class MainMenu {
     private hidePlayMenu(): void {
         debugLog("[Menu] hidePlayMenu() called");
         if (this.playMenuPanel) {
+            // Сначала скрываем все play-windows внутри
+            this.hideAllPlayWindows();
+            
             this.playMenuPanel.classList.remove("visible");
             this.playMenuPanel.style.setProperty("display", "none", "important");
             this.playMenuPanel.style.setProperty("visibility", "hidden", "important");

@@ -58,6 +58,7 @@ export interface GameSettings {
     crosshairStyle: string;
     showHealthBar: boolean;
     showAmmoCounter: boolean;
+    showTankStatsPanel: boolean; // Панель детальных характеристик танка
     autoSave: boolean;
     autoSaveInterval: number;
     
@@ -138,6 +139,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
     crosshairStyle: "default",
     showHealthBar: true,
     showAmmoCounter: true,
+    showTankStatsPanel: true, // Панель детальных характеристик танка по умолчанию включена
     autoSave: true,
     autoSaveInterval: 300,
     
@@ -299,6 +301,7 @@ export function saveSettingsFromUI(): GameSettings {
         crosshairStyle: getSelect("set-crosshair-style", "default"),
         showHealthBar: getBool("set-show-health-bar", true),
         showAmmoCounter: getBool("set-show-ammo-counter", true),
+        showTankStatsPanel: getBool("set-show-tank-stats-panel", true),
         autoSave: getBool("set-auto-save", true),
         autoSaveInterval: getInt("set-auto-save-interval", 300),
         
@@ -531,6 +534,11 @@ export function applySettings(
         // Show ammo counter
         if (settings.showAmmoCounter !== undefined) {
             // Применяется при отображении боеприпасов
+        }
+        
+        // Show tank stats panel
+        if (settings.showTankStatsPanel !== undefined && hud.setDetailedStatsPanelVisible) {
+            hud.setDetailedStatsPanelVisible(settings.showTankStatsPanel);
         }
         
         // Font size

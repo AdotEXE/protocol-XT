@@ -66,6 +66,11 @@ export class GameUI {
             // this.hud.setScale(this.settings.hudScale);
         }
         
+        // Tank stats panel visibility
+        if (this.settings.showTankStatsPanel !== undefined && this.hud.setDetailedStatsPanelVisible) {
+            this.hud.setDetailedStatsPanelVisible(this.settings.showTankStatsPanel);
+        }
+        
         logger.debug("[GameUI] Applied settings");
     }
     

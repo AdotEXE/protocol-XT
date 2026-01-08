@@ -439,45 +439,21 @@ export class GameRoom {
             const moveDelta = moveDir.scale(moveSpeed * deltaTime);
             player.position = player.position.add(moveDelta);
             
-            // Validate position after movement
+            // Basic position validation only (to prevent crashes from invalid positions)
             const posValidation = InputValidator.validatePosition(player.position);
             if (!posValidation.valid) {
                 if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
                     logger.debug(`[Room] Invalid position for player ${player.name}: ${posValidation.reason}`);
                 }
                 player.position = oldPosition; // Revert to old position
-                player.violationCount++;
-                player.lastViolationTime = Date.now();
+                // NOTE: Anti-cheat disabled - no violation count
             } else {
-                // Update position history for lag compensation and anti-cheat
+                // Update position history for lag compensation (anti-cheat disabled)
                 player.addPositionSnapshot(player.position);
                 
-                // Enhanced anti-cheat: perform statistical analysis
-                const suspiciousCheck = InputValidator.checkSuspiciousMovement(player.positionHistory);
-                const statisticalAnalysis = InputValidator.performStatisticalAnalysis(player.positionHistory);
-                
-                if (statisticalAnalysis.suspicious) {
-                    player.violationCount += statisticalAnalysis.score;
-                    if (loggingSettings.getLevel() >= LogLevel.WARN) {
-                        logger.warn(`[Room] Suspicious movement detected for player ${player.name}: ${statisticalAnalysis.reasons.join(", ")} (score: ${statisticalAnalysis.score})`);
-                    }
-                }
-                
-                if (suspiciousCheck.suspicious) {
-                    player.suspiciousMovementCount++;
-                    if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
-                        logger.debug(`[Room] Suspicious movement detected for player ${player.name}: ${suspiciousCheck.reason}`);
-                    }
-                    
-                    // Kick player after too many violations
-                    if (player.suspiciousMovementCount >= 10 || player.violationCount >= 20) {
-                        if (loggingSettings.getLevel() >= LogLevel.WARN) {
-                            logger.warn(`[Room] Player ${player.name} kicked: ${player.suspiciousMovementCount} suspicious movements, ${player.violationCount} violations`);
-                        }
-                        player.disconnect();
-                        return;
-                    }
-                }
+                // ANTI-CHEAT DISABLED: All suspicious movement checks removed
+                // const suspiciousCheck = InputValidator.checkSuspiciousMovement(player.positionHistory);
+                // const statisticalAnalysis = InputValidator.performStatisticalAnalysis(player.positionHistory);
                 
                 // Update last valid position
                 player.lastValidPosition = player.position.clone();

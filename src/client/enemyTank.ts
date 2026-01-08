@@ -26,6 +26,7 @@ import { PHYSICS_CONFIG } from "./config/physicsConfig";
 import { CHASSIS_TYPES, CANNON_TYPES, ChassisType, CannonType } from "./tankTypes";
 import { TRACK_TYPES, TrackType } from "./trackTypes";
 import { MODULE_PRESETS, ModuleType } from "./tank/modules/ModuleTypes";
+import { createUniqueCannon, CannonAnimationElements } from "./tank/tankCannon";
 import type { AICoordinator } from "./ai/AICoordinator";
 import { RicochetSystem, DEFAULT_RICOCHET_CONFIG } from "./tank/combat/RicochetSystem";
 
@@ -42,6 +43,7 @@ export class EnemyTank {
     turret: Mesh;
     barrel: Mesh;
     private wheels: Mesh[] = [];
+    private cannonAnimationElements: CannonAnimationElements = {};
     
     // === Physics (SAME AS PLAYER!) ===
     physicsBody!: PhysicsBody;
@@ -818,25 +820,21 @@ export class EnemyTank {
     }
     
     private createBarrel(): Mesh {
-        // КРИТИЧНО: Используем размеры из выбранной пушки
-        const width = this.cannonType.barrelWidth;
-        const height = this.cannonType.barrelWidth; // Используем barrelWidth для обеих сторон
-        const depth = this.cannonType.barrelLength;
+        // Используем размеры из выбранной пушки
+        const barrelWidth = this.cannonType.barrelWidth;
+        const barrelLength = this.cannonType.barrelLength;
         
-        const barrel = MeshBuilder.CreateBox(`enemyBarrel_${this.id}`, {
-            width, height, depth
-        }, this.scene);
+        // Создаём детализированную пушку как у игрока
+        const barrel = createUniqueCannon(
+            this.cannonType,
+            this.scene,
+            barrelWidth,
+            barrelLength,
+            this.cannonAnimationElements
+        );
+        
         barrel.parent = this.turret;
-        barrel.position = new Vector3(0, 0.2, depth * 0.5); // Позиция зависит от длины ствола
-        
-        const mat = new StandardMaterial(`enemyBarrelMat_${this.id}`, this.scene);
-        // КРИТИЧНО: Используем цвет из выбранной пушки
-        const colorHex = this.cannonType.color;
-        const color = Color3.FromHexString(colorHex);
-        mat.diffuseColor = color;
-        mat.specularColor = Color3.Black();
-        mat.freeze();
-        barrel.material = mat;
+        barrel.position = new Vector3(0, 0.2, barrelLength * 0.5); // Позиция зависит от длины ствола
         barrel.renderingGroupId = 0;
         barrel.metadata = { type: "enemyTank", instance: this };
         

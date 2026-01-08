@@ -11,6 +11,8 @@ import type { TankController } from "../tankController";
 import type { HUD } from "../hud";
 import type { EnemyTank } from "../enemyTank";
 import { saveSelectedSkin, getSkinById, applySkinToTank, applySkinColorToMaterial } from "../tank/tankSkins";
+import { ChassisTransformAnimation } from "../tank/chassisTransformAnimation";
+import { getChassisById } from "../tankTypes";
 
 /**
  * GameGarage - Логика гаражей
@@ -56,6 +58,9 @@ export class GameGarage {
     // Ссылка на систему гаража (UI) для применения pending изменений
     private garageUI: any = null; // Garage class instance
     
+    // Анимация трансформации корпуса
+    private chassisTransformAnimation: ChassisTransformAnimation | null = null;
+    
     // Кэшированные цвета для оптимизации
     private readonly _colorNeutral = new Color3(0.9, 0.9, 0.9);
     private readonly _colorPlayer = new Color3(0.0, 1.0, 0.0);
@@ -90,6 +95,42 @@ export class GameGarage {
      */
     setGarageUI(garageUI: any): void {
         this.garageUI = garageUI;
+    }
+    
+    /**
+     * Проверить, есть ли на карте физические гаражи
+     * На картах без гаражей переодевание происходит на месте
+     */
+    mapHasGarages(): boolean {
+        if (!this.chunkSystem) return false;
+        
+        // Проверяем наличие garageDoors (физических гаражей с воротами)
+        const hasGarageDoors = this.chunkSystem.garageDoors && this.chunkSystem.garageDoors.length > 0;
+        
+        // Проверяем наличие garagePositions (позиций гаражей)
+        const hasGaragePositions = this.chunkSystem.garagePositions && this.chunkSystem.garagePositions.length > 0;
+        
+        return hasGarageDoors || hasGaragePositions;
+    }
+    
+    /**
+     * Применить pending изменения принудительно (для карт без гаражей)
+     * Вызывает respawn() на текущей позиции танка
+     */
+    applyPendingChangesInPlace(): void {
+        if (!this.tank) {
+            logger.warn("[GameGarage] applyPendingChangesInPlace: no tank");
+            return;
+        }
+        
+        const hasPending = this.hasPendingChangesFromStorage();
+        if (!hasPending) {
+            logger.log("[GameGarage] applyPendingChangesInPlace: no pending changes");
+            return;
+        }
+        
+        logger.log("[GameGarage] Applying pending changes in place (no garage on map)...");
+        this.applyChangesDirectly();
     }
     
     /**
@@ -486,15 +527,17 @@ export class GameGarage {
         // Для пересоздания визуальных частей нужен respawn
         // (setChassisType/setCannonType только обновляют статистику, не пересоздают визуал)
         if (pending.chassisId || pending.cannonId || pending.trackId) {
-            // Сохраняем текущую позицию для респавна
+            // КРИТИЧНО: Сохраняем ТОЧНУЮ текущую позицию танка (включая высоту!)
             const currentPos = tankController.chassis?.position?.clone() || new Vector3(0, 1.2, 0);
+            const currentRotation = tankController.chassis?.rotation?.clone() || new Vector3(0, 0, 0);
             
             logger.log(`[GameGarage] Current tank position: ${currentPos.x.toFixed(2)}, ${currentPos.y.toFixed(2)}, ${currentPos.z.toFixed(2)}`);
             logger.log(`[GameGarage] Current types before respawn: chassis=${tankController.chassisType?.id}, cannon=${tankController.cannonType?.id}, track=${tankController.trackType?.id}`);
             
             // Определяем, какие части изменились (для анимации)
+            const oldChassisId = tankController.chassisType?.id || "medium";
             const applied = {
-                chassis: !!pending.chassisId && pending.chassisId !== (tankController.chassisType?.id || ""),
+                chassis: !!pending.chassisId && pending.chassisId !== oldChassisId,
                 cannon: !!pending.cannonId && pending.cannonId !== (tankController.cannonType?.id || ""),
                 track: !!pending.trackId && pending.trackId !== (tankController.trackType?.id || ""),
                 skin: !!pending.skinId
@@ -502,47 +545,40 @@ export class GameGarage {
             
             logger.log(`[GameGarage] Parts to change: chassis=${applied.chassis}, cannon=${applied.cannon}, track=${applied.track}, skin=${applied.skin}`);
             
-            // Вызываем respawn для пересоздания танка с новыми частями
-            if (typeof tankController.respawn === 'function') {
-                // Временно устанавливаем callback для сохранения позиции
-                const originalCallback = tankController.respawnPositionCallback;
-                tankController.setRespawnPositionCallback(() => {
-                    return currentPos;
-                });
+            // НОВАЯ АНИМАЦИЯ: Если меняется корпус - запускаем анимацию трансформации
+            if (applied.chassis && this.scene && tankController.chassis && pending.chassisId) {
+                logger.log(`[GameGarage] Starting chassis transformation animation: ${oldChassisId} -> ${pending.chassisId}`);
                 
-                // Вызываем respawn (он пересоздаст части)
-                tankController.respawn();
-                
-                // Восстанавливаем оригинальный callback
-                if (originalCallback) {
-                    tankController.setRespawnPositionCallback(originalCallback);
-                } else {
-                    tankController.respawnPositionCallback = null;
+                // Создаём анимацию, если ещё не создана
+                if (!this.chassisTransformAnimation) {
+                    this.chassisTransformAnimation = new ChassisTransformAnimation(this.scene);
                 }
                 
-                // После respawn запускаем анимацию (если есть изменённые части)
-                // КРИТИЧНО: Анимация ТОЛЬКО если танк находится внутри гаража (не на потолке/крыше)
-                if ((applied.chassis || applied.cannon || applied.track) && typeof (tankController as any).playPartChangeAnimation === 'function') {
-                    // Проверяем, что танк находится внутри гаража перед запуском анимации
-                    if (this.isPlayerInAnyGarage()) {
-                        logger.log(`[GameGarage] Starting part change animation...`);
-                        // Небольшая задержка, чтобы части успели пересоздаться
-                        setTimeout(() => {
-                            // Повторная проверка перед запуском анимации (на случай если танк переместился)
-                            if (this.isPlayerInAnyGarage()) {
-                                (tankController as any).playPartChangeAnimation(applied, () => {
-                                    logger.log("[GameGarage] Part change animation complete");
-                                });
-                            } else {
-                                logger.warn(`[GameGarage] Animation cancelled - tank is not inside garage`);
-                            }
-                        }, 100);
-                    } else {
-                        logger.warn(`[GameGarage] Animation skipped - tank is not inside garage`);
+                // Получаем типы корпусов
+                const oldChassisType = getChassisById(oldChassisId);
+                const newChassisType = getChassisById(pending.chassisId);
+                
+                // Останавливаем танк на время анимации
+                if (tankController.physicsBody) {
+                    tankController.physicsBody.setLinearVelocity(Vector3.Zero());
+                    tankController.physicsBody.setAngularVelocity(Vector3.Zero());
+                }
+                
+                // Запускаем анимацию трансформации
+                this.chassisTransformAnimation.start(
+                    tankController.chassis,
+                    oldChassisType,
+                    newChassisType,
+                    tankController.turret,
+                    tankController.barrel,
+                    () => {
+                        // После анимации вызываем respawn для создания нового корпуса
+                        this.completeChassisChange(tankController, currentPos, pending, applied);
                     }
-                }
+                );
             } else {
-                logger.error(`[GameGarage] tankController.respawn is not a function!`);
+                // Если корпус не меняется - обычный respawn
+                this.performStandardRespawn(tankController, currentPos, pending, applied);
             }
         }
         
@@ -554,6 +590,94 @@ export class GameGarage {
         }
         
         logger.log("[GameGarage] Pending changes applied directly (with respawn)");
+    }
+    
+    /**
+     * Завершает смену корпуса после анимации трансформации
+     */
+    private completeChassisChange(
+        tankController: any,
+        currentPos: Vector3,
+        pending: { chassisId: string | null, cannonId: string | null, trackId: string | null, skinId: string | null },
+        applied: { chassis: boolean, cannon: boolean, track: boolean, skin: boolean }
+    ): void {
+        logger.log(`[GameGarage] Completing chassis change after animation...`);
+        
+        // Вызываем стандартный respawn для создания нового корпуса
+        this.performStandardRespawn(tankController, currentPos, pending, applied);
+    }
+    
+    /**
+     * Выполняет стандартный respawn без анимации трансформации корпуса
+     */
+    private performStandardRespawn(
+        tankController: any,
+        currentPos: Vector3,
+        pending: { chassisId: string | null, cannonId: string | null, trackId: string | null, skinId: string | null },
+        applied: { chassis: boolean, cannon: boolean, track: boolean, skin: boolean }
+    ): void {
+        if (typeof tankController.respawn !== 'function') {
+            logger.error(`[GameGarage] tankController.respawn is not a function!`);
+            return;
+        }
+        
+        // КРИТИЧНО: Сохраняем оригинальный callback для восстановления ПОСЛЕ завершения respawn
+        const originalCallback = tankController.respawnPositionCallback;
+        
+        // Устанавливаем callback, который вернёт ТЕКУЩУЮ позицию танка (переодевание на месте)
+        tankController.setRespawnPositionCallback(() => {
+            logger.log(`[GameGarage] Respawn callback: returning current position ${currentPos.x.toFixed(2)}, ${currentPos.y.toFixed(2)}, ${currentPos.z.toFixed(2)}`);
+            return currentPos.clone();
+        });
+        
+        // КРИТИЧНО: Устанавливаем флаг, что танк уже телепортирован (предотвращает пересчёт высоты)
+        tankController._wasTeleportedToGarage = true;
+        tankController._inPlaceDressing = true; // Флаг для переодевания на месте
+        
+        // Вызываем respawn (он пересоздаст части)
+        tankController.respawn();
+        
+        // КРИТИЧНО: Восстанавливаем callback с ЗАДЕРЖКОЙ (после завершения respawn)
+        setTimeout(() => {
+            if (originalCallback) {
+                tankController.setRespawnPositionCallback(originalCallback);
+            } else {
+                tankController.respawnPositionCallback = null;
+            }
+            
+            // Сбрасываем флаги ПОСЛЕ завершения respawn
+            setTimeout(() => {
+                tankController._wasTeleportedToGarage = false;
+                tankController._inPlaceDressing = false;
+                logger.log(`[GameGarage] Flags reset after respawn complete`);
+            }, 200);
+            
+            // Принудительно стабилизируем физику (без изменения позиции!)
+            if (tankController.physicsBody) {
+                tankController.physicsBody.setLinearVelocity(Vector3.Zero());
+                tankController.physicsBody.setAngularVelocity(Vector3.Zero());
+            }
+            
+            // Восстанавливаем parent для barrel если потерялся
+            if (tankController.barrel && tankController.turret && !tankController.barrel.isDisposed() && !tankController.turret.isDisposed()) {
+                if (tankController.barrel.parent !== tankController.turret) {
+                    tankController.barrel.parent = tankController.turret;
+                    logger.log(`[GameGarage] Restored barrel parent to turret`);
+                }
+            }
+            
+            logger.log(`[GameGarage] Respawn callback restored`);
+        }, 300);
+        
+        // После respawn запускаем анимацию переодевания (для пушки/гусениц)
+        if ((applied.cannon || applied.track) && typeof tankController.playPartChangeAnimation === 'function') {
+            logger.log(`[GameGarage] Starting part change animation...`);
+            setTimeout(() => {
+                tankController.playPartChangeAnimation(applied, () => {
+                    logger.log("[GameGarage] Part change animation complete");
+                });
+            }, 100);
+        }
     }
     
     /**

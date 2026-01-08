@@ -555,6 +555,12 @@ export class WaveEditor {
         this.visible = true;
         this.container.classList.remove("hidden");
         this.container.style.display = "flex";
+        
+        // Показываем курсор и выходим из pointer lock
+        if (document.pointerLockElement) {
+            document.exitPointerLock();
+        }
+        document.body.style.cursor = 'default';
     }
     
     /**

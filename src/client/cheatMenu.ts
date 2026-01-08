@@ -25,16 +25,22 @@ export class CheatMenu {
     private tank: TankController | null = null;
     private game: Game | null = null;
     private cheats: Map<string, Cheat> = new Map();
+    private embedded = false;
     
-    constructor() {
+    constructor(embedded: boolean = false) {
+        this.embedded = embedded;
         // ИСПРАВЛЕНО: Сначала инициализируем читы, потом создаем UI
         this.initializeCheats();
-        this.createUI();
-        this.setupToggle();
-        this.setupEscHandler();
-        this.visible = false;
-        this.container.classList.remove("visible");
-        this.container.style.display = "none";
+        
+        // Не создаём overlay UI если панель будет встроена в другое меню
+        if (!this.embedded) {
+            this.createUI();
+            this.setupToggle();
+            this.setupEscHandler();
+            this.visible = false;
+            this.container.classList.remove("visible");
+            this.container.style.display = "none";
+        }
     }
     
     private setupEscHandler(): void {
@@ -1337,7 +1343,7 @@ export class CheatMenu {
                 display: none !important;
                 justify-content: center !important;
                 align-items: center !important;
-                z-index: 100002 !important;
+                z-index: 100020 !important;
                 pointer-events: auto !important;
             }
             
@@ -1672,7 +1678,7 @@ export class CheatMenu {
         this.container.style.display = "flex";
         this.container.style.visibility = "visible";
         this.container.style.opacity = "1";
-        this.container.style.zIndex = "100002";
+        this.container.style.zIndex = "100020";
         
         // Показываем курсор и выходим из pointer lock
         if (document.pointerLockElement) {

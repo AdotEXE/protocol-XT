@@ -34,6 +34,12 @@ export class GameServer {
     private monitoringClients: Set<WebSocket> = new Set();
     private rateLimiter: RateLimiter = new RateLimiter(); // Per-player rate limiting
     
+    // Adaptive update rate tracking: Map<receiverId, Map<senderId, lastUpdateTick>>
+    private lastPlayerUpdateTick: Map<string, Map<string, number>> = new Map();
+    
+    // Ban system: playerId -> ban expiry timestamp (0 for permanent)
+    private bannedPlayers: Map<string, { expiry: number; reason: string; banCount: number }> = new Map();
+    
     // Счетчики для простой системы наименований
     private guestPlayerCounter: number = 0; // Счетчик для гостей (ID и имя: 0001, 0002...)
     private roomCounter: number = 0; // Счетчик для комнат (0001, 0002...)
@@ -307,6 +313,23 @@ export class GameServer {
     private async handleConnect(ws: WebSocket, data: any): Promise<void> {
         const playerId = data.playerId;
         const idToken = data.idToken; // Firebase ID токен
+        
+        // NOTE: Auto-ban system disabled for now
+        // Check if player is banned (before validation to save resources)
+        // if (playerId) {
+        //     const banStatus = this.isPlayerBanned(playerId);
+        //     if (banStatus.banned) {
+        //         serverLogger.warn(`[Server] 🚫 Banned player tried to connect: ${playerId} - ${banStatus.reason}`);
+        //         this.send(ws, createServerMessage(ServerMessageType.ERROR, {
+        //             code: "BANNED",
+        //             message: banStatus.remaining === -1 
+        //                 ? `You are permanently banned: ${banStatus.reason}` 
+        //                 : `You are banned for ${Math.ceil((banStatus.remaining || 0) / 60000)} more minutes: ${banStatus.reason}`
+        //         }));
+        //         ws.close();
+        //         return;
+        //     }
+        // }
         
         // Валидация токена, если предоставлен
         let verifiedUserId: string | null = null;
@@ -666,16 +689,14 @@ export class GameServer {
             const currentRate = this.rateLimiter.getRate(player.id, "input");
             serverLogger.warn(`[Server] Input rate limit exceeded for player ${player.id}: ${currentRate} inputs/sec`);
             
-            // Increment violation count for potential kick
-            player.violationCount++;
-            if (player.violationCount > 100) {
-                serverLogger.warn(`[Server] Kicking player ${player.id} for excessive rate limit violations`);
-                this.kickPlayer(player, "Rate limit violation");
-            }
+            // NOTE: Anti-cheat disabled - just log rate limit violation
+            serverLogger.warn(`[Server] Rate limit exceeded for player ${player.id}: ${currentRate} inputs/sec`);
+            // Don't kick, just ignore the input
             return;
         }
         
-        // Validate input
+        // NOTE: Anti-cheat checks disabled
+        // Basic input validation only (to prevent crashes from invalid data)
         const deltaTime = 1 / 60; // Approximate delta time
         const validation = InputValidator.validatePlayerInput(
             data,
@@ -686,24 +707,13 @@ export class GameServer {
         
         if (!validation.valid) {
             serverLogger.warn(`[Server] Invalid input from player ${player.id}: ${validation.reason}`);
-            player.violationCount++;
-            // Don't process invalid input, but don't disconnect player immediately
+            // Don't process invalid input, but don't disconnect player
             return;
         }
         
-        // Enhanced speed hack detection using position history
-        const speedHackCheck = InputValidator.detectSpeedHack(player.positionHistory, 40);
-        if (speedHackCheck.suspicious) {
-            serverLogger.warn(`[Server] Potential speedhack detected for player ${player.id}: ${speedHackCheck.reasons.join(", ")}`);
-            player.violationCount += speedHackCheck.score;
-            
-            // Kick if too many violations
-            if (player.violationCount > 150) {
-                serverLogger.warn(`[Server] Kicking player ${player.id} for suspected cheating (speedhack)`);
-                this.kickPlayer(player, "Suspected speedhack");
-                return;
-            }
-        }
+        // ANTI-CHEAT DISABLED: Speed hack detection
+        // const speedHackCheck = InputValidator.detectSpeedHack(player.positionHistory, 40);
+        // if (speedHackCheck.suspicious) { ... }
         
         // Update last valid position
         player.lastValidPosition = player.position.clone();
@@ -713,8 +723,8 @@ export class GameServer {
             player.lastProcessedSequence = data.sequence;
         }
         
-        // Track turret rotation for aimbot detection
-        this.trackTurretRotation(player, data.turretRotation);
+        // ANTI-CHEAT DISABLED: Track turret rotation for aimbot detection
+        // this.trackTurretRotation(player, data.turretRotation);
         
         player.updateFromInput(data);
         
@@ -731,38 +741,138 @@ export class GameServer {
     
     /**
      * Track turret rotation history for aimbot detection
+     * NOTE: ANTI-CHEAT DISABLED
      */
+    // @ts-ignore - Unused but kept for future use
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private turretHistory: Map<string, Array<{ time: number; rotation: number }>> = new Map();
     
-    private trackTurretRotation(player: ServerPlayer, turretRotation: number): void {
+    // @ts-ignore - Unused but kept for future use
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private trackTurretRotation(_player: ServerPlayer, _turretRotation: number): void {
+        // ANTI-CHEAT DISABLED
+        return;
+        
+        /* Original implementation:
         const now = Date.now();
         
-        if (!this.turretHistory.has(player.id)) {
-            this.turretHistory.set(player.id, []);
+        if (!this.turretHistory.has(_player.id)) {
+            this.turretHistory.set(_player.id, []);
         }
         
-        const history = this.turretHistory.get(player.id)!;
-        history.push({ time: now, rotation: turretRotation });
+        const history = this.turretHistory.get(_player.id)!;
+        history.push({ time: now, rotation: _turretRotation });
         
-        // Keep only last 60 entries (1 second at 60Hz)
         if (history.length > 60) {
             history.shift();
         }
         
-        // Check for aimbot periodically (every 30 frames)
         if (history.length >= 30 && history.length % 30 === 0) {
             const aimbotCheck = InputValidator.detectAimbot(history);
             if (aimbotCheck.suspicious) {
-                serverLogger.warn(`[Server] Potential aimbot detected for player ${player.id}: ${aimbotCheck.reasons.join(", ")}`);
+                serverLogger.warn(`[Server] Potential aimbot detected for player ${_player.id}`);
                 player.violationCount += aimbotCheck.score;
                 
                 if (player.violationCount > 150) {
-                    serverLogger.warn(`[Server] Kicking player ${player.id} for suspected cheating (aimbot)`);
-                    this.kickPlayer(player, "Suspected aimbot");
+                    this.kickPlayer(_player, "Suspected aimbot");
                 }
             }
         }
+        */
     }
+    
+    /**
+     * Check if a player is banned
+     * NOTE: Auto-ban system disabled for now - kept for future use
+     */
+    // @ts-ignore - Unused but kept for future use
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private isPlayerBanned(_playerId: string): { banned: boolean; reason?: string; remaining?: number } {
+        // Auto-ban system disabled
+        return { banned: false };
+        
+        /* Original implementation:
+        const banInfo = this.bannedPlayers.get(_playerId);
+        if (!banInfo) {
+            return { banned: false };
+        }
+        
+        // Permanent ban (expiry = 0)
+        if (banInfo.expiry === 0) {
+            return { banned: true, reason: banInfo.reason, remaining: -1 };
+        }
+        
+        // Check if ban has expired
+        const now = Date.now();
+        if (now >= banInfo.expiry) {
+            // Ban expired, remove it
+            this.bannedPlayers.delete(_playerId);
+            return { banned: false };
+        }
+        
+        return { banned: true, reason: banInfo.reason, remaining: banInfo.expiry - now };
+        */
+    }
+    
+    /**
+     * Apply automatic ban based on suspiciousScore/violationCount
+     * NOTE: Auto-ban system disabled for now - kept for future use
+     * Escalating ban system:
+     * - Score > 100: 5 minute temp ban
+     * - Score > 200: 1 hour ban
+     * - Score > 500: Permanent ban
+     */
+    // @ts-ignore - Unused but kept for future use
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private applyAutoBan(_player: ServerPlayer, _reason: string): void {
+        // Auto-ban system disabled - just kick instead
+        // this.kickPlayer(_player, _reason);
+        return;
+    }
+    
+    /* Original applyAutoBan implementation - kept for future use:
+    private applyAutoBan(player: ServerPlayer, reason: string): void {
+        const score = player.violationCount;
+        let banDuration: number = 0;
+        let banType: string = "";
+        
+        const existingBan = this.bannedPlayers.get(player.id);
+        const banCount = existingBan ? existingBan.banCount + 1 : 1;
+        
+        if (score > 500 || banCount >= 5) {
+            banDuration = 0;
+            banType = "permanent";
+        } else if (score > 200 || banCount >= 3) {
+            banDuration = 60 * 60 * 1000;
+            banType = "1 hour";
+        } else if (score > 100 || banCount >= 2) {
+            banDuration = 5 * 60 * 1000;
+            banType = "5 minutes";
+        } else {
+            this.kickPlayer(player, reason);
+            return;
+        }
+        
+        const expiry = banDuration === 0 ? 0 : Date.now() + banDuration;
+        
+        this.bannedPlayers.set(player.id, {
+            expiry,
+            reason: `${reason} (${banType} ban, offense #${banCount})`,
+            banCount
+        });
+        
+        serverLogger.warn(`[Server] 🚫 BANNED player ${player.id} (${player.name}): ${banType} - ${reason}`);
+        
+        this.send(player.socket, createServerMessage(ServerMessageType.ERROR, {
+            code: "BANNED",
+            message: banDuration === 0 
+                ? `You have been permanently banned: ${reason}` 
+                : `You have been banned for ${banType}: ${reason}`
+        }));
+        
+        this.handleDisconnect(player.socket);
+    }
+    */
     
     /**
      * Kick player from server
@@ -779,8 +889,8 @@ export class GameServer {
         // Clean up rate limiter
         this.rateLimiter.resetPlayer(player.id);
         
-        // Clean up turret history
-        this.turretHistory.delete(player.id);
+        // NOTE: Anti-cheat disabled - turret history cleanup not needed
+        // this.turretHistory.delete(player.id);
         
         // Disconnect player
         player.disconnect();
@@ -799,11 +909,11 @@ export class GameServer {
         if (!this.rateLimiter.checkLimit(player.id, "shoot", 10)) {
             const currentRate = this.rateLimiter.getRate(player.id, "shoot");
             serverLogger.warn(`[Server] Shoot rate limit exceeded for player ${player.id}: ${currentRate} shots/sec`);
-            player.violationCount += 5; // Shooting violations are more serious
+            // NOTE: Anti-cheat disabled - just ignore the shoot
             return;
         }
         
-        // Validate shoot data
+        // Basic validation only (to prevent crashes)
         const validation = InputValidator.validateShootData(data);
         if (!validation.valid) {
             serverLogger.warn(`[Server] Invalid shoot data from player ${player.id}: ${validation.reason}`);
@@ -1004,9 +1114,10 @@ export class GameServer {
         if (player) {
             serverLogger.log(`[Server] Player disconnected: ${player.id}`);
             
-            // Clean up rate limiter and turret history
+            // Clean up rate limiter
             this.rateLimiter.resetPlayer(player.id);
-            this.turretHistory.delete(player.id);
+            // NOTE: Anti-cheat disabled - turret history cleanup not needed
+            // this.turretHistory.delete(player.id);
             
             this.handleLeaveRoom(player);
             // Remove from all queues
@@ -1174,6 +1285,12 @@ export class GameServer {
                 }
                 
                 for (const player of room.getAllPlayers()) {
+                    // Initialize tracking map for this receiver if needed
+                    if (!this.lastPlayerUpdateTick.has(player.id)) {
+                        this.lastPlayerUpdateTick.set(player.id, new Map());
+                    }
+                    const playerUpdateTracker = this.lastPlayerUpdateTick.get(player.id)!;
+                    
                     // Prioritize players based on distance
                     const playerPos = player.position;
                     const prioritizedPlayers = this.prioritizedBroadcaster.prioritizePlayers(
@@ -1182,25 +1299,53 @@ export class GameServer {
                         20 // Max 20 prioritized players
                     );
                     
-                    // Use prioritization to limit players sent (delta compression is internal optimization)
-                    // For now, send full prioritized list (quantization happens in compression, but we use full data for compatibility)
-                    // NOTE: Full delta compression would require:
-                    // 1. Store previous state on client (lastState Map)
-                    // 2. Send only changed fields: { id, delta: { position?, rotation?, health? } }
-                    // 3. Client applies delta to cached state
-                    // This is a significant protocol change - implement when bandwidth optimization is critical
+                    // ADAPTIVE UPDATE RATE: Filter players based on distance and time since last update
+                    // Close players get updates every tick, distant players get updates less frequently
+                    const playersToSend = prioritizedPlayers.filter(targetPlayer => {
+                        // Always include local player's own data
+                        if (targetPlayer.id === player.id) return true;
+                        
+                        // Calculate distance
+                        const distance = Vector3.Distance(playerPos, targetPlayer.position);
+                        
+                        // Get adaptive rate (1.0 = every tick, 0.5 = every 2 ticks, etc.)
+                        const rate = this.prioritizedBroadcaster.getAdaptiveUpdateRate(
+                            distance,
+                            room.getAllPlayers().length,
+                            0 // Network load - could be calculated based on send queue size
+                        );
+                        
+                        // Calculate required tick interval based on rate
+                        const tickInterval = Math.ceil(1 / rate);
+                        
+                        // Check if enough ticks have passed since last update
+                        const lastTick = playerUpdateTracker.get(targetPlayer.id) || 0;
+                        if (this.tickCount - lastTick >= tickInterval) {
+                            // Update tracking and include this player
+                            playerUpdateTracker.set(targetPlayer.id, this.tickCount);
+                            return true;
+                        }
+                        
+                        return false;
+                    });
+                    
+                    // Send filtered player states with adaptive update rate
                     const statesData = {
-                        players: prioritizedPlayers, // Send prioritized players (full data with quantization in serialization)
+                        players: playersToSend,
                         gameTime: room.gameTime,
                         serverSequence: player.lastProcessedSequence
                     };
                     this.send(player.socket, createServerMessage(ServerMessageType.PLAYER_STATES, statesData));
                 }
                 
+                // BATCH UPDATES: Collect all room-wide updates into a single batch
+                // This reduces network overhead by sending one message instead of many
+                const batchMessages: ServerMessage[] = [];
+                
                 // Broadcast projectile updates
                 const projectileUpdates = Array.from(room.projectiles.values()).map(p => p.toProjectileData());
                 if (projectileUpdates.length > 0) {
-                    this.broadcastToRoom(room, createServerMessage(ServerMessageType.PROJECTILE_UPDATE, {
+                    batchMessages.push(createServerMessage(ServerMessageType.PROJECTILE_UPDATE, {
                         projectiles: projectileUpdates
                     }));
                 }
@@ -1209,7 +1354,7 @@ export class GameServer {
                 if (room.mode === "coop") {
                     const enemyUpdates = Array.from(room.enemies.values()).map(e => e.toEnemyData());
                     if (enemyUpdates.length > 0) {
-                        this.broadcastToRoom(room, createServerMessage(ServerMessageType.ENEMY_UPDATE, {
+                        batchMessages.push(createServerMessage(ServerMessageType.ENEMY_UPDATE, {
                             enemies: enemyUpdates
                         }));
                     }
@@ -1219,7 +1364,7 @@ export class GameServer {
                 if (room.mode === "battle_royale") {
                     const safeZoneData = room.getSafeZoneData();
                     if (safeZoneData) {
-                        this.broadcastToRoom(room, createServerMessage(ServerMessageType.SAFE_ZONE_UPDATE, safeZoneData));
+                        batchMessages.push(createServerMessage(ServerMessageType.SAFE_ZONE_UPDATE, safeZoneData));
                     }
                 }
                 
@@ -1227,21 +1372,26 @@ export class GameServer {
                 if (room.mode === "ctf") {
                     const flags = room.getCTFFlags();
                     if (flags && flags.length > 0) {
-                        this.broadcastToRoom(room, createServerMessage(ServerMessageType.CTF_FLAG_UPDATE, { flags }));
+                        batchMessages.push(createServerMessage(ServerMessageType.CTF_FLAG_UPDATE, { flags }));
                     }
                     
-                    // Broadcast CTF events
+                    // Add CTF events to batch
                     const pickupEvent = (room as any).lastCTFPickupEvent;
                     if (pickupEvent) {
-                        this.broadcastToRoom(room, createServerMessage(ServerMessageType.CTF_FLAG_PICKUP, pickupEvent));
+                        batchMessages.push(createServerMessage(ServerMessageType.CTF_FLAG_PICKUP, pickupEvent));
                         (room as any).lastCTFPickupEvent = null;
                     }
                     
                     const captureEvent = (room as any).lastCTFCaptureEvent;
                     if (captureEvent) {
-                        this.broadcastToRoom(room, createServerMessage(ServerMessageType.CTF_FLAG_CAPTURE, captureEvent));
+                        batchMessages.push(createServerMessage(ServerMessageType.CTF_FLAG_CAPTURE, captureEvent));
                         (room as any).lastCTFCaptureEvent = null;
                     }
+                }
+                
+                // Send all room-wide updates as a single batch
+                if (batchMessages.length > 0) {
+                    this.broadcastBatchToRoom(room, batchMessages);
                 }
             }
         }
@@ -1295,6 +1445,45 @@ export class GameServer {
             const serialized = serializeMessage(message);
             // WebSocket.send() accepts both string and ArrayBuffer
             ws.send(serialized);
+        }
+    }
+    
+    /**
+     * Send multiple messages as a single batch
+     * Reduces network overhead by grouping updates
+     */
+    private sendBatch(ws: WebSocket, messages: ServerMessage[]): void {
+        if (ws.readyState !== WebSocket.OPEN || messages.length === 0) {
+            return;
+        }
+        
+        // If only one message, send directly without batch wrapper
+        if (messages.length === 1) {
+            this.send(ws, messages[0]!);
+            return;
+        }
+        
+        // Create batch message
+        const batchMessage = createServerMessage(ServerMessageType.BATCH, {
+            updates: messages.map(m => ({ type: m.type, data: m.data })),
+            timestamp: Date.now()
+        });
+        
+        const serialized = serializeMessage(batchMessage);
+        ws.send(serialized);
+    }
+    
+    /**
+     * Broadcast batch to room - groups messages for each player
+     */
+    private broadcastBatchToRoom(room: GameRoom, messages: ServerMessage[], excludePlayerId?: string): void {
+        if (messages.length === 0) return;
+        
+        for (const player of room.getAllPlayers()) {
+            if (player.id === excludePlayerId) continue;
+            if (player.socket.readyState === WebSocket.OPEN) {
+                this.sendBatch(player.socket, messages);
+            }
         }
     }
     

@@ -935,6 +935,12 @@ export class PhysicsEditor {
             // Убираем класс hidden - CSS сам покажет контейнер с display: flex
             this.container.classList.remove("hidden");
             this.updateFromConfig();
+            
+            // Показываем курсор и выходим из pointer lock
+            if (document.pointerLockElement) {
+                document.exitPointerLock();
+            }
+            document.body.style.cursor = 'default';
         } else {
             this.container.classList.add("hidden");
             logger.log("[PhysicsEditor] Editor hidden");

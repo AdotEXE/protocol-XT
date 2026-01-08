@@ -13,13 +13,19 @@ export class ScreenshotPanel {
     private screenshotManager: ScreenshotManager;
     private gallery: ScreenshotGallery;
     private game: any;
+    private embedded: boolean = false;
     
-    constructor(screenshotManager: ScreenshotManager, game: any) {
+    constructor(screenshotManager: ScreenshotManager, game: any, embedded: boolean = false) {
         this.screenshotManager = screenshotManager;
         this.game = game;
         this.gallery = new ScreenshotGallery();
-        this.createUI();
-        this.setupEventListeners();
+        this.embedded = embedded;
+        
+        // Не создаём overlay UI если панель будет встроена в другое меню
+        if (!embedded) {
+            this.createUI();
+            this.setupEventListeners();
+        }
     }
     
     /**
@@ -407,6 +413,12 @@ export class ScreenshotPanel {
             this.container.style.display = 'flex';
             this.loadSettings();
         }
+        
+        // Показываем курсор и выходим из pointer lock
+        if (document.pointerLockElement) {
+            document.exitPointerLock();
+        }
+        document.body.style.cursor = 'default';
     }
     
     /**

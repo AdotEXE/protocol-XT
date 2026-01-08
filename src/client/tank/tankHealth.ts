@@ -1,5 +1,5 @@
 // Модуль управления здоровьем, топливом и неуязвимостью танка
-import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, PhysicsBody, PhysicsMotionType, PhysicsShape, PhysicsShapeType, PhysicsShapeContainer, Quaternion } from "@babylonjs/core";
+import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, PhysicsBody, PhysicsMotionType, PhysicsShape, PhysicsShapeType, PhysicsShapeContainer, Quaternion, Ray } from "@babylonjs/core";
 import type { ITankController } from "./types";
 import { TANK_CONSTANTS } from "./constants";
 
@@ -316,9 +316,12 @@ export class TankHealthModule {
             this.tank.effectsManager.createExplosion(this.tank.chassis.position.clone(), 2);
         }
         
-        // Show death message
+        // Show death message with callback for garage respawn
+        // После 3 секунд обратного отсчёта будет вызван startGarageRespawn()
         if (this.tank.hud) {
-            this.tank.hud.showDeathMessage();
+            this.tank.hud.showDeathMessage(() => {
+                this.startGarageRespawn();
+            });
         }
         
         // Record death in player progression
@@ -336,86 +339,247 @@ export class TankHealthModule {
             this.deactivateInvulnerability();
         }
         
-        // НОВЫЙ ПОРЯДОК: Сразу телепорт на пол гаража и анимация сборки
-        // Получаем позицию респавна (пол гаража)
-        let respawnPos: Vector3;
-        if (this.tank.respawnPositionCallback) {
-            const garagePos = this.tank.respawnPositionCallback();
-            respawnPos = garagePos ? garagePos.clone() : new Vector3(0, 1.2, 0);
-        } else {
-            respawnPos = new Vector3(0, 1.2, 0);
+        // НОВЫЙ ПОРЯДОК: Показываем экран смерти на 3 секунды,
+        // затем телепортируем в гараж и запускаем анимацию сборки
+        // Callback будет вызван из HUD после 3 секунд обратного отсчёта
+        console.log("[TANK] Death screen will be shown for 3 seconds, then respawn in garage");
+    }
+    
+    /**
+     * Плавно анимирует камеру к целевой позиции
+     * @param targetPos - целевая позиция камеры
+     * @param duration - длительность анимации в мс (по умолчанию 1500мс)
+     * @param onComplete - callback после завершения анимации
+     */
+    private animateCameraToPosition(targetPos: Vector3, duration: number = 1500, onComplete?: () => void): void {
+        const game = (window as any).gameInstance;
+        if (!game || !game.camera) {
+            if (onComplete) onComplete();
+            return;
         }
         
-        // КРИТИЧНО: Устанавливаем Y на пол гаража (не поднимаем вверх!)
+        const camera = game.camera;
+        const startTarget = camera.getTarget().clone();
+        const startTime = Date.now();
+        
+        // КРИТИЧНО: Блокируем updateCamera на время анимации
+        game.isCameraAnimating = true;
+        
+        console.log(`[TANK] Starting smooth camera transition to (${targetPos.x.toFixed(2)}, ${targetPos.y.toFixed(2)}, ${targetPos.z.toFixed(2)})`);
+        
+        const animate = () => {
+            const elapsed = Date.now() - startTime;
+            const progress = Math.min(elapsed / duration, 1.0);
+            
+            // Ease-out для плавности (быстро в начале, медленно в конце)
+            const eased = 1 - Math.pow(1 - progress, 3);
+            
+            // Плавно перемещаем target камеры
+            const currentTarget = Vector3.Lerp(startTarget, targetPos, eased);
+            camera.setTarget(currentTarget);
+            
+            if (progress < 1.0) {
+                requestAnimationFrame(animate);
+            } else {
+                console.log("[TANK] Camera transition complete");
+                // Разблокируем updateCamera
+                game.isCameraAnimating = false;
+                if (onComplete) onComplete();
+            }
+        };
+        
+        animate();
+    }
+    
+    /**
+     * Телепортирует камеру и части танка в гараж, запускает анимацию сборки.
+     * Вызывается из HUD после 3 секунд обратного отсчёта на экране смерти.
+     */
+    public startGarageRespawn(): void {
+        console.log("[TANK] Starting garage respawn sequence...");
+        
+        // Получаем позицию респавна (гараж или случайная безопасная позиция)
+        let respawnPos: Vector3;
+        let hasGarage = false;
+        
+        if (this.tank.respawnPositionCallback) {
+            const garagePos = this.tank.respawnPositionCallback();
+            if (garagePos) {
+                respawnPos = garagePos.clone();
+                hasGarage = true;
+                console.log("[TANK] Respawning in garage");
+            } else {
+                // Гаража нет - случайная безопасная позиция
+                respawnPos = this.findSafeRandomSpawnPosition();
+                console.log("[TANK] No garage found, using random safe spawn");
+            }
+        } else {
+            // Нет callback - случайная безопасная позиция
+            respawnPos = this.findSafeRandomSpawnPosition();
+            console.log("[TANK] No respawn callback, using random safe spawn");
+        }
+        
+        // Вычисляем правильную высоту
         const game = (window as any).gameInstance;
         let targetY = respawnPos.y;
         if (game && typeof game.getGroundHeight === 'function') {
-            // Используем высоту террейна в гараже (пол гаража)
             const groundHeight = game.getGroundHeight(respawnPos.x, respawnPos.z);
-            targetY = groundHeight + 1.2; // Небольшой отступ от пола (высота танка)
-            console.log(`[TANK] Teleporting to garage floor: Y=${targetY.toFixed(2)} (ground: ${groundHeight.toFixed(2)})`);
+            targetY = hasGarage ? groundHeight + 1.2 : Math.max(groundHeight + 2, respawnPos.y);
+            console.log(`[TANK] Spawn height: Y=${targetY.toFixed(2)} (ground: ${groundHeight.toFixed(2)}, hasGarage: ${hasGarage})`);
         }
         
-        // СРАЗУ ТЕЛЕПОРТИРУЕМ ТАНК НА ПОЛ ГАРАЖА
-        if (this.tank.chassis && this.tank.physicsBody) {
-            // Устанавливаем позицию на пол гаража
-            this.tank.chassis.position.set(respawnPos.x, targetY, respawnPos.z);
-            this.tank.chassis.rotationQuaternion = Quaternion.Identity();
-            this.tank.chassis.rotation.set(0, 0, 0);
+        // Целевая позиция для камеры (где будет танк)
+        const cameraTarget = new Vector3(respawnPos.x, targetY + 1, respawnPos.z);
+        
+        // ШАГ 1: Телепортируем части вокруг целевой позиции (ДО анимации камеры)
+        this.teleportPartsAroundTarget(respawnPos, targetY);
+        
+        // ШАГ 2: Запускаем ПЛАВНУЮ анимацию камеры к целевой позиции
+        // После завершения анимации камеры - запускаем анимацию сборки
+        this.animateCameraToPosition(cameraTarget, 1500, () => {
+            console.log("[TANK] Camera arrived at spawn, starting assembly...");
             
-            // Обновляем физику
-            this.tank.chassis.computeWorldMatrix(true);
-            if (this.tank.physicsBody) {
-                this.tank.physicsBody.setTargetTransform(
-                    this.tank.chassis.getAbsolutePosition(),
-                    Quaternion.Identity()
-                );
+            // ШАГ 3: Телепортируем chassis в целевую позицию (чтобы камера следила за ним)
+            if (this.tank.chassis) {
+                this.tank.chassis.position.set(respawnPos.x, targetY, respawnPos.z);
+                this.tank.chassis.rotationQuaternion = Quaternion.Identity();
+                this.tank.chassis.rotation.set(0, 0, 0);
+                this.tank.chassis.computeWorldMatrix(true);
             }
-        }
-        
-        // Телепортируем все разрушенные части к гаражу (разбросанные вокруг)
-        if (this.destroyedParts && this.destroyedParts.length > 0) {
-            const spreadRadius = 8; // Радиус разброса частей вокруг гаража
-            const spreadHeight = 4; // Высота разброса
             
-            for (let i = 0; i < this.destroyedParts.length; i++) {
-                const part = this.destroyedParts[i]!;
-                
-                // Отключаем физику частей для анимации
-                if (part.physicsBody) {
-                    part.physicsBody.setLinearVelocity(Vector3.Zero());
-                    part.physicsBody.setAngularVelocity(Vector3.Zero());
+            // Устанавливаем флаг что части телепортированы
+            (this.tank as any)._wasTeleportedToGarage = true;
+            
+            // ШАГ 4: Небольшая пауза, затем анимация сборки
+            setTimeout(() => {
+                if (!this.tank.isAlive && this.tank.respawn) {
+                    console.log("[TANK] Starting assembly animation...");
+                    this.tank.respawn();
                 }
-                
-                // Телепортируем часть к гаражу (случайное положение вокруг)
-                const angle = (i / this.destroyedParts.length) * Math.PI * 2;
-                const radius = spreadRadius * (0.5 + Math.random() * 0.5);
-                const teleportPos = new Vector3(
-                    respawnPos.x + Math.cos(angle) * radius,
-                    targetY + spreadHeight + Math.random() * 2, // От пола гаража
-                    respawnPos.z + Math.sin(angle) * radius
-                );
-                
-                part.mesh.position.copyFrom(teleportPos);
-                
-                // Случайное начальное вращение
-                part.mesh.rotationQuaternion = Quaternion.FromEulerAngles(
-                    Math.random() * Math.PI * 2,
-                    Math.random() * Math.PI * 2,
-                    Math.random() * Math.PI * 2
-                );
+            }, 200);
+        });
+    }
+    
+    /**
+     * Телепортирует разрушенные части вокруг целевой позиции для анимации сборки
+     */
+    private teleportPartsAroundTarget(respawnPos: Vector3, targetY: number): void {
+        if (!this.destroyedParts || this.destroyedParts.length === 0) {
+            console.log("[TANK] No destroyed parts to teleport");
+            return;
+        }
+        
+        const spreadRadius = 8; // Радиус разброса частей
+        const spreadHeight = 6; // Высота разброса над полом
+        
+        console.log(`[TANK] Teleporting ${this.destroyedParts.length} parts around spawn point...`);
+        
+        for (let i = 0; i < this.destroyedParts.length; i++) {
+            const part = this.destroyedParts[i]!;
+            
+            // Отключаем физику частей для анимации
+            if (part.physicsBody) {
+                part.physicsBody.setLinearVelocity(Vector3.Zero());
+                part.physicsBody.setAngularVelocity(Vector3.Zero());
+            }
+            
+            // Равномерно распределяем части по кругу
+            const angle = (i / this.destroyedParts.length) * Math.PI * 2;
+            const radius = spreadRadius * (0.8 + Math.random() * 0.4);
+            const teleportPos = new Vector3(
+                respawnPos.x + Math.cos(angle) * radius,
+                targetY + spreadHeight + Math.random() * 3,
+                respawnPos.z + Math.sin(angle) * radius
+            );
+            
+            part.mesh.position.copyFrom(teleportPos);
+            
+            // Случайное начальное вращение
+            part.mesh.rotationQuaternion = Quaternion.FromEulerAngles(
+                Math.random() * Math.PI * 2,
+                Math.random() * Math.PI * 2,
+                Math.random() * Math.PI * 2
+            );
+            
+            // КРИТИЧНО: Восстанавливаем видимость и прозрачность ВСЕХ частей
+            part.mesh.isVisible = true;
+            if (part.mesh.material) {
+                (part.mesh.material as any).alpha = 1;
+            }
+            
+            console.log(`[TANK] Part ${part.name} teleported to (${teleportPos.x.toFixed(2)}, ${teleportPos.y.toFixed(2)}, ${teleportPos.z.toFixed(2)})`);
+        }
+    }
+    
+    /**
+     * Находит случайную безопасную позицию для респавна (если гаража нет)
+     * Проверяет что позиция не под террейном и не внутри построек
+     */
+    private findSafeRandomSpawnPosition(): Vector3 {
+        const game = (window as any).gameInstance;
+        const maxAttempts = 10;
+        const mapRadius = 200; // Радиус карты для случайного спавна
+        
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            // Случайная позиция в радиусе карты
+            const angle = Math.random() * Math.PI * 2;
+            const distance = 50 + Math.random() * (mapRadius - 50);
+            const x = Math.cos(angle) * distance;
+            const z = Math.sin(angle) * distance;
+            
+            // Получаем высоту террейна
+            let y = 5;
+            if (game && typeof game.getGroundHeight === 'function') {
+                const groundHeight = game.getGroundHeight(x, z);
+                y = groundHeight + 2; // Над террейном
+            }
+            
+            const testPos = new Vector3(x, y + 10, z); // Тестируем с высоты
+            
+            // Проверяем что позиция безопасна (не внутри постройки)
+            if (this.isPositionSafe(testPos)) {
+                console.log(`[TANK] Found safe random spawn at (${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)}) on attempt ${attempt + 1}`);
+                return new Vector3(x, y, z);
             }
         }
         
-        // Устанавливаем флаг что танк был телепортирован
-        (this.tank as any)._wasTeleportedToGarage = true;
-        
-        // СРАЗУ ЗАПУСКАЕМ АНИМАЦИЮ СБОРКИ (без задержки)
-        setTimeout(() => {
-            if (!this.tank.isAlive && this.tank.respawn) {
-                this.tank.respawn();
+        // Fallback - центр карты над террейном
+        console.log("[TANK] Could not find safe spawn, using center fallback");
+        let fallbackY = 5;
+        if (game && typeof game.getGroundHeight === 'function') {
+            fallbackY = game.getGroundHeight(0, 0) + 2;
+        }
+        return new Vector3(0, fallbackY, 0);
+    }
+    
+    /**
+     * Проверяет безопасность позиции для спавна (не внутри построек)
+     */
+    private isPositionSafe(position: Vector3): boolean {
+        // Raycast вниз для проверки построек
+        const ray = new Ray(position, new Vector3(0, -1, 0), 20);
+        const hit = this.tank.scene.pickWithRay(ray, (mesh) => {
+            if (!mesh || !mesh.isEnabled()) return false;
+            
+            // Проверяем постройки по имени
+            const name = mesh.name.toLowerCase();
+            if (name.includes("building") || 
+                name.includes("wall") || 
+                name.includes("house") ||
+                name.includes("container") ||
+                name.includes("barrier")) {
+                return true;
             }
-        }, 100);
+            
+            // Проверяем по метаданным
+            const meta = mesh.metadata;
+            if (meta && meta.type === "building") return true;
+            
+            return false;
+        });
+        
+        // Безопасно если нет попадания в постройку
+        return !hit?.hit;
     }
     
     /**
@@ -571,13 +735,13 @@ export class TankHealthModule {
         const tank = this.tank;
         const duration = 3000; // 3 секунды анимации сборки
         
-        // КРИТИЧНО: Если танк уже был телепортирован в гараж (через die()), 
+        // КРИТИЧНО: Если танк уже был телепортирован в гараж (через startGarageRespawn), 
         // просто запускаем анимацию сборки без дополнительного телепорта частей
+        // НЕ сбрасываем флаг здесь - он нужен для completeRespawn чтобы не пересчитывать позицию
         const wasTeleported = (tank as any)._wasTeleportedToGarage;
         if (wasTeleported) {
             // Танк уже в гараже - запускаем анимацию сразу
             this.startAssemblyAnimation(respawnPos, duration, onComplete);
-            (tank as any)._wasTeleportedToGarage = false; // Сбрасываем флаг
             return;
         }
         
@@ -631,19 +795,40 @@ export class TankHealthModule {
             part.mesh.rotationQuaternion ? part.mesh.rotationQuaternion.clone() : Quaternion.Identity()
         );
         
-        // Вычисляем целевые позиции и вращения
+        // Находим части по именам для правильного вычисления иерархии
+        const chassisPart = this.destroyedParts.find(p => p.name === "chassis");
+        const turretPart = this.destroyedParts.find(p => p.name === "turret");
+        
+        // Вычисляем целевые позиции с учётом иерархии: chassis → turret → barrel
         const targetPositions: Vector3[] = [];
         const targetRotations: Quaternion[] = [];
         
         for (const part of this.destroyedParts) {
-            if (part.originalParent) {
-                // Если часть была дочерней, вычисляем мировую позицию относительно нового родителя
-                const targetWorldPos = respawnPos.add(part.originalLocalPos);
-                targetPositions.push(targetWorldPos);
+            let targetWorldPos: Vector3;
+            
+            if (part.name === "chassis") {
+                // Chassis - корневой элемент, позиция = respawnPos
+                targetWorldPos = respawnPos.clone();
+            } else if (part.name === "turret") {
+                // Turret - дочерний к chassis
+                targetWorldPos = respawnPos.add(part.originalLocalPos);
+            } else if (part.name === "barrel") {
+                // Barrel - дочерний к turret, нужно учитывать позицию turret
+                if (turretPart) {
+                    const turretWorldPos = respawnPos.add(turretPart.originalLocalPos);
+                    targetWorldPos = turretWorldPos.add(part.originalLocalPos);
+                } else {
+                    targetWorldPos = respawnPos.add(part.originalLocalPos);
+                }
+            } else if (part.name === "leftTrack" || part.name === "rightTrack") {
+                // Гусеницы - дочерние к chassis
+                targetWorldPos = respawnPos.add(part.originalLocalPos);
             } else {
-                // Если часть была корневой (chassis), используем позицию респавна
-                targetPositions.push(respawnPos.clone());
+                // Fallback для других частей
+                targetWorldPos = respawnPos.clone();
             }
+            
+            targetPositions.push(targetWorldPos);
             
             // КРИТИЧНО: Для башни и ствола целевое вращение = Identity (фикс бага с залипанием башни после респавна)
             // Для остальных частей (chassis, tracks) можно использовать оригинальное вращение
@@ -672,20 +857,8 @@ export class TankHealthModule {
                 const startRot = startRotations[i]!;
                 const targetRot = targetRotations[i]!;
                 
-                // Интерполируем позицию с небольшим "притягиванием" к центру
+                // Интерполируем позицию плавно (без swirl эффекта - он мешает)
                 const currentPos = Vector3.Lerp(startPos, targetPos, easedProgress);
-                
-                // Добавляем эффект "вращения" к центру в начале анимации
-                if (progress < 0.3) {
-                    const swirl = (0.3 - progress) * 0.5;
-                    const offset = new Vector3(
-                        Math.sin(elapsed * 0.01 + i) * swirl,
-                        Math.cos(elapsed * 0.015 + i * 2) * swirl * 0.5,
-                        Math.cos(elapsed * 0.01 + i) * swirl
-                    );
-                    currentPos.addInPlace(offset);
-                }
-                
                 part.mesh.position.copyFrom(currentPos);
                 
                 // Интерполируем вращение

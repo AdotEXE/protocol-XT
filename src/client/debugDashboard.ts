@@ -27,10 +27,12 @@ export class DebugDashboard {
     private updateInterval = 100;
     
     private visible = false; // Hidden by default
+    private embedded = false;
     
-    constructor(engine: Engine, scene: Scene) {
+    constructor(engine: Engine, scene: Scene, embedded: boolean = false) {
         this.engine = engine;
         this.scene = scene;
+        this.embedded = embedded;
         this.metricsCollector = new MetricsCollector(engine, scene);
         this.metricsExporter = new MetricsExporter();
         this.metricsAutomation = new MetricsAutomation();
@@ -39,12 +41,16 @@ export class DebugDashboard {
             (msg) => { if (this.game?.hud) this.game.hud.showMessage(`⚠ ${msg}`, "#ff0", 3000); },
             (msg) => { if (this.game?.hud) this.game.hud.showMessage(`🚨 ${msg}`, "#f00", 5000); }
         );
-        this.createUI();
-        this.setupToggle();
-        // Hide dashboard by default, show only FPS
-        this.visible = false;
-        this.container.classList.add("hidden");
-        this.container.style.display = "none"; // Дополнительно скрываем через style
+        
+        // Не создаём overlay UI если панель будет встроена в другое меню
+        if (!embedded) {
+            this.createUI();
+            this.setupToggle();
+            // Hide dashboard by default, show only FPS
+            this.visible = false;
+            this.container.classList.add("hidden");
+            this.container.style.display = "none"; // Дополнительно скрываем через style
+        }
     }
     
     setChunkSystem(chunkSystem: ChunkSystem): void {
@@ -278,6 +284,12 @@ export class DebugDashboard {
         if (this.visible) {
             this.container.classList.remove("hidden");
             this.container.style.display = "";
+            
+            // Показываем курсор и выходим из pointer lock
+            if (document.pointerLockElement) {
+                document.exitPointerLock();
+            }
+            document.body.style.cursor = 'default';
         } else {
             this.container.classList.add("hidden");
             this.container.style.display = "none";
@@ -291,6 +303,12 @@ export class DebugDashboard {
         this.visible = true;
         this.container.classList.remove("hidden");
         this.container.style.display = "";
+        
+        // Показываем курсор и выходим из pointer lock
+        if (document.pointerLockElement) {
+            document.exitPointerLock();
+        }
+        document.body.style.cursor = 'default';
     }
     
     /**

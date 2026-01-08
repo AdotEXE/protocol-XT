@@ -80,6 +80,22 @@ export class UnifiedMenu {
         this.container.classList.remove("hidden");
         this.container.classList.add("visible");
         this.container.style.display = "flex";
+        
+        // Скрываем play-menu панель и все play-windows чтобы они не накладывались
+        const playMenuPanel = document.getElementById("play-menu-panel");
+        if (playMenuPanel) {
+            playMenuPanel.classList.remove("visible");
+            playMenuPanel.style.display = "none";
+        }
+        document.querySelectorAll(".play-window").forEach(win => {
+            (win as HTMLElement).classList.remove("visible");
+        });
+        
+        // Показываем курсор и выходим из pointer lock
+        if (document.pointerLockElement) {
+            document.exitPointerLock();
+        }
+        document.body.style.cursor = 'default';
     }
 
     hide(): void {
@@ -378,7 +394,8 @@ export class UnifiedMenu {
             const { ScreenshotManager } = await import("./screenshotManager");
             this.game.screenshotManager = new ScreenshotManager(this.game.engine, this.game.scene, this.game.hud || null);
         }
-        const panel = new ScreenshotPanel(this.game!.screenshotManager!, this.game);
+        // embedded = true - не создаём отдельный overlay, только контент
+        const panel = new ScreenshotPanel(this.game!.screenshotManager!, this.game, true);
         tab.instance = panel;
         // Используем renderToContainer для встраивания контента
         panel.renderToContainer(tab.container);
@@ -386,7 +403,8 @@ export class UnifiedMenu {
 
     private async loadDebugContent(tab: MenuTab): Promise<void> {
         const { DebugDashboard } = await import("./debugDashboard");
-        const dashboard = new DebugDashboard(this.game!.engine, this.game!.scene);
+        // embedded = true - не создаём отдельный overlay, только контент
+        const dashboard = new DebugDashboard(this.game!.engine, this.game!.scene, true);
         dashboard.setGame(this.game!);
         if (this.game!.chunkSystem) {
             dashboard.setChunkSystem(this.game!.chunkSystem);
@@ -401,7 +419,8 @@ export class UnifiedMenu {
 
     private async loadPhysicsContent(tab: MenuTab): Promise<void> {
         const { PhysicsPanel } = await import("./physicsPanel");
-        const panel = new PhysicsPanel();
+        // embedded = true - не создаём отдельный overlay, только контент
+        const panel = new PhysicsPanel(true);
         panel.setGame(this.game!);
         if (this.game!.tank) {
             panel.setTank(this.game!.tank);
@@ -489,7 +508,8 @@ export class UnifiedMenu {
 
     private async loadSessionContent(tab: MenuTab): Promise<void> {
         const { SessionSettings } = await import("./sessionSettings");
-        const settings = new SessionSettings();
+        // embedded = true - не создаём отдельный overlay, только контент
+        const settings = new SessionSettings(true);
         settings.setGame(this.game!);
         tab.instance = settings;
         // Используем renderToContainer для встраивания контента
@@ -498,7 +518,8 @@ export class UnifiedMenu {
 
     private async loadCheatContent(tab: MenuTab): Promise<void> {
         const { CheatMenu } = await import("./cheatMenu");
-        const cheatMenu = new CheatMenu();
+        // embedded = true - не создаём отдельный overlay, только контент
+        const cheatMenu = new CheatMenu(true);
         cheatMenu.setGame(this.game!);
         if (this.game!.tank) {
             cheatMenu.setTank(this.game!.tank);
@@ -510,7 +531,8 @@ export class UnifiedMenu {
 
     private async loadNetworkContent(tab: MenuTab): Promise<void> {
         const { NetworkMenu } = await import("./networkMenu");
-        const networkMenu = new NetworkMenu();
+        // embedded = true - не создаём отдельный overlay, только контент
+        const networkMenu = new NetworkMenu(true);
         networkMenu.setGame(this.game!);
         tab.instance = networkMenu;
         // Используем renderToContainer для встраивания контента

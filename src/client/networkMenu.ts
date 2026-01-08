@@ -33,14 +33,20 @@ export class NetworkMenu {
     private currentPing: number = 0;
     private lastPingTime: number = 0;
     private pingHistory: number[] = [];
+    private embedded = false;
     
-    constructor() {
+    constructor(embedded: boolean = false) {
+        this.embedded = embedded;
         this.settings = this.loadSettings();
-        this.createUI();
-        this.setupToggle();
-        this.visible = false;
-        this.container.classList.add("hidden");
-        this.container.style.display = "none";
+        
+        // Не создаём overlay UI если панель будет встроена в другое меню
+        if (!embedded) {
+            this.createUI();
+            this.setupToggle();
+            this.visible = false;
+            this.container.classList.add("hidden");
+            this.container.style.display = "none";
+        }
     }
     
     setGame(game: Game | null): void {
@@ -699,6 +705,13 @@ export class NetworkMenu {
         this.visible = true;
         this.container.classList.remove("hidden");
         this.container.style.display = "";
+        
+        // Показываем курсор и выходим из pointer lock
+        if (document.pointerLockElement) {
+            document.exitPointerLock();
+        }
+        document.body.style.cursor = 'default';
+        
         this.updateUI();
         this.updateConnectionStatus();
         

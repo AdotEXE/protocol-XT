@@ -145,3 +145,156 @@ export interface HUDState {
     ammoCount: Record<string, { current: number; max: number }>;
 }
 
+/**
+ * Параметр с базовым значением и бонусом
+ */
+export interface StatWithBonus {
+    /** Базовое значение */
+    base: number;
+    /** Бонус (множитель или абсолютное значение) */
+    bonus: number;
+    /** Итоговое значение */
+    total: number;
+    /** Тип бонуса: множитель (%) или абсолютный */
+    bonusType: "percent" | "absolute";
+}
+
+/**
+ * Данные о шасси танка
+ */
+export interface ChassisStatsData {
+    /** ID шасси */
+    id: string;
+    /** Название */
+    name: string;
+    /** Максимальное здоровье */
+    maxHealth: StatWithBonus;
+    /** Скорость движения */
+    moveSpeed: StatWithBonus;
+    /** Скорость поворота */
+    turnSpeed: StatWithBonus;
+    /** Ускорение */
+    acceleration: StatWithBonus;
+    /** Масса (кг) */
+    mass: number;
+    /** Особая способность */
+    specialAbility: string | null;
+    /** Уровень прокачки */
+    upgradeLevel: number;
+    /** Цвет шасси */
+    color: string;
+}
+
+/**
+ * Данные о пушке танка
+ */
+export interface CannonStatsData {
+    /** ID пушки */
+    id: string;
+    /** Название */
+    name: string;
+    /** Урон */
+    damage: StatWithBonus;
+    /** Перезарядка (мс) */
+    cooldown: StatWithBonus;
+    /** Скорость снаряда */
+    projectileSpeed: StatWithBonus;
+    /** Размер снаряда */
+    projectileSize: number;
+    /** Множитель отдачи */
+    recoilMultiplier: number;
+    /** Длина ствола */
+    barrelLength: number;
+    /** Максимум рикошетов (если есть) */
+    maxRicochets: number | null;
+    /** Сохранение скорости при рикошете */
+    ricochetSpeedRetention: number | null;
+    /** Уровень прокачки */
+    upgradeLevel: number;
+    /** Цвет пушки */
+    color: string;
+}
+
+/**
+ * Данные о гусеницах танка
+ */
+export interface TracksStatsData {
+    /** ID гусениц */
+    id: string;
+    /** Название */
+    name: string;
+    /** Стиль гусениц */
+    style: string;
+    /** Бонус к скорости (множитель) */
+    speedBonus: number;
+    /** Бонус к прочности (множитель) */
+    durabilityBonus: number;
+    /** Бонус к броне (множитель) */
+    armorBonus: number;
+    /** Уровень прокачки */
+    upgradeLevel: number;
+    /** Цвет гусениц */
+    color: string;
+}
+
+/**
+ * Суммарные бонусы от модулей и апгрейдов
+ */
+export interface BonusesStatsData {
+    /** Бонус к урону */
+    damageBonus: number;
+    /** Бонус к перезарядке */
+    cooldownBonus: number;
+    /** Бонус к здоровью */
+    healthBonus: number;
+    /** Бонус к броне */
+    armorBonus: number;
+    /** Бонус к скорости */
+    speedBonus: number;
+    /** Бонус к скорости поворота */
+    turnSpeedBonus: number;
+    /** Бонус к ускорению */
+    accelerationBonus: number;
+    /** Бонус к скорости снаряда */
+    projectileSpeedBonus: number;
+    /** Шанс критического урона */
+    critChance: number;
+    /** Шанс уклонения */
+    evasion: number;
+    /** Скорость авто-ремонта */
+    repairRate: number;
+    /** Эффективность топлива */
+    fuelEfficiency: number;
+    /** Общий уровень игрока */
+    playerLevel: number;
+    /** Установленные модули */
+    installedModules: Array<{
+        id: string;
+        name: string;
+        icon: string;
+        rarity: string;
+    }>;
+}
+
+/**
+ * Полные данные о характеристиках танка для панели статистики
+ */
+export interface TankStatsData {
+    /** Данные о шасси */
+    chassis: ChassisStatsData;
+    /** Данные о пушке */
+    cannon: CannonStatsData;
+    /** Данные о гусеницах */
+    tracks: TracksStatsData;
+    /** Суммарные бонусы */
+    bonuses: BonusesStatsData;
+    /** Текущее здоровье */
+    currentHealth: number;
+    /** Текущее топливо */
+    currentFuel: number;
+    /** Максимальное топливо */
+    maxFuel: number;
+    /** Текущая броня (0-1) */
+    currentArmor: number;
+}
+

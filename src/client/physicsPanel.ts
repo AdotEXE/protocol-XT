@@ -28,13 +28,20 @@ export class PhysicsPanel {
     private presets: Preset[] = [];
     private maxPresets = 10; // Расширено с 5 до 10
     
-    constructor() {
+    private embedded = false;
+    
+    constructor(embedded: boolean = false) {
+        this.embedded = embedded;
         this.loadPresets();
-        this.createUI();
-        this.setupToggle();
-        this.visible = false;
-        this.container.classList.add("hidden");
-        this.container.style.display = "none";
+        
+        // Не создаём overlay UI если панель будет встроена в другое меню
+        if (!embedded) {
+            this.createUI();
+            this.setupToggle();
+            this.visible = false;
+            this.container.classList.add("hidden");
+            this.container.style.display = "none";
+        }
         
         // Touch properties to avoid unused warnings (зарезервировано для будущего расширения)
         if (this.game || this.scene) {
@@ -464,6 +471,12 @@ export class PhysicsPanel {
             if (this.tank) {
                 this.updateFromTank();
             }
+            
+            // Показываем курсор и выходим из pointer lock
+            if (document.pointerLockElement) {
+                document.exitPointerLock();
+            }
+            document.body.style.cursor = 'default';
         } else {
             this.container.classList.add("hidden");
             this.container.style.display = "none";

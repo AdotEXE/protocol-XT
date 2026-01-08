@@ -9,8 +9,8 @@ import type { ClientMessage, ServerMessage } from "./messages";
 
 // Configuration flag - set to true to enable binary serialization
 // Uses custom binary format with quantization (no external dependencies)
-// TEMPORARILY DISABLED: Custom binary format has deserialization issues
-const USE_BINARY_SERIALIZATION = false;
+// ENABLED: Fixed custom binary format with proper type markers
+export const USE_BINARY_SERIALIZATION = true;
 
 /**
  * Convert message to plain object with Vector3 handling
@@ -47,6 +47,24 @@ function plainObjectToMessage<T>(obj: any): T {
 }
 
 /**
+ * Type markers for binary serialization
+ * Each value type has a unique marker byte
+ */
+const TYPE_MARKERS = {
+    NULL: 0,
+    FALSE: 1,
+    TRUE: 2,
+    UINT8: 3,
+    STRING: 4,
+    ARRAY: 5,
+    OBJECT: 6,
+    FLOAT32: 7,    // Full precision float
+    INT16_POS: 8,  // Quantized position (0.1 precision)
+    INT16_ROT: 9,  // Quantized rotation (0.001 precision)
+    INT32: 10,     // 32-bit integer
+} as const;
+
+/**
  * Custom binary serializer with quantization
  * Optimizes numbers: positions (int16 with 0.1 precision), rotations (int16 with 0.001 precision)
  */
@@ -63,58 +81,80 @@ function serializeToBinary(obj: any): ArrayBuffer {
         parts.push(bytes);
     }
     
-    function writeNumber(num: number, quantize: boolean = false, precision: number = 1): void {
-        if (quantize) {
-            // Quantize: round to precision and convert to int16
-            const quantized = Math.round(num / precision);
-            const clamped = Math.max(-32768, Math.min(32767, quantized));
-            const bytes = new Uint8Array(2);
-            new DataView(bytes.buffer).setInt16(0, clamped, true);
-            parts.push(bytes);
-        } else {
-            // Full float32
-            const bytes = new Uint8Array(4);
-            new DataView(bytes.buffer).setFloat32(0, num, true);
-            parts.push(bytes);
-        }
+    function writeInt16(num: number): void {
+        const bytes = new Uint8Array(2);
+        new DataView(bytes.buffer).setInt16(0, num, true);
+        parts.push(bytes);
+    }
+    
+    function writeFloat32(num: number): void {
+        const bytes = new Uint8Array(4);
+        new DataView(bytes.buffer).setFloat32(0, num, true);
+        parts.push(bytes);
+    }
+    
+    function writeInt32(num: number): void {
+        const bytes = new Uint8Array(4);
+        new DataView(bytes.buffer).setInt32(0, num, true);
+        parts.push(bytes);
     }
     
     function serializeValue(value: any, path: string = ""): void {
         if (value === null || value === undefined) {
-            parts.push(new Uint8Array([0])); // null marker
+            parts.push(new Uint8Array([TYPE_MARKERS.NULL]));
             return;
         }
         
         const type = typeof value;
         
         if (type === "boolean") {
-            parts.push(new Uint8Array([value ? 2 : 1])); // true: 2, false: 1
+            parts.push(new Uint8Array([value ? TYPE_MARKERS.TRUE : TYPE_MARKERS.FALSE]));
         } else if (type === "number") {
             // Check if this is a position/rotation field for quantization
-            const isPosition = path.includes("position") || path.includes("x") || path.includes("y") || path.includes("z");
-            const isRotation = path.includes("rotation") || path.includes("aimPitch");
+            const isPositionKey = path.includes("position") || path.endsWith(".x") || path.endsWith(".y") || path.endsWith(".z");
+            const isRotation = path.includes("rotation") || path.includes("aimPitch") || path.includes("turretRotation");
             
-            if (isPosition) {
-                writeNumber(value, true, 0.1); // Quantize positions to 0.1 units
+            if (isPositionKey && !path.includes("rotation")) {
+                // Quantize positions to 0.1 units
+                const quantized = Math.round(value / 0.1);
+                const clamped = Math.max(-32768, Math.min(32767, quantized));
+                parts.push(new Uint8Array([TYPE_MARKERS.INT16_POS]));
+                writeInt16(clamped);
             } else if (isRotation) {
-                writeNumber(value, true, 0.001); // Quantize rotations to 0.001 rad
+                // Quantize rotations to 0.001 rad
+                const quantized = Math.round(value / 0.001);
+                const clamped = Math.max(-32768, Math.min(32767, quantized));
+                parts.push(new Uint8Array([TYPE_MARKERS.INT16_ROT]));
+                writeInt16(clamped);
             } else if (Number.isInteger(value) && value >= 0 && value <= 255) {
                 // Small integers as uint8
-                parts.push(new Uint8Array([3, value])); // uint8 marker
+                parts.push(new Uint8Array([TYPE_MARKERS.UINT8, value]));
+            } else if (Number.isInteger(value) && value >= -2147483648 && value <= 2147483647) {
+                // 32-bit integers (for timestamps, IDs)
+                parts.push(new Uint8Array([TYPE_MARKERS.INT32]));
+                writeInt32(value);
             } else {
-                writeNumber(value, false); // Full float32
+                // Full float32 for other numbers
+                parts.push(new Uint8Array([TYPE_MARKERS.FLOAT32]));
+                writeFloat32(value);
             }
         } else if (type === "string") {
-            parts.push(new Uint8Array([4])); // string marker
+            parts.push(new Uint8Array([TYPE_MARKERS.STRING]));
             writeString(value);
         } else if (Array.isArray(value)) {
-            parts.push(new Uint8Array([5])); // array marker
-            writeNumber(value.length, false);
+            parts.push(new Uint8Array([TYPE_MARKERS.ARRAY]));
+            // Write array length as uint16
+            const lengthBytes = new Uint8Array(2);
+            new DataView(lengthBytes.buffer).setUint16(0, value.length, true);
+            parts.push(lengthBytes);
             value.forEach((item, i) => serializeValue(item, `${path}[${i}]`));
         } else if (type === "object") {
-            parts.push(new Uint8Array([6])); // object marker
+            parts.push(new Uint8Array([TYPE_MARKERS.OBJECT]));
             const keys = Object.keys(value);
-            writeNumber(keys.length, false);
+            // Write object key count as uint16
+            const countBytes = new Uint8Array(2);
+            new DataView(countBytes.buffer).setUint16(0, keys.length, true);
+            parts.push(countBytes);
             keys.forEach(key => {
                 writeString(key);
                 serializeValue(value[key], path ? `${path}.${key}` : key);
@@ -151,61 +191,84 @@ function deserializeFromBinary(buffer: ArrayBuffer): any {
         return new TextDecoder().decode(bytes);
     }
     
-    function readNumber(quantized: boolean = false, precision: number = 1): number {
-        if (quantized) {
-            const value = view.getInt16(offset, true);
-            offset += 2;
-            return value * precision;
-        } else {
-            const value = view.getFloat32(offset, true);
-            offset += 4;
-            return value;
-        }
+    function readInt16(): number {
+        const value = view.getInt16(offset, true);
+        offset += 2;
+        return value;
+    }
+    
+    function readFloat32(): number {
+        const value = view.getFloat32(offset, true);
+        offset += 4;
+        return value;
+    }
+    
+    function readInt32(): number {
+        const value = view.getInt32(offset, true);
+        offset += 4;
+        return value;
+    }
+    
+    function readUint16(): number {
+        const value = view.getUint16(offset, true);
+        offset += 2;
+        return value;
     }
     
     function deserializeValue(path: string = ""): any {
+        if (offset >= buffer.byteLength) {
+            return null;
+        }
+        
         const marker = view.getUint8(offset);
         offset++;
         
-        if (marker === 0) return null;
-        if (marker === 1) return false;
-        if (marker === 2) return true;
-        if (marker === 3) {
-            const value = view.getUint8(offset);
-            offset++;
-            return value;
-        }
-        if (marker === 4) return readString();
-        if (marker === 5) {
-            const length = readNumber(false);
-            const arr: any[] = [];
-            for (let i = 0; i < length; i++) {
-                arr.push(deserializeValue(`${path}[${i}]`));
+        switch (marker) {
+            case TYPE_MARKERS.NULL:
+                return null;
+            case TYPE_MARKERS.FALSE:
+                return false;
+            case TYPE_MARKERS.TRUE:
+                return true;
+            case TYPE_MARKERS.UINT8: {
+                const value = view.getUint8(offset);
+                offset++;
+                return value;
             }
-            return arr;
-        }
-        if (marker === 6) {
-            const length = readNumber(false);
-            const obj: any = {};
-            for (let i = 0; i < length; i++) {
-                const key = readString();
-                const isPosition = path.includes("position") || key === "x" || key === "y" || key === "z";
-                const isRotation = path.includes("rotation") || key === "aimPitch" || key === "rotation";
-                
-                if (isPosition) {
-                    obj[key] = readNumber(true, 0.1);
-                } else if (isRotation) {
-                    obj[key] = readNumber(true, 0.001);
-                } else {
+            case TYPE_MARKERS.STRING:
+                return readString();
+            case TYPE_MARKERS.FLOAT32:
+                return readFloat32();
+            case TYPE_MARKERS.INT16_POS:
+                // Dequantize position (0.1 precision)
+                return readInt16() * 0.1;
+            case TYPE_MARKERS.INT16_ROT:
+                // Dequantize rotation (0.001 precision)
+                return readInt16() * 0.001;
+            case TYPE_MARKERS.INT32:
+                return readInt32();
+            case TYPE_MARKERS.ARRAY: {
+                const length = readUint16();
+                const arr: any[] = [];
+                for (let i = 0; i < length; i++) {
+                    arr.push(deserializeValue(`${path}[${i}]`));
+                }
+                return arr;
+            }
+            case TYPE_MARKERS.OBJECT: {
+                const keyCount = readUint16();
+                const obj: any = {};
+                for (let i = 0; i < keyCount; i++) {
+                    const key = readString();
                     obj[key] = deserializeValue(path ? `${path}.${key}` : key);
                 }
+                return obj;
             }
-            return obj;
+            default:
+                // Unknown marker - skip and return null
+                console.warn(`[Protocol] Unknown type marker: ${marker} at offset ${offset - 1}`);
+                return null;
         }
-        
-        // Fallback: try to read as float32
-        offset--; // Rewind
-        return readNumber(false);
     }
     
     return deserializeValue();

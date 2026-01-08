@@ -1808,9 +1808,38 @@ export class TankController {
         return this.healthModule.die();
     }
 
+    /**
+     * Сбрасывает все характеристики танка к базовым значениям из chassisType/cannonType.
+     * КРИТИЧНО: Должна вызываться ПЕРЕД применением любых бонусов,
+     * чтобы предотвратить накопление бонусов при респавне.
+     */
+    private resetBaseStats(): void {
+        // Сбрасываем характеристики к базовым значениям из типа шасси
+        this.mass = this.chassisType.mass;
+        this.moveSpeed = this.chassisType.moveSpeed;
+        this.turnSpeed = this.chassisType.turnSpeed;
+        this.acceleration = this.chassisType.acceleration;
+        this.maxHealth = this.chassisType.maxHealth;
+        
+        // Сбрасываем характеристики к базовым значениям из типа пушки
+        this.cooldown = this.cannonType.cooldown;
+        this.baseCooldown = this.cannonType.cooldown;
+        this.damage = this.cannonType.damage;
+        this.projectileSpeed = this.cannonType.projectileSpeed;
+        this.projectileSize = this.cannonType.projectileSize;
+        
+        // Сбрасываем скорость поворота башни к базовым значениям
+        this.turretSpeed = 0.08;
+        this.baseTurretSpeed = 0.08;
+    }
+
     // Применить улучшения из гаража и бонусы от уровня опыта
     applyUpgrades(): void {
         try {
+            // КРИТИЧНО: Сначала сбрасываем все характеристики к базовым значениям
+            // Это предотвращает накопление бонусов при каждом респавне
+            this.resetBaseStats();
+            
             // === 1. УЛУЧШЕНИЯ ИЗ ГАРАЖА ===
             const saved = localStorage.getItem("tx_garage_progress");
             if (saved) {
@@ -1882,7 +1911,9 @@ export class TankController {
                 this.damage += skillBonuses.damageBonus;
                 this.moveSpeed += skillBonuses.speedBonus;
                 this.cooldown = Math.max(300, this.cooldown - skillBonuses.reloadBonus);
-                this.turnSpeed += skillBonuses.turretSpeedBonus;
+                // ИСПРАВЛЕНО: turretSpeedBonus влияет на скорость БАШНИ, а не корпуса
+                this.turretSpeed += skillBonuses.turretSpeedBonus;
+                this.baseTurretSpeed += skillBonuses.turretSpeedBonus;
                 
                 logger.log(`[Tank] Skill bonuses applied: +${skillBonuses.healthBonus} HP, +${skillBonuses.damageBonus} dmg, +${skillBonuses.speedBonus.toFixed(1)} speed`);
             }
@@ -2172,8 +2203,13 @@ export class TankController {
         const targetX = respawnPos.x;
         const targetZ = respawnPos.z;
         
-        // КРИТИЧНО: Если танк уже находится в гараже (переодевание), сохраняем текущую Y-позицию
-        // НЕ поднимаем танк вверх, чтобы он не застревал в потолке
+        // КРИТИЧНО: Проверяем был ли танк уже телепортирован через startGarageRespawn
+        // Если да - НЕ пересчитываем позицию, просто используем текущую (избегаем дёрганья)
+        const wasTeleportedToGarage = (this as any)._wasTeleportedToGarage === true;
+        
+        // КРИТИЧНО: Проверяем флаг переодевания на месте (из GameGarage)
+        const isInPlaceDressing = (this as any)._inPlaceDressing === true;
+        
         let targetY = respawnPos.y;
         
         // Проверяем, находится ли танк в гараже через gameGarage
@@ -2182,12 +2218,24 @@ export class TankController {
             isInGarage = (game as any).gameGarage.isPlayerInAnyGarage();
         }
         
-        // Если танк в гараже - используем текущую Y-позицию (не поднимаем)
-        if (isInGarage && this.chassis) {
+        // КРИТИЧНО: Если переодевание на месте - используем ПЕРЕДАННУЮ позицию БЕЗ ИЗМЕНЕНИЙ
+        if (isInPlaceDressing) {
+            // Используем Y из respawnPos (которая уже содержит текущую позицию танка)
+            targetY = respawnPos.y;
+            logger.log(`[TANK] In-place dressing: using exact position Y=${targetY.toFixed(2)}`);
+        }
+        // Если танк уже был телепортирован в гараж - используем текущую позицию (без пересчёта!)
+        else if (wasTeleportedToGarage && this.chassis) {
+            targetY = this.chassis.position.y;
+            logger.log(`[TANK] Tank was teleported to garage, using current Y: ${targetY.toFixed(2)}`);
+            // Сбрасываем флаг
+            (this as any)._wasTeleportedToGarage = false;
+        } else if (isInGarage && this.chassis) {
+            // Танк в гараже (переодевание) - сохраняем Y-позицию
             targetY = this.chassis.position.y;
             logger.log(`[TANK] Tank is in garage, preserving Y position: ${targetY.toFixed(2)}`);
         } else {
-            // Если танк НЕ в гараже - вычисляем высоту террейна и корректируем позицию
+            // Если танк НЕ в гараже и НЕ был телепортирован - вычисляем высоту террейна
             if (game && typeof game.getGroundHeight === 'function') {
                 const groundHeight = game.getGroundHeight(targetX, targetZ);
                 // Безопасная высота: +5м над террейном, минимум 7м
@@ -2522,6 +2570,9 @@ export class TankController {
             // НЕ поднимаем танк вверх, чтобы он не застревал в потолке
             let targetY = respawnPos.y;
             
+            // Проверяем флаг переодевания на месте (устанавливается из GameGarage)
+            const isInPlaceDressingHere = (this as any)._inPlaceDressing === true;
+            
             // Проверяем, находится ли танк в гараже через gameGarage
             const game = (window as any).gameInstance;
             let isInGarage = false;
@@ -2529,12 +2580,17 @@ export class TankController {
                 isInGarage = (game as any).gameGarage.isPlayerInAnyGarage();
             }
             
+            // КРИТИЧНО: Если переодевание на месте - используем ТОЧНУЮ позицию из respawnPos
+            if (isInPlaceDressingHere) {
+                targetY = respawnPos.y;
+                logger.log(`[TANK] In-place dressing (teleport): keeping exact Y=${targetY.toFixed(2)}`);
+            }
             // Если танк в гараже - используем текущую Y-позицию (не поднимаем)
-            if (isInGarage && this.chassis) {
+            else if (isInGarage && this.chassis) {
                 targetY = this.chassis.position.y;
                 logger.log(`[TANK] Tank is in garage, preserving Y position: ${targetY.toFixed(2)}`);
             } else if (game && typeof game.getGroundHeight === 'function') {
-                // Если танк НЕ в гараже - вычисляем высоту террейна и корректируем позицию
+                // Если танк НЕ в гараже и НЕ переодевание - вычисляем высоту террейна и корректируем позицию
                 const groundHeight = game.getGroundHeight(targetX, targetZ);
                 // Безопасная высота: +5м над террейном, минимум 7м
                 targetY = Math.max(groundHeight + 5.0, 7.0);
@@ -2607,13 +2663,17 @@ export class TankController {
             this.activateInvulnerability();
             
             // 8. Включаем физику обратно через задержку (ОДИН раз, чтобы избежать конфликтов)
-            // КРИТИЧНО: Сохраняем флаг пересоздания башни для использования в setTimeout
+            // КРИТИЧНО: Сохраняем флаги для использования в setTimeout
             const turretWasRecreatedForTimeout = turretWasRecreated;
+            const isInPlaceDressingForTimeout = isInPlaceDressingHere; // Сохраняем флаг ДО setTimeout
             setTimeout(() => {
                 if (this.physicsBody && this.chassis) {
-                    // КРИТИЧНО: Если танк в гараже, сохраняем текущую Y-позицию (не поднимаем)
+                    // КРИТИЧНО: Если танк в гараже или переодевание на месте, сохраняем текущую Y-позицию (не поднимаем)
                     const game = (window as any).gameInstance;
                     let finalY = targetY;
+                    
+                    // Используем СОХРАНЁННЫЙ флаг переодевания на месте (не читаем заново, он мог уже сброситься)
+                    const isInPlaceDressing = isInPlaceDressingForTimeout;
                     
                     // Проверяем, находится ли танк в гараже
                     let isInGarage = false;
@@ -2621,8 +2681,13 @@ export class TankController {
                         isInGarage = (game as any).gameGarage.isPlayerInAnyGarage();
                     }
                     
+                    // КРИТИЧНО: Если переодевание на месте - используем ТОЧНУЮ Y-позицию из targetY (уже установлена ранее)
+                    if (isInPlaceDressing) {
+                        finalY = targetY; // targetY уже содержит правильную высоту из respawnPos
+                        logger.log(`[TANK] In-place dressing: keeping Y=${finalY.toFixed(2)}`);
+                    }
                     // Если танк в гараже - используем текущую Y-позицию (не поднимаем)
-                    if (isInGarage && this.chassis) {
+                    else if (isInGarage && this.chassis) {
                         finalY = this.chassis.position.y;
                     } else if (game && typeof game.getGroundHeight === 'function') {
                         // Если танк НЕ в гараже - вычисляем высоту террейна
@@ -5805,6 +5870,13 @@ export class TankController {
             this._barrelRecoilY += (this._barrelRecoilYTarget - this._barrelRecoilY) * this.barrelRecoilSpeed;
             
             // ИСПРАВЛЕНИЕ: Применяем вертикальное движение ствола при прицеливании (aimPitch) с плавной интерполяцией
+            // КРИТИЧНО: Восстанавливаем parent если он потерялся (например, после переодевания)
+            if (this.barrel && !this.barrel.isDisposed() && this.turret && !this.turret.isDisposed()) {
+                if (this.barrel.parent !== this.turret) {
+                    logger.warn(`[TankController] Barrel parent lost, restoring to turret`);
+                    this.barrel.parent = this.turret;
+                }
+            }
             if (this.barrel && !this.barrel.isDisposed() && this.barrel.parent === this.turret && isFinite(this.aimPitch)) {
                 // Применяем aimPitch к rotation.x ствола (вертикальный поворот)
                 // Ограничиваем угол от -10° (вниз) до +5° (вверх)

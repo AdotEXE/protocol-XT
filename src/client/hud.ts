@@ -15,6 +15,7 @@ import { getAddressFromCoordinates } from "./tartuRoads";
 import { ScreenFlashEffect, type FlashDirection } from "./hud/components/ScreenFlashEffect";
 import { TargetHealthBar, type TargetInfo } from "./hud/components/TargetHealthBar";
 import { EFFECTS_CONFIG } from "./effects/EffectsConfig";
+import type { TankStatsData, StatWithBonus } from "./hud/HUDTypes";
 import { 
     SpeedIndicator, 
     DEFAULT_SPEED_CONFIG,
@@ -205,6 +206,22 @@ export class HUD {
     private speedStatText: TextBlock | null = null;
     private healthStatText: TextBlock | null = null;
     
+    // === DETAILED TANK STATS PANEL (левый нижний угол) ===
+    private detailedStatsPanel: Rectangle | null = null;
+    private detailedStatsTabs: Rectangle[] = [];
+    private detailedStatsActiveTab = 0; // 0=шасси, 1=пушка, 2=гусеницы, 3=бонусы
+    private detailedStatsContent: Rectangle | null = null;
+    private detailedStatsRows: TextBlock[] = [];
+    private detailedStatsTitle: TextBlock | null = null;
+    private cachedTankStatsData: import("./hud/HUDTypes").TankStatsData | null = null;
+    private detailedStatsMinimized = false; // Панель свёрнута
+    private detailedStatsExpandedAll = false; // Все вкладки развёрнуты
+    private detailedStatsHeader: Rectangle | null = null; // Заголовок с кнопками
+    private detailedStatsMinimizeBtn: Rectangle | null = null; // Кнопка свернуть
+    private detailedStatsCloseBtn: Rectangle | null = null; // Кнопка закрыть
+    private detailedStatsExpandBtn: Rectangle | null = null; // Кнопка развернуть все вкладки
+    private detailedStatsExpandedRows: TextBlock[] = []; // Дополнительные строки для режима "все вкладки"
+    
     // FPS counter
     private fpsText: TextBlock | null = null;
     
@@ -318,6 +335,7 @@ export class HUD {
     private sessionKills = 0;
     private sessionDamage = 0;
     private sessionStartTime = Date.now();
+    private onRespawnStartCallback: (() => void) | null = null;
     
     // Directional damage indicators (legacy - будет заменён на ScreenFlashEffect)
     private damageDirectionIndicators: Map<string, { element: Rectangle, fadeTime: number }> = new Map();
@@ -408,6 +426,8 @@ export class HUD {
         this._createCurrencyDisplay(); // Скрытый дисплей кредитов (для статистики)
         // ОПТИМИЗАЦИЯ: Индикатор прогрузки карты в нижнем левом углу
         this.createMapLoadingIndicator();
+        // Детальная панель характеристик танка (левый нижний угол)
+        this.createDetailedTankStatsPanel();
         
         // Инициализируем значения блока состояния (если есть начальные значения)
         if (this.tankStatusContainer && this.currentHealth > 0 && this.maxHealth > 0) {
@@ -772,183 +792,61 @@ export class HUD {
         animate();
     }
     
-    // Показать эффект повышения уровня части - СОВРЕМЕННЫЙ СТИЛЬНЫЙ ДИЗАЙН
+    // Показать эффект повышения уровня - ТЕРМИНАЛЬНЫЙ СТИЛЬ
     showLevelUp(level: number, title: string, type: "chassis" | "cannon"): void {
         const typeColor = type === "chassis" ? "#0ff" : "#f80";
         const typeName = type === "chassis" ? "CHASSIS" : "CANNON";
-        const typeIcon = type === "chassis" ? "⚙" : "💥";
         
-        // Основной контейнер - компактный и стильный
         const container = new Rectangle(`levelUp_${Date.now()}`);
-        container.width = this.scalePx(360);
-        container.height = this.scalePx(110);
+        container.width = this.scalePx(380);
+        container.height = this.scalePx(100);
         container.cornerRadius = 0;
-        container.thickness = 3;
+        container.thickness = 2;
         container.color = typeColor;
-        container.background = "rgba(0, 0, 0, 0.95)";
+        container.background = "#000";
         container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         container.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        container.top = this.scalePx(-100);
-        container.shadowBlur = 25;
-        container.shadowColor = typeColor;
+        container.top = this.scalePx(-120);
+        container.shadowBlur = 15;
+        container.shadowColor = typeColor + "80";
         this.guiTexture.addControl(container);
         
-        // Внутренняя рамка с эффектом свечения
-        const innerBorder = new Rectangle("levelUpInnerBorder");
-        innerBorder.width = "98%";
-        innerBorder.height = "96%";
-        innerBorder.thickness = 1;
-        innerBorder.color = typeColor + "aa";
-        innerBorder.background = "transparent";
-        container.addControl(innerBorder);
+        // Системный заголовок
+        const sysHeader = new TextBlock("levelUpSysHeader");
+        sysHeader.text = `>>> ${typeName} UPGRADE <<<`;
+        sysHeader.color = "#0f0";
+        sysHeader.fontSize = this.scaleFontSize(9, 7, 11);
+        sysHeader.fontFamily = "Consolas, 'Courier New', monospace";
+        sysHeader.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        sysHeader.top = this.scalePx(-35);
+        container.addControl(sysHeader);
         
-        // Верхняя полоса с типом части
-        const typeBar = new Rectangle("levelUpTypeBar");
-        typeBar.width = "100%";
-        typeBar.height = this.scalePx(22);
-        typeBar.cornerRadius = 0;
-        typeBar.thickness = 0;
-        typeBar.color = typeColor;
-        typeBar.background = typeColor + "40";
-        typeBar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        typeBar.top = this.scalePx(-55);
-        container.addControl(typeBar);
+        // Главный текст
+        const titleText = new TextBlock("levelUpTitle");
+        titleText.text = "▲ LEVEL UP ▲";
+        titleText.color = typeColor;
+        titleText.fontSize = this.scaleFontSize(22, 16, 28);
+        titleText.fontWeight = "bold";
+        titleText.fontFamily = "Consolas, 'Courier New', monospace";
+        titleText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        titleText.top = this.scalePx(-8);
+        titleText.shadowBlur = 8;
+        titleText.shadowColor = typeColor;
+        container.addControl(titleText);
         
-        // Текст типа части в верхней полосе
-        const typeLabel = new TextBlock("levelUpTypeLabel");
-        typeLabel.text = `${typeIcon} ${typeName}`;
-        typeLabel.color = "#fff";
-        typeLabel.fontSize = this.scaleFontSize(9, 8, 10);
-        typeLabel.fontWeight = "bold";
-        typeLabel.fontFamily = "Consolas, 'Courier New', monospace";
-        typeLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        typeLabel.top = this.scalePx(-52);
-        container.addControl(typeLabel);
-        
-        // Главный заголовок - LEVEL UP
-        const mainTitle = new TextBlock("levelUpMainTitle");
-        mainTitle.text = "LEVEL UP";
-        mainTitle.color = typeColor;
-        mainTitle.fontSize = this.scaleFontSize(20, 16, 24);
-        mainTitle.fontWeight = "bold";
-        mainTitle.fontFamily = "Consolas, 'Courier New', monospace";
-        mainTitle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        mainTitle.top = this.scalePx(-20);
-        mainTitle.shadowBlur = 8;
-        mainTitle.shadowColor = typeColor;
-        container.addControl(mainTitle);
-        
-        // Уровень и звание - крупно и стильно
+        // Уровень и название (с префиксом типа части для ясности)
         const levelText = new TextBlock("levelUpLevel");
-        levelText.text = `LVL ${level}  •  ${title.toUpperCase()}`;
+        levelText.text = `[${typeName}] LVL ${level}: ${title.toUpperCase()}`;
         levelText.color = "#fff";
-        levelText.fontSize = this.scaleFontSize(14, 12, 16);
-        levelText.fontWeight = "bold";
+        levelText.fontSize = this.scaleFontSize(14, 11, 18);
         levelText.fontFamily = "Consolas, 'Courier New', monospace";
         levelText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        levelText.top = this.scalePx(10);
+        levelText.top = this.scalePx(25);
         container.addControl(levelText);
         
-        // Декоративные углы
-        const cornerSize = this.scalePx(8);
-        const cornerThickness = 2;
-        
-        // Левый верхний угол
-        const cornerTL = new Rectangle("cornerTL");
-        cornerTL.width = cornerSize + "px";
-        cornerTL.height = cornerThickness + "px";
-        cornerTL.thickness = 0;
-        cornerTL.color = typeColor;
-        cornerTL.background = typeColor;
-        cornerTL.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        cornerTL.top = this.scalePx(-55);
-        cornerTL.left = this.scalePx(-4);
-        container.addControl(cornerTL);
-        
-        const cornerTLV = new Rectangle("cornerTLV");
-        cornerTLV.width = cornerThickness + "px";
-        cornerTLV.height = cornerSize + "px";
-        cornerTLV.thickness = 0;
-        cornerTLV.color = typeColor;
-        cornerTLV.background = typeColor;
-        cornerTLV.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        cornerTLV.top = this.scalePx(-55);
-        cornerTLV.left = this.scalePx(-4);
-        container.addControl(cornerTLV);
-        
-        // Правый верхний угол
-        const cornerTR = new Rectangle("cornerTR");
-        cornerTR.width = cornerSize + "px";
-        cornerTR.height = cornerThickness + "px";
-        cornerTR.thickness = 0;
-        cornerTR.color = typeColor;
-        cornerTR.background = typeColor;
-        cornerTR.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        cornerTR.top = this.scalePx(-55);
-        cornerTR.left = this.scalePx(4);
-        container.addControl(cornerTR);
-        
-        const cornerTRV = new Rectangle("cornerTRV");
-        cornerTRV.width = cornerThickness + "px";
-        cornerTRV.height = cornerSize + "px";
-        cornerTRV.thickness = 0;
-        cornerTRV.color = typeColor;
-        cornerTRV.background = typeColor;
-        cornerTRV.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        cornerTRV.top = this.scalePx(-55);
-        cornerTRV.left = this.scalePx(4);
-        container.addControl(cornerTRV);
-        
-        // Левый нижний угол
-        const cornerBL = new Rectangle("cornerBL");
-        cornerBL.width = cornerSize + "px";
-        cornerBL.height = cornerThickness + "px";
-        cornerBL.thickness = 0;
-        cornerBL.color = typeColor;
-        cornerBL.background = typeColor;
-        cornerBL.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        cornerBL.top = this.scalePx(53);
-        cornerBL.left = this.scalePx(-4);
-        container.addControl(cornerBL);
-        
-        const cornerBLV = new Rectangle("cornerBLV");
-        cornerBLV.width = cornerThickness + "px";
-        cornerBLV.height = cornerSize + "px";
-        cornerBLV.thickness = 0;
-        cornerBLV.color = typeColor;
-        cornerBLV.background = typeColor;
-        cornerBLV.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        cornerBLV.top = this.scalePx(45);
-        cornerBLV.left = this.scalePx(-4);
-        container.addControl(cornerBLV);
-        
-        // Правый нижний угол
-        const cornerBR = new Rectangle("cornerBR");
-        cornerBR.width = cornerSize + "px";
-        cornerBR.height = cornerThickness + "px";
-        cornerBR.thickness = 0;
-        cornerBR.color = typeColor;
-        cornerBR.background = typeColor;
-        cornerBR.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        cornerBR.top = this.scalePx(53);
-        cornerBR.left = this.scalePx(4);
-        container.addControl(cornerBR);
-        
-        const cornerBRV = new Rectangle("cornerBRV");
-        cornerBRV.width = cornerThickness + "px";
-        cornerBRV.height = cornerSize + "px";
-        cornerBRV.thickness = 0;
-        cornerBRV.color = typeColor;
-        cornerBRV.background = typeColor;
-        cornerBRV.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        cornerBRV.top = this.scalePx(45);
-        cornerBRV.left = this.scalePx(4);
-        container.addControl(cornerBRV);
-        
-        // Анимация появления и исчезновения
+        // Анимация
         let alpha = 0;
-        let scale = 0.8;
-        let phase = 0; // 0 = появление, 1 = показ, 2 = исчезновение
+        let phase = 0;
         let startTime = Date.now();
         let blinkTime = 0;
         
@@ -956,43 +854,31 @@ export class HUD {
             const elapsed = Date.now() - startTime;
             blinkTime += 16;
             
-            // Пульсация внутренней рамки
-            const pulse = Math.sin(blinkTime / 200) * 0.15 + 0.85;
-            innerBorder.alpha = pulse;
-            
-            // Пульсация верхней полосы
-            const barPulse = Math.sin(blinkTime / 150) * 0.1 + 0.9;
-            typeBar.alpha = barPulse;
+            // Мигание бордера
+            const pulse = Math.sin(blinkTime / 150) * 0.2 + 0.8;
+            container.color = typeColor;
+            container.alpha = alpha * pulse;
             
             if (phase === 0) {
-                // Плавное появление с масштабированием (0.3 секунды)
-                const progress = Math.min(elapsed / 300, 1);
+                // Быстрое появление
+                const progress = Math.min(elapsed / 150, 1);
                 alpha = progress;
-                scale = 0.8 + (progress * 0.2); // От 0.8 до 1.0
-                container.scaleX = scale;
-                container.scaleY = scale;
                 
                 if (progress >= 1) {
                     alpha = 1;
-                    scale = 1;
-                    container.scaleX = 1;
-                    container.scaleY = 1;
                     phase = 1;
                     startTime = Date.now();
                 }
             } else if (phase === 1) {
-                // Показ (2.5 секунды)
-                if (elapsed >= 2500) {
+                // Показ
+                if (elapsed >= 1800) {
                     phase = 2;
                     startTime = Date.now();
                 }
             } else {
-                // Плавное исчезновение с масштабированием (0.25 секунды)
+                // Быстрое исчезновение
                 const progress = Math.min(elapsed / 250, 1);
                 alpha = 1 - progress;
-                scale = 1 - (progress * 0.2); // От 1.0 до 0.8
-                container.scaleX = scale;
-                container.scaleY = scale;
                 
                 if (progress >= 1) {
                     container.dispose();
@@ -4643,8 +4529,9 @@ export class HUD {
         }
     }
     
-    showDeathMessage() {
+    showDeathMessage(onRespawnStart?: () => void) {
         this.showMessage("DESTROYED! RESPAWN IN 3...", "#f00");
+        this.onRespawnStartCallback = onRespawnStart || null;
         this.showDeathScreen();
     }
     
@@ -4773,7 +4660,7 @@ export class HUD {
         
         this.deathScreen.isVisible = true;
         
-        // Анимация обратного отсчёта
+        // Анимация обратного отсчёта - 3 секунды
         let countdown = 3;
         const updateCountdown = () => {
             if (this.deathRespawnText && this.deathScreen?.isVisible) {
@@ -4782,10 +4669,16 @@ export class HUD {
                     countdown--;
                     setTimeout(updateCountdown, 1000);
                 } else {
-                    // После завершения таймера скрываем окно
+                    // После завершения таймера: скрываем окно и вызываем callback для респавна
                     this.deathRespawnText.text = "RESPAWNING...";
                     setTimeout(() => {
                         this.hideDeathScreen();
+                        // ВАЖНО: Вызываем callback для телепорта в гараж и анимации сборки
+                        if (this.onRespawnStartCallback) {
+                            console.log("[HUD] Death countdown finished, calling respawn callback...");
+                            this.onRespawnStartCallback();
+                            this.onRespawnStartCallback = null; // Очищаем после вызова
+                        }
                     }, 500);
                 }
             }
@@ -8705,6 +8598,784 @@ export class HUD {
     private _createComboParticles(_comboCount: number): void {
         // Placeholder для метода создания частиц комбо
         // Можно реализовать позже если нужно
+    }
+    
+    // ============================================================
+    // === DETAILED TANK STATS PANEL (ЛЕВЫЙ НИЖНИЙ УГОЛ) ===
+    // ============================================================
+    
+    /**
+     * Создание детальной панели характеристик танка с вкладками
+     */
+    private createDetailedTankStatsPanel(): void {
+        const PANEL_WIDTH = 260;
+        const PANEL_HEIGHT = 310; // Увеличено для заголовка
+        const HEADER_HEIGHT = 22; // Заголовок с кнопками
+        const TAB_HEIGHT = 24;
+        const PADDING = 10;
+        const ROW_HEIGHT = 18;
+        const FONT_SIZE = 9;
+        const BTN_SIZE = 18;
+        
+        // Главный контейнер панели
+        this.detailedStatsPanel = new Rectangle("detailedStatsPanel");
+        this.detailedStatsPanel.width = this.scalePx(PANEL_WIDTH);
+        this.detailedStatsPanel.height = this.scalePx(PANEL_HEIGHT);
+        this.detailedStatsPanel.cornerRadius = 0;
+        this.detailedStatsPanel.thickness = 1;
+        this.detailedStatsPanel.color = "#00ff00";
+        this.detailedStatsPanel.background = "rgba(0, 30, 0, 0.85)";
+        this.detailedStatsPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.detailedStatsPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        this.detailedStatsPanel.left = this.scalePx(10);
+        this.detailedStatsPanel.top = this.scalePx(-10);
+        this.detailedStatsPanel.isVisible = true;
+        this.detailedStatsPanel.zIndex = 100;
+        this.guiTexture.addControl(this.detailedStatsPanel);
+        
+        // === ЗАГОЛОВОК С КНОПКАМИ ===
+        this.detailedStatsHeader = new Rectangle("detailedStatsHeader");
+        this.detailedStatsHeader.width = this.scalePx(PANEL_WIDTH - PADDING * 2);
+        this.detailedStatsHeader.height = this.scalePx(HEADER_HEIGHT);
+        this.detailedStatsHeader.cornerRadius = 0;
+        this.detailedStatsHeader.thickness = 0;
+        this.detailedStatsHeader.background = "rgba(0, 60, 0, 0.9)";
+        this.detailedStatsHeader.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.detailedStatsHeader.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.detailedStatsHeader.top = this.scalePx(PADDING / 2);
+        this.detailedStatsPanel.addControl(this.detailedStatsHeader);
+        
+        // Заголовок панели
+        const headerTitle = new TextBlock("headerTitle");
+        headerTitle.text = "⚙ ХАРАКТЕРИСТИКИ";
+        headerTitle.color = "#00ff00";
+        headerTitle.fontSize = this.scaleFontSize(8, 7, 10);
+        headerTitle.fontWeight = "bold";
+        headerTitle.fontFamily = "'Press Start 2P', monospace";
+        headerTitle.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        headerTitle.left = this.scalePx(6);
+        this.detailedStatsHeader.addControl(headerTitle);
+        
+        // === КНОПКА ЗАКРЫТЬ (X) ===
+        this.detailedStatsCloseBtn = new Rectangle("statsCloseBtn");
+        this.detailedStatsCloseBtn.width = this.scalePx(BTN_SIZE);
+        this.detailedStatsCloseBtn.height = this.scalePx(BTN_SIZE);
+        this.detailedStatsCloseBtn.cornerRadius = 2;
+        this.detailedStatsCloseBtn.thickness = 1;
+        this.detailedStatsCloseBtn.color = "#ff4444";
+        this.detailedStatsCloseBtn.background = "rgba(100, 0, 0, 0.8)";
+        this.detailedStatsCloseBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.detailedStatsCloseBtn.left = this.scalePx(-2);
+        this.detailedStatsCloseBtn.isPointerBlocker = true;
+        this.detailedStatsHeader.addControl(this.detailedStatsCloseBtn);
+        
+        const closeBtnText = new TextBlock("closeBtnText");
+        closeBtnText.text = "×";
+        closeBtnText.color = "#ff4444";
+        closeBtnText.fontSize = this.scaleFontSize(14, 12, 16);
+        closeBtnText.fontWeight = "bold";
+        this.detailedStatsCloseBtn.addControl(closeBtnText);
+        
+        this.detailedStatsCloseBtn.onPointerClickObservable.add(() => {
+            this.setDetailedStatsPanelVisible(false);
+        });
+        this.detailedStatsCloseBtn.onPointerEnterObservable.add(() => {
+            this.detailedStatsCloseBtn!.background = "rgba(150, 0, 0, 0.9)";
+        });
+        this.detailedStatsCloseBtn.onPointerOutObservable.add(() => {
+            this.detailedStatsCloseBtn!.background = "rgba(100, 0, 0, 0.8)";
+        });
+        
+        // === КНОПКА СВЕРНУТЬ/РАЗВЕРНУТЬ (—/▢) ===
+        this.detailedStatsMinimizeBtn = new Rectangle("statsMinimizeBtn");
+        this.detailedStatsMinimizeBtn.width = this.scalePx(BTN_SIZE);
+        this.detailedStatsMinimizeBtn.height = this.scalePx(BTN_SIZE);
+        this.detailedStatsMinimizeBtn.cornerRadius = 2;
+        this.detailedStatsMinimizeBtn.thickness = 1;
+        this.detailedStatsMinimizeBtn.color = "#ffcc00";
+        this.detailedStatsMinimizeBtn.background = "rgba(80, 60, 0, 0.8)";
+        this.detailedStatsMinimizeBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.detailedStatsMinimizeBtn.left = this.scalePx(-BTN_SIZE - 6);
+        this.detailedStatsMinimizeBtn.isPointerBlocker = true;
+        this.detailedStatsHeader.addControl(this.detailedStatsMinimizeBtn);
+        
+        const minimizeBtnText = new TextBlock("minimizeBtnText");
+        minimizeBtnText.text = "—";
+        minimizeBtnText.color = "#ffcc00";
+        minimizeBtnText.fontSize = this.scaleFontSize(12, 10, 14);
+        minimizeBtnText.fontWeight = "bold";
+        this.detailedStatsMinimizeBtn.addControl(minimizeBtnText);
+        
+        this.detailedStatsMinimizeBtn.onPointerClickObservable.add(() => {
+            this.toggleDetailedStatsMinimize();
+        });
+        this.detailedStatsMinimizeBtn.onPointerEnterObservable.add(() => {
+            this.detailedStatsMinimizeBtn!.background = "rgba(120, 90, 0, 0.9)";
+        });
+        this.detailedStatsMinimizeBtn.onPointerOutObservable.add(() => {
+            this.detailedStatsMinimizeBtn!.background = "rgba(80, 60, 0, 0.8)";
+        });
+        
+        // === КНОПКА РАЗВЕРНУТЬ ВСЕ ВКЛАДКИ (⊞) ===
+        this.detailedStatsExpandBtn = new Rectangle("statsExpandBtn");
+        this.detailedStatsExpandBtn.width = this.scalePx(BTN_SIZE);
+        this.detailedStatsExpandBtn.height = this.scalePx(BTN_SIZE);
+        this.detailedStatsExpandBtn.cornerRadius = 2;
+        this.detailedStatsExpandBtn.thickness = 1;
+        this.detailedStatsExpandBtn.color = "#00ccff";
+        this.detailedStatsExpandBtn.background = "rgba(0, 60, 80, 0.8)";
+        this.detailedStatsExpandBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.detailedStatsExpandBtn.left = this.scalePx(-BTN_SIZE * 2 - 10);
+        this.detailedStatsExpandBtn.isPointerBlocker = true;
+        this.detailedStatsHeader.addControl(this.detailedStatsExpandBtn);
+        
+        const expandBtnText = new TextBlock("expandBtnText");
+        expandBtnText.text = "⊞";
+        expandBtnText.color = "#00ccff";
+        expandBtnText.fontSize = this.scaleFontSize(12, 10, 14);
+        expandBtnText.fontWeight = "bold";
+        this.detailedStatsExpandBtn.addControl(expandBtnText);
+        
+        this.detailedStatsExpandBtn.onPointerClickObservable.add(() => {
+            this.toggleDetailedStatsExpandAll();
+        });
+        this.detailedStatsExpandBtn.onPointerEnterObservable.add(() => {
+            this.detailedStatsExpandBtn!.background = "rgba(0, 90, 120, 0.9)";
+        });
+        this.detailedStatsExpandBtn.onPointerOutObservable.add(() => {
+            this.detailedStatsExpandBtn!.background = "rgba(0, 60, 80, 0.8)";
+        });
+        
+        // === ВКЛАДКИ ===
+        const tabNames = ["ШАССИ", "ПУШКА", "ГУСЕН", "БОНУС"];
+        const tabWidth = (PANEL_WIDTH - PADDING * 2) / 4;
+        const tabTop = HEADER_HEIGHT + PADDING;
+        
+        for (let i = 0; i < 4; i++) {
+            const tab = new Rectangle(`statsTab_${i}`);
+            tab.width = this.scalePx(tabWidth - 2);
+            tab.height = this.scalePx(TAB_HEIGHT);
+            tab.cornerRadius = 0;
+            tab.thickness = 1;
+            tab.color = i === 0 ? "#00ff00" : "#006600";
+            tab.background = i === 0 ? "rgba(0, 80, 0, 0.9)" : "rgba(0, 30, 0, 0.7)";
+            tab.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            tab.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            tab.left = this.scalePx(PADDING + i * tabWidth);
+            tab.top = this.scalePx(tabTop);
+            tab.isPointerBlocker = true;
+            this.detailedStatsPanel.addControl(tab);
+            this.detailedStatsTabs.push(tab);
+            
+            const tabText = new TextBlock(`statsTabText_${i}`);
+            tabText.text = tabNames[i] ?? "";
+            tabText.color = i === 0 ? "#00ff00" : "#008800";
+            tabText.fontSize = this.scaleFontSize(FONT_SIZE, 7, 11);
+            tabText.fontWeight = "bold";
+            tabText.fontFamily = "'Press Start 2P', monospace";
+            tabText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            tabText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+            tab.addControl(tabText);
+            
+            // Обработчик клика по вкладке
+            const tabIndex = i;
+            tab.onPointerClickObservable.add(() => {
+                this.switchDetailedStatsTab(tabIndex);
+            });
+            
+            // Hover эффект
+            tab.onPointerEnterObservable.add(() => {
+                if (tabIndex !== this.detailedStatsActiveTab) {
+                    tab.background = "rgba(0, 60, 0, 0.8)";
+                }
+            });
+            tab.onPointerOutObservable.add(() => {
+                if (tabIndex !== this.detailedStatsActiveTab) {
+                    tab.background = "rgba(0, 30, 0, 0.7)";
+                }
+            });
+        }
+        
+        // === ОБЛАСТЬ КОНТЕНТА ===
+        this.detailedStatsContent = new Rectangle("detailedStatsContent");
+        this.detailedStatsContent.width = this.scalePx(PANEL_WIDTH - PADDING * 2);
+        this.detailedStatsContent.height = this.scalePx(PANEL_HEIGHT - HEADER_HEIGHT - TAB_HEIGHT - PADDING * 3);
+        this.detailedStatsContent.cornerRadius = 0;
+        this.detailedStatsContent.thickness = 1;
+        this.detailedStatsContent.color = "#004400";
+        this.detailedStatsContent.background = "rgba(0, 20, 0, 0.6)";
+        this.detailedStatsContent.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.detailedStatsContent.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.detailedStatsContent.top = this.scalePx(tabTop + TAB_HEIGHT + 2); // Минимальный отступ от вкладок
+        this.detailedStatsPanel.addControl(this.detailedStatsContent);
+        
+        // === ЗАГОЛОВОК (название компонента) ===
+        this.detailedStatsTitle = new TextBlock("detailedStatsTitle");
+        this.detailedStatsTitle.text = "— MEDIUM —";
+        this.detailedStatsTitle.color = "#00ff00";
+        this.detailedStatsTitle.fontSize = this.scaleFontSize(10, 8, 12);
+        this.detailedStatsTitle.fontWeight = "bold";
+        this.detailedStatsTitle.fontFamily = "'Press Start 2P', monospace";
+        this.detailedStatsTitle.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.detailedStatsTitle.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.detailedStatsTitle.top = this.scalePx(2); // Минимальный отступ сверху
+        this.detailedStatsContent.addControl(this.detailedStatsTitle);
+        
+        // === СТРОКИ ПАРАМЕТРОВ ===
+        const maxRows = 12;
+        for (let i = 0; i < maxRows; i++) {
+            const rowText = new TextBlock(`statsRow_${i}`);
+            rowText.text = "";
+            rowText.color = "#00cc00";
+            rowText.fontSize = this.scaleFontSize(FONT_SIZE, 7, 11);
+            rowText.fontFamily = "'Press Start 2P', monospace";
+            rowText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            rowText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            rowText.left = this.scalePx(8);
+            rowText.top = this.scalePx(18 + i * ROW_HEIGHT); // Строки сразу под заголовком
+            rowText.isVisible = false;
+            this.detailedStatsContent.addControl(rowText);
+            this.detailedStatsRows.push(rowText);
+        }
+        
+        // Начальные данные - пустые
+        this.renderDetailedStatsContent();
+    }
+    
+    /**
+     * Свернуть/развернуть панель
+     */
+    private toggleDetailedStatsMinimize(): void {
+        this.detailedStatsMinimized = !this.detailedStatsMinimized;
+        
+        if (!this.detailedStatsPanel) return;
+        
+        const HEADER_HEIGHT = 22;
+        const PADDING = 10;
+        const NORMAL_HEIGHT = 310;
+        const EXPANDED_HEIGHT = 580;
+        
+        if (this.detailedStatsMinimized) {
+            // Свернуть - показываем только заголовок
+            this.detailedStatsPanel.height = this.scalePx(HEADER_HEIGHT + PADDING);
+            
+            // Скрываем вкладки и контент
+            for (const tab of this.detailedStatsTabs) {
+                tab.isVisible = false;
+            }
+            if (this.detailedStatsContent) {
+                this.detailedStatsContent.isVisible = false;
+            }
+            
+            // Меняем иконку кнопки на "развернуть"
+            const btnText = this.detailedStatsMinimizeBtn?.children[0] as TextBlock;
+            if (btnText) {
+                btnText.text = "▢";
+            }
+        } else {
+            // Развернуть - учитываем режим "все вкладки"
+            if (this.detailedStatsExpandedAll) {
+                this.detailedStatsPanel.height = this.scalePx(EXPANDED_HEIGHT);
+                // Вкладки скрыты в режиме "все"
+            } else {
+                this.detailedStatsPanel.height = this.scalePx(NORMAL_HEIGHT);
+                // Показываем вкладки
+                for (const tab of this.detailedStatsTabs) {
+                    tab.isVisible = true;
+                }
+            }
+            
+            if (this.detailedStatsContent) {
+                this.detailedStatsContent.isVisible = true;
+            }
+            
+            // Меняем иконку кнопки на "свернуть"
+            const btnText = this.detailedStatsMinimizeBtn?.children[0] as TextBlock;
+            if (btnText) {
+                btnText.text = "—";
+            }
+        }
+    }
+    
+    /**
+     * Показать все вкладки одновременно (развернуть все) или свернуть обратно
+     */
+    private toggleDetailedStatsExpandAll(): void {
+        if (!this.cachedTankStatsData) return;
+        
+        // Если свёрнуто - сначала разворачиваем
+        if (this.detailedStatsMinimized) {
+            this.toggleDetailedStatsMinimize();
+        }
+        
+        this.detailedStatsExpandedAll = !this.detailedStatsExpandedAll;
+        
+        const PANEL_WIDTH = 260;
+        const EXPANDED_HEIGHT = 520; // Увеличенная высота для всех вкладок
+        const NORMAL_HEIGHT = 310;
+        const HEADER_HEIGHT = 22;
+        const TAB_HEIGHT = 24;
+        const PADDING = 10;
+        
+        if (this.detailedStatsExpandedAll) {
+            // === РЕЖИМ РАЗВЁРНУТО ВСЕ ===
+            if (this.detailedStatsPanel) {
+                this.detailedStatsPanel.height = this.scalePx(EXPANDED_HEIGHT);
+            }
+            
+            // Скрываем обычные вкладки
+            for (const tab of this.detailedStatsTabs) {
+                tab.isVisible = false;
+            }
+            
+            // Увеличиваем область контента и поднимаем её вверх (сразу под заголовок)
+            if (this.detailedStatsContent) {
+                this.detailedStatsContent.height = this.scalePx(EXPANDED_HEIGHT - HEADER_HEIGHT - 4);
+                this.detailedStatsContent.top = this.scalePx(HEADER_HEIGHT + 2); // Минимальный отступ от заголовка
+            }
+            
+            // Меняем иконку кнопки на "свернуть вкладки"
+            const btnText = this.detailedStatsExpandBtn?.children[0] as TextBlock;
+            if (btnText) {
+                btnText.text = "⊟";
+            }
+            
+            // Рендерим все вкладки вертикально
+            this.renderAllTabsVertically();
+        } else {
+            // === РЕЖИМ ОБЫЧНЫЙ (одна вкладка) ===
+            if (this.detailedStatsPanel) {
+                this.detailedStatsPanel.height = this.scalePx(NORMAL_HEIGHT);
+            }
+            
+            // Показываем вкладки
+            for (const tab of this.detailedStatsTabs) {
+                tab.isVisible = true;
+            }
+            
+            // Возвращаем область контента к норме и на место под вкладками
+            if (this.detailedStatsContent) {
+                this.detailedStatsContent.height = this.scalePx(NORMAL_HEIGHT - HEADER_HEIGHT - TAB_HEIGHT - PADDING * 2);
+                this.detailedStatsContent.top = this.scalePx(HEADER_HEIGHT + TAB_HEIGHT + PADDING + 2); // Минимальный отступ
+            }
+            
+            // Скрываем дополнительные строки
+            for (const row of this.detailedStatsExpandedRows) {
+                row.isVisible = false;
+            }
+            
+            // Меняем иконку кнопки на "развернуть вкладки"
+            const btnText = this.detailedStatsExpandBtn?.children[0] as TextBlock;
+            if (btnText) {
+                btnText.text = "⊞";
+            }
+            
+            // Рендерим текущую вкладку
+            this.renderDetailedStatsContent();
+        }
+    }
+    
+    /**
+     * Рендеринг всех вкладок вертикально в виде списка
+     */
+    private renderAllTabsVertically(): void {
+        if (!this.cachedTankStatsData || !this.detailedStatsContent) return;
+        
+        const data = this.cachedTankStatsData;
+        const FONT_SIZE = 8;
+        const ROW_HEIGHT = 14; // Компактнее
+        
+        // Скрываем обычные строки
+        for (const row of this.detailedStatsRows) {
+            row.isVisible = false;
+        }
+        
+        // Скрываем заголовок
+        if (this.detailedStatsTitle) {
+            this.detailedStatsTitle.isVisible = false;
+        }
+        
+        // Удаляем старые расширенные строки
+        for (const row of this.detailedStatsExpandedRows) {
+            this.detailedStatsContent.removeControl(row);
+        }
+        this.detailedStatsExpandedRows = [];
+        
+        // Собираем все данные в один массив
+        const allRows: Array<{ text: string; color: string; isSectionHeader?: boolean }> = [];
+        
+        // Функция форматирования строки с выравниванием
+        const formatRow = (label: string, value: string) => `${"  " + label}`.padEnd(12) + value;
+        
+        // === ШАССИ ===
+        allRows.push({ text: `▼ ${data.chassis.name.toUpperCase()}`, color: data.chassis.color, isSectionHeader: true });
+        allRows.push({ text: formatRow("HP:", this.formatStatWithBonus(data.chassis.maxHealth, 0)), color: "#00ff00" });
+        allRows.push({ text: formatRow("СКОР:", this.formatStatWithBonus(data.chassis.moveSpeed, 1)), color: "#00ccff" });
+        allRows.push({ text: formatRow("ПОВОРОТ:", this.formatStatWithBonus(data.chassis.turnSpeed, 2)), color: "#00ccff" });
+        allRows.push({ text: formatRow("УСКОР:", this.formatStatWithBonus(data.chassis.acceleration, 0)), color: "#00ccff" });
+        allRows.push({ text: formatRow("МАССА:", `${data.chassis.mass}кг`), color: "#888888" });
+        
+        // === ПУШКА ===
+        allRows.push({ text: `▼ ${data.cannon.name.toUpperCase()}`, color: data.cannon.color, isSectionHeader: true });
+        allRows.push({ text: formatRow("УРОН:", this.formatStatWithBonus(data.cannon.damage, 0)), color: "#ff4444" });
+        allRows.push({ text: formatRow("ПЕРЕЗАР:", this.formatStatWithBonus(data.cannon.cooldown, 0, "мс")), color: "#ffcc00" });
+        allRows.push({ text: formatRow("СКР.СНР:", this.formatStatWithBonus(data.cannon.projectileSpeed, 0)), color: "#00ccff" });
+        allRows.push({ text: formatRow("РАЗМЕР:", data.cannon.projectileSize.toFixed(2)), color: "#888888" });
+        allRows.push({ text: formatRow("ОТДАЧА:", `x${data.cannon.recoilMultiplier.toFixed(1)}`), color: "#ff8800" });
+        if (data.cannon.maxRicochets && data.cannon.maxRicochets > 0) {
+            allRows.push({ text: formatRow("РИКОШЕТ:", `${data.cannon.maxRicochets}x`), color: "#ffd700" });
+        }
+        
+        // === ГУСЕНИЦЫ ===
+        const formatBonus = (val: number) => {
+            if (val === 0) return "—";
+            const sign = val > 0 ? "+" : "";
+            return `${sign}${(val * 100).toFixed(0)}%`;
+        };
+        
+        allRows.push({ text: `▼ ${data.tracks.name.toUpperCase()}`, color: data.tracks.color, isSectionHeader: true });
+        allRows.push({ text: formatRow("СТИЛЬ:", data.tracks.style.toUpperCase()), color: "#888888" });
+        allRows.push({ text: formatRow("СКОР:", formatBonus(data.tracks.speedBonus)), color: data.tracks.speedBonus > 0 ? "#00ff00" : "#888888" });
+        allRows.push({ text: formatRow("ПРОЧН:", formatBonus(data.tracks.durabilityBonus)), color: data.tracks.durabilityBonus > 0 ? "#00ff00" : "#888888" });
+        allRows.push({ text: formatRow("БРОНЯ:", formatBonus(data.tracks.armorBonus)), color: data.tracks.armorBonus > 0 ? "#00ccff" : "#888888" });
+        
+        // === БОНУСЫ ===
+        const formatBonusVal = (val: number, invert: boolean = false) => {
+            if (val === 0) return "—";
+            const effectiveVal = invert ? -val : val;
+            const sign = effectiveVal > 0 ? "+" : "";
+            return `${sign}${(effectiveVal * 100).toFixed(0)}%`;
+        };
+        
+        allRows.push({ text: `▼ БОНУСЫ Lv.${data.bonuses.playerLevel}`, color: "#ffcc00", isSectionHeader: true });
+        allRows.push({ text: formatRow("УРОН:", formatBonusVal(data.bonuses.damageBonus)), color: data.bonuses.damageBonus > 0 ? "#ff4444" : "#888888" });
+        allRows.push({ text: formatRow("ПЕРЕЗАР:", formatBonusVal(data.bonuses.cooldownBonus, true)), color: data.bonuses.cooldownBonus < 0 ? "#00ff00" : "#888888" });
+        allRows.push({ text: formatRow("HP:", formatBonusVal(data.bonuses.healthBonus)), color: data.bonuses.healthBonus > 0 ? "#00ff00" : "#888888" });
+        allRows.push({ text: formatRow("БРОНЯ:", formatBonusVal(data.bonuses.armorBonus)), color: data.bonuses.armorBonus > 0 ? "#00ccff" : "#888888" });
+        allRows.push({ text: formatRow("СКОР:", formatBonusVal(data.bonuses.speedBonus)), color: data.bonuses.speedBonus > 0 ? "#00ccff" : "#888888" });
+        if (data.bonuses.critChance > 0) {
+            allRows.push({ text: formatRow("КРИТ:", formatBonusVal(data.bonuses.critChance)), color: "#ff8800" });
+        }
+        if (data.bonuses.evasion > 0) {
+            allRows.push({ text: formatRow("УКЛОН:", formatBonusVal(data.bonuses.evasion)), color: "#88ff88" });
+        }
+        
+        // Добавляем модули если есть
+        if (data.bonuses.installedModules.length > 0) {
+            allRows.push({ text: `▼ МОДУЛИ (${data.bonuses.installedModules.length}шт)`, color: "#aa00ff", isSectionHeader: true });
+            for (const mod of data.bonuses.installedModules.slice(0, 4)) {
+                allRows.push({ text: formatRow(mod.icon, mod.name.substring(0, 14)), color: this.getRarityColor(mod.rarity) });
+            }
+        }
+        
+        // Создаём текстовые строки
+        for (let i = 0; i < allRows.length; i++) {
+            const rowData = allRows[i];
+            if (!rowData) continue;
+            
+            const rowText = new TextBlock(`expandedRow_${i}`);
+            rowText.text = rowData.text;
+            rowText.color = rowData.color;
+            rowText.fontSize = this.scaleFontSize(rowData.isSectionHeader ? 9 : FONT_SIZE, 6, 10);
+            rowText.fontFamily = "'Press Start 2P', monospace";
+            rowText.fontWeight = rowData.isSectionHeader ? "bold" : "normal";
+            rowText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            rowText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            rowText.left = this.scalePx(4); // Единый отступ слева
+            rowText.top = this.scalePx(2 + i * ROW_HEIGHT); // Минимальный отступ сверху
+            rowText.isVisible = true;
+            
+            this.detailedStatsContent.addControl(rowText);
+            this.detailedStatsExpandedRows.push(rowText);
+        }
+    }
+    
+    /**
+     * Форматирование бонуса в процентах
+     */
+    private formatBonusPercent(val: number): string {
+        if (val === 0) return "—";
+        const sign = val > 0 ? "+" : "";
+        return `${sign}${(val * 100).toFixed(0)}%`;
+    }
+    
+    /**
+     * Переключение вкладки детальной статистики
+     */
+    private switchDetailedStatsTab(tabIndex: number): void {
+        if (tabIndex === this.detailedStatsActiveTab) return;
+        
+        // Обновляем стили вкладок
+        for (let i = 0; i < this.detailedStatsTabs.length; i++) {
+            const tab = this.detailedStatsTabs[i];
+            if (!tab) continue;
+            
+            const isActive = i === tabIndex;
+            tab.color = isActive ? "#00ff00" : "#006600";
+            tab.background = isActive ? "rgba(0, 80, 0, 0.9)" : "rgba(0, 30, 0, 0.7)";
+            
+            // Обновляем цвет текста вкладки
+            const textControl = tab.children[0] as TextBlock;
+            if (textControl) {
+                textControl.color = isActive ? "#00ff00" : "#008800";
+            }
+        }
+        
+        this.detailedStatsActiveTab = tabIndex;
+        this.renderDetailedStatsContent();
+    }
+    
+    /**
+     * Рендеринг контента активной вкладки
+     */
+    private renderDetailedStatsContent(): void {
+        // Если в режиме "все вкладки" - рендерим вертикально
+        if (this.detailedStatsExpandedAll) {
+            this.renderAllTabsVertically();
+            return;
+        }
+        
+        // Скрываем расширенные строки
+        for (const row of this.detailedStatsExpandedRows) {
+            row.isVisible = false;
+        }
+        
+        // Показываем заголовок
+        if (this.detailedStatsTitle) {
+            this.detailedStatsTitle.isVisible = true;
+        }
+        
+        // Скрываем все строки
+        for (const row of this.detailedStatsRows) {
+            row.isVisible = false;
+            row.text = "";
+        }
+        
+        if (!this.cachedTankStatsData) {
+            // Показываем placeholder
+            if (this.detailedStatsTitle) {
+                this.detailedStatsTitle.text = "— НЕТ ДАННЫХ —";
+            }
+            return;
+        }
+        
+        const data = this.cachedTankStatsData;
+        
+        switch (this.detailedStatsActiveTab) {
+            case 0: // ШАССИ
+                this.renderChassisTab(data);
+                break;
+            case 1: // ПУШКА
+                this.renderCannonTab(data);
+                break;
+            case 2: // ГУСЕНИЦЫ
+                this.renderTracksTab(data);
+                break;
+            case 3: // БОНУСЫ
+                this.renderBonusesTab(data);
+                break;
+        }
+    }
+    
+    /**
+     * Форматирование параметра с бонусом
+     */
+    private formatStatWithBonus(stat: StatWithBonus, precision: number = 0, suffix: string = ""): string {
+        const baseStr = stat.base.toFixed(precision);
+        const totalStr = stat.total.toFixed(precision);
+        
+        if (stat.bonus === 0 || Math.abs(stat.total - stat.base) < 0.01) {
+            return `${totalStr}${suffix}`;
+        }
+        
+        const bonusPercent = ((stat.total / stat.base - 1) * 100).toFixed(0);
+        const sign = stat.total > stat.base ? "+" : "";
+        return `${baseStr}${suffix} (${sign}${bonusPercent}%) = ${totalStr}${suffix}`;
+    }
+    
+    /**
+     * Рендеринг вкладки ШАССИ
+     */
+    private renderChassisTab(data: TankStatsData): void {
+        const c = data.chassis;
+        
+        if (this.detailedStatsTitle) {
+            this.detailedStatsTitle.text = `— ${c.name.toUpperCase()} —`;
+            this.detailedStatsTitle.color = c.color || "#00ff00";
+        }
+        
+        const rows = [
+            { label: "HP:", value: this.formatStatWithBonus(c.maxHealth, 0), color: "#00ff00" },
+            { label: "СКОРОСТЬ:", value: this.formatStatWithBonus(c.moveSpeed, 1), color: "#00ccff" },
+            { label: "ПОВОРОТ:", value: this.formatStatWithBonus(c.turnSpeed, 2), color: "#00ccff" },
+            { label: "УСКОРЕН:", value: this.formatStatWithBonus(c.acceleration, 0), color: "#00ccff" },
+            { label: "МАССА:", value: `${c.mass} кг`, color: "#888888" },
+            { label: "УРОВЕНЬ:", value: `Lv.${c.upgradeLevel}`, color: "#ffcc00" },
+            { label: "СПОСОБН:", value: c.specialAbility || "—", color: "#ff88ff" },
+        ];
+        
+        this.setRowsContent(rows);
+    }
+    
+    /**
+     * Рендеринг вкладки ПУШКА
+     */
+    private renderCannonTab(data: TankStatsData): void {
+        const c = data.cannon;
+        
+        if (this.detailedStatsTitle) {
+            this.detailedStatsTitle.text = `— ${c.name.toUpperCase()} —`;
+            this.detailedStatsTitle.color = c.color || "#00ff00";
+        }
+        
+        const rows: Array<{ label: string; value: string; color: string }> = [
+            { label: "УРОН:", value: this.formatStatWithBonus(c.damage, 0), color: "#ff4444" },
+            { label: "ПЕРЕЗАР:", value: this.formatStatWithBonus(c.cooldown, 0, "мс"), color: "#ffcc00" },
+            { label: "СКР.СНАР:", value: this.formatStatWithBonus(c.projectileSpeed, 0), color: "#00ccff" },
+            { label: "РАЗМЕР:", value: c.projectileSize.toFixed(2), color: "#888888" },
+            { label: "ОТДАЧА:", value: `x${c.recoilMultiplier.toFixed(1)}`, color: "#ff8800" },
+            { label: "СТВОЛ:", value: `${c.barrelLength.toFixed(1)}м`, color: "#888888" },
+            { label: "УРОВЕНЬ:", value: `Lv.${c.upgradeLevel}`, color: "#ffcc00" },
+        ];
+        
+        // Добавляем рикошеты если есть
+        if (c.maxRicochets !== null && c.maxRicochets > 0) {
+            rows.push({ label: "РИКОШЕТ:", value: `${c.maxRicochets}x`, color: "#ffd700" });
+        }
+        if (c.ricochetSpeedRetention !== null) {
+            rows.push({ label: "СОХР.СКР:", value: `${(c.ricochetSpeedRetention * 100).toFixed(0)}%`, color: "#ffd700" });
+        }
+        
+        this.setRowsContent(rows);
+    }
+    
+    /**
+     * Рендеринг вкладки ГУСЕНИЦЫ
+     */
+    private renderTracksTab(data: TankStatsData): void {
+        const t = data.tracks;
+        
+        if (this.detailedStatsTitle) {
+            this.detailedStatsTitle.text = `— ${t.name.toUpperCase()} —`;
+            this.detailedStatsTitle.color = t.color || "#00ff00";
+        }
+        
+        const formatBonus = (val: number) => {
+            if (val === 0) return "—";
+            const sign = val > 0 ? "+" : "";
+            return `${sign}${(val * 100).toFixed(0)}%`;
+        };
+        
+        const rows = [
+            { label: "СТИЛЬ:", value: t.style.toUpperCase(), color: "#888888" },
+            { label: "СКОРОСТЬ:", value: formatBonus(t.speedBonus), color: t.speedBonus > 0 ? "#00ff00" : "#888888" },
+            { label: "ПРОЧН:", value: formatBonus(t.durabilityBonus), color: t.durabilityBonus > 0 ? "#00ff00" : "#888888" },
+            { label: "БРОНЯ:", value: formatBonus(t.armorBonus), color: t.armorBonus > 0 ? "#00ccff" : "#888888" },
+            { label: "УРОВЕНЬ:", value: `Lv.${t.upgradeLevel}`, color: "#ffcc00" },
+        ];
+        
+        this.setRowsContent(rows);
+    }
+    
+    /**
+     * Рендеринг вкладки БОНУСЫ
+     */
+    private renderBonusesTab(data: TankStatsData): void {
+        const b = data.bonuses;
+        
+        if (this.detailedStatsTitle) {
+            this.detailedStatsTitle.text = "— БОНУСЫ —";
+            this.detailedStatsTitle.color = "#ffcc00";
+        }
+        
+        const formatBonus = (val: number, invert: boolean = false) => {
+            if (val === 0) return "—";
+            const effectiveVal = invert ? -val : val;
+            const sign = effectiveVal > 0 ? "+" : "";
+            return `${sign}${(effectiveVal * 100).toFixed(0)}%`;
+        };
+        
+        const rows: Array<{ label: string; value: string; color: string }> = [
+            { label: "УР.ИГРОК:", value: `Lv.${b.playerLevel}`, color: "#ffcc00" },
+            { label: "УРОН:", value: formatBonus(b.damageBonus), color: b.damageBonus > 0 ? "#ff4444" : "#888888" },
+            { label: "ПЕРЕЗАР:", value: formatBonus(b.cooldownBonus, true), color: b.cooldownBonus < 0 ? "#00ff00" : "#888888" },
+            { label: "HP:", value: formatBonus(b.healthBonus), color: b.healthBonus > 0 ? "#00ff00" : "#888888" },
+            { label: "БРОНЯ:", value: formatBonus(b.armorBonus), color: b.armorBonus > 0 ? "#00ccff" : "#888888" },
+            { label: "СКОРОСТЬ:", value: formatBonus(b.speedBonus), color: b.speedBonus > 0 ? "#00ccff" : "#888888" },
+            { label: "КРИТ:", value: formatBonus(b.critChance), color: b.critChance > 0 ? "#ff8800" : "#888888" },
+            { label: "УКЛОН:", value: formatBonus(b.evasion), color: b.evasion > 0 ? "#88ff88" : "#888888" },
+        ];
+        
+        // Добавляем модули если есть
+        if (b.installedModules.length > 0) {
+            rows.push({ label: "─────────", value: "─────────", color: "#444444" });
+            rows.push({ label: "МОДУЛИ:", value: `${b.installedModules.length}шт`, color: "#aa00ff" });
+            for (const mod of b.installedModules.slice(0, 3)) { // Максимум 3 модуля показываем
+                rows.push({ label: mod.icon, value: mod.name.substring(0, 12), color: this.getRarityColor(mod.rarity) });
+            }
+        }
+        
+        this.setRowsContent(rows);
+    }
+    
+    /**
+     * Получение цвета редкости
+     */
+    private getRarityColor(rarity: string): string {
+        switch (rarity) {
+            case "common": return "#aaaaaa";
+            case "uncommon": return "#00ff00";
+            case "rare": return "#0088ff";
+            case "epic": return "#aa00ff";
+            case "legendary": return "#ff8800";
+            default: return "#888888";
+        }
+    }
+    
+    /**
+     * Установка контента строк
+     */
+    private setRowsContent(rows: Array<{ label: string; value: string; color: string }>): void {
+        for (let i = 0; i < this.detailedStatsRows.length; i++) {
+            const row = this.detailedStatsRows[i];
+            if (!row) continue;
+            
+            if (i < rows.length) {
+                const data = rows[i];
+                if (data) {
+                    // Используем padEnd(12) для лучшего выравнивания с кириллицей
+                    row.text = `${data.label.padEnd(12)}${data.value}`;
+                    row.color = data.color;
+                    row.isVisible = true;
+                }
+            } else {
+                row.isVisible = false;
+            }
+        }
+    }
+    
+    /**
+     * Обновление данных детальной панели статистики танка
+     */
+    updateDetailedTankStats(data: TankStatsData): void {
+        this.cachedTankStatsData = data;
+        this.renderDetailedStatsContent();
+    }
+    
+    /**
+     * Показать/скрыть панель детальной статистики
+     */
+    setDetailedStatsPanelVisible(visible: boolean): void {
+        if (this.detailedStatsPanel) {
+            this.detailedStatsPanel.isVisible = visible;
+        }
+    }
+    
+    /**
+     * Проверка видимости панели
+     */
+    isDetailedStatsPanelVisible(): boolean {
+        return this.detailedStatsPanel?.isVisible ?? false;
     }
 }
 

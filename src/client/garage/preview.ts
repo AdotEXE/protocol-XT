@@ -21,6 +21,7 @@ import { getTrackById, type TrackType } from "../trackTypes";
 import { MaterialFactory } from "./materials";
 import { ChassisDetailsGenerator } from "./chassisDetails";
 import { CannonDetailsGenerator } from "./cannonDetails";
+import { createUniqueCannon, CannonAnimationElements } from "../tank/tankCannon";
 
 export interface PreviewTank {
     chassis: Mesh;
@@ -89,6 +90,9 @@ export function initPreviewScene(
     camera.lowerRadiusLimit = 5;
     camera.upperRadiusLimit = 15;
     camera.wheelDeltaPercentage = 0.01;
+    
+    // Отключаем управление стрелками (клавиатурой) - оставляем только мышь
+    camera.inputs.removeByType("ArcRotateCameraKeyboardMoveInput");
     
     // Light
     const light = new HemisphericLight("previewLight", new Vector3(0, 1, 0), scene);
@@ -386,8 +390,8 @@ function createUniqueChassisPreview(chassisType: ChassisType, scene: Scene): Mes
     mat.specularColor = Color3.Black();
     chassis.material = mat;
     
-    // Add visual details - ОТКЛЮЧЕНО по требованию
-    // addChassisDetailsPreview(chassis, chassisType, scene, color);
+    // Add visual details
+    addChassisDetailsPreview(chassis, chassisType, scene, color);
     
     return chassis;
 }
@@ -467,17 +471,15 @@ function createTurretPreview(chassisType: ChassisType, actualSize: { width: numb
 
 /**
  * Add chassis details - ПОЛНАЯ КОПИЯ из TankController
- * NOTE: This is a very large function - will be fully implemented from garage.ts
- * For now, this is a placeholder that needs to be populated with the full ~2000 lines
- * from garage.ts::addChassisDetailsPreview
+ * Добавляет детализированные элементы к корпусу танка
  */
 function addChassisDetailsPreview(chassis: Mesh, chassisType: any, scene: Scene, baseColor: Color3): void {
-    // ВСЕ ДЕТАЛИ ОТКЛЮЧЕНЫ - оставляем только простой прямоугольник корпуса
-    // Весь код деталей был удалён по требованию пользователя
-    return;
-}
-
-/* ОТКЛЮЧЕНО - весь код деталей удалён
+    // ФИЛЬТР: Детали только для light, medium, racer, scout
+    const detailedChassis = ["light", "medium", "racer", "scout"];
+    if (!detailedChassis.includes(chassisType.id)) {
+        return; // Нет деталей для других корпусов
+    }
+    
     const w = chassisType.width;
     const h = chassisType.height;
     const d = chassisType.depth;
@@ -2642,27 +2644,25 @@ function addChassisDetailsPreview(chassis: Mesh, chassisType: any, scene: Scene,
         }
         break;
     }
-    */
+}
 
 /**
- * Create unique cannon - ПОЛНАЯ КОПИЯ из TankController
+ * Create unique cannon - использует createUniqueCannon из tankCannon.ts
+ * для создания детализированной модели пушки (как у игрока)
  */
 function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
     const barrelWidth = cannonType.barrelWidth;
     const barrelLength = cannonType.barrelLength;
-    const cannonColor = Color3.FromHexString(cannonType.color);
     
-    // ОТКЛЮЧЕНО: Все детали удалены, создаём только простой ствол
-    const barrel = MeshBuilder.CreateBox("previewBarrel", { 
-        width: barrelWidth, 
-        height: barrelWidth, 
-        depth: barrelLength 
-    }, scene);
-    
-    const barrelMat = new StandardMaterial("previewBarrelMat", scene);
-    barrelMat.diffuseColor = cannonColor;
-    barrelMat.specularColor = Color3.Black();
-    barrel.material = barrelMat;
+    // Используем ту же функцию, что и для игрока - получаем детализированную модель
+    const animationElements: CannonAnimationElements = {};
+    const barrel = createUniqueCannon(
+        cannonType,
+        scene,
+        barrelWidth,
+        barrelLength,
+        animationElements
+    );
     
     const baseBarrelZ = barrelLength / 2;
     barrel.position.z = baseBarrelZ;
@@ -2672,13 +2672,14 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
     barrel.rotation.z = 0;
     
     return barrel;
-    
-    /* ОТКЛЮЧЕНО - весь код деталей удалён
-    let barrel: Mesh;
-    
-    // Use EXACT same proportions and details as TankController
-    switch (cannonType.id) {
-        case "sniper":
+}
+
+// Старый код createUniqueCannonPreview удалён - теперь используется createUniqueCannon из tankCannon.ts
+// Закомментированный блок (~1200 строк) был очищен
+
+/* АРХИВ: Старый switch-case код для каждого типа пушки удалён
+   Теперь используется единая функция createUniqueCannon() из tank/tankCannon.ts
+   case "sniper":
             // Sniper - ЭКСТРЕМАЛЬНО ДЛИННАЯ, ТОЛЩЕ - УНИКАЛЬНАЯ ФОРМА
             barrel = MeshBuilder.CreateBox("previewBarrel", { 
                 width: barrelWidth * 0.75,
@@ -3920,6 +3921,5 @@ function createUniqueCannonPreview(cannonType: CannonType, scene: Scene): Mesh {
     barrel.material = barrelMat;
     
     return barrel;
-    */
-}
-
+    }
+*/

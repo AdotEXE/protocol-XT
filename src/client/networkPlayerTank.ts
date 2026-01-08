@@ -327,38 +327,71 @@ export class NetworkPlayerTank {
         
         if (extrapolate && this.estimatedVelocity.length() > 0.1) {
             // Dead reckoning: extrapolate based on estimated velocity
-            const extrapolationTime = deltaTime; // Extrapolate forward by deltaTime
-            // Clone velocity before scaling to avoid mutation
-            const extrapolatedPos = targetPos.add(this.estimatedVelocity.clone().scale(extrapolationTime));
-            // Smoothly move towards extrapolated position
-            Vector3.LerpToRef(
-                currentPos,
-                extrapolatedPos,
-                0.3, // Fast movement towards extrapolated position
-                currentPos
-            );
-        } else if (this.interpolationAlpha < 1) {
-            // Enhanced cubic interpolation with velocity-based prediction
-            const t = this.smoothstep(0, 1, this.interpolationAlpha);
+            // Limit extrapolation to max 500ms to prevent runaway predictions
+            const timeSinceUpdate = Date.now() - this.lastNetworkUpdateTime;
+            const MAX_EXTRAPOLATION_TIME = 500; // 500ms max extrapolation
             
-            // Use velocity for better prediction during interpolation
-            if (this.estimatedVelocity && this.estimatedVelocity.lengthSquared() > 0.01) {
-                // Add velocity-based offset for smoother prediction
-                const velocityOffset = this.estimatedVelocity.scale(this.interpolationAlpha * 0.016); // ~1 frame ahead
-                const predictedPos = this.networkPlayer.lastPosition.add(velocityOffset);
+            if (timeSinceUpdate < MAX_EXTRAPOLATION_TIME) {
+                // Extrapolate forward by deltaTime, but reduce confidence over time
+                const confidenceFactor = 1.0 - (timeSinceUpdate / MAX_EXTRAPOLATION_TIME);
+                const extrapolationTime = deltaTime * confidenceFactor; // Reduce extrapolation as time passes
+                
+                // Clone velocity before scaling to avoid mutation
+                const extrapolatedPos = targetPos.add(this.estimatedVelocity.clone().scale(extrapolationTime));
+                
+                // Limit max extrapolation distance (prevent teleportation)
+                const maxExtrapolationDistance = this.estimatedVelocity.length() * 0.5; // Max 0.5 seconds ahead
+                const extrapolationDelta = extrapolatedPos.subtract(currentPos);
+                const extrapolationDistance = extrapolationDelta.length();
+                
+                if (extrapolationDistance > maxExtrapolationDistance && maxExtrapolationDistance > 0.01) {
+                    // Clamp to max distance
+                    extrapolatedPos.copyFrom(currentPos.add(extrapolationDelta.normalize().scale(maxExtrapolationDistance)));
+                }
+                
+                // Smoothly move towards extrapolated position (faster when confident)
+                const lerpSpeed = 0.1 + 0.2 * confidenceFactor;
                 Vector3.LerpToRef(
-                    this.networkPlayer.lastPosition,
-                    predictedPos,
-                    t,
-                    this.chassis.position
-                );
-            } else {
-                Vector3.LerpToRef(
-                    this.networkPlayer.lastPosition,
-                    targetPos,
-                    t,
+                    currentPos,
+                    extrapolatedPos,
+                    lerpSpeed,
                     currentPos
                 );
+            }
+            // If beyond MAX_EXTRAPOLATION_TIME, don't move (freeze position until update arrives)
+        } else if (this.interpolationAlpha < 1) {
+            // ENHANCED: Hermite cubic interpolation for smoother movement
+            // Uses position and velocity at both endpoints for natural-looking curves
+            const t = this.smoothstep(0, 1, this.interpolationAlpha);
+            
+            // Get start and end positions
+            const startPos = this.networkPlayer.lastPosition;
+            const endPos = targetPos;
+            
+            // Calculate velocities for Hermite spline
+            // Start velocity: use last known velocity direction
+            const startVelocity = this.estimatedVelocity && this.estimatedVelocity.lengthSquared() > 0.01
+                ? this.estimatedVelocity.clone().scale(0.5) // Scale down for smoother curves
+                : new Vector3(0, 0, 0);
+            
+            // End velocity: estimate from recent history or use current velocity
+            let endVelocity = new Vector3(0, 0, 0);
+            if (this.positionHistory.length >= 2) {
+                const lastIdx = this.positionHistory.length - 1;
+                endVelocity = this.calculateVelocityAtIndex(lastIdx).scale(0.5);
+            } else if (this.estimatedVelocity && this.estimatedVelocity.lengthSquared() > 0.01) {
+                endVelocity = this.estimatedVelocity.clone().scale(0.5);
+            }
+            
+            // Use Hermite interpolation for position
+            const hermitePos = this.hermiteInterpolate(startPos, startVelocity, endPos, endVelocity, t);
+            
+            // Validate Hermite result and fallback to linear if invalid
+            if (Number.isFinite(hermitePos.x) && Number.isFinite(hermitePos.y) && Number.isFinite(hermitePos.z)) {
+                currentPos.copyFrom(hermitePos);
+            } else {
+                // Fallback to simple linear interpolation
+                Vector3.LerpToRef(startPos, endPos, t, currentPos);
             }
         } else {
             // Интерполяция завершена - устанавливаем позицию напрямую
@@ -452,6 +485,67 @@ export class NetworkPlayerTank {
     private smoothstep(edge0: number, edge1: number, x: number): number {
         const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
         return t * t * (3 - 2 * t); // Cubic smoothstep
+    }
+    
+    /**
+     * Hermite interpolation for smooth curves using position and velocity at both endpoints
+     * Creates a cubic spline that matches position AND velocity at both ends
+     * 
+     * @param p0 - Starting position
+     * @param v0 - Starting velocity (scaled by time interval)
+     * @param p1 - Ending position
+     * @param v1 - Ending velocity (scaled by time interval)
+     * @param t - Interpolation factor (0-1)
+     * @returns Interpolated position
+     */
+    private hermiteInterpolate(p0: Vector3, v0: Vector3, p1: Vector3, v1: Vector3, t: number): Vector3 {
+        // Hermite basis functions
+        const t2 = t * t;
+        const t3 = t2 * t;
+        
+        // H1 = 2t³ - 3t² + 1 (position at p0)
+        const h1 = 2 * t3 - 3 * t2 + 1;
+        // H2 = t³ - 2t² + t (tangent at p0)
+        const h2 = t3 - 2 * t2 + t;
+        // H3 = -2t³ + 3t² (position at p1)
+        const h3 = -2 * t3 + 3 * t2;
+        // H4 = t³ - t² (tangent at p1)
+        const h4 = t3 - t2;
+        
+        // Position = p0*H1 + v0*H2 + p1*H3 + v1*H4
+        return new Vector3(
+            p0.x * h1 + v0.x * h2 + p1.x * h3 + v1.x * h4,
+            p0.y * h1 + v0.y * h2 + p1.y * h3 + v1.y * h4,
+            p0.z * h1 + v0.z * h2 + p1.z * h3 + v1.z * h4
+        );
+    }
+    
+    /**
+     * Calculate velocity from position history for Hermite interpolation
+     * Returns velocity scaled by the time interval for proper Hermite tangent
+     */
+    private calculateVelocityAtIndex(index: number): Vector3 {
+        if (this.positionHistory.length < 2) {
+            return new Vector3(0, 0, 0);
+        }
+        
+        // Clamp index to valid range
+        const clampedIndex = Math.max(1, Math.min(this.positionHistory.length - 1, index));
+        
+        const current = this.positionHistory[clampedIndex];
+        const previous = this.positionHistory[clampedIndex - 1];
+        
+        if (!current || !previous) {
+            return new Vector3(0, 0, 0);
+        }
+        
+        const timeDelta = (current.time - previous.time) / 1000; // Convert to seconds
+        if (timeDelta <= 0) {
+            return new Vector3(0, 0, 0);
+        }
+        
+        // Return velocity scaled appropriately
+        return current.position.subtract(previous.position);
     }
     
     setNetworkPlayer(networkPlayer: NetworkPlayer): void {

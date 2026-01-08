@@ -988,15 +988,30 @@ export class Garage {
             return;
         }
         
-        // КРИТИЧНО: Применяем pending изменения ПЕРВЫМ ДЕЛОМ, ДО закрытия UI
-        // Иначе GameGarage может применить их раньше и очистить pending
+        // КРИТИЧНО: Применяем pending изменения в зависимости от наличия гаражей на карте
         try {
             const hasPending = this.hasPendingChanges();
             
             if (hasPending) {
-                // НЕ применяем изменения при закрытии гаража
-                // Изменения будут применены автоматически при входе в гараж на карте (через GameGarage)
-                this.showNotification("⚠️ Заедьте в гараж на карте для применения изменений!", "info");
+                // Проверяем, есть ли на карте гаражи
+                const game = (window as any).gameInstance;
+                const gameGarage = game?.gameGarage;
+                const mapHasGarages = gameGarage && typeof gameGarage.mapHasGarages === 'function' && gameGarage.mapHasGarages();
+                
+                if (mapHasGarages) {
+                    // На карте есть гаражи - изменения будут применены при въезде в гараж
+                    this.showNotification("⚠️ Заедьте в гараж на карте для применения изменений!", "info");
+                } else {
+                    // На карте НЕТ гаражей - применяем изменения сразу на месте
+                    console.log("[Garage] No garages on map, applying changes in place...");
+                    if (gameGarage && typeof gameGarage.applyPendingChangesInPlace === 'function') {
+                        gameGarage.applyPendingChangesInPlace();
+                        this.showNotification("✅ Оборудование установлено!", "success");
+                    } else {
+                        // Fallback: пробуем применить напрямую
+                        this.applyPartsToTankNow();
+                    }
+                }
                 this.isApplyingFromUI = false;
             } else {
                 this.isApplyingFromUI = false;
@@ -3316,6 +3331,7 @@ export class Garage {
                     <div class="garage-tab ${this.currentCategory === 'modules' ? 'active' : ''}" data-cat="modules">[4] MODULES</div>
                     <div class="garage-tab ${this.currentCategory === 'supplies' ? 'active' : ''}" data-cat="supplies">[5] SUPPLIES</div>
                     <div class="garage-tab ${this.currentCategory === 'shop' ? 'active' : ''}" data-cat="shop">[6] SHOP</div>
+                    <div class="garage-tab ${this.currentCategory === 'presets' ? 'active' : ''}" data-cat="presets">[7] PRESETS</div>
                 </div>
                 <div class="garage-content">
                     <div class="garage-left">
@@ -3456,17 +3472,55 @@ export class Garage {
         }
     }
     
+    // Максимальное количество слотов для пресетов
+    private readonly MAX_PRESET_SLOTS = 3;
+    
     // Получить пресеты танков как TankPart для отображения в списке
+    // Возвращает 3 слота - заполненные пресетами или пустые
     private getPresetParts(): TankPart[] {
-        return this.savedTankConfigurations.map(config => ({
-            id: config.name || `preset_${config.chassisId}_${config.cannonId}`,
-            name: config.name || `Пресет: ${config.chassisId} + ${config.cannonId}`,
-            description: `Корпус: ${config.chassisId}, Пушка: ${config.cannonId}, Гусеницы: ${config.trackId}, Скин: ${config.skinId}`,
-            cost: 0,
-            unlocked: true,
-            type: "preset" as const,
-            stats: {}
-        }));
+        const presets: TankPart[] = [];
+        
+        // Добавляем существующие пресеты
+        for (let i = 0; i < this.MAX_PRESET_SLOTS; i++) {
+            const config = this.savedTankConfigurations[i];
+            
+            if (config) {
+                // Заполненный слот
+                presets.push({
+                    id: `preset_slot_${i}`,
+                    name: config.name || `Пресет ${i + 1}`,
+                    description: `Корпус: ${config.chassisId}, Пушка: ${config.cannonId}, Гусеницы: ${config.trackId}`,
+                    cost: 0,
+                    unlocked: true,
+                    type: "preset" as const,
+                    stats: {}
+                });
+            } else {
+                // Пустой слот
+                presets.push({
+                    id: `preset_slot_${i}_empty`,
+                    name: `[ Слот ${i + 1} - Пустой ]`,
+                    description: "Нажмите чтобы сохранить текущую конфигурацию",
+                    cost: 0,
+                    unlocked: true,
+                    type: "preset" as const,
+                    stats: {}
+                });
+            }
+        }
+        
+        return presets;
+    }
+    
+    // Проверить, является ли слот пустым
+    private isEmptyPresetSlot(slotId: string): boolean {
+        return slotId.endsWith('_empty');
+    }
+    
+    // Получить индекс слота из ID
+    private getPresetSlotIndex(slotId: string): number {
+        const match = slotId.match(/preset_slot_(\d+)/);
+        return match ? parseInt(match[1], 10) : -1;
     }
     
     // Загрузить сохраненные конфигурации танков
@@ -3683,6 +3737,187 @@ export class Garage {
         }
     }
     
+    // === МЕТОДЫ ДЛЯ РАБОТЫ С ПРЕСЕТАМИ ПО СЛОТАМ ===
+    
+    /**
+     * Создать пресет в указанном слоте
+     */
+    private createPresetInSlot(slotIndex: number): void {
+        if (slotIndex < 0 || slotIndex >= this.MAX_PRESET_SLOTS) return;
+        
+        // Проверяем, не занят ли слот
+        if (this.savedTankConfigurations[slotIndex]) {
+            this.showNotification("Этот слот уже занят!", "error");
+            return;
+        }
+        
+        const name = prompt("Введите имя для пресета:", `Пресет ${slotIndex + 1}`);
+        if (!name || !name.trim()) return;
+        
+        const config: TankConfiguration = {
+            chassisId: this.currentChassisId,
+            cannonId: this.currentCannonId,
+            trackId: this.currentTrackId,
+            skinId: this.currentSkinId || "default",
+            name: name.trim()
+        };
+        
+        // Сохраняем в конкретный слот
+        try {
+            const saved = localStorage.getItem("savedTankConfigurations");
+            const configs: TankConfiguration[] = saved ? JSON.parse(saved) : [];
+            
+            // Убеждаемся, что массив имеет нужную длину
+            while (configs.length < slotIndex) {
+                configs.push(null as any); // Заполняем пустыми слотами
+            }
+            
+            configs[slotIndex] = config;
+            localStorage.setItem("savedTankConfigurations", JSON.stringify(configs.filter(c => c !== null)));
+        } catch (e) {
+            console.warn("Failed to save preset:", e);
+            this.showNotification("Ошибка сохранения пресета!", "error");
+            return;
+        }
+        
+        this.loadSavedTankConfigurations();
+        this.refreshItemList();
+        this.showNotification(`Пресет "${name}" создан!`, "success");
+    }
+    
+    /**
+     * Применить пресет из указанного слота
+     */
+    private applyPresetFromSlot(slotIndex: number): void {
+        if (slotIndex < 0 || slotIndex >= this.savedTankConfigurations.length) return;
+        
+        const preset = this.savedTankConfigurations[slotIndex];
+        if (!preset) {
+            this.showNotification("Слот пуст!", "error");
+            return;
+        }
+        
+        // Применяем конфигурацию как pending
+        if (preset.chassisId) {
+            const currentActive = localStorage.getItem("selectedChassis") || "medium";
+            if (preset.chassisId !== currentActive) {
+                this.pendingChassisId = preset.chassisId;
+                localStorage.setItem("pendingChassis", preset.chassisId);
+            }
+            this.currentChassisId = preset.chassisId;
+        }
+        
+        if (preset.cannonId) {
+            const currentActive = localStorage.getItem("selectedCannon") || "standard";
+            if (preset.cannonId !== currentActive) {
+                this.pendingCannonId = preset.cannonId;
+                localStorage.setItem("pendingCannon", preset.cannonId);
+            }
+            this.currentCannonId = preset.cannonId;
+        }
+        
+        if (preset.trackId) {
+            const currentActive = localStorage.getItem("selectedTrack") || "standard";
+            if (preset.trackId !== currentActive) {
+                this.pendingTrackId = preset.trackId;
+                localStorage.setItem("pendingTrack", preset.trackId);
+            }
+            this.currentTrackId = preset.trackId;
+        }
+        
+        if (preset.skinId) {
+            // Скины применяются немедленно
+            saveSelectedSkin(preset.skinId);
+            this.currentSkinId = preset.skinId;
+            
+            // Применяем скин к танку если он есть
+            if (this.tankController?.chassis) {
+                const skin = getSkinById(preset.skinId);
+                if (skin) {
+                    applySkinColorToMaterial(this.tankController.chassis, skin.chassisColor);
+                }
+            }
+        }
+        
+        const hasPending = this.pendingChassisId || this.pendingCannonId || this.pendingTrackId;
+        if (hasPending) {
+            this.showNotification(`Пресет "${preset.name}" применён! Заедьте в гараж на карте для активации.`, "info");
+        } else {
+            this.showNotification(`Пресет "${preset.name}" активирован!`, "success");
+        }
+        
+        // Обновляем превью
+        this.renderTankPreview(this.currentChassisId, this.currentCannonId);
+        this.refreshItemList();
+    }
+    
+    /**
+     * Переименовать пресет в указанном слоте
+     */
+    private renamePresetInSlot(slotIndex: number): void {
+        if (slotIndex < 0 || slotIndex >= this.savedTankConfigurations.length) return;
+        
+        const preset = this.savedTankConfigurations[slotIndex];
+        if (!preset) {
+            this.showNotification("Слот пуст!", "error");
+            return;
+        }
+        
+        const newName = prompt("Новое имя пресета:", preset.name || `Пресет ${slotIndex + 1}`);
+        if (!newName || !newName.trim()) return;
+        
+        try {
+            const saved = localStorage.getItem("savedTankConfigurations");
+            if (saved) {
+                const configs: TankConfiguration[] = JSON.parse(saved);
+                if (configs[slotIndex]) {
+                    configs[slotIndex].name = newName.trim();
+                    localStorage.setItem("savedTankConfigurations", JSON.stringify(configs));
+                }
+            }
+        } catch (e) {
+            console.warn("Failed to rename preset:", e);
+            this.showNotification("Ошибка переименования!", "error");
+            return;
+        }
+        
+        this.loadSavedTankConfigurations();
+        this.refreshItemList();
+        this.showNotification(`Пресет переименован в "${newName}"!`, "success");
+    }
+    
+    /**
+     * Удалить пресет из указанного слота
+     */
+    private deletePresetFromSlot(slotIndex: number): void {
+        if (slotIndex < 0 || slotIndex >= this.savedTankConfigurations.length) return;
+        
+        const preset = this.savedTankConfigurations[slotIndex];
+        if (!preset) {
+            this.showNotification("Слот уже пуст!", "info");
+            return;
+        }
+        
+        if (!confirm(`Удалить пресет "${preset.name || `Пресет ${slotIndex + 1}`}"?`)) return;
+        
+        try {
+            const saved = localStorage.getItem("savedTankConfigurations");
+            if (saved) {
+                const configs: TankConfiguration[] = JSON.parse(saved);
+                configs.splice(slotIndex, 1);
+                localStorage.setItem("savedTankConfigurations", JSON.stringify(configs));
+            }
+        } catch (e) {
+            console.warn("Failed to delete preset:", e);
+            this.showNotification("Ошибка удаления!", "error");
+            return;
+        }
+        
+        this.loadSavedTankConfigurations();
+        this.refreshItemList();
+        this.showNotification(`Пресет удалён!`, "info");
+    }
+    
     // Показать уведомление
     private showNotification(message: string, type: "success" | "error" | "info" = "success"): void {
         // Создаем визуальное уведомление
@@ -3842,6 +4077,7 @@ export class Garage {
             
             const itemNumber = i + 1; // Нумерация с 1
             const isPreset = !isUpgrade && (item as TankPart).type === 'preset';
+            const isEmptyPreset = isPreset && this.isEmptyPresetSlot(item.id);
             
             // Статус отображение
             let statusBadge = '';
@@ -3851,23 +4087,97 @@ export class Garage {
                 statusBadge = '<span style="color: #0f0; margin-left: 5px;">[✓ АКТИВНО]</span>';
             }
             
+            // Специальная отрисовка для пресетов
+            if (isPreset) {
+                if (isEmptyPreset) {
+                    // Пустой слот пресета
+                    return `
+                        <div class="garage-item ${selected ? 'selected' : ''} preset-slot empty-slot" data-index="${i}" data-item-id="${item.id}">
+                            <div class="garage-item-name" style="color: #666;">
+                                <span style="color: #444; font-weight: bold; margin-right: 8px;">[${itemNumber}]</span>
+                                <span style="color: #0ff; opacity: 0.5; margin-right: 5px;">📦</span>
+                                ${item.name}
+                            </div>
+                            <div class="garage-item-desc" style="color: #555;">${item.description}</div>
+                            <div style="margin-top: 10px;">
+                                <button class="preset-action-btn create-preset-btn" data-action="create-preset" data-slot-id="${item.id}" style="
+                                    background: linear-gradient(180deg, rgba(0,255,100,0.3), rgba(0,200,80,0.2));
+                                    border: 2px solid #0f0;
+                                    color: #0f0;
+                                    padding: 8px 16px;
+                                    font-size: 11px;
+                                    cursor: pointer;
+                                    font-weight: bold;
+                                    text-transform: uppercase;
+                                    letter-spacing: 1px;
+                                ">➕ СОЗДАТЬ ПРЕСЕТ</button>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    // Заполненный слот пресета
+                    const slotIndex = this.getPresetSlotIndex(item.id);
+                    const config = this.savedTankConfigurations[slotIndex];
+                    const chassisName = config?.chassisId || 'N/A';
+                    const cannonName = config?.cannonId || 'N/A';
+                    const trackName = config?.trackId || 'N/A';
+                    
+                    return `
+                        <div class="garage-item ${selected ? 'selected' : ''} preset-slot filled-slot" data-index="${i}" data-item-id="${item.id}">
+                            <div class="garage-item-name">
+                                <span style="color: #ffd700; font-weight: bold; margin-right: 8px;">[${itemNumber}]</span>
+                                <span style="color: #0ff; font-weight: bold; margin-right: 5px;">📦</span>
+                                ${item.name}
+                                <span style="color: #0ff; margin-left: 8px; font-size: 9px;">[ПРЕСЕТ]</span>
+                            </div>
+                            <div class="garage-item-desc">
+                                <div style="display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 10px; margin-top: 5px;">
+                                    <span style="color: #888;">Корпус:</span><span style="color: #0f0;">${chassisName}</span>
+                                    <span style="color: #888;">Пушка:</span><span style="color: #ff0;">${cannonName}</span>
+                                    <span style="color: #888;">Гусеницы:</span><span style="color: #0ff;">${trackName}</span>
+                                </div>
+                            </div>
+                            <div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
+                                <button class="preset-action-btn" data-action="apply-preset" data-preset-id="${item.id}" style="
+                                    background: linear-gradient(180deg, rgba(0,255,0,0.3), rgba(0,200,0,0.2));
+                                    border: 1px solid #0f0;
+                                    color: #0f0;
+                                    padding: 5px 12px;
+                                    font-size: 10px;
+                                    cursor: pointer;
+                                    font-weight: bold;
+                                ">▶️ ПРИМЕНИТЬ</button>
+                                <button class="preset-action-btn" data-action="rename-preset" data-preset-id="${item.id}" style="
+                                    background: rgba(0,255,255,0.2);
+                                    border: 1px solid #0ff;
+                                    color: #0ff;
+                                    padding: 5px 10px;
+                                    font-size: 10px;
+                                    cursor: pointer;
+                                ">✏️ Имя</button>
+                                <button class="preset-action-btn" data-action="delete-preset" data-preset-id="${item.id}" style="
+                                    background: rgba(255,0,0,0.2);
+                                    border: 1px solid #f00;
+                                    color: #f00;
+                                    padding: 5px 10px;
+                                    font-size: 10px;
+                                    cursor: pointer;
+                                ">🗑️ Удалить</button>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+            
             return `
                 <div class="garage-item ${selected ? 'selected' : ''} ${owned ? 'owned' : ''} ${equipped ? 'equipped' : ''} ${isPending ? 'pending' : ''} ${isNew ? 'new-item' : ''}" data-index="${i}" data-item-id="${item.id}">
                     <div class="garage-item-name">
                         <span style="color: #ffd700; font-weight: bold; margin-right: 8px;">[${itemNumber}]</span>
-                        ${isPreset ? '<span style="color: #0ff; font-weight: bold; margin-right: 5px;">📦</span>' : ''}
                         ${isNew ? '<span class="new-badge">[NEW]</span> ' : ''}${item.name} ${statusBadge}
-                        ${isPreset ? '<span style="color: #0ff; margin-left: 8px; font-size: 9px;">[ПРЕСЕТ]</span>' : ''}
                     </div>
                     <div class="garage-item-desc">${item.description}</div>
                     <div class="garage-item-stats">${statsStr}</div>
                     <div class="garage-item-price">${priceStr}</div>
-                    ${isPreset ? `
-                        <div style="margin-top: 5px; display: flex; gap: 5px;">
-                            <button class="preset-action-btn" data-action="rename-preset" data-preset-id="${item.id}" style="background: rgba(0,255,255,0.2); border: 1px solid #0ff; color: #0ff; padding: 2px 6px; font-size: 9px; cursor: pointer;">✏️ Переименовать</button>
-                            <button class="preset-action-btn" data-action="delete-preset" data-preset-id="${item.id}" style="background: rgba(255,0,0,0.2); border: 1px solid #f00; color: #f00; padding: 2px 6px; font-size: 9px; cursor: pointer;">🗑️ Удалить</button>
-                        </div>
-                    ` : ''}
                 </div>
             `;
         }).join('');
@@ -3942,12 +4252,51 @@ export class Garage {
         container.addEventListener('dblclick', dblClickHandler);
         
         // Add listeners for preset action buttons
+        
+        // Создание пресета
+        container.querySelectorAll('[data-action="create-preset"]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const slotId = (e.target as HTMLElement).getAttribute('data-slot-id');
+                if (slotId) {
+                    const slotIndex = this.getPresetSlotIndex(slotId);
+                    this.createPresetInSlot(slotIndex);
+                }
+            });
+        });
+        
+        // Применение пресета
+        container.querySelectorAll('[data-action="apply-preset"]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const presetId = (e.target as HTMLElement).getAttribute('data-preset-id');
+                if (presetId) {
+                    const slotIndex = this.getPresetSlotIndex(presetId);
+                    this.applyPresetFromSlot(slotIndex);
+                }
+            });
+        });
+        
+        // Переименование пресета
+        container.querySelectorAll('[data-action="rename-preset"]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const presetId = (e.target as HTMLElement).getAttribute('data-preset-id');
+                if (presetId) {
+                    const slotIndex = this.getPresetSlotIndex(presetId);
+                    this.renamePresetInSlot(slotIndex);
+                }
+            });
+        });
+        
+        // Удаление пресета
         container.querySelectorAll('[data-action="delete-preset"]').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const presetId = (e.target as HTMLElement).getAttribute('data-preset-id');
                 if (presetId) {
-                    this.deletePreset(presetId);
+                    const slotIndex = this.getPresetSlotIndex(presetId);
+                    this.deletePresetFromSlot(slotIndex);
                 }
             });
         });
@@ -4286,7 +4635,14 @@ export class Garage {
         
         // Обработка пресетов
         if (part.type === 'preset') {
-            this.applyPreset(part.id);
+            // Проверяем, пустой ли слот
+            if (this.isEmptyPresetSlot(part.id)) {
+                const slotIndex = this.getPresetSlotIndex(part.id);
+                this.createPresetInSlot(slotIndex);
+            } else {
+                const slotIndex = this.getPresetSlotIndex(part.id);
+                this.applyPresetFromSlot(slotIndex);
+            }
             return;
         }
         

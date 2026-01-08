@@ -816,6 +816,11 @@ export class MultiplayerManager {
                     this.handlePong(message.data);
                     break;
                     
+                case ServerMessageType.BATCH:
+                    // Process batch of messages - unpack and handle each message
+                    this.handleBatch(message.data);
+                    break;
+                    
                 case ServerMessageType.ERROR:
                     logger.error("[Multiplayer] Server error:", message.data);
                     this.handleError(message.data);
@@ -1274,6 +1279,64 @@ export class MultiplayerManager {
     private handleError(data: ErrorData): void {
         if (this.onErrorCallback) {
             this.onErrorCallback(data);
+        }
+    }
+    
+    /**
+     * Handle batch message - unpack and process each contained message
+     * Batch messages reduce network overhead by grouping multiple updates
+     */
+    private handleBatch(data: { updates: Array<{ type: ServerMessageType; data: any }>; timestamp: number }): void {
+        if (!data.updates || !Array.isArray(data.updates)) {
+            logger.warn("[Multiplayer] Invalid batch message: missing updates array");
+            return;
+        }
+        
+        // Process each message in the batch
+        for (const update of data.updates) {
+            if (!update.type) continue;
+            
+            // Create a temporary message object and process it
+            const message: ServerMessage = {
+                type: update.type,
+                data: update.data,
+                timestamp: data.timestamp
+            };
+            
+            // Call the appropriate handler based on type
+            try {
+                switch (update.type) {
+                    case ServerMessageType.PROJECTILE_UPDATE:
+                        // Projectile update - forward to callback if set
+                        // Note: This would need a callback to be added
+                        break;
+                        
+                    case ServerMessageType.ENEMY_UPDATE:
+                        this.handleEnemyUpdate(update.data);
+                        break;
+                        
+                    case ServerMessageType.SAFE_ZONE_UPDATE:
+                        this.handleSafeZoneUpdate(update.data);
+                        break;
+                        
+                    case ServerMessageType.CTF_FLAG_UPDATE:
+                        this.handleCTFFlagUpdate(update.data);
+                        break;
+                        
+                    case ServerMessageType.CTF_FLAG_PICKUP:
+                        this.handleCTFFlagPickup(update.data);
+                        break;
+                        
+                    case ServerMessageType.CTF_FLAG_CAPTURE:
+                        this.handleCTFFlagCapture(update.data);
+                        break;
+                        
+                    default:
+                        logger.warn(`[Multiplayer] Unknown batch message type: ${update.type}`);
+                }
+            } catch (error) {
+                logger.error(`[Multiplayer] Error handling batch message type ${update.type}:`, error);
+            }
         }
     }
     

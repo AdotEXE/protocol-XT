@@ -76,30 +76,8 @@ export function createUniqueCannon(
     // КРИТИЧНО: Уникальное имя для каждого меша, чтобы избежать дублирования
     const uniqueBarrelId = `barrel_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    // КРИТИЧНО: Удаляем все старые меши пушки с паттерном barrel_, чтобы избежать дублирования
-    const oldBarrels = scene.meshes.filter(mesh => 
-        mesh.name && mesh.name.startsWith("barrel_") && !mesh.isDisposed()
-    );
-    oldBarrels.forEach(mesh => {
-        try {
-            // КРИТИЧНО: Удаляем все дочерние меши перед удалением родительского
-            if (mesh.getChildren && mesh.getChildren().length > 0) {
-                const children = mesh.getChildren();
-                children.forEach((child: any) => {
-                    if (child.dispose && !child.isDisposed()) {
-                        try {
-                            child.dispose();
-                        } catch (e) {
-                            // Игнорируем ошибки при удалении дочерних мешей
-                        }
-                    }
-                });
-            }
-            mesh.dispose();
-        } catch (e) {
-            // Игнорируем ошибки при удалении уже удаленных мешей
-        }
-    });
+    // ПРИМЕЧАНИЕ: Удаление старых стволов удалено - это вызывало удаление стволов у ВСЕХ танков
+    // Очистка стволов теперь должна происходить локально при смене пушки конкретного танка
     
     let barrel: Mesh;
     

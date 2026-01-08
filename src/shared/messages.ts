@@ -126,6 +126,9 @@ export enum ServerMessageType {
     
     // Network quality
     PONG = "pong",
+    
+    // Batch updates - groups multiple messages into one
+    BATCH = "batch",
 }
 
 // Specific message data types
@@ -250,5 +253,14 @@ export interface PongData {
     timestamp: number; // Original ping timestamp
     sequence: number; // Original ping sequence
     serverTime: number; // Server timestamp when pong was sent
+}
+
+// Batch update data - groups multiple messages into one
+export interface BatchUpdateData {
+    updates: Array<{
+        type: ServerMessageType;
+        data: any;
+    }>;
+    timestamp: number;
 }
 

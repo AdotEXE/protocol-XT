@@ -50,6 +50,7 @@ import { DestructionSystem } from "./destructionSystem";
 import { MissionSystem, Mission } from "./missionSystem";
 import { PlayerStatsSystem } from "./playerStats";
 import { upgradeManager } from "./upgrade";
+import type { TankStatsData, StatWithBonus } from "./hud/HUDTypes";
 import { MultiplayerManager } from "./multiplayer";
 import { NetworkPlayerTank } from "./networkPlayerTank";
 import { firebaseService, type MatchHistory } from "./firebaseService";
@@ -104,6 +105,7 @@ export class Game {
     tank: TankController | undefined;
     camera: ArcRotateCamera | undefined;
     aimCamera: UniversalCamera | undefined; // Отдельная камера для режима прицеливания
+    isCameraAnimating: boolean = false; // Флаг блокировки updateCamera во время анимации камеры (респавн)
     hud: HUD | undefined;
     soundManager: SoundManager | undefined;
     effectsManager: EffectsManager | undefined;
@@ -2761,9 +2763,18 @@ export class Game {
                 // Продолжаем без HUD
             }
             
-            // Initialize currency display
+                // Initialize currency display
             if (this.currencyManager && this.hud) {
                 this.hud.setCurrency(this.currencyManager.getCurrency());
+            }
+            
+            // Применение настроек HUD
+            if (this.hud && this.mainMenu) {
+                const settings = this.mainMenu.getSettings();
+                // Показ/скрытие панели статистики танка
+                if (settings.showTankStatsPanel !== undefined) {
+                    this.hud.setDetailedStatsPanelVisible(settings.showTankStatsPanel);
+                }
             }
             
             // Create Sound Manager
@@ -5236,6 +5247,12 @@ export class Game {
             this.scene.activeCamera = this.camera;
         }
         
+        // КРИТИЧНО: Не обновляем камеру во время анимации респавна
+        // Анимация камеры сама управляет позицией, updateCamera будет мешать
+        if (this.isCameraAnimating) {
+            return;
+        }
+        
         // Если танк еще не создан, просто убеждаемся что камера активна и выходим
         if (!this.tank || !this.tank.chassis || !this.tank.turret || !this.tank.barrel) {
             return;
@@ -5919,6 +5936,11 @@ export class Game {
             if (this.hud) {
                 this.hud.updateTankStatus(health, maxHealth, fuel, maxFuel, armor);
             }
+            
+            // Обновляем детальную панель статистики танка (реже - каждые 30 кадров)
+            if (this._updateTick % 30 === 0) {
+                this.updateDetailedTankStatsPanel();
+            }
         }
         
         // Enemy health summary (tanks + turrets) - С ЗАЩИТОЙ от null
@@ -6331,7 +6353,7 @@ export class Game {
     private updateMultiplayer(deltaTime: number): void {
         if (!this.multiplayerManager || !this.tank) return;
         
-        // Send player input to server
+        // Send player input to server with client-side prediction support
         if (this.tank.chassis && this.tank.physicsBody) {
             // Get input from tank controller
             const throttle = this.tank.throttleTarget || 0;
@@ -6339,7 +6361,14 @@ export class Game {
             const turretRotation = this.tank.turret.rotation.y;
             const aimPitch = this.tank.aimPitch || 0;
             
-            this.multiplayerManager.sendPlayerInput({
+            // CLIENT-SIDE PREDICTION: Set current position before sending input
+            // This ensures the predicted state starts from the correct position
+            const currentPosition = this.tank.chassis.position.clone();
+            const currentRotation = this.tank.chassis.rotation.y;
+            this.multiplayerManager.setLocalPlayerPosition(currentPosition, currentRotation);
+            
+            // Send input and get sequence number for prediction tracking
+            const sequence = this.multiplayerManager.sendPlayerInput({
                 throttle,
                 steer,
                 turretRotation,
@@ -6347,6 +6376,15 @@ export class Game {
                 isShooting: false, // Will be sent separately on shoot
                 timestamp: Date.now()
             });
+            
+            // CLIENT-SIDE PREDICTION: Update predicted state with actual position after input
+            // This allows reconciliation to compare predicted vs server state
+            if (sequence >= 0) {
+                // Position after physics update (current frame)
+                const newPosition = this.tank.chassis.position.clone();
+                const newRotation = this.tank.chassis.rotation.y;
+                this.multiplayerManager.updatePredictedState(sequence, newPosition, newRotation);
+            }
         }
         
         // Update network player tanks
@@ -6788,6 +6826,123 @@ export class Game {
     // Централизованный метод для сохранения всех данных игры
     public saveAllGameData(): void {
         this.gamePersistence.saveAllGameData();
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ОБНОВЛЕНИЕ ДЕТАЛЬНОЙ ПАНЕЛИ СТАТИСТИКИ ТАНКА
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Обновление данных детальной панели характеристик танка
+     */
+    private updateDetailedTankStatsPanel(): void {
+        if (!this.hud || !this.tank) return;
+        
+        const tank = this.tank;
+        const chassisType = tank.chassisType;
+        const cannonType = tank.cannonType;
+        const trackType = tank.trackType;
+        
+        if (!chassisType || !cannonType || !trackType) return;
+        
+        // Получаем уровни прокачки
+        const chassisLevel = upgradeManager.getElementLevel("chassis", chassisType.id);
+        const cannonLevel = upgradeManager.getElementLevel("cannon", cannonType.id);
+        const tracksLevel = upgradeManager.getElementLevel("tracks", trackType.id);
+        
+        // Получаем бонусы от прокачки
+        const chassisBonuses = upgradeManager.getChassisBonuses(chassisType.id);
+        const cannonBonuses = upgradeManager.getCannonBonuses(cannonType.id);
+        const tracksBonuses = upgradeManager.getTracksBonuses(trackType.id);
+        
+        // Формируем StatWithBonus для шасси
+        const makeStatWithBonus = (base: number, multiplier: number | undefined): StatWithBonus => {
+            const mult = multiplier ?? 1;
+            return {
+                base,
+                bonus: mult - 1,
+                total: base * mult,
+                bonusType: "percent"
+            };
+        };
+        
+        // Данные о шасси
+        const chassisData = {
+            id: chassisType.id,
+            name: chassisType.name,
+            maxHealth: makeStatWithBonus(chassisType.maxHealth, chassisBonuses.healthMultiplier),
+            moveSpeed: makeStatWithBonus(chassisType.moveSpeed, tracksBonuses.speedMultiplier),
+            turnSpeed: makeStatWithBonus(chassisType.turnSpeed, tracksBonuses.turnSpeedMultiplier),
+            acceleration: makeStatWithBonus(chassisType.acceleration, tracksBonuses.accelerationMultiplier),
+            mass: chassisType.mass,
+            specialAbility: chassisType.specialAbility || null,
+            upgradeLevel: chassisLevel,
+            color: chassisType.color
+        };
+        
+        // Данные о пушке
+        const cannonData = {
+            id: cannonType.id,
+            name: cannonType.name,
+            damage: makeStatWithBonus(cannonType.damage, cannonBonuses.damageMultiplier),
+            cooldown: {
+                base: cannonType.cooldown,
+                bonus: cannonBonuses.cooldownMultiplier ? cannonBonuses.cooldownMultiplier - 1 : 0,
+                total: cannonType.cooldown * (cannonBonuses.cooldownMultiplier ?? 1),
+                bonusType: "percent" as const
+            },
+            projectileSpeed: makeStatWithBonus(cannonType.projectileSpeed, cannonBonuses.projectileSpeedMultiplier),
+            projectileSize: cannonType.projectileSize,
+            recoilMultiplier: cannonType.recoilMultiplier,
+            barrelLength: cannonType.barrelLength,
+            maxRicochets: cannonType.maxRicochets ?? null,
+            ricochetSpeedRetention: cannonType.ricochetSpeedRetention ?? null,
+            upgradeLevel: cannonLevel,
+            color: cannonType.color
+        };
+        
+        // Данные о гусеницах
+        const tracksData = {
+            id: trackType.id,
+            name: trackType.name,
+            style: trackType.style,
+            speedBonus: trackType.stats.speedBonus ?? 0,
+            durabilityBonus: trackType.stats.durabilityBonus ?? 0,
+            armorBonus: trackType.stats.armorBonus ?? 0,
+            upgradeLevel: tracksLevel,
+            color: trackType.color
+        };
+        
+        // Бонусы от всего
+        const bonusesData = {
+            damageBonus: (cannonBonuses.damageMultiplier ?? 1) - 1,
+            cooldownBonus: (cannonBonuses.cooldownMultiplier ?? 1) - 1,
+            healthBonus: (chassisBonuses.healthMultiplier ?? 1) - 1,
+            armorBonus: (chassisBonuses.armorMultiplier ?? 1) - 1 + (trackType.stats.armorBonus ?? 0),
+            speedBonus: (tracksBonuses.speedMultiplier ?? 1) - 1 + (trackType.stats.speedBonus ?? 0),
+            turnSpeedBonus: (tracksBonuses.turnSpeedMultiplier ?? 1) - 1,
+            accelerationBonus: (tracksBonuses.accelerationMultiplier ?? 1) - 1,
+            projectileSpeedBonus: (cannonBonuses.projectileSpeedMultiplier ?? 1) - 1,
+            critChance: 0, // TODO: Получить из модулей если будут
+            evasion: 0,    // TODO: Получить из модулей если будут
+            repairRate: 0, // TODO: Получить из модулей если будут
+            fuelEfficiency: 0, // TODO: Получить из модулей если будут
+            playerLevel: upgradeManager.getPlayerLevel(),
+            installedModules: [] // TODO: Добавить модули если будут
+        };
+        
+        const tankStatsData: TankStatsData = {
+            chassis: chassisData,
+            cannon: cannonData,
+            tracks: tracksData,
+            bonuses: bonusesData,
+            currentHealth: tank.currentHealth,
+            currentFuel: tank.currentFuel,
+            maxFuel: tank.maxFuel,
+            currentArmor: (tank as any).currentArmor || 0
+        };
+        
+        this.hud.updateDetailedTankStats(tankStatsData);
     }
 }
 
