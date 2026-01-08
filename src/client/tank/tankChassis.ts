@@ -7,6 +7,7 @@
 
 import { Scene, Mesh, MeshBuilder, StandardMaterial, Color3, Vector3 } from "@babylonjs/core";
 import { ChassisType } from "../tankTypes";
+import { loadSelectedSkin, getSkinById, applySkinToTank, applySkinColorToMaterial } from "./tankSkins";
 
 export interface ChassisAnimationElements {
     stealthActive?: boolean;
@@ -209,7 +210,22 @@ export function createUniqueChassis(
     // КРИТИЧНО: Уникальное имя для материала, чтобы избежать конфликтов
     const uniqueMatId = `tankMat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const mat = new StandardMaterial(uniqueMatId, scene);
-    mat.diffuseColor = color;
+    
+    // Применяем скин если выбран, иначе используем цвет из chassisType
+    const selectedSkinId = loadSelectedSkin();
+    if (selectedSkinId) {
+        const skin = getSkinById(selectedSkinId);
+        if (skin) {
+            const skinColors = applySkinToTank(skin);
+            mat.diffuseColor = skinColors.chassisColor;
+            console.log(`[SKIN] Applied skin "${skin.name}" to chassis during creation`);
+        } else {
+            mat.diffuseColor = color;
+        }
+    } else {
+        mat.diffuseColor = color;
+    }
+    
     mat.specularColor = Color3.Black();
     mat.disableLighting = false;
     mat.freeze();

@@ -30,6 +30,10 @@ export { UrbanWarfareGenerator, DEFAULT_URBAN_CONFIG } from './urban_warfare';
 export { UndergroundGenerator, DEFAULT_UNDERGROUND_CONFIG } from './underground';
 export { CoastalGenerator, DEFAULT_COASTAL_CONFIG } from './coastal';
 export { SandGenerator, DEFAULT_SAND_CONFIG } from './sand';
+export { MadnessGenerator, DEFAULT_MADNESS_CONFIG } from './madness';
+export { ExpoGenerator, DEFAULT_EXPO_CONFIG } from './expo';
+export { BrestGenerator, DEFAULT_BREST_CONFIG } from './brest';
+export { ArenaGenerator, DEFAULT_ARENA_CONFIG } from './arena';
 
 // Map info exports
 export { POLYGON_MAP_INFO } from './polygon';
@@ -42,6 +46,10 @@ export { UNDERGROUND_MAP_INFO } from './underground';
 export { COASTAL_MAP_INFO } from './coastal';
 export { SANDBOX_MAP_INFO } from './sandbox';
 export { SAND_MAP_INFO } from './sand';
+export { MADNESS_MAP_INFO } from './madness';
+export { EXPO_MAP_INFO } from './expo';
+export { BREST_MAP_INFO } from './brest';
+export { ARENA_MAP_INFO } from './arena';
 export { NORMAL_MAP_INFO, BIOME_WEIGHTS } from './normal';
 
 /**
@@ -59,6 +67,10 @@ export const ALL_MAPS = [
     'coastal',
     'sandbox',
     'sand',
+    'madness',
+    'expo',
+    'brest',
+    'arena',
     'tartaria'
 ] as const;
 

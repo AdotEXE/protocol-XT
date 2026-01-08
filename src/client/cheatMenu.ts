@@ -31,9 +31,20 @@ export class CheatMenu {
         this.initializeCheats();
         this.createUI();
         this.setupToggle();
+        this.setupEscHandler();
         this.visible = false;
         this.container.classList.remove("visible");
         this.container.style.display = "none";
+    }
+    
+    private setupEscHandler(): void {
+        window.addEventListener("keydown", (e) => {
+            if (e.code === "Escape" && this.visible) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.hide();
+            }
+        }, true);
     }
     
     setTank(tank: TankController | null): void {
@@ -1663,6 +1674,12 @@ export class CheatMenu {
         this.container.style.opacity = "1";
         this.container.style.zIndex = "100002";
         
+        // Показываем курсор и выходим из pointer lock
+        if (document.pointerLockElement) {
+            document.exitPointerLock();
+        }
+        document.body.style.cursor = 'default';
+        
         // Добавляем класс "in-battle" если игра запущена (для полупрозрачного фона)
         const game = (window as any).gameInstance;
         if (game && game.gameStarted) {
@@ -1681,6 +1698,12 @@ export class CheatMenu {
         this.container.style.display = "none";
         this.container.style.visibility = "hidden";
         this.container.style.opacity = "0";
+        
+        // Восстанавливаем курсор только если игра активна
+        const game = (window as any).gameInstance;
+        if (game?.gameStarted && !game.gamePaused) {
+            document.body.style.cursor = 'none';
+        }
     }
     
     /**

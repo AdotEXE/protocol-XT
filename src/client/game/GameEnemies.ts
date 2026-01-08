@@ -377,13 +377,15 @@ export class GameEnemies {
     
     /**
      * Создание врага с настройками
+     * @param skipTargetAssignment - если true, цель НЕ будет установлена (для патрулирования)
      */
     private createEnemy(
         pos: Vector3, 
         difficulty: "easy" | "medium" | "hard",
         difficultyScale: number,
         onDeath?: () => void,
-        groundNormal?: Vector3 // Нормаль поверхности для выравнивания
+        groundNormal?: Vector3, // Нормаль поверхности для выравнивания
+        skipTargetAssignment: boolean = false // УЛУЧШЕНО: Опция пропуска установки цели
     ): EnemyTank | null {
         if (!this.systems?.scene || !this.systems.soundManager || !this.systems.effectsManager) {
             return null;
@@ -399,7 +401,8 @@ export class GameEnemies {
             groundNormal || Vector3.Up() // Передаём нормаль поверхности
         );
         
-        if (this.systems.tank) {
+        // УЛУЧШЕНО: Устанавливаем цель только если не пропущено
+        if (!skipTargetAssignment && this.systems.tank) {
             enemy.setTarget(this.systems.tank);
         }
         
@@ -885,7 +888,17 @@ export class GameEnemies {
      */
     private spawnSingleBot(): void {
         if (!this.systems?.soundManager || !this.systems.effectsManager) return;
-        if (this.gradualSpawnCount >= this.gradualSpawnMaxBots) return;
+        
+        // КРИТИЧНО: Двойная проверка перед спавном
+        if (this.gradualSpawnCount >= this.gradualSpawnMaxBots) {
+            logger.debug(`[GameEnemies] Max bots reached (${this.gradualSpawnCount}/${this.gradualSpawnMaxBots}), skipping spawn`);
+            // Останавливаем таймер если он ещё работает
+            if (this.gradualSpawnTimer !== null) {
+                clearInterval(this.gradualSpawnTimer);
+                this.gradualSpawnTimer = null;
+            }
+            return;
+        }
         
         const minDistance = 60;
         const maxDistance = 180;
@@ -896,9 +909,9 @@ export class GameEnemies {
         let attempts = 0;
         let pos: Vector3;
         
-        // Для карты "sand" используем границы карты вместо радиального спавна
-        const mapBounds = this.systems.currentMapType === "sand" 
-            ? getMapBoundsFromConfig("sand") 
+        // Для карт "sand", "madness", "expo" и "brest" используем границы карты вместо радиального спавна
+        const mapBounds = (this.systems.currentMapType === "sand" || this.systems.currentMapType === "madness" || this.systems.currentMapType === "expo" || this.systems.currentMapType === "brest" || this.systems.currentMapType === "arena")
+            ? getMapBoundsFromConfig(this.systems.currentMapType) 
             : null;
         
         do {
@@ -917,17 +930,17 @@ export class GameEnemies {
             }
             
             const groundInfo = this.getGroundInfo(spawnX, spawnZ);
-            // Спавн на 5 метров выше террейна для гарантии (для sand достаточно +2м)
-            const spawnY = this.systems.currentMapType === "sand" 
+            // Спавн на 5 метров выше террейна для гарантии (для sand, madness, expo и brest достаточно +2м)
+            const spawnY = (this.systems.currentMapType === "sand" || this.systems.currentMapType === "madness" || this.systems.currentMapType === "expo" || this.systems.currentMapType === "brest" || this.systems.currentMapType === "arena")
                 ? Math.max(groundInfo.height + 2.0, 2.0)
                 : Math.max(groundInfo.height + 5.0, 7.0);
             
             pos = new Vector3(spawnX, spawnY, spawnZ);
             
-            // Проверяем расстояние до других врагов
+            // Проверяем расстояние до других врагов (минимум 100м между ботами)
             let tooClose = false;
             for (const existingEnemy of this.enemyTanks) {
-                if (existingEnemy.chassis && Vector3.Distance(pos, existingEnemy.chassis.absolutePosition) < 25) {
+                if (existingEnemy.chassis && Vector3.Distance(pos, existingEnemy.chassis.absolutePosition) < 100) {
                     tooClose = true;
                     break;
                 }
@@ -941,20 +954,21 @@ export class GameEnemies {
         } while (attempts < 30);
         
         const groundNormal = (pos as any).groundNormal || Vector3.Up();
+        // ИСПРАВЛЕНО: Боты СРАЗУ получают цель для агрессивного поведения
         const enemy = this.createEnemy(pos, aiDifficulty, difficultyScale, () => {
             this.handleStandardEnemyDeath(enemy!);
-        }, groundNormal);
+        }, groundNormal, false); // skipTargetAssignment = false - цель назначается СРАЗУ
         
         if (enemy) {
             this.enemyTanks.push(enemy);
             this.gradualSpawnCount++;
             
-            // Устанавливаем цель для нового бота
-            if (this.systems?.tank) {
-                enemy.setTarget(this.systems.tank);
+            // ДОБАВЛЕНО: Проверка после увеличения счётчика
+            if (this.gradualSpawnCount > this.gradualSpawnMaxBots) {
+                logger.error(`[GameEnemies] BUG: Spawned MORE bots (${this.gradualSpawnCount}) than max (${this.gradualSpawnMaxBots})!`);
             }
             
-            logger.log(`[GameEnemies] Bot ${this.gradualSpawnCount}/${this.gradualSpawnMaxBots} spawned at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`);
+            logger.log(`[GameEnemies] Bot ${this.gradualSpawnCount}/${this.gradualSpawnMaxBots} spawned at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}) - target assigned immediately`);
         }
     }
     
@@ -1004,9 +1018,9 @@ export class GameEnemies {
         const spawnPositions: Vector3[] = [];
         const difficultyScale = this.getAdaptiveDifficultyScale();
         
-        // Для карты "sand" используем границы карты вместо радиального спавна
-        const mapBounds = this.systems.currentMapType === "sand" 
-            ? getMapBoundsFromConfig("sand") 
+        // Для карт "sand", "madness", "expo" и "brest" используем границы карты вместо радиального спавна
+        const mapBounds = (this.systems.currentMapType === "sand" || this.systems.currentMapType === "madness" || this.systems.currentMapType === "expo" || this.systems.currentMapType === "brest" || this.systems.currentMapType === "arena")
+            ? getMapBoundsFromConfig(this.systems.currentMapType) 
             : null;
         
         for (let i = 0; i < enemyCount; i++) {
@@ -1029,8 +1043,8 @@ export class GameEnemies {
                 }
                 
                 const groundInfo = this.getGroundInfo(spawnX, spawnZ);
-                // Спавн на 5 метров выше террейна для гарантии (для sand достаточно +2м)
-                const spawnY = this.systems.currentMapType === "sand" 
+                // Спавн на 5 метров выше террейна для гарантии (для sand, madness, expo и brest достаточно +2м)
+                const spawnY = (this.systems.currentMapType === "sand" || this.systems.currentMapType === "madness" || this.systems.currentMapType === "expo" || this.systems.currentMapType === "brest")
                     ? Math.max(groundInfo.height + 2.0, 2.0)
                     : Math.max(groundInfo.height + 5.0, 7.0);
                 

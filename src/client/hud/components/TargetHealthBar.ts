@@ -45,6 +45,7 @@ export class TargetHealthBar {
         this.container.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.container.top = "50px"; // Под компасом (компас: top 10px + height 35px + отступ 5px = 50px)
         this.container.alpha = 0; // СКРЫТ по умолчанию - показывать только при точном прицеливании
+        this.container.isVisible = false; // ГАРАНТИРОВАННО скрыт
         parent.addControl(this.container);
         
         // === НАЗВАНИЕ ЦЕЛИ ===
@@ -159,6 +160,9 @@ export class TargetHealthBar {
         if (target) {
             this.currentTarget = target;
             this.lastTargetTime = Date.now();
+            this.container.isVisible = true; // Показываем контейнер
+            this.fadeAlpha = 1; // Сразу показываем (без fade-in)
+            this.container.alpha = 1;
             
             // Обновляем название
             const typePrefix = target.type === "boss" ? "⚠ BOSS" : target.type === "player" ? "ИГРОК" : "ВРАГ";
@@ -177,6 +181,7 @@ export class TargetHealthBar {
             this.currentTarget = null;
             this.fadeAlpha = 0;
             this.container.alpha = 0;
+            this.container.isVisible = false; // ГАРАНТИРОВАННО скрыть
         }
     }
     
@@ -215,6 +220,9 @@ export class TargetHealthBar {
         const alphaSpeed = 8.0;
         this.fadeAlpha += (targetAlpha - this.fadeAlpha) * alphaSpeed * deltaTime;
         this.container.alpha = this.fadeAlpha;
+        
+        // ИСПРАВЛЕНО: Управление видимостью - показываем только когда alpha > 0
+        this.container.isVisible = this.fadeAlpha > 0.01;
         
         // Обновляем полосу здоровья с плавной анимацией
         if (this.currentTarget) {
@@ -263,6 +271,7 @@ export class TargetHealthBar {
             this.currentTarget = null;
             this.fadeAlpha = 0;
             this.container.alpha = 0;
+            this.container.isVisible = false; // ГАРАНТИРОВАННО скрыть
         }
     }
     

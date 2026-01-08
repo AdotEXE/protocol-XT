@@ -161,6 +161,8 @@ export class GameCamera {
         this.camera.upperRadiusLimit = 25;
         this.camera.lowerBetaLimit = 0.1;
         this.camera.upperBetaLimit = Math.PI / 2.1;
+        // ИСПРАВЛЕНИЕ: Уменьшаем near clip plane для предотвращения исчезновения мешей
+        this.camera.minZ = 0.1; // Меньшее значение позволяет видеть объекты ближе к камере
         this.camera.inputs.clear();
         
         // Создаем камеру прицеливания
@@ -412,7 +414,8 @@ export class GameCamera {
         while (this.targetAimYaw < -Math.PI) this.targetAimYaw += Math.PI * 2;
         
         // Turret follows mouse in aiming mode
-        if (this.tank.turret) {
+        // КРИТИЧНО: Не управляем башней если танк мёртв/респавнится
+        if (this.tank && (this.tank as any).isAlive && this.tank.turret) {
             let yawDiff = this.targetAimYaw - this.aimYaw;
             while (yawDiff > Math.PI) yawDiff -= Math.PI * 2;
             while (yawDiff < -Math.PI) yawDiff += Math.PI * 2;

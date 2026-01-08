@@ -1,8 +1,10 @@
 import { Game } from './game';
 import './styles/responsive.css';
 import { registerServiceWorker } from './serviceWorker';
+import { Logger } from "@babylonjs/core";
 
-console.log('Protocol TX Client Starting...');
+// Отключаем логи Babylon.js (убираем дублирование "BJS - Babylon.js v8.40.1")
+Logger.LogLevels = Logger.NoneLogLevel;
 
 // Подавляем ошибки от внешних скриптов (расширения браузера, Sentry и т.д.)
 window.addEventListener('error', (event): boolean | void => {

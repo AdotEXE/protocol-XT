@@ -30,7 +30,7 @@ import { TankProjectilesModule } from "./tank/tankProjectiles";
 import { TankVisualsModule } from "./tank/tankVisuals";
 import type { ChassisAnimationElements } from "./tank/tankChassis";
 import type { ShellCasing } from "./tank/types";
-import { getSkinById, loadSelectedSkin, applySkinToTank } from "./tank/tankSkins";
+import { getSkinById, loadSelectedSkin, applySkinToTank, applySkinColorToMaterial } from "./tank/tankSkins";
 import { PHYSICS_CONFIG } from "./config/physicsConfig";
 import { tankDuplicationLogger } from "./tankDuplicationLogger";
 import { RicochetSystem, RicochetConfig, RICOCHET_CANNON_CONFIG, DEFAULT_RICOCHET_CONFIG } from "./tank/combat/RicochetSystem";
@@ -276,13 +276,16 @@ export class TankController {
     isKeyboardTurretControl = false; // Флаг клавиатурного управления башней (Z/X)
     
     // Скорость вращения башни (публичная для game.ts)
-    turretSpeed = 0.04; // Базовая скорость вращения башни (рад/кадр)
-    baseTurretSpeed = 0.06; // Базовая скорость башни для центрирования
+    turretSpeed = 0.08; // Базовая скорость вращения башни (рад/кадр) - УВЕЛИЧЕНО для более быстрого поворота
+    baseTurretSpeed = 0.08; // Базовая скорость башни для центрирования - УВЕЛИЧЕНО
     turretLerpSpeed = 0.25; // Резкая реакция башни
     
     // Barrel pitch control (vertical tilt of barrel) - keyboard R/F
     barrelPitchTarget = 0; // Целевое направление наклона ствола (-1, 0, +1)
     barrelPitchSmooth = 0; // Сглаженное значение для интерполяции
+    private _barrelCurrentRotationX = 0; // Текущий rotation.x ствола (для плавной интерполяции)
+    private _barrelTargetRotationX = 0; // Целевой rotation.x ствола (для плавной интерполяции)
+    private _barrelRotationXSmoothing = 0.15; // Коэффициент сглаживания для rotation.x ствола
     private barrelPitchAcceleration = 0; // Прогрессивный разгон наклона ствола (0-1, за 1 секунду)
     private barrelPitchAccelStartTime = 0; // Время начала ускорения наклона ствола
     baseBarrelPitchSpeed = 0.035; // Базовая скорость наклона ствола (рад/кадр)
@@ -607,7 +610,9 @@ export class TankController {
             const skin = getSkinById(selectedSkinId);
             if (skin) {
                 const skinColors = applySkinToTank(skin);
-                (this.chassis.material as StandardMaterial).diffuseColor = skinColors.chassisColor;
+                applySkinColorToMaterial(this.chassis.material as StandardMaterial, skinColors.chassisColor);
+            } else {
+                console.warn(`[SKIN] Constructor: Skin not found: ${selectedSkinId}`);
             }
         }
         
@@ -2068,7 +2073,7 @@ export class TankController {
                 const skin = getSkinById(selectedSkinId);
                 if (skin) {
                     const skinColors = applySkinToTank(skin);
-                    (this.chassis.material as StandardMaterial).diffuseColor = skinColors.chassisColor;
+                    applySkinColorToMaterial(this.chassis.material as StandardMaterial, skinColors.chassisColor);
                 }
             }
             
@@ -2097,7 +2102,9 @@ export class TankController {
         this.currentHealth = this.maxHealth;
         this.currentFuel = this.maxFuel;
         this.isFuelEmpty = false;
-        this.isAlive = true;
+        // КРИТИЧНО: НЕ устанавливаем isAlive = true здесь!
+        // isAlive будет установлен в completeRespawn() ПОСЛЕ завершения анимации сборки
+        // Это предотвращает конфликт между анимацией и updatePhysics/updateCamera
         this.isReloading = false;
         this.lastShotTime = 0;
         
@@ -2127,24 +2134,71 @@ export class TankController {
      * Завершает респавн - устанавливает позицию и восстанавливает физику
      */
     private completeRespawn(respawnPos: Vector3): void {
+        // КРИТИЧНО: Сохраняем rotation башни ПЕРЕД любыми операциями (для переодевания)
+        // Если башня не была пересоздана, восстановим rotation после
+        let savedTurretRotY = 0;
+        let savedTurretRotQuat: Quaternion | null = null;
+        const turretExistsBefore = this.turret && !this.turret.isDisposed();
+        if (turretExistsBefore) {
+            savedTurretRotY = this.turret.rotation.y;
+            if (this.turret.rotationQuaternion) {
+                savedTurretRotQuat = this.turret.rotationQuaternion.clone();
+            }
+            // Сохраняем ссылку на turret для проверки пересоздания
+            (this as any)._savedTurretBeforeRespawn = this.turret;
+        }
+        
+        // КРИТИЧНО: Устанавливаем lastRespawnTime и сбрасываем флаги ДО isAlive = true!
+        // Это предотвращает race condition: игровой цикл может запуститься до установки lastRespawnTime
+        const game = (window as any).gameInstance;
+        if (game) {
+            game.lastRespawnTime = Date.now();
+            game.shouldCenterCamera = false;
+            game.isCenteringActive = false;
+            // КРИТИЧНО: Синхронизируем cameraYaw с ТЕКУЩИМ углом башни, а не устанавливаем в 0!
+            // Это предотвращает проблему, когда башня пытается повернуться к cameraYaw = 0
+            if (this.turret) {
+                game.cameraYaw = this.turret.rotation.y;
+            } else {
+                game.cameraYaw = 0; // Fallback если башни нет
+            }
+            logger.log(`[TANK] Respawn flags reset BEFORE isAlive: lastRespawnTime=${game.lastRespawnTime}, shouldCenterCamera=${game.shouldCenterCamera}, cameraYaw=${game.cameraYaw.toFixed(3)}, turretRotY=${this.turret ? this.turret.rotation.y.toFixed(3) : 'N/A'}`);
+        }
+        
+        // КРИТИЧНО: Устанавливаем isAlive = true ЗДЕСЬ, после завершения анимации сборки!
+        // Это предотвращает конфликт между анимацией и updatePhysics/updateCamera
+        this.isAlive = true;
+        
         const targetX = respawnPos.x;
         const targetZ = respawnPos.z;
         
-        // КРИТИЧНО: ПРИНУДИТЕЛЬНО вычисляем высоту террейна и корректируем позицию
+        // КРИТИЧНО: Если танк уже находится в гараже (переодевание), сохраняем текущую Y-позицию
+        // НЕ поднимаем танк вверх, чтобы он не застревал в потолке
         let targetY = respawnPos.y;
         
-        // Получаем высоту террейна через game instance
-        const game = (window as any).gameInstance;
-        if (game && typeof game.getGroundHeight === 'function') {
-            const groundHeight = game.getGroundHeight(targetX, targetZ);
-            // Безопасная высота: +5м над террейном, минимум 7м
-            targetY = Math.max(groundHeight + 5.0, 7.0);
-            logger.log(`[TANK] Corrected respawn height: ${targetY.toFixed(2)} (ground: ${groundHeight.toFixed(2)})`);
+        // Проверяем, находится ли танк в гараже через gameGarage
+        let isInGarage = false;
+        if (game && (game as any).gameGarage && typeof (game as any).gameGarage.isPlayerInAnyGarage === 'function') {
+            isInGarage = (game as any).gameGarage.isPlayerInAnyGarage();
+        }
+        
+        // Если танк в гараже - используем текущую Y-позицию (не поднимаем)
+        if (isInGarage && this.chassis) {
+            targetY = this.chassis.position.y;
+            logger.log(`[TANK] Tank is in garage, preserving Y position: ${targetY.toFixed(2)}`);
         } else {
-            // Fallback: если game недоступен, используем минимум 7 метров
-            if (targetY < 7.0) {
-                targetY = 7.0;
-                logger.warn(`[TANK] Respawn height too low (${respawnPos.y.toFixed(2)}), forcing to 7.0`);
+            // Если танк НЕ в гараже - вычисляем высоту террейна и корректируем позицию
+            if (game && typeof game.getGroundHeight === 'function') {
+                const groundHeight = game.getGroundHeight(targetX, targetZ);
+                // Безопасная высота: +5м над террейном, минимум 7м
+                targetY = Math.max(groundHeight + 5.0, 7.0);
+                logger.log(`[TANK] Corrected respawn height: ${targetY.toFixed(2)} (ground: ${groundHeight.toFixed(2)})`);
+            } else {
+                // Fallback: если game недоступен, используем минимум 7 метров
+                if (targetY < 7.0) {
+                    targetY = 7.0;
+                    logger.warn(`[TANK] Respawn height too low (${respawnPos.y.toFixed(2)}), forcing to 7.0`);
+                }
             }
         }
         
@@ -2158,9 +2212,24 @@ export class TankController {
             // 2. Сбрасываем вращение
             this.chassis.rotationQuaternion = Quaternion.Identity();
             this.chassis.rotation.set(0, 0, 0);
+            
+            // КРИТИЧНО: Проверяем, была ли башня пересоздана ДО сброса rotation
+            const turretWasRecreated = !turretExistsBefore || !this.turret || this.turret.isDisposed() || 
+                                       (turretExistsBefore && this.turret !== (this as any)._savedTurretBeforeRespawn);
+            
             if (this.turret) {
-                this.turret.rotationQuaternion = Quaternion.Identity();
-                this.turret.rotation.set(0, 0, 0);
+                if (turretWasRecreated) {
+                    // Башня была пересоздана - сбрасываем rotation (обычный респавн)
+                    this.turret.rotationQuaternion = Quaternion.Identity();
+                    this.turret.rotation.set(0, 0, 0);
+                } else {
+                    // Башня НЕ была пересоздана - ВОССТАНАВЛИВАЕМ сохранённый rotation (переодевание)
+                    if (savedTurretRotQuat) {
+                        this.turret.rotationQuaternion = savedTurretRotQuat;
+                    }
+                    this.turret.rotation.y = savedTurretRotY;
+                    logger.log(`[TANK] Restored turret rotation after respawn: ${savedTurretRotY.toFixed(4)}`);
+                }
             }
             if (this.barrel) {
                 this.barrel.rotationQuaternion = Quaternion.Identity();
@@ -2267,6 +2336,15 @@ export class TankController {
             this.chassis.position.set(targetX, targetY, targetZ);
             this.chassis.rotationQuaternion = Quaternion.Identity();
             this.chassis.rotation.set(0, 0, 0);
+            
+            // КРИТИЧНО: НЕ сбрасываем rotation башни если она не была пересоздана (переодевание)
+            // Rotation башни уже восстановлен выше, не трогаем его здесь
+            if (this.turret && turretWasRecreated) {
+                // Только если башня была пересоздана - сбрасываем rotation
+                this.turret.rotationQuaternion = Quaternion.Identity();
+                this.turret.rotation.set(0, 0, 0);
+            }
+            
             this.chassis.computeWorldMatrix(true);
             
             // Шаг 4: Временно включаем preStep для синхронизации позиции с физикой
@@ -2308,6 +2386,13 @@ export class TankController {
                         this.chassis.position.set(targetX, targetY, targetZ);
                         this.chassis.rotationQuaternion = Quaternion.Identity();
                         this.chassis.rotation.set(0, 0, 0);
+                        
+                        // КРИТИЧНО: НЕ сбрасываем rotation башни если она не была пересоздана
+                        if (this.turret && turretWasRecreated) {
+                            this.turret.rotationQuaternion = Quaternion.Identity();
+                            this.turret.rotation.set(0, 0, 0);
+                        }
+                        
                         this.chassis.computeWorldMatrix(true);
                         
                         // Временно включаем preStep для синхронизации
@@ -2352,9 +2437,22 @@ export class TankController {
         this.isKeyboardTurretControl = false;
         this.isAutoCentering = false;
         
+        // КРИТИЧНО: Принудительно устанавливаем turretSpeed и baseTurretSpeed
+        this.turretSpeed = 0.08; // УВЕЛИЧЕНО для более быстрого поворота
+        this.baseTurretSpeed = 0.08; // УВЕЛИЧЕНО
+        
+        // КРИТИЧНО: Сбрасываем ВСЕ переменные, связанные с вращением башни
+        this.turretTurnTarget = 0;
+        this.turretTurnSmooth = 0;
+        this.turretAcceleration = 0;
+        this.turretAccelStartTime = 0;
+        this.turretLerpSpeed = 0.25;
+        
         // Сбрасываем наклон ствола
         this.barrelPitchTarget = 0;
         this.barrelPitchSmooth = 0;
+        this._barrelCurrentRotationX = 0;
+        this._barrelTargetRotationX = 0;
         this.barrelPitchAcceleration = 0;
         this.barrelPitchAccelStartTime = 0;
         this.aimPitch = 0;
@@ -2377,14 +2475,20 @@ export class TankController {
                 ? this.chassis.rotationQuaternion.toEulerAngles().y 
                 : this.chassis.rotation.y;
             
-            // КРИТИЧНО: Принудительно сбрасываем флаги управления башней перед отправкой события
-            this.isKeyboardTurretControl = false;
-            this.isAutoCentering = false;
+            // КРИТИЧНО: НЕ сбрасываем флаги управления башней при переодевании!
+            // Флаги сбрасываются только при обычном респавне (когда башня была пересоздана)
+            const turretWasRecreated = !this.turret || this.turret.isDisposed();
+            if (turretWasRecreated) {
+                // Башня была пересоздана - сбрасываем флаги (обычный респавн)
+                this.isKeyboardTurretControl = false;
+                this.isAutoCentering = false;
+            }
+            // Если башня НЕ была пересоздана (переодевание), НЕ сбрасываем флаги!
             
-            // КРИТИЧНО: Убеждаемся, что turretSpeed не равен 0
-            if (!this.turretSpeed || this.turretSpeed === 0) {
-                this.turretSpeed = 0.04; // Восстанавливаем стандартную скорость
-                logger.warn(`[TANK] turretSpeed was 0, resetting to 0.04`);
+            // КРИТИЧНО: Убеждаемся, что turretSpeed не равен 0 и не слишком маленький
+            if (!this.turretSpeed || this.turretSpeed === 0 || this.turretSpeed < 0.06) {
+                this.turretSpeed = 0.08; // Восстанавливаем стандартную скорость (увеличено)
+                logger.warn(`[TANK] turretSpeed was invalid, resetting to 0.08`);
             }
             
             window.dispatchEvent(new CustomEvent("tankRespawned", { 
@@ -2397,10 +2501,9 @@ export class TankController {
             logger.log(`[TANK] Respawn event sent: turretRotY=${turretRotY.toFixed(3)}, chassisRotY=${chassisRotY.toFixed(3)}, isKeyboardTurretControl=${this.isKeyboardTurretControl}, isAutoCentering=${this.isAutoCentering}, turretSpeed=${this.turretSpeed}`);
         };
         
-        // Отправляем событие с несколькими попытками для гарантии
+        // КРИТИЧНО: Отправляем событие ТОЛЬКО ОДИН РАЗ!
+        // Повторная отправка сбрасывает cameraYaw и вызывает дёрганье башни к центру
         setTimeout(sendRespawnEvent, 0);
-        setTimeout(sendRespawnEvent, 50);
-        setTimeout(sendRespawnEvent, 100);
         
         // Сообщение в чат о респавне (БЕЗ визуальных эффектов - пункт 16!)
         if (this.chatSystem) {
@@ -2415,12 +2518,23 @@ export class TankController {
             const targetX = respawnPos.x;
             const targetZ = respawnPos.z;
             
-            // КРИТИЧНО: ПРИНУДИТЕЛЬНО вычисляем высоту террейна и корректируем позицию
+            // КРИТИЧНО: Если танк уже находится в гараже (переодевание), сохраняем текущую Y-позицию
+            // НЕ поднимаем танк вверх, чтобы он не застревал в потолке
             let targetY = respawnPos.y;
             
-            // Получаем высоту террейна через game instance
+            // Проверяем, находится ли танк в гараже через gameGarage
             const game = (window as any).gameInstance;
-            if (game && typeof game.getGroundHeight === 'function') {
+            let isInGarage = false;
+            if (game && (game as any).gameGarage && typeof (game as any).gameGarage.isPlayerInAnyGarage === 'function') {
+                isInGarage = (game as any).gameGarage.isPlayerInAnyGarage();
+            }
+            
+            // Если танк в гараже - используем текущую Y-позицию (не поднимаем)
+            if (isInGarage && this.chassis) {
+                targetY = this.chassis.position.y;
+                logger.log(`[TANK] Tank is in garage, preserving Y position: ${targetY.toFixed(2)}`);
+            } else if (game && typeof game.getGroundHeight === 'function') {
+                // Если танк НЕ в гараже - вычисляем высоту террейна и корректируем позицию
                 const groundHeight = game.getGroundHeight(targetX, targetZ);
                 // Безопасная высота: +5м над террейном, минимум 7м
                 targetY = Math.max(groundHeight + 5.0, 7.0);
@@ -2445,11 +2559,39 @@ export class TankController {
             // 3. Устанавливаем позицию
             this.chassis.position.set(targetX, targetY, targetZ);
             
-            // 4. Сбрасываем вращение
+            // 4. КРИТИЧНО: НЕ сбрасываем rotation башни при переодевании!
+            // Проверяем, была ли башня пересоздана - сравниваем текущий turret с сохранённым в начале
+            const turretWasRecreated = !turretExistsBefore || !this.turret || this.turret.isDisposed() || 
+                                       (turretExistsBefore && this.turret !== (this as any)._savedTurretBeforeRespawn);
+            
+            // Сбрасываем вращение корпуса (всегда сбрасываем)
             this.chassis.rotationQuaternion = Quaternion.Identity();
             this.chassis.rotation.set(0, 0, 0);
-            if (this.turret) this.turret.rotation.set(0, 0, 0);
-            if (this.barrel) this.barrel.rotation.set(0, 0, 0);
+            
+            if (turretWasRecreated) {
+                // Башня была пересоздана - сбрасываем rotation (обычный респавн)
+                if (this.turret) {
+                    this.turret.rotationQuaternion = Quaternion.Identity();
+                    this.turret.rotation.set(0, 0, 0);
+                }
+            } else {
+                // Башня НЕ была пересоздана - НЕ сбрасываем rotation (переодевание)
+                // Rotation уже сохранён в начале функции
+            }
+            
+            if (this.barrel) {
+                this.barrel.rotationQuaternion = Quaternion.Identity();
+                this.barrel.rotation.set(0, 0, 0);
+            }
+            
+            // Восстанавливаем rotation башни если она не была пересоздана
+            if (!turretWasRecreated && this.turret && !this.turret.isDisposed()) {
+                this.turret.rotation.y = savedTurretRotY;
+                if (savedTurretRotQuat) {
+                    this.turret.rotationQuaternion = savedTurretRotQuat;
+                }
+                logger.log(`[TANK] Turret rotation restored after respawn (dressing): ${savedTurretRotY.toFixed(3)}`);
+            }
             
             
             // 5. Обновляем матрицы ПРИНУДИТЕЛЬНО
@@ -2465,12 +2607,25 @@ export class TankController {
             this.activateInvulnerability();
             
             // 8. Включаем физику обратно через задержку (ОДИН раз, чтобы избежать конфликтов)
+            // КРИТИЧНО: Сохраняем флаг пересоздания башни для использования в setTimeout
+            const turretWasRecreatedForTimeout = turretWasRecreated;
             setTimeout(() => {
                 if (this.physicsBody && this.chassis) {
-                    // КРИТИЧНО: Ещё раз проверяем высоту террейна перед финальной установкой
+                    // КРИТИЧНО: Если танк в гараже, сохраняем текущую Y-позицию (не поднимаем)
                     const game = (window as any).gameInstance;
                     let finalY = targetY;
-                    if (game && typeof game.getGroundHeight === 'function') {
+                    
+                    // Проверяем, находится ли танк в гараже
+                    let isInGarage = false;
+                    if (game && (game as any).gameGarage && typeof (game as any).gameGarage.isPlayerInAnyGarage === 'function') {
+                        isInGarage = (game as any).gameGarage.isPlayerInAnyGarage();
+                    }
+                    
+                    // Если танк в гараже - используем текущую Y-позицию (не поднимаем)
+                    if (isInGarage && this.chassis) {
+                        finalY = this.chassis.position.y;
+                    } else if (game && typeof game.getGroundHeight === 'function') {
+                        // Если танк НЕ в гараже - вычисляем высоту террейна
                         const groundHeight = game.getGroundHeight(targetX, targetZ);
                         // Безопасная высота: +5м над террейном, минимум 7м
                         finalY = Math.max(groundHeight + 5.0, 7.0);
@@ -2480,7 +2635,25 @@ export class TankController {
                     this.chassis.position.set(targetX, finalY, targetZ);
                     this.chassis.rotationQuaternion = Quaternion.Identity();
                     this.chassis.rotation.set(0, 0, 0);
+                    // КРИТИЧНО: Сбрасываем вращение башни ТОЛЬКО если она была пересоздана (не при переодевании!)
+                    if (this.turret && turretWasRecreatedForTimeout) {
+                        this.turret.rotationQuaternion = Quaternion.Identity();
+                        this.turret.rotation.set(0, 0, 0);
+                    } else if (this.turret && !turretWasRecreatedForTimeout) {
+                        // Башня НЕ была пересоздана - восстанавливаем сохранённый rotation
+                        this.turret.rotation.y = savedTurretRotY;
+                        if (savedTurretRotQuat) {
+                            this.turret.rotationQuaternion = savedTurretRotQuat;
+                        }
+                        logger.log(`[TANK] Turret rotation restored in setTimeout (dressing): ${savedTurretRotY.toFixed(3)}`);
+                    }
+                    if (this.barrel) {
+                        this.barrel.rotationQuaternion = Quaternion.Identity();
+                        this.barrel.rotation.set(0, 0, 0);
+                    }
                     this.chassis.computeWorldMatrix(true);
+                    if (this.turret) this.turret.computeWorldMatrix(true);
+                    if (this.barrel) this.barrel.computeWorldMatrix(true);
                     
                     // Сбрасываем скорости ПЕРЕД включением физики
                     this.physicsBody.setLinearVelocity(Vector3.Zero());
@@ -2589,11 +2762,11 @@ export class TankController {
                 }
             }
             
-            // Активация авто-центрирования по нажатию C
-            if (code === "KeyC") {
-                this.isAutoCentering = true;
-                console.log("[Tank] C pressed - центровка башни активирована");
-            }
+            // ОТКЛЮЧЕНО: Авто-центрирование башни отключено
+            // if (code === "KeyC") {
+            //     this.isAutoCentering = true;
+            //     console.log("[Tank] C pressed - центровка башни активирована");
+            // }
             // Отмена авто-центрирования при ручном управлении башней
             if (code === "KeyZ" || code === "KeyX") {
                 this.isAutoCentering = false;
@@ -2709,7 +2882,6 @@ export class TankController {
         
         // Left click - enter pointer lock and ALWAYS shoot
         this.scene.onPointerDown = (evt) => {
-            console.log(`[Tank] onPointerDown: button=${evt.button}`);
              if (evt.button === 0) { // Left click
                  // Pointer lock handled by browser
                  if (canvas) {
@@ -2729,7 +2901,6 @@ export class TankController {
         };
         
         this.scene.onPointerUp = (evt) => {
-            console.log(`[Tank] onPointerUp: button=${evt.button}`);
             if (evt.button === 2) { // Release right click
                 console.log("[Tank] RMB released - toggling aim mode OFF");
                 this.toggleAimMode(false);
@@ -5544,23 +5715,50 @@ export class TankController {
             // Применяем скорость башни при клавиатурном управлении (Z/X) ИЛИ автоцентрировании (C)
             // Когда isKeyboardTurretControl = false И isAutoCentering = false, game.ts управляет башней через мышь/камеру
             // ИСПРАВЛЕНИЕ: Добавлена проверка isAutoCentering для работы центровки башни (C key)
-            // КРИТИЧНО: Проверяем, что башня существует и не удалена
-            if (this.turret && !this.turret.isDisposed() && (this.isKeyboardTurretControl || this.isAutoCentering)) {
-                this.turretTurnSmooth += (this.turretTurnTarget - this.turretTurnSmooth) * this.turretLerpSpeed;
-                const rotationDelta = this.turretTurnSmooth * this.baseTurretSpeed * this.turretAcceleration;
-                if (isFinite(rotationDelta) && !isNaN(rotationDelta)) {
-                    this.turret.rotation.y += rotationDelta;
-                    // Синхронизируем rotationQuaternion если используется
-                    if (this.turret.rotationQuaternion) {
-                        this.turret.rotationQuaternion = Quaternion.RotationYawPitchRoll(
-                            this.turret.rotation.y,
-                            this.turret.rotation.x,
-                            this.turret.rotation.z
-                        );
+            // КРИТИЧНО: Проверяем, что башня существует и не удалена, И что танк жив (не респавнится)
+            if (this.isAlive && this.turret && !this.turret.isDisposed()) {
+                if (this.isKeyboardTurretControl || this.isAutoCentering) {
+                    // Плавная интерполяция цели вращения
+                    this.turretTurnSmooth += (this.turretTurnTarget - this.turretTurnSmooth) * this.turretLerpSpeed;
+                    
+                    // Применяем поворот с ускорением
+                    const rotationDelta = this.turretTurnSmooth * this.baseTurretSpeed * this.turretAcceleration;
+                    
+                    // ЛОГИРОВАНИЕ: Состояние поворота башни (только если есть значительное вращение)
+                    if (Math.abs(rotationDelta) > 0.0001 && Math.random() < 0.01) { // Логируем 1% кадров
+                        console.log(`[TANK] [updatePhysics] Turret rotation:`, {
+                            turretTurnTarget: this.turretTurnTarget.toFixed(4),
+                            turretTurnSmooth: this.turretTurnSmooth.toFixed(4),
+                            rotationDelta: rotationDelta.toFixed(4),
+                            turretSpeed: this.turretSpeed,
+                            baseTurretSpeed: this.baseTurretSpeed,
+                            turretAcceleration: this.turretAcceleration.toFixed(4),
+                            isKeyboardTurretControl: this.isKeyboardTurretControl,
+                            isAutoCentering: this.isAutoCentering,
+                            turretRotationY: this.turret.rotation.y.toFixed(4)
+                        });
                     }
-                    // Debug logging for centering
-                    if (this.isAutoCentering && Math.abs(rotationDelta) > 0.001) {
-                        console.log(`[Tank] Turret centering: rotation=${this.turret.rotation.y.toFixed(3)}, delta=${rotationDelta.toFixed(4)}`);
+                    
+                    if (isFinite(rotationDelta) && !isNaN(rotationDelta) && Math.abs(rotationDelta) > 0.0001) {
+                        const oldRot = this.turret.rotation.y;
+                        this.turret.rotation.y += rotationDelta;
+                        
+                        // КРИТИЧНО: Проверяем что поворот не сбросился и восстанавливаем если нужно
+                        const newRot = this.turret.rotation.y;
+                        const expectedRot = oldRot + rotationDelta;
+                        if (Math.abs(newRot - expectedRot) > 0.0001) {
+                            // Поворот был сброшен - восстанавливаем
+                            this.turret.rotation.y = expectedRot;
+                        }
+                        
+                        // Синхронизируем rotationQuaternion если используется
+                        if (this.turret.rotationQuaternion) {
+                            this.turret.rotationQuaternion = Quaternion.RotationYawPitchRoll(
+                                this.turret.rotation.y,
+                                this.turret.rotation.x,
+                                this.turret.rotation.z
+                            );
+                        }
                     }
                 }
             }
@@ -5606,16 +5804,25 @@ export class TankController {
             // Вертикальный откат (подъем при выстреле, затем возврат в исходное положение)
             this._barrelRecoilY += (this._barrelRecoilYTarget - this._barrelRecoilY) * this.barrelRecoilSpeed;
             
-            // ИСПРАВЛЕНИЕ: Применяем вертикальное движение ствола при прицеливании (aimPitch)
+            // ИСПРАВЛЕНИЕ: Применяем вертикальное движение ствола при прицеливании (aimPitch) с плавной интерполяцией
             if (this.barrel && !this.barrel.isDisposed() && this.barrel.parent === this.turret && isFinite(this.aimPitch)) {
                 // Применяем aimPitch к rotation.x ствола (вертикальный поворот)
                 // Ограничиваем угол от -10° (вниз) до +5° (вверх)
                 const clampedPitch = Math.max(-Math.PI / 18, Math.min(Math.PI / 36, this.aimPitch));
                 if (isFinite(clampedPitch)) {
-                    const oldRotationX = this.barrel.rotation.x;
                     // ИСПРАВЛЕНИЕ: В Babylon.js rotation.x положительный = вниз, отрицательный = вверх
                     // Поэтому инвертируем знак, чтобы визуал ствола соответствовал направлению снаряда
-                    this.barrel.rotation.x = -clampedPitch;
+                    this._barrelTargetRotationX = -clampedPitch;
+                    
+                    // Плавная интерполяция rotation.x ствола для устранения дёрганий
+                    const rotationDiff = this._barrelTargetRotationX - this._barrelCurrentRotationX;
+                    // Используем адаптивное сглаживание: быстрее при больших изменениях, медленнее при малых
+                    const rotationEasing = Math.min(1.0, Math.abs(rotationDiff) * 8);
+                    const adaptiveSmoothing = this._barrelRotationXSmoothing * (0.5 + rotationEasing * 0.5);
+                    this._barrelCurrentRotationX += rotationDiff * adaptiveSmoothing;
+                    
+                    // Применяем сглаженное значение к стволу
+                    this.barrel.rotation.x = this._barrelCurrentRotationX;
                 }
             }
             
@@ -7857,9 +8064,9 @@ export class TankController {
             return;
         }
         
-        const animationDuration = 1200; // 1.2 секунды
-        const dismountPhase = 500; // Фаза демонтажа
-        const mountPhase = 700; // Фаза монтажа
+        const animationDuration = 3000; // 3 секунды
+        const dismountPhase = 1200; // Фаза демонтажа
+        const mountPhase = 1800; // Фаза монтажа
         
         // Сохраняем оригинальные позиции и состояния
         const partsToAnimate: Array<{
@@ -7870,14 +8077,16 @@ export class TankController {
         }> = [];
         
         // Собираем части для анимации
-        if (applied.chassis && this.chassis && !this.chassis.isDisposed()) {
-            partsToAnimate.push({
-                mesh: this.chassis,
-                originalPos: this.chassis.position.clone(),
-                originalRot: this.chassis.rotation.clone(),
-                type: 'chassis'
-            });
-        }
+        // КРИТИЧНО: НЕ анимируем chassis - это подбрасывает весь танк вверх
+        // Анимируем только визуальные части (turret, barrel, tracks)
+        // if (applied.chassis && this.chassis && !this.chassis.isDisposed()) {
+        //     partsToAnimate.push({
+        //         mesh: this.chassis,
+        //         originalPos: this.chassis.position.clone(),
+        //         originalRot: this.chassis.rotation.clone(),
+        //         type: 'chassis'
+        //     });
+        // }
         
         if (applied.cannon) {
             if (this.turret && !this.turret.isDisposed()) {
@@ -7949,9 +8158,10 @@ export class TankController {
                 for (const part of partsToAnimate) {
                     if (part.mesh.isDisposed()) continue;
                     
-                    // Поднимаем часть вверх с вращением
-                    const liftHeight = easeOut * 3; // 3 единицы вверх
-                    const rotationAmount = easeOut * Math.PI * 0.3; // 54 градуса
+                    // Поднимаем часть вверх с вращением (уменьшена высота для меньшего подбрасывания)
+                    const maxLiftHeight = 1.0; // Уменьшено с 3 до 1.0 единицы
+                    const liftHeight = easeOut * maxLiftHeight;
+                    const rotationAmount = easeOut * Math.PI * 0.2; // Уменьшено вращение с 0.3 до 0.2
                     
                     // Применяем в локальных координатах относительно оригинала
                     part.mesh.position.y = part.originalPos.y + liftHeight;
@@ -7967,9 +8177,10 @@ export class TankController {
             // Фаза 2: Пауза/смена (40-50%)
             else if (progress < 0.5) {
                 // Части на максимальной высоте
+                const maxLiftHeight = 1.0; // Уменьшено с 3 до 1.0 единицы
                 for (const part of partsToAnimate) {
                     if (part.mesh.isDisposed()) continue;
-                    part.mesh.position.y = part.originalPos.y + 3;
+                    part.mesh.position.y = part.originalPos.y + maxLiftHeight;
                 }
             }
             // Фаза 3: Монтаж (50-100%)
@@ -7977,12 +8188,14 @@ export class TankController {
                 const mountProgress = (progress - 0.5) / 0.5;
                 const easeIn = Math.pow(mountProgress, 2); // Quadratic ease in
                 
+                const maxLiftHeight = 1.0; // Уменьшено с 3 до 1.0 единицы
+                
                 for (const part of partsToAnimate) {
                     if (part.mesh.isDisposed()) continue;
                     
                     // Опускаем часть обратно
-                    const liftHeight = 3 * (1 - easeIn);
-                    const rotationAmount = Math.PI * 0.3 * (1 - easeIn);
+                    const liftHeight = maxLiftHeight * (1 - easeIn);
+                    const rotationAmount = Math.PI * 0.2 * (1 - easeIn); // Уменьшено вращение с 0.3 до 0.2
                     
                     part.mesh.position.y = part.originalPos.y + liftHeight;
                     part.mesh.rotation.x = part.originalRot.x + rotationAmount * 0.5;
@@ -8016,6 +8229,33 @@ export class TankController {
                     part.mesh.rotation.copyFrom(part.originalRot);
                     if (part.mesh.material && (part.mesh.material as any).alpha !== undefined) {
                         (part.mesh.material as any).alpha = 1;
+                    }
+                }
+                
+                // КРИТИЧНО: Принудительно разблокируем башню после анимации
+                // Во время анимации игрок мог случайно нажать Z/X, что установило isKeyboardTurretControl = true
+                this.isKeyboardTurretControl = false;
+                this.isAutoCentering = false;
+                this.turretTurnTarget = 0;
+                this.turretTurnSmooth = 0;
+                if ((this as any).turretAcceleration !== undefined) {
+                    (this as any).turretAcceleration = 0;
+                }
+                if ((this as any).turretAccelStartTime !== undefined) {
+                    (this as any).turretAccelStartTime = 0;
+                }
+                
+                // Также сбрасываем флаги в game.ts если доступен
+                if ((window as any).gameInstance) {
+                    const game = (window as any).gameInstance;
+                    game.virtualTurretTarget = null;
+                    game.isFreeLook = false;
+                    // КРИТИЧНО: Сбрасываем флаги центрирования камеры (иначе cameraYaw может сбрасываться в 0)
+                    game.shouldCenterCamera = false;
+                    game.isCenteringActive = false;
+                    // Синхронизируем cameraYaw с реальным углом башни
+                    if (this.turret && !this.turret.isDisposed()) {
+                        game.cameraYaw = this.turret.rotation.y;
                     }
                 }
                 

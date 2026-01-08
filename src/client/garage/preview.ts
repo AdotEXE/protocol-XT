@@ -37,6 +37,8 @@ export interface PreviewScene {
     light: HemisphericLight;
     canvas: HTMLCanvasElement;
     renderLoop?: number;
+    stopRenderLoop?: () => void; // ОПТИМИЗАЦИЯ: Функция для остановки requestAnimationFrame
+    triggerRender?: () => void; // ОПТИМИЗАЦИЯ: Функция для принудительного рендера
     animationGroups?: { stop: () => void; dispose?: () => void }[];
 }
 
@@ -58,16 +60,20 @@ export function initPreviewScene(
     canvas.height = 300;
     previewContainer.appendChild(canvas);
     
-    // Create engine
-    const engine = new Engine(canvas, true, {
-        preserveDrawingBuffer: true,
-        stencil: true,
-        antialias: true
+    // ОПТИМИЗАЦИЯ: Отключаем тяжёлые опции для лучшей производительности
+    const engine = new Engine(canvas, false, { // antialias: false для производительности
+        preserveDrawingBuffer: false, // Не нужен для превью
+        stencil: false // Не используем stencil buffer
     });
     
-    // Create scene
+    // Create scene with optimizations
     const scene = new Scene(engine);
     scene.clearColor = new Color4(0.05, 0.05, 0.08, 1.0);
+    
+    // ОПТИМИЗАЦИЯ: Отключаем ненужные функции сцены
+    scene.skipPointerMovePicking = true;
+    scene.autoClearDepthAndStencil = false;
+    scene.blockMaterialDirtyMechanism = true;
     
     // Camera - rotate around tank with mouse controls
     const camera = new ArcRotateCamera(
@@ -98,24 +104,40 @@ export function initPreviewScene(
     ground.material = groundMat;
     ground.position.y = -2;
     
-    // Start render loop with limited FPS (30 FPS)
-    let lastTime = Date.now();
-    const targetFPS = 30;
-    const frameTime = 1000 / targetFPS;
+    // ИСПРАВЛЕНО: Постоянный рендер для стабильности превью
+    // Рендерим каждый кадр для гарантированного отображения танка
+    let isRunning = true;
+    let animationFrameId: number | null = null;
     
-    const renderLoop = window.setInterval(() => {
-        const now = Date.now();
-        if (now - lastTime >= frameTime) {
-            if (scene && engine) {
-                scene.render();
-            }
-            lastTime = now;
+    const renderLoop = () => {
+        if (!isRunning || !scene || !engine || engine.isDisposed) return;
+        
+        // Рендерим каждый кадр для стабильного отображения
+        scene.render();
+        
+        animationFrameId = requestAnimationFrame(renderLoop);
+    };
+    
+    // Стартуем render loop
+    animationFrameId = requestAnimationFrame(renderLoop);
+    
+    // Функция для остановки рендер-цикла
+    const stopRenderLoop = () => {
+        isRunning = false;
+        if (animationFrameId !== null) {
+            cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
         }
-    }, frameTime);
+    };
     
-    // 3D preview initialized
+    // Функция для принудительного рендера (совместимость)
+    const triggerRender = () => {
+        // Теперь не нужен - рендерим постоянно
+    };
     
-    return { engine, scene, camera, light, canvas, renderLoop };
+    console.log("[Garage Preview] 3D preview initialized successfully");
+    
+    return { engine, scene, camera, light, canvas, stopRenderLoop, triggerRender };
 }
 
 /**
@@ -126,6 +148,12 @@ export function cleanupPreviewScene(previewScene: PreviewScene | null): void {
     
     try {
         // 1. Остановить render loop ПЕРВЫМ
+        // ОПТИМИЗАЦИЯ: Используем новую функцию stopRenderLoop для requestAnimationFrame
+        if (previewScene.stopRenderLoop) {
+            previewScene.stopRenderLoop();
+            previewScene.stopRenderLoop = undefined;
+        }
+        // Fallback для старого кода с setInterval
         if (previewScene.renderLoop !== undefined) {
             clearInterval(previewScene.renderLoop);
             previewScene.renderLoop = undefined;
@@ -198,7 +226,7 @@ export function createPreviewTank(
     // Create tracks
     const tracks = createPreviewTracks(chassis, chassisType, trackType, scene);
     
-    // Tank preview rendered with unique models
+    console.log("[Garage Preview] Tank created:", chassisId, cannonId, trackId);
     
     return { chassis, turret, barrel, leftTrack: tracks.left, rightTrack: tracks.right };
 }

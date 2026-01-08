@@ -223,14 +223,19 @@ export class GameInput {
         }
         
         // Ручное управление воротами гаража клавишей G
-        if ((e.code === "KeyG" || e.key === "g" || e.key === "G") && 
-            this.gameStarted && 
-            this.chunkSystem && 
-            this.chunkSystem.garageDoors && 
-            (!this.garage || !this.garage.isGarageOpen())) {
-            e.preventDefault();
-            this.handleGarageDoorToggle();
-            return true;
+        if ((e.code === "KeyG" || e.key === "g" || e.key === "G")) {
+            console.log(`[GameInput] G pressed: gameStarted=${this.gameStarted}, chunkSystem=${!!this.chunkSystem}, garageDoors=${this.chunkSystem?.garageDoors?.length || 0}, garageOpen=${this.garage?.isGarageOpen?.() || false}`);
+            
+            if (this.gameStarted && 
+                this.chunkSystem && 
+                this.chunkSystem.garageDoors && 
+                this.chunkSystem.garageDoors.length > 0 &&
+                (!this.garage || !this.garage.isGarageOpen())) {
+                e.preventDefault();
+                console.log(`[GameInput] Calling handleGarageDoorToggle...`);
+                this.handleGarageDoorToggle();
+                return true;
+            }
         }
         
         // Показать stats panel при зажатии Tab
@@ -381,17 +386,24 @@ export class GameInput {
     
     /**
      * Обработка управления воротами гаража (G key)
+     * УЛУЧШЕНО: Добавлено логирование и снижен порог для срабатывания
      */
     private handleGarageDoorToggle(): void {
-        if (!this.tank || !this.tank.chassis || !this.tank.barrel || !this.chunkSystem) return;
-        
-        const playerPos = this.tank.chassis.absolutePosition;
-        type NearestGarageType = { doorData: any; distance: number; };
-        let nearestGarage: NearestGarageType | null = null;
-        
-        if (!this.chunkSystem.garageDoors || !Array.isArray(this.chunkSystem.garageDoors)) {
+        if (!this.tank || !this.tank.chassis || !this.tank.barrel || !this.chunkSystem) {
+            console.log(`[GameInput] Cannot toggle door: missing tank=${!!this.tank}, chassis=${!!this.tank?.chassis}, barrel=${!!this.tank?.barrel}, chunkSystem=${!!this.chunkSystem}`);
             return;
         }
+        
+        const playerPos = this.tank.chassis.absolutePosition;
+        
+        if (!this.chunkSystem.garageDoors || !Array.isArray(this.chunkSystem.garageDoors) || this.chunkSystem.garageDoors.length === 0) {
+            console.log(`[GameInput] No garage doors found: ${this.chunkSystem.garageDoors?.length || 0}`);
+            return;
+        }
+        
+        // Находим ближайший гараж
+        type NearestGarageType = { doorData: any; distance: number; };
+        let nearestGarage: NearestGarageType | null = null;
         
         for (const doorData of this.chunkSystem.garageDoors) {
             if (!doorData || !doorData.position) continue;
@@ -406,14 +418,16 @@ export class GameInput {
             }
         }
         
+        // Проверяем расстояние до гаража (максимум 50 метров)
         if (nearestGarage === null || nearestGarage.distance >= 50) {
-            logger.debug(`No garage nearby (distance: ${nearestGarage?.distance.toFixed(1) || 'N/A'})`);
+            console.log(`[GameInput] No garage nearby (nearest: ${nearestGarage?.distance.toFixed(1) || 'N/A'}m)`);
             return;
         }
         
         const doorData = nearestGarage.doorData;
+        console.log(`[GameInput] Found garage at distance ${nearestGarage.distance.toFixed(1)}m`);
         
-        // Получаем направление пушки
+        // Получаем направление взгляда (башня/ствол)
         this.tank.chassis.computeWorldMatrix(true);
         this.tank.turret.computeWorldMatrix(true);
         this.tank.barrel.computeWorldMatrix(true);
@@ -421,31 +435,33 @@ export class GameInput {
         const barrelDir = this.tank.barrel.getDirection(Vector3.Forward()).normalize();
         
         // Raycast для определения ворот
-        const rayDistance = 100;
-        const ray = new Ray(barrelPos, barrelDir, rayDistance);
         let hitDoor: "front" | "back" | null = null;
         
         if (this.scene) {
+            const ray = new Ray(barrelPos, barrelDir, 100);
             const pick = this.scene.pickWithRay(ray, (mesh) => {
-                if (!mesh || !mesh.isEnabled()) return false;
-                return (mesh.name.includes("garageFrontDoor") || mesh.name.includes("garageBackDoor")) &&
-                       mesh.isPickable;
+                if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+                const name = mesh.name.toLowerCase();
+                return name.includes("garagefrontdoor") || name.includes("garagebackdoor") ||
+                       (name.includes("garage") && name.includes("door"));
             });
             
             if (pick && pick.hit && pick.pickedMesh) {
-                if (pick.pickedMesh.name.includes("garageFrontDoor")) {
+                const meshName = pick.pickedMesh.name.toLowerCase();
+                if (meshName.includes("front")) {
                     hitDoor = "front";
-                } else if (pick.pickedMesh.name.includes("garageBackDoor")) {
+                } else if (meshName.includes("back")) {
                     hitDoor = "back";
                 }
+                console.log(`[GameInput] Raycast hit: ${pick.pickedMesh.name} -> ${hitDoor}`);
             }
         }
         
-        // Fallback: проверка направления
+        // Fallback: проверка направления к воротам
         if (!hitDoor) {
             const garageDepth = doorData.garageDepth || 20;
-            const frontDoorPos = new Vector3(doorData.position.x, 0, doorData.position.z + garageDepth / 2);
-            const backDoorPos = new Vector3(doorData.position.x, 0, doorData.position.z - garageDepth / 2);
+            const frontDoorPos = new Vector3(doorData.position.x, barrelPos.y, doorData.position.z + garageDepth / 2);
+            const backDoorPos = new Vector3(doorData.position.x, barrelPos.y, doorData.position.z - garageDepth / 2);
             
             const toFrontDoor = frontDoorPos.subtract(barrelPos).normalize();
             const toBackDoor = backDoorPos.subtract(barrelPos).normalize();
@@ -453,24 +469,26 @@ export class GameInput {
             const frontDot = Vector3.Dot(barrelDir, toFrontDoor);
             const backDot = Vector3.Dot(barrelDir, toBackDoor);
             
-            if (frontDot > backDot && frontDot > 0.3) {
+            console.log(`[GameInput] Direction check: frontDot=${frontDot.toFixed(2)}, backDot=${backDot.toFixed(2)}`);
+            
+            // Более низкий порог для срабатывания (0.15 вместо 0.3)
+            if (frontDot > backDot && frontDot > 0.15) {
                 hitDoor = "front";
-            } else if (backDot > frontDot && backDot > 0.3) {
+            } else if (backDot > frontDot && backDot > 0.15) {
                 hitDoor = "back";
             }
         }
         
-        // Переключаем ТОЛЬКО ОДНУ ворота (НЕ обе одновременно!)
+        // Переключаем ворота
         if (hitDoor === "front") {
             doorData.frontDoorOpen = !doorData.frontDoorOpen;
-            logger.debug(`Front garage door ${doorData.frontDoorOpen ? 'opening' : 'closing'} manually (G key)`);
+            console.log(`[GameInput] Front door ${doorData.frontDoorOpen ? 'OPENING' : 'CLOSING'}`);
         } else if (hitDoor === "back") {
             doorData.backDoorOpen = !doorData.backDoorOpen;
-            logger.debug(`Back garage door ${doorData.backDoorOpen ? 'opening' : 'closing'} manually (G key)`);
+            console.log(`[GameInput] Back door ${doorData.backDoorOpen ? 'OPENING' : 'CLOSING'}`);
         } else {
-            // КРИТИЧНО: Fallback - выбираем БЛИЖАЙШУЮ ворота к игроку, а не обе!
+            // Fallback: выбираем ближайшую ворота к игроку
             const garageDepth = doorData.garageDepth || 20;
-            const playerPos = this.tank.chassis.absolutePosition;
             const frontDoorZ = doorData.position.z + garageDepth / 2;
             const backDoorZ = doorData.position.z - garageDepth / 2;
             const distToFront = Math.abs(playerPos.z - frontDoorZ);
@@ -478,16 +496,14 @@ export class GameInput {
             
             if (distToFront < distToBack) {
                 doorData.frontDoorOpen = !doorData.frontDoorOpen;
-                logger.debug(`Fallback: Front door (closer) ${doorData.frontDoorOpen ? 'opening' : 'closing'} manually (G key)`);
+                console.log(`[GameInput] Fallback: Front door (closer by ${(distToBack - distToFront).toFixed(1)}m) ${doorData.frontDoorOpen ? 'OPENING' : 'CLOSING'}`);
             } else {
                 doorData.backDoorOpen = !doorData.backDoorOpen;
-                logger.debug(`Fallback: Back door (closer) ${doorData.backDoorOpen ? 'opening' : 'closing'} manually (G key)`);
+                console.log(`[GameInput] Fallback: Back door (closer by ${(distToFront - distToBack).toFixed(1)}m) ${doorData.backDoorOpen ? 'OPENING' : 'CLOSING'}`);
             }
         }
         
-        doorData.manualControl = true;
-        doorData.manualControlTime = Date.now();
-        
+        // Вызываем callback если есть
         if (this.onToggleGarageDoor) {
             this.onToggleGarageDoor(doorData);
         }

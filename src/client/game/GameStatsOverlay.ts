@@ -102,7 +102,7 @@ export class GameStatsOverlay {
             align-items: flex-start;
             padding-top: 60px;
             z-index: 5000;
-            font-family: 'Courier New', monospace;
+            font-family: 'Press Start 2P', monospace;
             visibility: hidden;
         `;
         

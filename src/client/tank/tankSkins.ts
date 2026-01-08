@@ -4,7 +4,7 @@
  * Подобно системе скинов в Minecraft
  */
 
-import { Color3 } from "@babylonjs/core";
+import { Color3, StandardMaterial } from "@babylonjs/core";
 
 /**
  * Интерфейс для скина танка
@@ -291,13 +291,34 @@ export function applySkinToTank(skin: TankSkin): {
 }
 
 /**
+ * Применить цвет скина к материалу (с размораживанием/замораживанием)
+ * Babylon.js замораживает материалы для оптимизации, поэтому нужно
+ * размораживать их перед изменением цвета
+ */
+export function applySkinColorToMaterial(material: StandardMaterial | null | undefined, color: Color3): void {
+    if (!material) {
+        console.warn("[SKIN] applySkinColorToMaterial: material is null/undefined");
+        return;
+    }
+    
+    // Размораживаем материал для возможности изменения
+    material.unfreeze();
+    
+    // Применяем новый цвет
+    material.diffuseColor = color;
+    
+    // Замораживаем обратно для оптимизации производительности
+    material.freeze();
+}
+
+/**
  * Сохранить выбранный скин в localStorage
  */
 export function saveSelectedSkin(skinId: string): void {
     try {
         localStorage.setItem("selectedTankSkin", skinId);
     } catch (e) {
-        console.warn("Failed to save selected skin:", e);
+        console.error("[SKIN] Failed to save selected skin:", e);
     }
 }
 

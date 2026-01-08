@@ -333,7 +333,7 @@ export class PlayerProgressionSystem {
         
         // Логирование только для значимых сумм опыта (>= 1)
         if (finalAmount >= 1) {
-            console.log(`[PlayerProgression] Adding ${finalAmount} XP (base: ${amount}, reason: ${reason}), Total: ${this.stats.experience + finalAmount}`);
+            // XP добавлен
         }
         
         this.stats.experience += finalAmount;
@@ -380,8 +380,6 @@ export class PlayerProgressionSystem {
             percent: xpProgress.percent,
             level: this.stats.level
         };
-        // Логирование для отладки
-        console.log(`[PlayerProgression] Notifying experience change:`, data);
         this.onExperienceChanged.notifyObservers(data);
     }
     
@@ -766,7 +764,6 @@ export class PlayerProgressionSystem {
         // Логирование для отладки (только при значительных изменениях)
         if (Math.abs(this._lastXpLog - current) >= 10) {
             this._lastXpLog = current;
-            console.log(`[PlayerProgression] XP Progress: Level ${this.stats.level}, Current: ${current}/${required} (${percent.toFixed(1)}%)`);
         }
         
         return { current, required, percent };
@@ -889,7 +886,6 @@ export class PlayerProgressionSystem {
         // Уведомляем систему об изменении
         this.notifyExperienceChanged();
         
-        console.log(`[PlayerProgression] Уровень установлен: ${level}, XP: ${expForLevel}`);
     }
     
     /**

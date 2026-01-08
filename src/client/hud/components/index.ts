@@ -86,6 +86,10 @@ export type { ExperienceBarConfig } from './ExperienceBar';
 export { TargetHealthBar } from './TargetHealthBar';
 export type { TargetInfo } from './TargetHealthBar';
 
+// Плавающие числа урона
+export { FloatingDamageNumbers, DEFAULT_DAMAGE_NUMBER_CONFIG } from './FloatingDamageNumbers';
+export type { DamageNumberConfig } from './FloatingDamageNumbers';
+
 // Layout и темы
 export { HUDLayout, DEFAULT_LAYOUT_CONFIG } from './HUDLayout';
 export type { ComponentPosition, ComponentSize, LayoutConfig } from './HUDLayout';

@@ -15,7 +15,7 @@ import { ChassisDetailsGenerator } from "./garage/chassisDetails";
 import { initPreviewScene, cleanupPreviewScene, updatePreviewTank, type PreviewScene, type PreviewTank } from "./garage/preview";
 import { injectGarageStyles } from "./garage/ui";
 import { TankEditor, TankConfiguration } from "./tank/tankEditor";
-import { SKIN_PRESETS, saveSelectedSkin, loadSelectedSkin, getSkinById, applySkinToTank } from "./tank/tankSkins";
+import { SKIN_PRESETS, saveSelectedSkin, loadSelectedSkin, getSkinById, applySkinToTank, applySkinColorToMaterial } from "./tank/tankSkins";
 import { MODULE_PRESETS } from "./tank/modules";
 
 // ============ INTERFACES ============
@@ -120,6 +120,13 @@ export class Garage {
     private pendingCannonId: string | null = null;
     private pendingTrackId: string | null = null;
     private pendingSkinId: string | null = null;
+    
+    // Fallback для применения скина
+    private skinApplyInterval: number | null = null;
+    private lastAppliedSkinId: string | null = null;
+    
+    // Флаг что применение идёт из UI (чтобы GameGarage не применял одновременно)
+    private isApplyingFromUI: boolean = false;
     
     // ============ DATA ============
     private chassisParts: TankPart[] = CHASSIS_TYPES.map(chassis => {
@@ -564,6 +571,8 @@ export class Garage {
                 height: 100%;
                 background: linear-gradient(90deg, transparent, rgba(0,255,0,0.1), transparent);
                 animation: scan 3s infinite;
+                pointer-events: none; /* ИСПРАВЛЕНО: Не блокировать события мыши для 3D превью */
+                z-index: 5; /* Ниже чем canvas (z-index: 10) */
             }
             @keyframes scan {
                 0% { left: -100%; }
@@ -572,17 +581,21 @@ export class Garage {
             .garage-preview-title { 
                 color: #080; 
                 font-size: 9px; 
-                z-index: 1;
+                position: relative; /* Нужно для z-index */
+                z-index: 15; /* Выше canvas */
                 text-transform: uppercase;
                 letter-spacing: 2px;
+                pointer-events: none; /* Не блокировать события мыши */
             }
             .garage-preview-info { 
                 color: #0f0; 
                 font-size: 13px; 
                 margin: 8px 0;
-                z-index: 1;
+                position: relative; /* Нужно для z-index */
+                z-index: 15; /* Выше canvas */
                 text-align: center;
                 line-height: 1.6;
+                pointer-events: none; /* Не блокировать события мыши */
             }
             .garage-preview-canvas {
                 position: absolute;
@@ -661,6 +674,217 @@ export class Garage {
     setGuiTexture(_texture: any): void { /* Not needed for HTML version */ }
     getGUI(): any { return null; }
     
+    // ============ PARTS APPLICATION ============
+    /**
+     * Применить выбранные части танка НЕМЕДЛЕННО (переодевание)
+     * Использует respawn() для пересоздания танка с новыми частями
+     */
+    private applyPartsToTankNow(): boolean {
+        // Получаем танк через глобальный доступ (пробуем все способы)
+        const game = (window as any).gameInstance;
+        let tank = this.tankController || game?.tank || (window as any).game?.tank;
+        
+        if (!tank) {
+            console.error(`[GARAGE] ❌ Cannot find tank! Trying alternative methods...`);
+            // Пробуем через другие пути
+            tank = (window as any).tank || (window as any)._tank;
+            if (!tank) {
+                console.error(`[GARAGE] ❌ Still cannot find tank! Aborting.`);
+                return false;
+            }
+        }
+        
+        // Получаем pending изменения
+        const pending = {
+            chassisId: this.pendingChassisId || localStorage.getItem("pendingChassis"),
+            cannonId: this.pendingCannonId || localStorage.getItem("pendingCannon"),
+            trackId: this.pendingTrackId || localStorage.getItem("pendingTrack")
+        };
+        
+        if (!pending.chassisId && !pending.cannonId && !pending.trackId) {
+            return false;
+        }
+        
+        // Сохраняем выбранные части в localStorage (чтобы respawn использовал их)
+        if (pending.chassisId) {
+            localStorage.setItem("selectedChassis", pending.chassisId);
+        }
+        if (pending.cannonId) {
+            localStorage.setItem("selectedCannon", pending.cannonId);
+        }
+        if (pending.trackId) {
+            localStorage.setItem("selectedTrack", pending.trackId);
+        }
+        
+        // Сохраняем текущую позицию
+        const currentPos = tank.chassis?.position?.clone() || new Vector3(0, 1.2, 0);
+        
+        // Сохраняем старые типы для определения изменений
+        const oldChassisId = tank.chassisType?.id || "";
+        const oldCannonId = tank.cannonType?.id || "";
+        const oldTrackId = tank.trackType?.id || "";
+        
+        // Определяем какие части изменились (для анимации)
+        const applied = {
+            chassis: !!pending.chassisId && pending.chassisId !== oldChassisId,
+            cannon: !!pending.cannonId && pending.cannonId !== oldCannonId,
+            track: !!pending.trackId && pending.trackId !== oldTrackId,
+            skin: false
+        };
+        
+        // Вызываем respawn для пересоздания танка с новыми частями
+        if (typeof tank.respawn === 'function') {
+            // Временно устанавливаем callback для сохранения позиции
+            const originalCallback = tank.respawnPositionCallback;
+            tank.setRespawnPositionCallback(() => {
+                return currentPos;
+            });
+            
+            // Вызываем respawn
+            tank.respawn();
+            
+            // Восстанавливаем callback
+            if (originalCallback) {
+                tank.setRespawnPositionCallback(originalCallback);
+            } else {
+                tank.respawnPositionCallback = null;
+            }
+            
+            // Запускаем анимацию смены частей (если есть изменённые части)
+            // КРИТИЧНО: Анимация ТОЛЬКО если танк находится внутри гаража (не на потолке/крыше)
+            if ((applied.chassis || applied.cannon || applied.track) && typeof (tank as any).playPartChangeAnimation === 'function') {
+                // Проверяем, что танк находится внутри гаража перед запуском анимации
+                const game = (window as any).gameInstance;
+                const gameGarage = game?.gameGarage;
+                const isInGarage = gameGarage && typeof gameGarage.isPlayerInAnyGarage === 'function' && gameGarage.isPlayerInAnyGarage();
+                
+                if (isInGarage) {
+                    // Небольшая задержка, чтобы части успели пересоздаться
+                    setTimeout(() => {
+                        // Повторная проверка перед запуском анимации (на случай если танк переместился)
+                        const stillInGarage = gameGarage && typeof gameGarage.isPlayerInAnyGarage === 'function' && gameGarage.isPlayerInAnyGarage();
+                        if (stillInGarage) {
+                            (tank as any).playPartChangeAnimation(applied, () => {});
+                        }
+                    }, 100);
+                }
+            } else {
+                // Если анимации нет, всё равно разблокируем башню
+                if (tank.turret) {
+                    tank.isKeyboardTurretControl = false;
+                    tank.isAutoCentering = false;
+                    if ((window as any).gameInstance) {
+                        (window as any).gameInstance.virtualTurretTarget = null;
+                        (window as any).gameInstance.isFreeLook = false;
+                    }
+                }
+            }
+            
+            // Очищаем pending ТОЛЬКО если гараж закрыт (иначе пользователь не успеет закрыть)
+            if (!this.isOpen) {
+                this.pendingChassisId = null;
+                this.pendingCannonId = null;
+                this.pendingTrackId = null;
+                localStorage.removeItem("pendingChassis");
+                localStorage.removeItem("pendingCannon");
+                localStorage.removeItem("pendingTrack");
+            }
+            
+            return true;
+        } else {
+            console.error(`[GARAGE] ❌ tank.respawn is not a function!`);
+            return false;
+        }
+    }
+    
+    // ============ SKIN APPLICATION ============
+    /**
+     * Применить выбранный скин к танку СЕЙЧАС
+     * Использует все возможные способы получить доступ к танку
+     */
+    private applySkinToTankNow(skinId?: string): boolean {
+        const targetSkinId = skinId || loadSelectedSkin();
+        if (!targetSkinId) {
+            return false;
+        }
+        
+        // Способ 1: через this.tankController
+        let tank = this.tankController;
+        
+        // Способ 2: через глобальный gameInstance
+        if (!tank) {
+            const game = (window as any).gameInstance;
+            tank = game?.tank;
+        }
+        
+        // Способ 3: через window.game
+        if (!tank) {
+            tank = (window as any).game?.tank;
+        }
+        
+        if (!tank) {
+            console.warn(`[SKIN] Cannot find tank! tankController=${!!this.tankController}, gameInstance=${!!(window as any).gameInstance}`);
+            return false;
+        }
+        
+        const skin = getSkinById(targetSkinId);
+        if (!skin) {
+            console.warn(`[SKIN] Skin not found: ${targetSkinId}`);
+            return false;
+        }
+        
+        const skinColors = applySkinToTank(skin);
+        
+        let applied = false;
+        
+        // Применяем к chassis
+        if (tank.chassis?.material) {
+            applySkinColorToMaterial(tank.chassis.material as StandardMaterial, skinColors.chassisColor);
+            applied = true;
+        }
+        
+        // Применяем к turret
+        if (tank.turret?.material) {
+            applySkinColorToMaterial(tank.turret.material as StandardMaterial, skinColors.turretColor);
+            applied = true;
+        }
+        
+        if (applied) {
+            this.lastAppliedSkinId = targetSkinId;
+        }
+        
+        return applied;
+    }
+    
+    /**
+     * Запустить fallback интервал для применения скина
+     */
+    private startSkinFallback(): void {
+        // Останавливаем предыдущий интервал если есть
+        this.stopSkinFallback();
+        
+        // Проверяем и применяем скин каждые 500ms
+        this.skinApplyInterval = window.setInterval(() => {
+            const selectedSkinId = loadSelectedSkin();
+            if (selectedSkinId && selectedSkinId !== this.lastAppliedSkinId) {
+                if (this.applySkinToTankNow(selectedSkinId)) {
+                    this.lastAppliedSkinId = selectedSkinId;
+                }
+            }
+        }, 500);
+    }
+    
+    /**
+     * Остановить fallback интервал
+     */
+    private stopSkinFallback(): void {
+        if (this.skinApplyInterval !== null) {
+            clearInterval(this.skinApplyInterval);
+            this.skinApplyInterval = null;
+            this.lastAppliedSkinId = null;
+        }
+    }
+    
     // ============ PERSISTENCE ============
     private loadProgress(): void {
         try {
@@ -704,6 +928,7 @@ export class Garage {
     
     // ============ PUBLIC API ============
     isGarageOpen(): boolean { return this.isOpen; }
+    isApplyingFromUI(): boolean { return this.isApplyingFromUI; }
     
     open(): void {
         if (this.isOpen) return;
@@ -725,6 +950,16 @@ export class Garage {
         this.currentCannonId = this.pendingCannonId || localStorage.getItem("selectedCannon") || "standard";
         this.currentTrackId = this.pendingTrackId || localStorage.getItem("selectedTrack") || "standard";
         
+        // Применяем выбранный скин при открытии гаража (если есть)
+        const selectedSkinId = loadSelectedSkin();
+        if (selectedSkinId) {
+            // Пробуем применить сразу и через небольшую задержку (на случай если танк ещё не готов)
+            this.applySkinToTankNow(selectedSkinId);
+            setTimeout(() => {
+                this.applySkinToTankNow(selectedSkinId);
+            }, 200);
+        }
+        
         this.createUI();
         
         // Initialize 3D preview after UI is created
@@ -732,20 +967,47 @@ export class Garage {
             this.init3DPreview();
         }, 100);
         
-        // Показываем уведомление если есть pending изменения
-        if (this.hasPendingChanges()) {
+        // Показываем уведомление если есть pending изменения (кроме скинов - они применяются сразу)
+        const hasNonSkinPending = this.pendingChassisId || this.pendingCannonId || this.pendingTrackId;
+        if (hasNonSkinPending) {
             setTimeout(() => {
                 this.showNotification("⚠️ Есть ожидающие изменения! Заедьте в гараж на карте для применения.", "info");
             }, 500);
         }
         
         if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
+        
+        // Запускаем fallback интервал для применения скина
+        this.startSkinFallback();
+        
         console.log("[Garage] Opened");
     }
     
     close(): void {
-        if (!this.isOpen) return;
-        console.log("[Garage] Closing...");
+        if (!this.isOpen) {
+            return;
+        }
+        
+        // КРИТИЧНО: Применяем pending изменения ПЕРВЫМ ДЕЛОМ, ДО закрытия UI
+        // Иначе GameGarage может применить их раньше и очистить pending
+        try {
+            const hasPending = this.hasPendingChanges();
+            
+            if (hasPending) {
+                // НЕ применяем изменения при закрытии гаража
+                // Изменения будут применены автоматически при входе в гараж на карте (через GameGarage)
+                this.showNotification("⚠️ Заедьте в гараж на карте для применения изменений!", "info");
+                this.isApplyingFromUI = false;
+            } else {
+                this.isApplyingFromUI = false;
+            }
+        } catch (error) {
+            console.error("[Garage] ❌ Error applying parts on close:", error);
+            this.isApplyingFromUI = false;
+        }
+        
+        // Останавливаем fallback интервал
+        this.stopSkinFallback();
         
         // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Правильный порядок очистки
         // 1. Сначала устанавливаем флаг isOpen = false
@@ -808,6 +1070,7 @@ export class Garage {
         }
         
         // 7. ВЫЗЫВАЕМ CALLBACK В САМОМ КОНЦЕ (после всей очистки)
+        // Примечание: pending изменения уже применены в начале close()
         try {
             if (this.onCloseCallback) {
                 const callback = this.onCloseCallback;
@@ -852,6 +1115,11 @@ export class Garage {
             this.currentTrackId,
             this.previewSceneData.scene
         );
+        
+        // ОПТИМИЗАЦИЯ: Принудительный рендер после обновления танка
+        if (this.previewSceneData.triggerRender) {
+            this.previewSceneData.triggerRender();
+        }
     }
     
     // NOTE: Preview methods moved to garage/preview.ts
@@ -3584,7 +3852,7 @@ export class Garage {
             }
             
             return `
-                <div class="garage-item ${selected ? 'selected' : ''} ${owned ? 'owned' : ''} ${equipped ? 'equipped' : ''} ${isPending ? 'pending' : ''} ${isNew ? 'new-item' : ''}" data-index="${i}">
+                <div class="garage-item ${selected ? 'selected' : ''} ${owned ? 'owned' : ''} ${equipped ? 'equipped' : ''} ${isPending ? 'pending' : ''} ${isNew ? 'new-item' : ''}" data-index="${i}" data-item-id="${item.id}">
                     <div class="garage-item-name">
                         <span style="color: #ffd700; font-weight: bold; margin-right: 8px;">[${itemNumber}]</span>
                         ${isPreset ? '<span style="color: #0ff; font-weight: bold; margin-right: 5px;">📦</span>' : ''}
@@ -3604,29 +3872,74 @@ export class Garage {
             `;
         }).join('');
         
-        // Add click listeners
-        container.querySelectorAll('.garage-item').forEach(el => {
-            el.addEventListener('click', (e) => {
-                // Не обрабатываем клик, если нажата кнопка действия
-                if ((e.target as HTMLElement).closest('.preset-action-btn')) {
-                    return;
-                }
-                const idx = parseInt(el.getAttribute('data-index') || '0');
-                this.selectedItemIndex = idx;
-                this.refreshItemList();
-                const item = this.filteredItems[idx];
-                if (item) {
-                    this.showDetails(item);
-                }
-            });
-            el.addEventListener('dblclick', () => {
-                const idx = parseInt(el.getAttribute('data-index') || '0');
-                const item = this.filteredItems[idx];
-                if (item) {
-                    this.handleAction(item);
-                }
-            });
-        });
+        // Add click listeners using event delegation (более надёжно)
+        // Удаляем старые обработчики если есть
+        const oldHandler = (container as any)._garageClickHandler;
+        if (oldHandler) {
+            container.removeEventListener('click', oldHandler);
+        }
+        
+        // Создаём новый обработчик
+        const clickHandler = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            const itemEl = target.closest('.garage-item') as HTMLElement;
+            
+            if (!itemEl) {
+                // Клик не на элементе
+                return;
+            }
+            
+            // Не обрабатываем клик, если нажата кнопка действия
+            if (target.closest('.preset-action-btn')) {
+                return;
+            }
+            
+            const clickedIdx = parseInt(itemEl.getAttribute('data-index') || '0');
+            this.selectedItemIndex = clickedIdx;
+            const item = this.filteredItems[clickedIdx];
+            
+            if (!item) {
+                return;
+            }
+            
+            // Если часть разблокирована - применяем сразу, иначе показываем детали
+            if ('unlocked' in item && item.unlocked) {
+                this.handleAction(item);
+            } else {
+                this.showDetails(item);
+            }
+            
+                // НЕ обновляем список сразу - это может вызвать проблемы
+                // Обновим только если нужно показать изменения
+                // this.refreshItemList();
+        };
+        
+        // Сохраняем ссылку на обработчик для возможности удаления
+        (container as any)._garageClickHandler = clickHandler;
+        container.addEventListener('click', clickHandler);
+        
+        // Двойной клик - тоже применяем (для совместимости)
+        const oldDblHandler = (container as any)._garageDblClickHandler;
+        if (oldDblHandler) {
+            container.removeEventListener('dblclick', oldDblHandler);
+        }
+        
+        const dblClickHandler = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            const itemEl = target.closest('.garage-item') as HTMLElement;
+            
+            if (!itemEl) return;
+            
+            e.preventDefault();
+            const idx = parseInt(itemEl.getAttribute('data-index') || '0');
+            const item = this.filteredItems[idx];
+            if (item) {
+                this.handleAction(item);
+            }
+        };
+        
+        (container as any)._garageDblClickHandler = dblClickHandler;
+        container.addEventListener('dblclick', dblClickHandler);
         
         // Add listeners for preset action buttons
         container.querySelectorAll('[data-action="delete-preset"]').forEach(btn => {
@@ -3949,8 +4262,11 @@ export class Garage {
             this.purchaseUpgrade(item);
         } else {
             const part = item as TankPart;
-            if (part.unlocked) this.equipPart(part);
-            else this.purchasePart(part);
+            if (part.unlocked) {
+                this.equipPart(part);
+            } else {
+                this.purchasePart(part);
+            }
         }
     }
     
@@ -3964,7 +4280,9 @@ export class Garage {
     }
     
     private equipPart(part: TankPart): void {
-        if (!part.unlocked) return;
+        if (!part.unlocked) {
+            return;
+        }
         
         // Обработка пресетов
         if (part.type === 'preset') {
@@ -3973,43 +4291,63 @@ export class Garage {
         }
         
         // === НОВАЯ ЛОГИКА: Сохраняем как pending изменения ===
-        // Изменения применяются только при въезде в гараж на карте
+        // Изменения применяются только при закрытии гаража (если игрок в гараже на карте)
         
         if (part.type === 'chassis') {
             // Проверяем, отличается ли от текущего
             const currentActive = localStorage.getItem("selectedChassis") || "medium";
+            
             if (part.id !== currentActive) {
                 this.pendingChassisId = part.id;
                 localStorage.setItem("pendingChassis", part.id);
-                this.showNotification(`Корпус "${getChassisById(part.id).name}" выбран. Заедьте в гараж для применения!`, "info");
+                this.showNotification(`Корпус "${getChassisById(part.id).name}" выбран. Закройте гараж для применения!`, "info");
             }
             // Обновляем текущий для отображения в UI
             this.currentChassisId = part.id;
         } else if (part.type === 'barrel') {
             const currentActive = localStorage.getItem("selectedCannon") || "standard";
+            
             if (part.id !== currentActive) {
                 this.pendingCannonId = part.id;
                 localStorage.setItem("pendingCannon", part.id);
-                this.showNotification(`Пушка "${getCannonById(part.id).name}" выбрана. Заедьте в гараж для применения!`, "info");
+                this.showNotification(`Пушка "${getCannonById(part.id).name}" выбрана. Закройте гараж для применения!`, "info");
             }
             this.currentCannonId = part.id;
         } else if (part.type === 'module' && this.trackParts.find(t => t.id === part.id)) {
             const currentActive = localStorage.getItem("selectedTrack") || "standard";
+            
             if (part.id !== currentActive) {
                 this.pendingTrackId = part.id;
                 localStorage.setItem("pendingTrack", part.id);
-                this.showNotification(`Гусеницы "${getTrackById(part.id).name}" выбраны. Заедьте в гараж для применения!`, "info");
+                this.showNotification(`Гусеницы "${getTrackById(part.id).name}" выбраны. Закройте гараж для применения!`, "info");
             }
             this.currentTrackId = part.id;
         } else if (this.currentCategory === 'skins') {
-            // Скины применяются сразу (визуальное изменение без влияния на геймплей)
-            const currentActive = loadSelectedSkin() || "default";
-            if (part.id !== currentActive) {
-                this.pendingSkinId = part.id;
-                localStorage.setItem("pendingSkin", part.id);
-                this.showNotification(`Скин "${getSkinById(part.id)?.name || part.id}" выбран. Заедьте в гараж для применения!`, "info");
-            }
+            // Скины применяются НЕМЕДЛЕННО (это чисто визуальное изменение, не требует respawn)
+            saveSelectedSkin(part.id);
             this.currentSkinId = part.id;
+            
+            // Применяем скин через универсальную функцию
+            const applied = this.applySkinToTankNow(part.id);
+            
+            if (applied) {
+                const skin = getSkinById(part.id);
+                this.showNotification(`Скин "${skin?.name || part.id}" применён!`, "success");
+            } else {
+                // Если не удалось применить сейчас, попробуем через небольшую задержку
+                setTimeout(() => {
+                    if (this.applySkinToTankNow(part.id)) {
+                        const skin = getSkinById(part.id);
+                        this.showNotification(`Скин "${skin?.name || part.id}" применён!`, "success");
+                    } else {
+                        this.showNotification(`Скин "${getSkinById(part.id)?.name || part.id}" сохранён. Применится при респавне.`, "info");
+                    }
+                }, 100);
+            }
+            
+            // Очищаем pending для скина
+            this.pendingSkinId = null;
+            localStorage.removeItem("pendingSkin");
         }
         
         this.saveProgress();
@@ -4095,7 +4433,16 @@ export class Garage {
      * Проверить есть ли ожидающие изменения
      */
     hasPendingChanges(): boolean {
-        return !!(this.pendingChassisId || this.pendingCannonId || this.pendingTrackId || this.pendingSkinId);
+        // Если применение идёт из UI - возвращаем true чтобы GameGarage не применял
+        if (this.isApplyingFromUI) {
+            return true;
+        }
+        
+        // Проверяем и переменные класса, и localStorage
+        const hasInMemory = !!(this.pendingChassisId || this.pendingCannonId || this.pendingTrackId || this.pendingSkinId);
+        const hasInStorage = !!(localStorage.getItem("pendingChassis") || localStorage.getItem("pendingCannon") || localStorage.getItem("pendingTrack") || localStorage.getItem("pendingSkin"));
+        
+        return hasInMemory || hasInStorage;
     }
     
     /**
@@ -4119,6 +4466,10 @@ export class Garage {
      * Очистить pending изменения после применения
      */
     clearPendingChanges(): void {
+        // НЕ очищаем если гараж открыт - пусть пользователь сам закроет и применит
+        if (this.isOpen) {
+            return;
+        }
         this.pendingChassisId = null;
         this.pendingCannonId = null;
         this.pendingTrackId = null;
@@ -4163,12 +4514,18 @@ export class Garage {
             const skin = getSkinById(this.pendingSkinId);
             if (skin) {
                 const skinColors = applySkinToTank(skin);
+                
+                // Применяем к chassis независимо от turret
                 if (this.tankController.chassis?.material) {
-                    (this.tankController.chassis.material as StandardMaterial).diffuseColor = skinColors.chassisColor;
+                    applySkinColorToMaterial(this.tankController.chassis.material as StandardMaterial, skinColors.chassisColor);
                 }
+                
+                // Применяем к turret независимо от chassis
                 if (this.tankController.turret?.material) {
-                    (this.tankController.turret.material as StandardMaterial).diffuseColor = skinColors.turretColor;
+                    applySkinColorToMaterial(this.tankController.turret.material as StandardMaterial, skinColors.turretColor);
                 }
+            } else {
+                console.warn(`[SKIN] Garage: Skin not found: ${this.pendingSkinId}`);
             }
             applied.skin = true;
         }

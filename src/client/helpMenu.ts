@@ -239,7 +239,14 @@ export class HelpMenu {
     }
     
     private setupToggle(): void {
-        // ESC key handler will be handled by game.ts
+        // ESC обработчик для закрытия меню
+        window.addEventListener("keydown", (e) => {
+            if (e.code === "Escape" && this.visible) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.hide();
+            }
+        }, true);
     }
     
     toggle(): void {
@@ -261,6 +268,11 @@ export class HelpMenu {
         this.container.style.display = "flex";
         this.container.style.visibility = "visible";
         
+        // Показываем курсор и выходим из pointer lock
+        if (document.pointerLockElement) {
+            document.exitPointerLock();
+        }
+        document.body.style.cursor = 'default';
         
         // Reset search
         if (this.searchInput) {
@@ -283,6 +295,12 @@ export class HelpMenu {
         this.container.classList.remove("visible");
         this.container.style.display = "none";
         this.container.style.visibility = "hidden";
+        
+        // Восстанавливаем курсор только если игра активна
+        const game = (window as any).gameInstance;
+        if (game?.gameStarted && !game.gamePaused) {
+            document.body.style.cursor = 'none';
+        }
         
         logger.log("[HelpMenu] Menu closed");
     }

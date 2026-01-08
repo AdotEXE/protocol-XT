@@ -40,6 +40,10 @@ import {
     UndergroundGenerator,
     CoastalGenerator,
     SandGenerator,
+    MadnessGenerator,
+    ExpoGenerator,
+    BrestGenerator,
+    ArenaGenerator,
     SeededRandom as MapsSeededRandom,
     GenerationContext,
     ChunkGenerationContext
@@ -281,7 +285,7 @@ export class ChunkSystem {
             // Для маленьких карт (polygon, frontline, canyon, sandbox, sand) загружаем всё
             // Увеличиваем дистанцию террейна в 2 раза для плавного перехода с туманом
             if (mapType === "polygon" || mapType === "frontline" || 
-                mapType === "canyon" || mapType === "sandbox" || mapType === "sand") {
+                mapType === "canyon" || mapType === "sandbox" || mapType === "sand" || mapType === "madness" || mapType === "expo" || mapType === "brest" || mapType === "arena") {
                 // Террейн: покрываем всю карту x2 для тумана
                 baseConfig.renderDistance = neededRenderDistance * 2;
                 // Объекты: такая же дистанция как террейн
@@ -427,6 +431,22 @@ export class ChunkSystem {
         const sandGen = new SandGenerator();
         sandGen.initialize(genContext);
         MapGeneratorFactory.register(sandGen);
+        
+        const madnessGen = new MadnessGenerator();
+        madnessGen.initialize(genContext);
+        MapGeneratorFactory.register(madnessGen);
+        
+        const expoGen = new ExpoGenerator();
+        expoGen.initialize(genContext);
+        MapGeneratorFactory.register(expoGen);
+        
+        const brestGen = new BrestGenerator();
+        brestGen.initialize(genContext);
+        MapGeneratorFactory.register(brestGen);
+        
+        const arenaGen = new ArenaGenerator();
+        arenaGen.initialize(genContext);
+        MapGeneratorFactory.register(arenaGen);
     }
     
     private createMaterials(): void {
@@ -897,9 +917,17 @@ export class ChunkSystem {
             return;
         }
         
-        // Для карты "sand" НЕ создаём гаражи - спавн будет случайным внутри карты
-        if (this.config.mapType === "sand") {
-            // Sand map: No garages, random spawn inside map
+        // Для карт "sand", "madness" и "brest" НЕ создаём гаражи - спавн будет случайным внутри карты
+        if (this.config.mapType === "sand" || this.config.mapType === "madness" || this.config.mapType === "brest" || this.config.mapType === "arena") {
+            // Sand/Madness/Brest/Arena map: No garages, random spawn inside map
+            return;
+        }
+        
+        // Для карты "expo" создаём ОДИН гараж в центре
+        if (this.config.mapType === "expo") {
+            const garagePos = getPlayerGaragePosition("expo") ?? [0, 0];
+            this.createGarageAt(garagePos[0], garagePos[1], 0);
+            // Expo map: Created single garage at center
             return;
         }
         
@@ -1050,7 +1078,7 @@ export class ChunkSystem {
             garageZ - garageDepth / 2 + wallThickness / 2
         );
         backLeftWall.material = garageMat;
-        new PhysicsAggregate(backLeftWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const backLeftWallPhysics = new PhysicsAggregate(backLeftWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         
         // Правая часть задней стены
         const backRightWall = MeshBuilder.CreateBox(`garageBackRight_${index}`, {
@@ -1064,7 +1092,7 @@ export class ChunkSystem {
             garageZ - garageDepth / 2 + wallThickness / 2
         );
         backRightWall.material = garageMat;
-        new PhysicsAggregate(backRightWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const backRightWallPhysics = new PhysicsAggregate(backRightWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         
         // ПЕРЕМЫЧКА НАД ПРОЁМОМ ЗАДНЕЙ СТЕНЫ
         const backLintel = MeshBuilder.CreateBox(`garageBackLintel_${index}`, {
@@ -1078,7 +1106,7 @@ export class ChunkSystem {
             garageZ - garageDepth / 2 + wallThickness / 2
         );
         backLintel.material = garageMat;
-        new PhysicsAggregate(backLintel, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const backLintelPhysics = new PhysicsAggregate(backLintel, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         
         // ЛЕВАЯ СТЕНА (сплошная)
         const leftWall = MeshBuilder.CreateBox(`garageLeft_${index}`, {
@@ -1088,7 +1116,7 @@ export class ChunkSystem {
         }, this.scene);
         leftWall.position = new Vector3(garageX - garageWidth / 2 + wallThickness / 2, wallHeight / 2, garageZ);
         leftWall.material = garageMat;
-        new PhysicsAggregate(leftWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const leftWallPhysics = new PhysicsAggregate(leftWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         
         // ПРАВАЯ СТЕНА (сплошная)
         const rightWall = MeshBuilder.CreateBox(`garageRight_${index}`, {
@@ -1098,7 +1126,7 @@ export class ChunkSystem {
         }, this.scene);
         rightWall.position = new Vector3(garageX + garageWidth / 2 - wallThickness / 2, wallHeight / 2, garageZ);
         rightWall.material = garageMat;
-        new PhysicsAggregate(rightWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const rightWallPhysics = new PhysicsAggregate(rightWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         
         // ПЕРЕДНЯЯ СТЕНА С ПРОЁМОМ
         // Левая часть передней стены
@@ -1114,7 +1142,7 @@ export class ChunkSystem {
             garageZ + garageDepth / 2 - wallThickness / 2
         );
         frontLeftWall.material = garageMat;
-        new PhysicsAggregate(frontLeftWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const frontLeftWallPhysics = new PhysicsAggregate(frontLeftWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         
         // Правая часть передней стены
         const frontRightWall = MeshBuilder.CreateBox(`garageFrontRight_${index}`, {
@@ -1128,7 +1156,7 @@ export class ChunkSystem {
             garageZ + garageDepth / 2 - wallThickness / 2
         );
         frontRightWall.material = garageMat;
-        new PhysicsAggregate(frontRightWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const frontRightWallPhysics = new PhysicsAggregate(frontRightWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         
         // ПЕРЕМЫЧКА НАД ПРОЁМОМ
         const lintel = MeshBuilder.CreateBox(`garageLintel_${index}`, {
@@ -1142,7 +1170,7 @@ export class ChunkSystem {
             garageZ + garageDepth / 2 - wallThickness / 2
         );
         lintel.material = garageMat;
-        new PhysicsAggregate(lintel, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const lintelPhysics = new PhysicsAggregate(lintel, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         
         // ПЕРЕДНИЕ ВОРОТА (поднимающиеся вверх)
         const frontDoor = MeshBuilder.CreateBox(`garageFrontDoor_${index}`, {
@@ -1151,11 +1179,11 @@ export class ChunkSystem {
             depth: wallThickness * 0.8
         }, this.scene);
         const frontDoorClosedY = wallHeight * 0.35;
-        const frontDoorOpenY = wallHeight + 1.0;
+        const frontDoorOpenY = wallHeight * 0.85; // Ворота прячутся в перемычку над проёмом (не улетают выше крыши)
         frontDoor.position = new Vector3(
             garageX,
             frontDoorClosedY,
-            garageZ + garageDepth / 2 - wallThickness / 2
+            garageZ + garageDepth / 2 - wallThickness / 2 + 0.1  // Выносим на 0.1 наружу от гаража
         );
         frontDoor.material = doorMat;
         frontDoor.visibility = 0.5; // 50% прозрачность через visibility (не вызывает мерцания)
@@ -1164,6 +1192,12 @@ export class ChunkSystem {
         const frontDoorPhysics = new PhysicsAggregate(frontDoor, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         frontDoorPhysics.body.setMotionType(PhysicsMotionType.ANIMATED);
         
+        // КРИТИЧНО: Отключаем коллизию ворот полностью - устанавливаем фильтр коллизий на 0
+        if (frontDoorPhysics.shape) {
+            frontDoorPhysics.shape.filterCollideMask = 0; // Не коллизится ни с чем
+            frontDoorPhysics.shape.filterMembershipMask = 0; // Не является частью никакой группы
+        }
+        
         // ЗАДНИЕ ВОРОТА (поднимающиеся вверх)
         const backDoor = MeshBuilder.CreateBox(`garageBackDoor_${index}`, {
             width: doorWidth - 0.2,
@@ -1171,11 +1205,11 @@ export class ChunkSystem {
             depth: wallThickness * 0.8
         }, this.scene);
         const backDoorClosedY = wallHeight * 0.35;
-        const backDoorOpenY = wallHeight + 1.0;
+        const backDoorOpenY = wallHeight * 0.85; // Ворота прячутся в перемычку над проёмом (не улетают выше крыши)
         backDoor.position = new Vector3(
             garageX,
             backDoorClosedY,
-            garageZ - garageDepth / 2 + wallThickness / 2
+            garageZ - garageDepth / 2 + wallThickness / 2 - 0.1  // Выносим на 0.1 наружу от гаража
         );
         backDoor.material = doorMat;
         backDoor.visibility = 0.5; // 50% прозрачность через visibility (не вызывает мерцания)
@@ -1183,6 +1217,37 @@ export class ChunkSystem {
         // Физика для непробиваемых ворот (как стены) - анимированный тип для движения
         const backDoorPhysics = new PhysicsAggregate(backDoor, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         backDoorPhysics.body.setMotionType(PhysicsMotionType.ANIMATED);
+        
+        // КРИТИЧНО: Отключаем коллизию ворот полностью - устанавливаем фильтр коллизий на 0
+        if (backDoorPhysics.shape) {
+            backDoorPhysics.shape.filterCollideMask = 0; // Не коллизится ни с чем
+            backDoorPhysics.shape.filterMembershipMask = 0; // Не является частью никакой группы
+        }
+        
+        // КРИТИЧНО: Отключаем коллизии между воротами и стенами гаража
+        // Собираем все PhysicsAggregate стен
+        const wallPhysicsAggregates = [
+            backLeftWallPhysics,
+            backRightWallPhysics,
+            backLintelPhysics,
+            leftWallPhysics,
+            rightWallPhysics,
+            frontLeftWallPhysics,
+            frontRightWallPhysics,
+            lintelPhysics
+        ];
+        
+        // Отключаем коллизии между воротами и всеми стенами
+        for (const wallPhysics of wallPhysicsAggregates) {
+            if (wallPhysics && wallPhysics.body && frontDoorPhysics && frontDoorPhysics.body) {
+                frontDoorPhysics.body.setCollisionCallbackEnabled(wallPhysics.body, false);
+                wallPhysics.body.setCollisionCallbackEnabled(frontDoorPhysics.body, false);
+            }
+            if (wallPhysics && wallPhysics.body && backDoorPhysics && backDoorPhysics.body) {
+                backDoorPhysics.body.setCollisionCallbackEnabled(wallPhysics.body, false);
+                wallPhysics.body.setCollisionCallbackEnabled(backDoorPhysics.body, false);
+            }
+        }
         
         // Сохраняем ворота для управления
         this.garageDoors.push({
@@ -1210,7 +1275,30 @@ export class ChunkSystem {
         }, this.scene);
         roof.position = new Vector3(garageX, wallHeight + 0.125, garageZ);
         roof.material = garageMat;
-        new PhysicsAggregate(roof, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        const roofPhysics = new PhysicsAggregate(roof, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        
+        // Отключаем коллизии между воротами и крышей
+        if (roofPhysics && roofPhysics.body) {
+            if (frontDoorPhysics && frontDoorPhysics.body) {
+                frontDoorPhysics.body.setCollisionCallbackEnabled(roofPhysics.body, false);
+                roofPhysics.body.setCollisionCallbackEnabled(frontDoorPhysics.body, false);
+            }
+            if (backDoorPhysics && backDoorPhysics.body) {
+                backDoorPhysics.body.setCollisionCallbackEnabled(roofPhysics.body, false);
+                roofPhysics.body.setCollisionCallbackEnabled(backDoorPhysics.body, false);
+            }
+        }
+        
+        // КРИТИЧНО: Отключаем коллизию ворот со ВСЕМИ объектами в сцене
+        // Ворота теперь не имеют коллизии вообще
+        if (frontDoorPhysics && frontDoorPhysics.body) {
+            // Отключаем коллизию со всеми объектами через отключение callback
+            frontDoorPhysics.body.setCollisionCallbackEnabled(false);
+        }
+        if (backDoorPhysics && backDoorPhysics.body) {
+            // Отключаем коллизию со всеми объектами через отключение callback
+            backDoorPhysics.body.setCollisionCallbackEnabled(false);
+        }
         
         // Сохраняем все стены гаража и крышу для управления прозрачностью
         const garageWalls: Mesh[] = [
@@ -2457,8 +2545,8 @@ export class ChunkSystem {
         const size = this.config.chunkSize;
         const random = new SeededRandom(seed);
         
-        // Sandbox и Sand - просто плоская земля БЕЗ террейна
-        if (this.config.mapType === "sandbox" || this.config.mapType === "sand") {
+        // Sandbox, Sand, Madness и Expo - просто плоская земля БЕЗ террейна
+        if (this.config.mapType === "sandbox" || this.config.mapType === "sand" || this.config.mapType === "madness" || this.config.mapType === "expo" || this.config.mapType === "brest" || this.config.mapType === "arena") {
             this.createGround(cx, cz, worldX, worldZ, size, "wasteland", random, chunkParent);
             return;
         }
@@ -2561,14 +2649,18 @@ export class ChunkSystem {
         }
         
         const mapType = this.config.mapType || "normal";
-        const specialMaps = ["polygon", "frontline", "ruins", "canyon", "industrial", "urban_warfare", "underground", "coastal", "sand"];
+        const specialMaps = ["polygon", "frontline", "ruins", "canyon", "industrial", "urban_warfare", "underground", "coastal", "sand", "madness", "expo", "brest", "arena"];
         
         if (specialMaps.includes(mapType)) {
             const generator = MapGeneratorFactory.get(mapType);
             if (generator) {
                 const groundBiome = this.config.mapType === "polygon" ? "military" : 
                                    this.config.mapType === "frontline" ? "wasteland" :
-                                   this.config.mapType === "sand" ? "wasteland" : "military";
+                                   this.config.mapType === "sand" ? "wasteland" :
+                                   this.config.mapType === "madness" ? "wasteland" :
+                                   this.config.mapType === "expo" ? "wasteland" :
+                                   this.config.mapType === "brest" ? "wasteland" :
+                                   this.config.mapType === "arena" ? "wasteland" : "military";
                 const chunkContext: ChunkGenerationContext = {
                     scene: this.scene,
                     chunkX: cx,
@@ -2930,7 +3022,7 @@ export class ChunkSystem {
         const mapType = this.config.mapType || "normal";
         
         // Для специальных карт (polygon, frontline и т.д.) используем новую систему генераторов
-        const specialMaps = ["polygon", "frontline", "ruins", "canyon", "industrial", "urban_warfare", "underground", "coastal", "sand"];
+        const specialMaps = ["polygon", "frontline", "ruins", "canyon", "industrial", "urban_warfare", "underground", "coastal", "sand", "madness", "expo", "brest", "arena"];
         if (specialMaps.includes(mapType)) {
             const generator = MapGeneratorFactory.get(mapType);
             
@@ -2969,7 +3061,8 @@ export class ChunkSystem {
                                    this.config.mapType === "urban_warfare" ? "city" :
                                    this.config.mapType === "underground" ? "wasteland" :
                                    this.config.mapType === "coastal" ? "park" :
-                                   this.config.mapType === "sand" ? "wasteland" : "military";
+                                   this.config.mapType === "sand" ? "wasteland" :
+                                   this.config.mapType === "madness" ? "wasteland" : "military";
                 
                 // Логируем создание ground mesh для отладки
                 // Отключено для снижения спама
@@ -3164,8 +3257,8 @@ export class ChunkSystem {
             default: groundMat = typeof biome === "string" ? biome : "dirt";
         }
         
-        // Для sandbox и sand - ТОЛЬКО плоский ground без heightmap
-        if (this.config.mapType === "sandbox" || this.config.mapType === "sand") {
+        // Для sandbox, sand, madness, expo и brest - ТОЛЬКО плоский ground без heightmap
+        if (this.config.mapType === "sandbox" || this.config.mapType === "sand" || this.config.mapType === "madness" || this.config.mapType === "expo" || this.config.mapType === "brest" || this.config.mapType === "arena") {
             const ground = MeshBuilder.CreateBox(`ground_${chunkX}_${chunkZ}`, { 
                 width: chunkSize, 
                 height: 0.1, 

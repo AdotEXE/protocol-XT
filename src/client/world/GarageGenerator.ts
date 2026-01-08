@@ -359,9 +359,9 @@ export class GarageGenerator {
         
         const doorHeight = cfg.wallHeight * 0.7;
         const frontClosedY = cfg.wallHeight * 0.35;
-        const frontOpenY = cfg.wallHeight + 1.0;
+        const frontOpenY = cfg.wallHeight * 0.85; // Ворота прячутся в перемычку над проёмом (не улетают выше крыши)
         const backClosedY = cfg.wallHeight * 0.35;
-        const backOpenY = cfg.wallHeight + 1.0;
+        const backOpenY = cfg.wallHeight * 0.85; // Ворота прячутся в перемычку над проёмом (не улетают выше крыши)
         
         // Передние ворота
         const frontDoor = MeshBuilder.CreateBox(`garageFrontDoor_${index}`, {
@@ -369,7 +369,7 @@ export class GarageGenerator {
             height: doorHeight,
             depth: cfg.wallThickness * 0.8
         }, this.scene);
-        frontDoor.position = new Vector3(x, frontClosedY, z + cfg.depth / 2 - cfg.wallThickness / 2);
+        frontDoor.position = new Vector3(x, frontClosedY, z + cfg.depth / 2 - cfg.wallThickness / 2 + 0.1);  // Выносим на 0.1 наружу от гаража
         frontDoor.material = doorMat;
         frontDoor.visibility = cfg.doorTransparency;
         frontDoor.isPickable = true;
@@ -382,7 +382,7 @@ export class GarageGenerator {
             height: doorHeight,
             depth: cfg.wallThickness * 0.8
         }, this.scene);
-        backDoor.position = new Vector3(x, backClosedY, z - cfg.depth / 2 + cfg.wallThickness / 2);
+        backDoor.position = new Vector3(x, backClosedY, z - cfg.depth / 2 + cfg.wallThickness / 2 - 0.1);  // Выносим на 0.1 наружу от гаража
         backDoor.material = doorMat;
         backDoor.visibility = cfg.doorTransparency;
         backDoor.isPickable = true;

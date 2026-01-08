@@ -419,11 +419,11 @@ export class EnemyTank {
         EnemyTank.allEnemies.push(this);
         
         // КРИТИЧНО: Выбираем случайное снаряжение ПЕРЕД применением настроек
-        // Выбираем случайный корпус
+        // Выбираем случайный корпус из ВСЕХ доступных (без фильтрации)
         this.chassisType = CHASSIS_TYPES[Math.floor(Math.random() * CHASSIS_TYPES.length)]!;
-        // Выбираем случайную пушку
+        // Выбираем случайную пушку из ВСЕХ доступных (без фильтрации)
         this.cannonType = CANNON_TYPES[Math.floor(Math.random() * CANNON_TYPES.length)]!;
-        // Выбираем случайные гусеницы
+        // Выбираем случайные гусеницы из ВСЕХ доступных (без фильтрации)
         this.trackType = TRACK_TYPES[Math.floor(Math.random() * TRACK_TYPES.length)]!;
         // Выбираем 0-3 случайных модуля (боты могут иметь разное количество модулей)
         this.modules = this.selectRandomModules();
@@ -689,6 +689,7 @@ export class EnemyTank {
     /**
      * Выбрать случайное количество случайных модулей для бота
      * Боты могут иметь 0-3 модуля, вероятность уменьшается с количеством
+     * УЛУЧШЕНО: Добавлена проверка на пустой массив
      */
     private selectRandomModules(): ModuleType[] {
         const modules: ModuleType[] = [];
@@ -703,7 +704,15 @@ export class EnemyTank {
         else moduleCount = 3;
         
         // Выбираем случайные модули без повторений
+        // КРИТИЧНО: Используем ВСЕ модули из MODULE_PRESETS без фильтрации
         const availableModules = [...MODULE_PRESETS];
+        
+        // ДОБАВЛЕНО: Проверка на пустой массив
+        if (availableModules.length === 0) {
+            console.warn(`[EnemyTank] WARNING: MODULE_PRESETS is empty!`);
+            return [];
+        }
+        
         for (let i = 0; i < moduleCount && availableModules.length > 0; i++) {
             const index = Math.floor(Math.random() * availableModules.length);
             const selectedModule = availableModules.splice(index, 1)[0];
@@ -1068,15 +1077,6 @@ export class EnemyTank {
         // AI обновляется КАЖДЫЙ КАДР для всех ботов независимо от расстояния!
         // Боты должны реагировать МГНОВЕННО как профессиональные игроки!
         this.updateAI();
-        
-        // ДИАГНОСТИКА AI: Логируем состояние каждые 3 секунды
-        if (this._tick % 180 === 0) { // ~3 секунды при 60 FPS
-            const hasTarget = !!this.target;
-            const targetAlive = this.target?.isAlive ?? false;
-            const targetChassis = !!this.target?.chassis;
-            const dist = distSq < 1000000 ? Math.sqrt(distSq).toFixed(1) : "1000+";
-            logger.warn(`[EnemyTank ${this.id}] DIAG: state=${this.state}, hasTarget=${hasTarget}, targetAlive=${targetAlive}, targetChassis=${targetChassis}, dist=${dist}m, pos=(${this.chassis.position.x.toFixed(1)}, ${this.chassis.position.z.toFixed(1)})`);
-        }
         
         // ИСПРАВЛЕНО: Обновляем движение и башню каждый кадр для всех ботов
         // Это критично для работающего AI
@@ -1865,6 +1865,19 @@ export class EnemyTank {
     }
     
     /**
+     * КРИТИЧНО: Автоматический поиск цели (игрока) если цель отсутствует
+     * Гарантирует что боты ВСЕГДА имеют цель для преследования
+     */
+    private tryFindPlayerTarget(): void {
+        // Получаем игрока через глобальный инстанс игры
+        const game = (window as any).gameInstance;
+        if (game && game.tank && game.tank.isAlive && game.tank.chassis) {
+            this.target = game.tank;
+            logger.debug(`[EnemyTank ${this.id}] FALLBACK: Auto-acquired player target`);
+        }
+    }
+    
+    /**
      * УЛУЧШЕНО: Установка AI Coordinator для групповой тактики
      */
     setAiCoordinator(coordinator: AICoordinator | null): void {
@@ -2065,6 +2078,12 @@ export class EnemyTank {
     
     private updateAI(): void {
         const now = Date.now();
+        
+        // КРИТИЧНО: FALLBACK - автоматический поиск цели если её нет
+        // Это гарантирует что боты ВСЕГДА имеют цель для преследования
+        if (!this.target || !this.target.isAlive || !this.target.chassis) {
+            this.tryFindPlayerTarget();
+        }
         
         // УЛУЧШЕНО: Сканируем снаряды игрока для уклонения
         this.scanIncomingProjectiles();
@@ -3360,7 +3379,7 @@ export class EnemyTank {
                 const dir = curr.subtract(prev).normalize();
                 directions.push(dir);
                 
-                if (i > 1) {
+                if (directions.length >= 2) {
                     const prevDir = directions[directions.length - 2]!;
                     const angleChange = Math.acos(Math.max(-1, Math.min(1, Vector3.Dot(prevDir, dir))));
                     totalDirectionChange += angleChange;
@@ -3897,7 +3916,15 @@ export class EnemyTank {
         if (!this.isAlive) return;
         
         this.currentHealth -= amount;
-        console.log(`[EnemyTank ${this.id}] Took ${amount} damage, HP: ${this.currentHealth}`);
+        
+        // Показываем плавающее число нанесённого урона над врагом
+        const game = (window as any).gameInstance;
+        if (game?.hud && this.chassis) {
+            const damagePos = this.chassis.position.clone();
+            damagePos.y += 3; // Над танком
+            const isCritical = amount >= 50;
+            game.hud.showDamageNumber(damagePos, amount, 'dealt', isCritical);
+        }
         
         // УЛУЧШЕНО: Реакция на получение урона
         this.onDamageReceived(amount);
@@ -3954,8 +3981,6 @@ export class EnemyTank {
                 this.markGlow.material = glowMat;
                 this.markGlow.visibility = 0.4;
             }
-            
-            console.log(`[EnemyTank ${this.id}] MARKED for ${duration/1000}s!`);
         } else {
             // Remove glow
             if (this.markGlow) {
@@ -3978,7 +4003,6 @@ export class EnemyTank {
     private updateMarkStatus(): void {
         if (this.isMarked && Date.now() > this.markedUntil) {
             this.setMarked(false);
-            console.log(`[EnemyTank ${this.id}] Mark expired`);
         }
         
         // Animate glow
@@ -4079,8 +4103,6 @@ export class EnemyTank {
         
         // Таймер удаления
         this.wallTimeout = window.setTimeout(() => this.destroyWall(), this.WALL_DURATION);
-        
-        console.log(`[EnemyTank ${this.id}] Wall activated!`);
     }
     
     private destroyWall(): void {
@@ -4113,7 +4135,6 @@ export class EnemyTank {
         if (!this.wallMesh || this.wallMesh.isDisposed()) return false;
         
         this.wallHealth -= damage;
-        console.log(`[EnemyTank ${this.id}] Wall took ${damage} damage, HP: ${this.wallHealth}`);
         
         if (this.wallHealth <= 0) {
             this.destroyWall();
@@ -4125,7 +4146,6 @@ export class EnemyTank {
     private die(): void {
         this.isAlive = false;
         this.deathsCount++; // Увеличиваем счётчик смертей для статистики
-        console.log(`[EnemyTank ${this.id}] DESTROYED!`);
         
         // УЛУЧШЕНО: Отписываемся от AI Coordinator при смерти
         if (this.aiCoordinator) {

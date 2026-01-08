@@ -30,6 +30,12 @@ export class SocialMenu {
         this._isOpen = true;
         this.createUI();
         
+        // Показываем курсор и выходим из pointer lock
+        if (document.pointerLockElement) {
+            document.exitPointerLock();
+        }
+        document.body.style.cursor = 'default';
+        
         // Добавляем класс "in-battle" если игра запущена (для полупрозрачного фона)
         if (this.container) {
             const game = (window as any).gameInstance;
@@ -52,6 +58,12 @@ export class SocialMenu {
         if (this.container) {
             this.container.remove();
             this.container = null;
+        }
+        
+        // Восстанавливаем курсор только если игра активна
+        const game = (window as any).gameInstance;
+        if (game?.gameStarted && !game.gamePaused) {
+            document.body.style.cursor = 'none';
         }
     }
     

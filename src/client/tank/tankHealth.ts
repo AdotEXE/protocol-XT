@@ -41,8 +41,6 @@ export class TankHealthModule {
             
             // Если щит полностью блокирует урон, показываем визуальный эффект и выходим
             if (amount <= 0) {
-                console.log(`[SHIELD] 🛡️ Щит полностью заблокировал ${blockedDamage} урона!`);
-                
                 // Визуальный эффект блокировки щита
                 if (this.tank.hud) {
                     this.tank.hud.showShieldBlock(blockedDamage);
@@ -79,9 +77,6 @@ export class TankHealthModule {
             if (chassisBonus && chassisBonus.armorBonus > 0) {
                 const reduction = 1 - chassisBonus.armorBonus;
                 finalDamage = Math.round(amount * reduction);
-                if (finalDamage < amount) {
-                    console.log(`[ARMOR] Damage reduced: ${amount} -> ${finalDamage} (${(chassisBonus.armorBonus * 100).toFixed(0)}% armor)`);
-                }
             }
         }
         
@@ -95,6 +90,14 @@ export class TankHealthModule {
                 const playerRotation = this.tank.chassis.rotation.y;
                 // Передаём finalDamage для вычисления интенсивности вспышки
                 this.tank.hud.showDamageFromPosition(attackerPosition, playerPos, playerRotation, finalDamage);
+            }
+            
+            // Показываем плавающее число полученного урона над танком игрока
+            if (this.tank.chassis) {
+                const damagePos = this.tank.chassis.position.clone();
+                damagePos.y += 3; // Немного выше танка
+                const isCritical = finalDamage >= 50;
+                this.tank.hud.showDamageNumber(damagePos, finalDamage, 'received', isCritical);
             }
         }
         
@@ -119,8 +122,6 @@ export class TankHealthModule {
         if (this.tank.playerProgression) {
             this.tank.playerProgression.recordDamageTaken(finalDamage);
         }
-        
-        console.log(`[DAMAGE] Tank took ${finalDamage} damage! HP: ${this.tank.currentHealth}/${this.tank.maxHealth}`);
         
         if (this.tank.currentHealth <= 0) {
             this.die();
@@ -335,17 +336,86 @@ export class TankHealthModule {
             this.deactivateInvulnerability();
         }
         
-        // Respawn после 4 секунд:
-        // 3 секунды обратный отсчёт + 0.5 сек "RESPAWNING..." + 0.5 сек задержка после скрытия экрана смерти
-        console.log("[TANK] Scheduling respawn in 4 seconds (after death screen closes)...");
+        // НОВЫЙ ПОРЯДОК: Сразу телепорт на пол гаража и анимация сборки
+        // Получаем позицию респавна (пол гаража)
+        let respawnPos: Vector3;
+        if (this.tank.respawnPositionCallback) {
+            const garagePos = this.tank.respawnPositionCallback();
+            respawnPos = garagePos ? garagePos.clone() : new Vector3(0, 1.2, 0);
+        } else {
+            respawnPos = new Vector3(0, 1.2, 0);
+        }
+        
+        // КРИТИЧНО: Устанавливаем Y на пол гаража (не поднимаем вверх!)
+        const game = (window as any).gameInstance;
+        let targetY = respawnPos.y;
+        if (game && typeof game.getGroundHeight === 'function') {
+            // Используем высоту террейна в гараже (пол гаража)
+            const groundHeight = game.getGroundHeight(respawnPos.x, respawnPos.z);
+            targetY = groundHeight + 1.2; // Небольшой отступ от пола (высота танка)
+            console.log(`[TANK] Teleporting to garage floor: Y=${targetY.toFixed(2)} (ground: ${groundHeight.toFixed(2)})`);
+        }
+        
+        // СРАЗУ ТЕЛЕПОРТИРУЕМ ТАНК НА ПОЛ ГАРАЖА
+        if (this.tank.chassis && this.tank.physicsBody) {
+            // Устанавливаем позицию на пол гаража
+            this.tank.chassis.position.set(respawnPos.x, targetY, respawnPos.z);
+            this.tank.chassis.rotationQuaternion = Quaternion.Identity();
+            this.tank.chassis.rotation.set(0, 0, 0);
+            
+            // Обновляем физику
+            this.tank.chassis.computeWorldMatrix(true);
+            if (this.tank.physicsBody) {
+                this.tank.physicsBody.setTargetTransform(
+                    this.tank.chassis.getAbsolutePosition(),
+                    Quaternion.Identity()
+                );
+            }
+        }
+        
+        // Телепортируем все разрушенные части к гаражу (разбросанные вокруг)
+        if (this.destroyedParts && this.destroyedParts.length > 0) {
+            const spreadRadius = 8; // Радиус разброса частей вокруг гаража
+            const spreadHeight = 4; // Высота разброса
+            
+            for (let i = 0; i < this.destroyedParts.length; i++) {
+                const part = this.destroyedParts[i]!;
+                
+                // Отключаем физику частей для анимации
+                if (part.physicsBody) {
+                    part.physicsBody.setLinearVelocity(Vector3.Zero());
+                    part.physicsBody.setAngularVelocity(Vector3.Zero());
+                }
+                
+                // Телепортируем часть к гаражу (случайное положение вокруг)
+                const angle = (i / this.destroyedParts.length) * Math.PI * 2;
+                const radius = spreadRadius * (0.5 + Math.random() * 0.5);
+                const teleportPos = new Vector3(
+                    respawnPos.x + Math.cos(angle) * radius,
+                    targetY + spreadHeight + Math.random() * 2, // От пола гаража
+                    respawnPos.z + Math.sin(angle) * radius
+                );
+                
+                part.mesh.position.copyFrom(teleportPos);
+                
+                // Случайное начальное вращение
+                part.mesh.rotationQuaternion = Quaternion.FromEulerAngles(
+                    Math.random() * Math.PI * 2,
+                    Math.random() * Math.PI * 2,
+                    Math.random() * Math.PI * 2
+                );
+            }
+        }
+        
+        // Устанавливаем флаг что танк был телепортирован
+        (this.tank as any)._wasTeleportedToGarage = true;
+        
+        // СРАЗУ ЗАПУСКАЕМ АНИМАЦИЮ СБОРКИ (без задержки)
         setTimeout(() => {
-            console.log("[TANK] Respawn timer fired!");
             if (!this.tank.isAlive && this.tank.respawn) {
                 this.tank.respawn();
-            } else {
-                console.log("[TANK] Already alive, skipping respawn");
             }
-        }, 4000);
+        }, 100);
     }
     
     /**
@@ -499,7 +569,17 @@ export class TankHealthModule {
         }
         
         const tank = this.tank;
-        const duration = 1000; // 1 секунда анимации сборки
+        const duration = 3000; // 3 секунды анимации сборки
+        
+        // КРИТИЧНО: Если танк уже был телепортирован в гараж (через die()), 
+        // просто запускаем анимацию сборки без дополнительного телепорта частей
+        const wasTeleported = (tank as any)._wasTeleportedToGarage;
+        if (wasTeleported) {
+            // Танк уже в гараже - запускаем анимацию сразу
+            this.startAssemblyAnimation(respawnPos, duration, onComplete);
+            (tank as any)._wasTeleportedToGarage = false; // Сбрасываем флаг
+            return;
+        }
         
         // === ШАГ 1: ТЕЛЕПОРТИРУЕМ ВСЕ ЧАСТИ К ГАРАЖУ (разбросанные вокруг) ===
         const spreadRadius = 8; // Радиус разброса частей вокруг гаража
@@ -565,7 +645,13 @@ export class TankHealthModule {
                 targetPositions.push(respawnPos.clone());
             }
             
-            targetRotations.push(part.originalLocalRot || Quaternion.Identity());
+            // КРИТИЧНО: Для башни и ствола целевое вращение = Identity (фикс бага с залипанием башни после респавна)
+            // Для остальных частей (chassis, tracks) можно использовать оригинальное вращение
+            if (part.name === "turret" || part.name === "barrel") {
+                targetRotations.push(Quaternion.Identity());
+            } else {
+                targetRotations.push(part.originalLocalRot || Quaternion.Identity());
+            }
         }
         
         // Анимация сборки с эффектом "притягивания"
@@ -642,11 +728,10 @@ export class TankHealthModule {
         if (turretPart && turretPart.mesh && !turretPart.mesh.isDisposed()) {
             turretPart.mesh.setParent(tank.chassis);
             turretPart.mesh.position.copyFrom(turretPart.originalLocalPos);
-            if (turretPart.originalLocalRot) {
-                turretPart.mesh.rotationQuaternion = turretPart.originalLocalRot.clone();
-            } else {
-                turretPart.mesh.rotationQuaternion = Quaternion.Identity();
-            }
+            // КРИТИЧНО: Всегда сбрасываем вращение башни на Identity (фикс бага с залипанием башни после респавна)
+            // completeRespawn также сбросит вращение, но делаем это здесь для надёжности
+            turretPart.mesh.rotationQuaternion = Quaternion.Identity();
+            turretPart.mesh.rotation.set(0, 0, 0);
             
             // Восстанавливаем прозрачность
             if (turretPart.mesh.material) {
@@ -659,11 +744,9 @@ export class TankHealthModule {
         if (barrelPart && barrelPart.mesh && !barrelPart.mesh.isDisposed()) {
             barrelPart.mesh.setParent(tank.turret);
             barrelPart.mesh.position.copyFrom(barrelPart.originalLocalPos);
-            if (barrelPart.originalLocalRot) {
-                barrelPart.mesh.rotationQuaternion = barrelPart.originalLocalRot.clone();
-            } else {
-                barrelPart.mesh.rotationQuaternion = Quaternion.Identity();
-            }
+            // КРИТИЧНО: Всегда сбрасываем вращение ствола на Identity (фикс бага с залипанием башни после респавна)
+            barrelPart.mesh.rotationQuaternion = Quaternion.Identity();
+            barrelPart.mesh.rotation.set(0, 0, 0);
             
             // Восстанавливаем прозрачность
             if (barrelPart.mesh.material) {

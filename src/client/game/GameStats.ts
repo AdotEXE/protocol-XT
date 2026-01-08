@@ -67,6 +67,19 @@ export class GameStats {
             this.statsOverlay.style.display = "flex";
             this.statsOverlay.style.visibility = "visible";
             this.update();
+            
+            // Показываем курсор
+            document.body.style.cursor = 'default';
+            
+            // ESC обработчик (удаляется при закрытии)
+            const escHandler = (e: KeyboardEvent) => {
+                if (e.code === "Escape" && this.statsOverlayVisible) {
+                    e.preventDefault();
+                    this.hide();
+                    window.removeEventListener("keydown", escHandler, true);
+                }
+            };
+            window.addEventListener("keydown", escHandler, true);
         }
     }
     
@@ -78,6 +91,12 @@ export class GameStats {
             this.statsOverlayVisible = false;
             this.statsOverlay.style.display = "none";
             this.statsOverlay.style.visibility = "hidden";
+            
+            // Восстанавливаем курсор только если игра активна
+            const game = (window as any).gameInstance;
+            if (game?.gameStarted && !game.gamePaused) {
+                document.body.style.cursor = 'none';
+            }
         }
     }
     
@@ -112,7 +131,7 @@ export class GameStats {
             align-items: flex-start;
             padding-top: 60px;
             z-index: 5000;
-            font-family: 'Courier New', monospace;
+            font-family: 'Press Start 2P', monospace;
             visibility: hidden;
         `;
         

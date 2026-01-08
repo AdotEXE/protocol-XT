@@ -10,7 +10,7 @@ import type { ChunkSystem } from "../chunkSystem";
 import type { TankController } from "../tankController";
 import type { HUD } from "../hud";
 import type { EnemyTank } from "../enemyTank";
-import { saveSelectedSkin, getSkinById, applySkinToTank } from "../tank/tankSkins";
+import { saveSelectedSkin, getSkinById, applySkinToTank, applySkinColorToMaterial } from "../tank/tankSkins";
 
 /**
  * GameGarage - Логика гаражей
@@ -47,6 +47,11 @@ export class GameGarage {
     // Состояние для детекции входа в гараж (для применения pending изменений)
     private wasPlayerInGarage: boolean = false;
     private isApplyingChanges: boolean = false;
+    
+    // УБРАНО: playerGarageEntry - больше не используется, ворота управляются только через G
+    
+    // Отслеживание предыдущего состояния ворот для предотвращения дёргания
+    private doorStateCache: Map<number, { frontOpen: boolean, backOpen: boolean }> = new Map();
     
     // Ссылка на систему гаража (UI) для применения pending изменений
     private garageUI: any = null; // Garage class instance
@@ -91,8 +96,8 @@ export class GameGarage {
      * Получить позицию гаража игрока для респавна
      */
     getPlayerGaragePosition(camera?: any): Vector3 | null {
-        // Для карты "sand" возвращаем случайную позицию внутри карты (если сохранена)
-        if (this.chunkSystem && this.chunkSystem.config?.mapType === "sand") {
+        // Для карт "sand", "madness", "expo" и "brest" возвращаем случайную позицию внутри карты (если сохранена)
+        if (this.chunkSystem && (this.chunkSystem.config?.mapType === "sand" || this.chunkSystem.config?.mapType === "madness" || this.chunkSystem.config?.mapType === "expo" || this.chunkSystem.config?.mapType === "brest" || this.chunkSystem.config?.mapType === "arena")) {
             if (this.playerGaragePosition) {
                 // Используем сохранённую позицию (установлена при спавне)
                 return this.playerGaragePosition.clone();
@@ -309,11 +314,16 @@ export class GameGarage {
      */
     isPlayerInAnyGarage(): boolean {
         if (!this.chunkSystem || !this.chunkSystem.garageDoors) {
-            // logger.log(`[GameGarage] isPlayerInAnyGarage: no chunkSystem or garageDoors`);
+            // Логируем только иногда чтобы не спамить
+            if (Math.random() < 0.01) {
+                console.log(`[GARAGE] isPlayerInAnyGarage: no chunkSystem or garageDoors`);
+            }
             return false;
         }
         if (!this.tank || !this.tank.chassis || !this.tank.isAlive) {
-            // logger.log(`[GameGarage] isPlayerInAnyGarage: no tank or tank not alive`);
+            if (Math.random() < 0.01) {
+                console.log(`[GARAGE] isPlayerInAnyGarage: no tank or tank not alive`);
+            }
             return false;
         }
         
@@ -327,16 +337,27 @@ export class GameGarage {
             const garageDepth = doorData.garageDepth || 20;
             const garageWidth = 16;
             
-            const isInside = (
+            // Проверяем X и Z координаты
+            const isInsideXZ = (
                 playerPos.x >= garagePos.x - garageWidth / 2 &&
                 playerPos.x <= garagePos.x + garageWidth / 2 &&
                 playerPos.z >= garagePos.z - garageDepth / 2 &&
                 playerPos.z <= garagePos.z + garageDepth / 2
             );
             
-            if (isInside) {
-                // logger.log(`[GameGarage] isPlayerInAnyGarage: TRUE - player at (${playerPos.x.toFixed(2)}, ${playerPos.z.toFixed(2)}), garage at (${garagePos.x.toFixed(2)}, ${garagePos.z.toFixed(2)})`);
-                return true;
+            if (isInsideXZ) {
+                // Дополнительно проверяем Y координату - танк должен быть внутри гаража (не на потолке/крыше)
+                // Гараж обычно имеет высоту около 8-10 метров, проверяем что танк находится в разумных пределах
+                const garageHeight = 10; // Высота гаража
+                const garageFloorY = garagePos.y; // Y координата пола гаража
+                const garageCeilingY = garageFloorY + garageHeight; // Y координата потолка гаража
+                
+                // Танк должен быть внутри гаража по высоте (с небольшим запасом)
+                const isInsideY = playerPos.y >= garageFloorY - 2 && playerPos.y <= garageCeilingY + 2;
+                
+                if (isInsideY) {
+                    return true;
+                }
             }
         }
         
@@ -378,21 +399,19 @@ export class GameGarage {
      */
     checkAndApplyPendingChanges(): void {
         const isInGarage = this.isPlayerInAnyGarage();
+        const hasPending = this.hasPendingChangesFromStorage();
+        
+        // Убрано избыточное логирование
         
         // Проверяем pending изменения, если игрок в гараже
-        // Применяем изменения при входе в гараж (переход из false в true)
-        // или если игрок уже в гараже и есть pending изменения
-        if (isInGarage && !this.isApplyingChanges) {
-            const hasPending = this.hasPendingChangesFromStorage();
-            if (hasPending) {
-                // Применяем изменения при входе в гараж
-                if (!this.wasPlayerInGarage) {
-                    logger.log(`[GameGarage] Player entered garage. Checking for pending changes...`);
-                    const pending = this.getPendingFromStorage();
-                    logger.log(`[GameGarage] Pending changes: chassis=${pending.chassisId}, cannon=${pending.cannonId}, track=${pending.trackId}, skin=${pending.skinId}`);
-                    this.applyPendingGarageChanges();
-                }
-            }
+        // НО НЕ применяем если UI гаража открыт (он сам применит при закрытии)
+        const garageUI = this.garageUI;
+        const isGarageUIOpen = garageUI && typeof garageUI.isGarageOpen === 'function' && garageUI.isGarageOpen();
+        const isApplyingFromUI = garageUI && typeof garageUI.isApplyingFromUI === 'function' && garageUI.isApplyingFromUI();
+        
+        if (isInGarage && !this.isApplyingChanges && hasPending && !isGarageUIOpen && !isApplyingFromUI) {
+            // Применяем изменения при входе в гараж (только если UI гаража закрыт)
+            this.applyPendingGarageChanges();
         }
         
         this.wasPlayerInGarage = isInGarage;
@@ -402,44 +421,9 @@ export class GameGarage {
      * Применить pending изменения с анимацией
      */
     private applyPendingGarageChanges(): void {
-        // Если есть garageUI - используем его
-        if (this.garageUI && typeof this.garageUI.hasPendingChanges === 'function' && this.garageUI.hasPendingChanges()) {
-            this.isApplyingChanges = true;
-            
-            // Получаем pending изменения
-            const pending = this.garageUI.getPendingChanges();
-            logger.log(`[GameGarage] Applying pending changes via garageUI: chassis=${pending.chassisId}, cannon=${pending.cannonId}, track=${pending.trackId}, skin=${pending.skinId}`);
-            
-            // Запускаем анимацию смены частей
-            if (this.tank && typeof (this.tank as any).playPartChangeAnimation === 'function') {
-                const applied = this.garageUI.applyPendingChangesToTank();
-                
-                // Запускаем анимацию для каждой измененной части
-                (this.tank as any).playPartChangeAnimation(applied, () => {
-                    this.isApplyingChanges = false;
-                    
-                    // Показываем уведомление
-                    if (this.hud && typeof this.hud.showNotification === 'function') {
-                        this.hud.showNotification("🔧 Оборудование установлено!", "success");
-                    }
-                    
-                    logger.log("[GameGarage] Part change animation complete");
-                });
-            } else {
-                // Если анимации нет, просто применяем изменения
-                this.garageUI.applyPendingChangesToTank();
-                this.isApplyingChanges = false;
-                
-                if (this.hud && typeof this.hud.showNotification === 'function') {
-                    this.hud.showNotification("🔧 Оборудование установлено!", "success");
-                }
-                
-                logger.log("[GameGarage] Pending changes applied (no animation)");
-            }
-        } else {
-            // Fallback: применяем напрямую через localStorage
-            this.applyChangesDirectly();
-        }
+        // КРИТИЧНО: Всегда используем applyChangesDirectly() для применения изменений
+        // Это гарантирует, что respawn() будет вызван для пересоздания визуальных частей
+        this.applyChangesDirectly();
     }
     
     /**
@@ -474,10 +458,22 @@ export class GameGarage {
         if (pending.skinId) {
             saveSelectedSkin(pending.skinId);
             const skin = getSkinById(pending.skinId);
-            if (skin && tankController.chassis?.material && tankController.turret?.material) {
+            if (skin) {
+                console.log(`[SKIN] Applying skin "${pending.skinId}" to tank...`);
                 const skinColors = applySkinToTank(skin);
-                (tankController.chassis.material as StandardMaterial).diffuseColor = skinColors.chassisColor;
-                (tankController.turret.material as StandardMaterial).diffuseColor = skinColors.turretColor;
+                
+                // Применяем к chassis независимо от turret
+                if (tankController.chassis?.material) {
+                    console.log(`[SKIN] Applying to chassis...`);
+                    applySkinColorToMaterial(tankController.chassis.material as StandardMaterial, skinColors.chassisColor);
+                } else {
+                    console.warn(`[SKIN] chassis.material is null/undefined!`);
+                }
+                
+                // Применяем к turret независимо от chassis
+                if (tankController.turret?.material) {
+                    applySkinColorToMaterial(tankController.turret.material as StandardMaterial, skinColors.turretColor);
+                }
             }
         }
         
@@ -511,11 +507,9 @@ export class GameGarage {
                 // Временно устанавливаем callback для сохранения позиции
                 const originalCallback = tankController.respawnPositionCallback;
                 tankController.setRespawnPositionCallback(() => {
-                    logger.log(`[GameGarage] Respawn callback called, returning position: ${currentPos.x.toFixed(2)}, ${currentPos.y.toFixed(2)}, ${currentPos.z.toFixed(2)}`);
                     return currentPos;
                 });
                 
-                logger.log(`[GameGarage] Calling respawn()...`);
                 // Вызываем respawn (он пересоздаст части)
                 tankController.respawn();
                 
@@ -526,17 +520,26 @@ export class GameGarage {
                     tankController.respawnPositionCallback = null;
                 }
                 
-                logger.log(`[GameGarage] Respawn completed. New types: chassis=${tankController.chassisType?.id}, cannon=${tankController.cannonType?.id}, track=${tankController.trackType?.id}`);
-                
                 // После respawn запускаем анимацию (если есть изменённые части)
+                // КРИТИЧНО: Анимация ТОЛЬКО если танк находится внутри гаража (не на потолке/крыше)
                 if ((applied.chassis || applied.cannon || applied.track) && typeof (tankController as any).playPartChangeAnimation === 'function') {
-                    logger.log(`[GameGarage] Starting part change animation...`);
-                    // Небольшая задержка, чтобы части успели пересоздаться
-                    setTimeout(() => {
-                        (tankController as any).playPartChangeAnimation(applied, () => {
-                            logger.log("[GameGarage] Part change animation complete");
-                        });
-                    }, 100);
+                    // Проверяем, что танк находится внутри гаража перед запуском анимации
+                    if (this.isPlayerInAnyGarage()) {
+                        logger.log(`[GameGarage] Starting part change animation...`);
+                        // Небольшая задержка, чтобы части успели пересоздаться
+                        setTimeout(() => {
+                            // Повторная проверка перед запуском анимации (на случай если танк переместился)
+                            if (this.isPlayerInAnyGarage()) {
+                                (tankController as any).playPartChangeAnimation(applied, () => {
+                                    logger.log("[GameGarage] Part change animation complete");
+                                });
+                            } else {
+                                logger.warn(`[GameGarage] Animation cancelled - tank is not inside garage`);
+                            }
+                        }, 100);
+                    } else {
+                        logger.warn(`[GameGarage] Animation skipped - tank is not inside garage`);
+                    }
                 }
             } else {
                 logger.error(`[GameGarage] tankController.respawn is not a function!`);
@@ -555,103 +558,27 @@ export class GameGarage {
     
     /**
      * Обновление ворот гаражей
-     * ПРОСТАЯ ЛОГИКА: Ворота просто двигаются вверх/вниз к целевой позиции
-     * КРИТИЧНО: Ворота не открываются до загрузки террейна
+     * ПРОСТАЯ ЛОГИКА: Ворота управляются ТОЛЬКО клавишей G (ручное управление)
+     * Без автоматического открытия/закрытия - если ворота открыты, любой может войти и захватить гараж
      */
     updateGarageDoors(): void {
-        if (!this.chunkSystem || !this.chunkSystem.garageDoors) return;
+        if (!this.chunkSystem || !this.chunkSystem.garageDoors) {
+            console.log(`[GameGarage] updateGarageDoors: no chunkSystem or no doors`);
+            return;
+        }
+        
+        // Убрано избыточное логирование
         
         // === ПРОВЕРКА PENDING ИЗМЕНЕНИЙ ПРИ ВХОДЕ В ГАРАЖ ===
         this.checkAndApplyPendingChanges();
         
         // АГРЕССИВНАЯ ПРОВЕРКА: если игрок в гараже и есть pending изменения, применяем их СРАЗУ
-        // (независимо от wasPlayerInGarage - на случай, если логика входа не сработала)
         const isInGarage = this.isPlayerInAnyGarage();
         const hasPending = this.hasPendingChangesFromStorage();
         
-        // Логируем состояние каждые 60 кадров (примерно раз в секунду) для отладки
-        if (Math.random() < 0.016) { // ~1/60 вероятность
-            logger.log(`[GameGarage] DEBUG: isInGarage=${isInGarage}, hasPending=${hasPending}, wasPlayerInGarage=${this.wasPlayerInGarage}, isApplyingChanges=${this.isApplyingChanges}`);
-            if (hasPending) {
-                const pending = this.getPendingFromStorage();
-                logger.log(`[GameGarage] DEBUG: Pending values: chassis=${pending.chassisId}, cannon=${pending.cannonId}, track=${pending.trackId}, skin=${pending.skinId}`);
-            }
-        }
-        
         if (isInGarage && !this.isApplyingChanges && hasPending) {
-            logger.log(`[GameGarage] ⚠️ AGGRESSIVE CHECK: Player in garage with pending changes! Applying now...`);
-            const pending = this.getPendingFromStorage();
-            logger.log(`[GameGarage] Pending: chassis=${pending.chassisId}, cannon=${pending.cannonId}, track=${pending.trackId}, skin=${pending.skinId}`);
             this.applyPendingGarageChanges();
         }
-        
-        // КРИТИЧНО: УБРАНА ВСЯ ПРОВЕРКА ТЕРРЕЙНА - ворота открываются сразу, если игрок внутри гаража
-        // Проверяем, находится ли игрок внутри гаража ПЕРВЫМ ДЕЛОМ
-        let playerInsideGarage = false;
-        if (this.tank && this.tank.chassis && this.tank.isAlive) {
-            const playerPos = this.tank.chassis.getAbsolutePosition();
-            const doors = this.chunkSystem.garageDoors;
-            for (let i = 0; i < doors.length; i++) {
-                const doorData = doors[i];
-                if (!doorData) continue;
-                const garagePos = doorData.position;
-                const garageDepth = doorData.garageDepth || 20;
-                const garageWidth = 16; // Ширина гаража
-                
-                // Проверяем, находится ли игрок внутри этого гаража
-                const isInside = (
-                    playerPos.x >= garagePos.x - garageWidth / 2 &&
-                    playerPos.x <= garagePos.x + garageWidth / 2 &&
-                    playerPos.z >= garagePos.z - garageDepth / 2 &&
-                    playerPos.z <= garagePos.z + garageDepth / 2
-                );
-                
-                if (isInside) {
-                    playerInsideGarage = true;
-                    // Если игрок внутри гаража, открываем ворота сразу БЕЗ ПРОВЕРКИ ТЕРРЕЙНА
-                    if (!doorData.manualControl) {
-                        doorData.frontDoorOpen = true;
-                        doorData.backDoorOpen = true;
-                        
-                        // КРИТИЧНО: Принудительно устанавливаем позицию ворот в открытое состояние СРАЗУ
-                        // Это гарантирует, что ворота откроются даже если логика движения не сработает
-                        if (doorData.frontDoor && doorData.frontOpenY !== undefined) {
-                            doorData.frontDoor.position.y = doorData.frontOpenY;
-                            // Обновляем физику - перемещаем далеко вверх, чтобы не блокировать проход
-                            if (doorData.frontDoorPhysics && doorData.frontDoorPhysics.body) {
-                                doorData.frontDoor.getWorldMatrix();
-                                doorData.frontDoorPhysics.body.setTargetTransform(
-                                    new Vector3(doorData.frontDoor.position.x, 100, doorData.frontDoor.position.z),
-                                    Quaternion.Identity()
-                                );
-                            }
-                        }
-                        if (doorData.backDoor && doorData.backOpenY !== undefined) {
-                            doorData.backDoor.position.y = doorData.backOpenY;
-                            // Обновляем физику - перемещаем далеко вверх, чтобы не блокировать проход
-                            if (doorData.backDoorPhysics && doorData.backDoorPhysics.body) {
-                                doorData.backDoor.getWorldMatrix();
-                                doorData.backDoorPhysics.body.setTargetTransform(
-                                    new Vector3(doorData.backDoor.position.x, 100, doorData.backDoor.position.z),
-                                    Quaternion.Identity()
-                                );
-                            }
-                        }
-                        
-                        // Логируем для отладки (только раз в секунду, чтобы не спамить)
-                        const now = Date.now();
-                        if (!(this as any)._lastDoorOpenLog || now - (this as any)._lastDoorOpenLog > 1000) {
-                            // logger.log(`[GameGarage] Player inside garage, opening doors IMMEDIATELY (player: ${playerPos.x.toFixed(1)}, ${playerPos.z.toFixed(1)}, garage: ${garagePos.x.toFixed(1)}, ${garagePos.z.toFixed(1)})`);
-                            (this as any)._lastDoorOpenLog = now;
-                        }
-                    }
-                    break;
-                }
-            }
-        }
-        
-        // Скорость движения ворот - увеличиваем если игрок внутри гаража
-        const doorSpeed = playerInsideGarage ? 1.0 : 0.18; // Быстрое открытие если игрок внутри
         
         // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach для лучшей производительности
         const doors = this.chunkSystem.garageDoors;
@@ -660,204 +587,86 @@ export class GameGarage {
             const doorData = doors[i];
             if (!doorData || !doorData.frontDoor || !doorData.backDoor) continue;
             
-            // Автооткрытие ворот для ботов
-            const doorOpenDistance = 18;
-            const doorOpenDistanceSq = doorOpenDistance * doorOpenDistance;
-            const doorCloseDistanceSq = (doorOpenDistance + 5) * (doorOpenDistance + 5);
-            const garagePos = doorData.position;
-            const garageDepth = doorData.garageDepth || 20;
+            // ПРОСТАЯ ЛОГИКА: Ворота управляются ТОЛЬКО клавишей G
+            // Никакой автоматики - полный контроль игрока
             
-            const frontDoorPos = new Vector3(garagePos.x, 0, garagePos.z + garageDepth / 2);
-            const backDoorPos = new Vector3(garagePos.x, 0, garagePos.z - garageDepth / 2);
-            
-            // ИСПРАВЛЕНО: Проверяем ручное управление ДО изменения состояния ворот
-            const currentTime = Date.now();
-            const manualControlTimeout = 5000; // 5 секунд
-            const timeSinceManualControl = currentTime - (doorData.manualControlTime || 0);
-            const allowAutoControl = !doorData.manualControl || timeSinceManualControl > manualControlTimeout;
-            
-            // Если ручное управление истекло, сбрасываем флаг
-            if (doorData.manualControl && timeSinceManualControl > manualControlTimeout) {
-                doorData.manualControl = false;
-            }
-            
-            // КРИТИЧНО: Проверяем, находится ли игрок внутри ЭТОГО гаража
-            let playerInThisGarage = false;
-            if (this.tank && this.tank.chassis && this.tank.isAlive) {
-                const playerPos = this.tank.chassis.getAbsolutePosition();
-                const garageWidth = 16;
-                const isInside = (
-                    playerPos.x >= garagePos.x - garageWidth / 2 &&
-                    playerPos.x <= garagePos.x + garageWidth / 2 &&
-                    playerPos.z >= garagePos.z - garageDepth / 2 &&
-                    playerPos.z <= garagePos.z + garageDepth / 2
-                );
-                playerInThisGarage = isInside;
-            }
-            
-            // КРИТИЧНО: Проверяем игрока для автооткрытия ворот (ТОЛЬКО если разрешено автоматическое управление)
-            if (allowAutoControl && this.tank && this.tank.chassis && this.tank.isAlive) {
-                // КРИТИЧНО: Используем getAbsolutePosition() для получения мировой позиции
-                // position может быть локальной позицией относительно родителя
-                const playerPos = this.tank.chassis.getAbsolutePosition();
-                
-                // ОПТИМИЗАЦИЯ: Используем квадраты расстояний вместо Vector3.Distance (избегаем sqrt)
-                
-                const dxFront = playerPos.x - frontDoorPos.x;
-                const dzFront = playerPos.z - frontDoorPos.z;
-                const distToFrontSq = dxFront * dxFront + dzFront * dzFront;
-                
-                // КРИТИЧНО: Если игрок внутри гаража, ворота всегда открыты
-                if (playerInThisGarage) {
-                    doorData.frontDoorOpen = true;
-                    doorData.backDoorOpen = true;
-                } else {
-                    // Открываем ворота если игрок близко, закрываем если далеко
-                    if (distToFrontSq < doorOpenDistanceSq) {
-                        doorData.frontDoorOpen = true;
-                    } else if (distToFrontSq > doorCloseDistanceSq) {
-                        // Закрываем только если игрок достаточно далеко (гистерезис)
-                        doorData.frontDoorOpen = false;
-                    }
-                    // Если игрок между порогами - сохраняем текущее состояние (гистерезис)
-                    
-                    const dxBack = playerPos.x - backDoorPos.x;
-                    const dzBack = playerPos.z - backDoorPos.z;
-                    const distToBackSq = dxBack * dxBack + dzBack * dzBack;
-                    
-                    // Открываем ворота если игрок близко, закрываем если далеко
-                    if (distToBackSq < doorOpenDistanceSq) {
-                        doorData.backDoorOpen = true;
-                    } else if (distToBackSq > doorCloseDistanceSq) {
-                        // Закрываем только если игрок достаточно далеко (гистерезис)
-                        doorData.backDoorOpen = false;
-                    }
-                    // Если игрок между порогами - сохраняем текущее состояние (гистерезис)
-                }
-            } else if (allowAutoControl) {
-                // ИСПРАВЛЕНО: Если игрок не существует или не жив - закрываем ворота (ТОЛЬКО если разрешено автоматическое управление)
-                doorData.frontDoorOpen = false;
-                doorData.backDoorOpen = false;
-            }
-            
-            // ИСПРАВЛЕНО: Проверяем всех вражеских танков (ТОЛЬКО если разрешено автоматическое управление)
-            if (allowAutoControl) {
-                // ОПТИМИЗАЦИЯ: Используем квадраты расстояний и переиспользуем вычисления
-                const enemyCount = this.enemyTanks.length;
-                for (let j = 0; j < enemyCount; j++) {
-                    const enemy = this.enemyTanks[j];
-                    if (!enemy || !enemy.isAlive || !enemy.chassis) continue;
-                    
-                    // ОПТИМИЗАЦИЯ: Используем position вместо absolutePosition для производительности
-                    const enemyPos = enemy.chassis.position;
-                    
-                    const dxFront = enemyPos.x - frontDoorPos.x;
-                    const dzFront = enemyPos.z - frontDoorPos.z;
-                    const distToFrontSq = dxFront * dxFront + dzFront * dzFront;
-                    
-                    if (distToFrontSq < doorOpenDistanceSq && !doorData.frontDoorOpen) {
-                        doorData.frontDoorOpen = true;
-                    }
-                    
-                    const dxBack = enemyPos.x - backDoorPos.x;
-                    const dzBack = enemyPos.z - backDoorPos.z;
-                    const distToBackSq = dxBack * dxBack + dzBack * dzBack;
-                    
-                    if (distToBackSq < doorOpenDistanceSq && !doorData.backDoorOpen) {
-                        doorData.backDoorOpen = true;
-                    }
-                }
-            }
-            
-            // Определяем целевые позиции
-            
-            // Определяем целевое состояние ворот
+            // Определяем целевое состояние ворот (управляется только через G)
             const targetFrontOpen = doorData.frontDoorOpen !== undefined ? doorData.frontDoorOpen : false;
             const targetBackOpen = doorData.backDoorOpen !== undefined ? doorData.backDoorOpen : false;
             
-            const targetFrontY = targetFrontOpen ? doorData.frontOpenY : doorData.frontClosedY;
-            const targetBackY = targetBackOpen ? doorData.backOpenY : doorData.backClosedY;
+            // Проверяем что позиции ворот установлены (только при ошибке)
+            if (!doorData.frontOpenY || !doorData.frontClosedY || !doorData.backOpenY || !doorData.backClosedY) {
+                logger.error(`[GameGarage] Door positions not set! frontOpenY=${doorData.frontOpenY}, frontClosedY=${doorData.frontClosedY}, backOpenY=${doorData.backOpenY}, backClosedY=${doorData.backClosedY}`);
+            }
             
-            // ПРОСТАЯ ЛОГИКА: Передние ворота - просто двигаем к целевой позиции
+            // Целевые позиции: закрытое + 6 метров для открытого
+            const closedFrontY = doorData.frontClosedY || 2.8;
+            const closedBackY = doorData.backClosedY || 2.8;
+            const targetFrontY = targetFrontOpen ? (closedFrontY + 6.0) : closedFrontY;
+            const targetBackY = targetBackOpen ? (closedBackY + 6.0) : closedBackY;
+            
+            // Отладочное логирование (только при изменении состояния)
+            if (i === 0) { // Логируем только для первого гаража, чтобы не спамить
+                const currentFrontY = doorData.frontDoor.position.y;
+                const currentBackY = doorData.backDoor.position.y;
+                if (Math.abs(currentFrontY - targetFrontY) > 0.1 || Math.abs(currentBackY - targetBackY) > 0.1) {
+                    console.log(`[GameGarage] Door state: frontOpen=${targetFrontOpen}, targetY=${targetFrontY.toFixed(2)}, currentY=${currentFrontY.toFixed(2)}, diff=${(targetFrontY - currentFrontY).toFixed(2)}`);
+                }
+            }
+            
+            // Скорость плавного движения (единиц за обновление)
+            const doorSpeed = 0.2; // Фиксированная скорость движения за обновление
+            
+            // ПЕРЕДНИЕ ВОРОТА: Плавное движение на 6 метров
             const currentFrontY = doorData.frontDoor.position.y;
             const frontDiff = targetFrontY - currentFrontY;
             
-            // Логируем для отладки (только если ворота должны открываться и есть разница)
-            if (targetFrontOpen && Math.abs(frontDiff) > 0.1) {
-                const now = Date.now();
-                if (!(this as any)._lastDoorMoveLog || now - (this as any)._lastDoorMoveLog > 2000) {
-                    logger.log(`[GameGarage] Moving front door: current=${currentFrontY.toFixed(2)}, target=${targetFrontY.toFixed(2)}, diff=${frontDiff.toFixed(2)}, open=${targetFrontOpen}`);
-                    (this as any)._lastDoorMoveLog = now;
-                }
-            }
-            
+            // Всегда проверяем и двигаем ворота к целевой позиции
             if (Math.abs(frontDiff) > 0.01) {
-                // ИСПРАВЛЕНО: Плавное движение ворот без дёргания - используем фиксированную скорость
-                // Используем doorSpeed из внешней области видимости (быстрее если игрок внутри гаража)
-                const moveAmount = Math.min(Math.abs(frontDiff), doorSpeed); // Ограничиваем максимальное движение за кадр
+                // Ворота движутся - плавное движение меша
+                const moveAmount = Math.min(Math.abs(frontDiff), doorSpeed);
                 const newFrontY = currentFrontY + Math.sign(frontDiff) * moveAmount;
                 doorData.frontDoor.position.y = newFrontY;
                 
-                // ИСПРАВЛЕНО: НЕ обновляем физику во время движения - это вызывает дёргание
-                // Физика будет обновлена только когда ворота достигнут цели
+                // КРИТИЧНО: НЕ обновляем физику во время движения - это вызывает дёргание!
+                // Физика будет обновлена только когда движение завершено
             } else {
-                // Ворота достигли цели - фиксируем позицию
+                // Движение завершено - фиксируем позицию
                 doorData.frontDoor.position.y = targetFrontY;
                 
-                // ИСПРАВЛЕНО: Обновляем физику ТОЛЬКО когда ворота достигли цели
+                // Обновляем физику ТОЛЬКО когда движение завершено (один раз)
                 if (doorData.frontDoorPhysics && doorData.frontDoorPhysics.body) {
-                    doorData.frontDoor.getWorldMatrix(); // Обновляем матрицу
-                    
-                    // Если ворота полностью открыты - отключаем коллизию (перемещаем физику далеко вверх)
-                    if (targetFrontOpen) {
-                        doorData.frontDoorPhysics.body.setTargetTransform(
-                            new Vector3(doorData.frontDoor.position.x, 100, doorData.frontDoor.position.z),
-                            Quaternion.Identity()
-                        );
-                    } else {
-                        // Если ворота закрыты - синхронизируем с мешем
-                        doorData.frontDoorPhysics.body.setTargetTransform(
-                            doorData.frontDoor.position.clone(),
-                            Quaternion.Identity()
-                        );
-                    }
+                    doorData.frontDoor.getWorldMatrix();
+                    doorData.frontDoorPhysics.body.setTargetTransform(
+                        doorData.frontDoor.position.clone(),
+                        Quaternion.Identity()
+                    );
                 }
             }
             
-            // ПРОСТАЯ ЛОГИКА: Задние ворота - просто двигаем к целевой позиции
+            // ЗАДНИЕ ВОРОТА: Плавное движение на 6 метров
             const currentBackY = doorData.backDoor.position.y;
             const backDiff = targetBackY - currentBackY;
             
             if (Math.abs(backDiff) > 0.01) {
-                // ИСПРАВЛЕНО: Плавное движение ворот без дёргания - используем фиксированную скорость
-                // Используем doorSpeed из внешней области видимости (быстрее если игрок внутри гаража)
-                const moveAmount = Math.min(Math.abs(backDiff), doorSpeed); // Ограничиваем максимальное движение за кадр
+                // Ворота движутся - плавное движение меша
+                const moveAmount = Math.min(Math.abs(backDiff), doorSpeed);
                 const newBackY = currentBackY + Math.sign(backDiff) * moveAmount;
                 doorData.backDoor.position.y = newBackY;
                 
-                // ИСПРАВЛЕНО: НЕ обновляем физику во время движения - это вызывает дёргание
-                // Физика будет обновлена только когда ворота достигнут цели
+                // КРИТИЧНО: НЕ обновляем физику во время движения - это вызывает дёргание!
+                // Физика будет обновлена только когда движение завершено
             } else {
-                // Ворота достигли цели - фиксируем позицию
+                // Движение завершено - фиксируем позицию
                 doorData.backDoor.position.y = targetBackY;
                 
-                // ИСПРАВЛЕНО: Обновляем физику ТОЛЬКО когда ворота достигли цели
+                // Обновляем физику ТОЛЬКО когда движение завершено (один раз)
                 if (doorData.backDoorPhysics && doorData.backDoorPhysics.body) {
-                    doorData.backDoor.getWorldMatrix(); // Обновляем матрицу
-                    
-                    // Если ворота полностью открыты - отключаем коллизию (перемещаем физику далеко вверх)
-                    if (targetBackOpen) {
-                        doorData.backDoorPhysics.body.setTargetTransform(
-                            new Vector3(doorData.backDoor.position.x, 100, doorData.backDoor.position.z),
-                            Quaternion.Identity()
-                        );
-                    } else {
-                        // Если ворота закрыты - синхронизируем с мешем
-                        doorData.backDoorPhysics.body.setTargetTransform(
-                            doorData.backDoor.position.clone(),
-                            Quaternion.Identity()
-                        );
-                    }
+                    doorData.backDoor.getWorldMatrix();
+                    doorData.backDoorPhysics.body.setTargetTransform(
+                        doorData.backDoor.position.clone(),
+                        Quaternion.Identity()
+                    );
                 }
             }
         }
@@ -1213,79 +1022,6 @@ export class GameGarage {
     isGarageRespawnTimerActive(garagePos: Vector3): boolean {
         const key = `${garagePos.x.toFixed(1)},${garagePos.z.toFixed(1)}`;
         return this.garageRespawnTimers.has(key);
-    }
-    
-    /**
-     * Переместить все ворота в закрытое состояние (когда террейн не загружен)
-     */
-    private moveDoorsToClosedState(): void {
-        if (!this.chunkSystem || !this.chunkSystem.garageDoors) return;
-        
-        const doorSpeed = 0.18; // Скорость движения ворот
-        const doors = this.chunkSystem.garageDoors;
-        const doorCount = doors.length;
-        
-        for (let i = 0; i < doorCount; i++) {
-            const doorData = doors[i];
-            if (!doorData || !doorData.frontDoor || !doorData.backDoor) continue;
-            
-            // Игнорируем ворота с ручным управлением
-            if (doorData.manualControl) continue;
-            
-            // Передние ворота - двигаем к закрытому состоянию
-            const currentFrontY = doorData.frontDoor.position.y;
-            const frontDiff = doorData.frontClosedY - currentFrontY;
-            
-            if (Math.abs(frontDiff) > 0.01) {
-                const newFrontY = currentFrontY + frontDiff * doorSpeed;
-                doorData.frontDoor.position.y = newFrontY;
-                
-                // Обновляем физику ворот
-                if (doorData.frontDoorPhysics && doorData.frontDoorPhysics.body && Math.abs(frontDiff) > 0.1) {
-                    doorData.frontDoor.getWorldMatrix();
-                    doorData.frontDoorPhysics.body.setTargetTransform(
-                        doorData.frontDoor.position.clone(),
-                        Quaternion.Identity()
-                    );
-                }
-            } else {
-                doorData.frontDoor.position.y = doorData.frontClosedY;
-                if (doorData.frontDoorPhysics && doorData.frontDoorPhysics.body) {
-                    doorData.frontDoor.getWorldMatrix();
-                    doorData.frontDoorPhysics.body.setTargetTransform(
-                        doorData.frontDoor.position.clone(),
-                        Quaternion.Identity()
-                    );
-                }
-            }
-            
-            // Задние ворота - двигаем к закрытому состоянию
-            const currentBackY = doorData.backDoor.position.y;
-            const backDiff = doorData.backClosedY - currentBackY;
-            
-            if (Math.abs(backDiff) > 0.01) {
-                const newBackY = currentBackY + backDiff * doorSpeed;
-                doorData.backDoor.position.y = newBackY;
-                
-                // Обновляем физику ворот
-                if (doorData.backDoorPhysics && doorData.backDoorPhysics.body && Math.abs(backDiff) > 0.1) {
-                    doorData.backDoor.getWorldMatrix();
-                    doorData.backDoorPhysics.body.setTargetTransform(
-                        doorData.backDoor.position.clone(),
-                        Quaternion.Identity()
-                    );
-                }
-            } else {
-                doorData.backDoor.position.y = doorData.backClosedY;
-                if (doorData.backDoorPhysics && doorData.backDoorPhysics.body) {
-                    doorData.backDoor.getWorldMatrix();
-                    doorData.backDoorPhysics.body.setTargetTransform(
-                        doorData.backDoor.position.clone(),
-                        Quaternion.Identity()
-                    );
-                }
-            }
-        }
     }
     
     /**

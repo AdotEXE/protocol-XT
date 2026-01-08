@@ -117,6 +117,49 @@ export const MAP_SIZES: Record<string, MapSizeConfig> = {
         maxZ: 75,
         playerGaragePosition: [-50, -50], // Юго-западная база
         wallHeight: 4
+    },
+    
+    // Безумие - многоуровневая арена с мостиками и рампами
+    madness: {
+        size: 150,
+        minX: -75,
+        maxX: 75,
+        minZ: -75,
+        maxZ: 75,
+        playerGaragePosition: [-50, -50], // Юго-западная база
+        wallHeight: 4
+    },
+    
+    // Экспо - расширенная киберспортивная арена
+    expo: {
+        size: 200,
+        minX: -100,
+        maxX: 100,
+        minZ: -100,
+        maxZ: 100,
+        playerGaragePosition: [0, 0], // Центр
+        wallHeight: 5
+    },
+    // Брест - симметричная арена с крепостью
+    brest: {
+        size: 180,
+        minX: -90,
+        maxX: 90,
+        minZ: -90,
+        maxZ: 90,
+        playerGaragePosition: [0, 0], // Центр
+        wallHeight: 6
+    },
+    
+    // Арена - киберспортивная арена с симметричной структурой
+    arena: {
+        size: 160,
+        minX: -80,
+        maxX: 80,
+        minZ: -80,
+        maxZ: 80,
+        playerGaragePosition: [0, 0], // Центр
+        wallHeight: 6
     }
 };
 
@@ -192,4 +235,3 @@ export function getWallHeight(mapType: MapType | string): number {
     const config = MAP_SIZES[mapType];
     return config?.wallHeight ?? 0;
 }
-

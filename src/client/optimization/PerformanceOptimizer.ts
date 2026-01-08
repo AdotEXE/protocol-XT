@@ -271,7 +271,19 @@ export class PerformanceOptimizer {
                 break;
                 
             case "culled":
-                mesh.isVisible = false;
+                // ИСПРАВЛЕНИЕ: Не скрываем terrain/ground меши для предотвращения
+                // исчезновения поверхности при приближении камеры
+                const name = mesh.name.toLowerCase();
+                if (name.startsWith("ground_") || 
+                    name.includes("terrain") || 
+                    name.includes("chunk_") ||
+                    name.includes("road")) {
+                    // Террейн и дороги всегда видимы
+                    mesh.isVisible = true;
+                    mesh.visibility = data.originalVisibility;
+                } else {
+                    mesh.isVisible = false;
+                }
                 break;
         }
     }

@@ -13,6 +13,11 @@ export class TankMovementModule {
      * Обновление ввода (вызывается каждый кадр)
      */
     updateInputs(): void {
+        // КРИТИЧНО: Не обрабатываем ввод если танк мёртв/респавнится
+        if (!(this.tank as any).isAlive) {
+            return;
+        }
+        
         // ВАЖНО: updateInputs() НЕ зависит от isAiming!
         // Управление танком работает одинаково в любом режиме!
         this.tank.throttleTarget = 0;
@@ -37,10 +42,6 @@ export class TankMovementModule {
         }
         
         // Debug: Log input changes
-        if ((this.tank as any)._tick % 120 === 0 && (this.tank.throttleTarget !== 0 || this.tank.steerTarget !== 0)) {
-            const inputMap = (this.tank as any)._inputMap;
-            console.log(`[Input] Throttle: ${this.tank.throttleTarget}, Steer: ${this.tank.steerTarget}, W: ${inputMap["KeyW"]}, S: ${inputMap["KeyS"]}, A: ${inputMap["KeyA"]}, D: ${inputMap["KeyD"]}`);
-        }
         
         // Turret Control (smoothed; mouse disabled)
         this.tank.turretTurnTarget = 0;
@@ -61,20 +62,6 @@ export class TankMovementModule {
             window.dispatchEvent(new CustomEvent("stopCenterCamera"));
         }
 
-        // КРИТИЧНО: Проверяем, не был ли только что респавн (в течение 5 секунд после респавна ПОЛНОСТЬЮ блокируем центрирование)
-        const game = (window as any).gameInstance;
-        const timeSinceRespawn = game && game.lastRespawnTime ? Date.now() - game.lastRespawnTime : Infinity;
-        const justRespawned = timeSinceRespawn < 5000; // 5 секунд после респавна
-        
-        // КРИТИЧНО: Если только что зареспавнились - ПОЛНОСТЬЮ БЛОКИРУЕМ центрирование, НО НЕ ВЫХОДИМ ИЗ ФУНКЦИИ
-        if (justRespawned) {
-            // Принудительно отменяем центрирование
-            (this.tank as any).isAutoCentering = false;
-            // НЕ сбрасываем turretTurnTarget - позволяем башне поворачиваться!
-            window.dispatchEvent(new CustomEvent("stopCenterCamera"));
-            // НЕ выходим из функции - продолжаем обработку, чтобы башня могла поворачиваться!
-        }
-        
         // Автоматическое центрирование (активируется по C) - с ОБЫЧНОЙ скоростью вращения
         // НО ТОЛЬКО если игрок не управляет башней вручную (Z/X)
         const isAutoCentering = (this.tank as any).isAutoCentering;

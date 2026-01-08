@@ -104,6 +104,14 @@ const LANG = {
         sandboxMapDesc: "Чистая плоская поверхность для тестирования",
         sandMap: "Песок",
         sandMapDesc: "Компактная двухуровневая арена в стиле Песочницы",
+        madnessMap: "Безумие",
+        madnessMapDesc: "Многоуровневая арена с мостиками, рампами и переходами",
+        expoMap: "Экспо",
+        expoMapDesc: "Киберспортивная арена среднего размера с множеством уровней",
+        brestMap: "Брест",
+        brestMapDesc: "Симметричная арена с крепостью в центре и базами по углам",
+        arenaMap: "Арена",
+        arenaMapDesc: "Киберспортивная арена с симметричной структурой и множеством тактических позиций",
         polygonMap: "Полигон",
         polygonMapDesc: "Военный полигон с ангарами, техникой, складами, кранами и вышками",
         frontlineMap: "Передовая",
@@ -224,6 +232,14 @@ const LANG = {
         sandboxMapDesc: "Clean flat surface for testing",
         sandMap: "Sand",
         sandMapDesc: "Compact two-level arena in Sandbox style",
+        madnessMap: "Madness",
+        madnessMapDesc: "Multi-level arena with bridges, ramps and passages",
+        expoMap: "Expo",
+        expoMapDesc: "Medium-sized esports arena with multiple levels",
+        brestMap: "Brest",
+        brestMapDesc: "Symmetric arena with fortress in center and corner bases",
+        arenaMap: "Arena",
+        arenaMapDesc: "Esports arena with symmetric structure and multiple tactical positions",
         polygonMap: "Training Ground",
         polygonMapDesc: "Military training ground with hangars, vehicles, warehouses, cranes and watchtowers",
         frontlineMap: "Frontline",
@@ -3382,7 +3398,6 @@ export class MainMenu {
             
             // Устанавливаем флаг после успешной привязки всех обработчиков
             this.buttonHandlersAttached = true;
-            console.log("[Menu] All button handlers attached successfully");
             
             // Добавляем обработчик клика на карточку игрока для открытия панели прогресса
             const playerCard = document.getElementById("player-info");
@@ -4761,6 +4776,34 @@ export class MainMenu {
                         </div>
                         <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.sandMapDesc}</div>
                     </button>
+                    <button class="menu-btn" id="btn-map-madness" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="btn-icon">🌉</span>
+                            <span class="btn-label">${L.madnessMap}</span>
+                        </div>
+                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.madnessMapDesc}</div>
+                    </button>
+                    <button class="menu-btn" id="btn-map-expo" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="btn-icon">🏆</span>
+                            <span class="btn-label">${L.expoMap}</span>
+                        </div>
+                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.expoMapDesc}</div>
+                    </button>
+                    <button class="menu-btn" id="btn-map-brest" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="btn-icon">🏰</span>
+                            <span class="btn-label">${L.brestMap}</span>
+                        </div>
+                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.brestMapDesc}</div>
+                    </button>
+                    <button class="menu-btn" id="btn-map-arena" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="btn-icon">⚔️</span>
+                            <span class="btn-label">${L.arenaMap}</span>
+                        </div>
+                        <div style="font-size: 11px; opacity: 0.8; margin-left: 30px;">${L.arenaMapDesc}</div>
+                    </button>
                     <button class="menu-btn" id="btn-map-polygon" style="width: 100%; padding: 15px; text-align: left; display: flex; flex-direction: column; gap: 5px;">
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <span class="btn-icon">🎯</span>
@@ -4851,6 +4894,10 @@ export class MainMenu {
         addMapButtonHandler("btn-map-normal", "normal");
         addMapButtonHandler("btn-map-sandbox", "sandbox");
         addMapButtonHandler("btn-map-sand", "sand");
+        addMapButtonHandler("btn-map-madness", "madness");
+        addMapButtonHandler("btn-map-expo", "expo");
+        addMapButtonHandler("btn-map-brest", "brest");
+        addMapButtonHandler("btn-map-arena", "arena");
         addMapButtonHandler("btn-map-polygon", "polygon");
         addMapButtonHandler("btn-map-frontline", "frontline");
         addMapButtonHandler("btn-map-ruins", "ruins");
@@ -5495,6 +5542,22 @@ export class MainMenu {
                             <span class="btn-icon">🏜</span>
                             <span class="btn-label">${L.sandMap}</span>
                         </button>
+                        <button class="menu-btn" id="play-btn-map-madness" data-map="madness">
+                            <span class="btn-icon">🌉</span>
+                            <span class="btn-label">${L.madnessMap}</span>
+                        </button>
+                        <button class="menu-btn" id="play-btn-map-expo" data-map="expo">
+                            <span class="btn-icon">🏆</span>
+                            <span class="btn-label">${L.expoMap}</span>
+                        </button>
+                        <button class="menu-btn" id="play-btn-map-brest" data-map="brest">
+                            <span class="btn-icon">🏰</span>
+                            <span class="btn-label">${L.brestMap}</span>
+                        </button>
+                        <button class="menu-btn" id="play-btn-map-arena" data-map="arena">
+                            <span class="btn-icon">⚔️</span>
+                            <span class="btn-label">${L.arenaMap}</span>
+                        </button>
                         <button class="menu-btn" id="play-btn-map-polygon" data-map="polygon">
                             <span class="btn-icon">🎯</span>
                             <span class="btn-label">${L.polygonMap}</span>
@@ -5611,7 +5674,7 @@ export class MainMenu {
         document.getElementById("btn-mode-ctf")?.addEventListener("click", () => this.selectGameMode("ctf"));
         
         // Обработчики выбора карты
-        const mapButtons = ["normal", "sandbox", "sand", "polygon", "frontline", "ruins", "canyon", "industrial", "urban_warfare", "underground", "coastal", "tartaria"];
+        const mapButtons = ["normal", "sandbox", "sand", "madness", "expo", "brest", "arena", "polygon", "frontline", "ruins", "canyon", "industrial", "urban_warfare", "underground", "coastal", "tartaria"];
         
         mapButtons.forEach(map => {
             const button = document.getElementById(`play-btn-map-${map}`);
@@ -8006,9 +8069,7 @@ export class MainMenu {
     }
     
     setOnStartGame(callback: (mapType?: MapType) => void): void {
-        console.log("[Menu] setOnStartGame called, callback type:", typeof callback);
         this.onStartGame = callback;
-        console.log("[Menu] onStartGame set:", typeof this.onStartGame);
     }
     
     setOnRestartGame(callback: () => void): void {
@@ -8049,6 +8110,12 @@ export class MainMenu {
         this.container.style.removeProperty("display");
         this.container.style.removeProperty("visibility");
         document.body.classList.add("menu-visible");
+        
+        // Показываем курсор и выходим из pointer lock
+        if (document.pointerLockElement) {
+            document.exitPointerLock();
+        }
+        document.body.style.cursor = 'default';
         
         // Добавляем класс "in-battle" если игра запущена (для 50% прозрачности фона)
         const game = (window as any).gameInstance;
@@ -8399,6 +8466,12 @@ export class MainMenu {
         
         // Также отправляем событие для Game класса
         window.dispatchEvent(new CustomEvent("menuVisibilityChanged", { detail: { visible: false } }));
+        
+        // Восстанавливаем курсор только если игра активна
+        const game = (window as any).gameInstance;
+        if (game?.gameStarted && !game.gamePaused) {
+            document.body.style.cursor = 'none';
+        }
     }
 }
 

@@ -119,11 +119,22 @@ export class WorldGenerationMenu {
     constructor() {
         this.createUI();
         this.setupToggle();
+        this.setupEscHandler();
         this.loadSettings();
         this.loadProfiles();
         this.visible = false;
         this.container.classList.add("hidden");
         this.container.style.display = "none";
+    }
+    
+    private setupEscHandler(): void {
+        window.addEventListener("keydown", (e) => {
+            if (e.code === "Escape" && this.visible) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.hide();
+            }
+        }, true);
     }
     
     setGame(game: Game): void {
@@ -1354,6 +1365,12 @@ export class WorldGenerationMenu {
             this.container.classList.add("hidden");
             this.container.style.display = "none";
         }
+        
+        // Восстанавливаем курсор только если игра активна
+        const game = (window as any).gameInstance;
+        if (game?.gameStarted && !game.gamePaused) {
+            document.body.style.cursor = 'none';
+        }
     }
     
     toggle(): void {
@@ -1364,6 +1381,12 @@ export class WorldGenerationMenu {
         if (this.visible) {
             this.container.classList.remove("hidden");
             this.container.style.display = "flex";
+            
+            // Показываем курсор и выходим из pointer lock
+            if (document.pointerLockElement) {
+                document.exitPointerLock();
+            }
+            document.body.style.cursor = 'default';
             
             // Добавляем класс "in-battle" если игра запущена (для полупрозрачного фона)
             const game = (window as any).gameInstance;
@@ -1382,6 +1405,12 @@ export class WorldGenerationMenu {
         } else {
             this.container.classList.add("hidden");
             this.container.style.display = "none";
+            
+            // Восстанавливаем курсор только если игра активна
+            const game = (window as any).gameInstance;
+            if (game?.gameStarted && !game.gamePaused) {
+                document.body.style.cursor = 'none';
+            }
         }
     }
     

@@ -99,6 +99,10 @@ export type MapType =
     | "tartaria"
     | "sandbox"
     | "sand"
+    | "madness"
+    | "expo"
+    | "brest"
+    | "arena"
     | "normal";
 
 /**
@@ -126,6 +130,10 @@ export const MAP_TYPES: MapTypeInfo[] = [
     { id: "tartaria", name: "Тартария", description: "Загадочные руины древней цивилизации" },
     { id: "sandbox", name: "Песочница", description: "Свободный режим для тестов" },
     { id: "sand", name: "Песок", description: "Компактная двухуровневая арена в стиле Песочницы" },
+    { id: "madness", name: "Безумие", description: "Многоуровневая арена с мостиками, рампами и переходами" },
+    { id: "expo", name: "Экспо", description: "Киберспортивная арена среднего размера с множеством уровней" },
+    { id: "brest", name: "Брест", description: "Симметричная арена с крепостью в центре и базами по углам" },
+    { id: "arena", name: "Арена", description: "Киберспортивная арена с симметричной структурой и множеством тактических позиций", icon: "⚔️" },
     { id: "normal", name: "Обычная", description: "Стандартная карта с городами и природой" }
 ];
 
