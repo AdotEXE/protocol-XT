@@ -304,7 +304,7 @@ export function addChassisDetails(
             
         case "medium":
             // Medium - классический Т-34, наклонная броня
-            ChassisDetailsGenerator.createSlopedArmor(scene, chassis, new Vector3(0, h * 0.1, d * 0.5), w * 1.0, h * 0.7, 0.18, -Math.PI / 4, armorMat, "gameMedium");
+            ChassisDetailsGenerator.createSlopedArmor(scene, chassis, new Vector3(0, h * 0.1, d * 0.5), w * 0.9, h * 0.7, 0.18, -Math.PI / 4, armorMat, "gameMedium");
             for (let i = 0; i < 2; i++) {
                 ChassisDetailsGenerator.createHatch(scene, chassis, new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.48, -d * 0.1), 0.22, 0.08, 0.22, armorMat, `gameMedium${i}`);
             }

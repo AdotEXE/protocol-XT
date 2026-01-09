@@ -211,6 +211,18 @@ export class DestructionSystem {
                 this.scene
             );
             
+            // ОПТИМИЗАЦИЯ: Настройка auto-sleep для debris после остановки
+            // Это снижает нагрузку на физику для неподвижных обломков
+            if (aggregate.body) {
+                try {
+                    // Установить низкий порог deactivation для быстрого засыпания
+                    aggregate.body.setLinearDamping(0.5);
+                    aggregate.body.setAngularDamping(0.5);
+                } catch (e) {
+                    // Игнорируем ошибки - не все версии Havok поддерживают эти настройки
+                }
+            }
+            
             // Apply initial impulse
             const impulse = new Vector3(
                 (Math.random() - 0.5) * 3,

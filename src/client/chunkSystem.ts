@@ -13,8 +13,11 @@ import {
     VertexBuffer,
     Animation,
     PointLight,
-    EdgesRenderer
+    EdgesRenderer,
+    Matrix
 } from "@babylonjs/core";
+import { ThinInstanceManager, InstanceableObjectType, InstanceConfig } from "./optimization/ThinInstanceManager";
+import { MaterialManager } from "./optimization/MaterialManager";
 import { MapType } from "./menu";
 
 // Интерфейс для requestIdleCallback (не во всех версиях TypeScript)
@@ -107,6 +110,12 @@ export class ChunkSystem {
     
     // ОПТИМИЗАЦИЯ: Пулы базовых мешей для инстансинга
     private meshPools: Map<string, Mesh> = new Map();
+    
+    // ОПТИМИЗАЦИЯ: ThinInstanceManager для массового инстансинга повторяющихся объектов
+    private thinInstanceManager: ThinInstanceManager | null = null;
+    
+    // ОПТИМИЗАЦИЯ: MaterialManager для централизованного управления материалами
+    private materialManager: MaterialManager | null = null;
     
     // Позиции гаражей для спавна
     public garagePositions: Vector3[] = [];
@@ -297,7 +306,18 @@ export class ChunkSystem {
         
         this.config = baseConfig;
         // ChunkSystem constructor called
+        
+        // ОПТИМИЗАЦИЯ: Инициализируем MaterialManager (централизованный кэш материалов)
+        // КРИТИЧНО: Сбрасываем singleton при смене scene (например, перезапуск игры)
+        MaterialManager.reset();
+        this.materialManager = MaterialManager.getInstance(this.scene);
+        
+        // Создаем локальный кэш материалов для обратной совместимости
         this.createMaterials();
+        
+        // ОПТИМИЗАЦИЯ: Инициализируем ThinInstanceManager для уменьшения draw calls
+        this.thinInstanceManager = new ThinInstanceManager(this.scene);
+        this.thinInstanceManager.initialize();
         
         // КРИТИЧНО: Создаём terrain generator для ВСЕХ типов карт, не только для "normal"!
         // Это необходимо для генерации террейна (ground mesh) во всех типах карт
@@ -528,19 +548,103 @@ export class ChunkSystem {
     }
     
     // Helper to get material (with fallback)
+    // ОПТИМИЗАЦИЯ: Использует MaterialManager для централизованного кэширования
     private getMat(name: string): StandardMaterial {
-        const mat = this.materials.get(name);
-        if (mat) return mat;
-        // Fallback to first available material
+        // Сначала проверяем локальный кэш (для обратной совместимости)
+        const localMat = this.materials.get(name);
+        if (localMat) return localMat;
+        
+        // Затем используем глобальный MaterialManager
+        if (this.materialManager) {
+            return this.materialManager.get(name);
+        }
+        
+        // Аварийный fallback
         const fallback = this.materials.get("concrete");
         if (fallback) return fallback;
-        // Create default if nothing exists
+        
+        // Создаем default если ничего не существует
         const def = new StandardMaterial("default", this.scene);
         def.diffuseColor = new Color3(0.5, 0.5, 0.5);
         def.specularColor = Color3.Black();
         def.freeze();
         this.materials.set("default", def);
         return def;
+    }
+    
+    /**
+     * ОПТИМИЗАЦИЯ: Добавить инстансированный объект через ThinInstanceManager
+     * Уменьшает draw calls для повторяющихся объектов (машины, заборы, контейнеры и т.д.)
+     * 
+     * @param objType - Тип объекта из ThinInstanceManager
+     * @param position - Позиция объекта (в локальных координатах чанка)
+     * @param chunkKey - Ключ чанка для отслеживания
+     * @param rotationY - Угол поворота по Y (опционально)
+     * @param scale - Масштаб (опционально)
+     * @returns true если объект был добавлен как instance, false если нужно создать обычный меш
+     */
+    private addInstancedObject(
+        objType: InstanceableObjectType,
+        position: Vector3,
+        chunkKey: string,
+        rotationY?: number,
+        scale?: Vector3
+    ): boolean {
+        if (!this.thinInstanceManager) return false;
+        
+        const config: InstanceConfig = {
+            position: position,
+            rotation: rotationY !== undefined ? new Vector3(0, rotationY, 0) : undefined,
+            scale: scale
+        };
+        
+        const idx = this.thinInstanceManager.addInstance(objType, config, chunkKey);
+        return idx >= 0;
+    }
+    
+    /**
+     * Получить ключ чанка для ThinInstanceManager и других систем
+     */
+    private getChunkKey(cx: number, cz: number): string {
+        return `${cx},${cz}`;
+    }
+    
+    /**
+     * Очистить инстансы чанка при выгрузке
+     */
+    private cleanupChunkInstances(cx: number, cz: number): void {
+        if (!this.thinInstanceManager) return;
+        const chunkKey = this.getChunkKey(cx, cz);
+        this.thinInstanceManager.removeChunkInstances(chunkKey);
+    }
+    
+    /**
+     * ОПТИМИЗАЦИЯ: Создать невидимый коллайдер для инстансированного объекта
+     * Позволяет использовать thin instances для визуала при сохранении физики
+     * 
+     * @param position - Позиция коллайдера (в локальных координатах чанка)
+     * @param dimensions - Размеры коллайдера { width, height, depth }
+     * @param rotationY - Поворот по Y (опционально)
+     * @param chunkParent - Родительский узел чанка
+     */
+    private createInvisibleCollider(
+        position: Vector3,
+        dimensions: { width: number; height: number; depth: number },
+        chunkParent: TransformNode,
+        rotationY?: number
+    ): void {
+        const collider = MeshBuilder.CreateBox("collider", dimensions, this.scene);
+        collider.position = position;
+        if (rotationY !== undefined) {
+            collider.rotation.y = rotationY;
+        }
+        collider.isVisible = false;
+        collider.isPickable = false;
+        collider.parent = chunkParent;
+        collider.freezeWorldMatrix();
+        
+        // Добавляем физику к невидимому коллайдеру
+        new PhysicsAggregate(collider, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
     }
     
     /**
@@ -880,9 +984,7 @@ export class ChunkSystem {
         ground.setVerticesData(VertexBuffer.ColorKind, colors);
     }
     
-    private getChunkKey(cx: number, cz: number): string {
-        return `${cx},${cz}`;
-    }
+    // NOTE: getChunkKey moved to line ~588 for ThinInstanceManager integration
     
     private worldToChunk(x: number, z: number): { cx: number, cz: number } {
         return {
@@ -1238,16 +1340,7 @@ export class ChunkSystem {
         ];
         
         // Отключаем коллизии между воротами и всеми стенами
-        for (const wallPhysics of wallPhysicsAggregates) {
-            if (wallPhysics && wallPhysics.body && frontDoorPhysics && frontDoorPhysics.body) {
-                frontDoorPhysics.body.setCollisionCallbackEnabled(wallPhysics.body, false);
-                wallPhysics.body.setCollisionCallbackEnabled(frontDoorPhysics.body, false);
-            }
-            if (wallPhysics && wallPhysics.body && backDoorPhysics && backDoorPhysics.body) {
-                backDoorPhysics.body.setCollisionCallbackEnabled(wallPhysics.body, false);
-                wallPhysics.body.setCollisionCallbackEnabled(backDoorPhysics.body, false);
-            }
-        }
+        // Ворота полностью отключаются ниже, поэтому эти вызовы не нужны
         
         // Сохраняем ворота для управления
         this.garageDoors.push({
@@ -1278,16 +1371,7 @@ export class ChunkSystem {
         const roofPhysics = new PhysicsAggregate(roof, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         
         // Отключаем коллизии между воротами и крышей
-        if (roofPhysics && roofPhysics.body) {
-            if (frontDoorPhysics && frontDoorPhysics.body) {
-                frontDoorPhysics.body.setCollisionCallbackEnabled(roofPhysics.body, false);
-                roofPhysics.body.setCollisionCallbackEnabled(frontDoorPhysics.body, false);
-            }
-            if (backDoorPhysics && backDoorPhysics.body) {
-                backDoorPhysics.body.setCollisionCallbackEnabled(roofPhysics.body, false);
-                roofPhysics.body.setCollisionCallbackEnabled(backDoorPhysics.body, false);
-            }
-        }
+        // Ворота полностью отключаются ниже, поэтому эти вызовы не нужны
         
         // КРИТИЧНО: Отключаем коллизию ворот со ВСЕМИ объектами в сцене
         // Ворота теперь не имеют коллизии вообще
@@ -2381,6 +2465,65 @@ export class ChunkSystem {
         }
         
         logger.log(`[ChunkSystem] Preloaded ${loadedCount} chunks for entire map`);
+        this._preloadComplete = true;
+    }
+    
+    // Флаг для отслеживания завершения предзагрузки
+    private _preloadComplete = false;
+    
+    /**
+     * Ожидание завершения предзагрузки карты
+     * @param maxWaitMs Максимальное время ожидания в миллисекундах
+     * @returns Promise который резолвится когда карта готова или истекло время ожидания
+     */
+    public waitForPreload(maxWaitMs: number = 10000): Promise<void> {
+        return new Promise((resolve) => {
+            // Если уже загружено - резолвим сразу
+            if (this._preloadComplete) {
+                logger.log("[ChunkSystem] Map already preloaded");
+                resolve();
+                return;
+            }
+            
+            const startTime = Date.now();
+            const checkInterval = 100;
+            
+            const check = () => {
+                if (this._preloadComplete) {
+                    logger.log("[ChunkSystem] Map preload complete");
+                    resolve();
+                    return;
+                }
+                
+                // Проверяем, есть ли хотя бы базовые чанки
+                if (this.chunks.size > 0) {
+                    // Считаем загруженные чанки (чанки с мешами)
+                    const loadedChunks = Array.from(this.chunks.values()).filter(c => c && c.meshes && c.meshes.length > 0).length;
+                    if (loadedChunks > 0) {
+                        logger.log(`[ChunkSystem] Map has ${loadedChunks} loaded chunks`);
+                        resolve();
+                        return;
+                    }
+                }
+                
+                if (Date.now() - startTime > maxWaitMs) {
+                    logger.warn(`[ChunkSystem] Timeout waiting for preload after ${maxWaitMs}ms`);
+                    resolve(); // Резолвим всё равно чтобы не блокировать
+                    return;
+                }
+                
+                setTimeout(check, checkInterval);
+            };
+            
+            check();
+        });
+    }
+    
+    /**
+     * Проверка готовности карты
+     */
+    public isMapReady(): boolean {
+        return this._preloadComplete || this.chunks.size > 0;
     }
     
     // Флаг для отслеживания прогрессивной загрузки карты
@@ -2545,8 +2688,9 @@ export class ChunkSystem {
         const size = this.config.chunkSize;
         const random = new SeededRandom(seed);
         
-        // Sandbox, Sand, Madness и Expo - просто плоская земля БЕЗ террейна
-        if (this.config.mapType === "sandbox" || this.config.mapType === "sand" || this.config.mapType === "madness" || this.config.mapType === "expo" || this.config.mapType === "brest" || this.config.mapType === "arena") {
+        // Sandbox, Sand, Madness, Expo и Custom - просто плоская земля БЕЗ террейна
+        // Custom карты будут отредактированы через mapEditor после загрузки
+        if (this.config.mapType === "sandbox" || this.config.mapType === "sand" || this.config.mapType === "madness" || this.config.mapType === "expo" || this.config.mapType === "brest" || this.config.mapType === "arena" || this.config.mapType === "custom") {
             this.createGround(cx, cz, worldX, worldZ, size, "wasteland", random, chunkParent);
             return;
         }
@@ -2572,8 +2716,13 @@ export class ChunkSystem {
         let biome: BiomeType;
         if (this.config.mapType === "normal") {
             biome = this.getRandomBiome(worldX + size/2, worldZ + size/2, random);
-        } else {
+        } else if (this.config.mapType === "tartaria") {
             biome = this.getBiome(worldX + size/2, worldZ + size/2, random);
+        } else {
+            // Fallback для неизвестных типов карт - используем sandbox поведение
+            logger.warn(`[ChunkSystem] Unknown map type: ${this.config.mapType}, using sandbox terrain`);
+            this.createGround(cx, cz, worldX, worldZ, size, "wasteland", random, chunkParent);
+            return;
         }
         
         // Создаём только ground mesh
@@ -3269,7 +3418,11 @@ export class ChunkSystem {
             ground.receiveShadows = false;
             ground.material = this.getMat(groundMat);
             ground.parent = chunkParent;
+            // КРИТИЧНО: Ground должен быть pickable для raycast (стенки, спавн и т.д.)
+            ground.isPickable = true;
             this.optimizeMesh(ground);
+            // КРИТИЧНО: После optimizeMesh снова устанавливаем isPickable, так как optimizeMesh может его сбросить
+            ground.isPickable = true;
             new PhysicsAggregate(ground, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
             return;
         }
@@ -3735,6 +3888,7 @@ export class ChunkSystem {
     }
     
     // Add building details (windows, doors)
+    // ОПТИМИЗАЦИЯ: Использует кэшированные материалы вместо inline создания
     private addBuildingDetails(building: Mesh, width: number, height: number, depth: number, random: SeededRandom): void {
         // Add windows (simple dark rectangles)
         const windowRows = Math.floor(height / 4);
@@ -3747,9 +3901,8 @@ export class ChunkSystem {
                     const windowX = (col - (windowCols - 1) / 2) * (width / (windowCols + 1));
                     const windowY = (row * (height / (windowRows + 1))) - height / 2;
                     window.position = new Vector3(windowX, windowY, depth / 2 + 0.05);
-                    const windowMat = new StandardMaterial("windowMat", this.scene);
-                    windowMat.diffuseColor = random.chance(0.3) ? new Color3(0.8, 0.9, 1) : new Color3(0.1, 0.1, 0.15); // Some lit, some dark
-                    window.material = windowMat;
+                    // ОПТИМИЗАЦИЯ: Используем кэшированные материалы
+                    window.material = random.chance(0.3) ? this.getMat("windowLit") : this.getMat("windowDark");
                     window.parent = building;
                     // chunk.meshes.push(window);
                 }
@@ -3760,9 +3913,8 @@ export class ChunkSystem {
         if (height > 5 && random.chance(0.8)) {
             const door = MeshBuilder.CreateBox("door", { width: 2, height: 3, depth: 0.1 }, this.scene);
             door.position = new Vector3(0, -height / 2 + 1.5, depth / 2 + 0.05);
-            const doorMat = new StandardMaterial("doorMat", this.scene);
-            doorMat.diffuseColor = new Color3(0.2, 0.15, 0.1); // Brown door
-            door.material = doorMat;
+            // ОПТИМИЗАЦИЯ: Используем кэшированный материал
+            door.material = this.getMat("doorBrown");
             door.parent = building;
             // chunk.meshes.push(door);
         }
@@ -3932,18 +4084,22 @@ export class ChunkSystem {
             // chunk.meshes.push(rw);
         }
         
-        // PARKED CAR
+        // PARKED CAR - ОПТИМИЗИРОВАНО через ThinInstances
         if (random.chance(0.4)) {
             const cx = bx + random.range(-25, 25);
             const cz = bz + random.range(-25, 25);
-            const car = MeshBuilder.CreateBox("car", { width: 2, height: 1.5, depth: 4 }, this.scene);
-            car.position = new Vector3(cx, 0.75, cz);
-            car.rotation.y = random.range(0, Math.PI * 2);
-            car.material = this.getMat(random.pick(["red", "yellow", "metal", "brickDark"]));
-            car.parent = chunkParent;
-            car.freezeWorldMatrix();
-            // chunk.meshes.push(car);
-            // Убрана физика для декоративных машин (оптимизация)
+            const rotY = random.range(0, Math.PI * 2);
+            const chunkKey = this.getChunkKey(chunkX, chunkZ);
+            const worldX = chunkX * this.config.chunkSize;
+            const worldZ = chunkZ * this.config.chunkSize;
+            
+            // Выбираем тип машины и используем thin instances
+            const carColor = random.pick(["red", "yellow", "metal", "dark"]) as "red" | "yellow" | "metal" | "dark";
+            const carType = `car_${carColor}` as InstanceableObjectType;
+            
+            // Позиция в мировых координатах для ThinInstanceManager
+            const worldPos = new Vector3(worldX + cx, 0.75, worldZ + cz);
+            this.addInstancedObject(carType, worldPos, chunkKey, rotY);
             }
         }
         
@@ -3970,50 +4126,41 @@ export class ChunkSystem {
             }
         }
         
-        // CONCRETE BARRIERS (multiple)
+        // CONCRETE BARRIERS (multiple) - ОПТИМИЗИРОВАНО через ThinInstances
         const barrierCount = random.int(0, 3);
+        const chunkKey = this.getChunkKey(chunkX, chunkZ);
+        const worldOffsetX = chunkX * this.config.chunkSize;
+        const worldOffsetZ = chunkZ * this.config.chunkSize;
+        
         for (let i = 0; i < barrierCount; i++) {
             const barrierX = random.range(5, size - 5);
             const barrierZ = random.range(5, size - 5);
             
             // Проверяем, не находится ли барьер внутри гаража
-            const bWorldX = chunkX * this.config.chunkSize + barrierX;
-            const bWorldZ = chunkZ * this.config.chunkSize + barrierZ;
+            const bWorldX = worldOffsetX + barrierX;
+            const bWorldZ = worldOffsetZ + barrierZ;
             if (this.isPositionInGarageArea(bWorldX, bWorldZ, 2)) {
                 continue; // Пропускаем этот барьер
             }
             
-            const barrier = MeshBuilder.CreateBox("br", { width: 3, height: 1, depth: 1.5 }, this.scene);
-            barrier.position = new Vector3(
-                barrierX,
-                0.51, // Y offset!
-                barrierZ
-            );
-            barrier.rotation.y = random.range(0, Math.PI);
-            barrier.material = this.getMat("concrete");
-            barrier.parent = chunkParent;
-            barrier.freezeWorldMatrix();
-            // chunk.meshes.push(barrier);
-            // Убрана физика для декоративных барьеров (оптимизация) - оставляем только для важных
+            const rotY = random.range(0, Math.PI);
+            const worldPos = new Vector3(bWorldX, 0.51, bWorldZ);
+            this.addInstancedObject("barrier_concrete", worldPos, chunkKey, rotY);
         }
         
-        // DUMPSTER
+        // DUMPSTER - ОПТИМИЗИРОВАНО через ThinInstances
         if (random.chance(0.3)) {
             const dumpX = bx + random.range(-20, 20);
             const dumpZ = bz + random.range(-20, 20);
             
             // Проверяем, не находится ли мусорный бак внутри гаража
-            const dWorldX = chunkX * this.config.chunkSize + dumpX;
-            const dWorldZ = chunkZ * this.config.chunkSize + dumpZ;
+            const dWorldX = worldOffsetX + dumpX;
+            const dWorldZ = worldOffsetZ + dumpZ;
             if (this.isPositionInGarageArea(dWorldX, dWorldZ, 2)) {
                 // Пропускаем создание мусорного бака
             } else {
-            const dumpster = MeshBuilder.CreateBox("dump", { width: 2, height: 1.5, depth: 3 }, this.scene);
-            dumpster.position = new Vector3(dumpX, 0.76, dumpZ);
-            dumpster.material = this.getMat("metalRust");
-            dumpster.parent = chunkParent;
-            dumpster.freezeWorldMatrix();
-            // chunk.meshes.push(dumpster);
+                const worldPos = new Vector3(dWorldX, 0.76, dWorldZ);
+                this.addInstancedObject("dumpster", worldPos, chunkKey);
             }
         }
         
@@ -4119,28 +4266,43 @@ export class ChunkSystem {
             new PhysicsAggregate(building, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         }
         
-        // MULTIPLE CONTAINERS - увеличено количество
+        // MULTIPLE CONTAINERS - увеличено количество - ОПТИМИЗИРОВАНО через ThinInstances
         const containerCount = random.int(8, 18);
+        const indChunkKey = this.getChunkKey(chunkX, chunkZ);
+        const indWorldOffsetX = chunkX * this.config.chunkSize;
+        const indWorldOffsetZ = chunkZ * this.config.chunkSize;
+        
         for (let i = 0; i < containerCount; i++) {
             const cx = random.range(5, size - 5);
             const cz = random.range(5, size - 5);
             
             // Проверяем, не находится ли контейнер внутри гаража
-            const cWorldX = chunkX * this.config.chunkSize + cx;
-            const cWorldZ = chunkZ * this.config.chunkSize + cz;
+            const cWorldX = indWorldOffsetX + cx;
+            const cWorldZ = indWorldOffsetZ + cz;
             if (this.isPositionInGarageArea(cWorldX, cWorldZ, 3)) {
                 continue; // Пропускаем этот контейнер
             }
             
-            const container = MeshBuilder.CreateBox("c", { width: 2.5, height: 2.5, depth: 6 }, this.scene);
             const stackHeight = random.int(0, 1); // Can be stacked!
-            container.position = new Vector3(cx, 1.26 + stackHeight * 2.5, cz);
-            container.rotation.y = random.range(0, Math.PI);
-            container.material = this.getMat(random.pick(["red", "yellow", "metal", "metalRust"]));
-            container.parent = chunkParent;
-            container.freezeWorldMatrix();
-            // chunk.meshes.push(container);
-            new PhysicsAggregate(container, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            const containerY = 1.26 + stackHeight * 2.5;
+            const rotY = random.range(0, Math.PI);
+            
+            // Визуал через thin instances (1 draw call на все контейнеры одного цвета)
+            const containerColors = ["red", "yellow", "metal", "rust"] as const;
+            const colorIdx = Math.floor(random.next() * containerColors.length);
+            const containerColor = containerColors[colorIdx] || "red";
+            const containerType = `container_${containerColor}` as InstanceableObjectType;
+            const worldPos = new Vector3(cWorldX, containerY, cWorldZ);
+            this.addInstancedObject(containerType, worldPos, indChunkKey, rotY);
+            
+            // Невидимый коллайдер для физики (в локальных координатах чанка)
+            const localPos = new Vector3(cx, containerY, cz);
+            this.createInvisibleCollider(
+                localPos,
+                { width: 3, height: 2.8, depth: 8 }, // Размеры контейнера из ThinInstanceManager
+                chunkParent,
+                rotY
+            );
         }
         
         // TRUCKS - увеличено количество (2-4 грузовика)
@@ -4306,47 +4468,45 @@ export class ChunkSystem {
             }
         }
         
-        // PARKED CARS in driveways
+        // PARKED CARS in driveways - ОПТИМИЗИРОВАНО через ThinInstances
         const carCount = random.int(0, 2);
+        const resChunkKey = this.getChunkKey(chunkX, chunkZ);
+        const resWorldOffsetX = chunkX * this.config.chunkSize;
+        const resWorldOffsetZ = chunkZ * this.config.chunkSize;
+        
         for (let i = 0; i < carCount; i++) {
             const carX = random.range(10, size - 10);
             const carZ = random.range(10, size - 10);
             
             // Проверяем, не находится ли машина внутри гаража
-            const cWorldX = chunkX * this.config.chunkSize + carX;
-            const cWorldZ = chunkZ * this.config.chunkSize + carZ;
+            const cWorldX = resWorldOffsetX + carX;
+            const cWorldZ = resWorldOffsetZ + carZ;
             if (this.isPositionInGarageArea(cWorldX, cWorldZ, 2)) {
                 continue; // Пропускаем эту машину
             }
             
-            const car = MeshBuilder.CreateBox("car", { width: 2, height: 1.3, depth: 4.5 }, this.scene);
-            car.position = new Vector3(carX, 0.66, carZ);
-            car.rotation.y = random.range(0, Math.PI * 2);
-            car.material = this.getMat(random.pick(["red", "metal", "brickDark", "yellow"]));
-            car.parent = chunkParent;
-            car.freezeWorldMatrix();
-            // chunk.meshes.push(car);
+            const rotY = random.range(0, Math.PI * 2);
+            const carColor = random.pick(["red", "metal", "dark", "yellow"]) as "red" | "metal" | "dark" | "yellow";
+            const carType = `car_${carColor}` as InstanceableObjectType;
+            const worldPos = new Vector3(cWorldX, 0.66, cWorldZ);
+            this.addInstancedObject(carType, worldPos, resChunkKey, rotY);
         }
         
         // УДАЛЕНО: Деревья в жилых районах (оптимизация производительности)
         
-        // MAILBOX
+        // MAILBOX - ОПТИМИЗИРОВАНО через ThinInstances
         if (random.chance(0.3)) {
             const mbX = random.range(10, size - 10);
             const mbZ = random.range(10, size - 10);
             
             // Проверяем, не находится ли почтовый ящик внутри гаража
-            const mbWorldX = chunkX * this.config.chunkSize + mbX;
-            const mbWorldZ = chunkZ * this.config.chunkSize + mbZ;
+            const mbWorldX = resWorldOffsetX + mbX;
+            const mbWorldZ = resWorldOffsetZ + mbZ;
             if (this.isPositionInGarageArea(mbWorldX, mbWorldZ, 1)) {
                 // Пропускаем создание почтового ящика
             } else {
-            const mailbox = MeshBuilder.CreateBox("mb", { width: 0.3, height: 1.2, depth: 0.3 }, this.scene);
-            mailbox.position = new Vector3(mbX, 0.61, mbZ);
-            mailbox.material = this.getMat("metal");
-            mailbox.parent = chunkParent;
-            mailbox.freezeWorldMatrix();
-            // chunk.meshes.push(mailbox);
+                const worldPos = new Vector3(mbWorldX, 0.61, mbWorldZ);
+                this.addInstancedObject("mailbox", worldPos, resChunkKey);
             }
         }
         
@@ -4396,22 +4556,23 @@ export class ChunkSystem {
     private generatePark(chunkX: number, chunkZ: number, size: number, random: SeededRandom, chunkParent: TransformNode): void {
         // УДАЛЕНО: Деревья в парках (оптимизация производительности)
         
-        // Bench - увеличена вероятность
+        const parkChunkKey = this.getChunkKey(chunkX, chunkZ);
+        const parkWorldOffsetX = chunkX * this.config.chunkSize;
+        const parkWorldOffsetZ = chunkZ * this.config.chunkSize;
+        
+        // Bench - увеличена вероятность - ОПТИМИЗИРОВАНО через ThinInstances
         if (random.chance(0.6)) {
             const benchX = size / 2;
             const benchZ = size / 2;
             
             // Проверяем, не находится ли скамейка внутри гаража
-            const bWorldX = chunkX * this.config.chunkSize + benchX;
-            const bWorldZ = chunkZ * this.config.chunkSize + benchZ;
+            const bWorldX = parkWorldOffsetX + benchX;
+            const bWorldZ = parkWorldOffsetZ + benchZ;
             if (this.isPositionInGarageArea(bWorldX, bWorldZ, 1)) {
                 // Пропускаем создание скамейки
             } else {
-            const bench = MeshBuilder.CreateBox("bench", { width: 2, height: 0.5, depth: 0.5 }, this.scene);
-            bench.position = new Vector3(benchX, 0.25, benchZ);
-            bench.material = this.getMat("wood");
-            bench.parent = chunkParent;
-            bench.freezeWorldMatrix();
+                const worldPos = new Vector3(bWorldX, 0.25, bWorldZ);
+                this.addInstancedObject("bench", worldPos, parkChunkKey);
             }
         }
         
@@ -4445,7 +4606,7 @@ export class ChunkSystem {
             }
         }
         
-        // Статуи (1 на чанк)
+        // Статуи (1 на чанк) - ОПТИМИЗАЦИЯ: используем кэшированные материалы
         if (random.chance(0.15)) {
             const sx = random.range(10, size - 10);
             const sz = random.range(10, size - 10);
@@ -4459,45 +4620,33 @@ export class ChunkSystem {
                 pedestal.parent = chunkParent;
                 pedestal.freezeWorldMatrix();
                 
-                // Статуя (упрощённая)
+                // Статуя (упрощённая) - ОПТИМИЗАЦИЯ: кэшированный материал
                 const statue = MeshBuilder.CreateBox("statue", { width: 1, height: 3, depth: 0.8 }, this.scene);
                 statue.position = new Vector3(sx, 2.5, sz);
-                const statueMat = new StandardMaterial("statueMat", this.scene);
-                statueMat.diffuseColor = new Color3(0.5, 0.55, 0.5);
-                statue.material = statueMat;
+                statue.material = this.getMat("statue");
                 statue.parent = chunkParent;
                 statue.freezeWorldMatrix();
             }
         }
         
-        // Фонарные столбы парковые (3-5 штук)
+        // Фонарные столбы парковые (3-5 штук) - ОПТИМИЗИРОВАНО через ThinInstances
         const lampCount = random.int(3, 5);
         for (let l = 0; l < lampCount; l++) {
             const lx = random.range(5, size - 5);
             const lz = random.range(5, size - 5);
-            const lWorldX = chunkX * this.config.chunkSize + lx;
-            const lWorldZ = chunkZ * this.config.chunkSize + lz;
+            const lWorldX = parkWorldOffsetX + lx;
+            const lWorldZ = parkWorldOffsetZ + lz;
             if (this.isPositionInGarageArea(lWorldX, lWorldZ, 1)) continue;
             
-            const pole = MeshBuilder.CreateBox("parkLampPole", { width: 0.15, height: 4, depth: 0.15 }, this.scene);
-            pole.position = new Vector3(lx, 2, lz);
-            const poleMat = new StandardMaterial("poleMat", this.scene);
-            poleMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
-            pole.material = poleMat;
-            pole.parent = chunkParent;
-            pole.freezeWorldMatrix();
+            // Используем thin instances для столбов и фонарей
+            const polePos = new Vector3(lWorldX, 2, lWorldZ);
+            this.addInstancedObject("lampPole", polePos, parkChunkKey);
             
-            const lamp = MeshBuilder.CreateBox("parkLamp", { width: 0.4, height: 0.4, depth: 0.4 }, this.scene);
-            lamp.position = new Vector3(lx, 4, lz);
-            const lampMat = new StandardMaterial("lampMat", this.scene);
-            lampMat.diffuseColor = new Color3(1, 0.95, 0.8);
-            lampMat.emissiveColor = new Color3(0.4, 0.35, 0.3);
-            lamp.material = lampMat;
-            lamp.parent = chunkParent;
-            lamp.freezeWorldMatrix();
+            const lampPos = new Vector3(lWorldX, 4, lWorldZ);
+            this.addInstancedObject("lampHead", lampPos, parkChunkKey);
         }
         
-        // Клумбы с цветами (2-4 штуки)
+        // Клумбы с цветами (2-4 штуки) - ОПТИМИЗАЦИЯ: кэшированные материалы
         const flowerBedCount = random.int(2, 4);
         for (let f = 0; f < flowerBedCount; f++) {
             const fx = random.range(5, size - 5);
@@ -4509,13 +4658,12 @@ export class ChunkSystem {
             const bedSize = random.range(2, 4);
             const bed = MeshBuilder.CreateCylinder("flowerBed", { diameter: bedSize, height: 0.3 }, this.scene);
             bed.position = new Vector3(fx, 0.15, fz);
-            const bedMat = new StandardMaterial("bedMat", this.scene);
-            bedMat.diffuseColor = new Color3(0.3, 0.2, 0.1);
-            bed.material = bedMat;
+            bed.material = this.getMat("flowerBed"); // ОПТИМИЗАЦИЯ: кэшированный материал
             bed.parent = chunkParent;
             bed.freezeWorldMatrix();
             
-            // Цветы
+            // Цветы - ОПТИМИЗАЦИЯ: кэшированные материалы цветов
+            const flowerColors = ["flowerRed", "flowerYellow", "flowerPink", "flowerWhite"];
             for (let c = 0; c < random.int(5, 10); c++) {
                 const angle = random.range(0, Math.PI * 2);
                 const radius = random.range(0.2, bedSize / 2 - 0.2);
@@ -4525,14 +4673,7 @@ export class ChunkSystem {
                     0.35,
                     fz + Math.sin(angle) * radius
                 );
-                const flowerMat = new StandardMaterial("flowerMat", this.scene);
-                flowerMat.diffuseColor = random.pick([
-                    new Color3(1, 0.2, 0.2),
-                    new Color3(1, 1, 0.2),
-                    new Color3(0.8, 0.3, 0.8),
-                    new Color3(1, 0.5, 0.2)
-                ]);
-                flower.material = flowerMat;
+                flower.material = this.getMat(random.pick(flowerColors));
                 flower.parent = chunkParent;
                 flower.freezeWorldMatrix();
             }
@@ -4597,23 +4738,24 @@ export class ChunkSystem {
             new PhysicsAggregate(bunker, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
         }
         
-        // Barriers - увеличена вероятность и количество
+        // Barriers - увеличена вероятность и количество - ОПТИМИЗИРОВАНО через ThinInstances
+        const milChunkKey = this.getChunkKey(chunkX, chunkZ);
+        const milWorldOffsetX = chunkX * this.config.chunkSize;
+        const milWorldOffsetZ = chunkZ * this.config.chunkSize;
+        
         if (random.chance(0.7)) {
             for (let i = 0; i < random.int(6, 12); i++) {
                 const barrierX = random.range(5, size - 5);
                 const barrierZ = random.range(5, size - 5);
                 
-                const brWorldX = chunkX * this.config.chunkSize + barrierX;
-                const brWorldZ = chunkZ * this.config.chunkSize + barrierZ;
+                const brWorldX = milWorldOffsetX + barrierX;
+                const brWorldZ = milWorldOffsetZ + barrierZ;
                 if (this.isPositionInGarageArea(brWorldX, brWorldZ, 1)) {
                     continue;
                 }
                 
-                const barrier = MeshBuilder.CreateBox("br", { width: 1.5, height: 1, depth: 1 }, this.scene);
-                barrier.position = new Vector3(barrierX, 0.5, barrierZ);
-                barrier.material = this.getMat("concrete");
-                barrier.parent = chunkParent;
-                barrier.freezeWorldMatrix();
+                const worldPos = new Vector3(brWorldX, 0.5, brWorldZ);
+                this.addInstancedObject("barrier_concrete", worldPos, milChunkKey);
             }
         }
         
@@ -7614,6 +7756,9 @@ export class ChunkSystem {
         const chunk = this.chunks.get(key);
         if (!chunk) return;
         
+        // ОПТИМИЗАЦИЯ: Очищаем thin instances для этого чанка
+        this.cleanupChunkInstances(chunk.x, chunk.z);
+        
         // ИСПРАВЛЕНИЕ: Удаляем ВСЕ дочерние меши рекурсивно
         // chunk.meshes массив всегда пуст (все push закомментированы),
         // поэтому нужно удалять через getDescendants
@@ -7661,8 +7806,13 @@ export class ChunkSystem {
                     if ((mesh as any).physicsBody || (mesh as any).physicsImpostor) {
                         continue;
                     }
-                    // Пропускаем меши, которые уже заморожены (могут быть частью другого объединения)
-                    if (mesh.isWorldMatrixFrozen && mesh.getChildren().length === 0) {
+                    // ИСПРАВЛЕНО: Принимаем любые меши без дочерних элементов
+                    // Раньше проверяли isWorldMatrixFrozen, но это исключало ~80 мешей из merge
+                    if (mesh.getChildren().length === 0) {
+                        // Замораживаем матрицу если еще не заморожена
+                        if (!mesh.isWorldMatrixFrozen) {
+                            mesh.freezeWorldMatrix();
+                        }
                         staticMeshes.push(mesh);
                     }
                 }
@@ -7680,21 +7830,27 @@ export class ChunkSystem {
                 meshesByMaterial.get(mat)!.push(mesh);
             }
             
-            // Объединяем меши с одинаковым материалом (максимум 50 мешей за раз для производительности)
+            // ОПТИМИЗАЦИЯ: Объединяем меши с одинаковым материалом
+            // Увеличен размер батча с 50 до 200 для более агрессивного merge
             for (const [material, meshes] of meshesByMaterial) {
                 if (meshes.length < 2) continue;
                 
-                // Разбиваем на батчи по 50 мешей
-                for (let i = 0; i < meshes.length; i += 50) {
-                    const batch = meshes.slice(i, i + 50);
+                // Разбиваем на батчи по 200 мешей (увеличено с 50)
+                for (let i = 0; i < meshes.length; i += 200) {
+                    const batch = meshes.slice(i, i + 200);
                     if (batch.length < 2) continue;
                     
                     try {
+                        // multiMaterial=false для уменьшения draw calls
+                        // keepSubMeshes=true для сохранения структуры
                         const merged = Mesh.MergeMeshes(batch, true, true, undefined, false, true);
                         if (merged) {
                             merged.parent = chunkParent;
                             merged.material = material;
                             merged.freezeWorldMatrix();
+                            merged.doNotSyncBoundingInfo = true;
+                            merged.cullingStrategy = Mesh.CULLINGSTRATEGY_BOUNDINGSPHERE_ONLY;
+                            merged.isPickable = false;
                         }
                     } catch (e) {
                         // Если объединение не удалось, оставляем меши как есть

@@ -489,12 +489,29 @@ export class Game {
                 // Проверяем, нужно ли автоматически запустить игру после перезагрузки
                 const autoStart = localStorage.getItem("ptx_auto_start") === "true";
                 const restartMap = localStorage.getItem("ptx_restart_map") as MapType | null;
+                const restartSettingsStr = localStorage.getItem("ptx_restart_settings");
                 
                 if (autoStart && restartMap) {
                     logger.log(`[Game] Auto-starting game on map: ${restartMap}`);
+                    
+                    // Восстанавливаем настройки если они были сохранены
+                    if (restartSettingsStr && this.mainMenu) {
+                        try {
+                            const restartSettings = JSON.parse(restartSettingsStr);
+                            const menuSettings = (this.mainMenu as any).settings;
+                            if (menuSettings && restartSettings.enemyDifficulty) {
+                                menuSettings.enemyDifficulty = restartSettings.enemyDifficulty;
+                                logger.log(`[Game] Restored difficulty: ${restartSettings.enemyDifficulty}`);
+                            }
+                        } catch (e) {
+                            logger.error("[Game] Failed to restore settings:", e);
+                        }
+                    }
+                    
                     // Очищаем флаги
                     localStorage.removeItem("ptx_auto_start");
                     localStorage.removeItem("ptx_restart_map");
+                    localStorage.removeItem("ptx_restart_settings");
                     
                     // Устанавливаем карту и запускаем игру
                     this.currentMapType = restartMap;
@@ -731,7 +748,7 @@ export class Game {
             this.exitBattle();
         });
         
-        this.mainMenu.setOnStartGame(async (mapType?: MapType) => {
+        this.mainMenu.setOnStartGame(async (mapType?: MapType, mapData?: any) => {
             logger.log(`[Game] ===== Start game callback called with mapType: ${mapType} =====`);
             
             try {
@@ -739,6 +756,14 @@ export class Game {
                     this.currentMapType = mapType;
                     logger.log(`[Game] Map type set to: ${this.currentMapType}`);
                     
+                    // Если это сохраненная карта, сохраняем данные
+                    if (mapType === "custom" && mapData) {
+                        localStorage.setItem("selectedCustomMapData", JSON.stringify(mapData));
+                        logger.log(`[Game] Custom map data saved: ${mapData.name}`);
+                    } else {
+                        // Очищаем данные кастомной карты при выборе обычной
+                        localStorage.removeItem("selectedCustomMapData");
+                    }
                 }
                 
                 // Инициализируем игру, если еще не инициализирована
@@ -798,7 +823,28 @@ export class Game {
                     
                     // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: используем ПЕРЕДАННЫЙ mapType (параметр функции), а не this.currentMapType!
                     // Ранее была ошибка: создавалась локальная переменная mapType, которая перезаписывала параметр
-                    const mapTypeForChunkSystem = mapType || this.currentMapType || "normal";
+                    let mapTypeForChunkSystem = mapType || this.currentMapType || "normal";
+                    
+                    // Если это custom карта, проверяем базовый тип из сохраненных данных
+                    if (mapTypeForChunkSystem === "custom") {
+                        try {
+                            const customMapDataStr = localStorage.getItem("selectedCustomMapData");
+                            if (customMapDataStr) {
+                                const customMapData = JSON.parse(customMapDataStr);
+                                if (customMapData.mapType && customMapData.mapType !== "custom") {
+                                    mapTypeForChunkSystem = customMapData.mapType;
+                                } else {
+                                    mapTypeForChunkSystem = "sandbox";
+                                }
+                            } else {
+                                mapTypeForChunkSystem = "sandbox";
+                            }
+                        } catch (error) {
+                            logger.error("[Game] Failed to read custom map data, using sandbox:", error);
+                            mapTypeForChunkSystem = "sandbox";
+                        }
+                    }
+                    
                     logger.log(`[Game] Recreating ChunkSystem with mapType: ${mapTypeForChunkSystem} (passed mapType: ${mapType}, currentMapType: ${this.currentMapType})`);
                     
                     this.chunkSystem = new ChunkSystem(this.scene, {
@@ -1122,6 +1168,14 @@ export class Game {
                 return;
             }
             
+            // ОПТИМИЗАЦИЯ: Tab включает/выключает миникарту (радар)
+            // По умолчанию миникарта выключена для экономии ресурсов
+            if (e.code === "Tab" && this.hud && this.gameStarted) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.hud.toggleMinimap();
+                return;
+            }
             
             if (e.code === "Escape") {
                 
@@ -2194,15 +2248,35 @@ export class Game {
     // Перезапускает игру на той же карте
     restartGame(): void {
         logger.log("[Game] Restarting game on same map...");
-        
-        // Сохраняем текущую карту для автозапуска после перезагрузки
+        this.saveGameStateForAutoRestart();
+        window.location.reload();
+    }
+    
+    /**
+     * Сохраняет состояние игры для автоматического восстановления после перезагрузки
+     */
+    private saveGameStateForAutoRestart(): void {
+        // Сохраняем текущую карту
         if (this.currentMapType) {
             localStorage.setItem("ptx_restart_map", this.currentMapType);
-            localStorage.setItem("ptx_auto_start", "true");
             logger.log(`[Game] Saved map for restart: ${this.currentMapType}`);
         }
         
-        window.location.reload();
+        // Сохраняем настройки игры (если есть mainMenu)
+        if (this.mainMenu) {
+            const settings = (this.mainMenu as any).settings;
+            if (settings) {
+                localStorage.setItem("ptx_restart_settings", JSON.stringify({
+                    enemyDifficulty: settings.enemyDifficulty,
+                    // Добавьте другие настройки при необходимости
+                }));
+                logger.log(`[Game] Saved settings for restart:`, settings.enemyDifficulty);
+            }
+        }
+        
+        // Устанавливаем флаг автозапуска
+        localStorage.setItem("ptx_auto_start", "true");
+        logger.log("[Game] Auto-restart flag set");
     }
     
     // Выходит из боя и возвращается в главное меню
@@ -3109,7 +3183,32 @@ export class Game {
             });
             
             // ЗАЩИТНАЯ ПРОВЕРКА: убеждаемся, что mapType всегда установлен
-            const mapType = this.currentMapType || "normal";
+            let mapType = this.currentMapType || "normal";
+            
+            // Если это custom карта, проверяем базовый тип из сохраненных данных
+            if (mapType === "custom") {
+                try {
+                    const customMapDataStr = localStorage.getItem("selectedCustomMapData");
+                    if (customMapDataStr) {
+                        const customMapData = JSON.parse(customMapDataStr);
+                        // Используем базовый тип карты из сохраненных данных, если он есть
+                        if (customMapData.mapType && customMapData.mapType !== "custom") {
+                            logger.log(`[Game] Custom map has base type: ${customMapData.mapType}, using it for terrain generation`);
+                            mapType = customMapData.mapType;
+                        } else {
+                            // По умолчанию для custom карт используем sandbox (плоская земля)
+                            mapType = "sandbox";
+                            logger.log(`[Game] Custom map has no base type, using sandbox for terrain generation`);
+                        }
+                    } else {
+                        mapType = "sandbox";
+                    }
+                } catch (error) {
+                    logger.error("[Game] Failed to read custom map data, using sandbox:", error);
+                    mapType = "sandbox";
+                }
+            }
+            
             logger.log(`[Game] Creating ChunkSystem with mapType: ${mapType} (currentMapType was: ${this.currentMapType})`);
             
             this.chunkSystem = new ChunkSystem(this.scene, {
@@ -3289,6 +3388,11 @@ export class Game {
                 // Обновляем позицию игрока
                 this.chunkSystem.update(initialPos);
                 logger.log("[Game] Map preloading complete!");
+                
+                // Если выбрана сохраненная карта, применяем её данные
+                if (this.currentMapType === "custom") {
+                    await this.loadCustomMapData();
+                }
             }
             
             // === DEBUG TOOLS (Lazy loaded) ===
@@ -3899,6 +4003,97 @@ export class Game {
         return 2.0; // Минимальная безопасная высота вместо 0
     }
     
+    /**
+     * Получает высоту САМОЙ ВЕРХНЕЙ поверхности (крыша здания или террейн) для спавна
+     * Использует multiPickWithRay чтобы найти ВСЕ поверхности и выбрать самую высокую
+     * @param x координата X
+     * @param z координата Z
+     * @returns высота самой верхней поверхности
+     */
+    getTopSurfaceHeight(x: number, z: number): number {
+        if (!this.scene) return 5.0; // Fallback если сцены нет
+        
+        // Raycast с большой высоты вниз - найдём ВСЕ поверхности
+        const rayStart = new Vector3(x, 200, z);
+        const ray = new Ray(rayStart, Vector3.Down(), 250);
+        
+        // multiPickWithRay возвращает ВСЕ пересечения
+        const hits = this.scene.multiPickWithRay(ray, (mesh) => {
+            if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+            const name = mesh.name.toLowerCase();
+            
+            // Пропускаем невидимые и служебные меши
+            if (name.includes("trigger") || 
+                name.includes("collider") || 
+                name.includes("invisible") ||
+                name.includes("skybox") ||
+                name.includes("light") ||
+                name.includes("particle") ||
+                name.includes("bullet") ||
+                name.includes("projectile")) {
+                return false;
+            }
+            
+            return true;
+        });
+        
+        if (hits && hits.length > 0) {
+            // Находим САМУЮ ВЫСОКУЮ точку пересечения (крышу)
+            let maxHeight = -Infinity;
+            for (const hit of hits) {
+                if (hit.hit && hit.pickedPoint) {
+                    const h = hit.pickedPoint.y;
+                    if (h > maxHeight && h > -10 && h < 150) {
+                        maxHeight = h;
+                    }
+                }
+            }
+            
+            if (maxHeight > -Infinity) {
+                logger.log(`[Game] Top surface at (${x.toFixed(1)}, ${z.toFixed(1)}): ${maxHeight.toFixed(2)}m (from ${hits.length} hits)`);
+                return maxHeight;
+            }
+        }
+        
+        // Fallback на getGroundHeight если raycast не нашёл поверхность
+        return this.getGroundHeight(x, z);
+    }
+    
+    /**
+     * Находит безопасную позицию для спавна в указанном радиусе
+     * Танк всегда спавнится НА ВЕРХНЕЙ поверхности (крыша здания или террейн)
+     * @param centerX центр поиска X
+     * @param centerZ центр поиска Z  
+     * @param minRadius минимальный радиус от центра
+     * @param maxRadius максимальный радиус от центра
+     * @param maxAttempts максимальное количество попыток (не используется в новой логике)
+     * @returns безопасная позиция Vector3
+     */
+    findSafeSpawnPosition(centerX: number = 0, centerZ: number = 0, minRadius: number = 20, maxRadius: number = 200, maxAttempts: number = 20): Vector3 {
+        // Генерируем случайную позицию в кольце между minRadius и maxRadius
+        const angle = Math.random() * Math.PI * 2;
+        const distance = minRadius + Math.random() * (maxRadius - minRadius);
+        const x = centerX + Math.cos(angle) * distance;
+        const z = centerZ + Math.sin(angle) * distance;
+        
+        // Получаем высоту ВЕРХНЕЙ поверхности (крыша или террейн)
+        const surfaceHeight = this.getTopSurfaceHeight(x, z);
+        // Спавн на 1.5 метра выше поверхности
+        const spawnY = surfaceHeight + 1.5;
+        
+        logger.log(`[Game] Spawn at top surface: (${x.toFixed(1)}, ${spawnY.toFixed(1)}, ${z.toFixed(1)}) - surface: ${surfaceHeight.toFixed(1)}m`);
+        return new Vector3(x, spawnY, z);
+    }
+    
+    /**
+     * Проверяет, безопасна ли позиция для спавна (deprecated, оставлено для совместимости)
+     * Новая логика всегда спавнит на верхней поверхности
+     */
+    isSpawnPositionSafe(x: number, z: number, checkY?: number): boolean {
+        // Всегда возвращаем true - новая логика спавнит на верхней поверхности
+        return true;
+    }
+    
     // Создаёт защитную плоскость под картой для предотвращения падения
     // Серая плоскость с зелёными метрическими линиями по метрам на Z=-10
     private createSafetyPlane(): void {
@@ -3998,87 +4193,37 @@ export class Game {
         logger.log("[Game] Safety plane created under map at Z=-10 with green metric lines");
     }
     
-    // Спавн игрока в случайном месте на карте (для карты Тартария)
-    // Использует raycast для определения высоты террейна и размещает танк над поверхностью
+    // Спавн игрока в случайном месте на карте
+    // Использует raycast для определения высоты террейна и проверяет безопасность позиции
     spawnPlayerRandom() {
         if (!this.tank) {
             logger.warn("[Game] Tank not initialized");
             return;
         }
         
-        if (!this.chunkSystem) {
-            logger.warn("[Game] ChunkSystem not available, using default spawn at (0, 2, 0)");
-            if (this.tank.chassis && this.tank.physicsBody) {
-                const defaultPos = new Vector3(0, 2, 0);
-                this.tank.chassis.position.copyFrom(defaultPos);
-                this.tank.chassis.computeWorldMatrix(true);
-                if (this.tank.physicsBody) {
-                    this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
-                    this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
-                }
+        // Определяем границы спавна
+        let minRadius = 20;
+        let maxRadius = 200;
+        let centerX = 0;
+        let centerZ = 0;
+        
+        if (this.chunkSystem) {
+            const mapBounds = this.chunkSystem.getMapBounds();
+            if (mapBounds) {
+                // Используем центр карты
+                centerX = (mapBounds.minX + mapBounds.maxX) / 2;
+                centerZ = (mapBounds.minZ + mapBounds.maxZ) / 2;
+                // Радиус = 40% от размера карты
+                const mapSize = Math.max(mapBounds.maxX - mapBounds.minX, mapBounds.maxZ - mapBounds.minZ);
+                maxRadius = Math.min(mapSize * 0.4, 200);
             }
-            return;
         }
         
-        // Генерируем случайную позицию в пределах карты
-        // Используем границы карты из MapConstants
-        const mapBounds = this.chunkSystem.getMapBounds();
-        let spawnRadius = 200; // По умолчанию
-        if (mapBounds) {
-            // Используем меньший радиус для маленьких карт
-            const mapSize = Math.max(mapBounds.maxX - mapBounds.minX, mapBounds.maxZ - mapBounds.minZ);
-            spawnRadius = Math.min(mapSize * 0.4, 200); // 40% от размера карты, но не больше 200
-        }
+        // Используем новую функцию поиска безопасной позиции
+        const spawnPos = this.findSafeSpawnPosition(centerX, centerZ, minRadius, maxRadius, 30);
         
-        // Для карт "sand", "madness", "expo" и "brest" используем границы карты
-        if ((this.currentMapType === "sand" || this.currentMapType === "madness" || this.currentMapType === "expo" || this.currentMapType === "brest" || this.currentMapType === "arena") && mapBounds) {
-            const randomX = mapBounds.minX + Math.random() * (mapBounds.maxX - mapBounds.minX);
-            const randomZ = mapBounds.minZ + Math.random() * (mapBounds.maxZ - mapBounds.minZ);
-            const groundHeight = this.getGroundHeight(randomX, randomZ);
-            const spawnY = Math.max(groundHeight + 2.0, 2.0); // Для плоской карты достаточно +2м
-            const spawnPos = new Vector3(randomX, spawnY, randomZ);
-            this.gameGarage.setPlayerGaragePosition(spawnPos.clone());
-            logger.log(`[Game] Sand: Player spawned at random location (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
-            
-            // Устанавливаем позицию танка
-            if (this.tank.chassis && this.tank.physicsBody) {
-                this.tank.chassis.position.copyFrom(spawnPos);
-                this.tank.chassis.rotationQuaternion = Quaternion.Identity();
-                this.tank.chassis.rotation.set(0, 0, 0);
-                if (this.tank.turret) this.tank.turret.rotation.set(0, 0, 0);
-                if (this.tank.barrel) this.tank.barrel.rotation.set(0, 0, 0);
-                
-                this.tank.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
-                this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
-                this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
-                
-                this.tank.physicsBody.disablePreStep = false;
-                this.tank.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
-                this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
-                this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
-                
-                setTimeout(() => {
-                    if (this.tank?.physicsBody) {
-                        this.tank.physicsBody.disablePreStep = true;
-                    }
-                }, 0);
-            }
-            return;
-        }
-        
-        // Для других карт (например, tartaria) используем старую логику
-        const randomX = (Math.random() - 0.5) * spawnRadius * 2;
-        const randomZ = (Math.random() - 0.5) * spawnRadius * 2;
-        
-        // Используем улучшенный метод получения высоты террейна
-        const groundHeight = this.getGroundHeight(randomX, randomZ);
-        // Безопасная высота: +5м над террейном, минимум 7м
-        const spawnY = Math.max(groundHeight + 5.0, 7.0);
-        
-        const spawnPos = new Vector3(randomX, spawnY, randomZ);
         this.gameGarage.setPlayerGaragePosition(spawnPos.clone());
-        
-        logger.log(`[Game] ${this.currentMapType || "Unknown"}: Player spawned at random location (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)}) - ground: ${groundHeight.toFixed(2)}`);
+        logger.log(`[Game] Player spawned at safe location (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
         
         // Устанавливаем позицию и состояние танка
         if (this.tank.chassis && this.tank.physicsBody) {
@@ -4186,9 +4331,8 @@ export class Game {
         // Сохраняем позицию гаража для респавна (ВСЕГДА в этом же гараже!)
         // КРИТИЧНО: Используем улучшенный метод получения высоты террейна
         const terrainHeight = this.getGroundHeight(selectedGarage.x, selectedGarage.z);
-        // Высота пола гаража: верхняя поверхность пола на groundHeight + 0.15
-        // Спавн на 1 метр выше пола: groundHeight + 0.15 + 1.0 = groundHeight + 1.15
-        const garageY = terrainHeight + 1.15;
+        // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+        const garageY = terrainHeight + 1.0;
         
         this.gameGarage.setPlayerGaragePosition(new Vector3(selectedGarage.x, garageY, selectedGarage.z));
         logger.log(`[Game] Garage position saved for respawn: (${this.gameGarage.playerGaragePosition!.x.toFixed(2)}, ${this.gameGarage.playerGaragePosition!.y.toFixed(2)}, ${this.gameGarage.playerGaragePosition!.z.toFixed(2)})`);
@@ -4244,14 +4388,13 @@ export class Game {
                 groundHeight = this.getGroundHeight(selectedGarage.x, selectedGarage.z);
             }
             
-            // Высота пола гаража: верхняя поверхность пола на groundHeight + 0.15
-            // Спавн на 1 метр выше пола: groundHeight + 0.15 + 1.0 = groundHeight + 1.15
-            let spawnHeight = groundHeight + 1.15;
+            // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+            let spawnHeight = groundHeight + 1.0;
             
             // Минимальная защита: если высота слишком низкая (меньше 1.0), используем безопасное значение
             if (spawnHeight < 1.0) {
-                logger.warn(`[Game] Spawn height too low (${spawnHeight.toFixed(2)}), using safe default 2.15`);
-                spawnHeight = 2.15; // Минимум 1 метр над полом при groundHeight = 1.0
+                logger.warn(`[Game] Spawn height too low (${spawnHeight.toFixed(2)}), using safe default 2.0`);
+                spawnHeight = 2.0; // Минимум 1 метр над поверхностью при groundHeight = 1.0
             }
             
             logger.log(`[Game] Player spawn height: ${spawnHeight.toFixed(2)} (ground: ${groundHeight.toFixed(2)})`);
@@ -4453,8 +4596,8 @@ export class Game {
                 }
             }
             
-            // Безопасная высота: +5м над террейном, минимум 7м
-            const spawnY = Math.max(groundHeight + 5.0, 7.0);
+            // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+            const spawnY = groundHeight + 1.0;
             
             const garagePos = new Vector3(garage.x, spawnY, garage.z);
             
@@ -4667,7 +4810,7 @@ export class Game {
     
     // Mouse control for aiming
     aimMouseSensitivity = 0.00015; // Базовая чувствительность мыши в режиме прицеливания (горизонтальная) - такая же как вертикальная
-    aimMouseSensitivityVertical = 0.00015; // Базовая вертикальная чувствительность в режиме прицеливания
+    aimMouseSensitivityVertical = 0.002; // Базовая вертикальная чувствительность в режиме прицеливания (увеличено для лучшей реакции)
     // ИСПРАВЛЕНИЕ: Увеличена максимальная скорость мыши для режима прицеливания (убрано ограничение)
     aimMaxMouseSpeed = 200; // Максимальная скорость движения мыши (пиксели за кадр) - увеличено с 25 до 200 для разумной чувствительности
     aimPitchSmoothing = 0.12; // Плавное управление стволом (уменьшено для более плавного движения)
@@ -4694,7 +4837,7 @@ export class Game {
     mouseSensitivity = 0.003; // Обычная чувствительность мыши
     
     // Виртуальная точка для фиксации башни
-    virtualTurretTarget: Vector3 | null = null; // Мировая точка направления башни
+    virtualTurretTarget: number | null = null; // Угол направления башни
     lastMouseControlTime = 0; // Время последнего управления мышкой
     lastChassisRotation = 0; // Последний угол корпуса для отслеживания поворота
     
@@ -4868,9 +5011,10 @@ export class Game {
                 return;
             }
             
-            if (evt.movementX !== undefined) {
+            // КРИТИЧНО: Обрабатываем движение мыши как по X, так и по Y
+            if (evt.movementX !== undefined || evt.movementY !== undefined) {
                 // В режиме прицеливания ограничиваем максимальную скорость движения мыши
-                let movementX = evt.movementX;
+                let movementX = evt.movementX || 0;
                 let movementY = evt.movementY || 0;
                 
                 // ИСПРАВЛЕНИЕ: Убрано жесткое ограничение скорости мыши в режиме прицеливания
@@ -4918,10 +5062,55 @@ export class Game {
                         while (yawDiff < -Math.PI) yawDiff += Math.PI * 2;
                         
                         // Применяем плавный поворот башни с ограничением скорости (как в обычном режиме)
-                        const turretSpeed = this.tank.turretSpeed || 0.08;
+                        // КРИТИЧНО: Проверяем и восстанавливаем turretSpeed если он невалидный
+                        let turretSpeed = this.tank.turretSpeed || 0.08;
+                        
+                        // КРИТИЧНО: Проверяем на NaN, Infinity и другие невалидные значения
+                        if (!isFinite(turretSpeed) || isNaN(turretSpeed) || turretSpeed === Infinity || turretSpeed === -Infinity) {
+                            turretSpeed = 0.08;
+                            this.tank.turretSpeed = 0.08; // Восстанавливаем в танке тоже
+                            logger.warn(`[Game] turretSpeed was invalid (NaN/Infinity) in aiming mode, resetting to 0.08`);
+                        }
+                        
+                        // Увеличиваем скорость если она слишком маленькая
+                        if (turretSpeed < 0.06) {
+                            turretSpeed = 0.08;
+                            this.tank.turretSpeed = 0.08; // Восстанавливаем в танке тоже
+                        }
+                        
+                        // Ограничиваем максимальную скорость (защита от слишком больших значений)
+                        const maxTurretSpeed = 0.15; // Максимальная скорость поворота башни
+                        if (turretSpeed > maxTurretSpeed) {
+                            turretSpeed = maxTurretSpeed;
+                            this.tank.turretSpeed = maxTurretSpeed; // Восстанавливаем в танке тоже
+                        }
+                        
+                        // КРИТИЧНО: Финальная проверка перед использованием
+                        if (!isFinite(turretSpeed) || turretSpeed <= 0) {
+                            turretSpeed = 0.08;
+                            this.tank.turretSpeed = 0.08;
+                        }
+                        
                         if (Math.abs(yawDiff) > 0.01) {
-                            const rotationAmount = Math.sign(yawDiff) * Math.min(Math.abs(yawDiff), turretSpeed);
-                            this.tank.turret.rotation.y += rotationAmount;
+                            // КРИТИЧНО: Ограничиваем скорость поворота башни
+                            let rotationAmount = Math.sign(yawDiff) * Math.min(Math.abs(yawDiff), turretSpeed);
+                            
+                            // КРИТИЧНО: Дополнительная проверка на валидность и ограничение
+                            if (!isFinite(rotationAmount) || isNaN(rotationAmount) || rotationAmount === Infinity || rotationAmount === -Infinity) {
+                                logger.error(`[Game] rotationAmount is invalid (${rotationAmount}) in aiming mode, skipping rotation`);
+                                rotationAmount = 0;
+                            }
+                            
+                            // КРИТИЧНО: Абсолютное ограничение максимальной скорости поворота
+                            const maxRotationAmount = 0.15; // Максимальная скорость поворота за кадр
+                            if (Math.abs(rotationAmount) > maxRotationAmount) {
+                                rotationAmount = Math.sign(rotationAmount) * maxRotationAmount;
+                                logger.warn(`[Game] rotationAmount (${rotationAmount.toFixed(4)}) exceeded max (${maxRotationAmount}) in aiming mode, clamping`);
+                            }
+                            
+                            if (rotationAmount !== 0) {
+                                this.tank.turret.rotation.y += rotationAmount;
+                            }
                         }
                         
                         // Нормализуем угол башни чтобы не накапливался
@@ -4934,7 +5123,8 @@ export class Game {
                     while (this.aimYaw < -Math.PI) this.aimYaw += Math.PI * 2;
                     
                     // Вертикальный поворот (pitch) - только в режиме прицеливания
-                    if (movementY !== undefined) {
+                    // КРИТИЧНО: Всегда обрабатываем вертикальное движение мыши, если движение есть
+                    if (Math.abs(movementY) > 0.01) {
                         // Адаптивная чувствительность по вертикали в зависимости от зума
                         const zoomFactor = 1.0 / (1.0 + this.aimZoom * 0.3);
                         const adaptiveVerticalSensitivity = this.aimMouseSensitivityVertical * zoomFactor;
@@ -5177,7 +5367,19 @@ export class Game {
                 }
                 if (!(this.tank as any).baseTurretSpeed || (this.tank as any).baseTurretSpeed === 0 || (this.tank as any).baseTurretSpeed < 0.06) {
                     (this.tank as any).baseTurretSpeed = 0.08; // УВЕЛИЧЕНО
-                    logger.warn(`[Game] baseTurretSpeed was invalid, resetting to 0.06`);
+                    logger.warn(`[Game] baseTurretSpeed was invalid, resetting to 0.08`);
+                }
+                
+                // КРИТИЧНО: Ограничиваем максимальную скорость поворота башни
+                // После применения бонусов turretSpeed может стать слишком большим
+                const maxTurretSpeed = 0.15; // Максимальная скорость поворота башни
+                if (this.tank.turretSpeed > maxTurretSpeed) {
+                    logger.warn(`[Game] turretSpeed (${this.tank.turretSpeed.toFixed(4)}) exceeded max (${maxTurretSpeed}) after respawn, clamping`);
+                    this.tank.turretSpeed = maxTurretSpeed;
+                }
+                if ((this.tank as any).baseTurretSpeed > maxTurretSpeed) {
+                    logger.warn(`[Game] baseTurretSpeed (${(this.tank as any).baseTurretSpeed.toFixed(4)}) exceeded max (${maxTurretSpeed}) after respawn, clamping`);
+                    (this.tank as any).baseTurretSpeed = maxTurretSpeed;
                 }
                 
                 // 9. Отменяем все события центрирования
@@ -5577,17 +5779,57 @@ export class Game {
                             while (turretDiff < -Math.PI) turretDiff += Math.PI * 2;
                             
                             // Скорость вращения башни (используем скорость танка)
+                            // КРИТИЧНО: Проверяем и восстанавливаем turretSpeed если он невалидный
                             let turretSpeed = this.tank.turretSpeed || 0.08;
+                            
+                            // КРИТИЧНО: Проверяем на NaN, Infinity и другие невалидные значения
+                            if (!isFinite(turretSpeed) || isNaN(turretSpeed) || turretSpeed === Infinity || turretSpeed === -Infinity) {
+                                turretSpeed = 0.08;
+                                this.tank.turretSpeed = 0.08; // Восстанавливаем в танке тоже
+                                logger.warn(`[Game] turretSpeed was invalid (NaN/Infinity), resetting to 0.08`);
+                            }
+                            
                             // Увеличиваем скорость если она слишком маленькая
                             if (turretSpeed < 0.06) {
                                 turretSpeed = 0.08;
+                                this.tank.turretSpeed = 0.08; // Восстанавливаем в танке тоже
+                                logger.warn(`[Game] turretSpeed was too small (${this.tank.turretSpeed}), resetting to 0.08`);
+                            }
+                            
+                            // Ограничиваем максимальную скорость (защита от слишком больших значений)
+                            const maxTurretSpeed = 0.15; // Максимальная скорость поворота башни
+                            if (turretSpeed > maxTurretSpeed) {
+                                turretSpeed = maxTurretSpeed;
+                                this.tank.turretSpeed = maxTurretSpeed; // Восстанавливаем в танке тоже
+                                logger.warn(`[Game] turretSpeed was too large (${this.tank.turretSpeed}), clamping to ${maxTurretSpeed}`);
+                            }
+                            
+                            // КРИТИЧНО: Финальная проверка перед использованием
+                            if (!isFinite(turretSpeed) || turretSpeed <= 0) {
+                                turretSpeed = 0.08;
+                                this.tank.turretSpeed = 0.08;
                             }
                             
                             // Башня догоняет камеру с ограниченной скоростью
                             const minDiff = 0.001; // Уменьшен порог для более точного наведения
                             
                             if (Math.abs(turretDiff) > minDiff && !this.tank.turret.isDisposed()) {
-                                const rotationAmount = Math.sign(turretDiff) * Math.min(Math.abs(turretDiff), turretSpeed);
+                                // КРИТИЧНО: Ограничиваем скорость поворота башни
+                                let rotationAmount = Math.sign(turretDiff) * Math.min(Math.abs(turretDiff), turretSpeed);
+                                
+                                // КРИТИЧНО: Дополнительная проверка на валидность и ограничение
+                                if (!isFinite(rotationAmount) || isNaN(rotationAmount) || rotationAmount === Infinity || rotationAmount === -Infinity) {
+                                    logger.error(`[Game] rotationAmount is invalid (${rotationAmount}), skipping rotation`);
+                                    rotationAmount = 0;
+                                }
+                                
+                                // КРИТИЧНО: Абсолютное ограничение максимальной скорости поворота
+                                const maxRotationAmount = 0.15; // Максимальная скорость поворота за кадр
+                                if (Math.abs(rotationAmount) > maxRotationAmount) {
+                                    rotationAmount = Math.sign(rotationAmount) * maxRotationAmount;
+                                    logger.warn(`[Game] rotationAmount (${rotationAmount.toFixed(4)}) exceeded max (${maxRotationAmount}), clamping`);
+                                }
+                                
                                 if (isFinite(rotationAmount) && !isNaN(rotationAmount) && rotationAmount !== 0) {
                                     const oldRot = this.tank.turret.rotation.y;
                                     this.tank.turret.rotation.y += rotationAmount;
@@ -5924,6 +6166,8 @@ export class Game {
         // Обновляем полную карту (если открыта)
         if (this.hud.isFullMapVisible()) {
             this.hud.updateFullMap(playerPos, absoluteTurretRotation, allEnemies);
+            // Обновляем снаряды на полной карте
+            this.updateFullMapProjectiles(playerPos);
         }
 
         // ИСПРАВЛЕНИЕ: Обновляем блок состояния танка (здоровье, топливо, броня)
@@ -6210,6 +6454,83 @@ export class Game {
         }
         
         this.hud.setRadarBuildings(buildings);
+    }
+    
+    /**
+     * Обновить снаряды на миникарте
+     */
+    private updateMinimapProjectiles(playerPos: Vector3, angle: number): void {
+        if (!this.scene || !this.hud) return;
+        
+        const projectiles = this.getActiveProjectiles();
+        
+        this.hud.updateMinimapProjectiles(projectiles, playerPos.x, playerPos.z, angle);
+    }
+    
+    /**
+     * Обновить снаряды на полной карте
+     */
+    private updateFullMapProjectiles(playerPos: Vector3): void {
+        if (!this.scene || !this.hud) return;
+        
+        const projectiles = this.getActiveProjectiles();
+        
+        this.hud.updateFullMapProjectiles(projectiles, playerPos);
+    }
+    
+    /**
+     * Получить активные снаряды из сцены
+     */
+    private getActiveProjectiles(): Array<{x: number, z: number, type?: string, ownerId?: string}> {
+        if (!this.scene) return [];
+        
+        const projectiles: Array<{x: number, z: number, type?: string, ownerId?: string}> = [];
+        
+        // Ищем снаряды в сцене
+        for (const mesh of this.scene.meshes) {
+            if (!mesh.isEnabled() || !mesh.isVisible) continue;
+            
+            const metadata = mesh.metadata;
+            if (!metadata || (metadata.type !== "bullet" && metadata.type !== "projectile")) continue;
+            
+            const pos = mesh.getAbsolutePosition();
+            projectiles.push({
+                x: pos.x,
+                z: pos.z,
+                type: metadata.cannonType || "ap",
+                ownerId: metadata.owner || "unknown"
+            });
+        }
+        
+        return projectiles;
+    }
+    
+    /**
+     * Обновить здоровье врагов для миникарты
+     */
+    private updateEnemyHealthForMinimap(enemies: {x: number, z: number, alive: boolean}[]): void {
+        if (!this.hud || !this.enemyManager) return;
+        
+        // Получаем данные о здоровье врагов из enemyManager
+        const turrets = (this.enemyManager as any).turrets || [];
+        for (const turret of turrets) {
+            if (!turret.isAlive) continue;
+            
+            const enemyKey = `${turret.position.x.toFixed(0)}_${turret.position.z.toFixed(0)}`;
+            const health = (turret as any).health || 100;
+            const maxHealth = (turret as any).maxHealth || 100;
+            
+            this.hud.setEnemyHealthForMinimap(enemyKey, health, maxHealth);
+        }
+    }
+    
+    /**
+     * Добавить взрыв на миникарту (вызывается при попадании/взрыве)
+     */
+    addExplosionToMinimap(x: number, z: number, radius: number = 5): void {
+        if (this.hud) {
+            this.hud.addExplosion(x, z, radius);
+        }
     }
 
     private updateEnemyLookHP() {
@@ -6761,11 +7082,23 @@ export class Game {
     // === MAP EDITOR HELPERS ===
     private async openMapEditorInternal(): Promise<void> {
         if (!this.gameStarted) {
+            const errorMsg = "Игра не запущена. Пожалуйста, сначала запустите игру.";
             logger.warn("[Game] Cannot open Map Editor: game not started");
+            if (this.hud) {
+                this.hud.showMessage(errorMsg, "#f00", 3000);
+            } else {
+                alert(errorMsg);
+            }
             return;
         }
         if (!this.chunkSystem) {
+            const errorMsg = "Система генерации карты не готова. Пожалуйста, подождите...";
             logger.warn("[Game] Cannot open Map Editor: chunkSystem is not ready");
+            if (this.hud) {
+                this.hud.showMessage(errorMsg, "#f00", 3000);
+            } else {
+                alert(errorMsg);
+            }
             return;
         }
 
@@ -6793,24 +7126,102 @@ export class Game {
         }
     }
 
+    /**
+     * Загрузить данные custom карты из localStorage
+     */
+    private async loadCustomMapData(): Promise<void> {
+        try {
+            const customMapDataStr = localStorage.getItem("selectedCustomMapData");
+            if (!customMapDataStr) {
+                logger.warn("[Game] No custom map data found in localStorage");
+                return;
+            }
+            
+            const customMapData = JSON.parse(customMapDataStr);
+            if (!customMapData || !customMapData.name) {
+                logger.warn("[Game] Invalid custom map data");
+                return;
+            }
+            
+            logger.log(`[Game] Loading custom map: ${customMapData.name}`);
+            logger.log(`[Game] Custom map data: ${customMapData.placedObjects?.length || 0} objects, ${customMapData.triggers?.length || 0} triggers, ${customMapData.terrainEdits?.length || 0} terrain edits`);
+            
+            // Создаем MapEditor если его нет
+            if (!this.mapEditor) {
+                const { MapEditor } = await import("./mapEditor");
+                this.mapEditor = new MapEditor(this.scene);
+                this.mapEditor.chunkSystem = this.chunkSystem;
+            }
+            
+            // Устанавливаем данные карты
+            this.mapEditor.setMapData(customMapData);
+            
+            // Применяем данные без открытия UI редактора
+            await this.mapEditor.applyMapDataWithoutUI();
+            
+            logger.log(`[Game] Custom map "${customMapData.name}" loaded successfully`);
+        } catch (error) {
+            logger.error("[Game] Failed to load custom map data:", error);
+        }
+    }
+    
     public async openMapEditorFromMenu(): Promise<void> {
         try {
+            console.log("[Game] ====== openMapEditorFromMenu() CALLED ======");
+            logger.log("[Game] openMapEditorFromMenu() called");
+            
             // Инициализируем игру и запускаем, если ещё не запущена
             if (!this.gameInitialized) {
-                logger.debug(`[Game] Initializing game for Map Editor with map type: ${this.currentMapType}`);
+                console.log("[Game] Game not initialized, initializing...");
+                logger.log(`[Game] Initializing game for Map Editor with map type: ${this.currentMapType}`);
                 await this.init();
                 this.gameInitialized = true;
+                console.log("[Game] ✅ Game initialized");
                 logger.log("[Game] Game initialized for Map Editor");
             }
+            
             if (!this.gameStarted) {
+                console.log("[Game] Game not started, starting...");
+                logger.log("[Game] Starting game for Map Editor");
                 this.startGame();
+                // Даем время на инициализацию chunkSystem
+                console.log("[Game] Waiting for chunkSystem initialization...");
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                console.log("[Game] ✅ Game started");
             }
 
+            // Проверяем что chunkSystem готов
+            if (!this.chunkSystem) {
+                console.log("[Game] chunkSystem not ready, waiting...");
+                logger.warn("[Game] chunkSystem not ready, waiting...");
+                let attempts = 0;
+                while (!this.chunkSystem && attempts < 15) {
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                    attempts++;
+                    console.log(`[Game] Waiting for chunkSystem... attempt ${attempts}/15`);
+                }
+                if (!this.chunkSystem) {
+                    const errorMsg = "chunkSystem не инициализирован после ожидания";
+                    console.error(`[Game] ❌ ${errorMsg}`);
+                    throw new Error(errorMsg);
+                }
+                console.log("[Game] ✅ chunkSystem ready");
+            }
+
+            console.log("[Game] Opening map editor internal...");
             await this.openMapEditorInternal();
+            console.log("[Game] ✅ Map Editor opened successfully from menu");
+            logger.log("[Game] Map Editor opened successfully from menu");
         } catch (error) {
             logger.error("[Game] Failed to open Map Editor from menu:", error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error("[Game] ❌ Failed to open Map Editor from menu:", error);
+            console.error("[Game] Error message:", errorMessage);
+            
             if (this.hud) {
-                this.hud.showMessage("Failed to open Map Editor", "#f00", 3000);
+                this.hud.showMessage(`Ошибка открытия редактора: ${errorMessage}`, "#f00", 5000);
+            } else {
+                alert(`Не удалось открыть редактор карт:\n${errorMessage}`);
             }
         }
     }
@@ -6875,6 +7286,9 @@ export class Game {
             turnSpeed: makeStatWithBonus(chassisType.turnSpeed, tracksBonuses.turnSpeedMultiplier),
             acceleration: makeStatWithBonus(chassisType.acceleration, tracksBonuses.accelerationMultiplier),
             mass: chassisType.mass,
+            width: chassisType.width,
+            height: chassisType.height,
+            depth: chassisType.depth,
             specialAbility: chassisType.specialAbility || null,
             upgradeLevel: chassisLevel,
             color: chassisType.color
@@ -6895,8 +7309,11 @@ export class Game {
             projectileSize: cannonType.projectileSize,
             recoilMultiplier: cannonType.recoilMultiplier,
             barrelLength: cannonType.barrelLength,
+            barrelWidth: cannonType.barrelWidth,
             maxRicochets: cannonType.maxRicochets ?? null,
             ricochetSpeedRetention: cannonType.ricochetSpeedRetention ?? null,
+            ricochetAngle: cannonType.ricochetAngle ?? null,
+            maxRange: cannonType.maxRange ?? (cannonType.barrelLength * 80 + cannonType.projectileSpeed * 0.5), // Рассчитываем если не указано
             upgradeLevel: cannonLevel,
             color: cannonType.color
         };

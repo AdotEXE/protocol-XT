@@ -47,11 +47,14 @@ export class GameRoom {
     // World seed for deterministic generation
     worldSeed: number;
     
+    // Map type
+    mapType: string = "normal";
+    
     // Room deletion timer
     deletionTimer: NodeJS.Timeout | null = null;
     emptySince: number | null = null; // Time when room became empty (for logging)
     
-    constructor(mode: GameMode, maxPlayers: number = 32, isPrivate: boolean = false, worldSeed?: number, roomId?: string) {
+    constructor(mode: GameMode, maxPlayers: number = 32, isPrivate: boolean = false, worldSeed?: number, roomId?: string, mapType?: string) {
         // ВСЕГДА используем переданный roomId (простой формат 0001, 0002...)
         // Если roomId не передан, это ошибка - используем fallback, но логируем предупреждение
         if (!roomId) {
@@ -65,6 +68,8 @@ export class GameRoom {
         this.isPrivate = isPrivate;
         // Generate seed if not provided
         this.worldSeed = worldSeed || Math.floor(Math.random() * 999999999);
+        // Set map type
+        this.mapType = mapType || "normal";
         // Get game mode rules
         this.gameModeRules = getGameModeRules(mode);
     }
@@ -189,7 +194,7 @@ export class GameRoom {
             const radius = spawnRadius + random() * 20;
             const position = new Vector3(
                 Math.cos(angle) * radius,
-                5,
+                1.0, // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
                 Math.sin(angle) * radius
             );
             
@@ -419,7 +424,7 @@ export class GameRoom {
         const oldPosition = player.position.clone();
         // Simple movement simulation
         const moveSpeed = 20; // Same as client
-        const turnSpeed = 2.2; // Same as client
+        const turnSpeed = 4.4; // Same as client
         
         // Update rotation
         if (input.steer !== 0) {

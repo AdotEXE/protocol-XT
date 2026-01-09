@@ -9,7 +9,8 @@ import {
     PhysicsShapeType,
     PhysicsBody,
     PhysicsMotionType,
-    PhysicsShape
+    PhysicsShape,
+    Ray
 } from "@babylonjs/core";
 import { AdvancedDynamicTexture, Rectangle, TextBlock } from "@babylonjs/gui";
 import { TankController } from "./tankController";
@@ -314,6 +315,9 @@ export class EnemyTurret {
             const MIN_DAMAGE_SPEED = 5.0;
             const MIN_DAMAGE_SPEED_SQ = MIN_DAMAGE_SPEED * MIN_DAMAGE_SPEED;
             
+            // Сохраняем предыдущую позицию для raycast-проверки (защита от проскока через стенку)
+            let prevBulletPos = bullet.absolutePosition.clone();
+            
             const checkHit = () => {
                 if (bullet.isDisposed()) return;
                 if (!target || !target.isAlive || !target.chassis || target.chassis.isDisposed()) {
@@ -342,42 +346,70 @@ export class EnemyTurret {
                 
                 const bulletPos = bullet.absolutePosition;
                 
-                // === ПРОВЕРКА СТОЛКНОВЕНИЯ СО СТЕНКОЙ ===
+                // === УЛУЧШЕННАЯ ПРОВЕРКА СТЕН С РЕЙКАСТОМ ===
+                // Используем рейкаст от предыдущей позиции к текущей для обнаружения быстрых снарядов
+                const moveDistance = Vector3.Distance(prevBulletPos, bulletPos);
+                if (moveDistance > 0.1) { // Только если снаряд переместился достаточно
+                    const moveDirection = bulletPos.subtract(prevBulletPos).normalize();
+                    const ray = new Ray(prevBulletPos, moveDirection, moveDistance + 0.5);
+                    
+                    // КРИТИЧНО: Ищем ВСЕ стенки на сцене (protectiveWall и enemyWall)
+                    const walls = this.scene.meshes.filter(mesh => 
+                        mesh.metadata && 
+                        (mesh.metadata.type === "protectiveWall" || mesh.metadata.type === "enemyWall") && 
+                        !mesh.isDisposed()
+                    );
+                    
+                    for (const wall of walls) {
+                        // Raycast проверка - ловит быстрые снаряды, проскакивающие через стенку
+                        const pick = this.scene.pickWithRay(ray, (mesh) => mesh === wall);
+                        
+                        if (pick && pick.hit && pick.pickedPoint) {
+                            // Проверяем, что точка попадания внутри стенки
+                            if (this.checkPointInWall(pick.pickedPoint, wall as Mesh)) {
+                                const bulletDamage = (bullet.metadata && (bullet.metadata as any).damage) ? (bullet.metadata as any).damage : this.damage;
+                                
+                                const wallMeta = wall.metadata as any;
+                                if (wallMeta) {
+                                    if (wallMeta.type === "protectiveWall" && target && typeof (target as any).damageWall === 'function') {
+                                        (target as any).damageWall(wall, bulletDamage);
+                                    } else if (wallMeta.type === "enemyWall" && wallMeta.owner && typeof wallMeta.owner.damageEnemyWall === 'function') {
+                                        wallMeta.owner.damageEnemyWall(bulletDamage);
+                                    }
+                                }
+                                
+                                console.log(`[TURRET] Bullet hit wall via raycast (${wallMeta?.type || "unknown"})! Damage: ${bulletDamage}`);
+                                if (effects) effects.createHitSpark(pick.pickedPoint);
+                                bullet.dispose();
+                                return;
+                            }
+                        }
+                    }
+                }
+                
+                // === ПРОВЕРКА СТОЛКНОВЕНИЯ СО СТЕНКОЙ (дополнительная проверка текущей позиции) ===
                 const walls = this.scene.meshes.filter(mesh => 
-                    mesh.metadata && mesh.metadata.type === "protectiveWall" && !mesh.isDisposed()
+                    mesh.metadata && 
+                    (mesh.metadata.type === "protectiveWall" || mesh.metadata.type === "enemyWall") && 
+                    !mesh.isDisposed()
                 );
                 for (const wall of walls) {
-                    const wallPos = wall.absolutePosition;
-                    const wallRotation = wall.rotation.y;
-                    
-                    // Размеры стенки: width=6, height=4, depth=0.5
-                    const wallHalfWidth = 3;
-                    const wallHalfHeight = 2;
-                    const wallHalfDepth = 0.25;
-                    
-                    // Переводим позицию пули в локальную систему координат стенки
-                    const localPos = bulletPos.subtract(wallPos);
-                    const cosY = Math.cos(-wallRotation);
-                    const sinY = Math.sin(-wallRotation);
-                    
-                    // Поворачиваем позицию пули в локальную систему координат стенки
-                    const localX = localPos.x * cosY - localPos.z * sinY;
-                    const localY = localPos.y;
-                    const localZ = localPos.x * sinY + localPos.z * cosY;
-                    
                     // Проверяем, находится ли пуля внутри границ стенки
-                    if (Math.abs(localX) < wallHalfWidth && 
-                        Math.abs(localY) < wallHalfHeight && 
-                        Math.abs(localZ) < wallHalfDepth) {
+                    if (this.checkPointInWall(bulletPos, wall as Mesh)) {
                         // Получаем урон из metadata пули
                         const bulletDamage = (bullet.metadata && (bullet.metadata as any).damage) ? (bullet.metadata as any).damage : this.damage;
                         
-                        // Наносим урон стенке через target (TankController)
-                        if (target && typeof (target as any).damageWall === 'function') {
-                            (target as any).damageWall(wall, bulletDamage);
+                        // Наносим урон стенке
+                        const wallMeta = wall.metadata as any;
+                        if (wallMeta) {
+                            if (wallMeta.type === "protectiveWall" && target && typeof (target as any).damageWall === 'function') {
+                                (target as any).damageWall(wall, bulletDamage);
+                            } else if (wallMeta.type === "enemyWall" && wallMeta.owner && typeof wallMeta.owner.damageEnemyWall === 'function') {
+                                wallMeta.owner.damageEnemyWall(bulletDamage);
+                            }
                         }
                         
-                        console.log(`[TURRET] Bullet hit protective wall! Damage: ${bulletDamage}`);
+                        console.log(`[TURRET] Bullet hit wall (${wallMeta?.type || "unknown"})! Damage: ${bulletDamage}`);
                         if (effects) effects.createHitSpark(bulletPos);
                         bullet.dispose();
                         return;
@@ -401,6 +433,8 @@ export class EnemyTurret {
                 
                 // Continue checking
                 if (bulletPos.y > -5 && bulletPos.y < 50) {
+                    // Обновляем предыдущую позицию для следующей итерации raycast
+                    prevBulletPos = bulletPos.clone();
                     requestAnimationFrame(checkHit);
                 } else {
                     bullet.dispose();
@@ -416,6 +450,48 @@ export class EnemyTurret {
         } catch (e) {
             console.warn("[Turret] Shoot error:", e);
         }
+    }
+    
+    /**
+     * Проверяет, находится ли точка внутри стенки
+     * Используется для проверки столкновения снарядов со стенками
+     */
+    private checkPointInWall(pos: Vector3, wallMesh: Mesh): boolean {
+        if (!wallMesh || wallMesh.isDisposed()) return false;
+        
+        const wallPos = wallMesh.absolutePosition;
+        const wallRotation = wallMesh.rotation.y;
+        const wallMeta = wallMesh.metadata as any;
+        const wallType = wallMeta?.type || "protectiveWall";
+        
+        let wallHalfWidth: number, wallHalfHeight: number, wallHalfDepth: number;
+        
+        if (wallType === "protectiveWall") {
+            // Размеры защитной стенки: width=6, height=4, depth=0.5
+            wallHalfWidth = 3;
+            wallHalfHeight = 2;
+            wallHalfDepth = 0.25;
+        } else {
+            // Размеры стенки врага: width=6, height=4, depth=0.5 (те же, что и у игрока!)
+            wallHalfWidth = 3;
+            wallHalfHeight = 2;
+            wallHalfDepth = 0.25;
+        }
+        
+        // Переводим позицию в локальную систему координат стенки
+        const localPos = pos.subtract(wallPos);
+        const cosY = Math.cos(-wallRotation);
+        const sinY = Math.sin(-wallRotation);
+        
+        // Поворачиваем позицию в локальную систему координат стенки
+        const localX = localPos.x * cosY - localPos.z * sinY;
+        const localY = localPos.y;
+        const localZ = localPos.x * sinY + localPos.z * cosY;
+        
+        // Проверяем, находится ли точка внутри границ стенки
+        return Math.abs(localX) < wallHalfWidth && 
+               Math.abs(localY) < wallHalfHeight && 
+               Math.abs(localZ) < wallHalfDepth;
     }
     
     takeDamage(amount: number) {

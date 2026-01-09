@@ -2,10 +2,12 @@
  * Chassis Transformation Animation Module
  * Анимация трансформации корпуса танка при смене оборудования
  * 
- * 3 фазы анимации (общая длительность 3 секунды):
- * 1. Разборка (0-1 сек) - корпус разлетается на части
- * 2. Трансформация (1-2 сек) - части меняют размер, цвет, детали появляются/исчезают
- * 3. Сборка (2-3 сек) - части собираются в новый корпус
+ * 3 фазы анимации (общая длительность 1.5 секунды):
+ * 1. Разборка (0-0.5 сек) - корпус разлетается на части
+ * 2. Трансформация (0.5-1.0 сек) - части меняют размер, цвет, детали появляются/исчезают
+ * 3. Сборка (1.0-1.5 сек) - части собираются в новый корпус
+ * 
+ * Включает трансформацию корпуса, пушки и гусениц
  */
 
 import { 
@@ -19,13 +21,19 @@ import {
     Animation,
     ParticleSystem,
     Texture,
-    Color4
+    Color4,
+    PhysicsBody,
+    PhysicsShape,
+    PhysicsShapeType,
+    PhysicsMotionType
 } from "@babylonjs/core";
 import { ChassisType, getChassisById } from "../tankTypes";
 import { ChassisDetailsGenerator } from "../garage/chassisDetails";
 import { MaterialFactory } from "../garage/materials";
 import { createUniqueChassis, ChassisAnimationElements } from "./tankChassis";
 import { getSkinById, loadSelectedSkin, applySkinToTank } from "./tankSkins";
+import { getCannonById, type CannonType } from "../tankTypes";
+import { getTrackById, type TrackType } from "../trackTypes";
 
 interface TransformPart {
     mesh: Mesh;
@@ -39,12 +47,14 @@ interface TransformPart {
     shouldFadeOut: boolean;
     shouldFadeIn: boolean;
     originalMaterial: StandardMaterial | null;
+    physicsBody?: PhysicsBody | null; // Физическое тело для падения
+    hasPhysics: boolean; // Флаг, что часть имеет физику
 }
 
 export class ChassisTransformAnimation {
     private scene: Scene;
     private parts: TransformPart[] = [];
-    private duration: number = 3000; // 3 секунды в мс
+    private duration: number = 1500; // 1.5 секунды в мс
     private startTime: number = 0;
     private isRunning: boolean = false;
     private onCompleteCallback: (() => void) | null = null;
@@ -53,9 +63,9 @@ export class ChassisTransformAnimation {
     private particleSystem: ParticleSystem | null = null;
     
     // Фазы анимации
-    private readonly PHASE_DISASSEMBLY_END = 1000; // 0-1 сек
-    private readonly PHASE_TRANSFORM_END = 2000; // 1-2 сек
-    private readonly PHASE_ASSEMBLY_END = 3000; // 2-3 сек
+    private readonly PHASE_DISASSEMBLY_END = 500; // 0-0.5 сек
+    private readonly PHASE_TRANSFORM_END = 1000; // 0.5-1.0 сек
+    private readonly PHASE_ASSEMBLY_END = 1500; // 1.0-1.5 сек
     
     // Корпуса с детализацией
     private readonly DETAILED_CHASSIS = ["light", "medium", "racer", "scout"];
@@ -65,7 +75,7 @@ export class ChassisTransformAnimation {
     }
     
     /**
-     * Запускает анимацию трансформации корпуса
+     * Запускает анимацию трансформации корпуса, пушки и гусениц
      */
     start(
         oldChassis: Mesh,
@@ -73,6 +83,12 @@ export class ChassisTransformAnimation {
         newChassisType: ChassisType,
         turret: Mesh,
         barrel: Mesh,
+        oldCannonType?: CannonType,
+        newCannonType?: CannonType,
+        oldTrackType?: TrackType,
+        newTrackType?: TrackType,
+        leftTrack?: Mesh | null,
+        rightTrack?: Mesh | null,
         onComplete?: () => void
     ): void {
         if (this.isRunning) {
@@ -97,26 +113,55 @@ export class ChassisTransformAnimation {
         // 1. Создаем части из старого корпуса
         this.createPartsFromChassis(oldChassis, oldChassisType, oldColor, basePos);
         
-        // 2. Вычисляем целевые параметры для нового корпуса
+        // 2. Добавляем пушку в анимацию
+        if (barrel && oldCannonType && newCannonType) {
+            this.addCannonToAnimation(barrel, oldCannonType, newCannonType, basePos);
+        }
+        
+        // 3. Добавляем гусеницы в анимацию
+        if (leftTrack && rightTrack && oldTrackType && newTrackType) {
+            this.addTracksToAnimation(leftTrack, rightTrack, oldTrackType, newTrackType, basePos);
+        }
+        
+        // 4. Вычисляем целевые параметры для нового корпуса
         this.calculateTargetParams(newChassisType, newColor, basePos);
         
-        // 3. Создаем новые детали, если нужно (для перехода с простого на детальный)
+        // 5. Создаем новые детали, если нужно (для перехода с простого на детальный)
         this.createNewDetailsIfNeeded(oldChassisType, newChassisType, newColor, basePos);
         
-        // 4. Отсоединяем башню и ствол временно
+        // 6. Отсоединяем башню и ствол временно
         if (turret) {
             turret.setParent(null);
             turret.position = basePos.clone();
             turret.position.y += oldChassisType.height * 0.5;
         }
+        if (barrel) {
+            barrel.setParent(null);
+            const barrelPos = barrel.getAbsolutePosition();
+            barrel.position = barrelPos.clone();
+        }
+        if (leftTrack) {
+            leftTrack.setParent(null);
+            const leftPos = leftTrack.getAbsolutePosition();
+            leftTrack.position = leftPos.clone();
+        }
+        if (rightTrack) {
+            rightTrack.setParent(null);
+            const rightPos = rightTrack.getAbsolutePosition();
+            rightTrack.position = rightPos.clone();
+        }
         
-        // 5. Запускаем эффекты частиц
+        // 7. Запускаем эффекты частиц
         this.startParticleEffects(basePos);
         
-        // 6. Скрываем оригинальный корпус
+        // 8. Скрываем оригинальный корпус (НЕ меняем позицию!)
+        // КРИТИЧНО: Сохраняем позицию перед скрытием, чтобы она не потерялась
+        const savedChassisPos = oldChassis.position.clone();
         oldChassis.setEnabled(false);
+        // Восстанавливаем позицию после скрытия (на случай если setEnabled меняет позицию)
+        oldChassis.position.copyFrom(savedChassisPos);
         
-        // 7. Запускаем цикл анимации
+        // 9. Запускаем цикл анимации
         this.runAnimationLoop(oldChassis, newChassisType, turret, barrel, basePos);
     }
     
@@ -149,21 +194,34 @@ export class ChassisTransformAnimation {
         const h = chassisType.height;
         const d = chassisType.depth;
         
-        // Создаём 8 частей корпуса (углы)
-        const partSize = { width: w * 0.4, height: h * 0.5, depth: d * 0.4 };
-        const offsets = [
-            new Vector3(-w * 0.25, h * 0.25, d * 0.25),
-            new Vector3(w * 0.25, h * 0.25, d * 0.25),
-            new Vector3(-w * 0.25, h * 0.25, -d * 0.25),
-            new Vector3(w * 0.25, h * 0.25, -d * 0.25),
-            new Vector3(-w * 0.25, -h * 0.25, d * 0.25),
-            new Vector3(w * 0.25, -h * 0.25, d * 0.25),
-            new Vector3(-w * 0.25, -h * 0.25, -d * 0.25),
-            new Vector3(w * 0.25, -h * 0.25, -d * 0.25),
-        ];
+        // Создаём 12-16 частей корпуса разного размера
+        const partCount = 12 + Math.floor(Math.random() * 5); // 12-16 частей
+        const offsets: Vector3[] = [];
+        
+        // Генерируем случайные позиции для частей
+        for (let i = 0; i < partCount; i++) {
+            const x = (Math.random() - 0.5) * w * 0.8;
+            const y = (Math.random() - 0.5) * h * 0.8;
+            const z = (Math.random() - 0.5) * d * 0.8;
+            offsets.push(new Vector3(x, y, z));
+        }
         
         for (let i = 0; i < offsets.length; i++) {
             const offset = offsets[i]!;
+            
+            // Каждая часть имеет случайный размер (от 0.2 до 0.6 от базового размера)
+            const sizeMultiplier = 0.2 + Math.random() * 0.4; // 0.2 - 0.6
+            const partSize = {
+                width: w * sizeMultiplier * (0.5 + Math.random() * 0.5), // 0.5-1.0 от размера
+                height: h * sizeMultiplier * (0.5 + Math.random() * 0.5),
+                depth: d * sizeMultiplier * (0.5 + Math.random() * 0.5)
+            };
+            
+            // Минимальные размеры для стабильности физики
+            partSize.width = Math.max(partSize.width, 0.1);
+            partSize.height = Math.max(partSize.height, 0.1);
+            partSize.depth = Math.max(partSize.depth, 0.1);
+            
             const part = MeshBuilder.CreateBox(`transformPart_${i}`, partSize, this.scene);
             part.position = basePos.add(offset);
             
@@ -178,6 +236,30 @@ export class ChassisTransformAnimation {
             const scatteredPos = basePos.add(scatterDir.scale(scatterDist));
             scatteredPos.y += Math.random() * 1.5;
             
+            // Создаём физическое тело для падения
+            const physicsBody = new PhysicsBody(part, PhysicsMotionType.DYNAMIC, false, this.scene);
+            const shape = new PhysicsShape({
+                type: PhysicsShapeType.BOX,
+                parameters: {
+                    extents: new Vector3(partSize.width, partSize.height, partSize.depth)
+                }
+            }, this.scene);
+            physicsBody.shape = shape;
+            physicsBody.setMassProperties({ mass: 0.5 + Math.random() * 0.5 }); // Масса 0.5-1.0
+            
+            // Начальная скорость разлёта
+            const scatterVelocity = scatterDir.scale(3 + Math.random() * 2); // Скорость разлёта
+            scatterVelocity.y += 1 + Math.random() * 1.5; // Добавляем вертикальную скорость
+            physicsBody.setLinearVelocity(scatterVelocity);
+            
+            // Добавляем случайное вращение
+            const angularVelocity = new Vector3(
+                (Math.random() - 0.5) * 5,
+                (Math.random() - 0.5) * 5,
+                (Math.random() - 0.5) * 5
+            );
+            physicsBody.setAngularVelocity(angularVelocity);
+            
             this.parts.push({
                 mesh: part,
                 startPos: basePos.add(offset),
@@ -189,12 +271,173 @@ export class ChassisTransformAnimation {
                 endColor: color.clone(), // Будет обновлено позже
                 shouldFadeOut: false,
                 shouldFadeIn: false,
-                originalMaterial: mat
+                originalMaterial: mat,
+                physicsBody: physicsBody,
+                hasPhysics: true
             });
         }
         
         // Добавляем дочерние детали корпуса, если они есть
         this.extractChildMeshes(chassis, color, basePos);
+    }
+    
+    /**
+     * Добавляет пушку в анимацию трансформации
+     */
+    private addCannonToAnimation(
+        barrel: Mesh,
+        oldCannonType: CannonType,
+        newCannonType: CannonType,
+        basePos: Vector3
+    ): void {
+        if (!barrel || barrel.isDisposed()) return;
+        
+        const worldPos = barrel.getAbsolutePosition();
+        const oldColor = Color3.FromHexString(oldCannonType.color);
+        const newColor = Color3.FromHexString(newCannonType.color);
+        
+        // Клонируем пушку для анимации
+        const barrelClone = barrel.clone(`transformBarrel_${Date.now()}`, null);
+        if (!barrelClone) return;
+        
+        barrelClone.setParent(null);
+        barrelClone.position = worldPos.clone();
+        
+        // Случайная позиция разлёта
+        const scatterDir = worldPos.subtract(basePos).normalize();
+        if (scatterDir.length() < 0.1) {
+            scatterDir.x = Math.random() - 0.5;
+            scatterDir.y = 0.5 + Math.random() * 0.5;
+            scatterDir.z = Math.random() - 0.5;
+            scatterDir.normalize();
+        }
+        const scatterDist = 1.5 + Math.random() * 1;
+        const scatteredPos = worldPos.add(scatterDir.scale(scatterDist));
+        
+        // Масштаб для новой пушки
+        const oldScale = barrel.scaling.clone();
+        const newScale = new Vector3(
+            oldScale.x * (newCannonType.barrelWidth / oldCannonType.barrelWidth),
+            oldScale.y * (newCannonType.barrelLength / oldCannonType.barrelLength),
+            oldScale.z * (newCannonType.barrelWidth / oldCannonType.barrelWidth)
+        );
+        
+        const mat = new StandardMaterial(`transformBarrelMat`, this.scene);
+        mat.diffuseColor = oldColor.clone();
+        mat.specularColor = Color3.Black();
+        barrelClone.material = mat;
+        
+        this.parts.push({
+            mesh: barrelClone,
+            startPos: worldPos.clone(),
+            endPos: worldPos.clone(), // Будет обновлено при сборке
+            scatteredPos: scatteredPos,
+            startScale: oldScale,
+            endScale: newScale,
+            startColor: oldColor,
+            endColor: newColor,
+            shouldFadeOut: false,
+            shouldFadeIn: false,
+            originalMaterial: mat,
+            physicsBody: null,
+            hasPhysics: false
+        });
+    }
+    
+    /**
+     * Добавляет гусеницы в анимацию трансформации
+     */
+    private addTracksToAnimation(
+        leftTrack: Mesh,
+        rightTrack: Mesh,
+        oldTrackType: TrackType,
+        newTrackType: TrackType,
+        basePos: Vector3
+    ): void {
+        const oldColor = Color3.FromHexString(oldTrackType.color);
+        const newColor = Color3.FromHexString(newTrackType.color);
+        
+        // Левая гусеница
+        if (leftTrack && !leftTrack.isDisposed()) {
+            const leftWorldPos = leftTrack.getAbsolutePosition();
+            const leftClone = leftTrack.clone(`transformLeftTrack_${Date.now()}`, null);
+            if (leftClone) {
+                leftClone.setParent(null);
+                leftClone.position = leftWorldPos.clone();
+                
+                const scatterDir = leftWorldPos.subtract(basePos).normalize();
+                if (scatterDir.length() < 0.1) {
+                    scatterDir.x = -0.5;
+                    scatterDir.y = -0.3;
+                    scatterDir.z = Math.random() - 0.5;
+                    scatterDir.normalize();
+                }
+                const scatterDist = 1 + Math.random() * 0.8;
+                const scatteredPos = leftWorldPos.add(scatterDir.scale(scatterDist));
+                
+                const mat = new StandardMaterial(`transformLeftTrackMat`, this.scene);
+                mat.diffuseColor = oldColor.clone();
+                mat.specularColor = Color3.Black();
+                leftClone.material = mat;
+                
+                this.parts.push({
+                    mesh: leftClone,
+                    startPos: leftWorldPos.clone(),
+                    endPos: leftWorldPos.clone(),
+                    scatteredPos: scatteredPos,
+                    startScale: leftTrack.scaling.clone(),
+                    endScale: leftTrack.scaling.clone(),
+                    startColor: oldColor,
+                    endColor: newColor,
+                    shouldFadeOut: false,
+                    shouldFadeIn: false,
+                    originalMaterial: mat,
+                    physicsBody: null,
+                    hasPhysics: false
+                });
+            }
+        }
+        
+        // Правая гусеница
+        if (rightTrack && !rightTrack.isDisposed()) {
+            const rightWorldPos = rightTrack.getAbsolutePosition();
+            const rightClone = rightTrack.clone(`transformRightTrack_${Date.now()}`, null);
+            if (rightClone) {
+                rightClone.setParent(null);
+                rightClone.position = rightWorldPos.clone();
+                
+                const scatterDir = rightWorldPos.subtract(basePos).normalize();
+                if (scatterDir.length() < 0.1) {
+                    scatterDir.x = 0.5;
+                    scatterDir.y = -0.3;
+                    scatterDir.z = Math.random() - 0.5;
+                    scatterDir.normalize();
+                }
+                const scatterDist = 1 + Math.random() * 0.8;
+                const scatteredPos = rightWorldPos.add(scatterDir.scale(scatterDist));
+                
+                const mat = new StandardMaterial(`transformRightTrackMat`, this.scene);
+                mat.diffuseColor = oldColor.clone();
+                mat.specularColor = Color3.Black();
+                rightClone.material = mat;
+                
+                this.parts.push({
+                    mesh: rightClone,
+                    startPos: rightWorldPos.clone(),
+                    endPos: rightWorldPos.clone(),
+                    scatteredPos: scatteredPos,
+                    startScale: rightTrack.scaling.clone(),
+                    endScale: rightTrack.scaling.clone(),
+                    startColor: oldColor,
+                    endColor: newColor,
+                    shouldFadeOut: false,
+                    shouldFadeIn: false,
+                    originalMaterial: mat,
+                    physicsBody: null,
+                    hasPhysics: false
+                });
+            }
+        }
     }
     
     /**
@@ -245,7 +488,9 @@ export class ChassisTransformAnimation {
                     endColor: detailColor,
                     shouldFadeOut: true, // Детали старого корпуса исчезают
                     shouldFadeIn: false,
-                    originalMaterial: mat
+                    originalMaterial: mat,
+                    physicsBody: null,
+                    hasPhysics: false
                 });
             }
         }
@@ -266,28 +511,42 @@ export class ChassisTransformAnimation {
         // Пропорции для разных типов корпусов (из tankChassis.ts)
         const multipliers = this.getChassisMultipliers(newChassisType.id);
         
-        // Обновляем целевые параметры для основных частей корпуса
-        const newOffsets = [
-            new Vector3(-newW * 0.25 * multipliers.w, newH * 0.25 * multipliers.h, newD * 0.25 * multipliers.d),
-            new Vector3(newW * 0.25 * multipliers.w, newH * 0.25 * multipliers.h, newD * 0.25 * multipliers.d),
-            new Vector3(-newW * 0.25 * multipliers.w, newH * 0.25 * multipliers.h, -newD * 0.25 * multipliers.d),
-            new Vector3(newW * 0.25 * multipliers.w, newH * 0.25 * multipliers.h, -newD * 0.25 * multipliers.d),
-            new Vector3(-newW * 0.25 * multipliers.w, -newH * 0.25 * multipliers.h, newD * 0.25 * multipliers.d),
-            new Vector3(newW * 0.25 * multipliers.w, -newH * 0.25 * multipliers.h, newD * 0.25 * multipliers.d),
-            new Vector3(-newW * 0.25 * multipliers.w, -newH * 0.25 * multipliers.h, -newD * 0.25 * multipliers.d),
-            new Vector3(newW * 0.25 * multipliers.w, -newH * 0.25 * multipliers.h, -newD * 0.25 * multipliers.d),
-        ];
+        // Находим все части с физикой (основные части корпуса)
+        const mainParts = this.parts.filter(p => p.hasPhysics);
         
-        // Обновляем первые 8 частей (основной корпус)
-        for (let i = 0; i < Math.min(8, this.parts.length); i++) {
-            const part = this.parts[i];
-            const newOffset = newOffsets[i];
-            if (part && newOffset) {
-                part.endPos = basePos.add(newOffset);
-                part.endScale = new Vector3(multipliers.w, multipliers.h, multipliers.d);
-                part.endColor = newColor.clone();
-                part.shouldFadeOut = false;
-            }
+        // Генерируем новые случайные позиции для частей нового корпуса
+        for (let i = 0; i < mainParts.length; i++) {
+            const part = mainParts[i];
+            if (!part) continue;
+            
+            // Генерируем случайную позицию в пределах нового корпуса
+            const x = (Math.random() - 0.5) * newW * 0.8 * multipliers.w;
+            const y = (Math.random() - 0.5) * newH * 0.8 * multipliers.h;
+            const z = (Math.random() - 0.5) * newD * 0.8 * multipliers.d;
+            const newOffset = new Vector3(x, y, z);
+            
+            part.endPos = basePos.add(newOffset);
+            
+            // Новый размер части (также случайный, но пропорциональный новому корпусу)
+            const newSizeMultiplier = 0.2 + Math.random() * 0.4; // 0.2 - 0.6
+            const newPartWidth = newW * newSizeMultiplier * (0.5 + Math.random() * 0.5);
+            const newPartHeight = newH * newSizeMultiplier * (0.5 + Math.random() * 0.5);
+            const newPartDepth = newD * newSizeMultiplier * (0.5 + Math.random() * 0.5);
+            
+            // Вычисляем масштаб относительно текущего размера части
+            // Используем текущий масштаб части как базовый
+            const currentScale = part.mesh.scaling;
+            const currentBoundingBox = part.mesh.getBoundingInfo().boundingBox;
+            const currentSize = currentBoundingBox.maximum.subtract(currentBoundingBox.minimum);
+            
+            // Вычисляем целевой масштаб
+            const scaleX = (newPartWidth / Math.max(currentSize.x, 0.1)) * (1 / currentScale.x);
+            const scaleY = (newPartHeight / Math.max(currentSize.y, 0.1)) * (1 / currentScale.y);
+            const scaleZ = (newPartDepth / Math.max(currentSize.z, 0.1)) * (1 / currentScale.z);
+            
+            part.endScale = new Vector3(scaleX, scaleY, scaleZ);
+            part.endColor = newColor.clone();
+            part.shouldFadeOut = false;
         }
     }
     
@@ -373,7 +632,9 @@ export class ChassisTransformAnimation {
                     endColor: newColor.clone(),
                     shouldFadeOut: false,
                     shouldFadeIn: true,
-                    originalMaterial: mat
+                    originalMaterial: mat,
+                    physicsBody: null,
+                    hasPhysics: false
                 });
             }
         }
@@ -459,23 +720,50 @@ export class ChassisTransformAnimation {
     }
     
     /**
-     * Фаза 1: Разборка - части разлетаются
+     * Фаза 1: Разборка - части разлетаются с физикой (падают)
      */
     private animateDisassembly(t: number): void {
-        const easedT = this.easeOutQuad(t);
-        
+        // В фазе разборки части используют физику и падают естественно
+        // Физика уже настроена при создании частей, просто обновляем позиции мешей из физики
         for (const part of this.parts) {
-            // Интерполяция позиции к разлётной
-            part.mesh.position = Vector3.Lerp(part.startPos, part.scatteredPos, easedT);
-            
-            // Небольшое вращение для эффекта
-            part.mesh.rotation.x += 0.02 * (1 - easedT);
-            part.mesh.rotation.y += 0.03 * (1 - easedT);
+            if (part.hasPhysics && part.physicsBody) {
+                // Позиция и вращение управляются физикой
+                // Меш автоматически синхронизируется с физическим телом
+                // Ничего не делаем - физика сама управляет движением
+            } else {
+                // Для частей без физики используем старую логику
+                const easedT = this.easeOutQuad(t);
+                part.mesh.position = Vector3.Lerp(part.startPos, part.scatteredPos, easedT);
+                part.mesh.rotation.x += 0.02 * (1 - easedT);
+                part.mesh.rotation.y += 0.03 * (1 - easedT);
+            }
+        }
+        
+        // В конце фазы разборки (t близко к 1) отключаем физику и переходим на ручное управление
+        if (t > 0.9) {
+            for (const part of this.parts) {
+                if (part.hasPhysics && part.physicsBody) {
+                    // Сохраняем текущую позицию из физики
+                    const currentPos = part.mesh.position.clone();
+                    part.scatteredPos = currentPos;
+                    
+                    // Останавливаем физику и удаляем физическое тело
+                    part.physicsBody.setLinearVelocity(Vector3.Zero());
+                    part.physicsBody.setAngularVelocity(Vector3.Zero());
+                    try {
+                        part.physicsBody.dispose();
+                    } catch (e) {
+                        // Игнорируем ошибки
+                    }
+                    part.physicsBody = null;
+                    part.hasPhysics = false;
+                }
+            }
         }
     }
     
     /**
-     * Фаза 2: Трансформация - части меняют размер, цвет
+     * Фаза 2: Трансформация - части меняют размер, цвет (без физики, kinematic)
      */
     private animateTransformation(t: number): void {
         const easedT = this.easeInOutSine(t);
@@ -503,6 +791,8 @@ export class ChassisTransformAnimation {
             // Лёгкая пульсация для эффекта трансформации
             const pulse = 1 + Math.sin(t * Math.PI * 4) * 0.05;
             part.mesh.scaling.scaleInPlace(pulse);
+            
+            // Физика уже отключена после фазы разборки, управление ручное
         }
         
         // Увеличиваем эффект частиц в середине трансформации
@@ -512,19 +802,22 @@ export class ChassisTransformAnimation {
     }
     
     /**
-     * Фаза 3: Сборка - части собираются вместе
+     * Фаза 3: Сборка - части собираются вместе (kinematic)
      */
     private animateAssembly(t: number): void {
         const easedT = this.easeInQuad(t);
         
         for (const part of this.parts) {
             // Интерполяция позиции к конечной
-            part.mesh.position = Vector3.Lerp(part.scatteredPos, part.endPos, easedT);
+            const newPos = Vector3.Lerp(part.scatteredPos, part.endPos, easedT);
+            part.mesh.position = newPos;
             
             // Сбрасываем вращение постепенно
             part.mesh.rotation.x *= (1 - easedT);
             part.mesh.rotation.y *= (1 - easedT);
             part.mesh.rotation.z *= (1 - easedT);
+            
+            // Физика уже отключена после фазы разборки, управление ручное
         }
         
         // Уменьшаем эффект частиц к концу
@@ -556,6 +849,15 @@ export class ChassisTransformAnimation {
         
         // Удаляем все временные части
         for (const part of this.parts) {
+            // Удаляем физическое тело, если есть
+            if (part.physicsBody) {
+                try {
+                    part.physicsBody.dispose();
+                } catch (e) {
+                    // Игнорируем ошибки
+                }
+            }
+            
             if (part.mesh && !part.mesh.isDisposed()) {
                 part.mesh.dispose();
             }

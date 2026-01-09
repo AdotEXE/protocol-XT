@@ -328,13 +328,12 @@ export class GameUpdate {
             this.updateEnemyPositionsCache();
         }
         
-        // КРИТИЧНО: Обновление врагов с оптимизацией по расстоянию
-        // Обновляем врагов с разной частотой в зависимости от расстояния
-        // КРИТИЧНО: Пропускаем обновления при низком FPS для стабильности
-        if (this._lastFPS >= 30 && this.enemyTanks && this.enemyTanks.length > 0 && this.tank && this.tank.chassis) {
+        // ИСПРАВЛЕНО: Обновление врагов БЕЗ жесткой зависимости от FPS
+        // Обновляем врагов всегда, но с адаптивной частотой при низком FPS
+        if (this.enemyTanks && this.enemyTanks.length > 0 && this.tank && this.tank.chassis) {
             this.updateEnemiesOptimized();
-            // КРИТИЧНО: Обновляем физику только для ближних врагов (только при FPS >= 30)
-            if (this._lastFPS >= 30) {
+            // Физику обновляем только при FPS >= 20 (более мягкое ограничение)
+            if (this._lastFPS >= 20) {
                 this.updateEnemiesPhysicsOptimized();
             }
         }
@@ -372,16 +371,15 @@ export class GameUpdate {
             const dz = enemy.chassis.position.z - playerPos.z;
             const distSq = dx * dx + dz * dz;
             
-            // Интервалы обновления на основе расстояния (уменьшены для лучшей работы AI)
-            let updateInterval = 1; // Близкие (< 200м) - каждый кадр
-            if (distSq > 360000) { // > 600м
-                updateInterval = 5; // Очень далекие - каждые 5 кадров
-            } else if (distSq > 160000) { // > 400м
-                updateInterval = 3; // Далекие - каждые 3 кадра
-            } else if (distSq > 40000) { // > 200м
-                updateInterval = 2; // Средние - каждые 2 кадра
-            } else {
-                updateInterval = 1; // Близкие (< 200м) - каждый кадр
+            // ИСПРАВЛЕНО: Все враги обновляются каждый кадр для плавной работы AI
+            // Убрана зависимость от расстояния - все боты работают одинаково плавно
+            // При низком FPS (< 20) обновляем реже через адаптивный интервал
+            let updateInterval = 1; // По умолчанию каждый кадр
+            
+            // Только при очень низком FPS уменьшаем частоту обновления
+            if (this._lastFPS < 20) {
+                // При FPS < 20 обновляем каждые 2 кадра для стабильности
+                updateInterval = 2;
             }
             
             // Обновляем только если пришло время для этого врага

@@ -90,6 +90,10 @@ export function createUniqueCannon(
                 height: barrelWidth * 0.75,
                 depth: barrelLength * 2.0
             }, scene);
+            // КРИТИЧНО: Убеждаемся, что ствол смотрит прямо (не вверх) и может поворачиваться по вертикали
+            barrel.rotation.x = 0;
+            barrel.rotation.y = 0;
+            barrel.rotation.z = 0;
             
             const scopeMat = new StandardMaterial("scopeMat", scene);
             scopeMat.diffuseColor = new Color3(0.15, 0.15, 0.15);  // Советский темно-зеленый

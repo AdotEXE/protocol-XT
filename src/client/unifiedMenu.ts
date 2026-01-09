@@ -639,7 +639,7 @@ export class UnifiedMenu {
             .sidebar-title {
                 padding: 12px;
                 color: #7f7;
-                font-size: 10px;
+                font-size: 6px;
                 font-weight: bold;
                 letter-spacing: 1px;
                 border-bottom: 1px solid rgba(0, 255, 4, 0.2);
@@ -670,12 +670,12 @@ export class UnifiedMenu {
             }
 
             .sidebar-icon {
-                font-size: 16px;
+                font-size: 8px;
             }
 
             .sidebar-name {
                 color: #0f0;
-                font-size: 12px;
+                font-size: 6px;
                 font-family: Consolas, Monaco, 'Courier New', monospace;
             }
 
@@ -724,18 +724,18 @@ export class UnifiedMenu {
             }
 
             .tab-icon {
-                font-size: 14px;
+                font-size: 8px;
             }
 
             .tab-name {
                 color: #0f0;
-                font-size: 11px;
+                font-size: 6px;
                 font-family: Consolas, Monaco, 'Courier New', monospace;
             }
 
             .tab-close {
                 color: #f00;
-                font-size: 14px;
+                font-size: 8px;
                 line-height: 1;
                 padding: 0 2px;
                 cursor: pointer;

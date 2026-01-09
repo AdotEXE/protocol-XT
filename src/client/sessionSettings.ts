@@ -38,7 +38,7 @@ export interface SessionSettingsData {
     gameMode: GameMode;            // Режим игры
     enemyCount: number;           // 0-50
     spawnInterval: number;         // 1-60 секунд
-    aiDifficulty: "easy" | "medium" | "hard";
+    aiDifficulty: "easy" | "medium" | "hard" | "nightmare";
     enemyTypes: EnemyTypeConfig[]; // Расширенная конфигурация типов
     spawnZones: SpawnZone[];       // Зоны спавна
     spawnPattern: SpawnPattern;    // Паттерн спавна
@@ -115,7 +115,7 @@ export class SessionSettings {
             gameMode: "normal",
             enemyCount: 7,
             spawnInterval: 30,
-            aiDifficulty: "medium",
+            aiDifficulty: "nightmare",
             enemyTypes: [
                 { id: "basic", name: "Базовый", enabled: true, weight: 5, minLevel: 1, maxLevel: 3 },
                 { id: "heavy", name: "Тяжёлый", enabled: true, weight: 3, minLevel: 2, maxLevel: 5 },
@@ -314,6 +314,7 @@ export class SessionSettings {
                             <option value="easy" ${this.settings.aiDifficulty === "easy" ? "selected" : ""}>Легкая</option>
                             <option value="medium" ${this.settings.aiDifficulty === "medium" ? "selected" : ""}>Средняя</option>
                             <option value="hard" ${this.settings.aiDifficulty === "hard" ? "selected" : ""}>Тяжелая</option>
+                            <option value="nightmare" ${this.settings.aiDifficulty === "nightmare" ? "selected" : ""} style="background: #8b0000; color: #fff; font-weight: bold;">КОШМАР</option>
                         </select>
                     </div>
                 </div>
@@ -380,7 +381,7 @@ export class SessionSettings {
         // AI difficulty
         const aiDifficultySelect = document.getElementById("ai-difficulty") as HTMLSelectElement;
         aiDifficultySelect?.addEventListener("change", (e) => {
-            this.settings.aiDifficulty = (e.target as HTMLSelectElement).value as "easy" | "medium" | "hard";
+            this.settings.aiDifficulty = (e.target as HTMLSelectElement).value as "easy" | "medium" | "hard" | "nightmare";
         });
         
         // Wave system
@@ -590,6 +591,7 @@ export class SessionSettings {
                             <option value="easy" ${this.settings.aiDifficulty === 'easy' ? 'selected' : ''}>Лёгкая</option>
                             <option value="medium" ${this.settings.aiDifficulty === 'medium' ? 'selected' : ''}>Средняя</option>
                             <option value="hard" ${this.settings.aiDifficulty === 'hard' ? 'selected' : ''}>Сложная</option>
+                            <option value="nightmare" ${this.settings.aiDifficulty === 'nightmare' ? 'selected' : ''} style="background: #8b0000; color: #fff; font-weight: bold;">КОШМАР</option>
                         </select>
                     </div>
                 </div>
@@ -647,7 +649,7 @@ export class SessionSettings {
         });
         
         difficultySelect?.addEventListener("change", () => {
-            this.settings.aiDifficulty = difficultySelect.value as "easy" | "medium" | "hard";
+            this.settings.aiDifficulty = difficultySelect.value as "easy" | "medium" | "hard" | "nightmare";
         });
         
         gamemodeSelect?.addEventListener("change", () => {

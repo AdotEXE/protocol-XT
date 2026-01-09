@@ -365,7 +365,7 @@ const DEFAULT_TANK: TankConfig = {
     firepower: 2
 };
 
-export type MapType = "normal" | "sandbox" | "sand" | "madness" | "expo" | "brest" | "arena" | "polygon" | "frontline" | "ruins" | "canyon" | "industrial" | "urban_warfare" | "underground" | "coastal" | "tartaria";
+export type MapType = "normal" | "sandbox" | "sand" | "madness" | "expo" | "brest" | "arena" | "polygon" | "frontline" | "ruins" | "canyon" | "industrial" | "urban_warfare" | "underground" | "coastal" | "tartaria" | "custom";
 
 export class MainMenu {
     private container!: HTMLDivElement;
@@ -396,6 +396,7 @@ export class MainMenu {
     private garageScene: Scene | null = null; // Minimal scene for garage (if created in menu)
     private garageCurrencyManager: CurrencyManager | null = null; // Currency manager for garage
     private returnToPlayMenuAfterGarage = false;
+    private standaloneMapEditor: any | null = null; // StandaloneMapEditor instance (lazy loaded when needed)
     
     private canvasObserver: MutationObserver | null = null;
     private canvasPointerEventsCheckInterval: number | null = null;
@@ -869,12 +870,9 @@ export class MainMenu {
                         </button>
                     </div>
                     <div class="btn-row">
-                        <button class="menu-btn secondary under-construction-btn" id="btn-map-editor">
+                        <button class="menu-btn secondary" id="btn-map-editor">
                             <span class="btn-icon">🗺</span>
                             <span class="btn-label">РЕДАКТОР КАРТ</span>
-                            <div class="under-construction-overlay">
-                                <span class="under-construction-text">UNDER CONSTRUCTION</span>
-                            </div>
                         </button>
                         <button class="menu-btn secondary under-construction-btn" id="btn-tank-editor">
                             <span class="btn-icon">🔧</span>
@@ -3432,8 +3430,10 @@ export class MainMenu {
     }
     
     private attachDirectButtonHandlers(): void {
+        console.log("[Menu] ====== attachDirectButtonHandlers() CALLED ======");
         // Предотвращаем множественную привязку обработчиков
         if (this.buttonHandlersAttached) {
+            console.log("[Menu] Button handlers already attached, skipping");
             if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
                 logger.debug("[Menu] Button handlers already attached");
             }
@@ -3441,6 +3441,7 @@ export class MainMenu {
         }
         
         try {
+            console.log("[Menu] Attaching button handlers...");
             // Добавляем обработчики напрямую на каждую кнопку для максимальной надежности
             const buttons = [
                 { id: "btn-play", handler: () => this.showPlayMenu() },
@@ -3448,7 +3449,12 @@ export class MainMenu {
                 { id: "btn-garage", handler: () => this.showGarage() },
                 { id: "btn-skills", handler: () => this.showSkills() },
                 { id: "btn-stats", handler: () => this.showStats() },
-                { id: "btn-map-editor", handler: () => this.openMapEditor() },
+                { id: "btn-map-editor", handler: () => {
+                    console.log("[Menu] btn-map-editor clicked!");
+                    this.openMapEditor().catch((error) => {
+                        console.error("[Menu] Unhandled error in openMapEditor:", error);
+                    });
+                }},
                 { id: "btn-tank-editor", handler: () => this.openTankEditor() },
                 { id: "btn-settings", handler: () => this.showSettings() },
                 { id: "btn-fullscreen", handler: () => this.toggleFullscreen() },
@@ -3467,6 +3473,15 @@ export class MainMenu {
                         console.warn(`[Menu] Button ${id} not found!`);
                         return;
                     }
+                    
+                    // Специальное логирование для кнопки редактора карт
+                    if (id === "btn-map-editor") {
+                        console.log(`[Menu] ====== Attaching handler to ${id} ======`);
+                        console.log(`[Menu] Button found:`, btn);
+                        console.log(`[Menu] Button visible:`, btn.offsetWidth > 0 && btn.offsetHeight > 0);
+                        console.log(`[Menu] Button style pointerEvents:`, window.getComputedStyle(btn).pointerEvents);
+                    }
+                    
                     if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
                         logger.verbose(`[Menu] Attaching handler to button ${id}`);
                     }
@@ -3486,6 +3501,12 @@ export class MainMenu {
                     newBtn.style.zIndex = "10000";
                     newBtn.style.position = "relative";
                     
+                    // Специальная проверка для кнопки редактора карт
+                    if (id === "btn-map-editor") {
+                        console.log(`[Menu] New button created:`, newBtn);
+                        console.log(`[Menu] New button style pointerEvents:`, newBtn.style.pointerEvents);
+                    }
+                    
                     // Блокируем canvas перед добавлением обработчика
                     const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
                     if (canvas) {
@@ -3493,10 +3514,11 @@ export class MainMenu {
                         canvas.style.setProperty("z-index", "0", "important");
                     }
                     
-                    // Для кнопок авторизации используем и mousedown, и click для максимальной надежности
-                    if (id === "btn-login" || id === "btn-register") {
+                    // Для кнопок авторизации и редактора карт используем и mousedown, и click для максимальной надежности
+                    if (id === "btn-login" || id === "btn-register" || id === "btn-map-editor") {
                         // Обработчик mousedown - срабатывает первым
                         newBtn.addEventListener("mousedown", (e) => {
+                            console.log(`[Menu] Button ${id} mousedown event!`);
                             if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
                                 logger.verbose(`[Menu] Button ${id} mousedown`);
                             }
@@ -3513,6 +3535,7 @@ export class MainMenu {
                                 e.stopImmediatePropagation();
                                 
                                 // Вызываем handler сразу
+                                console.log(`[Menu] Calling handler for ${id} from mousedown`);
                                 if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
                                     logger.verbose(`[Menu] Handler called/completed for ${id}`);
                                 }
@@ -3525,6 +3548,7 @@ export class MainMenu {
                         
                         // Обработчик click - резервный, на случай если mousedown не сработал
                         newBtn.addEventListener("click", (e) => {
+                            console.log(`[Menu] Button ${id} click event!`);
                             if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
                                 logger.verbose(`[Menu] Button ${id} click (backup)`);
                             }
@@ -3541,7 +3565,7 @@ export class MainMenu {
                                 e.stopImmediatePropagation();
                                 
                                 // Вызываем handler
-                                // Handler called/completed (backup) - logging removed
+                                console.log(`[Menu] Calling handler for ${id} from click`);
                                 handler();
                             } catch (error) {
                                 console.error(`[Menu] Error in click handler for ${id}:`, error);
@@ -7990,27 +8014,69 @@ export class MainMenu {
     /**
      * Открыть редактор карт
      */
-    private openMapEditor(): void {
-        debugLog("[Menu] openMapEditor() called");
-        // Пытаемся открыть редактор карт напрямую через экземпляр Game
-        const gameInstance = (window as any).gameInstance;
-        if (gameInstance && typeof gameInstance.openMapEditorFromMenu === "function") {
-            gameInstance.openMapEditorFromMenu();
-            debugLog("[Menu] Map editor opened via gameInstance.openMapEditorFromMenu()");
-            return;
-        }
+    private async openMapEditor(): Promise<void> {
+        console.log("[Menu] ====== openMapEditor() CALLED ======");
         
-        // Fallback: старое поведение через синтетическое нажатие Ctrl+Shift+M
-        const event = new KeyboardEvent("keydown", {
-            key: "m",
-            code: "KeyM",
-            ctrlKey: true,
-            shiftKey: true,
-            bubbles: true,
-            cancelable: true
-        });
-        window.dispatchEvent(event);
-        debugLog("[Menu] Map editor event dispatched (fallback)");
+        try {
+            // Загружаем MapEditorLauncher для выбора карты
+            console.log("[Menu] Loading MapEditorLauncher...");
+            const { MapEditorLauncher } = await import("./mapEditorLauncher");
+            const launcher = new MapEditorLauncher();
+            
+            // Показываем лаунчер и ждем выбора пользователя
+            console.log("[Menu] Showing map editor launcher...");
+            const result = await launcher.show();
+            
+            if (result.action === "cancel") {
+                console.log("[Menu] User cancelled map editor");
+                return;
+            }
+            
+            // Lazy load StandaloneMapEditor
+            if (!this.standaloneMapEditor) {
+                console.log("[Menu] Loading StandaloneMapEditor...");
+                const { StandaloneMapEditor } = await import("./standaloneMapEditor");
+                console.log("[Menu] StandaloneMapEditor imported, creating instance...");
+                this.standaloneMapEditor = new StandaloneMapEditor(this);
+                console.log("[Menu] ✅ StandaloneMapEditor instance created");
+            } else {
+                console.log("[Menu] StandaloneMapEditor already loaded");
+            }
+            
+            // Открываем редактор с выбранной конфигурацией
+            if (this.standaloneMapEditor && typeof this.standaloneMapEditor.open === "function" && result.config) {
+                console.log("[Menu] Opening StandaloneMapEditor with config:", result.config);
+                await this.standaloneMapEditor.open(result.config);
+                console.log("[Menu] ✅ StandaloneMapEditor opened successfully");
+            } else {
+                const error = new Error(`Cannot open editor: ${!this.standaloneMapEditor ? "StandaloneMapEditor not loaded" : !result.config ? "No config provided" : "open method not available"}`);
+                console.error("[Menu] ❌", error);
+                throw error;
+            }
+        } catch (error) {
+            console.error("[Menu] ❌ Failed to open StandaloneMapEditor:", error);
+            if (error instanceof Error) {
+                console.error("[Menu] Error message:", error.message);
+                console.error("[Menu] Error stack:", error.stack);
+            }
+            
+            // Fallback: пытаемся через gameInstance (если игра запущена)
+            const gameInstance = (window as any).gameInstance;
+            console.log("[Menu] Trying fallback... gameInstance:", !!gameInstance);
+            if (gameInstance && typeof gameInstance.openMapEditorFromMenu === "function") {
+                console.log("[Menu] Fallback: calling gameInstance.openMapEditorFromMenu()...");
+                try {
+                    await gameInstance.openMapEditorFromMenu();
+                    console.log("[Menu] ✅ Fallback: opened via gameInstance");
+                    return;
+                } catch (fallbackError) {
+                    console.error("[Menu] ❌ Fallback also failed:", fallbackError);
+                }
+            }
+            
+            // Показываем сообщение об ошибке пользователю
+            alert(`Не удалось открыть редактор карт:\n${error instanceof Error ? error.message : String(error)}`);
+        }
     }
     
     /**

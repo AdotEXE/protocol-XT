@@ -166,7 +166,7 @@ export class TankController {
     
     // Movement Settings (будут переопределены типом корпуса)
     moveSpeed = 24;         // Slower max speed
-    turnSpeed = 2.5;        // Moderate turning
+    turnSpeed = 5.0;        // Moderate turning
     acceleration = 40000;    // СКРУГЛЁННЫЕ ГУСЕНИЦЫ: +143% для преодоления ЛЮБЫХ препятствий
     turnAccel = 11000;      // Угловое ускорение поворота
     stabilityTorque = 2000; // Стабилизация при повороте на скорости
@@ -217,6 +217,17 @@ export class TankController {
     
     // Shooting (будет переопределено типом пушки)
     damage = 25; // Базовый урон
+    
+    // КРИТИЧНО: Сохранённые характеристики в начале боя (НЕ должны изменяться после смерти!)
+    private _initialMaxHealth: number = 0;
+    private _initialMoveSpeed: number = 0;
+    private _initialTurnSpeed: number = 0;
+    private _initialDamage: number = 0;
+    private _initialCooldown: number = 0;
+    private _initialProjectileSpeed: number = 0;
+    private _initialTurretSpeed: number = 0;
+    private _initialBaseTurretSpeed: number = 0;
+    private _characteristicsInitialized: boolean = false;
     
     // Tracer System (T key)
     tracerCount = 5; // Количество трассеров
@@ -542,6 +553,19 @@ export class TankController {
         // Применяем улучшения из гаража
         this.applyUpgrades();
         
+        // КРИТИЧНО: Сохраняем характеристики ПОСЛЕ применения улучшений
+        // Эти характеристики НЕ должны изменяться после смерти!
+        this._initialMaxHealth = this.maxHealth;
+        this._initialMoveSpeed = this.moveSpeed;
+        this._initialTurnSpeed = this.turnSpeed;
+        this._initialDamage = this.damage;
+        this._initialCooldown = this.cooldown;
+        this._initialProjectileSpeed = this.projectileSpeed;
+        this._initialTurretSpeed = this.turretSpeed;
+        this._initialBaseTurretSpeed = this.baseTurretSpeed;
+        this._characteristicsInitialized = true;
+        logger.log(`[TANK] Initial characteristics saved: HP=${this._initialMaxHealth}, Speed=${this._initialMoveSpeed}, Damage=${this._initialDamage}, Cooldown=${this._initialCooldown}, TurretSpeed=${this._initialTurretSpeed}`);
+        
         // 5. Initialize modules (before visuals to use them)
         this.healthModule = new TankHealthModule(this);
         this.movementModule = new TankMovementModule(this);
@@ -780,6 +804,17 @@ export class TankController {
         // Ствол строго по центру башни по X и Y, и выдвинут вперед по Z
         this.barrel.position = new Vector3(0, 0, baseBarrelZ);
         this.barrel.parent = this.turret;
+        
+        // КРИТИЧНО: Инициализируем rotation.x для всех пушек, включая Sniper
+        // Убеждаемся, что ствол может поворачиваться по вертикали
+        this.barrel.rotation.x = 0;
+        this.barrel.rotation.y = 0;
+        this.barrel.rotation.z = 0;
+        
+        // КРИТИЧНО: Инициализируем переменные поворота ствола
+        // Это особенно важно для Sniper, чтобы вертикальный поворот работал
+        this._barrelCurrentRotationX = 0;
+        this._barrelTargetRotationX = 0;
         // КРИТИЧНО: В Babylon.js дочерние меши должны быть в scene.meshes, но рендерятся только вместе с родителем
         // Убеждаемся, что barrel не рендерится как корневой меш, если он дочерний элемент
         // Устанавливаем флаг, чтобы движок знал, что этот меш не должен рендериться отдельно
@@ -2126,8 +2161,34 @@ export class TankController {
             logger.log(`[TANK] Parts recreated. Chassis: ${this.chassis?.name}, Turret: ${this.turret?.name}, Barrel: ${this.barrel?.name}`);
         }
         
-        // Применяем улучшения заново
-        this.applyUpgrades();
+        // КРИТИЧНО: НЕ применяем улучшения заново! Характеристики НЕ должны изменяться после смерти!
+        // Вместо этого восстанавливаем сохранённые характеристики из начала боя
+        if (this._characteristicsInitialized) {
+            this.maxHealth = this._initialMaxHealth;
+            this.moveSpeed = this._initialMoveSpeed;
+            this.turnSpeed = this._initialTurnSpeed;
+            this.damage = this._initialDamage;
+            this.cooldown = this._initialCooldown;
+            this.baseCooldown = this._initialCooldown;
+            this.projectileSpeed = this._initialProjectileSpeed;
+            this.turretSpeed = this._initialTurretSpeed;
+            this.baseTurretSpeed = this._initialBaseTurretSpeed;
+            logger.log(`[TANK] Characteristics restored from battle start: HP=${this.maxHealth}, Speed=${this.moveSpeed}, Damage=${this.damage}`);
+        } else {
+            // Fallback: если характеристики не были сохранены, применяем улучшения (только один раз)
+            logger.warn(`[TANK] Characteristics not initialized, applying upgrades as fallback`);
+            this.applyUpgrades();
+            // Сохраняем их для следующих респавнов
+            this._initialMaxHealth = this.maxHealth;
+            this._initialMoveSpeed = this.moveSpeed;
+            this._initialTurnSpeed = this.turnSpeed;
+            this._initialDamage = this.damage;
+            this._initialCooldown = this.cooldown;
+            this._initialProjectileSpeed = this.projectileSpeed;
+            this._initialTurretSpeed = this.turretSpeed;
+            this._initialBaseTurretSpeed = this.baseTurretSpeed;
+            this._characteristicsInitialized = true;
+        }
         
         // ВОССТАНАВЛИВАЕМ здоровье и состояние
         this.currentHealth = this.maxHealth;
@@ -2238,14 +2299,14 @@ export class TankController {
             // Если танк НЕ в гараже и НЕ был телепортирован - вычисляем высоту террейна
             if (game && typeof game.getGroundHeight === 'function') {
                 const groundHeight = game.getGroundHeight(targetX, targetZ);
-                // Безопасная высота: +5м над террейном, минимум 7м
-                targetY = Math.max(groundHeight + 5.0, 7.0);
+                // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+                targetY = groundHeight + 1.0;
                 logger.log(`[TANK] Corrected respawn height: ${targetY.toFixed(2)} (ground: ${groundHeight.toFixed(2)})`);
             } else {
-                // Fallback: если game недоступен, используем минимум 7 метров
-                if (targetY < 7.0) {
-                    targetY = 7.0;
-                    logger.warn(`[TANK] Respawn height too low (${respawnPos.y.toFixed(2)}), forcing to 7.0`);
+                // Fallback: если game недоступен, используем минимум 2 метра
+                if (targetY < 2.0) {
+                    targetY = 2.0;
+                    logger.warn(`[TANK] Respawn height too low (${respawnPos.y.toFixed(2)}), forcing to 2.0`);
                 }
             }
         }
@@ -2485,9 +2546,59 @@ export class TankController {
         this.isKeyboardTurretControl = false;
         this.isAutoCentering = false;
         
-        // КРИТИЧНО: Принудительно устанавливаем turretSpeed и baseTurretSpeed
-        this.turretSpeed = 0.08; // УВЕЛИЧЕНО для более быстрого поворота
-        this.baseTurretSpeed = 0.08; // УВЕЛИЧЕНО
+        // КРИТИЧНО: НЕ применяем улучшения! Характеристики НЕ должны изменяться после смерти!
+        // Восстанавливаем сохранённые характеристики из начала боя
+        if (this._characteristicsInitialized) {
+            this.maxHealth = this._initialMaxHealth;
+            this.moveSpeed = this._initialMoveSpeed;
+            this.turnSpeed = this._initialTurnSpeed;
+            this.damage = this._initialDamage;
+            this.cooldown = this._initialCooldown;
+            this.baseCooldown = this._initialCooldown;
+            this.projectileSpeed = this._initialProjectileSpeed;
+            this.turretSpeed = this._initialTurretSpeed;
+            this.baseTurretSpeed = this._initialBaseTurretSpeed;
+            logger.log(`[TANK] Characteristics restored in completeRespawn: HP=${this.maxHealth}, Speed=${this.moveSpeed}, Damage=${this.damage}, TurretSpeed=${this.turretSpeed}`);
+        } else {
+            // Fallback: если характеристики не были сохранены, используем значения по умолчанию
+            const defaultTurretSpeed = 0.08;
+            this.turretSpeed = defaultTurretSpeed;
+            this.baseTurretSpeed = defaultTurretSpeed;
+            logger.warn(`[TANK] Characteristics not initialized in completeRespawn, using default values`);
+        }
+        
+        // КРИТИЧНО: Гарантируем, что turretSpeed не равен 0, NaN, Infinity или слишком маленький
+        // Это должно быть ДО отправки события respawn, чтобы game.ts получил правильное значение
+        if (!this.turretSpeed || this.turretSpeed === 0 || !isFinite(this.turretSpeed) || isNaN(this.turretSpeed) || this.turretSpeed === Infinity || this.turretSpeed === -Infinity || this.turretSpeed < 0.06) {
+            this.turretSpeed = defaultTurretSpeed;
+            logger.warn(`[TANK] turretSpeed was invalid after respawn (value: ${this.turretSpeed}), resetting to ${defaultTurretSpeed}`);
+        }
+        if (!this.baseTurretSpeed || this.baseTurretSpeed === 0 || !isFinite(this.baseTurretSpeed) || isNaN(this.baseTurretSpeed) || this.baseTurretSpeed === Infinity || this.baseTurretSpeed === -Infinity || this.baseTurretSpeed < 0.06) {
+            this.baseTurretSpeed = defaultTurretSpeed;
+            logger.warn(`[TANK] baseTurretSpeed was invalid after respawn (value: ${this.baseTurretSpeed}), resetting to ${defaultTurretSpeed}`);
+        }
+        
+        // КРИТИЧНО: Ограничиваем максимальную скорость поворота башни
+        // После применения бонусов turretSpeed может стать слишком большим
+        const maxTurretSpeed = 0.15; // Максимальная скорость поворота башни
+        if (this.turretSpeed > maxTurretSpeed) {
+            logger.warn(`[TANK] turretSpeed (${this.turretSpeed.toFixed(4)}) exceeded max (${maxTurretSpeed}), clamping`);
+            this.turretSpeed = maxTurretSpeed;
+        }
+        if (this.baseTurretSpeed > maxTurretSpeed) {
+            logger.warn(`[TANK] baseTurretSpeed (${this.baseTurretSpeed.toFixed(4)}) exceeded max (${maxTurretSpeed}), clamping`);
+            this.baseTurretSpeed = maxTurretSpeed;
+        }
+        
+        // КРИТИЧНО: Финальная проверка перед использованием
+        if (!isFinite(this.turretSpeed) || this.turretSpeed <= 0) {
+            this.turretSpeed = defaultTurretSpeed;
+            logger.error(`[TANK] turretSpeed failed final validation, forcing to ${defaultTurretSpeed}`);
+        }
+        if (!isFinite(this.baseTurretSpeed) || this.baseTurretSpeed <= 0) {
+            this.baseTurretSpeed = defaultTurretSpeed;
+            logger.error(`[TANK] baseTurretSpeed failed final validation, forcing to ${defaultTurretSpeed}`);
+        }
         
         // КРИТИЧНО: Сбрасываем ВСЕ переменные, связанные с вращением башни
         this.turretTurnTarget = 0;
@@ -2537,6 +2648,18 @@ export class TankController {
             if (!this.turretSpeed || this.turretSpeed === 0 || this.turretSpeed < 0.06) {
                 this.turretSpeed = 0.08; // Восстанавливаем стандартную скорость (увеличено)
                 logger.warn(`[TANK] turretSpeed was invalid, resetting to 0.08`);
+            }
+            
+            // КРИТИЧНО: Ограничиваем максимальную скорость поворота башни
+            // После применения бонусов turretSpeed может стать слишком большим
+            const maxTurretSpeed = 0.15; // Максимальная скорость поворота башни
+            if (this.turretSpeed > maxTurretSpeed) {
+                logger.warn(`[TANK] turretSpeed (${this.turretSpeed.toFixed(4)}) exceeded max (${maxTurretSpeed}) in sendRespawnEvent, clamping`);
+                this.turretSpeed = maxTurretSpeed;
+            }
+            if (this.baseTurretSpeed > maxTurretSpeed) {
+                logger.warn(`[TANK] baseTurretSpeed (${this.baseTurretSpeed.toFixed(4)}) exceeded max (${maxTurretSpeed}) in sendRespawnEvent, clamping`);
+                this.baseTurretSpeed = maxTurretSpeed;
             }
             
             window.dispatchEvent(new CustomEvent("tankRespawned", { 
@@ -2592,14 +2715,14 @@ export class TankController {
             } else if (game && typeof game.getGroundHeight === 'function') {
                 // Если танк НЕ в гараже и НЕ переодевание - вычисляем высоту террейна и корректируем позицию
                 const groundHeight = game.getGroundHeight(targetX, targetZ);
-                // Безопасная высота: +5м над террейном, минимум 7м
-                targetY = Math.max(groundHeight + 5.0, 7.0);
+                // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+                targetY = groundHeight + 1.0;
                 logger.log(`[TANK] Corrected teleport height: ${targetY.toFixed(2)} (ground: ${groundHeight.toFixed(2)})`);
             } else {
-                // Fallback: если game недоступен, используем минимум 10 метров
-                if (targetY < 10.0) {
-                    targetY = 10.0;
-                    logger.warn(`[TANK] Teleport height too low (${respawnPos.y.toFixed(2)}), forcing to 10.0`);
+                // Fallback: если game недоступен, используем минимум 2 метра
+                if (targetY < 2.0) {
+                    targetY = 2.0;
+                    logger.warn(`[TANK] Teleport height too low (${respawnPos.y.toFixed(2)}), forcing to 2.0`);
                 }
             }
             
@@ -2692,8 +2815,8 @@ export class TankController {
                     } else if (game && typeof game.getGroundHeight === 'function') {
                         // Если танк НЕ в гараже - вычисляем высоту террейна
                         const groundHeight = game.getGroundHeight(targetX, targetZ);
-                        // Безопасная высота: +5м над террейном, минимум 7м
-                        finalY = Math.max(groundHeight + 5.0, 7.0);
+                        // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+                        finalY = groundHeight + 1.0;
                     }
                     
                     // Убеждаемся, что позиция правильная
@@ -5783,11 +5906,39 @@ export class TankController {
             // КРИТИЧНО: Проверяем, что башня существует и не удалена, И что танк жив (не респавнится)
             if (this.isAlive && this.turret && !this.turret.isDisposed()) {
                 if (this.isKeyboardTurretControl || this.isAutoCentering) {
+                    // КРИТИЧНО: Проверяем и ограничиваем baseTurretSpeed перед использованием
+                    let baseTurretSpeed = this.baseTurretSpeed;
+                    if (!isFinite(baseTurretSpeed) || isNaN(baseTurretSpeed) || baseTurretSpeed === Infinity || baseTurretSpeed === -Infinity || baseTurretSpeed <= 0) {
+                        baseTurretSpeed = 0.08;
+                        this.baseTurretSpeed = 0.08;
+                        logger.warn(`[TANK] baseTurretSpeed was invalid in updatePhysics, resetting to 0.08`);
+                    }
+                    const maxTurretSpeed = 0.15;
+                    if (baseTurretSpeed > maxTurretSpeed) {
+                        baseTurretSpeed = maxTurretSpeed;
+                        this.baseTurretSpeed = maxTurretSpeed;
+                        logger.warn(`[TANK] baseTurretSpeed exceeded max in updatePhysics, clamping to ${maxTurretSpeed}`);
+                    }
+                    
                     // Плавная интерполяция цели вращения
                     this.turretTurnSmooth += (this.turretTurnTarget - this.turretTurnSmooth) * this.turretLerpSpeed;
                     
                     // Применяем поворот с ускорением
-                    const rotationDelta = this.turretTurnSmooth * this.baseTurretSpeed * this.turretAcceleration;
+                    let rotationDelta = this.turretTurnSmooth * baseTurretSpeed * this.turretAcceleration;
+                    
+                    // КРИТИЧНО: Ограничиваем максимальную скорость поворота
+                    // Защита от слишком быстрого поворота (например, если baseTurretSpeed стал слишком большим)
+                    const maxRotationDelta = 0.15; // Максимальная скорость поворота за кадр
+                    if (Math.abs(rotationDelta) > maxRotationDelta) {
+                        rotationDelta = Math.sign(rotationDelta) * maxRotationDelta;
+                        logger.warn(`[TANK] rotationDelta (${rotationDelta.toFixed(4)}) exceeded max (${maxRotationDelta}), clamping`);
+                    }
+                    
+                    // КРИТИЧНО: Проверяем на NaN и Infinity
+                    if (!isFinite(rotationDelta) || isNaN(rotationDelta)) {
+                        logger.error(`[TANK] rotationDelta is invalid (${rotationDelta}), skipping rotation`);
+                        rotationDelta = 0;
+                    }
                     
                     // ЛОГИРОВАНИЕ: Состояние поворота башни (только если есть значительное вращение)
                     if (Math.abs(rotationDelta) > 0.0001 && Math.random() < 0.01) { // Логируем 1% кадров
@@ -5877,7 +6028,13 @@ export class TankController {
                     this.barrel.parent = this.turret;
                 }
             }
-            if (this.barrel && !this.barrel.isDisposed() && this.barrel.parent === this.turret && isFinite(this.aimPitch)) {
+            // Применяем вертикальное движение ствола (aimPitch)
+            if (this.barrel && !this.barrel.isDisposed() && this.barrel.parent === this.turret) {
+                // Проверяем, что aimPitch валиден
+                if (!isFinite(this.aimPitch)) {
+                    this.aimPitch = 0; // Сбрасываем если невалиден
+                }
+                
                 // Применяем aimPitch к rotation.x ствола (вертикальный поворот)
                 // Ограничиваем угол от -10° (вниз) до +5° (вверх)
                 const clampedPitch = Math.max(-Math.PI / 18, Math.min(Math.PI / 36, this.aimPitch));
@@ -5893,7 +6050,8 @@ export class TankController {
                     const adaptiveSmoothing = this._barrelRotationXSmoothing * (0.5 + rotationEasing * 0.5);
                     this._barrelCurrentRotationX += rotationDiff * adaptiveSmoothing;
                     
-                    // Применяем сглаженное значение к стволу
+                    // КРИТИЧНО: Применяем сглаженное значение к стволу
+                    // Для всех типов пушек
                     this.barrel.rotation.x = this._barrelCurrentRotationX;
                 }
             }
@@ -5946,6 +6104,9 @@ export class TankController {
             if (this._tick % 2 === 0) {
                 this.updateModules();
             }
+            
+            // Модуль 9: Обновление платформы КАЖДЫЙ КАДР для максимальной плавности
+            this.updateModule9Platform();
             
             // FIX: УБРАНО принудительное обновление видимости дочерних мешей каждый кадр
             // Дочерние меши (turret, barrel) наследуют видимость от родителя (chassis)
@@ -6113,44 +6274,96 @@ export class TankController {
         const barrelPos = this.barrel.getAbsolutePosition();
         const barrelForward = this.barrel.getDirection(Vector3.Forward()).normalize();
         
-        // Создаём стенку перед пушкой
-        const wallPos = barrelPos.add(barrelForward.scale(8));
+        // Получаем позицию дула ствола (как при выстреле)
+        const muzzlePos = barrelPos.add(barrelForward.scale(1.5));
         
-        // Определяем высоту пола через raycast вниз
-        let groundY = 0; // Высота пола по умолчанию
+        // Создаём стенку перед дулом ствола на расстоянии 2 метра
+        const wallPos = muzzlePos.add(barrelForward.scale(2));
+        
+        // КРИТИЧНО: Определяем высоту поверхности через raycast вниз
+        // Стенка должна появляться на ЛЮБОЙ поверхности на ЛЮБОЙ высоте (даже в воздухе)
+        let groundY = wallPos.y; // По умолчанию используем Y координату позиции стенки (для появления в воздухе)
         const rayStart = wallPos.clone();
-        rayStart.y = barrelPos.y + 5; // Начинаем сверху
+        // КРИТИЧНО: Начинаем достаточно высоко, но не слишком высоко, чтобы найти поверхности на любой высоте
+        // Используем максимум из: позиция ствола + 50, позиция стенки + 100, или фиксированная высота 200
+        rayStart.y = Math.max(Math.max(barrelPos.y + 50, wallPos.y + 100), 200);
         const rayDirection = new Vector3(0, -1, 0); // Направление вниз
-        const ray = new Ray(rayStart, rayDirection, 20);
+        // КРИТИЧНО: Увеличена длина raycast до 500 метров для очень высоких поверхностей
+        // Но также убеждаемся, что мы можем найти поверхности ниже (до -10 для защитной плоскости)
+        const rayLength = Math.max(500, rayStart.y - (-10) + 50); // Достаточно для поиска от 200 до -10
+        const ray = new Ray(rayStart, rayDirection, rayLength);
         
         const pick = this.scene.pickWithRay(ray, (mesh) => {
             if (!mesh || !mesh.isEnabled()) return false;
+            
+            // Исключаем танки, пули, стенки и другие динамические объекты
             const meta = mesh.metadata;
-            if (meta && (meta.type === "playerTank" || meta.type === "bullet" || meta.type === "consumable" || meta.type === "protectiveWall")) return false;
+            if (meta && (meta.type === "playerTank" || meta.type === "bullet" || meta.type === "consumable" || meta.type === "protectiveWall" || meta.type === "enemyWall" || meta.type === "platform")) return false;
+            
+            // Исключаем UI элементы
             if (mesh.name.includes("billboard") || mesh.name.includes("hp")) return false;
+            
+            // КРИТИЧНО: Проверяем имя меша для поиска поверхностей
+            const meshName = mesh.name.toLowerCase();
+            const isSurface = meshName.startsWith("ground_") || 
+                             meshName.includes("terrain") || 
+                             meshName.includes("chunk") ||
+                             meshName.includes("floor") ||
+                             meshName.includes("platform") ||
+                             meshName.includes("wall") ||
+                             meshName.includes("road") ||
+                             meshName.includes("asphalt") ||
+                             meshName.includes("concrete") ||
+                             meshName.includes("dirt") ||
+                             meshName.includes("sand") ||
+                             meshName.includes("grass");
+            
+            // Если это поверхность, принимаем её даже если isPickable = false
+            if (isSurface) {
+                return mesh.visibility > 0.5;
+            }
+            
+            // Для остальных мешей проверяем isPickable
             return mesh.isPickable && mesh.visibility > 0.5;
         });
         
         // Определяем цвет поверхности и высоту пола
         let surfaceColor = new Color3(0.5, 0.5, 0.5); // Цвет по умолчанию (серый)
         if (pick && pick.hit && pick.pickedPoint) {
+            // Нашли поверхность - используем её высоту
             groundY = pick.pickedPoint.y;
+            
+            // КРИТИЧНО: Определяем цвет поверхности из материала
             if (pick.pickedMesh && pick.pickedMesh.material) {
-            const material = pick.pickedMesh.material;
-            if (material instanceof StandardMaterial) {
-                surfaceColor = material.diffuseColor.clone();
-            }
+                const material = pick.pickedMesh.material;
+                if (material instanceof StandardMaterial) {
+                    surfaceColor = material.diffuseColor.clone();
+                } else {
+                    // Если материал не StandardMaterial, пытаемся получить цвет другим способом
+                    try {
+                        const mat = material as any;
+                        if (mat.diffuseColor) {
+                            surfaceColor = mat.diffuseColor.clone ? mat.diffuseColor.clone() : new Color3(mat.diffuseColor.r || 0.5, mat.diffuseColor.g || 0.5, mat.diffuseColor.b || 0.5);
+                        }
+                    } catch (e) {
+                        // Используем цвет по умолчанию
+                    }
+                }
             }
         } else {
-            groundY = 0; // Если не нашли пол, используем Y=0
+            // НЕ нашли поверхность - используем Y координату позиции стенки (для появления в воздухе)
+            groundY = wallPos.y;
         }
         
-        // Финальная позиция стенки (центр на высоте groundY + 2)
+        // КРИТИЧНО: Финальная позиция стенки (центр на высоте groundY + 2)
+        // Стенка высотой 4, так что центр на groundY + 2 означает, что нижняя грань на groundY
         const finalY = groundY + 2;
         const finalWallPos = new Vector3(wallPos.x, finalY, wallPos.z);
         
-        // Начальная позиция (под полом, чтобы стенка полностью была скрыта)
-        const startY = groundY - 4; // Стенка высотой 4, так что начинаем на 4 единицы ниже пола
+        // КРИТИЧНО: Начальная позиция (под поверхностью, чтобы стенка полностью была скрыта)
+        // Стенка высотой 4, так что начинаем на 4 единицы ниже поверхности
+        // Убеждаемся, что startY не слишком низко (минимум -10 для безопасности)
+        const startY = Math.max(groundY - 4, groundY - 10);
         const startWallPos = new Vector3(wallPos.x, startY, wallPos.z);
         
         // Создаём стенку
@@ -6273,10 +6486,10 @@ export class TankController {
             wallHalfHeight = 2;
             wallHalfDepth = 0.25;
         } else {
-            // Размеры стенки врага: width=5, height=3.5, depth=0.4
-            wallHalfWidth = 2.5;
-            wallHalfHeight = 1.75;
-            wallHalfDepth = 0.2;
+            // Размеры стенки врага: width=6, height=4, depth=0.5 (те же, что и у игрока!)
+            wallHalfWidth = 3;
+            wallHalfHeight = 2;
+            wallHalfDepth = 0.25;
         }
         
         // Переводим позицию в локальную систему координат стенки
@@ -6414,9 +6627,9 @@ export class TankController {
             const wallPos = wallMesh.absolutePosition;
             const wallRotation = wallMesh.rotation.y;
             
-            // Размеры стенки врага: width=5, height=3.5, depth=0.4
-            const wallHalfWidth = 2.5;
-            const wallHalfHeight = 1.75;
+            // Размеры стенки врага: width=6, height=4, depth=0.5 (те же, что и у игрока!)
+            const wallHalfWidth = 3;
+            const wallHalfHeight = 2;
             
             const toWall = wallPos.subtract(explosionCenter);
             const wallNormal = new Vector3(
@@ -6966,6 +7179,7 @@ export class TankController {
     /**
      * Обновление платформы (вызывается каждый кадр)
      * State machine: idle → rising → staying → falling → idle
+     * ОПТИМИЗИРОВАНО: Максимально плавное движение с интерполяцией
      */
     private updateModule9Platform(): void {
         if (!this.module9Active || !this.module9Platform || this.module9Platform.isDisposed()) {
@@ -6977,9 +7191,13 @@ export class TankController {
         if (!this.chassis) return;
         
         const now = Date.now();
-        // Используем реальное время кадра для плавного движения
+        // КРИТИЧНО: Используем реальное время кадра для максимально плавного движения
         const deltaTimeMs = this.scene.getEngine().getDeltaTime();
         const deltaTime = deltaTimeMs / 1000; // Конвертируем в секунды
+        
+        // Защита от слишком больших deltaTime (например, при паузе или табе)
+        const clampedDeltaTime = Math.min(deltaTime, 0.1); // Максимум 100мс за кадр
+        
         const platformHeight = 0.5;
         
         switch (this.module9State) {
@@ -6998,9 +7216,9 @@ export class TankController {
                     return;
                 }
                 
-                // Плавно поднимаем платформу каждый кадр
+                // Плавно поднимаем платформу каждый кадр с использованием clampedDeltaTime
                 const maxY = this.module9GroundY + this.MODULE9_MAX_HEIGHT;
-                this.module9CurrentY += this.MODULE9_LIFT_SPEED * deltaTime;
+                this.module9CurrentY += this.MODULE9_LIFT_SPEED * clampedDeltaTime;
                 
                 // Ограничиваем максимальную высоту
                 if (this.module9CurrentY >= maxY) {
@@ -7030,8 +7248,8 @@ export class TankController {
             }
             
             case "falling": {
-                // Платформа опускается обратно в землю
-                this.module9CurrentY -= this.MODULE9_FALL_SPEED * deltaTime;
+                // Платформа опускается обратно в землю с использованием clampedDeltaTime
+                this.module9CurrentY -= this.MODULE9_FALL_SPEED * clampedDeltaTime;
                 
                 // Если достигли уровня земли - удаляем платформу
                 if (this.module9CurrentY <= this.module9GroundY) {
@@ -7047,15 +7265,29 @@ export class TankController {
                 return;
         }
         
-        // Обновляем позицию платформы (верхняя грань на текущей высоте)
-        this.module9Platform.position.y = this.module9CurrentY + platformHeight / 2;
+        // КРИТИЧНО: Обновляем позицию платформы КАЖДЫЙ КАДР для максимальной плавности
+        // Верхняя грань на текущей высоте
+        const targetY = this.module9CurrentY + platformHeight / 2;
         
-        // Обновляем физику для ANIMATED body
+        // Плавная интерполяция позиции для устранения дёрганий
+        const currentY = this.module9Platform.position.y;
+        const yDiff = targetY - currentY;
+        
+        // Используем линейную интерполяцию с коэффициентом для плавности
+        // Чем больше коэффициент, тем быстрее движение (но может быть менее плавным)
+        // Используем достаточно высокий коэффициент для отзывчивости, но не слишком высокий
+        const lerpFactor = Math.min(1.0, clampedDeltaTime * 30); // 30x для быстрой, но плавной интерполяции
+        const newY = currentY + yDiff * lerpFactor;
+        
+        // КРИТИЧНО: Обновляем физику КАЖДЫЙ КАДР для максимальной плавности
         if (this.module9PlatformPhysics) {
             const chassisRot = this.chassis.rotationQuaternion 
                 ? this.chassis.rotationQuaternion.toEulerAngles().y 
                 : this.chassis.rotation.y;
-                
+            
+            // Используем интерполированную позицию для физики
+            // Обновляем позицию меша перед вызовом setTargetTransform
+            this.module9Platform.position.y = newY;
             this.module9PlatformPhysics.setTargetTransform(
                 this.module9Platform.position,
                 Quaternion.FromEulerAngles(0, chassisRot, 0)
@@ -8062,9 +8294,6 @@ export class TankController {
             }
         }
         
-        // Модуль 9: Обновление платформы (поднимается пока зажата кнопка)
-        this.updateModule9Platform();
-        
         // Модуль 0: Обновление зарядки прыжка
         if (this.module0Charging) {
             const chargeTime = Date.now() - this.module0ChargeStart;
@@ -8136,9 +8365,9 @@ export class TankController {
             return;
         }
         
-        const animationDuration = 3000; // 3 секунды
-        const dismountPhase = 1200; // Фаза демонтажа
-        const mountPhase = 1800; // Фаза монтажа
+        const animationDuration = 1500; // ИСПРАВЛЕНО: 1.5 секунды
+        const dismountPhase = 600; // Фаза демонтажа
+        const mountPhase = 900; // Фаза монтажа
         
         // Сохраняем оригинальные позиции и состояния
         const partsToAnimate: Array<{

@@ -100,7 +100,7 @@ export class EnemyTank {
     
     // === AI State ===
     private target: { chassis: Mesh, isAlive: boolean, currentHealth?: number, turret?: Mesh, barrel?: Mesh } | null = null;
-    private state: AIState = "patrol";
+    private state: AIState = "chase"; // NIGHTMARE: По умолчанию преследование!
     private patrolPoints: Vector3[] = [];
     private currentPatrolIndex = 0;
     private stateTimer = 0;
@@ -114,7 +114,7 @@ export class EnemyTank {
     
     // AI Decisions
     private lastDecisionTime = 0;
-    private decisionInterval = 0; // EXTREME NIGHTMARE AI: МГНОВЕННЫЕ решения - 0мс задержки!
+    private decisionInterval = 100; // ИСПРАВЛЕНО: 100мс для стабильности (было 0 - вызывало проблемы)
     private flankDirection = 1; // 1 = right, -1 = left
     private evadeDirection = new Vector3(0, 0, 0);
     private lastTargetPos = new Vector3(0, 0, 0);
@@ -178,6 +178,10 @@ export class EnemyTank {
     private pathfinding: AIPathfinding | null = null;
     private currentPath: Vector3[] = [];
     private currentPathIndex = 0;
+    private lastPathUpdate = 0;
+    private readonly PATH_UPDATE_INTERVAL = 1000; // УЛУЧШЕНО: Обновляем путь каждую секунду (было 2)
+    private readonly PATH_UPDATE_INTERVAL_STUCK = 500; // При застревании обновляем каждые 0.5 сек
+    private currentPathTarget: Vector3 | null = null; // Текущая цель пути
     
     // EXTREME: Мгновенная адаптация к стилю игры игрока
     private playerStyle: "aggressive" | "defensive" | "balanced" = "balanced";
@@ -245,6 +249,7 @@ export class EnemyTank {
     private damage = 25; // Будет перезаписано из cannonType
     private projectileSpeed = 200; // Будет перезаписано из cannonType
     private projectileSize = 0.2; // Будет перезаписано из cannonType
+    private weaponMaxRange = 268; // Максимальная эффективная дальность оружия (будет перезаписано из cannonType)
     
     // УЛУЧШЕНО: Адаптивная точность в зависимости от дистанции и сложности
     // HARD режим: почти идеальная точность!
@@ -256,7 +261,11 @@ export class EnemyTank {
         let distancePenaltyMax: number;
         let healthPenaltyMax: number;
         
-        if (this.difficulty === "hard") {
+        if (this.difficulty === "nightmare") {
+            difficultyMultiplier = 1.0;
+            distancePenaltyMax = 0.0; // NIGHTMARE: НЕТ штрафа на дистанции - идеальная точность на любой дистанции!
+            healthPenaltyMax = 0.0; // NIGHTMARE: НЕТ штрафа при низком HP - идеальная точность всегда!
+        } else if (this.difficulty === "hard") {
             difficultyMultiplier = 1.0;
             distancePenaltyMax = 0.02; // МАКСИМАЛЬНО: Уменьшено с 0.04 до 0.02 - практически нет штрафа на дистанции!
             healthPenaltyMax = 0.01; // МАКСИМАЛЬНО: Уменьшено с 0.02 до 0.01 - практически нет штрафа при низком HP!
@@ -274,12 +283,12 @@ export class EnemyTank {
         const healthPenalty = (1.0 - this.currentHealth / this.maxHealth) * healthPenaltyMax;
         
         // EXTREME: Идеальная минимальная точность на всех уровнях!
-        const minAccuracy = this.difficulty === "hard" ? 1.0 : (this.difficulty === "medium" ? 0.97 : 0.94); // EXTREME: Идеальная точность!
+        const minAccuracy = this.difficulty === "nightmare" ? 1.0 : (this.difficulty === "hard" ? 1.0 : (this.difficulty === "medium" ? 0.97 : 0.94)); // NIGHTMARE: Идеальная точность всегда!
         return Math.max(minAccuracy, baseAccuracy * difficultyMultiplier - distancePenalty - healthPenalty);
     }
     
     // === Difficulty ===
-    private difficulty: "easy" | "medium" | "hard" = "hard"; // По умолчанию сложная сложность
+    private difficulty: "easy" | "medium" | "hard" | "nightmare" = "nightmare"; // NIGHTMARE по умолчанию!
     private difficultyScale: number = 1; // Плавный множитель сложности по прогрессу игрока и длительности сессии
     
     // Pre-created materials
@@ -329,6 +338,19 @@ export class EnemyTank {
     
     // Tick counter
     private _tick = 0;
+    
+    // ОПТИМИЗАЦИЯ: Distance-based update frequency constants
+    // Ближние боты (<50m) - полная частота обновления
+    // Средние боты (50-150m) - каждые 3 кадра
+    // Далёкие боты (>150m) - каждые 10 кадров
+    private readonly AI_UPDATE_NEAR = 1;      // < 50m: каждый кадр
+    private readonly AI_UPDATE_MID = 3;       // 50-150m: каждые 3 кадра
+    private readonly AI_UPDATE_FAR = 10;      // > 150m: каждые 10 кадров
+    private readonly NEAR_DISTANCE_SQ = 2500;  // 50^2
+    private readonly MID_DISTANCE_SQ = 22500;  // 150^2
+    
+    // Кешированное расстояние до цели (обновляется в update)
+    private distanceToTargetSq: number = 1000000;
     
     // Raycast caching для оптимизации
     private raycastCache: { result: boolean, frame: number } | null = null;
@@ -406,7 +428,7 @@ export class EnemyTank {
         position: Vector3,
         soundManager: SoundManager,
         effectsManager: EffectsManager,
-        difficulty: "easy" | "medium" | "hard" = "hard",
+        difficulty: "easy" | "medium" | "hard" | "nightmare" = "nightmare", // NIGHTMARE по умолчанию!
         difficultyScale = 1,
         groundNormal: Vector3 = Vector3.Up() // Нормаль поверхности для выравнивания
     ) {
@@ -507,8 +529,8 @@ export class EnemyTank {
                 // Если позиция подозрительно низкая, пересчитываем высоту террейна
                 if (game && typeof game.getGroundHeight === 'function') {
                     const groundHeight = game.getGroundHeight(currentPos.x, currentPos.z);
-                    // Безопасная высота: +5м над террейном, минимум 7м
-                    const safeY = Math.max(groundHeight + 5.0, 7.0);
+                    // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+                    const safeY = groundHeight + 1.0;
                     if (targetY < safeY) {
                         targetY = safeY;
                         logger.warn(`[EnemyTank] Corrected spawn height from ${position.y.toFixed(2)} to ${targetY.toFixed(2)} (ground: ${groundHeight.toFixed(2)})`);
@@ -606,6 +628,9 @@ export class EnemyTank {
         this.damage = this.cannonType.damage;
         this.projectileSpeed = this.cannonType.projectileSpeed;
         this.projectileSize = this.cannonType.projectileSize;
+        // Максимальная дальность оружия (из cannonType или расчёт: barrelLength * 80 + projectileSpeed * 0.5)
+        this.weaponMaxRange = this.cannonType.maxRange || 
+            (this.cannonType.barrelLength * 80 + this.cannonType.projectileSpeed * 0.5);
         
         // Применяем бонусы от гусениц
         if (this.trackType?.stats) {
@@ -879,7 +904,14 @@ export class EnemyTank {
             // Ранний выход: проверки в порядке частоты
             if (!mesh || !mesh.isEnabled()) return false;
             if (mesh.visibility <= 0.5) return false; // Прозрачные/невидимые объекты
-            if (!mesh.isPickable) return false; // Объекты без коллизий
+            
+            // КРИТИЧНО: Проверяем стенки (protectiveWall и enemyWall) - они ВСЕГДА блокируют выстрел!
+            const meta = mesh.metadata;
+            if (meta && (meta.type === "protectiveWall" || meta.type === "enemyWall")) {
+                return true; // Стенки ВСЕГДА блокируют выстрел, даже если isPickable = false
+            }
+            
+            if (!mesh.isPickable) return false; // Объекты без коллизий (кроме стенок)
             
             // Игнорируем части самого танка
             if (mesh === this.chassis || mesh === this.turret || mesh === this.barrel) return false;
@@ -894,7 +926,6 @@ export class EnemyTank {
             if (mesh.name.includes("billboard") || mesh.name.includes("hp") || mesh.name.includes("Hp")) return false;
             
             // Игнорируем пули
-            const meta = mesh.metadata;
             if (meta && (meta.type === "bullet" || meta.type === "enemyBullet")) return false;
             
             // Игнорируем расходники
@@ -1062,30 +1093,39 @@ export class EnemyTank {
         // Update tracer mark status
         this.updateMarkStatus();
         
-        // Боты всегда активны и патрулируют независимо от расстояния
-        // ОПТИМИЗАЦИЯ: Используем квадрат расстояния для сравнения, избегаем Math.sqrt
-        let distSq = 1000000; // 1000м в квадрате
+        // ОПТИМИЗАЦИЯ: Вычисляем расстояние до цели (квадрат, без sqrt)
+        this.distanceToTargetSq = 1000000; // 1000м в квадрате по умолчанию
         if (this.target && this.target.chassis) {
             const dx = this.chassis.position.x - this.target.chassis.position.x;
             const dz = this.chassis.position.z - this.target.chassis.position.z;
-            distSq = dx * dx + dz * dz;
+            this.distanceToTargetSq = dx * dx + dz * dz;
         }
         
-        // NIGHTMARE AI: МГНОВЕННОЕ ОБНОВЛЕНИЕ - НИКАКИХ ЗАДЕРЖЕК!
-        // AI обновляется КАЖДЫЙ КАДР для всех ботов независимо от расстояния!
-        // Боты должны реагировать МГНОВЕННО как профессиональные игроки!
-        this.updateAI();
+        // ОПТИМИЗАЦИЯ: Distance-based AI update frequency
+        // Ближние боты обновляются каждый кадр, далёкие - реже
+        let updateInterval: number;
+        if (this.distanceToTargetSq < this.NEAR_DISTANCE_SQ) {
+            updateInterval = this.AI_UPDATE_NEAR; // Near: каждый кадр
+        } else if (this.distanceToTargetSq < this.MID_DISTANCE_SQ) {
+            updateInterval = this.AI_UPDATE_MID;  // Mid: каждые 3 кадра
+        } else {
+            updateInterval = this.AI_UPDATE_FAR;  // Far: каждые 10 кадров
+        }
         
-        // ИСПРАВЛЕНО: Обновляем движение и башню каждый кадр для всех ботов
-        // Это критично для работающего AI
-        this.executeState();
+        // AI обновляется с частотой зависящей от расстояния
+        if (this._tick % updateInterval === 0) {
+            this.updateAI();
+            this.executeState();
+        }
         
-        // ИСПРАВЛЕНО: Башня ВСЕГДА обновляется каждый кадр
-            this.updateTurret();
+        // Башня ВСЕГДА обновляется каждый кадр (дёшевая операция)
+        this.updateTurret();
         
-        // ИСПРАВЛЕНО: Активное наведение на игрока если он в радиусе обнаружения
-        // Даже во время патруля башня должна следить за игроком
-        if (this.target && this.target.isAlive && this.target.chassis && distSq < this.detectRange * this.detectRange) {
+        // Активное наведение на игрока - ТОЛЬКО для ближних ботов
+        // Далёкие боты не тратят ресурсы на прицеливание
+        if (this.distanceToTargetSq < this.NEAR_DISTANCE_SQ && 
+            this.target && this.target.isAlive && this.target.chassis && 
+            this.distanceToTargetSq < this.detectRange * this.detectRange) {
             this.aimAtTarget();
         }
         
@@ -1516,11 +1556,22 @@ export class EnemyTank {
         // Проверка 4: Застревание в бою или при преследовании (стреляем/преследуем, но не двигаемся)
         if ((this.state === "attack" || this.state === "chase") && moved < 0.5 && this.target) {
             const timeSinceUnstuck = now - this.lastUnstuckTime;
-            if (timeSinceUnstuck > 1500) { // УЛУЧШЕНО: Более частая проверка (1.5 сек вместо 2)
+            if (timeSinceUnstuck > 1000) { // УЛУЧШЕНО: Ещё более частая проверка (1 сек вместо 1.5)
+                // ИСПРАВЛЕНО: Принудительно обновляем путь при застревании!
+                if (this.target && this.target.chassis) {
+                    const targetPos = this.target.chassis.absolutePosition;
+                    const myPos = this.chassis.absolutePosition;
+                    const predictedTargetPos = targetPos.add(this.targetVelocity.scale(1.5));
+                    
+                    // Принудительно обновляем путь
+                    this.updatePathToTarget(predictedTargetPos, true); // forceUpdate = true
+                    this.currentPathIndex = 0; // Сбрасываем индекс пути
+                }
+                
                 // УЛУЧШЕНО: Более агрессивное маневрирование для выхода из застревания
                 const newThrottle = (Math.random() - 0.5) * 1.8; // Увеличено с 1.5
                 const newSteer = (Math.random() - 0.5) * 2.2; // Увеличено с 2.0
-                const maxChange = 0.20; // УЛУЧШЕНО: Более быстрое изменение (0.20 вместо 0.15)
+                const maxChange = 0.25; // УЛУЧШЕНО: Ещё более быстрое изменение (0.25 вместо 0.20)
                 const throttleChange = Math.max(-maxChange, Math.min(maxChange, newThrottle - this.throttleTarget));
                 const steerChange = Math.max(-maxChange, Math.min(maxChange, newSteer - this.steerTarget));
                 this.throttleTarget = Math.max(-1, Math.min(1, this.throttleTarget + throttleChange));
@@ -1886,6 +1937,11 @@ export class EnemyTank {
      * УЛУЧШЕНО: Сканирование снарядов игрока для уклонения
      */
     private scanIncomingProjectiles(): void {
+        // ОПТИМИЗАЦИЯ: Пропускаем для далёких ботов (>150m)
+        if (this.distanceToTargetSq > this.MID_DISTANCE_SQ) {
+            return;
+        }
+        
         const now = Date.now();
         if (now - this.lastProjectileScanTime < this.PROJECTILE_SCAN_INTERVAL) {
             return;
@@ -1958,6 +2014,11 @@ export class EnemyTank {
      * УЛУЧШЕНО: Проверка необходимости уклонения от снаряда
      */
     private checkProjectileThreat(): { shouldDodge: boolean; dodgeDir: Vector3; timeToImpact: number } | null {
+        // ОПТИМИЗАЦИЯ: Пропускаем для далёких ботов (>150m)
+        if (this.distanceToTargetSq > this.MID_DISTANCE_SQ) {
+            return null;
+        }
+        
         if (this.incomingProjectiles.length === 0) {
             return null;
         }
@@ -2202,11 +2263,11 @@ export class EnemyTank {
                     this.lastPatternAnalysisTime = now;
                 }
             } else if (distance > this.detectRange * 1.5) {
-                // ИСПРАВЛЕНИЕ: Цель слишком далеко - сбрасываем кэшированную позицию
-                // Это предотвращает стрельбу в старую позицию (например, в гараж)
-                this.lastTargetPos.set(0, 0, 0);
-                this.targetVelocity.set(0, 0, 0);
-                this.targetPositionHistory = [];
+                // ИСПРАВЛЕНО: НЕ сбрасываем позицию - продолжаем преследовать даже если далеко!
+                // Боты должны ВСЕГДА преследовать цель, независимо от расстояния (NIGHTMARE AI)
+                // this.lastTargetPos.set(0, 0, 0); // УДАЛЕНО для NIGHTMARE AI
+                // this.targetVelocity.set(0, 0, 0); // УДАЛЕНО для NIGHTMARE AI
+                // this.targetPositionHistory = []; // УДАЛЕНО для NIGHTMARE AI
             }
             
             // КРИТИЧНО: makeDecision() вызывается ВСЕГДА, не только при видимости цели!
@@ -2221,6 +2282,10 @@ export class EnemyTank {
             if (now - this.lastDecisionTime > this.decisionInterval) {
                 this.lastDecisionTime = now;
                 this.state = "patrol";
+                // ИСПРАВЛЕНО: Убеждаемся, что есть точки патруля
+                if (this.patrolPoints.length === 0 && this.chassis) {
+                    this.generatePatrolPoints(this.chassis.absolutePosition);
+                }
             }
         }
         
@@ -2263,7 +2328,8 @@ export class EnemyTank {
         const myPos = this.chassis.absolutePosition;
         const distanceToLastPos = Vector3.Distance(myPos, this.lastTargetPos);
         
-        if (distanceToLastPos > this.attackRange * 1.5) return; // Слишком далеко
+        // ИСПРАВЛЕНО: Убрано ограничение - преследуем ВСЕГДА, даже если очень далеко!
+        // if (distanceToLastPos > this.attackRange * 1.5) return; // УДАЛЕНО для NIGHTMARE AI
         
         // Стреляем по последней известной позиции (короткое время)
         if (now - this.lastShotTime >= this.cooldown) {
@@ -2335,16 +2401,15 @@ export class EnemyTank {
         // (chase без цели приводит к тому, что бот стоит на месте!)
         if (!this.target || !this.target.isAlive || !this.target.chassis) {
             this.state = "patrol";
+            // ИСПРАВЛЕНО: Убеждаемся, что есть точки патруля перед переходом в patrol
+            if (this.patrolPoints.length === 0 && this.chassis) {
+                this.generatePatrolPoints(this.chassis.absolutePosition);
+            }
             return;
         }
         
         // NIGHTMARE AI: ВСЕГДА преследуем цель - НИКОГДА не патрулируем при наличии цели!
-        if (distance > this.detectRange * 2.0) {
-            // NIGHTMARE: ВСЕГДА преследуем!
-            this.state = "chase";
-            return;
-        }
-        
+        // ИСПРАВЛЕНО: Убрано ограничение на расстояние - преследуем ВСЕГДА, даже если цель очень далеко!
         const healthPercent = this.currentHealth / this.maxHealth;
         const targetHealthPercent = this.target?.currentHealth ? this.target.currentHealth / 100 : 1.0;
         
@@ -2362,6 +2427,22 @@ export class EnemyTank {
             this.state = "retreat";
             this.stateTimer = 1500; // NIGHTMARE: Короткое отступление
             return;
+        }
+        
+        // NIGHTMARE AI: ВСЕГДА преследуем цель - независимо от расстояния!
+        // Если цель в радиусе атаки - атакуем, иначе преследуем
+        if (distance < this.attackRange) {
+            // В радиусе атаки - переходим в режим атаки
+            if (this.state !== "attack") {
+                this.clearPath(); // Очищаем путь при переходе в attack
+            }
+            this.state = "attack";
+        } else {
+            // Вне радиуса атаки - ВСЕГДА преследуем, даже если очень далеко!
+            if (this.state !== "chase") {
+                this.clearPath(); // ИСПРАВЛЕНО: Очищаем путь при переходе в chase
+            }
+            this.state = "chase";
         }
         
         // УЛУЧШЕНО: Постоянное сканирование укрытий (не только при низком HP)
@@ -2572,14 +2653,42 @@ export class EnemyTank {
     }
     
     private doPatrol(): void {
+        // ИСПРАВЛЕНО: Генерируем точки если их нет, но продолжаем патрулирование
         if (this.patrolPoints.length === 0) {
-            // Генерируем новые точки если их нет
-            this.generatePatrolPoints(this.chassis.absolutePosition);
-            return;
+            if (this.chassis) {
+                this.generatePatrolPoints(this.chassis.absolutePosition);
+                this.currentPatrolIndex = 0;
+            }
+            // Если после генерации всё ещё нет точек - создаём временную точку
+            if (this.patrolPoints.length === 0 && this.chassis) {
+                const myPos = this.chassis.absolutePosition;
+                const randomAngle = Math.random() * Math.PI * 2;
+                const randomDist = 50 + Math.random() * 100;
+                this.patrolPoints.push(new Vector3(
+                    myPos.x + Math.cos(randomAngle) * randomDist,
+                    myPos.y,
+                    myPos.z + Math.sin(randomAngle) * randomDist
+                ));
+            }
         }
         
         const target = this.patrolPoints[this.currentPatrolIndex];
-        if (!target) return;
+        if (!target) {
+            // Если нет цели - создаём новую точку рядом
+            if (this.chassis) {
+                const myPos = this.chassis.absolutePosition;
+                const randomAngle = Math.random() * Math.PI * 2;
+                const randomDist = 50 + Math.random() * 100;
+                const newPoint = new Vector3(
+                    myPos.x + Math.cos(randomAngle) * randomDist,
+                    myPos.y,
+                    myPos.z + Math.sin(randomAngle) * randomDist
+                );
+                this.patrolPoints.push(newPoint);
+                this.currentPatrolIndex = this.patrolPoints.length - 1;
+            }
+            return;
+        }
         const myPos = this.chassis.absolutePosition;
         
         // ОПТИМИЗАЦИЯ: Используем квадрат расстояния для избежания sqrt
@@ -2626,11 +2735,25 @@ export class EnemyTank {
             }
         }
         
+        // ИСПРАВЛЕНО: Используем pathfinding для построения пути к точке патруля
+        const now = Date.now();
+        const needsPathUpdate = !this.currentPathTarget || 
+            Vector3.Distance(this.currentPathTarget, target) > 10 ||
+            (now - this.lastPathUpdate > this.PATH_UPDATE_INTERVAL);
+        
+        if (needsPathUpdate) {
+            this.updatePathToTarget(target);
+        }
+        
+        // Получаем следующую точку пути
+        const nextPathPoint = this.getNextPathPoint();
+        const moveTarget = nextPathPoint || target; // Fallback на прямую цель если путь не найден
+        
         // NIGHTMARE AI: Мгновенный старт на МАКСИМАЛЬНОЙ скорости!
         const patrolSpeed = 1.0; // ВСЕГДА максимальная скорость!
         
         // КРИТИЧНО: driveToward вызывается каждый кадр для плавного обновления throttleTarget и steerTarget
-        this.driveToward(target, patrolSpeed);
+        this.driveToward(moveTarget, patrolSpeed);
         
         // СУПЕР: Активное сканирование и поиск целей!
         if (!this.target || !this.target.isAlive) {
@@ -2671,8 +2794,21 @@ export class EnemyTank {
         const distance8Sq = 8 * 8;
         
         if (distanceSq > distance15Sq) {
+            // ИСПРАВЛЕНО: Используем pathfinding для умного движения к POI
+            const now = Date.now();
+            const needsPathUpdate = !this.currentPathTarget || 
+                Vector3.Distance(this.currentPathTarget, this.targetPOI.position) > 10 ||
+                (now - this.lastPathUpdate > this.PATH_UPDATE_INTERVAL);
+            
+            if (needsPathUpdate) {
+                this.updatePathToTarget(this.targetPOI.position);
+            }
+            
+            const nextPathPoint = this.getNextPathPoint();
+            const moveTarget = nextPathPoint || this.targetPOI.position;
+            
             // Едем к POI
-            this.driveToward(this.targetPOI.position, 0.7);
+            this.driveToward(moveTarget, 0.7);
         } else if (distanceSq > distance8Sq) {
             // Подъезжаем ближе к центру
             this.driveToward(this.targetPOI.position, 0.3);
@@ -2719,6 +2855,7 @@ export class EnemyTank {
     private doChase(): void {
         if (!this.target || !this.target.isAlive || !this.target.chassis) {
             // Если цель недействительна - переключаемся на патруль
+            this.clearPath(); // ИСПРАВЛЕНО: Очищаем путь при смене состояния
             this.state = "patrol";
             return;
         }
@@ -2731,16 +2868,29 @@ export class EnemyTank {
         // СУПЕР-УМНОЕ преследование с идеальным предсказанием движения цели!
         // Предсказываем, где будет цель через оптимальное время для максимально точного перехвата
         // NIGHTMARE AI: Сверх-упреждение для перехвата цели!
-        const predictionTime = this.difficulty === "hard" ? 1.8 : (this.difficulty === "medium" ? 1.3 : 1.0);
+        const predictionTime = this.difficulty === "nightmare" ? 2.2 : (this.difficulty === "hard" ? 1.8 : (this.difficulty === "medium" ? 1.3 : 1.0)); // NIGHTMARE: Максимальное предсказание!
         const predictedTargetPos = targetPos.add(this.targetVelocity.scale(predictionTime));
+        
+        // ИСПРАВЛЕНО: Используем pathfinding для построения пути к предсказанной позиции цели
+        const now = Date.now();
+        const needsPathUpdate = !this.currentPathTarget || 
+            Vector3.Distance(this.currentPathTarget, predictedTargetPos) > 15 ||
+            (now - this.lastPathUpdate > this.PATH_UPDATE_INTERVAL * 0.5); // Обновляем чаще при преследовании
+        
+        if (needsPathUpdate) {
+            this.updatePathToTarget(predictedTargetPos);
+        }
+        
+        // Получаем следующую точку пути
+        const nextPathPoint = this.getNextPathPoint();
+        const moveTarget = nextPathPoint || predictedTargetPos; // Fallback на прямую цель если путь не найден
         
         // УЛУЧШЕНО: Всегда преследуем на максимальной скорости, даже если цель далеко
         // Едем к предсказанной позиции для более эффективного перехвата
-        this.driveToward(predictedTargetPos, 1.0); // Всегда максимальная скорость
+        this.driveToward(moveTarget, 1.0); // Всегда максимальная скорость
         this.aimAtTarget();
         
         // УЛУЧШЕНО: Более частая проверка застревания во время преследования
-        const now = Date.now();
         if (now - this.stuckTimer > this.STUCK_CHECK_INTERVAL * 0.5) { // Проверяем в 2 раза чаще
             this.checkAndFixStuck();
         }
@@ -2785,7 +2935,21 @@ export class EnemyTank {
         if (healthPercent > 0.6 && targetHealthPercent < 0.4) {
             // Добить раненую цель - приближаемся агрессивно с предсказанием!
             const predictedTargetPos = targetPos.add(this.targetVelocity.scale(0.3));
-            this.driveToward(predictedTargetPos, 1.0); // МАКСИМАЛЬНО: Увеличено с 0.85 до 1.0 (максимальная скорость)
+            
+            // ИСПРАВЛЕНО: Используем pathfinding для умного сближения
+            const now = Date.now();
+            const needsPathUpdate = !this.currentPathTarget || 
+                Vector3.Distance(this.currentPathTarget, predictedTargetPos) > 8 ||
+                (now - this.lastPathUpdate > this.PATH_UPDATE_INTERVAL * 0.4);
+            
+            if (needsPathUpdate) {
+                this.updatePathToTarget(predictedTargetPos);
+            }
+            
+            const nextPathPoint = this.getNextPathPoint();
+            const moveTarget = nextPathPoint || predictedTargetPos;
+            
+            this.driveToward(moveTarget, 1.0); // МАКСИМАЛЬНО: Увеличено с 0.85 до 1.0 (максимальная скорость)
             return;
         }
         
@@ -2810,12 +2974,40 @@ export class EnemyTank {
         } else if (distance > this.optimalRange * 1.4) {
             // Слишком далеко - МАКСИМАЛЬНОЕ сближение!
             const predictedTargetPos = targetPos.add(this.targetVelocity.scale(0.7));
-            this.driveToward(predictedTargetPos, 1.0); // NIGHTMARE: МАКСИМАЛЬНАЯ скорость!
+            
+            // ИСПРАВЛЕНО: Используем pathfinding для умного сближения
+            const now = Date.now();
+            const needsPathUpdate = !this.currentPathTarget || 
+                Vector3.Distance(this.currentPathTarget, predictedTargetPos) > 8 ||
+                (now - this.lastPathUpdate > this.PATH_UPDATE_INTERVAL * 0.4);
+            
+            if (needsPathUpdate) {
+                this.updatePathToTarget(predictedTargetPos);
+            }
+            
+            const nextPathPoint = this.getNextPathPoint();
+            const moveTarget = nextPathPoint || predictedTargetPos;
+            
+            this.driveToward(moveTarget, 1.0); // NIGHTMARE: МАКСИМАЛЬНАЯ скорость!
             return;
         } else if (distance > this.optimalRange * 1.1) {
             // Немного далеко - быстро приближаемся с предсказанием
             const predictedTargetPos = targetPos.add(this.targetVelocity.scale(0.3));
-            this.driveToward(predictedTargetPos, 0.7); // СУПЕР: Увеличено с 0.5 до 0.7
+            
+            // ИСПРАВЛЕНО: Используем pathfinding для умного сближения
+            const now = Date.now();
+            const needsPathUpdate = !this.currentPathTarget || 
+                Vector3.Distance(this.currentPathTarget, predictedTargetPos) > 8 ||
+                (now - this.lastPathUpdate > this.PATH_UPDATE_INTERVAL * 0.5);
+            
+            if (needsPathUpdate) {
+                this.updatePathToTarget(predictedTargetPos);
+            }
+            
+            const nextPathPoint = this.getNextPathPoint();
+            const moveTarget = nextPathPoint || predictedTargetPos;
+            
+            this.driveToward(moveTarget, 0.7); // СУПЕР: Увеличено с 0.5 до 0.7
             return;
         } else {
             // Оптимальная дистанция - СУПЕР активное маневрирование!
@@ -2865,12 +3057,24 @@ export class EnemyTank {
             flankPos = myPos.clone().add(perpendicular.scale(flankDistance));
         }
         
+        // ИСПРАВЛЕНО: Используем pathfinding для умного движения к позиции фланга
+        const now = Date.now();
+        const needsPathUpdate = !this.currentPathTarget || 
+            Vector3.Distance(this.currentPathTarget, flankPos) > 10 ||
+            (now - this.lastPathUpdate > this.PATH_UPDATE_INTERVAL * 0.7);
+        
+        if (needsPathUpdate) {
+            this.updatePathToTarget(flankPos);
+        }
+        
+        const nextPathPoint = this.getNextPathPoint();
+        const moveTarget = nextPathPoint || flankPos;
+        
         // NIGHTMARE: Быстрое движение при фланге
-        this.driveToward(flankPos, 1.0);
+        this.driveToward(moveTarget, 1.0);
         this.aimAtTarget();
         
         // NIGHTMARE AI: Непрерывный огонь во время фланга!
-        const now = Date.now();
         if (now - this.lastShotTime >= this.cooldown) {
             this.fire();
             this.lastShotTime = now;
@@ -2907,12 +3111,24 @@ export class EnemyTank {
                     return;
                 }
             } else {
+                // ИСПРАВЛЕНО: Используем pathfinding для умного движения к укрытию
+                const now = Date.now();
+                const needsPathUpdate = !this.currentPathTarget || 
+                    Vector3.Distance(this.currentPathTarget, this.currentCoverPosition) > 10 ||
+                    (now - this.lastPathUpdate > this.PATH_UPDATE_INTERVAL * 0.6);
+                
+                if (needsPathUpdate) {
+                    this.updatePathToTarget(this.currentCoverPosition);
+                }
+                
+                const nextPathPoint = this.getNextPathPoint();
+                const moveTarget = nextPathPoint || this.currentCoverPosition;
+                
                 // Движемся к укрытию
-                this.driveToward(this.currentCoverPosition, 1.0);
+                this.driveToward(moveTarget, 1.0);
                 this.aimAtTarget();
                 
                 // NIGHTMARE AI: Непрерывный огонь даже при движении к укрытию!
-                const now = Date.now();
                 if (now - this.lastShotTime >= this.cooldown) {
                     this.fire();
                     this.lastShotTime = now;
@@ -2937,13 +3153,26 @@ export class EnemyTank {
         // УЛУЧШЕНО: Более дальнее отступление для лучшей безопасности
         const retreatDistance = distance < 30 ? 40 : 50; // Адаптивное расстояние
         const retreatPos = myPos.clone().add(awayDir.scale(retreatDistance));
-        this.driveToward(retreatPos, 1.0);
+        
+        // ИСПРАВЛЕНО: Используем pathfinding для умного отступления
+        const now = Date.now();
+        const needsPathUpdate = !this.currentPathTarget || 
+            Vector3.Distance(this.currentPathTarget, retreatPos) > 10 ||
+            (now - this.lastPathUpdate > this.PATH_UPDATE_INTERVAL * 0.5);
+        
+        if (needsPathUpdate) {
+            this.updatePathToTarget(retreatPos);
+        }
+        
+        const nextPathPoint = this.getNextPathPoint();
+        const moveTarget = nextPathPoint || retreatPos;
+        
+        this.driveToward(moveTarget, 1.0);
         
         // Still aim at enemy while retreating (fighting retreat)
         this.aimAtTarget();
         
         // NIGHTMARE AI: Непрерывный огонь даже при отступлении!
-        const now = Date.now();
         if (now - this.lastShotTime >= this.cooldown) {
             this.fire();
             this.lastShotTime = now;
@@ -2991,13 +3220,26 @@ export class EnemyTank {
         
         // УЛУЧШЕНО: Более быстрое и дальнее уклонение
         const evadePos = myPos.clone().add(this.evadeDirection.scale(20)); // УВЕЛИЧЕНО с 15 до 20
-        this.driveToward(evadePos, 1.0);
+        
+        // ИСПРАВЛЕНО: Используем pathfinding для умного уклонения
+        const now = Date.now();
+        const needsPathUpdate = !this.currentPathTarget || 
+            Vector3.Distance(this.currentPathTarget, evadePos) > 8 ||
+            (now - this.lastPathUpdate > this.PATH_UPDATE_INTERVAL * 0.3);
+        
+        if (needsPathUpdate) {
+            this.updatePathToTarget(evadePos);
+        }
+        
+        const nextPathPoint = this.getNextPathPoint();
+        const moveTarget = nextPathPoint || evadePos;
+        
+        this.driveToward(moveTarget, 1.0);
         
         // Все ещё целимся в цель (боевое уклонение)
         this.aimAtTarget();
         
         // NIGHTMARE AI: Непрерывный огонь даже при уклонении!
-        const now = Date.now();
         if (now - this.lastShotTime >= this.cooldown) {
             this.fire();
             this.lastShotTime = now;
@@ -3034,7 +3276,20 @@ export class EnemyTank {
         // Движемся к позиции засады
         const distToAmbush = Vector3.Distance(myPos, this.ambushPosition);
         if (distToAmbush > 5) {
-            this.driveToward(this.ambushPosition, 1.0); // NIGHTMARE: Быстрее к позиции
+            // ИСПРАВЛЕНО: Используем pathfinding для умного движения к позиции засады
+            const now = Date.now();
+            const needsPathUpdate = !this.currentPathTarget || 
+                Vector3.Distance(this.currentPathTarget, this.ambushPosition) > 10 ||
+                (now - this.lastPathUpdate > this.PATH_UPDATE_INTERVAL);
+            
+            if (needsPathUpdate) {
+                this.updatePathToTarget(this.ambushPosition);
+            }
+            
+            const nextPathPoint = this.getNextPathPoint();
+            const moveTarget = nextPathPoint || this.ambushPosition;
+            
+            this.driveToward(moveTarget, 1.0); // NIGHTMARE: Быстрее к позиции
         } else {
             // На позиции засады - ждём цель
             this.throttleTarget = 0;
@@ -3097,7 +3352,20 @@ export class EnemyTank {
         // Движемся к позиции заманивания
         const distToBait = Vector3.Distance(myPos, this.baitPosition);
         if (distToBait > 8) {
-            this.driveToward(this.baitPosition, 1.0); // NIGHTMARE: Быстрее
+            // ИСПРАВЛЕНО: Используем pathfinding для умного движения к позиции приманки
+            const now = Date.now();
+            const needsPathUpdate = !this.currentPathTarget || 
+                Vector3.Distance(this.currentPathTarget, this.baitPosition) > 10 ||
+                (now - this.lastPathUpdate > this.PATH_UPDATE_INTERVAL);
+            
+            if (needsPathUpdate) {
+                this.updatePathToTarget(this.baitPosition);
+            }
+            
+            const nextPathPoint = this.getNextPathPoint();
+            const moveTarget = nextPathPoint || this.baitPosition;
+            
+            this.driveToward(moveTarget, 1.0); // NIGHTMARE: Быстрее
         } else {
             // На позиции - останавливаемся и стреляем
             this.throttleTarget = 0;
@@ -3250,9 +3518,9 @@ export class EnemyTank {
         
         direction.normalize();
         
-        // УЛУЧШЕНО: Умное движение с предсказанием препятствий
+        // ИСПРАВЛЕНО: Улучшенное обнаружение и обход препятствий
         // Проверяем препятствия впереди (не ждём столкновения)
-        const lookAheadDistance = 8.0; // Смотрим на 8м вперёд
+        const lookAheadDistance = 12.0; // УЛУЧШЕНО: Увеличено с 8 до 12м для более раннего обнаружения
         const lookAheadPos = pos.add(direction.scale(lookAheadDistance));
         const lookAheadRay = new Ray(pos.add(Vector3.Up().scale(0.5)), direction, lookAheadDistance);
         const obstacleCheck = this.scene.pickWithRay(lookAheadRay, (mesh) => {
@@ -3263,22 +3531,58 @@ export class EnemyTank {
             return mesh.isPickable && mesh.visibility > 0.5;
         });
         
-        // УЛУЧШЕНО: Предсказание препятствий - корректируем направление заранее
-        if (obstacleCheck && obstacleCheck.hit && obstacleCheck.distance < lookAheadDistance * 0.7) {
+        // ИСПРАВЛЕНО: Более агрессивный обход препятствий
+        if (obstacleCheck && obstacleCheck.hit && obstacleCheck.distance < lookAheadDistance * 0.8) {
             // Препятствие близко - обходим его
             const avoidDir = this.checkObstacles();
             if (avoidDir !== 0) {
                 const right = new Vector3(direction.z, 0, -direction.x);
-                direction = direction.add(right.scale(avoidDir * 0.8)).normalize();
-                speedMult *= 0.6; // Замедляемся при обходе
+                // УЛУЧШЕНО: Более сильное отклонение для лучшего обхода
+                direction = direction.add(right.scale(avoidDir * 1.2)).normalize();
+                speedMult *= 0.7; // Меньше замедляемся (было 0.6)
+            } else {
+                // Если checkObstacles не нашёл направление - пробуем оба
+                const right = new Vector3(direction.z, 0, -direction.x);
+                const left = new Vector3(-direction.z, 0, direction.x);
+                
+                // Проверяем правое направление
+                const rightRay = new Ray(pos.add(Vector3.Up().scale(0.5)), right, 10);
+                const rightCheck = this.scene.pickWithRay(rightRay, (mesh) => {
+                    if (!mesh || !mesh.isEnabled()) return false;
+                    const meta = mesh.metadata;
+                    if (meta && (meta.type === "enemyTank" || meta.type === "playerTank" || meta.type === "bullet")) return false;
+                    if (mesh === this.chassis || mesh.parent === this.chassis) return false;
+                    return mesh.isPickable && mesh.visibility > 0.5;
+                });
+                
+                // Проверяем левое направление
+                const leftRay = new Ray(pos.add(Vector3.Up().scale(0.5)), left, 10);
+                const leftCheck = this.scene.pickWithRay(leftRay, (mesh) => {
+                    if (!mesh || !mesh.isEnabled()) return false;
+                    const meta = mesh.metadata;
+                    if (meta && (meta.type === "enemyTank" || meta.type === "playerTank" || meta.type === "bullet")) return false;
+                    if (mesh === this.chassis || mesh.parent === this.chassis) return false;
+                    return mesh.isPickable && mesh.visibility > 0.5;
+                });
+                
+                // Выбираем направление без препятствий
+                if (!rightCheck?.hit && leftCheck?.hit) {
+                    direction = direction.add(right.scale(1.0)).normalize();
+                } else if (rightCheck?.hit && !leftCheck?.hit) {
+                    direction = direction.add(left.scale(1.0)).normalize();
+                } else {
+                    // Оба заблокированы - идём назад немного
+                    direction = direction.scale(-0.5);
+                }
+                speedMult *= 0.6;
             }
         } else {
             // Обычное избегание препятствий
             const avoidDir = this.checkObstacles();
             if (avoidDir !== 0) {
                 const right = new Vector3(direction.z, 0, -direction.x);
-                direction = direction.add(right.scale(avoidDir * 0.6)).normalize();
-                speedMult *= 0.7; // Замедляемся при обходе
+                direction = direction.add(right.scale(avoidDir * 0.8)).normalize();
+                speedMult *= 0.8; // УЛУЧШЕНО: Меньше замедляемся (было 0.7)
             }
         }
         
@@ -3618,8 +3922,8 @@ export class EnemyTank {
         const adaptiveAccuracy = this.getAdaptiveAccuracy(distance);
         const targetSpeed = this.targetVelocity.length();
         
-        if (adaptiveAccuracy < 1.0 && this.difficulty !== "hard") {
-            // Разброс только для medium и easy режимов
+        if (adaptiveAccuracy < 1.0 && this.difficulty !== "hard" && this.difficulty !== "nightmare") {
+            // Разброс только для medium и easy режимов (hard и nightmare - идеальная точность!)
             const spreadMultiplier = this.difficulty === "medium" ? 0.025 : 0.035;
             const baseSpread = (1 - adaptiveAccuracy) * distance * spreadMultiplier;
             
@@ -3667,10 +3971,11 @@ export class EnemyTank {
         while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
         
         // ИСПРАВЛЕНО: Уменьшен допуск для более точной стрельбы
+        // Nightmare: 0.05 радиан (~2.9 градуса) - МАКСИМАЛЬНАЯ точность!
         // Hard: 0.08 радиан (~4.5 градуса) - точная стрельба
         // Medium: 0.10 радиан (~5.7 градусов)
         // Easy: 0.12 радиан (~7 градусов)
-        const tolerance = this.difficulty === "hard" ? 0.08 : (this.difficulty === "medium" ? 0.10 : 0.12);
+        const tolerance = this.difficulty === "nightmare" ? 0.05 : (this.difficulty === "hard" ? 0.08 : (this.difficulty === "medium" ? 0.10 : 0.12));
         return Math.abs(angleDiff) < tolerance;
     }
     
@@ -3682,6 +3987,14 @@ export class EnemyTank {
         // ИСПРАВЛЕНО: Не стреляем если башня не наведена на цель!
         if (!this.isAimedAtTarget()) {
             return; // Ждём пока башня наведётся
+        }
+        
+        // ИСПРАВЛЕНО: Не стреляем если цель за пределами эффективной дальности оружия
+        if (this.target && this.target.chassis) {
+            const distance = Vector3.Distance(this.chassis.absolutePosition, this.target.chassis.absolutePosition);
+            if (distance > this.weaponMaxRange) {
+                return; // Цель слишком далеко для этого оружия
+            }
         }
         
         logger.debug(`[EnemyTank ${this.id}] FIRE!`);
@@ -3728,7 +4041,7 @@ export class EnemyTank {
             parameters: { extents: new Vector3(bulletSize * 0.8, bulletSize * 0.8, bulletDepth * 0.8) }
         }, this.scene);
         shape.filterMembershipMask = 16; // Enemy bullet
-        shape.filterCollideMask = 1 | 2 | 32;  // Player (1), environment (2), and protective walls (32)
+        shape.filterCollideMask = 1 | 2 | 32 | 64;  // Player (1), environment (2), protective walls (32), and enemy walls (64)
         // КРИТИЧНО: Отключаем отскок для снарядов противника (одноразовые снаряды)
         shape.material = { friction: 0, restitution: 0.0 };
         
@@ -3779,6 +4092,9 @@ export class EnemyTank {
         const MIN_DAMAGE_SPEED = 5.0;
         const MIN_DAMAGE_SPEED_SQ = MIN_DAMAGE_SPEED * MIN_DAMAGE_SPEED;
         
+        // Сохраняем предыдущую позицию для raycast-проверки (защита от проскока через стенку)
+        let prevBulletPos = ball.absolutePosition.clone();
+        
         const checkHit = () => {
             if (hasHit || ball.isDisposed()) return;
             
@@ -3804,46 +4120,77 @@ export class EnemyTank {
             
             const bulletPos = ball.absolutePosition;
             
-            // === ПРОВЕРКА СТОЛКНОВЕНИЯ СО СТЕНКОЙ ===
-            // Ищем все стенки на сцене
+            // === УЛУЧШЕННАЯ ПРОВЕРКА СТЕН С РЕЙКАСТОМ ===
+            // Используем рейкаст от предыдущей позиции к текущей для обнаружения быстрых снарядов
+            const moveDistance = Vector3.Distance(prevBulletPos, bulletPos);
+            if (moveDistance > 0.1) { // Только если снаряд переместился достаточно
+                const moveDirection = bulletPos.subtract(prevBulletPos).normalize();
+                const ray = new Ray(prevBulletPos, moveDirection, moveDistance + 0.5);
+                
+                // КРИТИЧНО: Ищем ВСЕ стенки на сцене (protectiveWall и enemyWall)
+                const walls = this.scene.meshes.filter(mesh => 
+                    mesh.metadata && 
+                    (mesh.metadata.type === "protectiveWall" || mesh.metadata.type === "enemyWall") && 
+                    !mesh.isDisposed()
+                );
+                
+                for (const wall of walls) {
+                    // Raycast проверка - ловит быстрые снаряды, проскакивающие через стенку
+                    const pick = this.scene.pickWithRay(ray, (mesh) => mesh === wall);
+                    
+                    if (pick && pick.hit && pick.pickedPoint) {
+                        // Проверяем, что точка попадания внутри стенки
+                        if (this.checkPointInWall(pick.pickedPoint, wall as Mesh)) {
+                            hasHit = true;
+                            const bulletDamage = damage;
+                            
+                            const wallMeta = wall.metadata as any;
+                            if (wallMeta) {
+                                if (wallMeta.type === "protectiveWall" && wallMeta.tankController && typeof wallMeta.tankController.damageWall === 'function') {
+                                    wallMeta.tankController.damageWall(wall, bulletDamage);
+                                } else if (wallMeta.type === "enemyWall" && wallMeta.owner && typeof wallMeta.owner.damageEnemyWall === 'function') {
+                                    wallMeta.owner.damageEnemyWall(bulletDamage);
+                                }
+                            }
+                            
+                            logger.debug(`[EnemyTank ${this.id}] Bullet hit wall via raycast (${wallMeta?.type || "unknown"})! Damage: ${bulletDamage}`);
+                            if (this.effectsManager) this.effectsManager.createHitSpark(pick.pickedPoint);
+                            if (this.soundManager) this.soundManager.playHit("armor", pick.pickedPoint);
+                            ball.dispose();
+                            return;
+                        }
+                    }
+                }
+            }
+            
+            // === ПРОВЕРКА СТОЛКНОВЕНИЯ СО СТЕНКОЙ (дополнительная проверка текущей позиции) ===
+            // КРИТИЧНО: Ищем ВСЕ стенки на сцене (protectiveWall и enemyWall)
             const walls = this.scene.meshes.filter(mesh => 
-                mesh.metadata && mesh.metadata.type === "protectiveWall" && !mesh.isDisposed()
+                mesh.metadata && 
+                (mesh.metadata.type === "protectiveWall" || mesh.metadata.type === "enemyWall") && 
+                !mesh.isDisposed()
             );
             for (const wall of walls) {
-                const wallPos = wall.absolutePosition;
-                const wallRotation = wall.rotation.y;
-                
-                // Размеры стенки: width=6, height=4, depth=0.5
-                const wallHalfWidth = 3;
-                const wallHalfHeight = 2;
-                const wallHalfDepth = 0.25;
-                
-                // Переводим позицию пули в локальную систему координат стенки
-                const localPos = bulletPos.subtract(wallPos);
-                const cosY = Math.cos(-wallRotation);
-                const sinY = Math.sin(-wallRotation);
-                
-                // Поворачиваем позицию пули в локальную систему координат стенки
-                const localX = localPos.x * cosY - localPos.z * sinY;
-                const localY = localPos.y;
-                const localZ = localPos.x * sinY + localPos.z * cosY;
-                
                 // Проверяем, находится ли пуля внутри границ стенки
-                if (Math.abs(localX) < wallHalfWidth && 
-                    Math.abs(localY) < wallHalfHeight && 
-                    Math.abs(localZ) < wallHalfDepth) {
+                if (this.checkPointInWall(bulletPos, wall as Mesh)) {
                     hasHit = true;
                     
                     // Урон по стенке совпадает с уроном по танку (учитывает скейл сложности)
                     const bulletDamage = damage;
                     
-                    // Наносим урон стенке через metadata
+                    // КРИТИЧНО: Наносим урон стенке в зависимости от типа
                     const wallMeta = wall.metadata as any;
-                    if (wallMeta && wallMeta.tankController && typeof wallMeta.tankController.damageWall === 'function') {
-                        wallMeta.tankController.damageWall(wall, bulletDamage);
+                    if (wallMeta) {
+                        if (wallMeta.type === "protectiveWall" && wallMeta.tankController && typeof wallMeta.tankController.damageWall === 'function') {
+                            // Урон защитной стенке игрока
+                            wallMeta.tankController.damageWall(wall, bulletDamage);
+                        } else if (wallMeta.type === "enemyWall" && wallMeta.owner && typeof wallMeta.owner.damageEnemyWall === 'function') {
+                            // Урон стенке другого бота
+                            wallMeta.owner.damageEnemyWall(bulletDamage);
+                        }
                     }
                     
-                    logger.debug(`[EnemyTank ${this.id}] Bullet hit protective wall! Damage: ${bulletDamage}`);
+                    logger.debug(`[EnemyTank ${this.id}] Bullet hit wall (${wallMeta?.type || "unknown"})! Damage: ${bulletDamage}`);
                     if (this.effectsManager) this.effectsManager.createHitSpark(bulletPos);
                     if (this.soundManager) this.soundManager.playHit("armor", bulletPos);
                     ball.dispose();
@@ -3896,6 +4243,9 @@ export class EnemyTank {
                 ball.dispose();
                 return;
             }
+            
+            // Обновляем предыдущую позицию для следующей итерации raycast
+            prevBulletPos = bulletPos.clone();
             
             requestAnimationFrame(checkHit);
         };
@@ -4056,48 +4406,175 @@ export class EnemyTank {
     }
     
     private activateWall(): void {
-        if (!this.chassis || !this.target || !this.target.chassis) return;
+        if (!this.chassis || !this.barrel) return;
         
         this.lastWallTime = Date.now();
         
-        // Позиция между ботом и целью
-        const myPos = this.chassis.absolutePosition;
-        const targetPos = this.target.chassis.absolutePosition;
-        const toTarget = targetPos.subtract(myPos).normalize();
+        // Обновляем матрицы для получения актуального направления пушки
+        this.chassis.computeWorldMatrix(true);
+        this.turret.computeWorldMatrix(true);
+        this.barrel.computeWorldMatrix(true);
         
-        const wallPos = myPos.clone().add(toTarget.scale(5));
-        wallPos.y = 2.0; // Центр стенки
+        // Получаем позицию и направление пушки
+        const barrelPos = this.barrel.getAbsolutePosition();
+        const barrelForward = this.barrel.getDirection(Vector3.Forward()).normalize();
         
-        // Создаём стенку
+        // Получаем позицию дула ствола (как при выстреле)
+        const muzzlePos = barrelPos.add(barrelForward.scale(1.5));
+        
+        // Создаём стенку перед дулом ствола на расстоянии 2 метра
+        const wallPos = muzzlePos.add(barrelForward.scale(2));
+        
+        // КРИТИЧНО: Определяем высоту поверхности через raycast вниз
+        // Стенка должна появляться на ЛЮБОЙ поверхности на ЛЮБОЙ высоте (даже в воздухе)
+        let groundY = wallPos.y; // По умолчанию используем Y координату позиции стенки (для появления в воздухе)
+        const rayStart = wallPos.clone();
+        // КРИТИЧНО: Начинаем достаточно высоко, но не слишком высоко, чтобы найти поверхности на любой высоте
+        // Используем максимум из: позиция ствола + 50, позиция стенки + 100, или фиксированная высота 200
+        rayStart.y = Math.max(Math.max(barrelPos.y + 50, wallPos.y + 100), 200);
+        const rayDirection = new Vector3(0, -1, 0); // Направление вниз
+        // КРИТИЧНО: Увеличена длина raycast до 500 метров для очень высоких поверхностей
+        // Но также убеждаемся, что мы можем найти поверхности ниже (до -10 для защитной плоскости)
+        const rayLength = Math.max(500, rayStart.y - (-10) + 50); // Достаточно для поиска от 200 до -10
+        const ray = new Ray(rayStart, rayDirection, rayLength);
+        
+        const pick = this.scene.pickWithRay(ray, (mesh) => {
+            if (!mesh || !mesh.isEnabled()) return false;
+            
+            // Исключаем танки, пули, стенки и другие динамические объекты
+            const meta = mesh.metadata;
+            if (meta && (meta.type === "playerTank" || meta.type === "bullet" || meta.type === "consumable" || meta.type === "protectiveWall" || meta.type === "enemyWall" || meta.type === "platform")) return false;
+            
+            // Исключаем UI элементы
+            if (mesh.name.includes("billboard") || mesh.name.includes("hp")) return false;
+            
+            // КРИТИЧНО: Проверяем имя меша для поиска поверхностей
+            const meshName = mesh.name.toLowerCase();
+            const isSurface = meshName.startsWith("ground_") || 
+                             meshName.includes("terrain") || 
+                             meshName.includes("chunk") ||
+                             meshName.includes("floor") ||
+                             meshName.includes("platform") ||
+                             meshName.includes("wall") ||
+                             meshName.includes("road") ||
+                             meshName.includes("asphalt") ||
+                             meshName.includes("concrete") ||
+                             meshName.includes("dirt") ||
+                             meshName.includes("sand") ||
+                             meshName.includes("grass");
+            
+            // Если это поверхность, принимаем её даже если isPickable = false
+            if (isSurface) {
+                return mesh.visibility > 0.5;
+            }
+            
+            // Для остальных мешей проверяем isPickable
+            return mesh.isPickable && mesh.visibility > 0.5;
+        });
+        
+        // Определяем цвет поверхности и высоту пола
+        let surfaceColor = new Color3(0.5, 0.5, 0.5); // Цвет по умолчанию (серый)
+        if (pick && pick.hit && pick.pickedPoint) {
+            // Нашли поверхность - используем её высоту
+            groundY = pick.pickedPoint.y;
+            
+            // КРИТИЧНО: Определяем цвет поверхности из материала
+            if (pick.pickedMesh && pick.pickedMesh.material) {
+                const material = pick.pickedMesh.material;
+                if (material instanceof StandardMaterial) {
+                    surfaceColor = material.diffuseColor.clone();
+                } else {
+                    // Если материал не StandardMaterial, пытаемся получить цвет другим способом
+                    try {
+                        const mat = material as any;
+                        if (mat.diffuseColor) {
+                            surfaceColor = mat.diffuseColor.clone ? mat.diffuseColor.clone() : new Color3(mat.diffuseColor.r || 0.5, mat.diffuseColor.g || 0.5, mat.diffuseColor.b || 0.5);
+                        }
+                    } catch (e) {
+                        // Используем цвет по умолчанию
+                    }
+                }
+            }
+        } else {
+            // НЕ нашли поверхность - используем Y координату позиции стенки (для появления в воздухе)
+            groundY = wallPos.y;
+        }
+        
+        // КРИТИЧНО: Финальная позиция стенки (центр на высоте groundY + 2)
+        // Стенка высотой 4, так что центр на groundY + 2 означает, что нижняя грань на groundY
+        const finalY = groundY + 2;
+        const finalWallPos = new Vector3(wallPos.x, finalY, wallPos.z);
+        
+        // КРИТИЧНО: Начальная позиция (под поверхностью, чтобы стенка полностью была скрыта)
+        // Стенка высотой 4, так что начинаем на 4 единицы ниже поверхности
+        // Убеждаемся, что startY не слишком низко (минимум -10 для безопасности)
+        const startY = Math.max(groundY - 4, groundY - 10);
+        const startWallPos = new Vector3(wallPos.x, startY, wallPos.z);
+        
+        // Создаём стенку (те же размеры, что и у игрока)
         this.wallMesh = MeshBuilder.CreateBox(`enemyWall_${this.id}_${Date.now()}`, {
-            width: 5,
-            height: 3.5,
-            depth: 0.4
+            width: 6,
+            height: 4,
+            depth: 0.5
         }, this.scene);
         
-        this.wallMesh.position.copyFrom(wallPos);
-        this.wallMesh.rotation.y = Math.atan2(toTarget.x, toTarget.z);
+        // Начинаем с позиции под полом
+        this.wallMesh.position.copyFrom(startWallPos);
+        // Поворачиваем стенку в направлении пушки (горизонтальное направление)
+        this.wallMesh.rotation.y = Math.atan2(barrelForward.x, barrelForward.z);
         
-        // Материал (тёмно-красный, как и танк)
+        // Материал стенки с цветом поверхности
         const mat = new StandardMaterial(`enemyWallMat_${this.id}_${Date.now()}`, this.scene);
-        mat.diffuseColor = new Color3(0.4, 0.1, 0.1);
-        mat.emissiveColor = new Color3(0.2, 0.05, 0.05);
+        mat.diffuseColor = surfaceColor;
+        mat.emissiveColor = surfaceColor.scale(0.3);
         mat.specularColor = Color3.Black();
         this.wallMesh.material = mat;
         
         this.wallMesh.metadata = { type: "enemyWall", owner: this };
+        // КРИТИЧНО: Устанавливаем isPickable = true для работы raycast проверки снарядов игрока
+        this.wallMesh.isPickable = true;
         this.wallHealth = this.WALL_MAX_HEALTH;
         
-        // Физика
+        // Анимация появления из пола (1 секунда)
+        const animationDuration = 1000; // 1 секунда
+        const startTime = Date.now();
+        const startPos = startWallPos.clone();
+        const endPos = finalWallPos.clone();
+        
+        const animateWall = () => {
+            if (!this.wallMesh || this.wallMesh.isDisposed()) return;
+            
+            const elapsed = Date.now() - startTime;
+            const progress = Math.min(elapsed / animationDuration, 1);
+            
+            // Используем easing функцию для плавности (ease-out)
+            const easeProgress = 1 - Math.pow(1 - progress, 3);
+            
+            // Интерполируем позицию
+            this.wallMesh.position.y = startPos.y + (endPos.y - startPos.y) * easeProgress;
+            
+            if (progress < 1) {
+                // Продолжаем анимацию
+                requestAnimationFrame(animateWall);
+            } else {
+                // Анимация завершена, создаём физику
+                this.wallMesh.position.y = endPos.y;
+        
+                // Физика стенки (статическая, непроходимая и непростреливаемая - блокирует всё)
         const shape = new PhysicsShape({
             type: PhysicsShapeType.BOX,
-            parameters: { extents: new Vector3(5, 3.5, 0.4) }
+                    parameters: { extents: new Vector3(6, 4, 0.5) }
         }, this.scene);
         shape.filterMembershipMask = 64; // Стенки врагов
-        shape.filterCollideMask = 1 | 2 | 4; // Игрок, окружение, пули игрока
+        shape.filterCollideMask = 1 | 2 | 4 | 16; // Игрок (1), окружение (2), пули игрока (4), пули врагов (16)
         
         this.wallPhysics = new PhysicsBody(this.wallMesh, PhysicsMotionType.STATIC, false, this.scene);
         this.wallPhysics.shape = shape;
+            }
+        };
+        
+        // Запускаем анимацию
+        animateWall();
         
         // Таймер удаления
         this.wallTimeout = window.setTimeout(() => this.destroyWall(), this.WALL_DURATION);
@@ -4132,13 +4609,35 @@ export class EnemyTank {
     public damageEnemyWall(damage: number): boolean {
         if (!this.wallMesh || this.wallMesh.isDisposed()) return false;
         
-        this.wallHealth -= damage;
+        this.wallHealth = Math.max(0, this.wallHealth - damage);
+        
+        logger.debug(`[EnemyTank ${this.id}] Wall damaged: ${damage} HP, remaining: ${this.wallHealth}/${this.WALL_MAX_HEALTH}`);
+        
+        // Визуальное обновление - цвет меняется от зелёного к красному
+        this.updateEnemyWallVisuals();
         
         if (this.wallHealth <= 0) {
             this.destroyWall();
             return true; // Стенка разрушена
         }
         return false; // Стенка повреждена
+    }
+    
+    // Обновление визуального вида стенки в зависимости от HP
+    private updateEnemyWallVisuals(): void {
+        if (!this.wallMesh || this.wallMesh.isDisposed() || !this.wallMesh.material) return;
+        
+        const mat = this.wallMesh.material as StandardMaterial;
+        const healthPercent = this.wallHealth / this.WALL_MAX_HEALTH;
+        
+        // Цвет меняется от исходного к красному при повреждении
+        // При 100% HP - исходный цвет, при 0% - красный
+        const damageColor = new Color3(1, 0.2, 0.2); // Красный для повреждённой стенки
+        const originalColor = mat.diffuseColor.clone();
+        
+        // Интерполируем между исходным цветом и красным
+        mat.diffuseColor = Color3.Lerp(damageColor, originalColor, healthPercent);
+        mat.emissiveColor = mat.diffuseColor.scale(0.3 + (1 - healthPercent) * 0.3); // Больше свечения при повреждении
     }
     
     private die(): void {
@@ -4312,6 +4811,48 @@ export class EnemyTank {
         }
     }
     
+    /**
+     * Проверяет, находится ли точка внутри стенки
+     * Используется для проверки столкновения снарядов со стенками
+     */
+    private checkPointInWall(pos: Vector3, wallMesh: Mesh): boolean {
+        if (!wallMesh || wallMesh.isDisposed()) return false;
+        
+        const wallPos = wallMesh.absolutePosition;
+        const wallRotation = wallMesh.rotation.y;
+        const wallMeta = wallMesh.metadata as any;
+        const wallType = wallMeta?.type || "protectiveWall";
+        
+        let wallHalfWidth: number, wallHalfHeight: number, wallHalfDepth: number;
+        
+        if (wallType === "protectiveWall") {
+            // Размеры защитной стенки: width=6, height=4, depth=0.5
+            wallHalfWidth = 3;
+            wallHalfHeight = 2;
+            wallHalfDepth = 0.25;
+        } else {
+            // Размеры стенки врага: width=6, height=4, depth=0.5 (те же, что и у игрока!)
+            wallHalfWidth = 3;
+            wallHalfHeight = 2;
+            wallHalfDepth = 0.25;
+        }
+        
+        // Переводим позицию в локальную систему координат стенки
+        const localPos = pos.subtract(wallPos);
+        const cosY = Math.cos(-wallRotation);
+        const sinY = Math.sin(-wallRotation);
+        
+        // Поворачиваем позицию в локальную систему координат стенки
+        const localX = localPos.x * cosY - localPos.z * sinY;
+        const localY = localPos.y;
+        const localZ = localPos.x * sinY + localPos.z * cosY;
+        
+        // Проверяем, находится ли точка внутри границ стенки
+        return Math.abs(localX) < wallHalfWidth && 
+               Math.abs(localY) < wallHalfHeight && 
+               Math.abs(localZ) < wallHalfDepth;
+    }
+    
     dispose(): void {
         this.isAlive = false;
         
@@ -4350,8 +4891,129 @@ export class EnemyTank {
         }
     }
     
+    /**
+     * ИСПРАВЛЕНО: Построение пути через pathfinding к цели
+     */
+    private updatePathToTarget(target: Vector3, forceUpdate: boolean = false): boolean {
+        if (!this.pathfinding || !this.chassis) return false;
+        
+        const now = Date.now();
+        const myPos = this.chassis.absolutePosition;
+        
+        // Проверяем, нужно ли обновлять путь
+        const targetChanged = !this.currentPathTarget || 
+            Vector3.Distance(this.currentPathTarget, target) > 10;
+        const timeSinceUpdate = now - this.lastPathUpdate;
+        const needsUpdate = forceUpdate || targetChanged || 
+            (timeSinceUpdate > this.PATH_UPDATE_INTERVAL && this.currentPath.length === 0) ||
+            (this.currentPathIndex >= this.currentPath.length);
+        
+        if (!needsUpdate && this.currentPath.length > 0) {
+            return true; // Путь актуален
+        }
+        
+        // Проверяем прямую видимость - если есть, не нужен сложный путь
+        if (this.pathfinding.hasDirectPath(myPos, target)) {
+            this.currentPath = [myPos.clone(), target.clone()];
+            this.currentPathIndex = 0;
+            this.currentPathTarget = target.clone();
+            this.lastPathUpdate = now;
+            return true;
+        }
+        
+        // Строим путь через A*
+        const pathResult = this.pathfinding.findPath(myPos, target);
+        
+        if (pathResult.found && pathResult.path.length > 0) {
+            this.currentPath = pathResult.path;
+            this.currentPathIndex = 0;
+            this.currentPathTarget = target.clone();
+            this.lastPathUpdate = now;
+            return true;
+        }
+        
+        // Путь не найден - используем прямую цель как fallback
+        this.currentPath = [target.clone()];
+        this.currentPathIndex = 0;
+        this.currentPathTarget = target.clone();
+        this.lastPathUpdate = now;
+        return false;
+    }
+    
+    /**
+     * ИСПРАВЛЕНО: Очистка текущего пути (при смене состояния)
+     */
+    private clearPath(): void {
+        this.currentPath = [];
+        this.currentPathIndex = 0;
+        this.currentPathTarget = null;
+    }
+    
+    /**
+     * ИСПРАВЛЕНО: Получение следующей точки пути для движения (УЛУЧШЕННАЯ ВЕРСИЯ)
+     */
+    private getNextPathPoint(): Vector3 | null {
+        if (!this.chassis || !this.pathfinding) return null;
+        
+        const myPos = this.chassis.absolutePosition;
+        
+        // Если путь пуст или закончился - возвращаем null
+        if (this.currentPath.length === 0 || this.currentPathIndex >= this.currentPath.length) {
+            return null;
+        }
+        
+        // УЛУЧШЕНО: Находим ближайшую точку пути, которая ещё впереди
+        let bestIndex = this.currentPathIndex;
+        let bestDistance = Infinity;
+        
+        // ИСПРАВЛЕНО: Ищем самую дальнюю точку с прямой видимостью (для обхода препятствий)
+        const maxLookAhead = Math.min(this.currentPathIndex + 5, this.currentPath.length); // Увеличено с 3 до 5
+        
+        for (let i = this.currentPathIndex; i < maxLookAhead; i++) {
+            const point = this.currentPath[i];
+            if (!point) continue;
+            
+            // Проверяем прямую видимость до точки
+            const hasDirectPath = this.pathfinding.hasDirectPath(myPos, point);
+            if (hasDirectPath) {
+                // Если есть прямая видимость - можем идти к этой точке
+                const distance = Vector3.Distance(myPos, point);
+                if (i > bestIndex || (i === bestIndex && distance < bestDistance)) {
+                    bestDistance = distance;
+                    bestIndex = i;
+                }
+            } else if (i === this.currentPathIndex) {
+                // Если текущая точка заблокирована - всё равно используем её (pathfinding найдёт обход)
+                const distance = Vector3.Distance(myPos, point);
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    bestIndex = i;
+                }
+            }
+        }
+        
+        this.currentPathIndex = bestIndex;
+        
+        // УЛУЧШЕНО: Если достигли текущей точки (или очень близко) - переходим к следующей
+        const reachDistance = 8; // Увеличено с 6 до 8 для более плавного движения
+        if (bestDistance < reachDistance && bestIndex < this.currentPath.length - 1) {
+            this.currentPathIndex = bestIndex + 1;
+        }
+        
+        // Возвращаем следующую точку
+        const nextPoint = this.currentPath[this.currentPathIndex];
+        return nextPoint ? nextPoint.clone() : null;
+    }
+    
     // УЛУЧШЕНО: Обновление информации о близких союзниках с дополнительной информацией
     private updateNearbyEnemies(): void {
+        // ОПТИМИЗАЦИЯ: Пропускаем для очень далёких ботов (>150m)
+        // Координация группы не нужна если игрок далеко
+        if (this.distanceToTargetSq > this.MID_DISTANCE_SQ) {
+            this.nearbyEnemies = [];
+            return;
+        }
+        
         this.nearbyEnemies = [];
         const myPos = this.chassis.absolutePosition;
         

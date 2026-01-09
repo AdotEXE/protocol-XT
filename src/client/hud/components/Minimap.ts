@@ -54,7 +54,7 @@ export interface MinimapMarker {
     z: number;
     type: "player" | "enemy" | "ally" | "poi" | "objective";
     icon?: string;
-    element?: Ellipse;
+    element?: Rectangle; // ИСПРАВЛЕНО: Изменено с Ellipse на Rectangle для отображения танков
 }
 
 /**
@@ -68,7 +68,7 @@ export class Minimap {
     private scanLine: Rectangle | null = null;
     private gridLines: Line[] = [];
     private markers: Map<string, MinimapMarker> = new Map();
-    private markerElements: Map<string, Ellipse> = new Map();
+    private markerElements: Map<string, Rectangle> = new Map();
     private config: MinimapConfig;
     
     private playerX: number = 0;
@@ -213,9 +213,10 @@ export class Minimap {
     addMarker(marker: MinimapMarker): void {
         this.markers.set(marker.id, marker);
         
-        const element = new Ellipse(`marker_${marker.id}`);
-        element.width = "6px";
-        element.height = "6px";
+        // ИСПРАВЛЕНО: Используем Rectangle вместо Ellipse для отображения танков
+        const element = new Rectangle(`marker_${marker.id}`);
+        element.width = "8px";
+        element.height = "8px";
         element.thickness = 0;
         
         switch (marker.type) {

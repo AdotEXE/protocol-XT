@@ -6,7 +6,8 @@ import {
     AdvancedDynamicTexture,
     Rectangle,
     TextBlock,
-    Control
+    Control,
+    Line
 } from "@babylonjs/gui";
 import type { MissionSystem, Mission, MissionProgress } from "./missionSystem";
 import { scalePixels } from "./utils/uiScale";
@@ -116,6 +117,7 @@ export class HUD {
     
     // Minimap
     private minimapContainer!: Rectangle;
+    private minimapEnabled = true; // Радар включен по умолчанию, можно отключить Tab для экономии ресурсов
     private radarArea: Rectangle | null = null; // Область радара для врагов
     private minimapEnemies: Rectangle[] = [];
     // Буквенное обозначение направления движения над радаром
@@ -131,6 +133,30 @@ export class HUD {
     private buildingMarkerPool: Rectangle[] = [];
     private readonly MAX_BUILDING_MARKERS = 30; // Максимум зданий на радаре
     private cachedBuildings: { x: number; z: number; width: number; depth: number }[] = [];
+    
+    // Дороги на миникарте
+    private roadMarkers: Line[] = [];
+    private roadMarkerPool: Line[] = [];
+    private lastRoadsUpdate = 0;
+    private readonly ROADS_UPDATE_INTERVAL = 2000; // Обновлять дороги раз в 2 секунды
+    
+    // Рельеф и препятствия на миникарте
+    private terrainMarkers: Rectangle[] = [];
+    private terrainMarkerPool: Rectangle[] = [];
+    private lastTerrainUpdate = 0;
+    private readonly TERRAIN_UPDATE_INTERVAL = 2000; // Обновлять рельеф раз в 2 секунды
+    
+    // Снаряды на миникарте
+    private projectileMarkers: Rectangle[] = [];
+    private projectileMarkerPool: Rectangle[] = [];
+    
+    // Взрывы на миникарте
+    private explosionMarkers: Rectangle[] = [];
+    private explosionHistory: Array<{x: number, z: number, time: number, radius: number}> = [];
+    private readonly EXPLOSION_FADE_TIME = 5000; // Взрывы видны 5 секунд
+    
+    // Данные о здоровье врагов
+    private enemyHealthData: Map<string, {health: number, maxHealth: number}> = new Map();
     
     // Radar scan line animation
     private radarScanLine: Rectangle | null = null;
@@ -1119,10 +1145,20 @@ export class HUD {
         this.healthBar.addControl(warningOverlay);
         (this.healthBar as any)._warningOverlay = warningOverlay;
         
-        // Текст здоровья (скрыт)
+        // Текст здоровья (отображается поверх бара)
         this.healthText = new TextBlock("healthText");
-        this.healthText.text = "100";
-        this.healthText.isVisible = false;
+        this.healthText.text = "100/100";
+        this.healthText.color = "#fff"; // Белый цвет
+        this.healthText.fontSize = this.scaleFontSize(14, 12, 16);
+        this.healthText.fontFamily = "'Press Start 2P', monospace";
+        this.healthText.fontWeight = "bold";
+        this.healthText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.healthText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.healthText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.healthText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.healthText.top = this.scalePx(3); // Немного ниже для симметричного центрирования
+        this.healthText.isVisible = true; // ВИДИМЫЙ!
+        this.healthText.zIndex = 100; // Высокий z-index чтобы быть поверх всего
         container.addControl(this.healthText);
         
         const healthPercent = new TextBlock("healthPercent");
@@ -2067,13 +2103,65 @@ export class HUD {
         if (!hotbarSlot) return;
         
         const percent = Math.min(100, (cooldownMs / maxCooldownMs) * 100);
-        const seconds = Math.ceil(cooldownMs / 1000);
+        const progress = 1 - (cooldownMs / maxCooldownMs);
         
         if (cooldownMs > 0) {
             // Показываем кулдаун
             hotbarSlot.cooldownOverlay.isVisible = true;
-            hotbarSlot.cooldownFill.height = `${percent}%`;
-            hotbarSlot.cooldownText.text = seconds > 0 ? `${seconds}` : "";
+            hotbarSlot.cooldownOverlay.alpha = 0.75;
+            hotbarSlot.cooldownFill.isVisible = true;
+            hotbarSlot.cooldownFillGlow.isVisible = true;
+            hotbarSlot.cooldownText.isVisible = true;
+            
+            // Заполнение снизу вверх
+            hotbarSlot.cooldownFill.height = `${progress * 100}%`;
+            hotbarSlot.cooldownFillGlow.height = `${progress * 100}%`;
+            
+            // Градиент цвета кулдауна
+            let r = 255, g = 0, b = 0;
+            if (progress < 0.5) {
+                const phase = progress / 0.5;
+                g = Math.floor(255 * phase);
+            } else {
+                const phase = (progress - 0.5) / 0.5;
+                r = Math.floor(255 * (1 - phase));
+                g = 255;
+            }
+            const hexR = r.toString(16).padStart(2, '0');
+            const hexG = g.toString(16).padStart(2, '0');
+            const hexB = b.toString(16).padStart(2, '0');
+            hotbarSlot.cooldownFill.background = `#${hexR}${hexG}${hexB}cc`;
+            
+            // Свечение зеленым в конце кулдауна
+            if (progress > 0.7) {
+                hotbarSlot.cooldownFillGlow.alpha = (progress - 0.7) / 0.3 * 0.5;
+            } else {
+                hotbarSlot.cooldownFillGlow.alpha = 0;
+            }
+            
+            // ВСЕГДА отображаем цифры кулдауна когда есть кулдаун
+            const seconds = Math.ceil(cooldownMs / 1000);
+            
+            // ВСЕГДА показываем цифры, если есть оставшееся время
+            if (cooldownMs < 10000) {
+                // Меньше 10 секунд - показываем с десятыми (например: "5.3")
+                hotbarSlot.cooldownText.text = `${(cooldownMs / 1000).toFixed(1)}`;
+            } else {
+                // Больше 10 секунд - показываем только секунды (например: "15")
+                hotbarSlot.cooldownText.text = `${seconds}`;
+            }
+            
+            // Динамический цвет текста в зависимости от прогресса
+            if (progress > 0.8) {
+                hotbarSlot.cooldownText.color = "#0ff"; // Голубой когда почти готов
+                hotbarSlot.cooldownText.fontSize = 13;
+            } else if (progress > 0.5) {
+                hotbarSlot.cooldownText.color = "#ff0"; // Желтый в середине
+                hotbarSlot.cooldownText.fontSize = 12;
+            } else {
+                hotbarSlot.cooldownText.color = "#fff"; // Белый в начале
+                hotbarSlot.cooldownText.fontSize = 12;
+            }
             
             // Затемняем иконку
             hotbarSlot.container.background = "#000000cc";
@@ -2081,6 +2169,9 @@ export class HUD {
         } else {
             // Скрываем кулдаун
             hotbarSlot.cooldownOverlay.isVisible = false;
+            hotbarSlot.cooldownFill.isVisible = false;
+            hotbarSlot.cooldownFillGlow.isVisible = false;
+            hotbarSlot.cooldownText.isVisible = false;
             hotbarSlot.cooldownFill.height = "0%";
             hotbarSlot.cooldownText.text = "";
             
@@ -2215,32 +2306,29 @@ export class HUD {
                     slotData.cooldownFillGlow.alpha = 0;
                 }
                 
-                // Текст кулдауна с улучшенной визуализацией
+                // Текст кулдауна - ВСЕГДА отображаем когда есть кулдаун
                 slotData.cooldownText.isVisible = true;
                 const seconds = Math.ceil(remaining / 1000);
-                const milliseconds = remaining % 1000;
                 
-                if (seconds > 0 || milliseconds > 100) {
-                    // Показываем секунды, если меньше 10 секунд - показываем десятые
-                    if (remaining < 10000) {
-                        slotData.cooldownText.text = `${(remaining / 1000).toFixed(1)}`;
-                    } else {
-                        slotData.cooldownText.text = `${seconds}`;
-                    }
-                    
-                    // Динамический цвет текста в зависимости от прогресса
-                    if (progress > 0.8) {
-                        slotData.cooldownText.color = "#0ff"; // Голубой когда почти готов
-                        slotData.cooldownText.fontSize = 13; // Немного увеличиваем размер
-                    } else if (progress > 0.5) {
-                        slotData.cooldownText.color = "#ff0"; // Желтый в середине
-                        slotData.cooldownText.fontSize = 12;
-                    } else {
-                        slotData.cooldownText.color = "#fff"; // Белый в начале
-                        slotData.cooldownText.fontSize = 12;
-                    }
+                // ВСЕГДА показываем цифры кулдауна, если есть оставшееся время
+                if (remaining < 10000) {
+                    // Меньше 10 секунд - показываем с десятыми (например: "5.3")
+                    slotData.cooldownText.text = `${(remaining / 1000).toFixed(1)}`;
                 } else {
-                    slotData.cooldownText.text = "";
+                    // Больше 10 секунд - показываем только секунды (например: "15")
+                    slotData.cooldownText.text = `${seconds}`;
+                }
+                
+                // Динамический цвет текста в зависимости от прогресса
+                if (progress > 0.8) {
+                    slotData.cooldownText.color = "#0ff"; // Голубой когда почти готов
+                    slotData.cooldownText.fontSize = 13; // Немного увеличиваем размер
+                } else if (progress > 0.5) {
+                    slotData.cooldownText.color = "#ff0"; // Желтый в середине
+                    slotData.cooldownText.fontSize = 12;
+                } else {
+                    slotData.cooldownText.color = "#fff"; // Белый в начале
+                    slotData.cooldownText.fontSize = 12;
                 }
                 
                 // Плавное затемнение иконки с восстановлением яркости в конце
@@ -2504,6 +2592,28 @@ export class HUD {
     private fullMapEnemiesActive: Map<string, Rectangle> = new Map(); // Map<enemyId, Rectangle>
     private readonly MAX_FULLMAP_ENEMIES = 50; // Ограничение количества врагов на карте
     
+    // Дороги на полной карте
+    private fullMapRoadMarkers: Line[] = [];
+    private fullMapRoadMarkerPool: Line[] = [];
+    private lastFullMapRoadsUpdate = 0;
+    
+    // Рельеф на полной карте
+    private fullMapTerrainMarkers: Rectangle[] = [];
+    private fullMapTerrainMarkerPool: Rectangle[] = [];
+    private lastFullMapTerrainUpdate = 0;
+    
+    // Снаряды на полной карте
+    private fullMapProjectileMarkers: Rectangle[] = [];
+    private fullMapProjectileMarkerPool: Rectangle[] = [];
+    
+    // Взрывы на полной карте
+    private fullMapExplosionMarkers: Rectangle[] = [];
+    
+    // Здания на полной карте
+    private fullMapBuildingMarkers: Rectangle[] = [];
+    private fullMapBuildingMarkerPool: Rectangle[] = [];
+    private lastFullMapBuildingsUpdate = 0;
+    
     private createMinimap() {
         // === ВОЕННО-ТАКТИЧЕСКИЙ ДИЗАЙН РАДАРА (ЗЕЛЁНАЯ СХЕМА) ===
         // УВЕЛИЧЕНО: Размеры с правильными отступами для лучшей читаемости
@@ -2531,6 +2641,8 @@ export class HUD {
         this.minimapContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         this.minimapContainer.left = this.scalePx(-12);
         this.minimapContainer.top = this.scalePx(-45); // На одной высоте с XP BAR
+        this.minimapContainer.isVisible = this.minimapEnabled; // ОПТИМИЗАЦИЯ: Начинаем со скрытой миникарты
+        this.minimapContainer.alpha = 1.0; // КРИТИЧНО: Полная непрозрачность
         this.guiTexture.addControl(this.minimapContainer);
         
         // === ДЕКОРАТИВНЫЕ УГОЛКИ ===
@@ -2703,6 +2815,8 @@ export class HUD {
         radarContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         radarContainer.left = this.scalePx(-PADDING);
         radarContainer.top = this.scalePx(centerY);
+        radarContainer.isVisible = true; // КРИТИЧНО: Контейнер радара должен быть видим
+        radarContainer.alpha = 1.0; // КРИТИЧНО: Полная непрозрачность
         this.minimapContainer.addControl(radarContainer);
         
         // === ОБЛАСТЬ РАДАРА ===
@@ -2808,26 +2922,28 @@ export class HUD {
         this.minimapPlayerContainer.height = this.scalePx(20);
         this.minimapPlayerContainer.thickness = 0;
         this.minimapPlayerContainer.background = "transparent";
+        this.minimapPlayerContainer.isVisible = true; // КРИТИЧНО: Контейнер игрока должен быть видим
         this.radarArea.addControl(this.minimapPlayerContainer);
         
-        // Маркер игрока - УЛУЧШЕНО: увеличен размер для лучшей видимости
+        // Маркер игрока - ИСПРАВЛЕНО: прямоугольный маркер
         this.minimapPlayer = new Rectangle("minimapPlayer");
         this.minimapPlayer.width = this.scalePx(10); // УВЕЛИЧЕНО с 8 до 10
         this.minimapPlayer.height = this.scalePx(10); // УВЕЛИЧЕНО с 8 до 10
         this.minimapPlayer.thickness = 3; // УВЕЛИЧЕНО с 2 до 3
         this.minimapPlayer.color = "#00ff00";
         this.minimapPlayer.background = "#00ff00";
-        this.minimapPlayer.cornerRadius = 5; // УВЕЛИЧЕНО с 4 до 5
+        this.minimapPlayer.cornerRadius = 0; // ИСПРАВЛЕНО: Прямоугольный маркер (было 5 - круглый)
         this.minimapPlayerContainer.addControl(this.minimapPlayer);
         
-        // Индикатор направления игрока - УЛУЧШЕНО: увеличен размер для лучшей видимости
+        // Индикатор направления игрока - СКРЫТ (убрана палочка, которая крутилась)
         this.minimapPlayerDir = new Rectangle("minimapPlayerDir");
-        this.minimapPlayerDir.width = this.scalePx(4); // УВЕЛИЧЕНО с 3 до 4
-        this.minimapPlayerDir.height = this.scalePx(18); // УВЕЛИЧЕНО с 16 до 18
+        this.minimapPlayerDir.width = this.scalePx(4);
+        this.minimapPlayerDir.height = this.scalePx(18);
         this.minimapPlayerDir.thickness = 0;
         this.minimapPlayerDir.background = "#00ff00";
-        this.minimapPlayerDir.top = this.scalePx(-14); // Позиция выше центра
-        this.minimapPlayerDir.transformCenterY = 1; // Точка поворота внизу
+        this.minimapPlayerDir.top = this.scalePx(-14);
+        this.minimapPlayerDir.transformCenterY = 1;
+        this.minimapPlayerDir.isVisible = false; // СКРЫТ - убрана палочка
         this.minimapPlayerContainer.addControl(this.minimapPlayerDir);
         
         // === RADAR SCAN LINE ===
@@ -3606,7 +3722,10 @@ export class HUD {
         const newWidth = currentWidth + widthDiff * 0.15; // Плавная интерполяция
         this.healthFill.width = Math.max(0, Math.min(100, newWidth)) + "%";
         
-        this.healthText.text = `${Math.round(this.currentHealth)}/${Math.round(this.maxHealth)}`;
+        // Обновляем текст здоровья
+        if (this.healthText) {
+            this.healthText.text = `${Math.round(this.currentHealth)}/${Math.round(this.maxHealth)}`;
+        }
         
         // Enhanced color based on health - DYNAMIC colors with smooth transitions
         let healthColor = "#0f0"; // Green
@@ -3626,7 +3745,9 @@ export class HUD {
         }
         
         this.healthFill.background = healthColor;
-        this.healthText.color = healthColor;
+        if (this.healthText) {
+            this.healthText.color = "#fff"; // Всегда белый
+        }
         this.healthBar.color = healthColor;
         
         // Update glow effect
@@ -3786,6 +3907,365 @@ export class HUD {
             
             this.buildingMarkers.push(marker);
         }
+    }
+    
+    /**
+     * Обновить дороги на миникарте
+     */
+    private updateMinimapRoads(playerX: number, playerZ: number, angle: number, radarRange: number): void {
+        // ОПТИМИЗАЦИЯ: Пропускаем если миникарта выключена
+        if (!this.minimapEnabled) return;
+        if (!this.radarArea) return;
+        
+        // Скрываем старые маркеры дорог
+        for (const marker of this.roadMarkers) {
+            marker.isVisible = false;
+            this.roadMarkerPool.push(marker);
+        }
+        this.roadMarkers = [];
+        
+        // Импортируем дороги Тарту
+        try {
+            const { TARTU_ROADS } = require("./tartuRoads");
+            const roads = TARTU_ROADS || [];
+            
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+            const RADAR_INNER = 180;
+            const radarScale = RADAR_INNER / 2 / radarRange;
+            
+            for (const road of roads) {
+                // Проверяем, находится ли дорога в радиусе радара
+                const roadCenterX = (road.start.x + road.end.x) / 2;
+                const roadCenterZ = (road.start.z + road.end.z) / 2;
+                const distToStart = Math.sqrt((road.start.x - playerX) ** 2 + (road.start.z - playerZ) ** 2);
+                const distToEnd = Math.sqrt((road.end.x - playerX) ** 2 + (road.end.z - playerZ) ** 2);
+                const distToCenter = Math.sqrt((roadCenterX - playerX) ** 2 + (roadCenterZ - playerZ) ** 2);
+                
+                // Показываем дорогу если она в радиусе радара
+                if (distToStart > radarRange * 1.5 && distToEnd > radarRange * 1.5 && distToCenter > radarRange * 1.5) {
+                    continue;
+                }
+                
+                // Вычисляем относительные позиции
+                const relStartX = road.start.x - playerX;
+                const relStartZ = road.start.z - playerZ;
+                const relEndX = road.end.x - playerX;
+                const relEndZ = road.end.z - playerZ;
+                
+                // Вращаем относительно направления игрока
+                const rotStartX = relStartX * cos - relStartZ * sin;
+                const rotStartZ = relStartX * sin + relStartZ * cos;
+                const rotEndX = relEndX * cos - relEndZ * sin;
+                const rotEndZ = relEndX * sin + relEndZ * cos;
+                
+                // Масштабируем к размеру радара
+                const radarStartX = rotStartX * radarScale;
+                const radarStartY = -rotStartZ * radarScale;
+                const radarEndX = rotEndX * radarScale;
+                const radarEndY = -rotEndZ * radarScale;
+                
+                // Проверяем, находится ли хотя бы часть дороги в пределах радара
+                const startInBounds = Math.abs(radarStartX) <= RADAR_INNER / 2 && Math.abs(radarStartY) <= RADAR_INNER / 2;
+                const endInBounds = Math.abs(radarEndX) <= RADAR_INNER / 2 && Math.abs(radarEndY) <= RADAR_INNER / 2;
+                
+                if (!startInBounds && !endInBounds) {
+                    // Проверяем, пересекает ли дорога область радара
+                    const lineLength = Math.sqrt((radarEndX - radarStartX) ** 2 + (radarEndY - radarStartY) ** 2);
+                    if (lineLength === 0) continue;
+                    
+                    const t = Math.max(0, Math.min(1, -(radarStartX * (radarEndX - radarStartX) + radarStartY * (radarEndY - radarStartY)) / (lineLength ** 2)));
+                    const closestX = radarStartX + t * (radarEndX - radarStartX);
+                    const closestY = radarStartY + t * (radarEndY - radarStartY);
+                    const distToCenter = Math.sqrt(closestX ** 2 + closestY ** 2);
+                    
+                    if (distToCenter > RADAR_INNER / 2) continue;
+                }
+                
+                // Получаем или создаём маркер дороги
+                let line: Line;
+                if (this.roadMarkerPool.length > 0) {
+                    line = this.roadMarkerPool.pop()!;
+                } else {
+                    line = new Line(`road${this.roadMarkers.length}`);
+                    line.lineWidth = 2;
+                    line.zIndex = 30; // Ниже зданий, но видимо
+                    this.radarArea.addControl(line);
+                }
+                
+                // Устанавливаем цвет в зависимости от типа дороги
+                const color = road.type === "highway" ? "#00aa00" : road.type === "street" ? "#006600" : "#004400";
+                line.color = color;
+                line.alpha = 0.6;
+                
+                // Устанавливаем координаты линии
+                line.x1 = radarStartX;
+                line.y1 = radarStartY;
+                line.x2 = radarEndX;
+                line.y2 = radarEndY;
+                
+                line.isVisible = true;
+                this.roadMarkers.push(line);
+            }
+        } catch (e) {
+            // Если дороги недоступны, просто пропускаем
+            console.warn("[HUD] Could not load roads for minimap:", e);
+        }
+    }
+    
+    /**
+     * Обновить рельеф и препятствия на миникарте
+     */
+    private updateMinimapTerrain(playerX: number, playerZ: number, angle: number, radarRange: number): void {
+        // ОПТИМИЗАЦИЯ: Пропускаем если миникарта выключена
+        if (!this.minimapEnabled) return;
+        if (!this.radarArea || !this.scene) return;
+        
+        // Скрываем старые маркеры рельефа
+        for (const marker of this.terrainMarkers) {
+            marker.isVisible = false;
+            this.terrainMarkerPool.push(marker);
+        }
+        this.terrainMarkers = [];
+        
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const RADAR_INNER = 180;
+        const radarScale = RADAR_INNER / 2 / radarRange;
+        
+        // Ищем препятствия в сцене
+        const terrainKeywords = ["obstacle", "barrier", "wall", "fence", "rock", "tree", "boulder"];
+        let terrainCount = 0;
+        const MAX_TERRAIN_MARKERS = 20; // Ограничение для производительности
+        
+        for (const mesh of this.scene.meshes) {
+            if (!mesh.isEnabled() || !mesh.isVisible || terrainCount >= MAX_TERRAIN_MARKERS) continue;
+            
+            const name = mesh.name.toLowerCase();
+            const isTerrain = terrainKeywords.some(keyword => name.includes(keyword));
+            
+            if (!isTerrain) continue;
+            
+            const pos = mesh.getAbsolutePosition();
+            const dist = Math.sqrt((pos.x - playerX) ** 2 + (pos.z - playerZ) ** 2);
+            if (dist > radarRange * 1.2) continue;
+            
+            // Вычисляем относительную позицию
+            const relX = pos.x - playerX;
+            const relZ = pos.z - playerZ;
+            
+            // Вращаем относительно направления игрока
+            const rotX = relX * cos - relZ * sin;
+            const rotZ = relX * sin + relZ * cos;
+            
+            // Масштабируем к размеру радара
+            const radarX = rotX * radarScale;
+            const radarY = -rotZ * radarScale;
+            
+            // Проверяем, находится ли в пределах радара
+            if (Math.abs(radarX) > RADAR_INNER / 2 || Math.abs(radarY) > RADAR_INNER / 2) continue;
+            
+            // Получаем или создаём маркер
+            let marker: Rectangle;
+            if (this.terrainMarkerPool.length > 0) {
+                marker = this.terrainMarkerPool.pop()!;
+            } else {
+                marker = new Rectangle(`terrain${this.terrainMarkers.length}`);
+                marker.thickness = 1;
+                marker.color = "#005500";
+                marker.zIndex = 40; // Между дорогами и зданиями
+                marker.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                marker.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+                this.radarArea.addControl(marker);
+            }
+            
+            // Размер препятствия на радаре
+            const bounds = mesh.getBoundingInfo()?.boundingBox;
+            const size = bounds ? Math.max(bounds.extendSize.x, bounds.extendSize.z) * 2 : 5;
+            const radarSize = Math.max(3, size * radarScale * 0.5);
+            
+            marker.width = `${radarSize}px`;
+            marker.height = `${radarSize}px`;
+            marker.left = `${radarX}px`;
+            marker.top = `${radarY}px`;
+            marker.background = "rgba(0, 80, 0, 0.5)"; // Тёмно-зелёный полупрозрачный
+            marker.cornerRadius = radarSize / 2; // Круглые маркеры для препятствий
+            marker.isVisible = true;
+            
+            this.terrainMarkers.push(marker);
+            terrainCount++;
+        }
+    }
+    
+    /**
+     * Обновить снаряды на миникарте
+     */
+    updateMinimapProjectiles(projectiles: Array<{x: number, z: number, type?: string, ownerId?: string}>, playerX: number, playerZ: number, angle: number): void {
+        // ОПТИМИЗАЦИЯ: Пропускаем если миникарта выключена
+        if (!this.minimapEnabled) return;
+        if (!this.radarArea) return;
+        
+        // Скрываем старые маркеры снарядов
+        for (const marker of this.projectileMarkers) {
+            marker.isVisible = false;
+            this.projectileMarkerPool.push(marker);
+        }
+        this.projectileMarkers = [];
+        
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const RADAR_INNER = 180;
+        const RADAR_RANGE = 250;
+        const radarScale = RADAR_INNER / 2 / RADAR_RANGE;
+        
+        // Цвета для разных типов снарядов
+        const projectileColors: Record<string, string> = {
+            "ap": "#ffaa00",
+            "he": "#ff6600",
+            "heat": "#ff0000",
+            "apcr": "#ffff00",
+            "hesh": "#00ff00",
+            "tracer": "#00ffff",
+            "incendiary": "#ff4400",
+            "smoke": "#888888",
+            "guided": "#ff00ff"
+        };
+        
+        for (const projectile of projectiles) {
+            // Вычисляем относительную позицию
+            const relX = projectile.x - playerX;
+            const relZ = projectile.z - playerZ;
+            
+            // Проверяем расстояние
+            const dist = Math.sqrt(relX * relX + relZ * relZ);
+            if (dist > RADAR_RANGE) continue;
+            
+            // Вращаем относительно направления игрока
+            const rotX = relX * cos - relZ * sin;
+            const rotZ = relX * sin + relZ * cos;
+            
+            // Масштабируем к размеру радара
+            const radarX = rotX * radarScale;
+            const radarY = -rotZ * radarScale;
+            
+            // Проверяем, находится ли в пределах радара
+            if (Math.abs(radarX) > RADAR_INNER / 2 || Math.abs(radarY) > RADAR_INNER / 2) continue;
+            
+            // Получаем или создаём маркер
+            let marker: Rectangle;
+            if (this.projectileMarkerPool.length > 0) {
+                marker = this.projectileMarkerPool.pop()!;
+            } else {
+                marker = new Rectangle(`projectile${this.projectileMarkers.length}`);
+                marker.width = "3px";
+                marker.height = "3px";
+                marker.thickness = 0;
+                marker.zIndex = 900; // Выше зданий, но ниже врагов
+                marker.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                marker.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+                this.radarArea.addControl(marker);
+            }
+            
+            // Устанавливаем цвет в зависимости от типа снаряда
+            const projectileType = projectile.type || "ap";
+            marker.background = projectileColors[projectileType] || "#ffaa00";
+            marker.alpha = 0.8;
+            
+            marker.left = `${radarX}px`;
+            marker.top = `${radarY}px`;
+            marker.isVisible = true;
+            
+            this.projectileMarkers.push(marker);
+        }
+    }
+    
+    /**
+     * Добавить взрыв на миникарту
+     */
+    addExplosion(x: number, z: number, radius: number = 5): void {
+        const now = Date.now();
+        this.explosionHistory.push({ x, z, time: now, radius });
+        
+        // Удаляем старые взрывы (старше 5 секунд)
+        this.explosionHistory = this.explosionHistory.filter(exp => now - exp.time < this.EXPLOSION_FADE_TIME);
+    }
+    
+    /**
+     * Обновить взрывы на миникарте
+     */
+    private updateMinimapExplosions(playerX: number, playerZ: number, angle: number, radarRange: number): void {
+        // ОПТИМИЗАЦИЯ: Пропускаем если миникарта выключена
+        if (!this.minimapEnabled) return;
+        if (!this.radarArea) return;
+        
+        // Скрываем старые маркеры взрывов
+        for (const marker of this.explosionMarkers) {
+            marker.isVisible = false;
+            marker.dispose();
+        }
+        this.explosionMarkers = [];
+        
+        const now = Date.now();
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const RADAR_INNER = 180;
+        const radarScale = RADAR_INNER / 2 / radarRange;
+        
+        // Фильтруем старые взрывы
+        this.explosionHistory = this.explosionHistory.filter(exp => now - exp.time < this.EXPLOSION_FADE_TIME);
+        
+        for (const explosion of this.explosionHistory) {
+            // Вычисляем относительную позицию
+            const relX = explosion.x - playerX;
+            const relZ = explosion.z - playerZ;
+            
+            // Проверяем расстояние
+            const dist = Math.sqrt(relX * relX + relZ * relZ);
+            if (dist > radarRange * 1.2) continue;
+            
+            // Вращаем относительно направления игрока
+            const rotX = relX * cos - relZ * sin;
+            const rotZ = relX * sin + relZ * cos;
+            
+            // Масштабируем к размеру радара
+            const radarX = rotX * radarScale;
+            const radarY = -rotZ * radarScale;
+            
+            // Проверяем, находится ли в пределах радара
+            if (Math.abs(radarX) > RADAR_INNER / 2 || Math.abs(radarY) > RADAR_INNER / 2) continue;
+            
+            // Вычисляем затухание (от 1.0 до 0.3)
+            const age = now - explosion.time;
+            const fadeProgress = age / this.EXPLOSION_FADE_TIME;
+            const alpha = 1.0 - fadeProgress * 0.7; // От 1.0 до 0.3
+            
+            // Создаём маркер взрыва
+            const marker = new Rectangle(`explosion${this.explosionMarkers.length}`);
+            const size = Math.max(4, explosion.radius * radarScale * 0.5);
+            marker.width = `${size}px`;
+            marker.height = `${size}px`;
+            marker.thickness = 1;
+            marker.color = "#ff4400";
+            marker.background = `rgba(255, 68, 0, ${alpha * 0.6})`;
+            marker.cornerRadius = size / 2;
+            marker.zIndex = 800; // Выше зданий
+            marker.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            marker.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+            marker.left = `${radarX}px`;
+            marker.top = `${radarY}px`;
+            marker.isVisible = true;
+            marker.alpha = alpha;
+            
+            this.radarArea.addControl(marker);
+            this.explosionMarkers.push(marker);
+        }
+    }
+    
+    /**
+     * Установить здоровье врага для отображения на миникарте
+     */
+    setEnemyHealthForMinimap(enemyId: string, health: number, maxHealth: number): void {
+        this.enemyHealthData.set(enemyId, { health, maxHealth });
     }
     
     // Update low HP pulse effect (call from updateAnimations)
@@ -5004,6 +5484,9 @@ export class HUD {
      * @param isAiming - Режим прицеливания
      */
     updateMinimap(enemies: {x: number, z: number, alive: boolean, turretRotation?: number}[] | Vector3[], playerPos?: Vector3, tankRotationY?: number, turretRotationY?: number, isAiming?: boolean) {
+        // ОПТИМИЗАЦИЯ: Пропускаем обновление если миникарта выключена
+        if (!this.minimapEnabled) return;
+        
         // Обновляем индикатор направления башни над радаром
         if (turretRotationY !== undefined) {
             this.setMovementDirection(turretRotationY);
@@ -5050,6 +5533,9 @@ export class HUD {
         const angle = turretRotationY !== undefined ? turretRotationY : (tankRotationY || 0);
         const cos = Math.cos(angle);
         const sin = Math.sin(angle);
+        
+        // RADAR RANGE: 250 meters (circles at 50m intervals: 50m, 100m, 150m, 200m, edge=250m)
+        const RADAR_RANGE = 250;
         
         // УЛУЧШЕНО: Обновляем маркеры зданий на радаре
         const buildingRadarRange = 100; // Радиус обзора радара для зданий
@@ -5133,8 +5619,7 @@ export class HUD {
         const pulseSize = 6 + Math.sin(this.enemyPulsePhase) * 2; // 4-8px (оставляем Math.sin для точности визуального эффекта)
         
         // Add new enemy markers - ПУЛЬСИРУЮЩИЕ КРАСНЫЕ КВАДРАТЫ с направлением ствола
-        // RADAR RANGE: 250 meters (circles at 50m intervals: 50m, 100m, 150m, 200m, edge=250m)
-        const RADAR_RANGE = 250;
+        // RADAR_RANGE уже объявлен выше
         
         // ОПТИМИЗАЦИЯ: Используем обычный for вместо forEach
         const enemyCount = enemies.length;
@@ -5199,15 +5684,15 @@ export class HUD {
             
             // Check if scan line just passed this enemy
             const isScanned = this.isEnemyScanned(enemyAngleOnRadar);
-            const enemyKey = `${i}_${ex.toFixed(0)}_${ez.toFixed(0)}`;
+            const scannedEnemyKey = `${i}_${ex.toFixed(0)}_${ez.toFixed(0)}`;
             
-            if (isScanned && !this.scannedEnemies.has(enemyKey)) {
+            if (isScanned && !this.scannedEnemies.has(scannedEnemyKey)) {
                 // Enemy just scanned - add to scanned list with fade timer
-                this.scannedEnemies.set(enemyKey, { marker: null as any, fadeTime: 1500 });
+                this.scannedEnemies.set(scannedEnemyKey, { marker: null as any, fadeTime: 1500 });
             }
             
             // Check if this enemy is in scanned state
-            const scannedData = this.scannedEnemies.get(enemyKey);
+            const scannedData = this.scannedEnemies.get(scannedEnemyKey);
             const isFading = scannedData !== undefined;
             
             // КРИТИЧНО: Враги ВСЕГДА видны на радаре
@@ -5215,9 +5700,12 @@ export class HUD {
             let marker: Rectangle;
             if (this.enemyMarkerPool.length > 0) {
                 marker = this.enemyMarkerPool.pop()!;
-                // КРИТИЧНО: Принудительно делаем маркер видимым
+                // КРИТИЧНО: Принудительно делаем маркер видимым и сбрасываем все свойства
                 marker.isVisible = true;
                 marker.alpha = 1.0;
+                marker.zIndex = 1000; // КРИТИЧНО: Высокий z-index для видимости
+                marker.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                marker.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
                 // КРИТИЧНО: Убеждаемся, что маркер добавлен в radarArea
                 if (this.radarArea) {
                     if (!this.radarArea.children?.includes(marker)) {
@@ -5242,13 +5730,15 @@ export class HUD {
                 }
             }
             
-            // УЛУЧШЕНО: Увеличен размер маркеров с 6px до 8px + пульсация
+            // ИСПРАВЛЕНО: Прямоугольные маркеры танков (не круглые)
             const baseSize = isFading ? pulseSize + 6 : pulseSize + 4; // УВЕЛИЧЕНО с +4/+2 до +6/+4
             marker.width = `${baseSize}px`;
             marker.height = `${baseSize}px`;
             marker.thickness = isEdge ? 3 : 2; // УВЕЛИЧЕНА толщина контура с 2/1 до 3/2
             marker.color = isFading ? "#0f0" : "#ff3333"; // Более яркий красный
-            marker.cornerRadius = baseSize / 2; // Круглые маркеры
+            marker.cornerRadius = 0; // ИСПРАВЛЕНО: Прямоугольные маркеры (было baseSize / 2 - круглые)
+            // КРИТИЧНО: Убеждаемся что background установлен ДО проверки isFading
+            marker.background = isEdge ? "#aa0000" : "#ff3333";
             
             // Scanned enemies glow bright green then fade to red
             if (isFading && scannedData) {
@@ -6111,14 +6601,56 @@ export class HUD {
         mapArea.addControl(playerMarker);
         (this.fullMapContainer as any)._playerMarker = playerMarker;
         
-        // Направление игрока (улучшенное)
-        const playerDir = new Rectangle("fullMapPlayerDir");
-        playerDir.width = "4px";
-        playerDir.height = "24px";
-        playerDir.background = "#0ff";
-        playerDir.top = "-20px";
-        mapArea.addControl(playerDir);
-        (this.fullMapContainer as any)._playerDir = playerDir;
+        // FOV конус для игрока на полной карте
+        const fullMapFovConeContainer = new Rectangle("fullMapFovConeContainer");
+        fullMapFovConeContainer.width = "660px";
+        fullMapFovConeContainer.height = "520px";
+        fullMapFovConeContainer.thickness = 0;
+        fullMapFovConeContainer.background = "transparent";
+        mapArea.addControl(fullMapFovConeContainer);
+        (this.fullMapContainer as any)._fovConeContainer = fullMapFovConeContainer;
+        
+        // Левая линия FOV
+        const fullMapFovLeftLine = new Rectangle("fullMapFovLeftLine");
+        fullMapFovLeftLine.width = "3px";
+        fullMapFovLeftLine.height = "120px";
+        fullMapFovLeftLine.thickness = 0;
+        fullMapFovLeftLine.background = "#00ff00";
+        fullMapFovLeftLine.alpha = 0.5;
+        fullMapFovLeftLine.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        fullMapFovLeftLine.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        fullMapFovLeftLine.top = "-60px";
+        fullMapFovLeftLine.transformCenterX = 0.5;
+        fullMapFovLeftLine.transformCenterY = 1;
+        fullMapFovConeContainer.addControl(fullMapFovLeftLine);
+        (this.fullMapContainer as any)._fovLeftLine = fullMapFovLeftLine;
+        
+        // Правая линия FOV
+        const fullMapFovRightLine = new Rectangle("fullMapFovRightLine");
+        fullMapFovRightLine.width = "3px";
+        fullMapFovRightLine.height = "120px";
+        fullMapFovRightLine.thickness = 0;
+        fullMapFovRightLine.background = "#00ff00";
+        fullMapFovRightLine.alpha = 0.5;
+        fullMapFovRightLine.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        fullMapFovRightLine.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        fullMapFovRightLine.top = "-60px";
+        fullMapFovRightLine.transformCenterX = 0.5;
+        fullMapFovRightLine.transformCenterY = 1;
+        fullMapFovConeContainer.addControl(fullMapFovRightLine);
+        (this.fullMapContainer as any)._fovRightLine = fullMapFovRightLine;
+        
+        // Центральная линия FOV
+        const fullMapFovCenterLine = new Rectangle("fullMapFovCenterLine");
+        fullMapFovCenterLine.width = "2px";
+        fullMapFovCenterLine.height = "120px";
+        fullMapFovCenterLine.thickness = 0;
+        fullMapFovCenterLine.background = "#00ff00";
+        fullMapFovCenterLine.alpha = 0.3;
+        fullMapFovCenterLine.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        fullMapFovCenterLine.top = "-60px";
+        fullMapFovConeContainer.addControl(fullMapFovCenterLine);
+        (this.fullMapContainer as any)._fovCenterLine = fullMapFovCenterLine;
         
         // Подсказка (улучшенная)
         const hint = new TextBlock("mapHint");
@@ -6175,6 +6707,26 @@ export class HUD {
         // Теперь карта управляется из Game класса
     }
     
+    /**
+     * ОПТИМИЗАЦИЯ: Переключение миникарты (радара)
+     * По умолчанию миникарта отключена для экономии ресурсов
+     * Включение по Tab показывает радар и активирует обновления
+     */
+    toggleMinimap(): void {
+        this.minimapEnabled = !this.minimapEnabled;
+        if (this.minimapContainer) {
+            this.minimapContainer.isVisible = this.minimapEnabled;
+        }
+        console.log(`[HUD] Minimap ${this.minimapEnabled ? 'enabled' : 'disabled'}`);
+    }
+    
+    /**
+     * Проверка, включена ли миникарта
+     */
+    isMinimapEnabled(): boolean {
+        return this.minimapEnabled;
+    }
+    
     toggleFullMap(): void {
         // ИСПРАВЛЕНИЕ: Создаём карту если она ещё не создана
         if (!this.fullMapContainer) {
@@ -6216,9 +6768,12 @@ export class HUD {
         
         // Обновляем позицию игрока на карте
         const playerMarker = (this.fullMapContainer as any)._playerMarker as Rectangle;
-        const playerDir = (this.fullMapContainer as any)._playerDir as Rectangle;
+        const fovConeContainer = (this.fullMapContainer as any)._fovConeContainer as Rectangle;
+        const fovLeftLine = (this.fullMapContainer as any)._fovLeftLine as Rectangle;
+        const fovRightLine = (this.fullMapContainer as any)._fovRightLine as Rectangle;
+        const fovCenterLine = (this.fullMapContainer as any)._fovCenterLine as Rectangle;
         
-        if (playerMarker && playerDir) {
+        if (playerMarker) {
             // Масштаб: 1 единица мира = 0.5 пикселя на карте
             const scale = 0.5;
             const mapX = playerPos.x * scale;
@@ -6232,14 +6787,49 @@ export class HUD {
             playerMarker.left = `${clampedX}px`;
             playerMarker.top = `${clampedZ}px`;
             
-            playerDir.left = `${clampedX}px`;
-            playerDir.top = `${clampedZ - 16}px`;
-            playerDir.rotation = -playerRotation;
+            // Обновляем позицию FOV конуса
+            if (fovConeContainer) {
+                fovConeContainer.left = `${clampedX}px`;
+                fovConeContainer.top = `${clampedZ}px`;
+            }
+            
+            // Обновляем поворот FOV линий
+            const halfAngle = (60 / 2) * Math.PI / 180;
+            if (fovLeftLine) {
+                fovLeftLine.rotation = -playerRotation - halfAngle;
+            }
+            if (fovRightLine) {
+                fovRightLine.rotation = -playerRotation + halfAngle;
+            }
+            if (fovCenterLine) {
+                fovCenterLine.rotation = -playerRotation;
+            }
         }
         
         // ОПТИМИЗАЦИЯ: Используем пул объектов и Map для отслеживания активных маркеров
         const mapArea = this.fullMapContainer?.children[1] as Rectangle;
         if (!mapArea) return;
+        
+        // Обновляем дороги на полной карте
+        if (now - this.lastFullMapRoadsUpdate > this.ROADS_UPDATE_INTERVAL) {
+            this.updateFullMapRoads(playerPos, mapArea);
+            this.lastFullMapRoadsUpdate = now;
+        }
+        
+        // Обновляем рельеф на полной карте
+        if (now - this.lastFullMapTerrainUpdate > this.TERRAIN_UPDATE_INTERVAL) {
+            this.updateFullMapTerrain(playerPos, mapArea);
+            this.lastFullMapTerrainUpdate = now;
+        }
+        
+        // Обновляем взрывы на полной карте
+        this.updateFullMapExplosions(playerPos, mapArea);
+        
+        // Обновляем здания на полной карте
+        if (now - this.lastFullMapBuildingsUpdate > 2000) {
+            this.updateFullMapBuildings(playerPos, mapArea);
+            this.lastFullMapBuildingsUpdate = now;
+        }
         
         // Валидация входных данных
         if (!enemies || enemies.length === 0) {
@@ -6329,6 +6919,310 @@ export class HUD {
     
     isFullMapVisible(): boolean {
         return this.fullMapVisible;
+    }
+    
+    /**
+     * Обновить дороги на полной карте
+     */
+    private updateFullMapRoads(playerPos: Vector3, mapArea: Rectangle): void {
+        // Скрываем старые маркеры дорог
+        for (const marker of this.fullMapRoadMarkers) {
+            marker.isVisible = false;
+            this.fullMapRoadMarkerPool.push(marker);
+        }
+        this.fullMapRoadMarkers = [];
+        
+        // Импортируем дороги Тарту
+        try {
+            const { TARTU_ROADS } = require("./tartuRoads");
+            const roads = TARTU_ROADS || [];
+            
+            // Масштаб для полной карты: 1 единица мира = 0.5 пикселя
+            const scale = 0.5;
+            const maxDist = 600; // Максимальная дистанция отображения
+            
+            for (const road of roads) {
+                // Проверяем, находится ли дорога в видимой области
+                const roadCenterX = (road.start.x + road.end.x) / 2;
+                const roadCenterZ = (road.start.z + road.end.z) / 2;
+                const distToCenter = Math.sqrt((roadCenterX - playerPos.x) ** 2 + (roadCenterZ - playerPos.z) ** 2);
+                
+                if (distToCenter > maxDist) continue;
+                
+                // Вычисляем позиции на карте
+                const mapStartX = road.start.x * scale;
+                const mapStartZ = -road.start.z * scale;
+                const mapEndX = road.end.x * scale;
+                const mapEndZ = -road.end.z * scale;
+                
+                // Получаем или создаём маркер дороги
+                let line: Line;
+                if (this.fullMapRoadMarkerPool.length > 0) {
+                    line = this.fullMapRoadMarkerPool.pop()!;
+                } else {
+                    line = new Line(`fullMapRoad${this.fullMapRoadMarkers.length}`);
+                    line.lineWidth = 2;
+                    line.zIndex = 30;
+                    mapArea.addControl(line);
+                }
+                
+                // Устанавливаем цвет в зависимости от типа дороги
+                const color = road.type === "highway" ? "#00aa00" : road.type === "street" ? "#006600" : "#004400";
+                line.color = color;
+                line.alpha = 0.7;
+                
+                // Устанавливаем координаты линии
+                line.x1 = mapStartX;
+                line.y1 = mapStartZ;
+                line.x2 = mapEndX;
+                line.y2 = mapEndZ;
+                
+                line.isVisible = true;
+                this.fullMapRoadMarkers.push(line);
+            }
+        } catch (e) {
+            console.warn("[HUD] Could not load roads for full map:", e);
+        }
+    }
+    
+    /**
+     * Обновить рельеф на полной карте
+     */
+    private updateFullMapTerrain(playerPos: Vector3, mapArea: Rectangle): void {
+        if (!this.scene) return;
+        
+        // Скрываем старые маркеры рельефа
+        for (const marker of this.fullMapTerrainMarkers) {
+            marker.isVisible = false;
+            this.fullMapTerrainMarkerPool.push(marker);
+        }
+        this.fullMapTerrainMarkers = [];
+        
+        const scale = 0.5;
+        const maxDist = 600;
+        const terrainKeywords = ["obstacle", "barrier", "wall", "fence", "rock", "tree", "boulder"];
+        let terrainCount = 0;
+        const MAX_TERRAIN_MARKERS = 50;
+        
+        for (const mesh of this.scene.meshes) {
+            if (!mesh.isEnabled() || !mesh.isVisible || terrainCount >= MAX_TERRAIN_MARKERS) continue;
+            
+            const name = mesh.name.toLowerCase();
+            const isTerrain = terrainKeywords.some(keyword => name.includes(keyword));
+            
+            if (!isTerrain) continue;
+            
+            const pos = mesh.getAbsolutePosition();
+            const dist = Math.sqrt((pos.x - playerPos.x) ** 2 + (pos.z - playerPos.z) ** 2);
+            if (dist > maxDist) continue;
+            
+            // Вычисляем позицию на карте
+            const mapX = pos.x * scale;
+            const mapZ = -pos.z * scale;
+            
+            // Получаем или создаём маркер
+            let marker: Rectangle;
+            if (this.fullMapTerrainMarkerPool.length > 0) {
+                marker = this.fullMapTerrainMarkerPool.pop()!;
+            } else {
+                marker = new Rectangle(`fullMapTerrain${this.fullMapTerrainMarkers.length}`);
+                marker.thickness = 1;
+                marker.color = "#005500";
+                marker.zIndex = 40;
+                marker.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                marker.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+                mapArea.addControl(marker);
+            }
+            
+            // Размер препятствия на карте
+            const bounds = mesh.getBoundingInfo()?.boundingBox;
+            const size = bounds ? Math.max(bounds.extendSize.x, bounds.extendSize.z) * 2 : 5;
+            const mapSize = Math.max(2, size * scale * 0.3);
+            
+            marker.width = `${mapSize}px`;
+            marker.height = `${mapSize}px`;
+            marker.left = `${mapX}px`;
+            marker.top = `${mapZ}px`;
+            marker.background = "rgba(0, 80, 0, 0.6)";
+            marker.cornerRadius = mapSize / 2;
+            marker.isVisible = true;
+            
+            this.fullMapTerrainMarkers.push(marker);
+            terrainCount++;
+        }
+    }
+    
+    /**
+     * Обновить здания на полной карте
+     */
+    private updateFullMapBuildings(playerPos: Vector3, mapArea: Rectangle): void {
+        // Скрываем старые маркеры
+        for (const marker of this.fullMapBuildingMarkers) {
+            marker.isVisible = false;
+            this.fullMapBuildingMarkerPool.push(marker);
+        }
+        this.fullMapBuildingMarkers = [];
+        
+        const scale = 0.5;
+        const maxDist = 1000; // Больший радиус для полной карты
+        
+        for (const building of this.cachedBuildings) {
+            // Проверяем расстояние
+            const dist = Math.sqrt((building.x - playerPos.x) ** 2 + (building.z - playerPos.z) ** 2);
+            if (dist > maxDist) continue;
+            
+            // Вычисляем позицию на карте
+            const mapX = building.x * scale;
+            const mapZ = -building.z * scale;
+            
+            // Получаем или создаём маркер
+            let marker: Rectangle;
+            if (this.fullMapBuildingMarkerPool.length > 0) {
+                marker = this.fullMapBuildingMarkerPool.pop()!;
+            } else {
+                marker = new Rectangle(`fullMapBuilding${this.fullMapBuildingMarkers.length}`);
+                marker.thickness = 1;
+                marker.color = "#003300";
+                marker.zIndex = 50; // Ниже врагов и игрока
+                marker.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                marker.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+                mapArea.addControl(marker);
+            }
+            
+            // Размер здания на карте
+            const sizeX = Math.max(3, building.width * scale * 0.8);
+            const sizeZ = Math.max(3, building.depth * scale * 0.8);
+            
+            marker.width = `${sizeX}px`;
+            marker.height = `${sizeZ}px`;
+            marker.left = `${mapX}px`;
+            marker.top = `${mapZ}px`;
+            marker.background = "rgba(0, 60, 0, 0.7)"; // Тёмно-зелёный полупрозрачный
+            marker.isVisible = true;
+            
+            this.fullMapBuildingMarkers.push(marker);
+        }
+    }
+    
+    /**
+     * Обновить взрывы на полной карте
+     */
+    private updateFullMapExplosions(playerPos: Vector3, mapArea: Rectangle): void {
+        // Скрываем старые маркеры взрывов
+        for (const marker of this.fullMapExplosionMarkers) {
+            marker.isVisible = false;
+            marker.dispose();
+        }
+        this.fullMapExplosionMarkers = [];
+        
+        const now = Date.now();
+        const scale = 0.5;
+        const maxDist = 600;
+        
+        // Фильтруем старые взрывы
+        this.explosionHistory = this.explosionHistory.filter(exp => now - exp.time < this.EXPLOSION_FADE_TIME);
+        
+        for (const explosion of this.explosionHistory) {
+            // Проверяем расстояние
+            const dist = Math.sqrt((explosion.x - playerPos.x) ** 2 + (explosion.z - playerPos.z) ** 2);
+            if (dist > maxDist) continue;
+            
+            // Вычисляем позицию на карте
+            const mapX = explosion.x * scale;
+            const mapZ = -explosion.z * scale;
+            
+            // Вычисляем затухание
+            const age = now - explosion.time;
+            const fadeProgress = age / this.EXPLOSION_FADE_TIME;
+            const alpha = 1.0 - fadeProgress * 0.7;
+            
+            // Создаём маркер взрыва
+            const marker = new Rectangle(`fullMapExplosion${this.fullMapExplosionMarkers.length}`);
+            const size = Math.max(3, explosion.radius * scale * 0.4);
+            marker.width = `${size}px`;
+            marker.height = `${size}px`;
+            marker.thickness = 1;
+            marker.color = "#ff4400";
+            marker.background = `rgba(255, 68, 0, ${alpha * 0.6})`;
+            marker.cornerRadius = size / 2;
+            marker.zIndex = 800;
+            marker.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            marker.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+            marker.left = `${mapX}px`;
+            marker.top = `${mapZ}px`;
+            marker.isVisible = true;
+            marker.alpha = alpha;
+            
+            mapArea.addControl(marker);
+            this.fullMapExplosionMarkers.push(marker);
+        }
+    }
+    
+    /**
+     * Обновить снаряды на полной карте
+     */
+    updateFullMapProjectiles(projectiles: Array<{x: number, z: number, type?: string, ownerId?: string}>, playerPos: Vector3): void {
+        const mapArea = this.fullMapContainer?.children[1] as Rectangle;
+        if (!mapArea) return;
+        
+        // Скрываем старые маркеры снарядов
+        for (const marker of this.fullMapProjectileMarkers) {
+            marker.isVisible = false;
+            this.fullMapProjectileMarkerPool.push(marker);
+        }
+        this.fullMapProjectileMarkers = [];
+        
+        const scale = 0.5;
+        const maxDist = 600;
+        
+        // Цвета для разных типов снарядов
+        const projectileColors: Record<string, string> = {
+            "ap": "#ffaa00",
+            "he": "#ff6600",
+            "heat": "#ff0000",
+            "apcr": "#ffff00",
+            "hesh": "#00ff00",
+            "tracer": "#00ffff",
+            "incendiary": "#ff4400",
+            "smoke": "#888888",
+            "guided": "#ff00ff"
+        };
+        
+        for (const projectile of projectiles) {
+            // Проверяем расстояние
+            const dist = Math.sqrt((projectile.x - playerPos.x) ** 2 + (projectile.z - playerPos.z) ** 2);
+            if (dist > maxDist) continue;
+            
+            // Вычисляем позицию на карте
+            const mapX = projectile.x * scale;
+            const mapZ = -projectile.z * scale;
+            
+            // Получаем или создаём маркер
+            let marker: Rectangle;
+            if (this.fullMapProjectileMarkerPool.length > 0) {
+                marker = this.fullMapProjectileMarkerPool.pop()!;
+            } else {
+                marker = new Rectangle(`fullMapProjectile${this.fullMapProjectileMarkers.length}`);
+                marker.width = "2px";
+                marker.height = "2px";
+                marker.thickness = 0;
+                marker.zIndex = 900;
+                marker.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                marker.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+                mapArea.addControl(marker);
+            }
+            
+            // Устанавливаем цвет
+            const projectileType = projectile.type || "ap";
+            marker.background = projectileColors[projectileType] || "#ffaa00";
+            marker.alpha = 0.9;
+            
+            marker.left = `${mapX}px`;
+            marker.top = `${mapZ}px`;
+            marker.isVisible = true;
+            
+            this.fullMapProjectileMarkers.push(marker);
+        }
     }
     
     // === ИНДИКАТОР КОМБО ===
@@ -7525,6 +8419,8 @@ export class HUD {
         playerPos: {x: number, z: number},
         tankRotationY: number
     ): void {
+        // ОПТИМИЗАЦИЯ: Пропускаем если миникарта выключена
+        if (!this.minimapEnabled) return;
         if (!this.radarArea) return;
         
         const radarRadius = 70;
@@ -7817,7 +8713,7 @@ export class HUD {
             const marker = new Rectangle(`playerMarker_${i}`);
             marker.width = "6px";
             marker.height = "6px";
-            marker.cornerRadius = 3;
+            marker.cornerRadius = 0;
             marker.thickness = 1;
             marker.color = "#0f0";
             marker.background = "#0f0";
@@ -8195,6 +9091,8 @@ export class HUD {
         position: { x: number; z: number };
         team?: number;
     }>, localPlayerPos: { x: number; z: number }, localPlayerId: string): void {
+        // ОПТИМИЗАЦИЯ: Пропускаем если миникарта выключена
+        if (!this.minimapEnabled) return;
         if (!this.radarArea) return;
         
         // Clear existing markers
@@ -8223,7 +9121,7 @@ export class HUD {
                 marker = new Rectangle(`minimapPlayer_${player.id}`);
                 marker.width = "6px";
                 marker.height = "6px";
-                marker.cornerRadius = 3;
+                marker.cornerRadius = 0; // ИСПРАВЛЕНО: Прямоугольный маркер (было 3 - круглый)
                 marker.thickness = 1;
                 marker.color = player.team === 0 ? "#4a9eff" : player.team === 1 ? "#ff4a4a" : "#0f0";
                 marker.background = player.team === 0 ? "#4a9eff" : player.team === 1 ? "#ff4a4a" : "#0f0";
@@ -8605,22 +9503,18 @@ export class HUD {
     // ============================================================
     
     /**
-     * Создание детальной панели характеристик танка с вкладками
+     * Создание детальной панели характеристик танка
      */
     private createDetailedTankStatsPanel(): void {
-        const PANEL_WIDTH = 260;
-        const PANEL_HEIGHT = 310; // Увеличено для заголовка
-        const HEADER_HEIGHT = 22; // Заголовок с кнопками
-        const TAB_HEIGHT = 24;
-        const PADDING = 10;
-        const ROW_HEIGHT = 18;
-        const FONT_SIZE = 9;
-        const BTN_SIZE = 18;
+        const PANEL_WIDTH = 390;
+        const HEADER_HEIGHT = 33;
+        const PADDING = 15;
+        const BTN_SIZE = 27;
         
-        // Главный контейнер панели
+        // Главный контейнер панели - высота будет установлена динамически
         this.detailedStatsPanel = new Rectangle("detailedStatsPanel");
         this.detailedStatsPanel.width = this.scalePx(PANEL_WIDTH);
-        this.detailedStatsPanel.height = this.scalePx(PANEL_HEIGHT);
+        this.detailedStatsPanel.height = this.scalePx(HEADER_HEIGHT + PADDING * 2); // Минимальная высота
         this.detailedStatsPanel.cornerRadius = 0;
         this.detailedStatsPanel.thickness = 1;
         this.detailedStatsPanel.color = "#00ff00";
@@ -8649,11 +9543,13 @@ export class HUD {
         const headerTitle = new TextBlock("headerTitle");
         headerTitle.text = "⚙ ХАРАКТЕРИСТИКИ";
         headerTitle.color = "#00ff00";
-        headerTitle.fontSize = this.scaleFontSize(8, 7, 10);
+        headerTitle.fontSize = this.scaleFontSize(12, 10, 15); // Увеличен в 1.5 раза
         headerTitle.fontWeight = "bold";
         headerTitle.fontFamily = "'Press Start 2P', monospace";
+        headerTitle.outlineWidth = 1;
+        headerTitle.outlineColor = "#000";
         headerTitle.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        headerTitle.left = this.scalePx(6);
+        headerTitle.left = this.scalePx(9); // 6 * 1.5
         this.detailedStatsHeader.addControl(headerTitle);
         
         // === КНОПКА ЗАКРЫТЬ (X) ===
@@ -8716,130 +9612,23 @@ export class HUD {
             this.detailedStatsMinimizeBtn!.background = "rgba(80, 60, 0, 0.8)";
         });
         
-        // === КНОПКА РАЗВЕРНУТЬ ВСЕ ВКЛАДКИ (⊞) ===
-        this.detailedStatsExpandBtn = new Rectangle("statsExpandBtn");
-        this.detailedStatsExpandBtn.width = this.scalePx(BTN_SIZE);
-        this.detailedStatsExpandBtn.height = this.scalePx(BTN_SIZE);
-        this.detailedStatsExpandBtn.cornerRadius = 2;
-        this.detailedStatsExpandBtn.thickness = 1;
-        this.detailedStatsExpandBtn.color = "#00ccff";
-        this.detailedStatsExpandBtn.background = "rgba(0, 60, 80, 0.8)";
-        this.detailedStatsExpandBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        this.detailedStatsExpandBtn.left = this.scalePx(-BTN_SIZE * 2 - 10);
-        this.detailedStatsExpandBtn.isPointerBlocker = true;
-        this.detailedStatsHeader.addControl(this.detailedStatsExpandBtn);
-        
-        const expandBtnText = new TextBlock("expandBtnText");
-        expandBtnText.text = "⊞";
-        expandBtnText.color = "#00ccff";
-        expandBtnText.fontSize = this.scaleFontSize(12, 10, 14);
-        expandBtnText.fontWeight = "bold";
-        this.detailedStatsExpandBtn.addControl(expandBtnText);
-        
-        this.detailedStatsExpandBtn.onPointerClickObservable.add(() => {
-            this.toggleDetailedStatsExpandAll();
-        });
-        this.detailedStatsExpandBtn.onPointerEnterObservable.add(() => {
-            this.detailedStatsExpandBtn!.background = "rgba(0, 90, 120, 0.9)";
-        });
-        this.detailedStatsExpandBtn.onPointerOutObservable.add(() => {
-            this.detailedStatsExpandBtn!.background = "rgba(0, 60, 80, 0.8)";
-        });
-        
-        // === ВКЛАДКИ ===
-        const tabNames = ["ШАССИ", "ПУШКА", "ГУСЕН", "БОНУС"];
-        const tabWidth = (PANEL_WIDTH - PADDING * 2) / 4;
-        const tabTop = HEADER_HEIGHT + PADDING;
-        
-        for (let i = 0; i < 4; i++) {
-            const tab = new Rectangle(`statsTab_${i}`);
-            tab.width = this.scalePx(tabWidth - 2);
-            tab.height = this.scalePx(TAB_HEIGHT);
-            tab.cornerRadius = 0;
-            tab.thickness = 1;
-            tab.color = i === 0 ? "#00ff00" : "#006600";
-            tab.background = i === 0 ? "rgba(0, 80, 0, 0.9)" : "rgba(0, 30, 0, 0.7)";
-            tab.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            tab.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            tab.left = this.scalePx(PADDING + i * tabWidth);
-            tab.top = this.scalePx(tabTop);
-            tab.isPointerBlocker = true;
-            this.detailedStatsPanel.addControl(tab);
-            this.detailedStatsTabs.push(tab);
-            
-            const tabText = new TextBlock(`statsTabText_${i}`);
-            tabText.text = tabNames[i] ?? "";
-            tabText.color = i === 0 ? "#00ff00" : "#008800";
-            tabText.fontSize = this.scaleFontSize(FONT_SIZE, 7, 11);
-            tabText.fontWeight = "bold";
-            tabText.fontFamily = "'Press Start 2P', monospace";
-            tabText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            tabText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-            tab.addControl(tabText);
-            
-            // Обработчик клика по вкладке
-            const tabIndex = i;
-            tab.onPointerClickObservable.add(() => {
-                this.switchDetailedStatsTab(tabIndex);
-            });
-            
-            // Hover эффект
-            tab.onPointerEnterObservable.add(() => {
-                if (tabIndex !== this.detailedStatsActiveTab) {
-                    tab.background = "rgba(0, 60, 0, 0.8)";
-                }
-            });
-            tab.onPointerOutObservable.add(() => {
-                if (tabIndex !== this.detailedStatsActiveTab) {
-                    tab.background = "rgba(0, 30, 0, 0.7)";
-                }
-            });
-        }
-        
         // === ОБЛАСТЬ КОНТЕНТА ===
         this.detailedStatsContent = new Rectangle("detailedStatsContent");
         this.detailedStatsContent.width = this.scalePx(PANEL_WIDTH - PADDING * 2);
-        this.detailedStatsContent.height = this.scalePx(PANEL_HEIGHT - HEADER_HEIGHT - TAB_HEIGHT - PADDING * 3);
+        this.detailedStatsContent.height = this.scalePx(100); // Временная высота, будет пересчитана
         this.detailedStatsContent.cornerRadius = 0;
         this.detailedStatsContent.thickness = 1;
         this.detailedStatsContent.color = "#004400";
         this.detailedStatsContent.background = "rgba(0, 20, 0, 0.6)";
         this.detailedStatsContent.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.detailedStatsContent.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.detailedStatsContent.top = this.scalePx(tabTop + TAB_HEIGHT + 2); // Минимальный отступ от вкладок
+        this.detailedStatsContent.top = this.scalePx(HEADER_HEIGHT + 3);
         this.detailedStatsPanel.addControl(this.detailedStatsContent);
         
-        // === ЗАГОЛОВОК (название компонента) ===
-        this.detailedStatsTitle = new TextBlock("detailedStatsTitle");
-        this.detailedStatsTitle.text = "— MEDIUM —";
-        this.detailedStatsTitle.color = "#00ff00";
-        this.detailedStatsTitle.fontSize = this.scaleFontSize(10, 8, 12);
-        this.detailedStatsTitle.fontWeight = "bold";
-        this.detailedStatsTitle.fontFamily = "'Press Start 2P', monospace";
-        this.detailedStatsTitle.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.detailedStatsTitle.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.detailedStatsTitle.top = this.scalePx(2); // Минимальный отступ сверху
-        this.detailedStatsContent.addControl(this.detailedStatsTitle);
-        
-        // === СТРОКИ ПАРАМЕТРОВ ===
-        const maxRows = 12;
-        for (let i = 0; i < maxRows; i++) {
-            const rowText = new TextBlock(`statsRow_${i}`);
-            rowText.text = "";
-            rowText.color = "#00cc00";
-            rowText.fontSize = this.scaleFontSize(FONT_SIZE, 7, 11);
-            rowText.fontFamily = "'Press Start 2P', monospace";
-            rowText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            rowText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            rowText.left = this.scalePx(8);
-            rowText.top = this.scalePx(18 + i * ROW_HEIGHT); // Строки сразу под заголовком
-            rowText.isVisible = false;
-            this.detailedStatsContent.addControl(rowText);
-            this.detailedStatsRows.push(rowText);
+        // Если данные уже есть, сразу рендерим их
+        if (this.cachedTankStatsData) {
+            this.renderAllTabsVertically();
         }
-        
-        // Начальные данные - пустые
-        this.renderDetailedStatsContent();
     }
     
     /**
@@ -8850,19 +9639,12 @@ export class HUD {
         
         if (!this.detailedStatsPanel) return;
         
-        const HEADER_HEIGHT = 22;
-        const PADDING = 10;
-        const NORMAL_HEIGHT = 310;
-        const EXPANDED_HEIGHT = 580;
+        const HEADER_HEIGHT = 33;
+        const PADDING = 15;
         
         if (this.detailedStatsMinimized) {
             // Свернуть - показываем только заголовок
             this.detailedStatsPanel.height = this.scalePx(HEADER_HEIGHT + PADDING);
-            
-            // Скрываем вкладки и контент
-            for (const tab of this.detailedStatsTabs) {
-                tab.isVisible = false;
-            }
             if (this.detailedStatsContent) {
                 this.detailedStatsContent.isVisible = false;
             }
@@ -8873,20 +9655,14 @@ export class HUD {
                 btnText.text = "▢";
             }
         } else {
-            // Развернуть - учитываем режим "все вкладки"
-            if (this.detailedStatsExpandedAll) {
-                this.detailedStatsPanel.height = this.scalePx(EXPANDED_HEIGHT);
-                // Вкладки скрыты в режиме "все"
-            } else {
-                this.detailedStatsPanel.height = this.scalePx(NORMAL_HEIGHT);
-                // Показываем вкладки
-                for (const tab of this.detailedStatsTabs) {
-                    tab.isVisible = true;
-                }
-            }
-            
+            // Развернуть - показываем все данные
             if (this.detailedStatsContent) {
                 this.detailedStatsContent.isVisible = true;
+            }
+            
+            // Рендерим все данные вертикально (высота будет рассчитана динамически)
+            if (this.cachedTankStatsData) {
+                this.renderAllTabsVertically();
             }
             
             // Меняем иконку кнопки на "свернуть"
@@ -8897,105 +9673,24 @@ export class HUD {
         }
     }
     
-    /**
-     * Показать все вкладки одновременно (развернуть все) или свернуть обратно
-     */
-    private toggleDetailedStatsExpandAll(): void {
-        if (!this.cachedTankStatsData) return;
-        
-        // Если свёрнуто - сначала разворачиваем
-        if (this.detailedStatsMinimized) {
-            this.toggleDetailedStatsMinimize();
-        }
-        
-        this.detailedStatsExpandedAll = !this.detailedStatsExpandedAll;
-        
-        const PANEL_WIDTH = 260;
-        const EXPANDED_HEIGHT = 520; // Увеличенная высота для всех вкладок
-        const NORMAL_HEIGHT = 310;
-        const HEADER_HEIGHT = 22;
-        const TAB_HEIGHT = 24;
-        const PADDING = 10;
-        
-        if (this.detailedStatsExpandedAll) {
-            // === РЕЖИМ РАЗВЁРНУТО ВСЕ ===
-            if (this.detailedStatsPanel) {
-                this.detailedStatsPanel.height = this.scalePx(EXPANDED_HEIGHT);
-            }
-            
-            // Скрываем обычные вкладки
-            for (const tab of this.detailedStatsTabs) {
-                tab.isVisible = false;
-            }
-            
-            // Увеличиваем область контента и поднимаем её вверх (сразу под заголовок)
-            if (this.detailedStatsContent) {
-                this.detailedStatsContent.height = this.scalePx(EXPANDED_HEIGHT - HEADER_HEIGHT - 4);
-                this.detailedStatsContent.top = this.scalePx(HEADER_HEIGHT + 2); // Минимальный отступ от заголовка
-            }
-            
-            // Меняем иконку кнопки на "свернуть вкладки"
-            const btnText = this.detailedStatsExpandBtn?.children[0] as TextBlock;
-            if (btnText) {
-                btnText.text = "⊟";
-            }
-            
-            // Рендерим все вкладки вертикально
-            this.renderAllTabsVertically();
-        } else {
-            // === РЕЖИМ ОБЫЧНЫЙ (одна вкладка) ===
-            if (this.detailedStatsPanel) {
-                this.detailedStatsPanel.height = this.scalePx(NORMAL_HEIGHT);
-            }
-            
-            // Показываем вкладки
-            for (const tab of this.detailedStatsTabs) {
-                tab.isVisible = true;
-            }
-            
-            // Возвращаем область контента к норме и на место под вкладками
-            if (this.detailedStatsContent) {
-                this.detailedStatsContent.height = this.scalePx(NORMAL_HEIGHT - HEADER_HEIGHT - TAB_HEIGHT - PADDING * 2);
-                this.detailedStatsContent.top = this.scalePx(HEADER_HEIGHT + TAB_HEIGHT + PADDING + 2); // Минимальный отступ
-            }
-            
-            // Скрываем дополнительные строки
-            for (const row of this.detailedStatsExpandedRows) {
-                row.isVisible = false;
-            }
-            
-            // Меняем иконку кнопки на "развернуть вкладки"
-            const btnText = this.detailedStatsExpandBtn?.children[0] as TextBlock;
-            if (btnText) {
-                btnText.text = "⊞";
-            }
-            
-            // Рендерим текущую вкладку
-            this.renderDetailedStatsContent();
-        }
-    }
     
     /**
-     * Рендеринг всех вкладок вертикально в виде списка
+     * Рендеринг всех характеристик вертикально в виде списка
      */
     private renderAllTabsVertically(): void {
-        if (!this.cachedTankStatsData || !this.detailedStatsContent) return;
+        if (!this.cachedTankStatsData || !this.detailedStatsContent || !this.detailedStatsPanel) {
+            return;
+        }
         
         const data = this.cachedTankStatsData;
-        const FONT_SIZE = 8;
-        const ROW_HEIGHT = 14; // Компактнее
+        const FONT_SIZE = 12;
+        const ROW_HEIGHT = 21;
+        const HEADER_HEIGHT = 33;
+        const PADDING = 15;
+        const TOP_PADDING = -197; // 3 - 200px (опущено начало текста на 200px)
+        const BOTTOM_PADDING = 6;
         
-        // Скрываем обычные строки
-        for (const row of this.detailedStatsRows) {
-            row.isVisible = false;
-        }
-        
-        // Скрываем заголовок
-        if (this.detailedStatsTitle) {
-            this.detailedStatsTitle.isVisible = false;
-        }
-        
-        // Удаляем старые расширенные строки
+        // Удаляем все старые элементы
         for (const row of this.detailedStatsExpandedRows) {
             this.detailedStatsContent.removeControl(row);
         }
@@ -9003,8 +9698,6 @@ export class HUD {
         
         // Собираем все данные в один массив
         const allRows: Array<{ text: string; color: string; isSectionHeader?: boolean }> = [];
-        
-        // Функция форматирования строки с выравниванием
         const formatRow = (label: string, value: string) => `${"  " + label}`.padEnd(12) + value;
         
         // === ШАССИ ===
@@ -9014,6 +9707,7 @@ export class HUD {
         allRows.push({ text: formatRow("ПОВОРОТ:", this.formatStatWithBonus(data.chassis.turnSpeed, 2)), color: "#00ccff" });
         allRows.push({ text: formatRow("УСКОР:", this.formatStatWithBonus(data.chassis.acceleration, 0)), color: "#00ccff" });
         allRows.push({ text: formatRow("МАССА:", `${data.chassis.mass}кг`), color: "#888888" });
+        allRows.push({ text: formatRow("РАЗМЕР:", `${data.chassis.width.toFixed(1)}×${data.chassis.height.toFixed(1)}×${data.chassis.depth.toFixed(1)}м`), color: "#888888" });
         
         // === ПУШКА ===
         allRows.push({ text: `▼ ${data.cannon.name.toUpperCase()}`, color: data.cannon.color, isSectionHeader: true });
@@ -9022,8 +9716,17 @@ export class HUD {
         allRows.push({ text: formatRow("СКР.СНР:", this.formatStatWithBonus(data.cannon.projectileSpeed, 0)), color: "#00ccff" });
         allRows.push({ text: formatRow("РАЗМЕР:", data.cannon.projectileSize.toFixed(2)), color: "#888888" });
         allRows.push({ text: formatRow("ОТДАЧА:", `x${data.cannon.recoilMultiplier.toFixed(1)}`), color: "#ff8800" });
+        allRows.push({ text: formatRow("СТВОЛ:", `${data.cannon.barrelLength.toFixed(1)}м`), color: "#888888" });
+        allRows.push({ text: formatRow("ШИР.СТВ:", `${data.cannon.barrelWidth.toFixed(2)}м`), color: "#888888" });
+        allRows.push({ text: formatRow("ДАЛЬНОСТЬ:", `${data.cannon.maxRange}м`), color: "#00ccff" });
         if (data.cannon.maxRicochets && data.cannon.maxRicochets > 0) {
             allRows.push({ text: formatRow("РИКОШЕТ:", `${data.cannon.maxRicochets}x`), color: "#ffd700" });
+        }
+        if (data.cannon.ricochetSpeedRetention !== null) {
+            allRows.push({ text: formatRow("СОХР.СКР:", `${(data.cannon.ricochetSpeedRetention * 100).toFixed(0)}%`), color: "#ffd700" });
+        }
+        if (data.cannon.ricochetAngle !== null) {
+            allRows.push({ text: formatRow("УГЛ.РИК:", `${data.cannon.ricochetAngle}°`), color: "#ffd700" });
         }
         
         // === ГУСЕНИЦЫ ===
@@ -9053,11 +9756,20 @@ export class HUD {
         allRows.push({ text: formatRow("HP:", formatBonusVal(data.bonuses.healthBonus)), color: data.bonuses.healthBonus > 0 ? "#00ff00" : "#888888" });
         allRows.push({ text: formatRow("БРОНЯ:", formatBonusVal(data.bonuses.armorBonus)), color: data.bonuses.armorBonus > 0 ? "#00ccff" : "#888888" });
         allRows.push({ text: formatRow("СКОР:", formatBonusVal(data.bonuses.speedBonus)), color: data.bonuses.speedBonus > 0 ? "#00ccff" : "#888888" });
+        allRows.push({ text: formatRow("ПОВОРОТ:", formatBonusVal(data.bonuses.turnSpeedBonus)), color: data.bonuses.turnSpeedBonus > 0 ? "#00ccff" : "#888888" });
+        allRows.push({ text: formatRow("УСКОРЕН:", formatBonusVal(data.bonuses.accelerationBonus)), color: data.bonuses.accelerationBonus > 0 ? "#00ccff" : "#888888" });
+        allRows.push({ text: formatRow("СКР.СНАР:", formatBonusVal(data.bonuses.projectileSpeedBonus)), color: data.bonuses.projectileSpeedBonus > 0 ? "#00ccff" : "#888888" });
         if (data.bonuses.critChance > 0) {
             allRows.push({ text: formatRow("КРИТ:", formatBonusVal(data.bonuses.critChance)), color: "#ff8800" });
         }
         if (data.bonuses.evasion > 0) {
             allRows.push({ text: formatRow("УКЛОН:", formatBonusVal(data.bonuses.evasion)), color: "#88ff88" });
+        }
+        if (data.bonuses.repairRate > 0) {
+            allRows.push({ text: formatRow("РЕМОНТ:", `+${(data.bonuses.repairRate * 100).toFixed(0)}%`), color: "#00ff88" });
+        }
+        if (data.bonuses.fuelEfficiency > 0) {
+            allRows.push({ text: formatRow("ТОПЛИВО:", `+${(data.bonuses.fuelEfficiency * 100).toFixed(0)}%`), color: "#88ff00" });
         }
         
         // Добавляем модули если есть
@@ -9068,6 +9780,17 @@ export class HUD {
             }
         }
         
+        // Рассчитываем требуемую высоту
+        const totalRows = allRows.length;
+        const requiredContentHeight = TOP_PADDING + totalRows * ROW_HEIGHT + BOTTOM_PADDING;
+        const requiredPanelHeight = HEADER_HEIGHT + requiredContentHeight + PADDING * 2;
+        
+        // Обновляем высоту области контента
+        this.detailedStatsContent.height = this.scalePx(requiredContentHeight);
+        
+        // Обновляем высоту панели
+        this.detailedStatsPanel.height = this.scalePx(requiredPanelHeight);
+        
         // Создаём текстовые строки
         for (let i = 0; i < allRows.length; i++) {
             const rowData = allRows[i];
@@ -9076,13 +9799,15 @@ export class HUD {
             const rowText = new TextBlock(`expandedRow_${i}`);
             rowText.text = rowData.text;
             rowText.color = rowData.color;
-            rowText.fontSize = this.scaleFontSize(rowData.isSectionHeader ? 9 : FONT_SIZE, 6, 10);
+            rowText.fontSize = this.scaleFontSize(rowData.isSectionHeader ? 13 : FONT_SIZE, 9, 15);
             rowText.fontFamily = "'Press Start 2P', monospace";
             rowText.fontWeight = rowData.isSectionHeader ? "bold" : "normal";
+            rowText.outlineWidth = 1;
+            rowText.outlineColor = "#000";
             rowText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
             rowText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            rowText.left = this.scalePx(4); // Единый отступ слева
-            rowText.top = this.scalePx(2 + i * ROW_HEIGHT); // Минимальный отступ сверху
+            rowText.left = this.scalePx(6);
+            rowText.top = this.scalePx(TOP_PADDING + i * ROW_HEIGHT);
             rowText.isVisible = true;
             
             this.detailedStatsContent.addControl(rowText);
@@ -9099,84 +9824,7 @@ export class HUD {
         return `${sign}${(val * 100).toFixed(0)}%`;
     }
     
-    /**
-     * Переключение вкладки детальной статистики
-     */
-    private switchDetailedStatsTab(tabIndex: number): void {
-        if (tabIndex === this.detailedStatsActiveTab) return;
         
-        // Обновляем стили вкладок
-        for (let i = 0; i < this.detailedStatsTabs.length; i++) {
-            const tab = this.detailedStatsTabs[i];
-            if (!tab) continue;
-            
-            const isActive = i === tabIndex;
-            tab.color = isActive ? "#00ff00" : "#006600";
-            tab.background = isActive ? "rgba(0, 80, 0, 0.9)" : "rgba(0, 30, 0, 0.7)";
-            
-            // Обновляем цвет текста вкладки
-            const textControl = tab.children[0] as TextBlock;
-            if (textControl) {
-                textControl.color = isActive ? "#00ff00" : "#008800";
-            }
-        }
-        
-        this.detailedStatsActiveTab = tabIndex;
-        this.renderDetailedStatsContent();
-    }
-    
-    /**
-     * Рендеринг контента активной вкладки
-     */
-    private renderDetailedStatsContent(): void {
-        // Если в режиме "все вкладки" - рендерим вертикально
-        if (this.detailedStatsExpandedAll) {
-            this.renderAllTabsVertically();
-            return;
-        }
-        
-        // Скрываем расширенные строки
-        for (const row of this.detailedStatsExpandedRows) {
-            row.isVisible = false;
-        }
-        
-        // Показываем заголовок
-        if (this.detailedStatsTitle) {
-            this.detailedStatsTitle.isVisible = true;
-        }
-        
-        // Скрываем все строки
-        for (const row of this.detailedStatsRows) {
-            row.isVisible = false;
-            row.text = "";
-        }
-        
-        if (!this.cachedTankStatsData) {
-            // Показываем placeholder
-            if (this.detailedStatsTitle) {
-                this.detailedStatsTitle.text = "— НЕТ ДАННЫХ —";
-            }
-            return;
-        }
-        
-        const data = this.cachedTankStatsData;
-        
-        switch (this.detailedStatsActiveTab) {
-            case 0: // ШАССИ
-                this.renderChassisTab(data);
-                break;
-            case 1: // ПУШКА
-                this.renderCannonTab(data);
-                break;
-            case 2: // ГУСЕНИЦЫ
-                this.renderTracksTab(data);
-                break;
-            case 3: // БОНУСЫ
-                this.renderBonusesTab(data);
-                break;
-        }
-    }
-    
     /**
      * Форматирование параметра с бонусом
      */
@@ -9194,131 +9842,6 @@ export class HUD {
     }
     
     /**
-     * Рендеринг вкладки ШАССИ
-     */
-    private renderChassisTab(data: TankStatsData): void {
-        const c = data.chassis;
-        
-        if (this.detailedStatsTitle) {
-            this.detailedStatsTitle.text = `— ${c.name.toUpperCase()} —`;
-            this.detailedStatsTitle.color = c.color || "#00ff00";
-        }
-        
-        const rows = [
-            { label: "HP:", value: this.formatStatWithBonus(c.maxHealth, 0), color: "#00ff00" },
-            { label: "СКОРОСТЬ:", value: this.formatStatWithBonus(c.moveSpeed, 1), color: "#00ccff" },
-            { label: "ПОВОРОТ:", value: this.formatStatWithBonus(c.turnSpeed, 2), color: "#00ccff" },
-            { label: "УСКОРЕН:", value: this.formatStatWithBonus(c.acceleration, 0), color: "#00ccff" },
-            { label: "МАССА:", value: `${c.mass} кг`, color: "#888888" },
-            { label: "УРОВЕНЬ:", value: `Lv.${c.upgradeLevel}`, color: "#ffcc00" },
-            { label: "СПОСОБН:", value: c.specialAbility || "—", color: "#ff88ff" },
-        ];
-        
-        this.setRowsContent(rows);
-    }
-    
-    /**
-     * Рендеринг вкладки ПУШКА
-     */
-    private renderCannonTab(data: TankStatsData): void {
-        const c = data.cannon;
-        
-        if (this.detailedStatsTitle) {
-            this.detailedStatsTitle.text = `— ${c.name.toUpperCase()} —`;
-            this.detailedStatsTitle.color = c.color || "#00ff00";
-        }
-        
-        const rows: Array<{ label: string; value: string; color: string }> = [
-            { label: "УРОН:", value: this.formatStatWithBonus(c.damage, 0), color: "#ff4444" },
-            { label: "ПЕРЕЗАР:", value: this.formatStatWithBonus(c.cooldown, 0, "мс"), color: "#ffcc00" },
-            { label: "СКР.СНАР:", value: this.formatStatWithBonus(c.projectileSpeed, 0), color: "#00ccff" },
-            { label: "РАЗМЕР:", value: c.projectileSize.toFixed(2), color: "#888888" },
-            { label: "ОТДАЧА:", value: `x${c.recoilMultiplier.toFixed(1)}`, color: "#ff8800" },
-            { label: "СТВОЛ:", value: `${c.barrelLength.toFixed(1)}м`, color: "#888888" },
-            { label: "УРОВЕНЬ:", value: `Lv.${c.upgradeLevel}`, color: "#ffcc00" },
-        ];
-        
-        // Добавляем рикошеты если есть
-        if (c.maxRicochets !== null && c.maxRicochets > 0) {
-            rows.push({ label: "РИКОШЕТ:", value: `${c.maxRicochets}x`, color: "#ffd700" });
-        }
-        if (c.ricochetSpeedRetention !== null) {
-            rows.push({ label: "СОХР.СКР:", value: `${(c.ricochetSpeedRetention * 100).toFixed(0)}%`, color: "#ffd700" });
-        }
-        
-        this.setRowsContent(rows);
-    }
-    
-    /**
-     * Рендеринг вкладки ГУСЕНИЦЫ
-     */
-    private renderTracksTab(data: TankStatsData): void {
-        const t = data.tracks;
-        
-        if (this.detailedStatsTitle) {
-            this.detailedStatsTitle.text = `— ${t.name.toUpperCase()} —`;
-            this.detailedStatsTitle.color = t.color || "#00ff00";
-        }
-        
-        const formatBonus = (val: number) => {
-            if (val === 0) return "—";
-            const sign = val > 0 ? "+" : "";
-            return `${sign}${(val * 100).toFixed(0)}%`;
-        };
-        
-        const rows = [
-            { label: "СТИЛЬ:", value: t.style.toUpperCase(), color: "#888888" },
-            { label: "СКОРОСТЬ:", value: formatBonus(t.speedBonus), color: t.speedBonus > 0 ? "#00ff00" : "#888888" },
-            { label: "ПРОЧН:", value: formatBonus(t.durabilityBonus), color: t.durabilityBonus > 0 ? "#00ff00" : "#888888" },
-            { label: "БРОНЯ:", value: formatBonus(t.armorBonus), color: t.armorBonus > 0 ? "#00ccff" : "#888888" },
-            { label: "УРОВЕНЬ:", value: `Lv.${t.upgradeLevel}`, color: "#ffcc00" },
-        ];
-        
-        this.setRowsContent(rows);
-    }
-    
-    /**
-     * Рендеринг вкладки БОНУСЫ
-     */
-    private renderBonusesTab(data: TankStatsData): void {
-        const b = data.bonuses;
-        
-        if (this.detailedStatsTitle) {
-            this.detailedStatsTitle.text = "— БОНУСЫ —";
-            this.detailedStatsTitle.color = "#ffcc00";
-        }
-        
-        const formatBonus = (val: number, invert: boolean = false) => {
-            if (val === 0) return "—";
-            const effectiveVal = invert ? -val : val;
-            const sign = effectiveVal > 0 ? "+" : "";
-            return `${sign}${(effectiveVal * 100).toFixed(0)}%`;
-        };
-        
-        const rows: Array<{ label: string; value: string; color: string }> = [
-            { label: "УР.ИГРОК:", value: `Lv.${b.playerLevel}`, color: "#ffcc00" },
-            { label: "УРОН:", value: formatBonus(b.damageBonus), color: b.damageBonus > 0 ? "#ff4444" : "#888888" },
-            { label: "ПЕРЕЗАР:", value: formatBonus(b.cooldownBonus, true), color: b.cooldownBonus < 0 ? "#00ff00" : "#888888" },
-            { label: "HP:", value: formatBonus(b.healthBonus), color: b.healthBonus > 0 ? "#00ff00" : "#888888" },
-            { label: "БРОНЯ:", value: formatBonus(b.armorBonus), color: b.armorBonus > 0 ? "#00ccff" : "#888888" },
-            { label: "СКОРОСТЬ:", value: formatBonus(b.speedBonus), color: b.speedBonus > 0 ? "#00ccff" : "#888888" },
-            { label: "КРИТ:", value: formatBonus(b.critChance), color: b.critChance > 0 ? "#ff8800" : "#888888" },
-            { label: "УКЛОН:", value: formatBonus(b.evasion), color: b.evasion > 0 ? "#88ff88" : "#888888" },
-        ];
-        
-        // Добавляем модули если есть
-        if (b.installedModules.length > 0) {
-            rows.push({ label: "─────────", value: "─────────", color: "#444444" });
-            rows.push({ label: "МОДУЛИ:", value: `${b.installedModules.length}шт`, color: "#aa00ff" });
-            for (const mod of b.installedModules.slice(0, 3)) { // Максимум 3 модуля показываем
-                rows.push({ label: mod.icon, value: mod.name.substring(0, 12), color: this.getRarityColor(mod.rarity) });
-            }
-        }
-        
-        this.setRowsContent(rows);
-    }
-    
-    /**
      * Получение цвета редкости
      */
     private getRarityColor(rarity: string): string {
@@ -9333,33 +9856,14 @@ export class HUD {
     }
     
     /**
-     * Установка контента строк
-     */
-    private setRowsContent(rows: Array<{ label: string; value: string; color: string }>): void {
-        for (let i = 0; i < this.detailedStatsRows.length; i++) {
-            const row = this.detailedStatsRows[i];
-            if (!row) continue;
-            
-            if (i < rows.length) {
-                const data = rows[i];
-                if (data) {
-                    // Используем padEnd(12) для лучшего выравнивания с кириллицей
-                    row.text = `${data.label.padEnd(12)}${data.value}`;
-                    row.color = data.color;
-                    row.isVisible = true;
-                }
-            } else {
-                row.isVisible = false;
-            }
-        }
-    }
-    
-    /**
      * Обновление данных детальной панели статистики танка
      */
     updateDetailedTankStats(data: TankStatsData): void {
         this.cachedTankStatsData = data;
-        this.renderDetailedStatsContent();
+        // Всегда показываем все данные вертикально (если панель не свёрнута)
+        if (!this.detailedStatsMinimized && this.detailedStatsContent && this.detailedStatsPanel) {
+            this.renderAllTabsVertically();
+        }
     }
     
     /**

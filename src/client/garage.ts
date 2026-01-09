@@ -98,6 +98,9 @@ export class Garage {
     // 3D Preview
     private previewSceneData: PreviewScene | null = null;
     private previewTank: PreviewTank | null = null;
+    private previewTurretRotation: number = 0; // Угол поворота башни в предпросмотре
+    private previewTurretKeysPressed: { z: boolean; x: boolean; c: boolean } = { z: false, x: false, c: false }; // Состояние клавиш
+    private previewTurretAnimationFrame: number | null = null; // ID кадра анимации
     
     // State
     private currentCategory: CategoryType = "chassis";
@@ -129,6 +132,9 @@ export class Garage {
     private isApplyingFromUI: boolean = false;
     
     // ============ DATA ============
+    // Map для сохранения порядка корпусов из CHASSIS_TYPES
+    private chassisOrderMap: Map<string, number> = new Map(CHASSIS_TYPES.map((chassis, index) => [chassis.id, index]));
+    
     private chassisParts: TankPart[] = CHASSIS_TYPES.map(chassis => {
         // Balanced pricing based on stats and abilities
         // Formula: baseCost + (HP * 3) + (speed * 10) + (abilityBonus)
@@ -928,7 +934,7 @@ export class Garage {
     
     // ============ PUBLIC API ============
     isGarageOpen(): boolean { return this.isOpen; }
-    isApplyingFromUI(): boolean { return this.isApplyingFromUI; }
+    getIsApplyingFromUI(): boolean { return this.isApplyingFromUI; }
     
     open(): void {
         if (this.isOpen) return;
@@ -962,9 +968,23 @@ export class Garage {
         
         this.createUI();
         
+        // Сбрасываем угол поворота башни и состояние клавиш при открытии гаража
+        this.previewTurretRotation = 0;
+        this.previewTurretKeysPressed = { z: false, x: false, c: false };
+        
+        // Останавливаем анимацию, если она была запущена
+        if (this.previewTurretAnimationFrame !== null) {
+            cancelAnimationFrame(this.previewTurretAnimationFrame);
+            this.previewTurretAnimationFrame = null;
+        }
+        
         // Initialize 3D preview after UI is created
         setTimeout(() => {
             this.init3DPreview();
+            // Применяем угол поворота башни после инициализации
+            if (this.previewTank && this.previewTank.turret) {
+                this.previewTank.turret.rotation.y = this.previewTurretRotation;
+            }
         }, 100);
         
         // Показываем уведомление если есть pending изменения (кроме скинов - они применяются сразу)
@@ -987,6 +1007,15 @@ export class Garage {
         if (!this.isOpen) {
             return;
         }
+        
+        // Останавливаем анимацию вращения башни
+        if (this.previewTurretAnimationFrame !== null) {
+            cancelAnimationFrame(this.previewTurretAnimationFrame);
+            this.previewTurretAnimationFrame = null;
+        }
+        
+        // Сбрасываем состояние клавиш
+        this.previewTurretKeysPressed = { z: false, x: false, c: false };
         
         // КРИТИЧНО: Применяем pending изменения в зависимости от наличия гаражей на карте
         try {
@@ -1122,6 +1151,9 @@ export class Garage {
             return;
         }
         
+        // Сохраняем текущий угол поворота башни перед обновлением
+        const savedTurretRotation = this.previewTurretRotation;
+        
         // Use module function to create/update preview tank
         this.previewTank = updatePreviewTank(
             this.previewTank,
@@ -1130,6 +1162,11 @@ export class Garage {
             this.currentTrackId,
             this.previewSceneData.scene
         );
+        
+        // Восстанавливаем угол поворота башни после обновления
+        if (this.previewTank && this.previewTank.turret) {
+            this.previewTank.turret.rotation.y = savedTurretRotation;
+        }
         
         // ОПТИМИЗАЦИЯ: Принудительный рендер после обновления танка
         if (this.previewSceneData.triggerRender) {
@@ -1863,7 +1900,7 @@ export class Garage {
                 ChassisDetailsGenerator.createSlopedArmor(
                     scene, chassis,
                     new Vector3(0, h * 0.1, d * 0.5),
-                    w * 1.0, h * 0.7, 0.18,
+                    w * 0.9, h * 0.7, 0.18,
                     -Math.PI / 4, armorMat, "previewMedium"
                 );
                 
@@ -3450,7 +3487,26 @@ export class Garage {
     
     private getItemsForCategory(): (TankPart | TankUpgrade)[] {
         switch (this.currentCategory) {
-            case "chassis": return [...this.chassisParts];
+            case "chassis": 
+                // ГАРАНТИРУЕМ правильный порядок: создаем массив в порядке CHASSIS_TYPES
+                const orderedChassis: TankPart[] = [];
+                // Проходим по CHASSIS_TYPES в правильном порядке
+                for (const chassis of CHASSIS_TYPES) {
+                    const part = this.chassisParts.find(p => p.id === chassis.id);
+                    if (part) {
+                        orderedChassis.push(part);
+                    }
+                }
+                // Если какие-то корпуса не найдены, добавляем их в конец
+                for (const part of this.chassisParts) {
+                    if (!orderedChassis.find(p => p.id === part.id)) {
+                        orderedChassis.push(part);
+                    }
+                }
+                // ОТЛАДКА: выводим порядок в консоль
+                console.log('[Garage] Chassis order:', orderedChassis.map(c => c.name).join(' → '));
+                console.log('[Garage] First chassis:', orderedChassis[0]?.name, orderedChassis[0]?.id);
+                return orderedChassis;
             case "cannons": return [...this.cannonParts];
             case "tracks": return [...this.trackParts];
             case "modules": return [...this.moduleParts, ...this.upgrades.filter(u => u.level < u.maxLevel)];
@@ -4008,33 +4064,45 @@ export class Garage {
         }
         
         // Sort items
-        items.sort((a, b) => {
-            if (this.sortBy === 'name') {
-                return a.name.localeCompare(b.name);
-            } else if (this.sortBy === 'stats') {
-                const aStats = this.getTotalStats(a);
-                const bStats = this.getTotalStats(b);
-                return bStats - aStats; // Higher stats first
-            } else if (this.sortBy === 'custom') {
-                // CUSTOM: показываем только кастомные танки (для будущего конструктора)
-                // Пока что все элементы не кастомные, поэтому сортируем по имени
-                const aIsCustom = (a as any).isCustom || false;
-                const bIsCustom = (b as any).isCustom || false;
-                if (aIsCustom && !bIsCustom) return -1;
-                if (!aIsCustom && bIsCustom) return 1;
-                return a.name.localeCompare(b.name);
-            } else { // unique
-                // UNIQUE: показываем только уникальные элементы
-                // Пока что все элементы не уникальные, поэтому сортируем по имени
-                const aIsUnique = (a as any).isUnique || false;
-                const bIsUnique = (b as any).isUnique || false;
-                if (aIsUnique && !bIsUnique) return -1;
-                if (!aIsUnique && bIsUnique) return 1;
-                return a.name.localeCompare(b.name);
-            }
-        });
+        // ВАЖНО: Для корпусов порядок уже установлен в getItemsForCategory(), не меняем его!
+        if (this.currentCategory === 'chassis') {
+            // Для корпусов НЕ применяем сортировку - порядок уже правильный из CHASSIS_TYPES
+            console.log('[Garage] Chassis category - skipping sort, order:', items.map(i => (i as TankPart).name).join(' → '));
+        } else {
+            items.sort((a, b) => {
+                // Для остальных элементов применяем обычную сортировку
+                if (this.sortBy === 'name') {
+                    return a.name.localeCompare(b.name);
+                } else if (this.sortBy === 'stats') {
+                    const aStats = this.getTotalStats(a);
+                    const bStats = this.getTotalStats(b);
+                    return bStats - aStats; // Higher stats first
+                } else if (this.sortBy === 'custom') {
+                    // CUSTOM: показываем только кастомные танки (для будущего конструктора)
+                    // Пока что все элементы не кастомные, поэтому сортируем по имени
+                    const aIsCustom = (a as any).isCustom || false;
+                    const bIsCustom = (b as any).isCustom || false;
+                    if (aIsCustom && !bIsCustom) return -1;
+                    if (!aIsCustom && bIsCustom) return 1;
+                    return a.name.localeCompare(b.name);
+                } else { // unique
+                    // UNIQUE: показываем только уникальные элементы
+                    // Пока что все элементы не уникальные, поэтому сортируем по имени
+                    const aIsUnique = (a as any).isUnique || false;
+                    const bIsUnique = (b as any).isUnique || false;
+                    if (aIsUnique && !bIsUnique) return -1;
+                    if (!aIsUnique && bIsUnique) return 1;
+                    return a.name.localeCompare(b.name);
+                }
+            });
+        }
         
         this.filteredItems = items;
+        
+        // Финальная проверка для корпусов
+        if (this.currentCategory === 'chassis') {
+            console.log('[Garage] Final chassis order:', this.filteredItems.map(i => (i as TankPart).name).join(' → '));
+        }
         if (this.selectedItemIndex >= items.length) this.selectedItemIndex = Math.max(0, items.length - 1);
         
         // Define new models
@@ -4046,6 +4114,11 @@ export class Garage {
         const activeCannon = localStorage.getItem("selectedCannon") || "standard";
         const activeTrack = localStorage.getItem("selectedTrack") || "standard";
         const activeSkin = loadSelectedSkin() || "default";
+        
+        // ОТЛАДКА: проверяем порядок перед отрисовкой
+        if (this.currentCategory === 'chassis') {
+            console.log('[Garage] Rendering chassis order:', items.map(i => (i as TankPart).name).join(' → '));
+        }
         
         container.innerHTML = items.map((item, i) => {
             const isUpgrade = 'level' in item;
@@ -4181,6 +4254,30 @@ export class Garage {
                 </div>
             `;
         }).join('');
+        
+        // ОТЛАДКА: проверяем порядок элементов в DOM после отрисовки
+        if (this.currentCategory === 'chassis') {
+            setTimeout(() => {
+                const domItems = container.querySelectorAll('.garage-item[data-item-id]');
+                const domOrder = Array.from(domItems).map(el => {
+                    const id = el.getAttribute('data-item-id');
+                    const name = el.querySelector('.garage-item-name')?.textContent?.trim() || '';
+                    return `${name}(${id})`;
+                }).join(' → ');
+                console.log('[Garage] DOM order after render:', domOrder);
+                
+                // Проверяем, что первый элемент - Racer
+                const firstItem = domItems[0];
+                if (firstItem) {
+                    const firstId = firstItem.getAttribute('data-item-id');
+                    const firstName = firstItem.querySelector('.garage-item-name')?.textContent?.trim() || '';
+                    console.log('[Garage] First DOM item:', firstName, firstId);
+                    if (firstId !== 'racer') {
+                        console.error('[Garage] ❌ ERROR: First item should be "racer" but got:', firstId);
+                    }
+                }
+            }, 0);
+        }
         
         // Add click listeners using event delegation (более надёжно)
         // Удаляем старые обработчики если есть
@@ -4779,7 +4876,122 @@ export class Garage {
                     this.handleAction(item);
                 }
             }
+            
+            // Управление башней в предпросмотре: Z (влево), X (вправо), C (центрирование)
+            if (e.code === 'KeyZ' || e.code === 'KeyX' || e.code === 'KeyC') {
+                // Проверяем, что пользователь не вводит текст в поле поиска
+                const activeElement = document.activeElement;
+                const isInputFocused = activeElement && (
+                    activeElement.tagName === 'INPUT' || 
+                    activeElement.tagName === 'TEXTAREA' ||
+                    activeElement.isContentEditable
+                );
+                
+                if (!isInputFocused && this.previewTank && this.previewTank.turret) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    if (e.code === 'KeyZ') {
+                        // Поворот башни влево
+                        this.previewTurretKeysPressed.z = true;
+                        this.startPreviewTurretAnimation();
+                    } else if (e.code === 'KeyX') {
+                        // Поворот башни вправо
+                        this.previewTurretKeysPressed.x = true;
+                        this.startPreviewTurretAnimation();
+                    } else if (e.code === 'KeyC') {
+                        // Центрирование башни
+                        this.previewTurretKeysPressed.c = true;
+                        this.previewTurretRotation = 0;
+                        this.updatePreviewTurretRotation();
+                        // Сбрасываем состояние клавиш после центрирования
+                        this.previewTurretKeysPressed.c = false;
+                    }
+                }
+            }
         });
+        
+        // Обработка отпускания клавиш
+        window.addEventListener('keyup', (e) => {
+            if (!this.isOpen) return;
+            
+            if (e.code === 'KeyZ') {
+                this.previewTurretKeysPressed.z = false;
+                this.stopPreviewTurretAnimationIfNeeded();
+            } else if (e.code === 'KeyX') {
+                this.previewTurretKeysPressed.x = false;
+                this.stopPreviewTurretAnimationIfNeeded();
+            }
+        });
+    }
+    
+    /**
+     * Обновляет поворот башни в предпросмотре
+     */
+    private updatePreviewTurretRotation(): void {
+        if (this.previewTank && this.previewTank.turret && !this.previewTank.turret.isDisposed()) {
+            this.previewTank.turret.rotation.y = this.previewTurretRotation;
+            
+            // Принудительный рендер для обновления отображения
+            if (this.previewSceneData?.triggerRender) {
+                this.previewSceneData.triggerRender();
+            }
+        }
+    }
+    
+    /**
+     * Запускает анимацию вращения башни в предпросмотре
+     */
+    private startPreviewTurretAnimation(): void {
+        if (this.previewTurretAnimationFrame !== null) {
+            return; // Анимация уже запущена
+        }
+        
+        const animate = () => {
+            if (!this.previewTank || !this.previewTank.turret || this.previewTank.turret.isDisposed()) {
+                this.previewTurretAnimationFrame = null;
+                return;
+            }
+            
+            let rotationChanged = false;
+            
+            // Поворот влево (Z)
+            if (this.previewTurretKeysPressed.z) {
+                this.previewTurretRotation -= 0.05; // Плавное вращение
+                rotationChanged = true;
+            }
+            
+            // Поворот вправо (X)
+            if (this.previewTurretKeysPressed.x) {
+                this.previewTurretRotation += 0.05; // Плавное вращение
+                rotationChanged = true;
+            }
+            
+            if (rotationChanged) {
+                this.updatePreviewTurretRotation();
+            }
+            
+            // Продолжаем анимацию, если хотя бы одна клавиша нажата
+            if (this.previewTurretKeysPressed.z || this.previewTurretKeysPressed.x) {
+                this.previewTurretAnimationFrame = requestAnimationFrame(animate);
+            } else {
+                this.previewTurretAnimationFrame = null;
+            }
+        };
+        
+        this.previewTurretAnimationFrame = requestAnimationFrame(animate);
+    }
+    
+    /**
+     * Останавливает анимацию вращения башни, если клавиши отпущены
+     */
+    private stopPreviewTurretAnimationIfNeeded(): void {
+        if (!this.previewTurretKeysPressed.z && !this.previewTurretKeysPressed.x) {
+            if (this.previewTurretAnimationFrame !== null) {
+                cancelAnimationFrame(this.previewTurretAnimationFrame);
+                this.previewTurretAnimationFrame = null;
+            }
+        }
     }
     
     // ============ PENDING CHANGES API ============

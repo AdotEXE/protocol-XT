@@ -12,7 +12,8 @@ import type { HUD } from "../hud";
 import type { EnemyTank } from "../enemyTank";
 import { saveSelectedSkin, getSkinById, applySkinToTank, applySkinColorToMaterial } from "../tank/tankSkins";
 import { ChassisTransformAnimation } from "../tank/chassisTransformAnimation";
-import { getChassisById } from "../tankTypes";
+import { getChassisById, getCannonById } from "../tankTypes";
+import { getTrackById } from "../trackTypes";
 
 /**
  * GameGarage - Логика гаражей
@@ -210,9 +211,8 @@ export class GameGarage {
                     groundHeight = maxHeight > 0 ? maxHeight : 2.0;
                 }
                 
-                // Высота пола гаража: верхняя поверхность пола на groundHeight + 0.15
-                // Спавн на 1 метр выше пола: groundHeight + 0.15 + 1.0 = groundHeight + 1.15
-                const garageY = groundHeight + 1.15;
+                // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+                const garageY = groundHeight + 1.0;
                 const correctedGaragePos = new Vector3(nearestGarageX, garageY, nearestGarageZ);
                 
                 logger.log(`[GameGarage] Garage position: (${correctedGaragePos.x.toFixed(2)}, ${correctedGaragePos.y.toFixed(2)}, ${correctedGaragePos.z.toFixed(2)}) - ground: ${groundHeight.toFixed(2)}`);
@@ -246,9 +246,8 @@ export class GameGarage {
                 groundHeight = maxHeight > 0 ? maxHeight : 2.0;
             }
             
-            // Высота пола гаража: верхняя поверхность пола на groundHeight + 0.15
-            // Спавн на 1 метр выше пола: groundHeight + 0.15 + 1.0 = groundHeight + 1.15
-            const correctedY = groundHeight + 1.15;
+            // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+            const correctedY = groundHeight + 1.0;
             const correctedPos = new Vector3(savedX, correctedY, savedZ);
             
             logger.log(`[GameGarage] Using saved garage position (corrected): (${correctedPos.x.toFixed(2)}, ${correctedPos.y.toFixed(2)}, ${correctedPos.z.toFixed(2)}) - ground: ${groundHeight.toFixed(2)}`);
@@ -448,7 +447,7 @@ export class GameGarage {
         // НО НЕ применяем если UI гаража открыт (он сам применит при закрытии)
         const garageUI = this.garageUI;
         const isGarageUIOpen = garageUI && typeof garageUI.isGarageOpen === 'function' && garageUI.isGarageOpen();
-        const isApplyingFromUI = garageUI && typeof garageUI.isApplyingFromUI === 'function' && garageUI.isApplyingFromUI();
+        const isApplyingFromUI = garageUI && typeof garageUI.getIsApplyingFromUI === 'function' && garageUI.getIsApplyingFromUI();
         
         if (isInGarage && !this.isApplyingChanges && hasPending && !isGarageUIOpen && !isApplyingFromUI) {
             // Применяем изменения при входе в гараж (только если UI гаража закрыт)
@@ -558,19 +557,37 @@ export class GameGarage {
                 const oldChassisType = getChassisById(oldChassisId);
                 const newChassisType = getChassisById(pending.chassisId);
                 
+                // Получаем типы пушки
+                const oldCannonId = tankController.cannonType?.id || "standard";
+                const newCannonId = pending.cannonId || oldCannonId;
+                const oldCannonType = getCannonById(oldCannonId);
+                const newCannonType = getCannonById(newCannonId);
+                
+                // Получаем типы гусениц
+                const oldTrackId = tankController.trackType?.id || "standard";
+                const newTrackId = pending.trackId || oldTrackId;
+                const oldTrackType = getTrackById(oldTrackId);
+                const newTrackType = getTrackById(newTrackId);
+                
                 // Останавливаем танк на время анимации
                 if (tankController.physicsBody) {
                     tankController.physicsBody.setLinearVelocity(Vector3.Zero());
                     tankController.physicsBody.setAngularVelocity(Vector3.Zero());
                 }
                 
-                // Запускаем анимацию трансформации
+                // Запускаем анимацию трансформации (включая пушку и гусеницы)
                 this.chassisTransformAnimation.start(
                     tankController.chassis,
                     oldChassisType,
                     newChassisType,
                     tankController.turret,
                     tankController.barrel,
+                    oldCannonType,
+                    newCannonType,
+                    oldTrackType,
+                    newTrackType,
+                    tankController.leftTrack,
+                    tankController.rightTrack,
                     () => {
                         // После анимации вызываем respawn для создания нового корпуса
                         this.completeChassisChange(tankController, currentPos, pending, applied);
@@ -603,6 +620,13 @@ export class GameGarage {
     ): void {
         logger.log(`[GameGarage] Completing chassis change after animation...`);
         
+        // КРИТИЧНО: Восстанавливаем точную позицию танка (особенно Y) перед respawn
+        // Это гарантирует, что танк не взлетит в воздух
+        if (tankController.chassis && !tankController.chassis.isDisposed()) {
+            tankController.chassis.position.copyFrom(currentPos);
+            logger.log(`[GameGarage] Restored tank position before respawn: Y=${currentPos.y.toFixed(2)}`);
+        }
+        
         // Вызываем стандартный respawn для создания нового корпуса
         this.performStandardRespawn(tankController, currentPos, pending, applied);
     }
@@ -624,15 +648,26 @@ export class GameGarage {
         // КРИТИЧНО: Сохраняем оригинальный callback для восстановления ПОСЛЕ завершения respawn
         const originalCallback = tankController.respawnPositionCallback;
         
+        // КРИТИЧНО: Сохраняем точную Y-позицию для предотвращения взлёта
+        const savedY = currentPos.y;
+        
         // Устанавливаем callback, который вернёт ТЕКУЩУЮ позицию танка (переодевание на месте)
         tankController.setRespawnPositionCallback(() => {
-            logger.log(`[GameGarage] Respawn callback: returning current position ${currentPos.x.toFixed(2)}, ${currentPos.y.toFixed(2)}, ${currentPos.z.toFixed(2)}`);
-            return currentPos.clone();
+            // КРИТИЧНО: Всегда возвращаем сохранённую Y-позицию
+            const respawnPos = currentPos.clone();
+            respawnPos.y = savedY; // Гарантируем точную высоту
+            logger.log(`[GameGarage] Respawn callback: returning saved position Y=${savedY.toFixed(2)}`);
+            return respawnPos;
         });
         
         // КРИТИЧНО: Устанавливаем флаг, что танк уже телепортирован (предотвращает пересчёт высоты)
         tankController._wasTeleportedToGarage = true;
         tankController._inPlaceDressing = true; // Флаг для переодевания на месте
+        
+        // КРИТИЧНО: Устанавливаем позицию ДО respawn, чтобы она не потерялась
+        if (tankController.chassis && !tankController.chassis.isDisposed()) {
+            tankController.chassis.position.copyFrom(currentPos);
+        }
         
         // Вызываем respawn (он пересоздаст части)
         tankController.respawn();

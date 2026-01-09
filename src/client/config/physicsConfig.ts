@@ -348,7 +348,7 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
             mass: 40000, // 40 тонн (x4)
             hoverHeight: 1.0,
             moveSpeed: 24,
-            turnSpeed: 2.5,
+            turnSpeed: 5.0,
             acceleration: 40000,
             maxReverseForce: 20000,
             maxHealth: 100,
@@ -486,7 +486,7 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
             mass: 40000, // 40 тонн (x4) - синхронизировано с игроком
             hoverHeight: 1.0,
             moveSpeed: 36, // EXTREME: +50% скорость (было 24)
-            turnSpeed: 4.0, // EXTREME: +60% скорость поворота (было 2.5)
+            turnSpeed: 8.0, // EXTREME: +60% скорость поворота (было 2.5)
             acceleration: 80000, // EXTREME: +100% ускорение (было 40000)
         },
         stability: {
@@ -587,7 +587,7 @@ function createDefaultConfig(): PhysicsConfig {
                 mass: 40000, // 40 тонн (x4)
                 hoverHeight: 1.0,
                 moveSpeed: 24,
-                turnSpeed: 2.5,
+                turnSpeed: 5.0,
                 acceleration: 40000,
                 maxReverseForce: 20000,
                 maxHealth: 100,
@@ -725,7 +725,7 @@ function createDefaultConfig(): PhysicsConfig {
                 mass: 40000, // СИНХРОНИЗИРОВАНО с игроком (40 тонн, x4)
                 hoverHeight: 1.0,
                 moveSpeed: 24, // Идентично игроку
-                turnSpeed: 2.5, // Идентично игроку
+                turnSpeed: 5.0, // Идентично игроку
                 acceleration: 40000,
             },
             stability: {

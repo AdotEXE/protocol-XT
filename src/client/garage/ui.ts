@@ -182,6 +182,22 @@ export function injectGarageStyles(): void {
             overflow-y: auto;
             padding: 8px;
             min-height: 0;
+            scrollbar-width: thin;
+            scrollbar-color: #0f0 rgba(0,255,80,0.08);
+        }
+        
+        .garage-items::-webkit-scrollbar {
+            width: clamp(6px, 0.5vw, 8px);
+            height: clamp(6px, 0.5vw, 8px);
+        }
+        
+        .garage-items::-webkit-scrollbar-track {
+            background: rgba(0,255,80,0.05);
+        }
+        
+        .garage-items::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, #0f0, #6f6);
+            box-shadow: 0 0 8px rgba(0,255,80,0.6);
         }
         .garage-item {
             padding: 8px;
@@ -293,6 +309,22 @@ export function injectGarageStyles(): void {
             padding: 10px;
             overflow-y: auto;
             min-height: 0;
+            scrollbar-width: thin;
+            scrollbar-color: #0f0 rgba(0,255,80,0.08);
+        }
+        
+        .garage-details::-webkit-scrollbar {
+            width: clamp(6px, 0.5vw, 8px);
+            height: clamp(6px, 0.5vw, 8px);
+        }
+        
+        .garage-details::-webkit-scrollbar-track {
+            background: rgba(0,255,80,0.05);
+        }
+        
+        .garage-details::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, #0f0, #6f6);
+            box-shadow: 0 0 8px rgba(0,255,80,0.6);
         }
         .garage-details-title { color: #0f0; font-size: clamp(12px, 1.4vw, 14px); font-weight: bold; margin-bottom: clamp(6px, 0.8vh, 8px); }
         .garage-details-desc { color: #0a0; font-size: clamp(9px, 1.1vw, 11px); margin-bottom: clamp(8px, 1vh, 10px); }

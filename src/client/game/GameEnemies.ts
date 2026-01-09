@@ -201,7 +201,7 @@ export class GameEnemies {
             return menuSettings.enemyDifficulty;
         }
         
-        return "medium";
+        return "nightmare"; // NIGHTMARE по умолчанию!
     }
     
     /**
@@ -552,8 +552,8 @@ export class GameEnemies {
                 const spawnX = combatZone.minX + Math.random() * (combatZone.maxX - combatZone.minX);
                 const spawnZ = combatZone.minZ + Math.random() * (combatZone.maxZ - combatZone.minZ);
                 const groundHeight = this.getGroundHeight(spawnX, spawnZ);
-                // Спавн на 5 метров выше террейна для гарантии
-                const spawnY = Math.max(groundHeight + 5.0, 7.0);
+                // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+                const spawnY = groundHeight + 1.0;
                 
                 pos = new Vector3(spawnX, spawnY, spawnZ);
                 
@@ -611,8 +611,8 @@ export class GameEnemies {
                 const spawnX = combatZone.minX + Math.random() * (combatZone.maxX - combatZone.minX);
                 const spawnZ = combatZone.minZ + Math.random() * (combatZone.maxZ - combatZone.minZ);
                 const groundHeight = this.getGroundHeight(spawnX, spawnZ);
-                // Спавн на 5 метров выше террейна для гарантии
-                const spawnY = Math.max(groundHeight + 5.0, 7.0);
+                // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+                const spawnY = groundHeight + 1.0;
                 
                 const newPos = new Vector3(spawnX, spawnY, spawnZ);
                 
@@ -672,8 +672,8 @@ export class GameEnemies {
         
         for (const rawPos of defenderPositions) {
             const groundHeight = this.getGroundHeight(rawPos.x, rawPos.z);
-            // Спавн на 5 метров выше террейна для гарантии
-            const spawnY = Math.max(groundHeight + 5.0, 7.0);
+            // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+            const spawnY = groundHeight + 1.0;
             const pos = new Vector3(rawPos.x, spawnY, rawPos.z);
             
             const difficulty = this.getCurrentDifficulty();
@@ -787,8 +787,8 @@ export class GameEnemies {
                     const newX = arenaHalf * 0.3 + Math.random() * (arenaHalf * 0.2);
                     const newZ = -arenaHalf * 0.3 + Math.random() * (arenaHalf * 0.6);
                     const groundHeight = this.getGroundHeight(newX, newZ);
-                    // Спавн на 5 метров выше террейна для гарантии
-                    const spawnY = Math.max(groundHeight + 5.0, 7.0);
+                    // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+                    const spawnY = groundHeight + 1.0;
                     const newPos = new Vector3(newX, spawnY, newZ);
                     
                     const difficulty = this.getCurrentDifficulty();
@@ -914,6 +914,8 @@ export class GameEnemies {
             ? getMapBoundsFromConfig(this.systems.currentMapType) 
             : null;
         
+        const game = (window as any).gameInstance;
+        
         do {
             let spawnX: number, spawnZ: number;
             
@@ -929,11 +931,15 @@ export class GameEnemies {
                 spawnZ = Math.sin(angle) * distance;
             }
             
-            const groundInfo = this.getGroundInfo(spawnX, spawnZ);
-            // Спавн на 5 метров выше террейна для гарантии (для sand, madness, expo и brest достаточно +2м)
-            const spawnY = (this.systems.currentMapType === "sand" || this.systems.currentMapType === "madness" || this.systems.currentMapType === "expo" || this.systems.currentMapType === "brest" || this.systems.currentMapType === "arena")
-                ? Math.max(groundInfo.height + 2.0, 2.0)
-                : Math.max(groundInfo.height + 5.0, 7.0);
+            // УЛУЧШЕНО: Спавн на верхней поверхности (крыша или террейн)
+            let spawnY: number;
+            if (game && typeof game.getTopSurfaceHeight === 'function') {
+                const surfaceHeight = game.getTopSurfaceHeight(spawnX, spawnZ);
+                spawnY = surfaceHeight + 1.5; // 1.5м над поверхностью
+            } else {
+                const groundInfo = this.getGroundInfo(spawnX, spawnZ);
+                spawnY = Math.max(groundInfo.height + 1.5, 2.0);
+            }
             
             pos = new Vector3(spawnX, spawnY, spawnZ);
             
@@ -947,6 +953,7 @@ export class GameEnemies {
             }
             
             if (!tooClose) {
+                const groundInfo = this.getGroundInfo(spawnX, spawnZ);
                 (pos as any).groundNormal = groundInfo.normal;
                 break;
             }
@@ -1023,6 +1030,8 @@ export class GameEnemies {
             ? getMapBoundsFromConfig(this.systems.currentMapType) 
             : null;
         
+        const game = (window as any).gameInstance;
+        
         for (let i = 0; i < enemyCount; i++) {
             let attempts = 0;
             let pos: Vector3;
@@ -1042,11 +1051,15 @@ export class GameEnemies {
                     spawnZ = Math.sin(angle) * distance;
                 }
                 
-                const groundInfo = this.getGroundInfo(spawnX, spawnZ);
-                // Спавн на 5 метров выше террейна для гарантии (для sand, madness, expo и brest достаточно +2м)
-                const spawnY = (this.systems.currentMapType === "sand" || this.systems.currentMapType === "madness" || this.systems.currentMapType === "expo" || this.systems.currentMapType === "brest")
-                    ? Math.max(groundInfo.height + 2.0, 2.0)
-                    : Math.max(groundInfo.height + 5.0, 7.0);
+                // УЛУЧШЕНО: Спавн на верхней поверхности (крыша или террейн)
+                let spawnY: number;
+                if (game && typeof game.getTopSurfaceHeight === 'function') {
+                    const surfaceHeight = game.getTopSurfaceHeight(spawnX, spawnZ);
+                    spawnY = surfaceHeight + 1.5; // 1.5м над поверхностью
+                } else {
+                    const groundInfo = this.getGroundInfo(spawnX, spawnZ);
+                    spawnY = Math.max(groundInfo.height + 1.5, 2.0);
+                }
                 
                 pos = new Vector3(spawnX, spawnY, spawnZ);
                 
@@ -1061,6 +1074,7 @@ export class GameEnemies {
                 
                 if (!tooClose) {
                     // Сохраняем нормаль поверхности для выравнивания
+                    const groundInfo = this.getGroundInfo(spawnX, spawnZ);
                     (pos as any).groundNormal = groundInfo.normal;
                     break;
                 }
@@ -1209,8 +1223,8 @@ export class GameEnemies {
             if (!garage) continue;
             
             const groundHeight = this.getGroundHeight(garage.x, garage.z);
-            // Спавн на 5 метров выше террейна для гарантии
-            const spawnY = Math.max(groundHeight + 5.0, 7.0);
+            // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+            const spawnY = groundHeight + 1.0;
             const garagePos = new Vector3(garage.x, spawnY, garage.z);
             
             const difficulty = this.getCurrentDifficulty();

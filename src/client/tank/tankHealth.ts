@@ -22,6 +22,9 @@ export class TankHealthModule {
         physicsBody: PhysicsBody;
     }> = [];
     
+    // Позиция смерти танка (для плавной анимации камеры)
+    private deathPosition: Vector3 | null = null;
+    
     constructor(tank: ITankController) {
         this.tank = tank;
     }
@@ -207,44 +210,12 @@ export class TankHealthModule {
     
     // Создать визуальный эффект защиты
     private createInvulnerabilityGlow(): void {
-        if (!this.tank.chassis) return;
-        
-        // ВАЖНО: Сначала удаляем старый эффект если он есть (предотвращаем дублирование)
+        // Визуальный эффект отключен - голубой кружок больше не отображается
+        // Логика неуязвимости продолжает работать
         if (this.invulnerabilityGlow && !this.invulnerabilityGlow.isDisposed()) {
             this.invulnerabilityGlow.dispose();
             this.invulnerabilityGlow = null;
         }
-        
-        // Создаём светящееся кольцо вокруг танка
-        const glow = MeshBuilder.CreateCylinder("invulnerabilityGlow", { 
-            diameter: this.tank.chassisType.width + 2, 
-            height: 0.2, 
-            tessellation: 32 
-        }, this.tank.scene);
-        glow.position = this.tank.chassis.position.clone();
-        glow.position.y = 1;
-                const mat = new StandardMaterial("invulnerabilityMat", this.tank.scene);
-        mat.diffuseColor = new Color3(0, 1, 1); // Голубой
-        mat.emissiveColor = new Color3(0, 0.8, 0.8);
-        mat.disableLighting = true;
-        glow.material = mat;
-        
-        this.invulnerabilityGlow = glow;
-        
-        // Анимация пульсации
-        let pulsePhase = 0;
-        const pulse = () => {
-            if (!this.isInvulnerable || !glow || glow.isDisposed()) return;
-            
-            pulsePhase += 0.1;
-            const scale = 1 + Math.sin(pulsePhase) * 0.1;
-            glow.scaling.setAll(scale);
-            
-            if (this.isInvulnerable) {
-                requestAnimationFrame(pulse);
-            }
-        };
-        pulse();
     }
     
     // Обновить таймер защиты (вызывается каждый кадр)
@@ -257,11 +228,7 @@ export class TankHealthModule {
         if (timeLeft <= 0) {
             this.deactivateInvulnerability();
         } else {
-            // Обновляем визуальный эффект
-            if (this.invulnerabilityGlow && this.tank.chassis) {
-                this.invulnerabilityGlow.position = this.tank.chassis.position.clone();
-                this.invulnerabilityGlow.position.y = 1;
-            }
+            // Визуальный эффект отключен - обновление позиции не требуется
             
             // Обновляем HUD
             if (this.tank.hud) {
@@ -287,6 +254,12 @@ export class TankHealthModule {
         
         this.tank.isAlive = false;
         console.log("[TANK] Destroyed!");
+        
+        // КРИТИЧНО: Сохраняем позицию смерти для плавной анимации камеры
+        if (this.tank.chassis) {
+            this.deathPosition = this.tank.chassis.position.clone();
+            console.log(`[TANK] Death position saved: (${this.deathPosition.x.toFixed(2)}, ${this.deathPosition.y.toFixed(2)}, ${this.deathPosition.z.toFixed(2)})`);
+        }
         
         // Останавливаем все движения
         if (this.tank.physicsBody) {
@@ -346,8 +319,8 @@ export class TankHealthModule {
     }
     
     /**
-     * Плавно анимирует камеру к целевой позиции
-     * @param targetPos - целевая позиция камеры
+     * Плавно анимирует камеру от точки смерти к точке респавна
+     * @param targetPos - целевая позиция респавна (точка B)
      * @param duration - длительность анимации в мс (по умолчанию 1500мс)
      * @param onComplete - callback после завершения анимации
      */
@@ -359,24 +332,56 @@ export class TankHealthModule {
         }
         
         const camera = game.camera;
+        
+        // КРИТИЧНО: Начальная позиция - точка смерти (точка A)
+        // Если позиция смерти не сохранена, используем текущую позицию камеры
+        const startPos = this.deathPosition 
+            ? this.deathPosition.clone() 
+            : (this.tank.chassis ? this.tank.chassis.position.clone() : camera.position.clone());
+        
+        // Начальная позиция камеры и target
+        const startCameraPos = camera.position.clone();
         const startTarget = camera.getTarget().clone();
+        
+        // Конечная позиция камеры - немного выше и сзади точки респавна
+        // Для ArcRotateCamera это будет позиция относительно target
+        const endCameraPos = new Vector3(
+            targetPos.x - 8,
+            targetPos.y + 3,
+            targetPos.z - 8
+        );
+        
+        // Конечная target - точка респавна
+        const endTarget = targetPos.clone();
+        
         const startTime = Date.now();
         
-        // КРИТИЧНО: Блокируем updateCamera на время анимации
+        // КРИТИЧНО: Блокируем updateCamera на время анимации (предотвращает дёрганья)
         game.isCameraAnimating = true;
         
-        console.log(`[TANK] Starting smooth camera transition to (${targetPos.x.toFixed(2)}, ${targetPos.y.toFixed(2)}, ${targetPos.z.toFixed(2)})`);
+        console.log(`[TANK] Starting smooth camera transition from death (${startPos.x.toFixed(2)}, ${startPos.y.toFixed(2)}, ${startPos.z.toFixed(2)}) to respawn (${targetPos.x.toFixed(2)}, ${targetPos.y.toFixed(2)}, ${targetPos.z.toFixed(2)})`);
         
         const animate = () => {
             const elapsed = Date.now() - startTime;
             const progress = Math.min(elapsed / duration, 1.0);
             
-            // Ease-out для плавности (быстро в начале, медленно в конце)
-            const eased = 1 - Math.pow(1 - progress, 3);
+            // Ease-in-out для плавности (медленно в начале и конце, быстро в середине)
+            const eased = progress < 0.5
+                ? 2 * progress * progress
+                : 1 - Math.pow(-2 * progress + 2, 3) / 2;
             
-            // Плавно перемещаем target камеры
-            const currentTarget = Vector3.Lerp(startTarget, targetPos, eased);
+            // Плавно перемещаем target камеры от точки A к точке B
+            const currentTarget = Vector3.Lerp(startTarget, endTarget, eased);
             camera.setTarget(currentTarget);
+            
+            // Плавно перемещаем позицию камеры от точки A к точке B
+            // Для ArcRotateCamera используем setPosition, который автоматически пересчитает углы
+            const currentCameraPos = Vector3.Lerp(startCameraPos, endCameraPos, eased);
+            if (camera.setPosition) {
+                camera.setPosition(currentCameraPos);
+            } else {
+                camera.position.copyFrom(currentCameraPos);
+            }
             
             if (progress < 1.0) {
                 requestAnimationFrame(animate);
@@ -384,6 +389,8 @@ export class TankHealthModule {
                 console.log("[TANK] Camera transition complete");
                 // Разблокируем updateCamera
                 game.isCameraAnimating = false;
+                // Очищаем сохранённую позицию смерти
+                this.deathPosition = null;
                 if (onComplete) onComplete();
             }
         };
@@ -424,7 +431,8 @@ export class TankHealthModule {
         let targetY = respawnPos.y;
         if (game && typeof game.getGroundHeight === 'function') {
             const groundHeight = game.getGroundHeight(respawnPos.x, respawnPos.z);
-            targetY = hasGarage ? groundHeight + 1.2 : Math.max(groundHeight + 2, respawnPos.y);
+            // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+            targetY = groundHeight + 1.0;
             console.log(`[TANK] Spawn height: Y=${targetY.toFixed(2)} (ground: ${groundHeight.toFixed(2)}, hasGarage: ${hasGarage})`);
         }
         
@@ -513,73 +521,81 @@ export class TankHealthModule {
     
     /**
      * Находит случайную безопасную позицию для респавна (если гаража нет)
-     * Проверяет что позиция не под террейном и не внутри построек
+     * Танк спавнится на ВЕРХНЕЙ поверхности (крыша здания или террейн)
      */
     private findSafeRandomSpawnPosition(): Vector3 {
         const game = (window as any).gameInstance;
-        const maxAttempts = 10;
-        const mapRadius = 200; // Радиус карты для случайного спавна
         
-        for (let attempt = 0; attempt < maxAttempts; attempt++) {
-            // Случайная позиция в радиусе карты
-            const angle = Math.random() * Math.PI * 2;
-            const distance = 50 + Math.random() * (mapRadius - 50);
-            const x = Math.cos(angle) * distance;
-            const z = Math.sin(angle) * distance;
-            
-            // Получаем высоту террейна
-            let y = 5;
-            if (game && typeof game.getGroundHeight === 'function') {
-                const groundHeight = game.getGroundHeight(x, z);
-                y = groundHeight + 2; // Над террейном
-            }
-            
-            const testPos = new Vector3(x, y + 10, z); // Тестируем с высоты
-            
-            // Проверяем что позиция безопасна (не внутри постройки)
-            if (this.isPositionSafe(testPos)) {
-                console.log(`[TANK] Found safe random spawn at (${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)}) on attempt ${attempt + 1}`);
-                return new Vector3(x, y, z);
-            }
+        // Используем новую функцию из Game для спавна на верхней поверхности
+        if (game && typeof game.findSafeSpawnPosition === 'function') {
+            const safePos = game.findSafeSpawnPosition(0, 0, 50, 200, 1);
+            console.log(`[TANK] Spawn on top surface via Game: (${safePos.x.toFixed(2)}, ${safePos.y.toFixed(2)}, ${safePos.z.toFixed(2)})`);
+            return safePos;
         }
         
-        // Fallback - центр карты над террейном
-        console.log("[TANK] Could not find safe spawn, using center fallback");
-        let fallbackY = 5;
-        if (game && typeof game.getGroundHeight === 'function') {
-            fallbackY = game.getGroundHeight(0, 0) + 2;
+        // Fallback: генерируем позицию и находим верхнюю поверхность
+        const mapRadius = 200;
+        const angle = Math.random() * Math.PI * 2;
+        const distance = 50 + Math.random() * (mapRadius - 50);
+        const x = Math.cos(angle) * distance;
+        const z = Math.sin(angle) * distance;
+        
+        // Получаем высоту верхней поверхности
+        let surfaceY = 5;
+        if (game && typeof game.getTopSurfaceHeight === 'function') {
+            surfaceY = game.getTopSurfaceHeight(x, z);
+        } else if (game && typeof game.getGroundHeight === 'function') {
+            surfaceY = game.getGroundHeight(x, z);
+        } else {
+            // Используем локальный raycast
+            surfaceY = this.getTopSurfaceHeightLocal(x, z);
         }
-        return new Vector3(0, fallbackY, 0);
+        
+        const spawnY = surfaceY + 1.5;
+        console.log(`[TANK] Spawn on top surface: (${x.toFixed(2)}, ${spawnY.toFixed(2)}, ${z.toFixed(2)})`);
+        return new Vector3(x, spawnY, z);
     }
     
     /**
-     * Проверяет безопасность позиции для спавна (не внутри построек)
+     * Локальный метод получения высоты САМОЙ ВЕРХНЕЙ поверхности
+     * Использует multiPickWithRay для нахождения крыши
      */
-    private isPositionSafe(position: Vector3): boolean {
-        // Raycast вниз для проверки построек
-        const ray = new Ray(position, new Vector3(0, -1, 0), 20);
-        const hit = this.tank.scene.pickWithRay(ray, (mesh) => {
-            if (!mesh || !mesh.isEnabled()) return false;
-            
-            // Проверяем постройки по имени
+    private getTopSurfaceHeightLocal(x: number, z: number): number {
+        // Raycast сверху вниз чтобы найти ВСЕ поверхности
+        const rayStart = new Vector3(x, 200, z);
+        const ray = new Ray(rayStart, new Vector3(0, -1, 0), 250);
+        
+        const hits = this.tank.scene.multiPickWithRay(ray, (mesh) => {
+            if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
             const name = mesh.name.toLowerCase();
-            if (name.includes("building") || 
-                name.includes("wall") || 
-                name.includes("house") ||
-                name.includes("container") ||
-                name.includes("barrier")) {
-                return true;
+            
+            // Пропускаем служебные меши
+            if (name.includes("trigger") || 
+                name.includes("collider") || 
+                name.includes("invisible") ||
+                name.includes("skybox") ||
+                name.includes("bullet") ||
+                name.includes("projectile")) {
+                return false;
             }
             
-            // Проверяем по метаданным
-            const meta = mesh.metadata;
-            if (meta && meta.type === "building") return true;
-            
-            return false;
+            return true;
         });
         
-        // Безопасно если нет попадания в постройку
-        return !hit?.hit;
+        if (hits && hits.length > 0) {
+            // Находим САМУЮ ВЫСОКУЮ точку (крышу)
+            let maxHeight = -Infinity;
+            for (const hit of hits) {
+                if (hit.hit && hit.pickedPoint && hit.pickedPoint.y > maxHeight) {
+                    maxHeight = hit.pickedPoint.y;
+                }
+            }
+            if (maxHeight > -Infinity) {
+                return maxHeight;
+            }
+        }
+        
+        return 5; // Fallback
     }
     
     /**
@@ -733,7 +749,7 @@ export class TankHealthModule {
         }
         
         const tank = this.tank;
-        const duration = 3000; // 3 секунды анимации сборки
+        const duration = 1500; // ИСПРАВЛЕНО: 1.5 секунды анимации сборки
         
         // КРИТИЧНО: Если танк уже был телепортирован в гараж (через startGarageRespawn), 
         // просто запускаем анимацию сборки без дополнительного телепорта частей

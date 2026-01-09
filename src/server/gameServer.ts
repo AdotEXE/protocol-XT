@@ -394,14 +394,14 @@ export class GameServer {
     }
     
     private handleCreateRoom(player: ServerPlayer, data: any): void {
-        const { mode, maxPlayers, isPrivate, settings, worldSeed } = data;
+        const { mode, maxPlayers, isPrivate, settings, worldSeed, mapType } = data;
         
         // Генерируем простой ID комнаты (0001, 0002, и т.д.)
         this.roomCounter++;
         const roomId = String(this.roomCounter).padStart(4, '0');
         serverLogger.log(`[Server] 🔧 Генерация ID комнаты: roomCounter=${this.roomCounter}, roomId=${roomId}`);
         
-        const room = new GameRoom(mode, maxPlayers, isPrivate, worldSeed, roomId);
+        const room = new GameRoom(mode, maxPlayers, isPrivate, worldSeed, roomId, mapType);
         room.settings = settings || {};
         
         // Проверяем, что ID комнаты правильный
@@ -668,7 +668,8 @@ export class GameServer {
             players: room.players.size,
             maxPlayers: room.maxPlayers,
             isActive: room.isActive,
-            gameTime: room.gameTime
+            gameTime: room.gameTime,
+            mapType: room.mapType || "normal"
         }));
         
         serverLogger.log(`[Server] Запрос списка комнат от ${player.id} (${player.name}): найдено ${filteredRooms.length} комнат${mode ? ` (режим: ${mode})` : ''}`);

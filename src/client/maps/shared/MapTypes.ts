@@ -103,7 +103,8 @@ export type MapType =
     | "expo"
     | "brest"
     | "arena"
-    | "normal";
+    | "normal"
+    | "custom";
 
 /**
  * Информация о типе карты

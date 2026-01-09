@@ -177,6 +177,12 @@ export interface ChassisStatsData {
     acceleration: StatWithBonus;
     /** Масса (кг) */
     mass: number;
+    /** Ширина корпуса (м) */
+    width: number;
+    /** Высота корпуса (м) */
+    height: number;
+    /** Глубина корпуса (м) */
+    depth: number;
     /** Особая способность */
     specialAbility: string | null;
     /** Уровень прокачки */
@@ -205,10 +211,16 @@ export interface CannonStatsData {
     recoilMultiplier: number;
     /** Длина ствола */
     barrelLength: number;
+    /** Ширина ствола (м) */
+    barrelWidth: number;
     /** Максимум рикошетов (если есть) */
     maxRicochets: number | null;
     /** Сохранение скорости при рикошете */
     ricochetSpeedRetention: number | null;
+    /** Угол рикошета (градусы) */
+    ricochetAngle: number | null;
+    /** Максимальная дальность выстрела (м) */
+    maxRange: number;
     /** Уровень прокачки */
     upgradeLevel: number;
     /** Цвет пушки */

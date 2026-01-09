@@ -492,8 +492,8 @@ export class CheatMenu {
                 if (this.tank) {
                     // Получаем высоту террейна в центре
                     const groundHeight = this.getGroundHeight(0, 0);
-                    // Безопасная высота: +5м над террейном, минимум 7м
-                    const safeHeight = Math.max(groundHeight + 5.0, 7.0);
+                    // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+                    const safeHeight = groundHeight + 1.0;
                     
                     const targetPos = new Vector3(0, safeHeight, 0);
                     this.tank.chassis.position = targetPos;
@@ -525,8 +525,8 @@ export class CheatMenu {
                     
                     // Получаем высоту террейна
                     const groundHeight = this.getGroundHeight(x, z);
-                    // Безопасная высота: +5м над террейном, минимум 7м
-                    const safeHeight = Math.max(groundHeight + 5.0, 7.0);
+                    // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+                    const safeHeight = groundHeight + 1.0;
                     
                     const targetPos = new Vector3(x, safeHeight, z);
                     this.tank.chassis.position = targetPos;
@@ -1202,8 +1202,8 @@ export class CheatMenu {
             
             // КРИТИЧНО: Вычисляем высоту террейна и спавним НАД террейном
             const groundHeight = (this.game as any).getGroundHeight ? (this.game as any).getGroundHeight(spawnX, spawnZ) : 5.0;
-            // Безопасная высота: +5м над террейном, минимум 7м
-            const spawnY = Math.max(groundHeight + 5.0, 7.0);
+            // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+            const spawnY = groundHeight + 1.0;
             
             const spawnPos = new Vector3(spawnX, spawnY, spawnZ);
             

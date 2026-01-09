@@ -167,6 +167,10 @@ export class GamePersistence {
         // Сохраняем данные при закрытии окна
         window.addEventListener("beforeunload", () => {
             this.saveAllGameData();
+            // Также сохраняем состояние игры для автоперезапуска если игра запущена
+            if (this.game && (this.game as any).gameStarted) {
+                (this.game as any).saveGameStateForAutoRestart();
+            }
         });
         
         // Также сохраняем при потере фокуса (опционально)

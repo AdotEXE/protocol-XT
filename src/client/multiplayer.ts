@@ -2195,18 +2195,19 @@ export class MultiplayerManager {
      * @param isPrivate - Whether the room is private (default: false, always creates public rooms)
      * @returns True if room creation request was sent, false if not connected
      */
-    createRoom(mode: GameMode, maxPlayers: number = 32, isPrivate: boolean = false): boolean {
+    createRoom(mode: GameMode, maxPlayers: number = 32, isPrivate: boolean = false, mapType?: string): boolean {
         if (!this.connected) {
             logger.warn("[Multiplayer] Cannot create room: not connected to server");
             return false;
         }
         
-        logger.log(`[Multiplayer] Creating room: mode=${mode}, maxPlayers=${maxPlayers}, isPrivate=${isPrivate}`);
+        logger.log(`[Multiplayer] Creating room: mode=${mode}, maxPlayers=${maxPlayers}, isPrivate=${isPrivate}, mapType=${mapType}`);
         // ВАЖНО: Убеждаемся, что комната публичная (isPrivate=false), чтобы её видели другие игроки
         this.send(createClientMessage(ClientMessageType.CREATE_ROOM, {
             mode,
             maxPlayers,
-            isPrivate: false // Всегда создаем публичные комнаты для видимости
+            isPrivate: false, // Всегда создаем публичные комнаты для видимости
+            mapType: mapType || "normal" // Передаем тип карты
         }));
         return true;
     }

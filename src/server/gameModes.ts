@@ -20,7 +20,7 @@ export class FFAMode implements GameModeRules {
         
         return new Vector3(
             Math.cos(angle) * radius,
-            5,
+            1.0, // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
             Math.sin(angle) * radius
         );
     }
@@ -96,7 +96,7 @@ export class CoopPVEMode implements GameModeRules {
         
         return new Vector3(
             Math.cos(angle) * radius,
-            5,
+            1.0, // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
             Math.sin(angle) * radius
         );
     }
@@ -133,7 +133,7 @@ export class BattleRoyaleMode implements GameModeRules {
         
         return new Vector3(
             this.safeZoneCenter.x + Math.cos(angle) * radius,
-            5,
+            1.0, // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
             this.safeZoneCenter.z + Math.sin(angle) * radius
         );
     }
@@ -246,7 +246,7 @@ export class CTFMode implements GameModeRules {
         const team = player.team || 0;
         const baseX = team === 0 ? -50 : 50;
         
-        return new Vector3(baseX, 5, 0);
+        return new Vector3(baseX, 1.0, 0); // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
     }
     
     checkWinCondition(_room: GameRoom): { winner: string | null; reason: string } | null {
@@ -277,7 +277,7 @@ export class ControlPointMode implements GameModeRules {
         const baseX = team === 0 ? -50 : 50;
         const baseZ = (spawnIndex - teamPlayers.length / 2) * 15;
         
-        return new Vector3(baseX, 5, baseZ);
+        return new Vector3(baseX, 1.0, baseZ); // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
     }
     
     checkWinCondition(room: GameRoom): { winner: string | null; reason: string } | null {
@@ -396,7 +396,7 @@ export class SurvivalMode implements GameModeRules {
         
         return new Vector3(
             Math.cos(angle) * radius,
-            5,
+            1.0, // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
             Math.sin(angle) * radius
         );
     }
@@ -441,7 +441,7 @@ export class RaidMode implements GameModeRules {
         
         return new Vector3(
             Math.cos(angle) * radius,
-            5,
+            1.0, // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
             Math.sin(angle) * radius
         );
     }

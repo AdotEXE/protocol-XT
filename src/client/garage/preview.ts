@@ -71,10 +71,10 @@ export function initPreviewScene(
     const scene = new Scene(engine);
     scene.clearColor = new Color4(0.05, 0.05, 0.08, 1.0);
     
-    // ОПТИМИЗАЦИЯ: Отключаем ненужные функции сцены
+    // ОПТИМИЗАЦИЯ: Отключаем только безопасные функции сцены
     scene.skipPointerMovePicking = true;
-    scene.autoClearDepthAndStencil = false;
-    scene.blockMaterialDirtyMechanism = true;
+    // ИСПРАВЛЕНО: autoClearDepthAndStencil и blockMaterialDirtyMechanism убраны - 
+    // они вызывали чёрный экран в preview
     
     // Camera - rotate around tank with mouse controls
     const camera = new ArcRotateCamera(
@@ -1223,7 +1223,7 @@ function addChassisDetailsPreview(chassis: Mesh, chassisType: any, scene: Scene,
             ChassisDetailsGenerator.createSlopedArmor(
                 scene, chassis,
                 new Vector3(0, h * 0.1, d * 0.5),
-                w * 1.0, h * 0.7, 0.18,
+                w * 0.9, h * 0.7, 0.18,
                 -Math.PI / 4, armorMat, "previewMedium"
             );
         

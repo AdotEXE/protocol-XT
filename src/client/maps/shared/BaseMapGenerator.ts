@@ -35,6 +35,16 @@ import { SeededRandom } from "./SeededRandom";
 import { GenerationContext, BiomeType } from "./MapTypes";
 
 /**
+ * Информация о коллайдере для отложенного создания физики
+ */
+interface PendingCollider {
+    position: Vector3;
+    width: number;
+    height: number;
+    depth: number;
+}
+
+/**
  * Базовый класс генератора карты
  * Все конкретные генераторы карт наследуются от этого класса
  */
@@ -50,6 +60,12 @@ export abstract class BaseMapGenerator implements IMapGenerator {
     
     /** Контекст генерации с доступом к общим ресурсам */
     protected generationContext: GenerationContext | null = null;
+    
+    // ОПТИМИЗАЦИЯ: Mesh merging - сбор мешей для последующего объединения
+    /** Меши для объединения, сгруппированные по материалу */
+    protected pendingMeshes: Map<string, Mesh[]> = new Map();
+    /** Информация о коллайдерах для создания после объединения */
+    protected pendingColliders: PendingCollider[] = [];
     
     /**
      * Инициализирует генератор с контекстом
@@ -121,6 +137,7 @@ export abstract class BaseMapGenerator implements IMapGenerator {
      * @param material - Материал или имя материала
      * @param parent - Родительский узел
      * @param addPhysics - Добавить физику
+     * @param deferMerge - ОПТИМИЗАЦИЯ: Отложить объединение мешей (true = собрать для merge, false = создать сразу)
      */
     protected createBox(
         name: string,
@@ -128,18 +145,41 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         position: Vector3,
         material: StandardMaterial | string,
         parent: TransformNode,
-        addPhysics: boolean = true
+        addPhysics: boolean = true,
+        deferMerge: boolean = false
     ): Mesh {
         const box = MeshBuilder.CreateBox(name, options, this.scene);
         box.position = position;
+        
+        const matName = typeof material === "string" ? material : material.name;
         box.material = typeof material === "string" ? this.getMat(material) : material;
         box.parent = parent;
         
-        if (addPhysics) {
-            new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0, friction: 0.5 }, this.scene);
+        if (deferMerge) {
+            // ОПТИМИЗАЦИЯ: Собираем меши для последующего объединения
+            if (!this.pendingMeshes.has(matName)) {
+                this.pendingMeshes.set(matName, []);
+            }
+            this.pendingMeshes.get(matName)!.push(box);
+            
+            // Сохраняем информацию о коллайдере для создания после merge
+            if (addPhysics) {
+                this.pendingColliders.push({
+                    position: position.clone(),
+                    width: options.width,
+                    height: options.height,
+                    depth: options.depth
+                });
+            }
+            // НЕ создаём физику сейчас - она будет создана в mergePendingMeshes
+        } else {
+            // Стандартное поведение - создаём физику сразу
+            if (addPhysics) {
+                new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0, friction: 0.5 }, this.scene);
+            }
+            box.freezeWorldMatrix();
         }
         
-        box.freezeWorldMatrix();
         return box;
     }
     
@@ -214,6 +254,69 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         }
         
         return ground;
+    }
+    
+    /**
+     * ОПТИМИЗАЦИЯ: Объединить накопленные меши в один меш на материал
+     * Вызывать в конце generateContent() для уменьшения draw calls
+     * @param parent - Родительский узел для объединённых мешей
+     */
+    protected mergePendingMeshes(parent: TransformNode): void {
+        // Объединяем меши по материалам
+        for (const [matName, meshes] of this.pendingMeshes) {
+            if (meshes.length === 0) continue;
+            
+            if (meshes.length === 1) {
+                // Один меш - просто замораживаем
+                meshes[0].freezeWorldMatrix();
+                continue;
+            }
+            
+            // Объединяем все меши с одинаковым материалом
+            try {
+                const merged = Mesh.MergeMeshes(
+                    meshes,
+                    true,  // disposeSource - удалить исходные меши
+                    true,  // allow32BitsIndices
+                    undefined, // parent - установим позже
+                    false, // subdivideWithSubMeshes
+                    true   // multiMultiMaterials
+                );
+                
+                if (merged) {
+                    merged.name = `merged_${matName}`;
+                    merged.parent = parent;
+                    merged.material = this.getMat(matName);
+                    merged.freezeWorldMatrix();
+                    merged.doNotSyncBoundingInfo = true;
+                    merged.cullingStrategy = Mesh.CULLINGSTRATEGY_BOUNDINGSPHERE_ONLY;
+                }
+            } catch (e) {
+                // Если merge не удался, просто замораживаем исходные меши
+                console.warn(`[BaseMapGenerator] Failed to merge meshes for material ${matName}:`, e);
+                for (const mesh of meshes) {
+                    mesh.freezeWorldMatrix();
+                }
+            }
+        }
+        
+        // Создаём невидимые коллайдеры для физики
+        for (let i = 0; i < this.pendingColliders.length; i++) {
+            const col = this.pendingColliders[i];
+            const collider = MeshBuilder.CreateBox(`collider_${i}`, {
+                width: col.width,
+                height: col.height,
+                depth: col.depth
+            }, this.scene);
+            collider.position = col.position;
+            collider.isVisible = false;
+            collider.parent = parent;
+            new PhysicsAggregate(collider, PhysicsShapeType.BOX, { mass: 0, friction: 0.5 }, this.scene);
+        }
+        
+        // Очищаем списки
+        this.pendingMeshes.clear();
+        this.pendingColliders = [];
     }
     
     /**

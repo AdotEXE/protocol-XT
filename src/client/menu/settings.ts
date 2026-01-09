@@ -26,7 +26,7 @@ export interface GameSettings {
     screenShake: boolean;
     virtualTurretFixation: boolean;
     language: string;
-    enemyDifficulty: "easy" | "medium" | "hard";
+    enemyDifficulty: "easy" | "medium" | "hard" | "nightmare";
     worldSeed: number;
     useRandomSeed: boolean;
     
@@ -107,7 +107,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
     screenShake: true,
     virtualTurretFixation: false,
     language: "ru",
-    enemyDifficulty: "medium",
+    enemyDifficulty: "nightmare",
     worldSeed: 12345,
     useRandomSeed: true,
     
@@ -229,13 +229,15 @@ function getLanguageFromButtons(def: string): string {
 /**
  * Получает выбранную сложность из кнопок
  */
-function getDifficultyFromButtons(def: "easy" | "medium" | "hard"): "easy" | "medium" | "hard" {
+function getDifficultyFromButtons(def: "easy" | "medium" | "hard" | "nightmare"): "easy" | "medium" | "hard" | "nightmare" {
     const easyBtn = document.getElementById("diff-easy");
     const mediumBtn = document.getElementById("diff-medium");
     const hardBtn = document.getElementById("diff-hard");
+    const nightmareBtn = document.getElementById("diff-nightmare");
     if (easyBtn?.classList.contains("active")) return "easy";
     if (mediumBtn?.classList.contains("active")) return "medium";
     if (hardBtn?.classList.contains("active")) return "hard";
+    if (nightmareBtn?.classList.contains("active")) return "nightmare";
     return def;
 }
 

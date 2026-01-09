@@ -13,6 +13,7 @@ export interface CannonType {
     color: string; // Hex цвет
     description: string;
     recoilMultiplier: number; // Множитель силы отдачи (1.0 = стандартная)
+    maxRange?: number; // Максимальная дальность выстрела (м) - рассчитывается автоматически если не указано
 }
 
 /**
