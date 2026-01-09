@@ -95,7 +95,8 @@ import { GameEnemies } from "./game/GameEnemies";
 import { GameUpdate } from "./game/GameUpdate";
 import { GameUI } from "./game/GameUI";
 import { GameMultiplayer } from "./game/GameMultiplayer";
-import { GameSpectator } from "./game/GameSpectator";
+// GameSpectator is not currently used - removed to fix initialization order issue
+// import { GameSpectator } from "./game/GameSpectator";
 import { GameMultiplayerCallbacks } from "./game/GameMultiplayerCallbacks";
 
 export class Game {
