@@ -26,20 +26,34 @@ const DEFAULT_CHUNK_SIZE = 80;
 const TERRAIN_SUBDIVISIONS = 12;
 
 /**
- * Данные редактируемой карты
+ * Единый формат данных карты
+ * Используется для всех карт: предустановленных, сохраненных, отредактированных
  */
 export interface MapData {
+    /** Версия формата карты (для совместимости при обновлениях) */
+    version?: number;
+    /** Имя карты */
     name: string;
+    /** Семя для генерации (если применимо) */
     seed?: number;
-    mapType?: string;
+    /** Базовый тип карты (normal, sand, polygon и т.д.) - ОБЯЗАТЕЛЬНО */
+    mapType: string;
+    /** Редактирования террейна (изменения высоты) */
     terrainEdits: TerrainEdit[];
+    /** Размещенные объекты на карте */
     placedObjects: PlacedObject[];
+    /** Триггеры на карте */
     triggers: MapTrigger[];
+    /** Метаданные карты */
     metadata: {
         createdAt: number;
         modifiedAt: number;
         author?: string;
         description?: string;
+        /** Является ли карта предустановленной */
+        isPreset?: boolean;
+        /** Размер карты в единицах (если указан) */
+        mapSize?: number;
     };
 }
 
@@ -149,14 +163,18 @@ export class MapEditor {
     
     constructor(scene: Scene) {
         this.scene = scene;
+        // Инициализируем mapData в едином формате
         this.mapData = {
+            version: 1, // Версия формата
             name: `Map_${Date.now()}`,
+            mapType: "normal", // ОБЯЗАТЕЛЬНО: базовый тип карты по умолчанию
             terrainEdits: [],
             placedObjects: [],
             triggers: [],
             metadata: {
                 createdAt: Date.now(),
-                modifiedAt: Date.now()
+                modifiedAt: Date.now(),
+                isPreset: false // Новая карта не является предустановленной
             }
         };
     }
@@ -1367,7 +1385,20 @@ export class MapEditor {
      * Экспортировать карту в JSON
      */
     exportMap(): string {
-        return JSON.stringify(this.mapData, null, 2);
+        // Нормализуем данные перед экспортом для единого формата
+        const normalized = this.normalizeMapData(this.mapData);
+        if (!normalized) {
+            console.error("[MapEditor] Failed to normalize map data for export");
+            return JSON.stringify(this.mapData, null, 2); // Fallback на исходные данные
+        }
+        
+        // Убеждаемся, что mapType всегда присутствует
+        if (!normalized.mapType) {
+            normalized.mapType = "normal";
+            console.warn("[MapEditor] exportMap: Map data missing mapType, defaulting to 'normal'");
+        }
+        
+        return JSON.stringify(normalized, null, 2);
     }
     
     /**
@@ -1375,7 +1406,14 @@ export class MapEditor {
      */
     importMap(jsonData: string): boolean {
         try {
-            const importedData = JSON.parse(jsonData) as MapData;
+            const rawData = JSON.parse(jsonData);
+            
+            // Нормализуем данные к единому формату
+            const importedData = this.normalizeMapData(rawData);
+            if (!importedData) {
+                console.error("[MapEditor] Invalid map data: failed to normalize");
+                return false;
+            }
             
             // Валидация данных
             if (!importedData.name || typeof importedData.name !== "string") {
@@ -1383,15 +1421,10 @@ export class MapEditor {
                 return false;
             }
             
-            // Убеждаемся, что все необходимые поля присутствуют
-            if (!importedData.terrainEdits) importedData.terrainEdits = [];
-            if (!importedData.placedObjects) importedData.placedObjects = [];
-            if (!importedData.triggers) importedData.triggers = [];
-            if (!importedData.metadata) {
-                importedData.metadata = {
-                    createdAt: Date.now(),
-                    modifiedAt: Date.now()
-                };
+            // Убеждаемся, что mapType всегда присутствует
+            if (!importedData.mapType) {
+                importedData.mapType = "normal";
+                console.warn("[MapEditor] Map data missing mapType, defaulting to 'normal'");
             }
             
             // Очищаем текущие данные перед импортом
@@ -1574,7 +1607,9 @@ export class MapEditor {
      */
     private performSave(name: string): void {
         try {
-            this.mapData.name = name;
+            // Очищаем имя от префикса "[Предустановленная]" если есть
+            const cleanName = name.trim().replace(/^\[Предустановленная\]\s*/, "");
+            this.mapData.name = cleanName;
             this.mapData.metadata.modifiedAt = Date.now();
             
             // Собираем все изменения террейна из текущих мешей
@@ -1599,17 +1634,36 @@ export class MapEditor {
             }
             
             const savedMaps = this.loadSavedMaps();
-            const mapIndex = savedMaps.findIndex(m => m.name === name.trim());
+            const mapIndex = savedMaps.findIndex(m => m.name === cleanName);
             
-            // Создаем копию mapData для сохранения
+            // Создаем копию mapData для сохранения в едином формате
+            // КРИТИЧНО: При сохранении отредактированной предустановленной карты она становится пользовательской
             const saveData: MapData = {
-                ...this.mapData,
+                version: 1, // Версия формата
+                name: cleanName, // Очищенное имя без префикса
+                mapType: this.mapData.mapType || "normal", // ОБЯЗАТЕЛЬНО: всегда должен быть mapType (берем из текущей карты)
                 terrainEdits: uniqueTerrainEdits.slice(-MAX_TERRAIN_EDITS), // Ограничиваем последними MAX_TERRAIN_EDITS редактированиями
+                placedObjects: this.mapData.placedObjects || [],
+                triggers: this.mapData.triggers || [],
                 metadata: {
-                    ...this.mapData.metadata,
-                    modifiedAt: Date.now()
+                    // При сохранении отредактированной предустановленной карты создаем новую дату создания
+                    createdAt: (mapIndex >= 0 && savedMaps[mapIndex].metadata?.createdAt) ? savedMaps[mapIndex].metadata.createdAt : Date.now(),
+                    modifiedAt: Date.now(),
+                    author: this.mapData.metadata?.author,
+                    description: this.mapData.metadata?.description || `Карта типа ${this.mapData.mapType || "normal"}`,
+                    isPreset: false // КРИТИЧНО: Сохраненные карты никогда не являются предустановленными, даже если были отредактированы из предустановленной
                 }
             };
+            
+            // Сохраняем seed если есть
+            if (this.mapData.seed !== undefined) {
+                saveData.seed = this.mapData.seed;
+            }
+            
+            // Сохраняем mapSize если есть в текущей карте
+            if (this.mapData.metadata?.mapSize !== undefined) {
+                saveData.metadata.mapSize = this.mapData.metadata.mapSize;
+            }
             
             if (mapIndex >= 0) {
                 // Обновляем существующую карту
@@ -1829,15 +1883,18 @@ export class MapEditor {
         // Снимаем выбор объекта
         this.deselectObject();
         
-        // Создаем новую карту
+        // Создаем новую карту в едином формате
         this.mapData = {
+            version: 1, // Версия формата
             name: `Map_${Date.now()}`,
+            mapType: "normal", // ОБЯЗАТЕЛЬНО: базовый тип карты по умолчанию
             terrainEdits: [],
             placedObjects: [],
             triggers: [],
             metadata: {
                 createdAt: Date.now(),
-                modifiedAt: Date.now()
+                modifiedAt: Date.now(),
+                isPreset: false // Новая карта не является предустановленной
             }
         };
         
@@ -1965,11 +2022,53 @@ export class MapEditor {
     /**
      * Загрузить сохраненные карты
      */
+    /**
+     * Нормализовать MapData к единому формату
+     * Обеспечивает совместимость старых и новых форматов карт
+     */
+    private normalizeMapData(data: any): MapData | null {
+        if (!data || typeof data !== "object" || !data.name) {
+            return null;
+        }
+        
+        // Текущая версия формата
+        const CURRENT_VERSION = 1;
+        
+        // Создаем нормализованный объект
+        const normalized: MapData = {
+            version: CURRENT_VERSION,
+            name: String(data.name),
+            mapType: data.mapType || "normal", // ОБЯЗАТЕЛЬНО: всегда должен быть mapType
+            terrainEdits: Array.isArray(data.terrainEdits) ? data.terrainEdits : [],
+            placedObjects: Array.isArray(data.placedObjects) ? data.placedObjects : [],
+            triggers: Array.isArray(data.triggers) ? data.triggers : [],
+            metadata: {
+                createdAt: data.metadata?.createdAt || Date.now(),
+                modifiedAt: data.metadata?.modifiedAt || Date.now(),
+                author: data.metadata?.author,
+                description: data.metadata?.description,
+                isPreset: data.metadata?.isPreset !== undefined ? data.metadata.isPreset : data.name.startsWith("[Предустановленная]"),
+                mapSize: data.metadata?.mapSize
+            }
+        };
+        
+        // Сохраняем seed если есть
+        if (data.seed !== undefined) {
+            normalized.seed = data.seed;
+        }
+        
+        return normalized;
+    }
+    
     private loadSavedMaps(): MapData[] {
         try {
             const saved = localStorage.getItem("savedMaps");
             if (saved) {
-                return JSON.parse(saved);
+                const maps = JSON.parse(saved);
+                if (Array.isArray(maps)) {
+                    // Нормализуем все карты к единому формату
+                    return maps.map(map => this.normalizeMapData(map)).filter((map): map is MapData => map !== null);
+                }
             }
         } catch (error) {
             console.error("[MapEditor] Failed to load saved maps:", error);
@@ -3032,26 +3131,30 @@ export class MapEditor {
     /**
      * Установить данные карты без UI
      */
-    public setMapData(data: MapData): void {
+    public setMapData(data: MapData | any): void {
         // Валидация данных
         if (!data || typeof data !== 'object') {
             console.error("[MapEditor] setMapData: Invalid data provided");
             return;
         }
         
-        // Убеждаемся, что все необходимые поля присутствуют
-        if (!data.terrainEdits) data.terrainEdits = [];
-        if (!data.placedObjects) data.placedObjects = [];
-        if (!data.triggers) data.triggers = [];
-        if (!data.metadata) {
-            data.metadata = {
-                createdAt: Date.now(),
-                modifiedAt: Date.now()
-            };
+        // Нормализуем данные к единому формату
+        const normalized = this.normalizeMapData(data);
+        if (!normalized) {
+            console.error("[MapEditor] setMapData: Failed to normalize data");
+            return;
         }
         
-        this.mapData = JSON.parse(JSON.stringify(data)); // Глубокая копия
+        // Убеждаемся, что mapType всегда присутствует
+        if (!normalized.mapType) {
+            normalized.mapType = "normal";
+            console.warn("[MapEditor] setMapData: Map data missing mapType, defaulting to 'normal'");
+        }
+        
+        this.mapData = JSON.parse(JSON.stringify(normalized)); // Глубокая копия нормализованных данных
         console.log(`[MapEditor] Map data set: ${this.mapData.name}`, {
+            version: this.mapData.version,
+            mapType: this.mapData.mapType,
             terrainEdits: this.mapData.terrainEdits.length,
             objects: this.mapData.placedObjects.length,
             triggers: this.mapData.triggers.length
@@ -3064,10 +3167,23 @@ export class MapEditor {
      */
     public async applyMapDataWithoutUI(): Promise<void> {
         try {
-            console.log(`[MapEditor] Applying map data without UI: ${this.mapData.name}`);
+            console.log(`[MapEditor] ===== Applying map data without UI =====`);
+            console.log(`[MapEditor] Map name: ${this.mapData.name}`);
+            console.log(`[MapEditor] Map type: ${this.mapData.mapType}`);
             
-            // Ожидаем готовности мешей террейна
+            // КРИТИЧНО: Сначала собираем меши террейна
+            console.log(`[MapEditor] Collecting terrain meshes...`);
+            this.collectTerrainMeshes();
+            console.log(`[MapEditor] Collected ${this.terrainMeshes.size} terrain meshes`);
+            
+            // Ожидаем готовности мешей террейна (если их еще нет, ждем их появления)
+            console.log(`[MapEditor] Waiting for terrain meshes to be ready...`);
             await this.waitForTerrainMeshes();
+            console.log(`[MapEditor] Terrain meshes ready: ${this.terrainMeshes.size} meshes`);
+            
+            // Повторно собираем меши после ожидания (они могли появиться)
+            this.collectTerrainMeshes();
+            console.log(`[MapEditor] Final terrain mesh count: ${this.terrainMeshes.size}`);
             
             // Очищаем предыдущие данные
             this.placedObjectMeshes.forEach(mesh => mesh.dispose());
@@ -3078,7 +3194,6 @@ export class MapEditor {
             this.originalHeights.clear();
             
             console.log(`[MapEditor] Applying: ${this.mapData.terrainEdits.length} terrain edits, ${this.mapData.placedObjects.length} objects, ${this.mapData.triggers.length} triggers`);
-            console.log(`[MapEditor] Found ${this.terrainMeshes.size} terrain meshes`);
             
             // Применяем изменения террейна
             for (const edit of this.mapData.terrainEdits) {

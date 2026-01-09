@@ -5804,6 +5804,8 @@ export class MainMenu {
                             <span class="map-card-name">${L.tartariaMap}</span>
                         </div>
                     </div>
+                    <!-- Динамически добавляем сохраненные карты -->
+                    <div id="custom-maps-container" style="margin-top: 20px;"></div>
                 </div>
                 
                 <!-- 4. Выбор танка -->
@@ -5873,6 +5875,9 @@ export class MainMenu {
         // Заполняем опции танков
         this.populateTankOptions();
         
+        // Загружаем и отображаем сохраненные карты
+        this.loadCustomMaps();
+        
         // Обработчики выбора типа игры (шаг 1)
         document.getElementById("btn-type-single")?.addEventListener("click", () => this.selectGameType("single"));
         document.getElementById("btn-type-multiplayer")?.addEventListener("click", () => this.selectGameType("multiplayer"));
@@ -5895,7 +5900,9 @@ export class MainMenu {
             const button = document.getElementById(`play-btn-map-${map}`);
             
             button?.addEventListener("click", () => {
-                
+                // Очищаем выбранную пользовательскую карту при выборе стандартной
+                localStorage.removeItem("selectedCustomMapData");
+                localStorage.removeItem("selectedCustomMapIndex");
                 this.selectMap(map as MapType);
             });
         });
@@ -5976,6 +5983,136 @@ export class MainMenu {
                 btn.addEventListener("click", () => this.selectCannon(cannon.id));
                 cannonContainer.appendChild(btn);
             });
+        }
+    }
+    
+    /**
+     * Нормализовать MapData к единому формату (совместимо с MapEditor)
+     * Использует ту же структуру, что и MapEditor.MapData
+     */
+    private normalizeMapData(data: any): any | null {
+        if (!data || typeof data !== "object" || !data.name) {
+            return null;
+        }
+        
+        const CURRENT_VERSION = 1;
+        
+        const normalized: any = {
+            version: CURRENT_VERSION,
+            name: String(data.name),
+            mapType: data.mapType || "normal", // ОБЯЗАТЕЛЬНО: всегда должен быть mapType
+            terrainEdits: Array.isArray(data.terrainEdits) ? data.terrainEdits : [],
+            placedObjects: Array.isArray(data.placedObjects) ? data.placedObjects : [],
+            triggers: Array.isArray(data.triggers) ? data.triggers : [],
+            metadata: {
+                createdAt: data.metadata?.createdAt || Date.now(),
+                modifiedAt: data.metadata?.modifiedAt || Date.now(),
+                author: data.metadata?.author,
+                description: data.metadata?.description,
+                isPreset: data.metadata?.isPreset !== undefined ? data.metadata.isPreset : data.name.startsWith("[Предустановленная]"),
+                mapSize: data.metadata?.mapSize
+            }
+        };
+        
+        if (data.seed !== undefined) {
+            normalized.seed = data.seed;
+        }
+        
+        return normalized;
+    }
+    
+    /**
+     * Загрузить и отобразить сохраненные карты из редактора
+     */
+    private loadCustomMaps(): void {
+        const container = document.getElementById("custom-maps-container");
+        if (!container) return;
+        
+        // Очищаем контейнер перед загрузкой
+        container.innerHTML = "";
+        
+        try {
+            const saved = localStorage.getItem("savedMaps");
+            if (!saved) {
+                return;
+            }
+            
+            const rawMaps: any[] = JSON.parse(saved);
+            if (!Array.isArray(rawMaps) || rawMaps.length === 0) {
+                return;
+            }
+            
+            // Нормализуем все карты к единому формату
+            const savedMaps = rawMaps.map(map => this.normalizeMapData(map)).filter((map): map is any => map !== null);
+            
+            if (savedMaps.length === 0) {
+                return;
+            }
+            
+            // Создаем заголовок для секции сохраненных карт
+            const header = document.createElement("div");
+            header.style.cssText = "margin-top: 30px; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid rgba(0, 255, 80, 0.3);";
+            header.innerHTML = `<div class="section-title" style="font-size: 16px; color: #0f0;">📂 Ваши карты (${savedMaps.length})</div>`;
+            container.appendChild(header);
+            
+            // Добавляем сохраненные карты в сетку
+            savedMaps.forEach((map, index) => {
+                // Находим индекс в исходном массиве для правильной индексации
+                const originalIndex = rawMaps.findIndex(m => m && m.name === map.name);
+                const mapIndex = originalIndex >= 0 ? originalIndex : index;
+                
+                const mapCard = document.createElement("div");
+                mapCard.className = "map-card";
+                mapCard.style.cssText = "position: relative; cursor: pointer;";
+                mapCard.setAttribute("data-custom-map-index", mapIndex.toString());
+                
+                // Убеждаемся, что mapType всегда присутствует
+                const baseMapType = map.mapType || "normal";
+                const objectCount = map.placedObjects?.length || 0;
+                const triggerCount = map.triggers?.length || 0;
+                const editCount = map.terrainEdits?.length || 0;
+                const isPreset = map.metadata?.isPreset || map.name.startsWith("[Предустановленная]");
+                
+                mapCard.innerHTML = `
+                    ${isPreset ? '<span style="position: absolute; top: 5px; right: 5px; font-size: 8px; color: #0ff;">🔒</span>' : ''}
+                    <span class="map-card-icon">🗺</span>
+                    <span class="map-card-name" style="font-size: 9px; line-height: 1.2;">${map.name.replace("[Предустановленная] ", "")}</span>
+                    <span class="map-card-desc" style="font-size: 7px; margin-top: 5px; color: rgba(0, 255, 80, 0.6);">
+                        ${isPreset ? 'Предустановленная' : `Объектов: ${objectCount} | Редакций: ${editCount}`}
+                    </span>
+                `;
+                
+                mapCard.addEventListener("click", () => {
+                    // Сохраняем нормализованные данные карты в localStorage
+                    localStorage.setItem("selectedCustomMapData", JSON.stringify(map));
+                    localStorage.setItem("selectedCustomMapIndex", mapIndex.toString());
+                    
+                    // Выбираем базовый тип карты (обязательно должен быть указан)
+                    this.selectMap(baseMapType as MapType);
+                });
+                
+                // Добавляем стиль при наведении
+                mapCard.addEventListener("mouseenter", () => {
+                    mapCard.style.background = "rgba(0, 50, 0, 0.6)";
+                    mapCard.style.borderColor = "#0f0";
+                    mapCard.style.boxShadow = "0 0 15px rgba(0, 255, 80, 0.4)";
+                    mapCard.style.transform = "translateY(-2px)";
+                });
+                
+                mapCard.addEventListener("mouseleave", () => {
+                    mapCard.style.background = "";
+                    mapCard.style.borderColor = "";
+                    mapCard.style.boxShadow = "";
+                    mapCard.style.transform = "";
+                });
+                
+                container.appendChild(mapCard);
+            });
+            
+            debugLog(`[Menu] Loaded ${savedMaps.length} custom maps (normalized to version 1)`);
+        } catch (error) {
+            console.error("[Menu] Failed to load custom maps:", error);
+            container.innerHTML = "";
         }
     }
     
@@ -7219,14 +7356,46 @@ export class MainMenu {
         this.selectedMapType = map;
         debugLog("[Menu] Selected map:", map);
         
+        // Если выбрана стандартная карта, очищаем данные пользовательской карты
+        const customMapData = localStorage.getItem("selectedCustomMapData");
+        if (customMapData && map !== "custom") {
+            try {
+                const parsed = JSON.parse(customMapData);
+                // Очищаем только если выбранная карта не совпадает с базовым типом пользовательской карты
+                if (parsed.mapType && parsed.mapType !== map) {
+                    localStorage.removeItem("selectedCustomMapData");
+                    debugLog("[Menu] Cleared custom map data for standard map selection");
+                }
+            } catch (e) {
+                // Игнорируем ошибки парсинга
+            }
+        }
         
-        // Обновляем визуал
+        // Обновляем визуал стандартных карт
         document.querySelectorAll("[data-map]").forEach(btn => {
             const button = btn as HTMLButtonElement;
             if (button.dataset.map === map) {
-                button.className = "menu-btn play-btn";
+                button.className = "map-card recommended";
+                button.style.borderColor = "#0f0";
             } else {
-                button.className = "menu-btn secondary";
+                button.className = "map-card";
+                button.style.borderColor = "";
+            }
+        });
+        
+        // Обновляем визуал пользовательских карт (если выбрана пользовательская карта)
+        const customMapIndex = localStorage.getItem("selectedCustomMapIndex");
+        document.querySelectorAll("[data-custom-map-index]").forEach(btn => {
+            const button = btn as HTMLElement;
+            const mapIndex = button.getAttribute("data-custom-map-index");
+            if (mapIndex === customMapIndex && customMapIndex !== null) {
+                button.style.background = "rgba(0, 100, 0, 0.6)";
+                button.style.borderColor = "#0f0";
+                button.style.boxShadow = "0 0 15px rgba(0, 255, 80, 0.4)";
+            } else {
+                button.style.background = "";
+                button.style.borderColor = "";
+                button.style.boxShadow = "";
             }
         });
         
@@ -7509,6 +7678,11 @@ export class MainMenu {
         el.style.height = "auto";
         el.style.bottom = "auto";
         
+        // Если открывается окно выбора карты, обновляем список сохраненных карт
+        if (id === "play-window-map") {
+            this.loadCustomMaps();
+        }
+        
         // Применяем стили после небольшой задержки, чтобы контент успел отрендериться
         setTimeout(() => {
             const contentHeight = el.scrollHeight;
@@ -7549,18 +7723,30 @@ export class MainMenu {
         if (this.selectedChassis) localStorage.setItem("selectedChassis", this.selectedChassis);
         if (this.selectedCannon) localStorage.setItem("selectedCannon", this.selectedCannon);
         
-        // Закрываем меню
+        // КРИТИЧНО: Получаем данные сохраненной/отредактированной карты из localStorage
+        let mapData: any = null;
+        const customMapDataStr = localStorage.getItem("selectedCustomMapData");
+        if (customMapDataStr) {
+            try {
+                mapData = JSON.parse(customMapDataStr);
+                debugLog(`[Menu] Found custom map data: ${mapData?.name}, will pass to onStartGame`);
+            } catch (error) {
+                console.error("[Menu] Failed to parse custom map data:", error);
+            }
+        }
         
+        // Закрываем меню
         this.hide();
         this.hidePlayMenu();
         
         // Если выбран мультиплеер, запускаем игру и подключаемся к матчмейкингу
         if (this.selectedGameMode === "multiplayer") {
             // Запускаем игру в одиночном режиме (карта нужна для генерации мира)
-            console.log("[Menu] startSelectedGame (multiplayer): calling onStartGame with map:", this.selectedMapType);
+            console.log("[Menu] startSelectedGame (multiplayer): calling onStartGame with map:", this.selectedMapType, "mapData:", mapData ? mapData.name : "none");
             console.log("[Menu] startSelectedGame: onStartGame callback:", typeof this.onStartGame);
             if (this.onStartGame && typeof this.onStartGame === 'function') {
-                this.onStartGame(this.selectedMapType);
+                // Передаем mapType и mapData (если есть)
+                this.onStartGame(this.selectedMapType, mapData);
             } else {
                 console.error("[Menu] startSelectedGame (multiplayer): onStartGame callback is not set!");
             }
@@ -7587,7 +7773,7 @@ export class MainMenu {
             }, 3000);
         } else {
             // Обычный старт для одиночной игры
-            console.log("[Menu] Starting game with mapType:", this.selectedMapType);
+            console.log("[Menu] Starting game with mapType:", this.selectedMapType, "mapData:", mapData ? mapData.name : "none");
             console.log("[Menu] onStartGame callback:", typeof this.onStartGame);
             
             // Сбрасываем флаг мультиплеера чтобы боты спавнились
@@ -7598,7 +7784,8 @@ export class MainMenu {
             }
             
             if (this.onStartGame && typeof this.onStartGame === 'function') {
-                this.onStartGame(this.selectedMapType);
+                // КРИТИЧНО: Передаем mapType и mapData (если есть)
+                this.onStartGame(this.selectedMapType, mapData);
             } else {
                 console.error("[Menu] onStartGame callback is not set!");
             }

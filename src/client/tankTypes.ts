@@ -484,11 +484,11 @@ export const CANNON_TYPES: CannonType[] = [
         barrelLength: 1.6,
         barrelWidth: 0.24,
         damage: 12,
-        cooldown: 200,
+        cooldown: 100,
         projectileSpeed: 120,
         projectileSize: 0.18,
         color: "#ff3300",
-        description: "Огнемет с непрерывным огнем. Урон: 12 | Перезарядка: 0.2с | Эффект: горение 5 сек (5 урона/сек). Ближний бой, высокая DPS.",
+        description: "Огнемет с непрерывным огнем. Урон: 12 | Перезарядка: 0.1с | Эффект: горение 5 сек (5 урона/сек). Ближний бой, высокая DPS. Самая скорострельная пушка!",
         recoilMultiplier: 0.3, // Огнемёт - почти нет отдачи (x2)
         maxRange: calculateMaxRange(1.6, 120)
     },

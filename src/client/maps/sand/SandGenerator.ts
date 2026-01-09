@@ -132,7 +132,13 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("concrete");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            if (this.hasPhysics()) {
+                try {
+                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                } catch (error) {
+                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
+                }
+            }
         }
     }
     
@@ -244,7 +250,13 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("concrete");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            if (this.hasPhysics()) {
+                try {
+                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                } catch (error) {
+                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
+                }
+            }
             
             // Короткая часть
             box = MeshBuilder.CreateBox("sand_bld_nw_short", {
@@ -254,7 +266,13 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("concrete");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            if (this.hasPhysics()) {
+                try {
+                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                } catch (error) {
+                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
+                }
+            }
             
             // Окно в длинной части
             box = MeshBuilder.CreateBox("sand_bld_nw_window", {
@@ -264,7 +282,13 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("sand");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            if (this.hasPhysics()) {
+                try {
+                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                } catch (error) {
+                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
+                }
+            }
         }
         
         // Здание 2: L-образное (юго-восток) - высота 4
@@ -278,7 +302,13 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("brick");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            if (this.hasPhysics()) {
+                try {
+                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                } catch (error) {
+                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
+                }
+            }
             
             box = MeshBuilder.CreateBox("sand_bld_se_short", {
                 width: 8, height: 4, depth: 3
@@ -287,7 +317,13 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("brick");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            if (this.hasPhysics()) {
+                try {
+                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                } catch (error) {
+                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
+                }
+            }
         }
         
         // Здание 3: Т-образное (северо-восток) - высота 8
@@ -302,7 +338,13 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("concrete");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            if (this.hasPhysics()) {
+                try {
+                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                } catch (error) {
+                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
+                }
+            }
             
             // Шапка
             box = MeshBuilder.CreateBox("sand_bld_ne_top", {
@@ -312,7 +354,13 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("concrete");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            if (this.hasPhysics()) {
+                try {
+                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                } catch (error) {
+                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
+                }
+            }
         }
         
         // Здание 4: П-образное (юго-запад) - высота 5
@@ -327,7 +375,13 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("brick");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            if (this.hasPhysics()) {
+                try {
+                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                } catch (error) {
+                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
+                }
+            }
             
             // Правая стенка
             box = MeshBuilder.CreateBox("sand_bld_sw_right", {
@@ -337,7 +391,13 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("brick");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            if (this.hasPhysics()) {
+                try {
+                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                } catch (error) {
+                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
+                }
+            }
             
             // Перемычка
             box = MeshBuilder.CreateBox("sand_bld_sw_bridge", {
@@ -347,7 +407,13 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("brick");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            if (this.hasPhysics()) {
+                try {
+                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                } catch (error) {
+                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
+                }
+            }
         }
     }
     

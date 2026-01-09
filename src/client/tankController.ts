@@ -323,6 +323,10 @@ export class TankController {
     projectileSpeed = 200;
     projectileSize = 0.2;
     
+    // Автоматическая стрельба при зажатии кнопки
+    private isFireKeyPressed = false; // Пробел зажат
+    private isMouseButtonPressed = false; // ЛКМ зажата
+    
     // Модули (кнопки 6-0)
     private module6Walls: Array<{
         mesh: Mesh;
@@ -2961,7 +2965,10 @@ export class TankController {
                 window.dispatchEvent(new CustomEvent("stopCenterCamera"));
             }
             
-            if (code === "Space") this.fire();
+            if (code === "Space") {
+                this.isFireKeyPressed = true;
+                this.fire(); // Стреляем сразу при нажатии
+            }
             
             // Tracer (T key) - fires tracer round if available and not reloading
             if (code === "KeyT") this.fireTracer();
@@ -3013,6 +3020,11 @@ export class TankController {
         const handleKeyUp = (evt: KeyboardEvent) => {
             this._inputMap[evt.code] = false;
             
+            // Сбрасываем флаг стрельбы при отпускании пробела
+            if (evt.code === "Space") {
+                this.isFireKeyPressed = false;
+            }
+            
             // Модуль 9: Останавливаем платформу при отпускании кнопки
             if (evt.code === "Digit9" || evt.code === "Numpad9") {
                 if (this.module9Active) {
@@ -3041,7 +3053,14 @@ export class TankController {
             const isPressed = kbInfo.type === 1;
             this._inputMap[code] = isPressed;
             
-            if (code === "Space" && isPressed) this.fire();
+            if (code === "Space") {
+                if (isPressed) {
+                    this.isFireKeyPressed = true;
+                    this.fire(); // Стреляем сразу при нажатии
+                } else {
+                    this.isFireKeyPressed = false;
+                }
+            }
         });
 
         // Mouse control for turret and aiming
@@ -3079,7 +3098,8 @@ export class TankController {
                          console.error("[Tank] Pointer lock error:", err);
                      }
                  }
-                 // LMB ALWAYS fires in all modes
+                 // Устанавливаем флаг зажатой ЛКМ и стреляем сразу
+                 this.isMouseButtonPressed = true;
                  this.fire();
              }
              if (evt.button === 2) { // Right click - AIM MODE
@@ -3089,6 +3109,9 @@ export class TankController {
         };
         
         this.scene.onPointerUp = (evt) => {
+            if (evt.button === 0) { // Left click released
+                this.isMouseButtonPressed = false;
+            }
             if (evt.button === 2) { // Release right click
                 console.log("[Tank] RMB released - toggling aim mode OFF");
                 this.toggleAimMode(false);
@@ -3107,6 +3130,21 @@ export class TankController {
                 console.log(`[Tank] CTRL keyup: ${e.code} - toggling aim mode OFF`);
                 this.toggleAimMode(false);
             }
+        });
+        
+        // Автоматическая стрельба при зажатой кнопке (пробел или ЛКМ)
+        this.scene.registerBeforeRender(() => {
+            // Проверяем, зажата ли кнопка стрельбы
+            if (this.isFireKeyPressed || this.isMouseButtonPressed) {
+                // Стреляем автоматически, метод fire() сам проверит cooldown
+                this.fire();
+            }
+        });
+        
+        // Сбрасываем флаги при потере фокуса окна (чтобы избежать "залипания" кнопок)
+        window.addEventListener("blur", () => {
+            this.isFireKeyPressed = false;
+            this.isMouseButtonPressed = false;
         });
     }
     

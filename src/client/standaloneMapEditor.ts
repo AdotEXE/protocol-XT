@@ -136,17 +136,19 @@ export class StandaloneMapEditor {
                         await this.generateMapContent(mapTypeForGen, mapSize);
                         
                         const cleanName = config.mapData.name.replace("[Предустановленная] ", "");
-                        // Импортируем базовую структуру карты с правильным именем и типом
+                        // Импортируем базовую структуру карты с правильным именем и типом в едином формате
                         const baseMapData: MapData = {
+                            version: 1, // Версия формата
                             name: cleanName,
-                            mapType: mapType,
+                            mapType: mapType || config.mapData.mapType || "normal", // ОБЯЗАТЕЛЬНО: всегда должен быть mapType
                             terrainEdits: [],
                             placedObjects: [],
                             triggers: [],
                             metadata: {
                                 createdAt: Date.now(),
                                 modifiedAt: Date.now(),
-                                description: config.mapData.metadata?.description || `Карта типа ${mapType}`
+                                description: config.mapData.metadata?.description || `Карта типа ${mapType || config.mapData.mapType || "normal"}`,
+                                isPreset: config.mapData.name.startsWith("[Предустановленная]")
                             }
                         };
                         this.mapEditor.importMap(JSON.stringify(baseMapData));
@@ -292,16 +294,32 @@ export class StandaloneMapEditor {
         this.scene.autoClearDepthAndStencil = true;
         
         // Инициализируем физический движок (нужен для генераторов карт)
+        // Сохраняем флаг наличия физики для использования в генераторах
+        let physicsAvailable = false;
         try {
+            logger.log("[StandaloneMapEditor] Initializing Havok physics...");
             const havokInstance = await HavokPhysics();
             const havokPlugin = new HavokPlugin(true, havokInstance);
             this.scene.enablePhysics(new Vector3(0, -9.81, 0), havokPlugin);
-            logger.log("[StandaloneMapEditor] Physics engine initialized");
+            physicsAvailable = true;
+            logger.log("[StandaloneMapEditor] ✅ Physics engine initialized successfully");
         } catch (physicsError) {
-            logger.warn("[StandaloneMapEditor] Could not initialize physics:", physicsError);
+            logger.warn("[StandaloneMapEditor] ⚠️ Could not initialize physics:", physicsError);
+            logger.warn("[StandaloneMapEditor] Map generation will continue without physics (objects will be static)");
+            physicsAvailable = false;
         }
         
-        logger.log("[StandaloneMapEditor] Scene initialized");
+        // Сохраняем флаг доступности физики в сцене для доступа из генераторов
+        (this.scene as any).__physicsAvailable = physicsAvailable;
+        
+        logger.log("[StandaloneMapEditor] Scene initialized (physics: " + (physicsAvailable ? "enabled" : "disabled") + ")");
+    }
+    
+    /**
+     * Проверить, доступна ли физика в сцене
+     */
+    public static hasPhysics(scene: Scene): boolean {
+        return scene.physicsEnabled && !!(scene as any).__physicsAvailable;
     }
     
     /**

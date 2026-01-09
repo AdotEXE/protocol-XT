@@ -537,6 +537,40 @@ export class MapEditorLauncher {
      * Ищет все возможные места, где могут храниться карты
      * Также добавляет все предустановленные карты игры
      */
+    /**
+     * Нормализовать MapData к единому формату (то же что и в MapEditor)
+     */
+    private normalizeMapData(data: any): MapData | null {
+        if (!data || typeof data !== "object" || !data.name) {
+            return null;
+        }
+        
+        const CURRENT_VERSION = 1;
+        
+        const normalized: MapData = {
+            version: CURRENT_VERSION,
+            name: String(data.name),
+            mapType: data.mapType || "normal",
+            terrainEdits: Array.isArray(data.terrainEdits) ? data.terrainEdits : [],
+            placedObjects: Array.isArray(data.placedObjects) ? data.placedObjects : [],
+            triggers: Array.isArray(data.triggers) ? data.triggers : [],
+            metadata: {
+                createdAt: data.metadata?.createdAt || Date.now(),
+                modifiedAt: data.metadata?.modifiedAt || Date.now(),
+                author: data.metadata?.author,
+                description: data.metadata?.description,
+                isPreset: data.metadata?.isPreset !== undefined ? data.metadata.isPreset : data.name.startsWith("[Предустановленная]"),
+                mapSize: data.metadata?.mapSize
+            }
+        };
+        
+        if (data.seed !== undefined) {
+            normalized.seed = data.seed;
+        }
+        
+        return normalized;
+    }
+    
     private loadSavedMaps(): MapData[] {
         const allMaps: MapData[] = [];
         const mapNames = new Set<string>(); // Для отслеживания уникальных имен
@@ -545,15 +579,19 @@ export class MapEditorLauncher {
             // Основное хранилище карт
             const saved = localStorage.getItem("savedMaps");
             if (saved) {
-                const maps = JSON.parse(saved) as MapData[];
+                const maps = JSON.parse(saved) as any[];
                 if (Array.isArray(maps)) {
                     maps.forEach(map => {
                         if (map && map.name && !mapNames.has(map.name)) {
-                            allMaps.push(map);
-                            mapNames.add(map.name);
+                            // Нормализуем каждую карту к единому формату
+                            const normalized = this.normalizeMapData(map);
+                            if (normalized) {
+                                allMaps.push(normalized);
+                                mapNames.add(normalized.name);
+                            }
                         }
                     });
-                    logger.log(`[MapEditorLauncher] Loaded ${maps.length} maps from "savedMaps"`);
+                    logger.log(`[MapEditorLauncher] Loaded ${maps.length} maps from "savedMaps" (normalized to ${allMaps.length})`);
                 }
             }
             
@@ -570,11 +608,12 @@ export class MapEditorLauncher {
                             const parsed = JSON.parse(value);
                             // Проверяем, является ли это MapData
                             if (parsed && typeof parsed === "object" && parsed.name && parsed.terrainEdits !== undefined) {
-                                // Проверяем, нет ли уже такой карты
-                                if (!mapNames.has(parsed.name)) {
-                                    allMaps.push(parsed as MapData);
-                                    mapNames.add(parsed.name);
-                                    logger.log(`[MapEditorLauncher] Found map "${parsed.name}" in key "${key}"`);
+                                // Нормализуем к единому формату
+                                const normalized = this.normalizeMapData(parsed);
+                                if (normalized && !mapNames.has(normalized.name)) {
+                                    allMaps.push(normalized);
+                                    mapNames.add(normalized.name);
+                                    logger.log(`[MapEditorLauncher] Found map "${normalized.name}" in key "${key}" (normalized)`);
                                 }
                             }
                         }
@@ -596,15 +635,17 @@ export class MapEditorLauncher {
                     const displayName = `[Предустановленная] Песочница`;
                     if (!mapNames.has(displayName)) {
                         const virtualMap: MapData = {
+                            version: 1, // Версия формата
                             name: displayName,
-                            mapType: "sandbox", // sandbox не имеет генератора, будет просто плоский террейн
+                            mapType: "sandbox", // ОБЯЗАТЕЛЬНО: sandbox не имеет генератора, будет просто плоский террейн
                             terrainEdits: [],
                             placedObjects: [],
                             triggers: [],
                             metadata: {
                                 createdAt: Date.now(),
                                 modifiedAt: Date.now(),
-                                description: "Свободный режим для тестов"
+                                description: "Свободный режим для тестов",
+                                isPreset: true // Предустановленная карта
                             }
                         };
                         allMaps.push(virtualMap);
@@ -619,15 +660,17 @@ export class MapEditorLauncher {
                 // Проверяем, нет ли уже карты с таким именем
                 if (!mapNames.has(displayName)) {
                     const virtualMap: MapData = {
+                        version: 1, // Версия формата
                         name: displayName,
-                        mapType: mapType,
+                        mapType: mapType, // ОБЯЗАТЕЛЬНО: всегда должен быть mapType
                         terrainEdits: [],
                         placedObjects: [],
                         triggers: [],
                         metadata: {
                             createdAt: Date.now(),
                             modifiedAt: Date.now(),
-                            description: mapTypeInfo?.description || `Предустановленная карта типа ${mapType}`
+                            description: mapTypeInfo?.description || `Предустановленная карта типа ${mapType}`,
+                            isPreset: true // Предустановленная карта
                         }
                     };
                     allMaps.push(virtualMap);

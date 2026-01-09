@@ -86,6 +86,23 @@ export abstract class BaseMapGenerator implements IMapGenerator {
     }
     
     /**
+     * Проверить, доступна ли физика в сцене
+     */
+    protected hasPhysics(): boolean {
+        const scene = this.scene;
+        // Проверяем, что физика включена и явно не помечена как недоступная
+        if (!scene.physicsEnabled) {
+            return false;
+        }
+        // Если флаг __physicsAvailable установлен явно, используем его
+        if ((scene as any).__physicsAvailable !== undefined) {
+            return (scene as any).__physicsAvailable === true;
+        }
+        // По умолчанию считаем, что если physicsEnabled = true, то физика доступна
+        return true;
+    }
+    
+    /**
      * Получить материал по имени
      * @param name - Имя материала
      */
@@ -173,9 +190,13 @@ export abstract class BaseMapGenerator implements IMapGenerator {
             }
             // НЕ создаём физику сейчас - она будет создана в mergePendingMeshes
         } else {
-            // Стандартное поведение - создаём физику сразу
-            if (addPhysics) {
-                new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0, friction: 0.5 }, this.scene);
+            // Стандартное поведение - создаём физику сразу (только если доступна)
+            if (addPhysics && this.hasPhysics()) {
+                try {
+                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0, friction: 0.5 }, this.scene);
+                } catch (error) {
+                    console.warn("[BaseMapGenerator] Failed to create physics for box:", error);
+                }
             }
             box.freezeWorldMatrix();
         }
@@ -199,8 +220,12 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         cylinder.material = typeof material === "string" ? this.getMat(material) : material;
         cylinder.parent = parent;
         
-        if (addPhysics) {
-            new PhysicsAggregate(cylinder, PhysicsShapeType.CYLINDER, { mass: 0, friction: 0.5 }, this.scene);
+        if (addPhysics && this.hasPhysics()) {
+            try {
+                new PhysicsAggregate(cylinder, PhysicsShapeType.CYLINDER, { mass: 0, friction: 0.5 }, this.scene);
+            } catch (error) {
+                console.warn("[BaseMapGenerator] Failed to create physics for cylinder:", error);
+            }
         }
         
         cylinder.freezeWorldMatrix();
@@ -223,8 +248,12 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         sphere.material = typeof material === "string" ? this.getMat(material) : material;
         sphere.parent = parent;
         
-        if (addPhysics) {
-            new PhysicsAggregate(sphere, PhysicsShapeType.SPHERE, { mass: 0, friction: 0.5 }, this.scene);
+        if (addPhysics && this.hasPhysics()) {
+            try {
+                new PhysicsAggregate(sphere, PhysicsShapeType.SPHERE, { mass: 0, friction: 0.5 }, this.scene);
+            } catch (error) {
+                console.warn("[BaseMapGenerator] Failed to create physics for sphere:", error);
+            }
         }
         
         sphere.freezeWorldMatrix();
@@ -249,8 +278,12 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         ground.parent = parent;
         ground.freezeWorldMatrix();
         
-        if (addPhysics) {
-            new PhysicsAggregate(ground, PhysicsShapeType.BOX, { mass: 0, friction: 0.5 }, this.scene);
+        if (addPhysics && this.hasPhysics()) {
+            try {
+                new PhysicsAggregate(ground, PhysicsShapeType.BOX, { mass: 0, friction: 0.5 }, this.scene);
+            } catch (error) {
+                console.warn("[BaseMapGenerator] Failed to create physics for ground:", error);
+            }
         }
         
         return ground;
@@ -311,7 +344,14 @@ export abstract class BaseMapGenerator implements IMapGenerator {
             collider.position = col.position;
             collider.isVisible = false;
             collider.parent = parent;
-            new PhysicsAggregate(collider, PhysicsShapeType.BOX, { mass: 0, friction: 0.5 }, this.scene);
+            // Создаем физику только если доступна
+            if (this.hasPhysics()) {
+                try {
+                    new PhysicsAggregate(collider, PhysicsShapeType.BOX, { mass: 0, friction: 0.5 }, this.scene);
+                } catch (error) {
+                    console.warn("[BaseMapGenerator] Failed to create physics for merged collider:", error);
+                }
+            }
         }
         
         // Очищаем списки

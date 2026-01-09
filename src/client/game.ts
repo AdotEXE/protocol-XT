@@ -756,13 +756,25 @@ export class Game {
                     this.currentMapType = mapType;
                     logger.log(`[Game] Map type set to: ${this.currentMapType}`);
                     
-                    // Если это сохраненная карта, сохраняем данные
-                    if (mapType === "custom" && mapData) {
-                        localStorage.setItem("selectedCustomMapData", JSON.stringify(mapData));
-                        logger.log(`[Game] Custom map data saved: ${mapData.name}`);
+                    // Сохраняем данные карты для игры (все карты используют единый формат MapData)
+                    if (mapData) {
+                        // Нормализуем данные к единому формату перед сохранением
+                        const normalized = this.normalizeMapDataForGame(mapData);
+                        if (normalized) {
+                            localStorage.setItem("selectedCustomMapData", JSON.stringify(normalized));
+                            logger.log(`[Game] Map data saved (normalized): ${normalized.name}, type: ${normalized.mapType}`);
+                        }
                     } else {
-                        // Очищаем данные кастомной карты при выборе обычной
-                        localStorage.removeItem("selectedCustomMapData");
+                        // Если mapData не передан явно, проверяем localStorage
+                        const existingMapData = localStorage.getItem("selectedCustomMapData");
+                        if (!existingMapData && mapType !== "custom") {
+                            // Очищаем данные кастомной карты только если нет данных в localStorage
+                            localStorage.removeItem("selectedCustomMapData");
+                            localStorage.removeItem("selectedCustomMapIndex");
+                            logger.log(`[Game] No map data found, cleared custom map data for mapType: ${mapType}`);
+                        } else if (existingMapData) {
+                            logger.log(`[Game] Using existing map data from localStorage for mapType: ${mapType}`);
+                        }
                     }
                 }
                 
@@ -830,11 +842,15 @@ export class Game {
                         try {
                             const customMapDataStr = localStorage.getItem("selectedCustomMapData");
                             if (customMapDataStr) {
-                                const customMapData = JSON.parse(customMapDataStr);
-                                if (customMapData.mapType && customMapData.mapType !== "custom") {
+                                // Нормализуем данные к единому формату
+                                const rawData = JSON.parse(customMapDataStr);
+                                const customMapData = this.normalizeMapDataForGame(rawData);
+                                if (customMapData && customMapData.mapType && customMapData.mapType !== "custom") {
                                     mapTypeForChunkSystem = customMapData.mapType;
+                                    logger.log(`[Game] Using base map type from normalized custom map: ${customMapData.mapType}`);
                                 } else {
                                     mapTypeForChunkSystem = "sandbox";
+                                    logger.warn("[Game] Custom map missing valid mapType, using sandbox");
                                 }
                             } else {
                                 mapTypeForChunkSystem = "sandbox";
@@ -3190,15 +3206,16 @@ export class Game {
                 try {
                     const customMapDataStr = localStorage.getItem("selectedCustomMapData");
                     if (customMapDataStr) {
-                        const customMapData = JSON.parse(customMapDataStr);
-                        // Используем базовый тип карты из сохраненных данных, если он есть
-                        if (customMapData.mapType && customMapData.mapType !== "custom") {
-                            logger.log(`[Game] Custom map has base type: ${customMapData.mapType}, using it for terrain generation`);
+                        // Нормализуем данные к единому формату
+                        const rawData = JSON.parse(customMapDataStr);
+                        const customMapData = this.normalizeMapDataForGame(rawData);
+                        if (customMapData && customMapData.mapType && customMapData.mapType !== "custom") {
+                            logger.log(`[Game] Custom map has base type: ${customMapData.mapType}, using it for terrain generation (normalized from version ${rawData.version || 'legacy'})`);
                             mapType = customMapData.mapType;
                         } else {
                             // По умолчанию для custom карт используем sandbox (плоская земля)
                             mapType = "sandbox";
-                            logger.log(`[Game] Custom map has no base type, using sandbox for terrain generation`);
+                            logger.log(`[Game] Custom map has no valid base type, using sandbox for terrain generation`);
                         }
                     } else {
                         mapType = "sandbox";
@@ -3389,9 +3406,27 @@ export class Game {
                 this.chunkSystem.update(initialPos);
                 logger.log("[Game] Map preloading complete!");
                 
-                // Если выбрана сохраненная карта, применяем её данные
-                if (this.currentMapType === "custom") {
-                    await this.loadCustomMapData();
+                // Если выбрана сохраненная/отредактированная карта, применяем её данные
+                // Проверяем наличие selectedCustomMapData в localStorage (может быть установлено для любого типа карты)
+                const customMapDataStr = localStorage.getItem("selectedCustomMapData");
+                if (customMapDataStr) {
+                    try {
+                        const customMapData = JSON.parse(customMapDataStr);
+                        if (customMapData && customMapData.name) {
+                            logger.log(`[Game] Found custom map data in localStorage: ${customMapData.name}, waiting for terrain meshes...`);
+                            // Даем время чанкам полностью загрузиться и мешам террейна создаться
+                            await new Promise(resolve => setTimeout(resolve, 500));
+                            logger.log(`[Game] Applying custom map data...`);
+                            await this.loadCustomMapData();
+                        } else {
+                            logger.warn("[Game] Custom map data found but invalid (no name)");
+                        }
+                    } catch (error) {
+                        logger.error("[Game] Failed to parse custom map data:", error);
+                        console.error("[Game] Error details:", error);
+                    }
+                } else {
+                    logger.log("[Game] No custom map data found in localStorage, using default map generation");
                 }
             }
             
@@ -7127,6 +7162,40 @@ export class Game {
     }
 
     /**
+     * Нормализовать MapData к единому формату (совместимо с MapEditor)
+     */
+    private normalizeMapDataForGame(data: any): any | null {
+        if (!data || typeof data !== "object" || !data.name) {
+            return null;
+        }
+        
+        const CURRENT_VERSION = 1;
+        
+        const normalized: any = {
+            version: CURRENT_VERSION,
+            name: String(data.name),
+            mapType: data.mapType || "normal", // ОБЯЗАТЕЛЬНО: всегда должен быть mapType
+            terrainEdits: Array.isArray(data.terrainEdits) ? data.terrainEdits : [],
+            placedObjects: Array.isArray(data.placedObjects) ? data.placedObjects : [],
+            triggers: Array.isArray(data.triggers) ? data.triggers : [],
+            metadata: {
+                createdAt: data.metadata?.createdAt || Date.now(),
+                modifiedAt: data.metadata?.modifiedAt || Date.now(),
+                author: data.metadata?.author,
+                description: data.metadata?.description,
+                isPreset: data.metadata?.isPreset !== undefined ? data.metadata.isPreset : data.name.startsWith("[Предустановленная]"),
+                mapSize: data.metadata?.mapSize
+            }
+        };
+        
+        if (data.seed !== undefined) {
+            normalized.seed = data.seed;
+        }
+        
+        return normalized;
+    }
+    
+    /**
      * Загрузить данные custom карты из localStorage
      */
     private async loadCustomMapData(): Promise<void> {
@@ -7137,31 +7206,61 @@ export class Game {
                 return;
             }
             
-            const customMapData = JSON.parse(customMapDataStr);
-            if (!customMapData || !customMapData.name) {
+            const rawData = JSON.parse(customMapDataStr);
+            if (!rawData || !rawData.name) {
                 logger.warn("[Game] Invalid custom map data");
                 return;
             }
             
-            logger.log(`[Game] Loading custom map: ${customMapData.name}`);
-            logger.log(`[Game] Custom map data: ${customMapData.placedObjects?.length || 0} objects, ${customMapData.triggers?.length || 0} triggers, ${customMapData.terrainEdits?.length || 0} terrain edits`);
+            // Нормализуем данные к единому формату перед использованием
+            const customMapData = this.normalizeMapDataForGame(rawData);
+            if (!customMapData) {
+                logger.warn("[Game] Failed to normalize custom map data");
+                return;
+            }
+            
+            logger.log(`[Game] ===== Loading custom map =====`);
+            logger.log(`[Game] Map name: ${customMapData.name}`);
+            logger.log(`[Game] Map type: ${customMapData.mapType}`);
+            logger.log(`[Game] Map version: ${customMapData.version || 'legacy'}`);
+            logger.log(`[Game] Objects: ${customMapData.placedObjects?.length || 0}`);
+            logger.log(`[Game] Triggers: ${customMapData.triggers?.length || 0}`);
+            logger.log(`[Game] Terrain edits: ${customMapData.terrainEdits?.length || 0}`);
+            
+            // Проверяем, что chunkSystem готов
+            if (!this.chunkSystem) {
+                logger.error("[Game] ChunkSystem is not initialized, cannot load custom map data");
+                return;
+            }
+            
+            logger.log(`[Game] ChunkSystem is ready, creating MapEditor...`);
             
             // Создаем MapEditor если его нет
             if (!this.mapEditor) {
                 const { MapEditor } = await import("./mapEditor");
                 this.mapEditor = new MapEditor(this.scene);
                 this.mapEditor.chunkSystem = this.chunkSystem;
+                logger.log(`[Game] MapEditor created and assigned to ChunkSystem`);
+            } else {
+                logger.log(`[Game] MapEditor already exists, updating ChunkSystem reference`);
+                this.mapEditor.chunkSystem = this.chunkSystem;
             }
             
-            // Устанавливаем данные карты
+            // Устанавливаем нормализованные данные карты
+            logger.log(`[Game] Setting map data to MapEditor...`);
             this.mapEditor.setMapData(customMapData);
+            logger.log(`[Game] Map data set, applying without UI...`);
             
             // Применяем данные без открытия UI редактора
             await this.mapEditor.applyMapDataWithoutUI();
             
-            logger.log(`[Game] Custom map "${customMapData.name}" loaded successfully`);
+            logger.log(`[Game] ===== Custom map "${customMapData.name}" loaded and applied successfully =====`);
         } catch (error) {
             logger.error("[Game] Failed to load custom map data:", error);
+            console.error("[Game] Full error details:", error);
+            if (error instanceof Error) {
+                console.error("[Game] Error stack:", error.stack);
+            }
         }
     }
     
