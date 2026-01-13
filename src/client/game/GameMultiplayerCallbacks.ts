@@ -752,8 +752,14 @@ export class GameMultiplayerCallbacks {
         // Это критично при присоединении к идущей игре, когда predictedState может быть null
         if (posDiff === 0 && data.serverState && data.serverState.position) {
             // Вычисляем реальное расхождение между текущей позицией танка и серверной позицией
+            // КРИТИЧНО: Используем только X и Z для расчета расхождения!
+            // Сервер не знает высоту террейна, поэтому Y всегда = 1.0 (высота спавна)
+            // Клиент имеет реальную Y на основе физики и террейна
             const currentPos = tank.getCachedChassisPosition ? tank.getCachedChassisPosition() : tank.chassis.position;
-            posDiff = Vector3.Distance(currentPos, serverPosVec);
+            // 2D distance (X, Z only) - игнорируем Y для reconciliation
+            const dx = currentPos.x - serverPosVec.x;
+            const dz = currentPos.z - serverPosVec.z;
+            posDiff = Math.sqrt(dx * dx + dz * dz);
             
             // Вычисляем расхождение вращения
             const currentRot = tank.chassis.rotation.y;
@@ -788,7 +794,11 @@ export class GameMultiplayerCallbacks {
                 tank.physicsBody.setLinearVelocity(new Vector3(0, 0, 0));
                 tank.physicsBody.setAngularVelocity(new Vector3(0, 0, 0));
                 
-                tank.chassis.position.copyFrom(serverPosVec);
+                // КРИТИЧНО: Сохраняем Y клиента! Сервер не знает высоту террейна
+                // Корректируем только X и Z от сервера
+                const clientY = tank.chassis.position.y;
+                const correctedPos = new Vector3(serverPosVec.x, clientY, serverPosVec.z);
+                tank.chassis.position.copyFrom(correctedPos);
                 tank.chassis.rotation.y = serverRot;
                 
                 if (tank.turret) {
@@ -803,7 +813,7 @@ export class GameMultiplayerCallbacks {
                 
                 const targetQuaternion = Quaternion.FromEulerAngles(0, serverRot, 0);
                 if (tank.physicsBody.setTargetTransform) {
-                    tank.physicsBody.setTargetTransform(serverPosVec, targetQuaternion);
+                    tank.physicsBody.setTargetTransform(correctedPos, targetQuaternion);
                 }
                 
                 tank.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
@@ -935,7 +945,10 @@ export class GameMultiplayerCallbacks {
                     tank.physicsBody.setAngularVelocity(new Vector3(0, 0, 0));
 
                     // Шаг 2: Устанавливаем визуальную позицию
-                    tank.chassis.position.copyFrom(serverPosVec);
+                    // КРИТИЧНО: Сохраняем Y клиента! Сервер не знает высоту террейна
+                    const clientYHard = tank.chassis.position.y;
+                    const correctedPosHard = new Vector3(serverPosVec.x, clientYHard, serverPosVec.z);
+                    tank.chassis.position.copyFrom(correctedPosHard);
                     tank.chassis.rotation.y = serverRot;
                     
                     // КРИТИЧНО: Синхронизируем башню и ствол
@@ -953,9 +966,9 @@ export class GameMultiplayerCallbacks {
 
                     // Шаг 4: Используем setTargetTransform для более плавной синхронизации physics body
                     // Это предотвращает резкие переключения режимов и циклы дёргания
-                    const targetQuaternion = Quaternion.FromEulerAngles(0, serverRot, 0);
+                    const targetQuaternionHard = Quaternion.FromEulerAngles(0, serverRot, 0);
                     if (tank.physicsBody.setTargetTransform) {
-                        tank.physicsBody.setTargetTransform(serverPosVec, targetQuaternion);
+                        tank.physicsBody.setTargetTransform(correctedPosHard, targetQuaternionHard);
                     }
                     
                     // Шаг 5: Переключаем обратно в DYNAMIC режим
@@ -979,7 +992,10 @@ export class GameMultiplayerCallbacks {
             }
         } else if (data.needsReapplication && posDiff > SOFT_CORRECTION_THRESHOLD) {
             // Soft correction - smoothly interpolate towards server position
-            const correctedPosition = serverPosVec.clone();
+            // КРИТИЧНО: Сохраняем Y клиента! Сервер не знает высоту террейна
+            // Интерполируем только X и Z
+            const clientYSoft = tank.chassis.position.y;
+            const correctedPosition = new Vector3(serverPosVec.x, clientYSoft, serverPosVec.z);
             
             // Адаптивная скорость интерполяции в зависимости от величины расхождения
             // УМЕНЬШЕНО для более плавной коррекции и уменьшения дёргания
@@ -994,12 +1010,9 @@ export class GameMultiplayerCallbacks {
                 // Большие расхождения (> 5 единиц): средняя интерполяция
                 LERP_SPEED = 0.3;
             }
-            Vector3.LerpToRef(
-                tank.chassis.position,
-                correctedPosition,
-                LERP_SPEED,
-                tank.chassis.position
-            );
+            // Интерполируем только X и Z, Y остаётся от клиента
+            tank.chassis.position.x += (correctedPosition.x - tank.chassis.position.x) * LERP_SPEED;
+            tank.chassis.position.z += (correctedPosition.z - tank.chassis.position.z) * LERP_SPEED;
 
             // Smoothly interpolate rotation
             let currentRot = tank.chassis.rotation.y;

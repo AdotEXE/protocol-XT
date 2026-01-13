@@ -4489,11 +4489,17 @@ export class Game {
             return;
         }
 
-        // В мультиплеере используем позицию спавна с сервера
+        // В мультиплеере используем позицию спавна с сервера (X, Z), но Y рассчитываем по террейну
         if (this.isMultiplayer && this.multiplayerManager) {
-            const spawnPos = this.multiplayerManager.getSpawnPosition();
-            if (spawnPos) {
-                logger.log(`[Game] 📍 Using server spawn position (random): (${spawnPos.x.toFixed(2)}, ${spawnPos.y.toFixed(2)}, ${spawnPos.z.toFixed(2)})`);
+            const serverSpawnPos = this.multiplayerManager.getSpawnPosition();
+            if (serverSpawnPos) {
+                // КРИТИЧНО: Используем X, Z от сервера, но Y рассчитываем по высоте террейна
+                const terrainY = this.getTopSurfaceHeight(serverSpawnPos.x, serverSpawnPos.z);
+                const spawnY = terrainY + 2.0; // 2 метра над поверхностью
+                const spawnPos = new Vector3(serverSpawnPos.x, spawnY, serverSpawnPos.z);
+                
+                logger.log(`[Game] 📍 Server spawn (random): terrain Y=${terrainY.toFixed(1)}, final: (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
+                
                 if (this.tank.chassis && this.tank.physicsBody) {
                     // Телепортация с правильной синхронизацией физики
                     this.tank.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
@@ -4519,7 +4525,7 @@ export class Game {
                     if (this.gameGarage) {
                         this.gameGarage.setPlayerGaragePosition(spawnPos.clone());
                     }
-                    logger.log(`[Game] ✅ Player spawned at server position`);
+                    logger.log(`[Game] ✅ Player spawned at server position (adjusted Y)`);
                     return;
                 }
             }
@@ -4584,11 +4590,19 @@ export class Game {
             return;
         }
 
-        // В мультиплеере используем позицию спавна с сервера
+        // В мультиплеере используем позицию спавна с сервера (X, Z), но Y рассчитываем по террейну
         if (this.isMultiplayer && this.multiplayerManager) {
-            const spawnPos = this.multiplayerManager.getSpawnPosition();
-            if (spawnPos) {
-                logger.log(`[Game] 📍 Using server spawn position: (${spawnPos.x.toFixed(2)}, ${spawnPos.y.toFixed(2)}, ${spawnPos.z.toFixed(2)})`);
+            const serverSpawnPos = this.multiplayerManager.getSpawnPosition();
+            if (serverSpawnPos) {
+                // КРИТИЧНО: Используем X, Z от сервера, но Y рассчитываем по высоте террейна
+                // Сервер не знает высоту террейна, поэтому отправляет фиксированный Y=1.0
+                const terrainY = this.getTopSurfaceHeight(serverSpawnPos.x, serverSpawnPos.z);
+                const spawnY = terrainY + 2.0; // 2 метра над поверхностью
+                const spawnPos = new Vector3(serverSpawnPos.x, spawnY, serverSpawnPos.z);
+                
+                logger.log(`[Game] 📍 Server spawn: (${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.y.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)})`);
+                logger.log(`[Game] 📍 Adjusted spawn (terrain Y=${terrainY.toFixed(1)}): (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
+                
                 if (this.tank.chassis && this.tank.physicsBody) {
                     // Телепортация с правильной синхронизацией физики
                     this.tank.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
@@ -4614,7 +4628,7 @@ export class Game {
                     if (this.gameGarage) {
                         this.gameGarage.setPlayerGaragePosition(spawnPos.clone());
                     }
-                    logger.log(`[Game] ✅ Player spawned at server position`);
+                    logger.log(`[Game] ✅ Player spawned at server position (adjusted Y)`);
                     return;
                 }
             }
