@@ -111,6 +111,17 @@ export class DebugDashboard {
                 <div class="debug-row"><span>Packets/s:</span><span id="dbg-network-packets">-</span></div>
             </div>
             <div class="debug-section">
+                <div class="debug-label">SYNC METRICS</div>
+                <div class="debug-row"><span>Avg Pos Diff:</span><span id="dbg-sync-avg-diff">-</span></div>
+                <div class="debug-row"><span>Max Pos Diff:</span><span id="dbg-sync-max-diff">-</span></div>
+                <div class="debug-row"><span>Reconciliation/s:</span><span id="dbg-sync-recon-rate">-</span></div>
+                <div class="debug-row"><span>Hard Corrections:</span><span id="dbg-sync-hard">-</span></div>
+                <div class="debug-row"><span>Soft Corrections:</span><span id="dbg-sync-soft">-</span></div>
+                <div class="debug-row"><span>Large Diffs:</span><span id="dbg-sync-large">-</span></div>
+                <div class="debug-row"><span>Critical Diffs:</span><span id="dbg-sync-critical">-</span></div>
+                <div class="debug-row"><span>Quality:</span><span id="dbg-sync-quality">-</span></div>
+            </div>
+            <div class="debug-section">
                 <div class="debug-label">MEMORY</div>
                 <div class="debug-row"><span>Used:</span><span id="dbg-memory-used">-</span></div>
                 <div class="debug-row"><span>Peak:</span><span id="dbg-memory-peak">-</span></div>
@@ -433,6 +444,47 @@ export class DebugDashboard {
             set("dbg-network-ping", "N/A");
             set("dbg-network-players", "0");
             set("dbg-network-packets", "N/A");
+        }
+        
+        // SYNC METRICS
+        if (this.game && (this.game as any).gameMultiplayerCallbacks) {
+            const syncMetrics = (this.game as any).gameMultiplayerCallbacks.getSyncMetrics?.();
+            if (syncMetrics) {
+                const metrics = syncMetrics.getMetrics();
+                set("dbg-sync-avg-diff", metrics.averagePositionDiff.toFixed(3));
+                set("dbg-sync-max-diff", metrics.maxPositionDiff.toFixed(3));
+                set("dbg-sync-recon-rate", metrics.reconciliationRate.toFixed(2));
+                set("dbg-sync-hard", metrics.hardCorrections.toString());
+                set("dbg-sync-soft", metrics.softCorrections.toString());
+                set("dbg-sync-large", metrics.largeDiffs.toString());
+                set("dbg-sync-critical", metrics.criticalDiffs.toString());
+                const quality = syncMetrics.getSyncQuality();
+                const qualityStatus = syncMetrics.getSyncQualityStatus();
+                const qualityColor = qualityStatus === "excellent" ? "#0f0" : qualityStatus === "good" ? "#ff0" : qualityStatus === "fair" ? "#fa0" : "#f00";
+                const qualityEl = document.getElementById("dbg-sync-quality");
+                if (qualityEl) {
+                    qualityEl.textContent = `${quality.toFixed(0)}% (${qualityStatus})`;
+                    qualityEl.style.color = qualityColor;
+                }
+            } else {
+                set("dbg-sync-avg-diff", "-");
+                set("dbg-sync-max-diff", "-");
+                set("dbg-sync-recon-rate", "-");
+                set("dbg-sync-hard", "-");
+                set("dbg-sync-soft", "-");
+                set("dbg-sync-large", "-");
+                set("dbg-sync-critical", "-");
+                set("dbg-sync-quality", "-");
+            }
+        } else {
+            set("dbg-sync-avg-diff", "-");
+            set("dbg-sync-max-diff", "-");
+            set("dbg-sync-recon-rate", "-");
+            set("dbg-sync-hard", "-");
+            set("dbg-sync-soft", "-");
+            set("dbg-sync-large", "-");
+            set("dbg-sync-critical", "-");
+            set("dbg-sync-quality", "-");
         }
 
         // MEMORY

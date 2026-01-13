@@ -3,12 +3,13 @@
  * Вынесено из game.ts для уменьшения размера файла
  */
 
-import { Vector3, MeshBuilder, StandardMaterial, Color3, PhysicsMotionType } from "@babylonjs/core";
+import { Vector3, MeshBuilder, StandardMaterial, Color3, PhysicsMotionType, LinesMesh, Mesh } from "@babylonjs/core";
 import { logger } from "../utils/logger";
 import { ServerMessageType } from "../../shared/messages";
 import { CONSUMABLE_TYPES } from "../consumables";
 import { RealtimeStatsTracker } from "../realtimeStats";
 import { NetworkPlayerTank } from "../networkPlayerTank";
+import { SyncMetrics } from "../syncMetrics";
 import type { MultiplayerManager } from "../multiplayer";
 import type { PlayerData, PredictedState } from "../../shared/types";
 import type { TankController } from "../tankController";
@@ -69,6 +70,14 @@ export class GameMultiplayerCallbacks {
     private gameStartedFromRoomJoined: boolean = false; // Флаг защиты от двойного запуска игры
     private lastProcessPendingTime: number = 0; // Throttling timestamp
     private readonly PROCESS_PENDING_COOLDOWN = 100; // ms cooldown (reduced from 500ms for faster tank creation)
+    
+    // Метрики синхронизации
+    private syncMetrics: SyncMetrics = new SyncMetrics();
+    
+    // Визуализация расхождений
+    private reconciliationLines: LinesMesh[] = [];
+    private readonly MAX_RECONCILIATION_LINES = 10; // Максимум линий для визуализации
+    private showReconciliationVisualization: boolean = false; // Флаг включения визуализации
 
     constructor() {
         this.deps = {
@@ -732,9 +741,21 @@ export class GameMultiplayerCallbacks {
             return;
         }
 
+        // Записываем метрики
+        const turretDiff = Math.abs((serverTurretRotation - (tank.turret?.rotation.y || 0)) % (Math.PI * 2));
+        this.syncMetrics.recordRotationDiff(rotationDiff, turretDiff);
+        
         if (posDiff > HARD_CORRECTION_THRESHOLD) {
             // Hard correction - teleport to server position
             // КРИТИЧНО: Синхронизируем physics body с визуальной позицией
+            
+            // Записываем метрики reconciliation
+            this.syncMetrics.recordReconciliation(true, posDiff);
+            
+            // Визуализация расхождения (если включена)
+            if (this.showReconciliationVisualization && this.deps.scene) {
+                this.createReconciliationLine(tank.chassis.position.clone(), serverPos.clone(), Color3.Red());
+            }
             
             // Шаг 1: Переключаем в ANIMATED режим для синхронизации
             tank.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
@@ -821,8 +842,73 @@ export class GameMultiplayerCallbacks {
             if (posDiff > LARGE_DIFF_THRESHOLD) {
                 logger.log(`[Reconciliation] ✅ Soft correction применена: posDiff=${posDiff.toFixed(2)}, rotationDiff=${rotationDiff.toFixed(3)}`);
             }
+        } else {
+            // Маленькое расхождение - все равно записываем для статистики
+            this.syncMetrics.recordPositionDiff(posDiff);
         }
         // If difference is small, do nothing - prediction was accurate
+    }
+    
+    /**
+     * Создать линию визуализации расхождения при reconciliation
+     */
+    private createReconciliationLine(from: Vector3, to: Vector3, color: Color3): void {
+        if (!this.deps.scene) return;
+        
+        // Удаляем старые линии если их слишком много
+        while (this.reconciliationLines.length >= this.MAX_RECONCILIATION_LINES) {
+            const oldLine = this.reconciliationLines.shift();
+            if (oldLine) {
+                oldLine.dispose();
+            }
+        }
+        
+        // Создаем линию от предсказанной позиции к серверной
+        const points = [from, to];
+        const line = MeshBuilder.CreateLines("reconciliation_line", { points }, this.deps.scene);
+        
+        // Устанавливаем цвет
+        const mat = new StandardMaterial("reconciliation_line_mat", this.deps.scene);
+        mat.emissiveColor = color;
+        mat.diffuseColor = color;
+        line.color = color;
+        
+        // Автоматически удаляем линию через 2 секунды
+        setTimeout(() => {
+            if (line && !line.isDisposed()) {
+                line.dispose();
+                const index = this.reconciliationLines.indexOf(line);
+                if (index >= 0) {
+                    this.reconciliationLines.splice(index, 1);
+                }
+            }
+        }, 2000);
+        
+        this.reconciliationLines.push(line);
+    }
+    
+    /**
+     * Включить/выключить визуализацию расхождений
+     */
+    setReconciliationVisualization(enabled: boolean): void {
+        this.showReconciliationVisualization = enabled;
+        
+        // Если выключаем, удаляем все линии
+        if (!enabled) {
+            this.reconciliationLines.forEach(line => {
+                if (line && !line.isDisposed()) {
+                    line.dispose();
+                }
+            });
+            this.reconciliationLines = [];
+        }
+    }
+    
+    /**
+     * Получить метрики синхронизации
+     */
+    getSyncMetrics() {
+        return this.syncMetrics;
     }
 
     private handleGameStart(data: any): void {
