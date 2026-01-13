@@ -1229,7 +1229,7 @@ export class GameServer {
             ownerId: player.id
         });
 
-        this.broadcastToRoom(room.id, spawnMsg, player.id); // Exclude sender as they already spawned it locally
+        this.broadcastToRoom(room, spawnMsg, player.id); // Exclude sender as they already spawned it locally
     }
 
 
