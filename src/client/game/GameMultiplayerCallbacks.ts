@@ -488,11 +488,11 @@ export class GameMultiplayerCallbacks {
                                     id: playerId,
                                     name: np.name,
                                     position: { x: np.position.x, y: np.position.y, z: np.position.z },
-                                    rotation: np.rotation,
-                                    turretRotation: np.turretRotation,
-                                    aimPitch: np.aimPitch,
-                                    health: np.health,
-                                    maxHealth: np.maxHealth,
+                                    rotation: np.rotation || 0,
+                                    turretRotation: np.turretRotation ?? 0,
+                                    aimPitch: np.aimPitch ?? 0,
+                                    health: np.health || 100,
+                                    maxHealth: np.maxHealth || 100,
                                     status: np.status || "alive",
                                     team: np.team
                                 };
@@ -709,16 +709,33 @@ export class GameMultiplayerCallbacks {
         // КРИТИЧНО: Обработка очень больших расхождений с диагностикой
         if (posDiff > CRITICAL_DIFF_THRESHOLD) {
             // Критическое расхождение - возможно проблема с сетью, данными или физикой
-            logger.error(`[Reconciliation] ⚠️ КРИТИЧЕСКОЕ расхождение: ${posDiff.toFixed(2)} единиц! Возможные причины: проблема с сетью, потеря пакетов, расхождение физики. ServerPos=(${serverPos.x.toFixed(1)}, ${serverPos.y.toFixed(1)}, ${serverPos.z.toFixed(1)}), LocalPos=(${tank.chassis.position.x.toFixed(1)}, ${tank.chassis.position.y.toFixed(1)}, ${tank.chassis.position.z.toFixed(1)})`);
+            logger.error(`[Reconciliation] ⚠️ КРИТИЧЕСКОЕ расхождение: ${posDiff.toFixed(2)} единиц! Возможные причины: проблема с сетью, потеря пакетов, расхождение физики. ServerPos=(${serverPosVec.x.toFixed(1)}, ${serverPosVec.y.toFixed(1)}, ${serverPosVec.z.toFixed(1)}), LocalPos=(${tank.chassis.position.x.toFixed(1)}, ${tank.chassis.position.y.toFixed(1)}, ${tank.chassis.position.z.toFixed(1)})`);
             
             // Дополнительная диагностика
             const predictedPos = data.predictedState?.position;
             if (predictedPos) {
-                logger.error(`[Reconciliation] PredictedPos=(${predictedPos.x.toFixed(1)}, ${predictedPos.y.toFixed(1)}, ${predictedPos.z.toFixed(1)}), diff from predicted=${Vector3.Distance(predictedPos, serverPos).toFixed(2)}`);
+                // Проверяем, что predictedPos - это Vector3 или объект с x, y, z
+                let predVec: Vector3;
+                if (predictedPos instanceof Vector3) {
+                    predVec = predictedPos;
+                } else if (predictedPos.x !== undefined && predictedPos.y !== undefined && predictedPos.z !== undefined) {
+                    predVec = new Vector3(predictedPos.x, predictedPos.y, predictedPos.z);
+                } else {
+                    logger.error(`[Reconciliation] Invalid predictedPos format:`, predictedPos);
+                    return;
+                }
+                
+                // Проверяем, что serverPosVec валиден
+                const diffFromPredicted = Vector3.Distance(predVec, serverPosVec);
+                if (isFinite(diffFromPredicted) && !isNaN(diffFromPredicted)) {
+                    logger.error(`[Reconciliation] PredictedPos=(${predVec.x.toFixed(1)}, ${predVec.y.toFixed(1)}, ${predVec.z.toFixed(1)}), diff from predicted=${diffFromPredicted.toFixed(2)}`);
+                } else {
+                    logger.error(`[Reconciliation] PredictedPos=(${predVec.x.toFixed(1)}, ${predVec.y.toFixed(1)}, ${predVec.z.toFixed(1)}), diff from predicted=NaN (invalid calculation)`);
+                }
             }
         } else if (posDiff > LARGE_DIFF_THRESHOLD) {
             // Большое расхождение - логируем для диагностики
-            logger.warn(`[Reconciliation] ⚠️ Большое расхождение: ${posDiff.toFixed(2)} единиц. ServerPos=(${serverPos.x.toFixed(1)}, ${serverPos.y.toFixed(1)}, ${serverPos.z.toFixed(1)}), LocalPos=(${tank.chassis.position.x.toFixed(1)}, ${tank.chassis.position.y.toFixed(1)}, ${tank.chassis.position.z.toFixed(1)})`);
+            logger.warn(`[Reconciliation] ⚠️ Большое расхождение: ${posDiff.toFixed(2)} единиц. ServerPos=(${serverPosVec.x.toFixed(1)}, ${serverPosVec.y.toFixed(1)}, ${serverPosVec.z.toFixed(1)}), LocalPos=(${tank.chassis.position.x.toFixed(1)}, ${tank.chassis.position.y.toFixed(1)}, ${tank.chassis.position.z.toFixed(1)})`);
         }
 
         // КРИТИЧНО: Игнорируем маленькие различия, которые могут быть из-за квантования
@@ -754,7 +771,7 @@ export class GameMultiplayerCallbacks {
             
             // Визуализация расхождения (если включена)
             if (this.showReconciliationVisualization && this.deps.scene) {
-                this.createReconciliationLine(tank.chassis.position.clone(), serverPos.clone(), Color3.Red());
+                this.createReconciliationLine(tank.chassis.position.clone(), serverPosVec.clone(), Color3.Red());
             }
             
             // Шаг 1: Переключаем в ANIMATED режим для синхронизации
@@ -763,7 +780,7 @@ export class GameMultiplayerCallbacks {
             tank.physicsBody.setAngularVelocity(new Vector3(0, 0, 0));
 
             // Шаг 2: Устанавливаем визуальную позицию
-            tank.chassis.position.copyFrom(serverPos);
+            tank.chassis.position.copyFrom(serverPosVec);
             tank.chassis.rotation.y = serverRot;
             
             // КРИТИЧНО: Синхронизируем башню и ствол
@@ -795,7 +812,7 @@ export class GameMultiplayerCallbacks {
             }
         } else if (data.needsReapplication && posDiff > SOFT_CORRECTION_THRESHOLD) {
             // Soft correction - smoothly interpolate towards server position
-            const correctedPosition = serverPos.clone();
+            const correctedPosition = serverPosVec.clone();
             const LERP_SPEED = 0.3;
             Vector3.LerpToRef(
                 tank.chassis.position,
