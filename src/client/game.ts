@@ -7130,10 +7130,12 @@ export class Game {
 
                     // Добавляем локального игрока
                     if (localPlayerId && this.tank?.chassis) {
+                        // КРИТИЧНО: Используем getCachedChassisPosition() для мировых координат
+                        const localPos = this.tank.getCachedChassisPosition();
                         cachedPlayers.push({
                             id: localPlayerId,
                             name: (this.multiplayerManager as any).playerName || "Вы",
-                            position: this.tank.chassis.position,
+                            position: localPos,
                             rotation: this.tank.chassis.rotation.y,
                             health: this.tank.currentHealth || 100,
                             maxHealth: this.tank.maxHealth || 100,
@@ -7238,7 +7240,8 @@ export class Game {
 
                 // Update minimap players
                 if (this.tank && this.tank.chassis) {
-                    const localPos = this.tank.chassis.position;
+                    // КРИТИЧНО: Используем getCachedChassisPosition() для мировых координат
+                    const localPos = this.tank.getCachedChassisPosition();
                     const minimapPlayers = cachedPlayers
                         .filter((p: any) => p.position)
                         .map((p: any) => ({
