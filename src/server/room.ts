@@ -460,9 +460,11 @@ export class GameRoom {
     private updatePlayerPosition(player: ServerPlayer, input: any, deltaTime: number): void {
         // Store old position before update
         const oldPosition = player.position.clone();
-        // Simple movement simulation
-        const moveSpeed = 20; // Same as client
-        const turnSpeed = 4.4; // Same as client
+        // КРИТИЧНО: Используем константы из shared/types.ts для синхронизации с клиентом
+        // Эти значения должны совпадать с клиентом для правильной синхронизации
+        const { MOVEMENT_CONSTANTS } = require("../shared/types");
+        const moveSpeed = MOVEMENT_CONSTANTS.BASE_MOVE_SPEED;
+        const turnSpeed = MOVEMENT_CONSTANTS.BASE_TURN_SPEED;
 
         // Update rotation
         if (input.steer !== 0) {
@@ -473,6 +475,9 @@ export class GameRoom {
         }
 
         // Update position based on throttle and rotation
+        // КРИТИЧНО: Формула движения должна совпадать с клиентом
+        // На клиенте движение основано на физике Havok (применение сил),
+        // но результат должен быть похож на эту простую симуляцию
         if (input.throttle !== 0) {
             const moveDir = new Vector3(
                 Math.sin(player.rotation) * input.throttle,
