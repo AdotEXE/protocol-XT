@@ -1865,12 +1865,24 @@ export class MultiplayerManager {
             }
         }
 
+        // КРИТИЧНО: Обработка полных состояний (isFullState)
+        // Полные состояния отправляются каждые 60 пакетов (1 раз в секунду) для предотвращения
+        // накопления ошибок квантования и дельта-компрессии
+        const isFullState = statesData.isFullState === true;
+        if (isFullState) {
+            // При полном состоянии логируем для диагностики (раз в секунду)
+            if (serverSequence % 60 === 0) {
+                logger.log(`[Multiplayer] ✅ Полное состояние получено (isFullState=true) - сброс накопленных ошибок`);
+            }
+        }
+        
         // КРИТИЧНО: В ранней фазе (первые 60 пакетов = 1 секунда) ПОЛНОСТЬЮ ОБХОДИМ jitter buffer
         // и обрабатываем данные НЕМЕДЛЕННО для гарантированного отображения игроков
         // Также обходим если есть другие игроки, но мы их еще не видим
         // КРИТИЧНО: Всегда обрабатываем немедленно, если в списке есть локальный игрок (для reconciliation)
+        // КРИТИЧНО: Полные состояния также обрабатываем немедленно
         const hasLocalPlayer = statesData.players?.some((p: any) => p.id === this.playerId);
-        if (this.lastProcessedSequence < 60 || (networkPlayersCount > 0 && this.networkPlayers.size === 0) || hasLocalPlayer) {
+        if (this.lastProcessedSequence < 60 || (networkPlayersCount > 0 && this.networkPlayers.size === 0) || hasLocalPlayer || isFullState) {
             // Лишний спам убран: обход буфера без логов
             this.lastProcessedSequence = Math.max(this.lastProcessedSequence, serverSequence);
             this.applyPlayerStates(statesData);

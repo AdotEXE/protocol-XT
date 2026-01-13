@@ -27,6 +27,10 @@ const ROTATION_THRESHOLD = 0.005; // Dead zone for rotation changes
 
 export class DeltaCompressor {
     private lastStates: Map<string, PlayerData> = new Map();
+    // КРИТИЧНО: Счетчик пакетов для периодической отправки полных состояний
+    // Каждые 60 пакетов (1 раз в секунду при 60Hz) отправляем полное состояние
+    private packetCount: number = 0;
+    private readonly FULL_STATE_INTERVAL = 60; // Отправлять полное состояние каждые 60 пакетов
     
     /**
      * Quantize position to reduce size (float32 -> int16 with 0.1 precision)
@@ -53,7 +57,18 @@ export class DeltaCompressor {
         return Math.round(Math.max(0, Math.min(255, health * 255 / 100)));
     }
     
-    compressPlayerStates(players: PlayerData[], useQuantization: boolean = true): PlayerStateDelta[] {
+    compressPlayerStates(players: PlayerData[], useQuantization: boolean = true): { deltas: PlayerStateDelta[]; isFullState: boolean } {
+        // КРИТИЧНО: Увеличиваем счетчик пакетов
+        this.packetCount++;
+        
+        // Определяем, нужно ли отправить полное состояние (каждые 60 пакетов)
+        const isFullState = this.packetCount >= this.FULL_STATE_INTERVAL;
+        
+        // Если это полное состояние, сбрасываем счетчик
+        if (isFullState) {
+            this.packetCount = 0;
+        }
+        
         const deltas: PlayerStateDelta[] = [];
         
         for (const player of players) {
@@ -61,18 +76,24 @@ export class DeltaCompressor {
             const delta: PlayerStateDelta = { id: player.id };
             let changedFields = 0;
             
-            if (!lastState) {
-                // First time seeing this player - send full state
-                if (useQuantization) {
+            // КРИТИЧНО: Если это полное состояние, отправляем все поля без квантования
+            // Это предотвращает накопление ошибок квантования
+            if (!lastState || isFullState) {
+                // First time seeing this player OR full state sync - send full state
+                // При полном состоянии НЕ используем квантование для точности
+                const shouldQuantize = !isFullState && useQuantization;
+                
+                if (shouldQuantize) {
                     const quantizedPos = this.quantizePosition(player.position);
                     delta.position = quantizedPos;
                 } else {
+                    // Полное состояние - без квантования для точности
                     delta.position = { x: player.position.x, y: player.position.y, z: player.position.z };
                 }
-                delta.rotation = useQuantization ? this.quantizeRotation(player.rotation) : player.rotation;
-                delta.turretRotation = useQuantization ? this.quantizeRotation(player.turretRotation) : player.turretRotation;
-                delta.aimPitch = useQuantization ? this.quantizeRotation(player.aimPitch) : player.aimPitch;
-                delta.health = useQuantization ? this.quantizeHealth(player.health) : player.health;
+                delta.rotation = shouldQuantize ? this.quantizeRotation(player.rotation) : player.rotation;
+                delta.turretRotation = shouldQuantize ? this.quantizeRotation(player.turretRotation) : player.turretRotation;
+                delta.aimPitch = shouldQuantize ? this.quantizeRotation(player.aimPitch) : player.aimPitch;
+                delta.health = shouldQuantize ? this.quantizeHealth(player.health) : player.health;
                 delta.status = player.status;
                 delta.kills = player.kills;
                 delta.deaths = player.deaths;
@@ -144,6 +165,9 @@ export class DeltaCompressor {
                 this.lastStates.set(player.id, lastStateCopy);
             }
         }
+        
+        // КРИТИЧНО: Возвращаем deltas и флаг isFullState
+        return { deltas, isFullState };
         
         // Remove players that are no longer in the game
         const currentPlayerIds = new Set(players.map(p => p.id));

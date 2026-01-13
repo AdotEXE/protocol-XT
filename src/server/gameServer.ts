@@ -1599,11 +1599,16 @@ export class GameServer {
                         return false;
                     });
 
+                    // КРИТИЧНО: Периодическая отправка полных состояний (каждые 60 пакетов = 1 раз в секунду)
+                    // Это предотвращает накопление ошибок квантования и дельта-компрессии
+                    const isFullState = this.tickCount % 60 === 0;
+                    
                     // Send filtered player states with adaptive update rate
                     const statesData = {
                         players: playersToSend,
                         gameTime: room.gameTime,
-                        serverSequence: player.lastProcessedSequence
+                        serverSequence: player.lastProcessedSequence,
+                        isFullState: isFullState // Флаг полного состояния для клиента
                     };
 
                     // ДИАГНОСТИКА: Логируем отправку PLAYER_STATES каждые 60 тиков (1 раз в секунду)

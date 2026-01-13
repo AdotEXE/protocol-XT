@@ -261,6 +261,10 @@ export interface ClientMetricsData {
 
 // PlayerStates data with server sequence for reconciliation
 export interface PlayerStatesData {
+    // КРИТИЧНО: Флаг для полных состояний (без дельта-компрессии)
+    // Используется для периодической отправки полных состояний (каждые 60 пакетов)
+    // чтобы предотвратить накопление ошибок квантования
+    isFullState?: boolean;
     players: PlayerData[];
     gameTime: number;
     serverSequence?: number; // Sequence number of last processed input (for reconciliation)
