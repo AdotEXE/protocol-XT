@@ -2721,9 +2721,21 @@ export class MultiplayerManager {
      *    - Re-apply all unconfirmed inputs to get new predicted position
      * 4. Clean up confirmed states from history
      */
+    // Защита от частых reconciliation
+    private lastReconciliationTime: number = 0;
+    private readonly MIN_RECONCILIATION_INTERVAL = 150; // 150ms - минимальное время между reconciliation (увеличено с 50ms для уменьшения дёргания)
+
     private reconcileServerState(serverSequence: number | undefined, serverPlayerData: PlayerData | null): void {
         if (serverSequence === undefined || serverSequence < 0 || !serverPlayerData) {
             // No reconciliation needed if server doesn't send sequence or data
+            return;
+        }
+        
+        // КРИТИЧНО: Проверяем минимальный интервал между reconciliation
+        const now = Date.now();
+        const timeSinceLastReconciliation = now - this.lastReconciliationTime;
+        if (timeSinceLastReconciliation < this.MIN_RECONCILIATION_INTERVAL) {
+            // Пропускаем reconciliation, если прошло меньше MIN_RECONCILIATION_INTERVAL
             return;
         }
 
@@ -2752,7 +2764,7 @@ export class MultiplayerManager {
 
             // КРИТИЧНО: Учитываем погрешность квантования (0.1 единицы для позиций)
             // Позиции квантуются с точностью 0.1 единицы, поэтому разница может быть из-за квантования
-            const QUANTIZATION_ERROR = 0.15; // 0.1 единицы + небольшой запас
+            const QUANTIZATION_ERROR = 0.25; // 0.1 единицы + увеличенный запас для предотвращения ложных reconciliation
             const POSITION_THRESHOLD = 0.5 + QUANTIZATION_ERROR; // 0.5 units + quantization error
             const ROTATION_THRESHOLD = 0.1; // ~6 degrees
 
@@ -2813,16 +2825,35 @@ export class MultiplayerManager {
             }
         }
 
+        // КРИТИЧНО: Если predictedState отсутствует, но есть серверная позиция, вычисляем расхождение
+        // на основе последней известной локальной позиции (для присоединения к идущей игре)
+        if (!predictedState && serverPlayerData && this._lastKnownLocalPosition) {
+            const serverPos = toVector3(serverPlayerData.position);
+            posDiff = Vector3.Distance(serverPos, this._lastKnownLocalPosition);
+            rotationDiff = Math.abs((serverPlayerData.rotation || 0) - this._lastKnownLocalRotation);
+            // Normalize rotation difference
+            while (rotationDiff > Math.PI) rotationDiff -= Math.PI * 2;
+            rotationDiff = Math.abs(rotationDiff);
+            
+            // Если расхождение большое, считаем что нужна reconciliation
+            if (posDiff > 0.5) {
+                needsReapplication = true;
+            }
+        }
+        
         // Always trigger callback if we have significant difference or unconfirmed states
         if (this.onReconciliationCallback) {
-            if (needsReapplication || unconfirmedStates.length > 0) {
+            if (needsReapplication || unconfirmedStates.length > 0 || (!predictedState && posDiff > 0.5)) {
+                // Обновляем время последней reconciliation
+                this.lastReconciliationTime = now;
+                
                 this.onReconciliationCallback({
                     serverState: serverPlayerData,
                     predictedState: predictedState,
                     unconfirmedStates: unconfirmedStates.length > 0 ? unconfirmedStates : undefined,
                     positionDiff: posDiff,
                     rotationDiff: rotationDiff,
-                    needsReapplication: needsReapplication
+                    needsReapplication: needsReapplication || (!predictedState && posDiff > 0.5)
                 });
             }
         }

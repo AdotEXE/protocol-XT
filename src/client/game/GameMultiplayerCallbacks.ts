@@ -3,7 +3,7 @@
  * Вынесено из game.ts для уменьшения размера файла
  */
 
-import { Vector3, MeshBuilder, StandardMaterial, Color3, PhysicsMotionType, LinesMesh, Mesh } from "@babylonjs/core";
+import { Vector3, MeshBuilder, StandardMaterial, Color3, PhysicsMotionType, LinesMesh, Mesh, Quaternion } from "@babylonjs/core";
 import { logger } from "../utils/logger";
 import { ServerMessageType } from "../../shared/messages";
 import { CONSUMABLE_TYPES } from "../consumables";
@@ -78,6 +78,15 @@ export class GameMultiplayerCallbacks {
     private reconciliationLines: LinesMesh[] = [];
     private readonly MAX_RECONCILIATION_LINES = 10; // Максимум линий для визуализации
     private showReconciliationVisualization: boolean = false; // Флаг включения визуализации
+    
+    // Защита от частых hard corrections и циклов
+    private lastHardCorrectionTime: number = 0;
+    private readonly HARD_CORRECTION_COOLDOWN = 500; // 500ms - минимальное время между hard corrections (увеличено с 200ms)
+    private _isReconciling: boolean = false; // Флаг для предотвращения повторных reconciliation во время текущей коррекции
+    private lastReconciliationIgnoreTime: number = 0; // Время последней hard correction для временного игнорирования маленьких расхождений
+    private readonly RECONCILIATION_IGNORE_DURATION = 200; // 200ms - время игнорирования маленьких расхождений после hard correction (увеличено с 100ms)
+    private reconciliationCount: number = 0; // Счётчик reconciliation для обработки первых нескольких при присоединении
+    private readonly INITIAL_RECONCILIATION_COUNT = 3; // Первые 3 reconciliation при присоединении обрабатываем без проверки predictedState
 
     constructor() {
         this.deps = {
@@ -694,15 +703,17 @@ export class GameMultiplayerCallbacks {
         // КРИТИЧНО: Учитываем погрешность квантования при сравнении
         // Позиции квантуются с точностью 0.1 единицы (INT16_POS)
         // Углы квантуются с точностью 0.001 радиан (INT16_ROT) ≈ 0.057 градусов
-        const QUANTIZATION_ERROR_POS = 0.15; // 0.1 единицы + небольшой запас
+        const QUANTIZATION_ERROR_POS = 0.25; // 0.1 единицы + увеличенный запас для предотвращения ложных reconciliation
         const QUANTIZATION_ERROR_ROT = 0.002; // 0.001 радиан + небольшой запас
-        const HARD_CORRECTION_THRESHOLD = 2.0; // Instant teleport if > 2 units difference
-        const SOFT_CORRECTION_THRESHOLD = 0.5 + QUANTIZATION_ERROR_POS; // Smooth interpolation if > 0.5 units (с учетом квантования)
+        const HARD_CORRECTION_THRESHOLD = 10.0; // Instant teleport if > 10 units difference (увеличено с 5.0 для уменьшения частых телепортаций)
+        const SOFT_CORRECTION_THRESHOLD = 2.0; // Smooth interpolation if > 2.0 units (увеличено с 1.0 для более плавного движения)
         const LARGE_DIFF_THRESHOLD = 10.0; // Большое расхождение - требует диагностики
         const CRITICAL_DIFF_THRESHOLD = 20.0; // Критическое расхождение - возможно проблема с сетью или данными
 
-        const posDiff = data.positionDiff || 0;
-        const rotationDiff = data.rotationDiff || 0;
+        // КРИТИЧНО: Вычисляем posDiff на основе текущей позиции танка, если predictedState отсутствует
+        // Это важно при присоединении к идущей игре, когда predictedState может быть null
+        let posDiff = data.positionDiff || 0;
+        let rotationDiff = data.rotationDiff || 0;
         
         // Мягкая валидация serverState с fallback значениями
         let serverPosVec: Vector3;
@@ -736,6 +747,79 @@ export class GameMultiplayerCallbacks {
         const serverRot = (data.serverState?.rotation ?? tank.chassis.rotation.y) || 0;
         const serverTurretRotation = data.serverState?.turretRotation ?? (tank.turret ? tank.turret.rotation.y : 0);
         const serverAimPitch = data.serverState?.aimPitch ?? (tank.aimPitch ?? 0);
+        
+        // КРИТИЧНО: Если posDiff не был вычислен (predictedState отсутствует), вычисляем его на основе текущей позиции
+        // Это критично при присоединении к идущей игре, когда predictedState может быть null
+        if (posDiff === 0 && data.serverState && data.serverState.position) {
+            // Вычисляем реальное расхождение между текущей позицией танка и серверной позицией
+            const currentPos = tank.getCachedChassisPosition ? tank.getCachedChassisPosition() : tank.chassis.position;
+            posDiff = Vector3.Distance(currentPos, serverPosVec);
+            
+            // Вычисляем расхождение вращения
+            const currentRot = tank.chassis.rotation.y;
+            rotationDiff = Math.abs(serverRot - currentRot);
+            // Normalize rotation difference to [-PI, PI]
+            while (rotationDiff > Math.PI) rotationDiff -= Math.PI * 2;
+            rotationDiff = Math.abs(rotationDiff);
+        }
+        
+        // КРИТИЧНО: При присоединении к идущей игре первые несколько reconciliation могут иметь
+        // критические расхождения из-за отсутствия predictedState или неправильной инициализации
+        // В этом случае применяем hard correction без проверки порогов
+        const isInitialReconciliation = this.reconciliationCount < this.INITIAL_RECONCILIATION_COUNT;
+        if (isInitialReconciliation && posDiff > 1.0) {
+            logger.log(`[Reconciliation] 🔄 Initial reconciliation check: reconciliationCount=${this.reconciliationCount}, posDiff=${posDiff.toFixed(2)}, applying hard correction`);
+            this.reconciliationCount++;
+            // При первых reconciliation применяем hard correction сразу, если расхождение большое
+            const now = Date.now();
+            this.lastHardCorrectionTime = now;
+            this.lastReconciliationIgnoreTime = now;
+            this.syncMetrics.recordReconciliation(true, posDiff);
+            
+            this._isReconciling = true;
+            try {
+                // Визуализация расхождения (если включена)
+                if (this.showReconciliationVisualization && this.deps.scene) {
+                    this.createReconciliationLine(tank.chassis.position.clone(), serverPosVec.clone(), Color3.Red());
+                }
+                
+                // Применяем hard correction
+                tank.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
+                tank.physicsBody.setLinearVelocity(new Vector3(0, 0, 0));
+                tank.physicsBody.setAngularVelocity(new Vector3(0, 0, 0));
+                
+                tank.chassis.position.copyFrom(serverPosVec);
+                tank.chassis.rotation.y = serverRot;
+                
+                if (tank.turret) {
+                    tank.turret.rotation.y = serverTurretRotation;
+                }
+                if (tank.barrel) {
+                    tank.barrel.rotation.x = -(serverAimPitch || 0);
+                }
+                tank.aimPitch = serverAimPitch;
+                
+                tank.chassis.computeWorldMatrix(true);
+                
+                const targetQuaternion = Quaternion.FromEulerAngles(0, serverRot, 0);
+                if (tank.physicsBody.setTargetTransform) {
+                    tank.physicsBody.setTargetTransform(serverPosVec, targetQuaternion);
+                }
+                
+                tank.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
+                tank.physicsBody.setLinearVelocity(new Vector3(0, 0, 0));
+                tank.physicsBody.setAngularVelocity(new Vector3(0, 0, 0));
+                
+                if (tank.updatePositionCache) {
+                    tank.updatePositionCache();
+                }
+                
+                logger.log(`[Reconciliation] ✅ Initial reconciliation #${this.reconciliationCount}: posDiff=${posDiff.toFixed(2)}, teleported to server position`);
+            } finally {
+                this._isReconciling = false;
+            }
+            return; // Выходим после initial reconciliation
+        }
         
         // КРИТИЧНО: Обработка очень больших расхождений с диагностикой
         if (posDiff > CRITICAL_DIFF_THRESHOLD) {
@@ -777,8 +861,10 @@ export class GameMultiplayerCallbacks {
         }
 
         // КРИТИЧНО: Игнорируем маленькие различия, которые могут быть из-за квантования
-        if (posDiff <= QUANTIZATION_ERROR_POS) {
-            // Разница меньше погрешности квантования - предсказание точное
+        // Увеличиваем порог игнорирования для предотвращения постоянных микро-коррекций
+        const IGNORE_THRESHOLD = QUANTIZATION_ERROR_POS * 2; // 0.5 единиц - игнорируем очень маленькие расхождения
+        if (posDiff <= IGNORE_THRESHOLD) {
+            // Разница меньше порога игнорирования - предсказание достаточно точное
             // Но все равно синхронизируем башню, если есть расхождения
             const turretDiff = Math.abs((serverTurretRotation - (tank.turret?.rotation.y || 0)) % (Math.PI * 2));
             const aimPitchDiff = Math.abs(serverAimPitch - (tank.aimPitch || 0));
@@ -796,6 +882,19 @@ export class GameMultiplayerCallbacks {
             return;
         }
 
+        // КРИТИЧНО: Предотвращаем повторные reconciliation во время текущей коррекции
+        if (this._isReconciling) {
+            return;
+        }
+        
+        // КРИТИЧНО: После hard correction временно игнорируем маленькие расхождения
+        const now = Date.now();
+        const timeSinceLastHardCorrection = now - this.lastReconciliationIgnoreTime;
+        if (timeSinceLastHardCorrection < this.RECONCILIATION_IGNORE_DURATION && posDiff < 2.0) {
+            // Игнорируем маленькие расхождения в течение 200ms после hard correction (увеличено с 1.0 до 2.0)
+            return;
+        }
+
         // Записываем метрики
         const turretDiff = Math.abs((serverTurretRotation - (tank.turret?.rotation.y || 0)) % (Math.PI * 2));
         this.syncMetrics.recordRotationDiff(rotationDiff, turretDiff);
@@ -804,54 +903,97 @@ export class GameMultiplayerCallbacks {
             // Hard correction - teleport to server position
             // КРИТИЧНО: Синхронизируем physics body с визуальной позицией
             
-            // Записываем метрики reconciliation
-            this.syncMetrics.recordReconciliation(true, posDiff);
-            
-            // Визуализация расхождения (если включена)
-            if (this.showReconciliationVisualization && this.deps.scene) {
-                this.createReconciliationLine(tank.chassis.position.clone(), serverPosVec.clone(), Color3.Red());
-            }
-            
-            // Шаг 1: Переключаем в ANIMATED режим для синхронизации
-            tank.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
-            tank.physicsBody.setLinearVelocity(new Vector3(0, 0, 0));
-            tank.physicsBody.setAngularVelocity(new Vector3(0, 0, 0));
+            // КРИТИЧНО: Проверяем cooldown для предотвращения частых hard corrections
+            const timeSinceLastHardCorrectionCheck = now - this.lastHardCorrectionTime;
+            if (timeSinceLastHardCorrectionCheck < this.HARD_CORRECTION_COOLDOWN) {
+                // Используем soft correction вместо hard, если cooldown не прошёл
+                // Это предотвращает циклы дёргания
+                if (data.needsReapplication && posDiff > SOFT_CORRECTION_THRESHOLD) {
+                    // Продолжаем к soft correction ниже (код будет применён после этого блока)
+                    this.syncMetrics.recordReconciliation(false, posDiff);
+                } else {
+                    return; // Расхождение слишком маленькое для коррекции
+                }
+            } else {
+                // Hard correction разрешена
+                this.lastHardCorrectionTime = now;
+                this.lastReconciliationIgnoreTime = now;
+                
+                // Записываем метрики reconciliation
+                this.syncMetrics.recordReconciliation(true, posDiff);
+                
+                this._isReconciling = true;
+                try {
+                    // Визуализация расхождения (если включена)
+                    if (this.showReconciliationVisualization && this.deps.scene) {
+                        this.createReconciliationLine(tank.chassis.position.clone(), serverPosVec.clone(), Color3.Red());
+                    }
+                    
+                    // Шаг 1: Переключаем в ANIMATED режим для синхронизации
+                    tank.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
+                    tank.physicsBody.setLinearVelocity(new Vector3(0, 0, 0));
+                    tank.physicsBody.setAngularVelocity(new Vector3(0, 0, 0));
 
-            // Шаг 2: Устанавливаем визуальную позицию
-            tank.chassis.position.copyFrom(serverPosVec);
-            tank.chassis.rotation.y = serverRot;
-            
-            // КРИТИЧНО: Синхронизируем башню и ствол
-            if (tank.turret) {
-                tank.turret.rotation.y = serverTurretRotation;
-            }
-            if (tank.barrel) {
-                tank.barrel.rotation.x = -(serverAimPitch || 0);
-            }
-            // Обновляем aimPitch для системы прицеливания
-            tank.aimPitch = serverAimPitch;
+                    // Шаг 2: Устанавливаем визуальную позицию
+                    tank.chassis.position.copyFrom(serverPosVec);
+                    tank.chassis.rotation.y = serverRot;
+                    
+                    // КРИТИЧНО: Синхронизируем башню и ствол
+                    if (tank.turret) {
+                        tank.turret.rotation.y = serverTurretRotation;
+                    }
+                    if (tank.barrel) {
+                        tank.barrel.rotation.x = -(serverAimPitch || 0);
+                    }
+                    // Обновляем aimPitch для системы прицеливания
+                    tank.aimPitch = serverAimPitch;
 
-            // Шаг 3: Обновляем WorldMatrix для синхронизации absolutePosition
-            tank.chassis.computeWorldMatrix(true);
+                    // Шаг 3: Обновляем WorldMatrix для синхронизации absolutePosition
+                    tank.chassis.computeWorldMatrix(true);
 
-            // Шаг 4: Переключаем обратно в DYNAMIC режим
-            tank.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
-            tank.physicsBody.setLinearVelocity(new Vector3(0, 0, 0));
-            tank.physicsBody.setAngularVelocity(new Vector3(0, 0, 0));
+                    // Шаг 4: Используем setTargetTransform для более плавной синхронизации physics body
+                    // Это предотвращает резкие переключения режимов и циклы дёргания
+                    const targetQuaternion = Quaternion.FromEulerAngles(0, serverRot, 0);
+                    if (tank.physicsBody.setTargetTransform) {
+                        tank.physicsBody.setTargetTransform(serverPosVec, targetQuaternion);
+                    }
+                    
+                    // Шаг 5: Переключаем обратно в DYNAMIC режим
+                    tank.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
+                    tank.physicsBody.setLinearVelocity(new Vector3(0, 0, 0));
+                    tank.physicsBody.setAngularVelocity(new Vector3(0, 0, 0));
 
-            // Шаг 5: Обновляем кэш позиций
-            if (tank.updatePositionCache) {
-                tank.updatePositionCache();
-            }
-            
-            // ДИАГНОСТИКА: Логируем hard correction для больших расхождений
-            if (posDiff > LARGE_DIFF_THRESHOLD) {
-                logger.log(`[Reconciliation] ✅ Hard correction применена: posDiff=${posDiff.toFixed(2)}, rotationDiff=${rotationDiff.toFixed(3)}`);
+                    // Шаг 6: Обновляем кэш позиций
+                    if (tank.updatePositionCache) {
+                        tank.updatePositionCache();
+                    }
+                    
+                    // ДИАГНОСТИКА: Логируем hard correction для больших расхождений
+                    if (posDiff > LARGE_DIFF_THRESHOLD) {
+                        logger.log(`[Reconciliation] ✅ Hard correction применена: posDiff=${posDiff.toFixed(2)}, rotationDiff=${rotationDiff.toFixed(3)}`);
+                    }
+                } finally {
+                    this._isReconciling = false;
+                }
+                return; // Hard correction применена, выходим
             }
         } else if (data.needsReapplication && posDiff > SOFT_CORRECTION_THRESHOLD) {
             // Soft correction - smoothly interpolate towards server position
             const correctedPosition = serverPosVec.clone();
-            const LERP_SPEED = 0.3;
+            
+            // Адаптивная скорость интерполяции в зависимости от величины расхождения
+            // УМЕНЬШЕНО для более плавной коррекции и уменьшения дёргания
+            let LERP_SPEED: number;
+            if (posDiff < 2.0) {
+                // Маленькие расхождения (< 2 единиц): очень медленная интерполяция
+                LERP_SPEED = 0.1;
+            } else if (posDiff < 5.0) {
+                // Средние расхождения (2-5 единиц): медленная интерполяция
+                LERP_SPEED = 0.2;
+            } else {
+                // Большие расхождения (> 5 единиц): средняя интерполяция
+                LERP_SPEED = 0.3;
+            }
             Vector3.LerpToRef(
                 tank.chassis.position,
                 correctedPosition,
@@ -967,6 +1109,10 @@ export class GameMultiplayerCallbacks {
     }
 
     private handleGameStart(data: any): void {
+        // КРИТИЧНО: Сбрасываем счётчик reconciliation при старте игры
+        // Это позволяет правильно обработать первые reconciliation при присоединении к идущей игре
+        this.reconciliationCount = 0;
+        
         // ДИАГНОСТИКА: Логируем состояние игры перед запуском
         const mm = this.deps.multiplayerManager;
         const roomId = data.roomId || mm?.getRoomId();

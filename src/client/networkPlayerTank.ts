@@ -30,7 +30,7 @@ export class NetworkPlayerTank {
     
     // Interpolation
     private interpolationAlpha: number = 0;
-    private readonly INTERPOLATION_SPEED = 25; // УВЕЛИЧЕНО: Было 15, теперь 25 для более быстрого следования за сервером
+    private readonly INTERPOLATION_SPEED = 15; // УМЕНЬШЕНО: Было 25, теперь 15 для более плавного движения других игроков
     private lastNetworkUpdateTime: number = 0;
     
     // КРИТИЧНО: Флаг для мгновенной телепортации при первом обновлении
@@ -466,9 +466,9 @@ export class NetworkPlayerTank {
         }
         
         // УПРОЩЁННАЯ ЛИНЕЙНАЯ ИНТЕРПОЛЯЦИЯ
-        // КРИТИЧНО: Увеличен INTERPOLATION_SPEED для более быстрого следования за целью
-        // Используем более агрессивную интерполяцию для быстрого следования за сервером
-        const lerpFactor = Math.min(1.0, deltaTime * this.INTERPOLATION_SPEED * 3); // x3 для очень быстрого движения
+        // КРИТИЧНО: Уменьшен множитель интерполяции для уменьшения дёргания
+        // Используем менее агрессивную интерполяцию для более плавного движения
+        const lerpFactor = Math.min(1.0, deltaTime * this.INTERPOLATION_SPEED * 1.5); // x1.5 для более плавного движения (было x2)
         
         // Интерполяция позиции (к экстраполированной позиции если используется dead reckoning)
         this.chassis.position.x += (finalTargetX - this.chassis.position.x) * lerpFactor;

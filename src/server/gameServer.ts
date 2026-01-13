@@ -511,6 +511,17 @@ export class GameServer {
             room.cancelDeletion();
 
             // Notify player
+            // КРИТИЧНО: Если комната активна, устанавливаем позицию игрока через respawn
+            // Это предотвращает отправку позиции (0, 0, 0) в PLAYER_STATES
+            if (room.isActive) {
+                const spawnPos = room.getSpawnPosition(player);
+                player.respawn(spawnPos, player.health || 100);
+                // Обновляем spatial grid с новой позицией
+                if (spatialGrid && player.position) {
+                    spatialGrid.updatePlayer(player.id, player.position);
+                }
+            }
+
             this.send(player.socket, createServerMessage(ServerMessageType.ROOM_JOINED, {
                 roomId: room.id,
                 mode: room.mode,
