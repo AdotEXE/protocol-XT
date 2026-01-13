@@ -479,13 +479,23 @@ export class GameRoom {
         // На клиенте движение основано на физике Havok (применение сил),
         // но результат должен быть похож на эту простую симуляцию
         if (input.throttle !== 0) {
+            // КРИТИЧНО: Сохраняем текущую Y координату перед движением
+            // Y координата определяется физикой на клиенте (hover system),
+            // на сервере мы сохраняем её и не изменяем при движении
+            const currentY = player.position.y;
+            
             const moveDir = new Vector3(
                 Math.sin(player.rotation) * input.throttle,
-                0,
+                0, // Y не изменяется при движении - определяется физикой на клиенте
                 Math.cos(player.rotation) * input.throttle
             );
             const moveDelta = moveDir.scale(moveSpeed * deltaTime);
             player.position = player.position.add(moveDelta);
+            
+            // КРИТИЧНО: Восстанавливаем Y координату после движения
+            // Y координата синхронизируется через reconciliation на клиенте
+            // На сервере мы сохраняем последнюю известную Y координату
+            player.position.y = currentY;
 
             // Basic position validation only (to prevent crashes from invalid positions)
             const posValidation = InputValidator.validatePosition(player.position);
