@@ -242,6 +242,12 @@ export class PrioritizedBroadcaster {
         maxPlayers: number = 16,
         adaptive: boolean = true
     ): PlayerData[] {
+        // КРИТИЧНО: Если игроков мало (<= 5), ВСЕГДА возвращаем всех
+        // Это гарантирует, что в малых комнатах все игроки видят друг друга
+        if (players.length <= 5) {
+            return players;
+        }
+        
         if (!adaptive || players.length <= maxPlayers) {
             return players; // No need to prioritize if we can send all
         }

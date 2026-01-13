@@ -186,7 +186,8 @@ export class SandGenerator extends BaseMapGenerator {
     }
     
     /**
-     * Генерация разрушенных заборов на центральной платформе
+     * Генерация разрушенных заборов - Г-образные и разной высоты (как обломанные)
+     * На платформе и вне центра карты
      */
     private generateRuins(
         context: ChunkGenerationContext,
@@ -197,26 +198,141 @@ export class SandGenerator extends BaseMapGenerator {
         const { chunkParent } = context;
         const platformHeight = this.config.platformHeight;
         
-        const ruins = [
-            { x: -12, z: -10, width: 4, height: 1.5, depth: 0.6, rotation: 0 },
-            { x: 10, z: -12, width: 3.5, height: 1.2, depth: 0.5, rotation: Math.PI / 2 },
-            { x: -8, z: 8, width: 5, height: 1.8, depth: 0.7, rotation: Math.PI / 4 },
-            { x: 14, z: 6, width: 3, height: 1.0, depth: 0.5, rotation: -Math.PI / 4 },
-            { x: -5, z: -15, width: 4.5, height: 1.6, depth: 0.6, rotation: Math.PI / 3 },
-            { x: 8, z: 14, width: 3.5, height: 1.3, depth: 0.5, rotation: -Math.PI / 6 },
-            { x: -15, z: 5, width: 3, height: 1.1, depth: 0.5, rotation: Math.PI / 5 },
-            { x: 5, z: -5, width: 2.5, height: 0.9, depth: 0.4, rotation: -Math.PI / 3 }
+        // === ЗАБОРЫ НА ЦЕНТРАЛЬНОЙ ПЛАТФОРМЕ (Г-образные, собранные группами) ===
+        // ВАЖНО: Рампы находятся в центре каждой стороны (x: ±24, z: 0 и x: 0, z: ±24)
+        // Размер платформы 40x40, так что безопасная зона для объектов: |x| < 15 и |z| < 15 (избегаем рамп)
+        
+        // Группа 1: Г-образный забор в северо-западной части платформы (далеко от рамп)
+        const group1 = [
+            { x: -12, z: 10, width: 6, height: 2.2, depth: 0.6, rotation: 0 },      // длинная часть Г
+            { x: -14.5, z: 12, width: 0.6, height: 1.6, depth: 4, rotation: 0 },    // короткая часть Г (пониже)
         ];
         
-        ruins.forEach((ruin, index) => {
+        // Группа 2: Г-образный забор в юго-восточной части (далеко от рамп)
+        const group2 = [
+            { x: 12, z: -10, width: 5, height: 1.8, depth: 0.6, rotation: 0 },        // длинная часть
+            { x: 14, z: -12, width: 0.6, height: 2.4, depth: 3.5, rotation: 0 },      // короткая часть (повыше)
+        ];
+        
+        // Группа 3: Обломанный Г-забор в северо-восточной части платформы
+        const group3 = [
+            { x: 10, z: 12, width: 4, height: 1.4, depth: 0.5, rotation: Math.PI / 4 },   // основа
+            { x: 11.5, z: 13.5, width: 0.5, height: 2.0, depth: 2.5, rotation: Math.PI / 4 }, // вертикальная часть
+        ];
+        
+        // Одиночные обломки разной высоты (в безопасных зонах)
+        const singleRuins = [
+            { x: -8, z: -8, width: 3, height: 1.0, depth: 0.5, rotation: Math.PI / 6 },    // низкий в углу
+            { x: 8, z: 8, width: 2.5, height: 1.8, depth: 0.5, rotation: -Math.PI / 3 }, // средний в другом углу
+        ];
+        
+        // Объединяем все руины на платформе
+        const platformRuins = [...group1, ...group2, ...group3, ...singleRuins];
+        
+        platformRuins.forEach((ruin, index) => {
             if (isEditorMode || isInChunk(ruin.x, ruin.z)) {
                 const local = toLocal(ruin.x, ruin.z);
-                const ruinWall = MeshBuilder.CreateBox(`sand_ruin_${index}`, {
+                const ruinWall = MeshBuilder.CreateBox(`sand_ruin_platform_${index}`, {
                     width: ruin.width,
                     height: ruin.height,
                     depth: ruin.depth
                 }, this.scene);
                 ruinWall.position = new Vector3(local.x, platformHeight + ruin.height / 2, local.z);
+                ruinWall.rotation.y = ruin.rotation;
+                ruinWall.material = this.getMat("concrete");
+                ruinWall.parent = chunkParent;
+                ruinWall.freezeWorldMatrix();
+                new PhysicsAggregate(ruinWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            }
+        });
+        
+        // === ЗАБОРЫ ПО ПЕРИМЕТРУ ЦЕНТРАЛЬНОЙ ПЛАТФОРМЫ (на земле вокруг платформы) ===
+        // Платформа 40x40, так что периметр на расстоянии ~22-28 от центра
+        const platformHalf = this.config.platformSize / 2; // 20
+        const perimeterDistance = platformHalf + 3; // ~23 от центра
+        
+        const perimeterRuins = [
+            // Северная сторона (избегаем рампу в центре)
+            { x: -15, z: perimeterDistance, width: 4, height: 1.8, depth: 0.6, rotation: 0 },
+            { x: -8, z: perimeterDistance, width: 3.5, height: 1.2, depth: 0.5, rotation: 0 },
+            { x: 8, z: perimeterDistance, width: 3, height: 2.2, depth: 0.6, rotation: 0 },
+            { x: 15, z: perimeterDistance, width: 4.5, height: 1.4, depth: 0.5, rotation: 0 },
+            
+            // Южная сторона
+            { x: -15, z: -perimeterDistance, width: 3.5, height: 1.6, depth: 0.6, rotation: 0 },
+            { x: -8, z: -perimeterDistance, width: 4, height: 0.9, depth: 0.5, rotation: 0 },
+            { x: 8, z: -perimeterDistance, width: 3, height: 2.0, depth: 0.6, rotation: 0 },
+            { x: 15, z: -perimeterDistance, width: 4, height: 1.3, depth: 0.5, rotation: 0 },
+            
+            // Восточная сторона
+            { x: perimeterDistance, z: -15, width: 0.6, height: 1.5, depth: 4, rotation: 0 },
+            { x: perimeterDistance, z: -8, width: 0.5, height: 2.3, depth: 3.5, rotation: 0 },
+            { x: perimeterDistance, z: 8, width: 0.6, height: 1.1, depth: 3, rotation: 0 },
+            { x: perimeterDistance, z: 15, width: 0.5, height: 1.9, depth: 4.5, rotation: 0 },
+            
+            // Западная сторона
+            { x: -perimeterDistance, z: -15, width: 0.6, height: 1.7, depth: 4, rotation: 0 },
+            { x: -perimeterDistance, z: -8, width: 0.5, height: 0.8, depth: 3.5, rotation: 0 },
+            { x: -perimeterDistance, z: 8, width: 0.6, height: 2.1, depth: 3, rotation: 0 },
+            { x: -perimeterDistance, z: 15, width: 0.5, height: 1.4, depth: 4, rotation: 0 },
+            
+            // Углы (диагональные обломки)
+            { x: -18, z: 18, width: 3, height: 1.6, depth: 0.5, rotation: Math.PI / 4 },
+            { x: 18, z: 18, width: 3.5, height: 1.2, depth: 0.6, rotation: -Math.PI / 4 },
+            { x: 18, z: -18, width: 3, height: 1.9, depth: 0.5, rotation: Math.PI / 4 },
+            { x: -18, z: -18, width: 4, height: 1.3, depth: 0.6, rotation: -Math.PI / 4 },
+        ];
+        
+        perimeterRuins.forEach((ruin, index) => {
+            if (isEditorMode || isInChunk(ruin.x, ruin.z)) {
+                const local = toLocal(ruin.x, ruin.z);
+                const ruinWall = MeshBuilder.CreateBox(`sand_ruin_perimeter_${index}`, {
+                    width: ruin.width,
+                    height: ruin.height,
+                    depth: ruin.depth
+                }, this.scene);
+                // На земле (y = 0)
+                ruinWall.position = new Vector3(local.x, ruin.height / 2, local.z);
+                ruinWall.rotation.y = ruin.rotation;
+                ruinWall.material = this.getMat("concrete");
+                ruinWall.parent = chunkParent;
+                ruinWall.freezeWorldMatrix();
+                new PhysicsAggregate(ruinWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            }
+        });
+        
+        // === ЗАБОРЫ ВНЕ ЦЕНТРА КАРТЫ (на земле, дальше от центра) ===
+        
+        // Г-образный забор в юго-западной части
+        const groundRuins1 = [
+            { x: -35, z: -20, width: 5, height: 2.0, depth: 0.6, rotation: 0 },
+            { x: -37, z: -18, width: 0.6, height: 1.4, depth: 3.5, rotation: 0 },
+        ];
+        
+        // Г-образный забор в северо-восточной части
+        const groundRuins2 = [
+            { x: 35, z: 18, width: 4.5, height: 1.6, depth: 0.6, rotation: Math.PI },
+            { x: 37, z: 16, width: 0.6, height: 2.2, depth: 3, rotation: 0 },
+        ];
+        
+        // Обломки забора на юге
+        const groundRuins3 = [
+            { x: 10, z: -38, width: 3.5, height: 1.2, depth: 0.5, rotation: Math.PI / 5 },
+            { x: -12, z: -40, width: 4, height: 1.8, depth: 0.6, rotation: -Math.PI / 4 },
+        ];
+        
+        const groundRuins = [...groundRuins1, ...groundRuins2, ...groundRuins3];
+        
+        groundRuins.forEach((ruin, index) => {
+            if (isEditorMode || isInChunk(ruin.x, ruin.z)) {
+                const local = toLocal(ruin.x, ruin.z);
+                const ruinWall = MeshBuilder.CreateBox(`sand_ruin_ground_${index}`, {
+                    width: ruin.width,
+                    height: ruin.height,
+                    depth: ruin.depth
+                }, this.scene);
+                // На земле (y = 0)
+                ruinWall.position = new Vector3(local.x, ruin.height / 2, local.z);
                 ruinWall.rotation.y = ruin.rotation;
                 ruinWall.material = this.getMat("concrete");
                 ruinWall.parent = chunkParent;
@@ -634,10 +750,12 @@ export class SandGenerator extends BaseMapGenerator {
             { x: 28, z: -28, width: 10, depth: 1.8, height: 1.8, rotation: -Math.PI / 4 },
             { x: 28, z: 28, width: 10, depth: 1.8, height: 1.8, rotation: Math.PI / 4 },
             { x: -28, z: 28, width: 10, depth: 1.8, height: 1.8, rotation: -Math.PI / 4 },
-            { x: -24, z: 0, width: 8, depth: 1.8, height: 1.8, rotation: 0 },
-            { x: 24, z: 0, width: 8, depth: 1.8, height: 1.8, rotation: 0 },
-            { x: 0, z: -24, width: 8, depth: 1.8, height: 1.8, rotation: Math.PI / 2 },
-            { x: 0, z: 24, width: 8, depth: 1.8, height: 1.8, rotation: Math.PI / 2 },
+            // УБРАНЫ объекты на рампе: (-24, 0), (24, 0), (0, -24), (0, 24)
+            // Перемещены подальше от рамп:
+            { x: -30, z: 0, width: 8, depth: 1.8, height: 1.8, rotation: 0 },
+            { x: 30, z: 0, width: 8, depth: 1.8, height: 1.8, rotation: 0 },
+            { x: 0, z: -30, width: 8, depth: 1.8, height: 1.8, rotation: Math.PI / 2 },
+            { x: 0, z: 30, width: 8, depth: 1.8, height: 1.8, rotation: Math.PI / 2 },
             { x: -40, z: -15, width: 6, depth: 1.5, height: 1.5, rotation: Math.PI / 6 },
             { x: 40, z: -15, width: 6, depth: 1.5, height: 1.5, rotation: -Math.PI / 6 },
             { x: -40, z: 15, width: 6, depth: 1.5, height: 1.5, rotation: -Math.PI / 6 },

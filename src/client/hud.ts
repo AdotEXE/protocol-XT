@@ -17,7 +17,7 @@ import { ScreenFlashEffect, type FlashDirection } from "./hud/components/ScreenF
 import { TargetHealthBar, type TargetInfo } from "./hud/components/TargetHealthBar";
 import { EFFECTS_CONFIG } from "./effects/EffectsConfig";
 import type { TankStatsData, StatWithBonus } from "./hud/HUDTypes";
-import { 
+import {
     SpeedIndicator, 
     DEFAULT_SPEED_CONFIG,
     AmmoIndicator,
@@ -32,8 +32,13 @@ import {
     DeathScreen,
     DEFAULT_DEATH_SCREEN_CONFIG,
     FloatingDamageNumbers,
-    DEFAULT_DAMAGE_NUMBER_CONFIG
+    DEFAULT_DAMAGE_NUMBER_CONFIG,
+    TouchControls,
+    DEFAULT_TOUCH_CONTROLS_CONFIG
 } from "./hud/components";
+import type { TouchInputState } from "./hud/components";
+import { MobileControlsManager, type MobileInputState } from "./mobile";
+import { isMobileDevice } from "./mobile/MobileDetection";
 
 // ULTRA SIMPLE HUD - NO gradients, NO shadows, NO alpha, NO transparency
 // Pure solid colors only!
@@ -98,6 +103,10 @@ export class HUD {
     
     // Compass
     private compassText!: TextBlock;
+    
+    // Throttling для логирования updatePlayerList
+    private _lastPlayerListLogTime: number = 0;
+    private _lastPlayerListCount: number = 0;
     
     // Target indicator (под компасом) - УСТАРЕВШЕЕ, заменено на TargetHealthBar
     private targetIndicator: Rectangle | null = null;
@@ -383,6 +392,14 @@ export class HUD {
     private deathScreenComponent: DeathScreen | null = null;
     private floatingDamageNumbers: FloatingDamageNumbers | null = null;
     
+    // Экранное управление (джойстик для сенсорных устройств)
+    private touchControls: TouchControls | null = null;
+    private onTouchInputCallback: ((state: TouchInputState) => void) | null = null;
+    
+    // Мобильное управление (для мобильных устройств)
+    private mobileControls: MobileControlsManager | null = null;
+    private onMobileInputCallback: ((state: MobileInputState) => void) | null = null;
+    
     // Values
     public maxHealth = 100;
     public currentHealth = 100;
@@ -433,6 +450,26 @@ export class HUD {
         
         // Плавающие числа урона
         this.floatingDamageNumbers = new FloatingDamageNumbers(this.guiTexture, this.scene, DEFAULT_DAMAGE_NUMBER_CONFIG);
+        
+        // Экранное управление (джойстик для сенсорных устройств)
+        // По умолчанию включено, но будет управляться через настройки
+        if (isMobileDevice()) {
+            // Используем новое мобильное управление
+            this.mobileControls = new MobileControlsManager(this.guiTexture, this.scene);
+            this.mobileControls.setOnInputChange((state: MobileInputState) => {
+                if (this.onMobileInputCallback) {
+                    this.onMobileInputCallback(state);
+                }
+            });
+        } else {
+            // Используем старое touch управление для планшетов/десктопов с touchscreen
+            this.touchControls = new TouchControls(this.guiTexture, DEFAULT_TOUCH_CONTROLS_CONFIG);
+            this.touchControls.setOnInputChange((state: TouchInputState) => {
+                if (this.onTouchInputCallback) {
+                    this.onTouchInputCallback(state);
+                }
+            });
+        }
         
         this.createComboIndicator();   // Индикатор комбо
         this.createDeathScreen();      // Экран результатов смерти
@@ -3704,6 +3741,19 @@ export class HUD {
     }
     
     setHealth(current: number, max: number = this.maxHealth) {
+        // Обновить мобильный HUD если доступен
+        if (this.mobileControls) {
+            // Получаем текущие значения боеприпасов и убийств
+            const ammo = this.arsenalSlots[0]?.countText?.text?.split('/')[0] || '0';
+            const maxAmmo = this.arsenalSlots[0]?.countText?.text?.split('/')[1] || '0';
+            this.mobileControls.updateHUD(
+                current,
+                max,
+                parseInt(ammo) || 0,
+                parseInt(maxAmmo) || 0,
+                this.killsCount
+            );
+        }
         this.currentHealth = Math.max(0, Math.min(max, current));
         this.maxHealth = max;
         
@@ -4569,6 +4619,17 @@ export class HUD {
                 this.ammoIndicator.flashWarning();
             }
         }
+        
+        // Обновить мобильный HUD если доступен
+        if (this.mobileControls) {
+            this.mobileControls.updateHUD(
+                this.currentHealth,
+                this.maxHealth,
+                current,
+                max,
+                this.killsCount
+            );
+        }
     }
     
     /**
@@ -4891,6 +4952,19 @@ export class HUD {
     addKill() {
         this.killsCount++;
         this.addSessionKill(); // УЛУЧШЕНО: Используем метод addSessionKill для синхронизации
+        
+        // Обновить мобильный HUD если доступен
+        if (this.mobileControls) {
+            const ammo = this.arsenalSlots[0]?.countText?.text?.split('/')[0] || '0';
+            const maxAmmo = this.arsenalSlots[0]?.countText?.text?.split('/')[1] || '0';
+            this.mobileControls.updateHUD(
+                this.currentHealth,
+                this.maxHealth,
+                parseInt(ammo) || 0,
+                parseInt(maxAmmo) || 0,
+                this.killsCount
+            );
+        }
         
         // УЛУЧШЕНО: Используем компонент KillFeed
         if (this.killFeedComponent) {
@@ -8768,13 +8842,19 @@ export class HUD {
         team?: number;
         isAlive: boolean;
     }>, localPlayerId: string): void {
-        // ДИАГНОСТИКА: Логируем вызов updatePlayerList с детальной информацией
-        const localPlayer = players.find(p => p.id === localPlayerId);
-        const networkPlayers = players.filter(p => p.id !== localPlayerId);
+        // ДИАГНОСТИКА: Логируем только при изменении количества игроков или раз в 30 секунд
+        const now = Date.now();
+        const shouldLog = (now - this._lastPlayerListLogTime) > 30000 || players.length !== this._lastPlayerListCount;
         
-        console.log(`[HUD] 🔍 updatePlayerList called with ${players.length} players:`);
-        console.log(`  - Local player: ${localPlayer ? `YES (${localPlayer.name})` : 'NO'}`);
-        console.log(`  - Network players: ${networkPlayers.length} (${networkPlayers.map(p => `${p.name}(${p.id}, alive=${p.isAlive})`).join(', ')})`);
+        if (shouldLog) {
+            const localPlayer = players.find(p => p.id === localPlayerId);
+            const networkPlayers = players.filter(p => p.id !== localPlayerId);
+            
+            console.log(`[HUD] 🔍 updatePlayerList: ${players.length} players (local: ${localPlayer ? 'YES' : 'NO'}, network: ${networkPlayers.length})`);
+            
+            this._lastPlayerListLogTime = now;
+            this._lastPlayerListCount = players.length;
+        }
         
         if (players.length === 0) {
             console.warn(`[HUD] ⚠️ updatePlayerList called with empty players array!`);
@@ -9880,6 +9960,94 @@ export class HUD {
      */
     isDetailedStatsPanelVisible(): boolean {
         return this.detailedStatsPanel?.isVisible ?? false;
+    }
+    
+    // ============================================
+    // ЭКРАННОЕ УПРАВЛЕНИЕ (TOUCH CONTROLS)
+    // ============================================
+    
+    /**
+     * Установить callback для обработки touch ввода
+     * Вызывается при изменении состояния джойстика/кнопок
+     */
+    setOnTouchInputChange(callback: (state: TouchInputState) => void): void {
+        this.onTouchInputCallback = callback;
+    }
+    
+    /**
+     * Показать/скрыть экранное управление
+     */
+    setTouchControlsVisible(visible: boolean): void {
+        if (this.mobileControls) {
+            this.mobileControls.setVisible(visible);
+        } else if (this.touchControls) {
+            this.touchControls.setVisible(visible);
+        }
+    }
+    
+    /**
+     * Проверить видимость экранного управления
+     */
+    isTouchControlsVisible(): boolean {
+        if (this.mobileControls) {
+            return true; // Мобильное управление всегда активно
+        }
+        return this.touchControls?.isVisible() ?? false;
+    }
+    
+    /**
+     * Получить текущее состояние touch ввода
+     */
+    getTouchInputState(): TouchInputState | null {
+        if (this.mobileControls) {
+            // Конвертируем MobileInputState в TouchInputState для совместимости
+            const mobileState = this.mobileControls.getInputState();
+            return {
+                throttle: mobileState.throttle,
+                steer: mobileState.steer,
+                turretLeft: mobileState.turretRotation < -0.3,
+                turretRight: mobileState.turretRotation > 0.3,
+                turretRotation: mobileState.turretRotation,
+                aimPitch: mobileState.aimPitch,
+                fire: mobileState.fire,
+                aim: mobileState.aim,
+                zoomIn: mobileState.zoomIn,
+                zoomOut: mobileState.zoomOut,
+                centerTurret: mobileState.centerTurret,
+                cameraUp: mobileState.cameraUp,
+                cameraDown: mobileState.cameraDown,
+                pause: mobileState.pause,
+                consumable1: mobileState.consumable1,
+                consumable2: mobileState.consumable2,
+                consumable3: mobileState.consumable3,
+                consumable4: mobileState.consumable4,
+                consumable5: mobileState.consumable5,
+                consumable6: mobileState.consumable6,
+                consumable7: mobileState.consumable7,
+                consumable8: mobileState.consumable8,
+                consumable9: mobileState.consumable9
+            };
+        }
+        return this.touchControls?.getInputState() ?? null;
+    }
+    
+    /**
+     * Установить callback для мобильного ввода
+     */
+    setOnMobileInputChange(callback: (state: MobileInputState) => void): void {
+        this.onMobileInputCallback = callback;
+        if (this.mobileControls) {
+            this.mobileControls.setOnInputChange(callback);
+        }
+    }
+    
+    /**
+     * Обновить мобильный HUD
+     */
+    updateMobileHUD(health: number, maxHealth: number, ammo: number, maxAmmo: number, kills: number): void {
+        if (this.mobileControls) {
+            this.mobileControls.updateHUD(health, maxHealth, ammo, maxAmmo, kills);
+        }
     }
 }
 

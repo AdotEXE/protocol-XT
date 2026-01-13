@@ -30,6 +30,10 @@ export interface PlayerData {
     cannonType?: string; // Cannon ID (e.g., "standard", "rapid")
     tankColor?: string; // Hex color for tank body
     turretColor?: string; // Hex color for turret
+    // Velocity data for dead reckoning (extrapolation)
+    velocity?: Vector3Data; // Linear velocity
+    angularVelocity?: number; // Angular velocity (rotation speed)
+    turretAngularVelocity?: number; // Turret rotation speed
 }
 
 export interface PlayerInput {

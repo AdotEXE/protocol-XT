@@ -100,3 +100,7 @@ export type { HUDTheme, HUDColorScheme } from './HUDTheme';
 export { HUDManager } from './HUDManager';
 export type { HUDManagerConfig } from './HUDManager';
 
+// Экранное управление (джойстик)
+export { TouchControls, DEFAULT_TOUCH_CONTROLS_CONFIG } from './TouchControls';
+export type { TouchControlsConfig, TouchInputState } from './TouchControls';
+

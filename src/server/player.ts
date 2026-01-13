@@ -19,6 +19,14 @@ export class ServerPlayer {
     status: PlayerStatus = "alive";
     team?: number;
     
+    // Velocity for dead reckoning (extrapolation on clients)
+    velocity: Vector3 = new Vector3(0, 0, 0);
+    angularVelocity: number = 0;
+    turretAngularVelocity: number = 0;
+    private lastRotation: number = 0;
+    private lastTurretRotation: number = 0;
+    private lastVelocityUpdateTime: number = Date.now();
+    
     // Stats
     kills: number = 0;
     deaths: number = 0;
@@ -33,8 +41,9 @@ export class ServerPlayer {
     shootCount: number = 0;
     shootCountResetTime: number = Date.now();
     
-    // Anti-cheat tracking
+    // Anti-cheat tracking - using ring buffer for position history (max 60 entries = 1 second at 60Hz)
     positionHistory: Array<{ time: number; position: Vector3 }> = [];
+    private readonly MAX_POSITION_HISTORY = 60;
     suspiciousMovementCount: number = 0;
     violationCount: number = 0;
     lastViolationTime: number = 0;
@@ -67,7 +76,11 @@ export class ServerPlayer {
             team: this.team,
             kills: this.kills,
             deaths: this.deaths,
-            score: this.score
+            score: this.score,
+            // Velocity data for dead reckoning
+            velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z },
+            angularVelocity: this.angularVelocity,
+            turretAngularVelocity: this.turretAngularVelocity
         };
     }
     
@@ -79,19 +92,47 @@ export class ServerPlayer {
     
     /**
      * Add position snapshot to history for lag compensation
+     * Also calculates velocity for dead reckoning
      */
     addPositionSnapshot(position: Vector3): void {
         const now = Date.now();
+        const deltaTime = (now - this.lastVelocityUpdateTime) / 1000; // seconds
+        
+        // Calculate velocity from position delta
+        if (deltaTime > 0 && deltaTime < 1) { // Ignore if > 1 second (likely reconnect)
+            const newVelocity = position.subtract(this.lastValidPosition).scale(1 / deltaTime);
+            // Smooth velocity using EWMA (exponential weighted moving average)
+            const alpha = 0.3;
+            this.velocity.x = this.velocity.x * (1 - alpha) + newVelocity.x * alpha;
+            this.velocity.y = this.velocity.y * (1 - alpha) + newVelocity.y * alpha;
+            this.velocity.z = this.velocity.z * (1 - alpha) + newVelocity.z * alpha;
+            
+            // Calculate angular velocities
+            let rotationDelta = this.rotation - this.lastRotation;
+            // Normalize angle delta
+            while (rotationDelta > Math.PI) rotationDelta -= Math.PI * 2;
+            while (rotationDelta < -Math.PI) rotationDelta += Math.PI * 2;
+            this.angularVelocity = this.angularVelocity * (1 - alpha) + (rotationDelta / deltaTime) * alpha;
+            
+            let turretDelta = this.turretRotation - this.lastTurretRotation;
+            while (turretDelta > Math.PI) turretDelta -= Math.PI * 2;
+            while (turretDelta < -Math.PI) turretDelta += Math.PI * 2;
+            this.turretAngularVelocity = this.turretAngularVelocity * (1 - alpha) + (turretDelta / deltaTime) * alpha;
+        }
+        
+        this.lastRotation = this.rotation;
+        this.lastTurretRotation = this.turretRotation;
+        this.lastVelocityUpdateTime = now;
+        
         this.positionHistory.push({
             time: now,
             position: position.clone()
         });
         
-        // Keep only last 60 entries (1 second at 60Hz)
-        const maxHistoryTime = 1000; // 1 second
-        this.positionHistory = this.positionHistory.filter(
-            entry => now - entry.time <= maxHistoryTime
-        );
+        // Ring buffer: remove oldest entries if exceeding max size (O(1) instead of O(n) filter)
+        while (this.positionHistory.length > this.MAX_POSITION_HISTORY) {
+            this.positionHistory.shift();
+        }
     }
     
     /**

@@ -20,15 +20,15 @@ export class DebugDashboard {
     private metricsExporter: MetricsExporter | null = null;
     private metricsAutomation: MetricsAutomation | null = null;
     private metricsCharts: MetricsCharts | null = null;
-    
+
     private fpsHistory: number[] = [];
     private maxHistoryLength = 60;
     private lastUpdate = 0;
     private updateInterval = 100;
-    
+
     private visible = false; // Hidden by default
     private embedded = false;
-    
+
     constructor(engine: Engine, scene: Scene, embedded: boolean = false) {
         this.engine = engine;
         this.scene = scene;
@@ -41,7 +41,7 @@ export class DebugDashboard {
             (msg) => { if (this.game?.hud) this.game.hud.showMessage(`⚠ ${msg}`, "#ff0", 3000); },
             (msg) => { if (this.game?.hud) this.game.hud.showMessage(`🚨 ${msg}`, "#f00", 5000); }
         );
-        
+
         // Не создаём overlay UI если панель будет встроена в другое меню
         if (!embedded) {
             this.createUI();
@@ -52,19 +52,19 @@ export class DebugDashboard {
             this.container.style.display = "none"; // Дополнительно скрываем через style
         }
     }
-    
+
     setChunkSystem(chunkSystem: ChunkSystem): void {
         this.chunkSystem = chunkSystem;
     }
-    
+
     setGame(game: Game | null): void {
         this.game = game;
     }
-    
+
     setTank(tank: TankController | null): void {
         this.tank = tank;
     }
-    
+
     private createUI(): void {
         this.container = document.createElement("div");
         this.container.id = "debug-dashboard";
@@ -182,7 +182,7 @@ export class DebugDashboard {
             </div>
             <div id="metrics-charts-container"></div>
         `;
-        
+
         const style = document.createElement("style");
         style.textContent = `
             #debug-dashboard {
@@ -235,29 +235,29 @@ export class DebugDashboard {
             .fps-ok { color: #ff0 !important; }
             .fps-bad { color: #f00 !important; }
         `;
-        
+
         document.head.appendChild(style);
         document.body.appendChild(this.container);
-        
+
         // Добавляем контейнер графиков
         if (this.metricsCharts) {
             const chartsContainer = this.metricsCharts.createChartsContainer();
             this.container.appendChild(chartsContainer);
             this.metricsCharts.setVisible(false); // Скрыты по умолчанию
         }
-        
+
         this.setupEventListeners();
     }
-    
+
     private setupEventListeners(): void {
         document.getElementById("dbg-export-csv")?.addEventListener("click", () => {
             this.metricsExporter?.exportToCSV();
         });
-        
+
         document.getElementById("dbg-export-json")?.addEventListener("click", () => {
             this.metricsExporter?.exportToJSON();
         });
-        
+
         let chartsVisible = false;
         document.getElementById("dbg-toggle-charts")?.addEventListener("click", () => {
             chartsVisible = !chartsVisible;
@@ -268,14 +268,14 @@ export class DebugDashboard {
             }
         });
     }
-    
+
     // FPS indicator removed - using HUD FPS only
-    
+
     private setupToggle(): void {
         // F3 обработчик теперь управляется в game.ts для консистентности
         // Этот метод оставлен для возможного будущего использования
     }
-    
+
     /**
      * Переключить видимость панели
      */
@@ -284,7 +284,7 @@ export class DebugDashboard {
         if (this.visible) {
             this.container.classList.remove("hidden");
             this.container.style.display = "";
-            
+
             // Показываем курсор и выходим из pointer lock
             if (document.pointerLockElement) {
                 document.exitPointerLock();
@@ -295,7 +295,7 @@ export class DebugDashboard {
             this.container.style.display = "none";
         }
     }
-    
+
     /**
      * Показать панель
      */
@@ -303,14 +303,14 @@ export class DebugDashboard {
         this.visible = true;
         this.container.classList.remove("hidden");
         this.container.style.display = "";
-        
+
         // Показываем курсор и выходим из pointer lock
         if (document.pointerLockElement) {
             document.exitPointerLock();
         }
         document.body.style.cursor = 'default';
     }
-    
+
     /**
      * Скрыть панель
      */
@@ -319,22 +319,22 @@ export class DebugDashboard {
         this.container.classList.add("hidden");
         this.container.style.display = "none";
     }
-    
+
     /**
      * Проверить видимость
      */
     isVisible(): boolean {
         return this.visible;
     }
-    
+
     update(playerPos: { x: number, y: number, z: number }): void {
         // Обновляем только если dashboard видим
         if (!this.visible) return;
-        
+
         const now = performance.now();
         if (now - this.lastUpdate < this.updateInterval) return;
         this.lastUpdate = now;
-        
+
         // Используем троттлинг для оптимизации
         const throttledUpdate = performanceOptimizer.throttle(
             'dashboard-update',
@@ -342,17 +342,17 @@ export class DebugDashboard {
             this.updateInterval
         );
         throttledUpdate();
-        
+
         const fps = this.engine.getFps();
         this.fpsHistory.push(fps);
         if (this.fpsHistory.length > this.maxHistoryLength) {
             this.fpsHistory.shift();
         }
-        
+
         this.updateDisplay(playerPos);
         this.drawFpsGraph();
     }
-    
+
     private updateDisplay(playerPos: { x: number, y: number, z: number }): void {
         const fps = this.engine.getFps();
         const deltaTime = this.engine.getDeltaTime();
@@ -363,27 +363,27 @@ export class DebugDashboard {
             totalChunksInMemory: (this.chunkSystem as any).loadedChunks?.size || 0,
             lastUpdateTime: 0
         } : null;
-        
+
         const set = (id: string, value: string) => {
             const el = document.getElementById(id);
             if (el) el.textContent = value;
         };
-        
+
         const fpsEl = document.getElementById("dbg-fps");
         if (fpsEl) {
             fpsEl.textContent = fps.toFixed(0);
             fpsEl.className = fps >= 55 ? "fps-good" : fps >= 30 ? "fps-ok" : "fps-bad";
         }
-        
+
         // FPS indicator removed - using HUD FPS only
-        
+
         set("dbg-frametime", `${deltaTime.toFixed(1)} ms`);
         set("dbg-drawcalls", (perf.renderer?.drawCalls || 0).toString());
         set("dbg-totalmesh", this.scene.meshes.length.toString());
         set("dbg-activemesh", this.scene.getActiveMeshes().length.toString());
         set("dbg-vertices", this.formatNumber(this.scene.getTotalVertices()));
         set("dbg-faces", this.formatNumber(Math.floor(this.scene.getTotalVertices() / 3)));
-        
+
         // ENEMIES
         if (this.game) {
             const enemyTanks = (this.game as any).enemyTanks || [];
@@ -396,7 +396,7 @@ export class DebugDashboard {
             set("dbg-enemy-active", "0");
             set("dbg-enemy-spawned", "0");
         }
-        
+
         // TANK PHYSICS
         if (this.tank) {
             set("dbg-tank-speed", this.tank.moveSpeed?.toFixed(1) || "0");
@@ -409,7 +409,7 @@ export class DebugDashboard {
             set("dbg-tank-upright", "-");
             set("dbg-tank-stability", "-");
         }
-        
+
         // CHUNKS
         if (chunkStats) {
             set("dbg-chunks-loaded", chunkStats.loadedChunks.toString());
@@ -422,7 +422,7 @@ export class DebugDashboard {
             set("dbg-chunks-visible", "-");
             set("dbg-chunk-time", "-");
         }
-        
+
         // NETWORK
         if (this.game && (this.game as any).multiplayerManager) {
             const mp = (this.game as any).multiplayerManager;
@@ -434,7 +434,7 @@ export class DebugDashboard {
             set("dbg-network-players", "0");
             set("dbg-network-packets", "N/A");
         }
-        
+
         // MEMORY
         let memoryUsed = 0;
         let memoryPeak = 0;
@@ -448,11 +448,11 @@ export class DebugDashboard {
         set("dbg-memory-used", `${memoryUsed.toFixed(1)} MB`);
         set("dbg-memory-peak", `${memoryPeak.toFixed(1)} MB`);
         set("dbg-memory-limit", `${memoryLimit.toFixed(1)} MB`);
-        
+
         // Extended metrics from MetricsCollector
         if (this.metricsCollector) {
             const metrics = this.metricsCollector.collect();
-            
+
             // GPU
             if (metrics.gpuMemory !== undefined) {
                 set("dbg-gpu-memory", `${(metrics.gpuMemory / 1048576).toFixed(1)} MB`);
@@ -461,26 +461,26 @@ export class DebugDashboard {
             }
             set("dbg-gpu-renderer", metrics.gpuRenderer || "N/A");
             set("dbg-gpu-vendor", metrics.gpuVendor || "N/A");
-            
+
             // Physics
             set("dbg-physics-objects", (metrics.physicsObjects || 0).toString());
             set("dbg-physics-bodies", (metrics.physicsBodies || 0).toString());
             set("dbg-physics-time", metrics.physicsTime ? `${metrics.physicsTime.toFixed(2)} ms` : "N/A");
-            
+
             // Audio
             set("dbg-audio-sources", (metrics.audioSources || 0).toString());
             set("dbg-audio-playing", (metrics.audioPlaying || 0).toString());
-            
+
             // Effects
             set("dbg-particles", (metrics.particles || 0).toString());
             set("dbg-effect-systems", (metrics.effectSystems || 0).toString());
-            
+
             // Сохранение метрик для экспорта
             if (this.metricsExporter) {
                 const perf = (this.scene.getEngine() as any).getInfo?.() || { triangles: 0, drawCalls: 0 };
                 const perfMem = (performance as any).memory;
                 const memoryUsed = perfMem ? perfMem.usedJSHeapSize / 1048576 : 0;
-                
+
                 const metricsData = {
                     fps,
                     frameTime: deltaTime,
@@ -491,7 +491,7 @@ export class DebugDashboard {
                     memoryUsed,
                     ...metrics
                 };
-                
+
                 this.metricsExporter.addMetrics(metrics, {
                     fps,
                     frameTime: deltaTime,
@@ -501,12 +501,12 @@ export class DebugDashboard {
                     triangles: Math.floor(this.scene.getTotalVertices() / 3),
                     memoryUsed
                 });
-                
+
                 // Проверка триггеров автоматизации
                 if (this.metricsAutomation) {
                     this.metricsAutomation.checkMetrics(metricsData as any);
                 }
-                
+
                 // Обновление графиков
                 if (this.metricsCharts) {
                     this.metricsCharts.updateCharts(metrics as any);
@@ -524,52 +524,52 @@ export class DebugDashboard {
             set("dbg-particles", "0");
             set("dbg-effect-systems", "0");
         }
-        
+
         set("dbg-pos-x", playerPos.x.toFixed(1));
         set("dbg-pos-y", playerPos.y.toFixed(1));
         set("dbg-pos-z", playerPos.z.toFixed(1));
     }
-    
+
     private formatNumber(n: number): string {
         if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
         if (n >= 1000) return (n / 1000).toFixed(1) + "K";
         return n.toString();
     }
-    
+
     private drawFpsGraph(): void {
         const canvas = document.getElementById("fps-graph") as HTMLCanvasElement;
         if (!canvas) return;
-        
+
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
-        
+
         ctx.fillStyle = "#111";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
+
         ctx.strokeStyle = "#333";
         ctx.beginPath();
         ctx.moveTo(0, canvas.height * 0.5);
         ctx.lineTo(canvas.width, canvas.height * 0.5);
         ctx.stroke();
-        
+
         if (this.fpsHistory.length < 2) return;
-        
+
         const barWidth = canvas.width / this.maxHistoryLength;
-        
+
         this.fpsHistory.forEach((fps, i) => {
             const height = Math.min((fps / 60) * canvas.height, canvas.height);
             const x = i * barWidth;
-            
+
             ctx.fillStyle = fps >= 55 ? "#0f0" : fps >= 30 ? "#ff0" : "#f00";
             ctx.fillRect(x, canvas.height - height, barWidth - 1, height);
         });
     }
-    
+
     dispose(): void {
         this.container.remove();
         // FPS indicator removed - using HUD FPS only
     }
-    
+
     /**
      * Рендерит контент в переданный контейнер (для UnifiedMenu)
      */
@@ -578,7 +578,7 @@ export class DebugDashboard {
         this.setupEmbeddedEventListeners(container);
         this.startEmbeddedUpdates(container);
     }
-    
+
     /**
      * Возвращает HTML контента без overlay wrapper
      */
@@ -651,7 +651,7 @@ export class DebugDashboard {
             </div>
         `;
     }
-    
+
     /**
      * Привязывает обработчики событий для embedded режима
      */
@@ -660,7 +660,7 @@ export class DebugDashboard {
         const boundsBtn = container.querySelector(".dbg-bounds-btn");
         const inspectorBtn = container.querySelector(".dbg-inspector-btn");
         const axesBtn = container.querySelector(".dbg-axes-btn");
-        
+
         wireframeBtn?.addEventListener("click", () => {
             if (this.scene) {
                 this.scene.meshes.forEach(mesh => {
@@ -670,7 +670,7 @@ export class DebugDashboard {
                 });
             }
         });
-        
+
         boundsBtn?.addEventListener("click", () => {
             if (this.scene) {
                 const showBounds = !this.scene.meshes[0]?.showBoundingBox;
@@ -679,7 +679,7 @@ export class DebugDashboard {
                 });
             }
         });
-        
+
         inspectorBtn?.addEventListener("click", async () => {
             if (this.scene) {
                 try {
@@ -694,7 +694,7 @@ export class DebugDashboard {
                 }
             }
         });
-        
+
         axesBtn?.addEventListener("click", () => {
             if (this.scene) {
                 // Toggle world axes
@@ -705,22 +705,22 @@ export class DebugDashboard {
                     // Create simple axes
                     const axesSize = 50;
                     const { MeshBuilder, StandardMaterial, Color3 } = require("@babylonjs/core");
-                    
+
                     const axesParent = new MeshBuilder.CreateBox("worldAxes", { size: 0.1 }, this.scene);
                     axesParent.isVisible = false;
-                    
+
                     const xAxis = MeshBuilder.CreateLines("xAxis", {
                         points: [new (require("@babylonjs/core").Vector3)(0, 0, 0), new (require("@babylonjs/core").Vector3)(axesSize, 0, 0)]
                     }, this.scene);
                     xAxis.color = new Color3(1, 0, 0);
                     xAxis.parent = axesParent;
-                    
+
                     const yAxis = MeshBuilder.CreateLines("yAxis", {
                         points: [new (require("@babylonjs/core").Vector3)(0, 0, 0), new (require("@babylonjs/core").Vector3)(0, axesSize, 0)]
                     }, this.scene);
                     yAxis.color = new Color3(0, 1, 0);
                     yAxis.parent = axesParent;
-                    
+
                     const zAxis = MeshBuilder.CreateLines("zAxis", {
                         points: [new (require("@babylonjs/core").Vector3)(0, 0, 0), new (require("@babylonjs/core").Vector3)(0, 0, axesSize)]
                     }, this.scene);
@@ -730,7 +730,7 @@ export class DebugDashboard {
             }
         });
     }
-    
+
     /**
      * Запускает обновление метрик для embedded режима
      */
@@ -742,31 +742,36 @@ export class DebugDashboard {
         const particlesEl = container.querySelector(".dbg-particles-emb");
         const lightsEl = container.querySelector(".dbg-lights-emb");
         const chartCanvas = container.querySelector(".dbg-fps-chart-emb") as HTMLCanvasElement;
-        
+
         const fpsHistory: number[] = [];
         const maxHistory = 60;
-        
+
         const updateMetrics = () => {
             if (!this.engine || !this.scene) return;
-            
+
             const fps = this.engine.getFps();
             fpsHistory.push(fps);
             if (fpsHistory.length > maxHistory) fpsHistory.shift();
-            
+
             if (fpsEl) fpsEl.textContent = fps.toFixed(1);
-            if (drawCallsEl) drawCallsEl.textContent = String(this.scene.getActiveIndices());
+            // Draw calls ≈ active meshes (real draw calls require engine instrumentation)
+            // Note: getActiveIndices() returns triangle indices, not draw calls
+            if (drawCallsEl) {
+                const activeMeshes = this.scene.getActiveMeshes().length;
+                drawCallsEl.textContent = `~${activeMeshes}`;
+            }
             if (verticesEl) verticesEl.textContent = String(this.scene.getTotalVertices());
             if (meshesEl) meshesEl.textContent = String(this.scene.getActiveMeshes().length);
             if (particlesEl) particlesEl.textContent = String(this.scene.particleSystems?.length || 0);
             if (lightsEl) lightsEl.textContent = String(this.scene.lights?.length || 0);
-            
+
             // Рисуем FPS график
             if (chartCanvas) {
                 const ctx = chartCanvas.getContext("2d");
                 if (ctx) {
                     ctx.fillStyle = "rgba(0, 5, 0, 0.8)";
                     ctx.fillRect(0, 0, chartCanvas.width, chartCanvas.height);
-                    
+
                     const barWidth = chartCanvas.width / maxHistory;
                     fpsHistory.forEach((f, i) => {
                         const height = Math.min((f / 60) * chartCanvas.height, chartCanvas.height);
@@ -776,11 +781,11 @@ export class DebugDashboard {
                 }
             }
         };
-        
+
         // Сохраняем интервал в dataset для очистки при размонтировании
         const intervalId = setInterval(updateMetrics, 1000);
         container.dataset.debugInterval = String(intervalId);
-        
+
         // Первое обновление сразу
         updateMetrics();
     }

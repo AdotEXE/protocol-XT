@@ -590,26 +590,135 @@ export class SocialMenu {
     }
     
     /**
-     * Показать диалог отправки сообщения другу
+     * Показать диалог отправки сообщения другу (без prompt - используем встроенный UI)
      */
     private showMessageDialog(friendId: string, friendName: string): void {
-        const message = prompt(`Отправить сообщение ${friendName}:`);
-        if (!message || message.trim() === "") return;
-        
-        // Интеграция с ChatSystem через gameInstance
+        // Используем тот же метод из MainMenu для единообразия
         const game = (window as any).gameInstance;
-        if (game?.chatSystem) {
-            // Отправляем сообщение через ChatSystem (локальный лог)
-            game.chatSystem.addMessage(`📤 → ${friendName}: ${message}`, "info", 1);
-            
-            // Если есть multiplayerManager, отправляем через сервер
-            if (game.multiplayerManager?.isConnected()) {
-                game.multiplayerManager.sendChatMessage(`[DM to ${friendName}] ${message}`);
-            }
+        if (game?.mainMenu) {
+            game.mainMenu.showMessageDialog(friendId, friendName);
+            return;
         }
         
-        this.showNotification(`Сообщение отправлено ${friendName}: "${message}"`);
-        console.log(`[Social] Message to ${friendName} (${friendId}): ${message}`);
+        // Fallback: создаем простое модальное окно
+        const modal = document.createElement("div");
+        modal.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, rgba(0, 30, 0, 0.95) 0%, rgba(0, 20, 0, 0.95) 100%);
+            border: 2px solid #0f0;
+            border-radius: 8px;
+            padding: 20px;
+            z-index: 100010;
+            min-width: 400px;
+            max-width: 600px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            box-shadow: 0 0 30px rgba(0, 255, 0, 0.5);
+        `;
+        
+        modal.innerHTML = `
+            <div style="margin-bottom: 15px;">
+                <div style="font-size: 18px; color: #0f0; margin-bottom: 10px;">💬 Отправить сообщение ${friendName}</div>
+                <textarea id="chat-message-input" placeholder="Введите сообщение..." style="
+                    width: 100%;
+                    min-height: 100px;
+                    padding: 10px;
+                    background: rgba(0, 0, 0, 0.5);
+                    border: 1px solid #0f0;
+                    border-radius: 4px;
+                    color: #0f0;
+                    font-family: 'Consolas', 'Monaco', monospace;
+                    font-size: 14px;
+                    resize: vertical;
+                    outline: none;
+                "></textarea>
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button id="chat-send-btn" style="
+                    padding: 10px 20px;
+                    background: rgba(0, 255, 0, 0.2);
+                    border: 1px solid #0f0;
+                    color: #0f0;
+                    font-family: 'Consolas', 'Monaco', monospace;
+                    font-size: 14px;
+                    cursor: pointer;
+                    border-radius: 4px;
+                ">Отправить</button>
+                <button id="chat-cancel-btn" style="
+                    padding: 10px 20px;
+                    background: rgba(255, 0, 0, 0.2);
+                    border: 1px solid #f00;
+                    color: #f00;
+                    font-family: 'Consolas', 'Monaco', monospace;
+                    font-size: 14px;
+                    cursor: pointer;
+                    border-radius: 4px;
+                ">Отмена</button>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        const input = modal.querySelector("#chat-message-input") as HTMLTextAreaElement;
+        const sendBtn = modal.querySelector("#chat-send-btn") as HTMLButtonElement;
+        const cancelBtn = modal.querySelector("#chat-cancel-btn") as HTMLButtonElement;
+        
+        if (input) input.focus();
+        
+        if (input) {
+            input.addEventListener("keydown", (e) => {
+                if (e.key === "Enter" && !e.ctrlKey && !e.shiftKey) {
+                    e.preventDefault();
+                    sendBtn?.click();
+                }
+            });
+        }
+        
+        if (sendBtn) {
+            sendBtn.onclick = () => {
+                const message = input?.value.trim() || "";
+                if (message === "") {
+                    modal.remove();
+                    return;
+                }
+                
+                // Интеграция с ChatSystem через gameInstance
+                if (game?.chatSystem) {
+                    game.chatSystem.addMessage(`📤 → ${friendName}: ${message}`, "info", 1);
+                    
+                    // Если есть multiplayerManager, отправляем через сервер
+                    if (game.multiplayerManager?.isConnected()) {
+                        game.multiplayerManager.sendChatMessage(`[DM to ${friendName}] ${message}`);
+                    }
+                }
+                
+                this.showNotification(`Сообщение отправлено ${friendName}: "${message}"`);
+                console.log(`[Social] Message to ${friendName} (${friendId}): ${message}`);
+                modal.remove();
+            };
+        }
+        
+        if (cancelBtn) {
+            cancelBtn.onclick = () => {
+                modal.remove();
+            };
+        }
+        
+        modal.addEventListener("click", (e) => {
+            if (e.target === modal) {
+                modal.remove();
+            }
+        });
+        
+        const escapeHandler = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                modal.remove();
+                document.removeEventListener("keydown", escapeHandler);
+            }
+        };
+        document.addEventListener("keydown", escapeHandler);
     }
     
     /**

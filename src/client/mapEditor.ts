@@ -841,7 +841,10 @@ export class MapEditor {
             }
         });
         
-        console.log(`[MapEditor] Found ${this.terrainMeshes.size} terrain meshes`);
+        // Убрано для уменьшения спама - логируем только если мешей > 0
+        if (this.terrainMeshes.size > 0) {
+            console.log(`[MapEditor] Found ${this.terrainMeshes.size} terrain meshes`);
+        }
     }
     
     /**
@@ -2098,7 +2101,13 @@ export class MapEditor {
             this.originalHeights.clear();
             
             console.log(`[MapEditor] Applying map data: ${this.mapData.terrainEdits.length} terrain edits, ${this.mapData.placedObjects.length} objects, ${this.mapData.triggers.length} triggers`);
+            // Убрано для уменьшения спама - логируем только если мешей > 0
+            if (this.terrainMeshes.size > 0) {
+                // Убрано для уменьшения спама - логируем только если мешей > 0
+        if (this.terrainMeshes.size > 0) {
             console.log(`[MapEditor] Found ${this.terrainMeshes.size} terrain meshes`);
+        }
+            }
             
             // Применить изменения террейна
             if (this.mapData.terrainEdits.length > 0) {
@@ -3151,6 +3160,23 @@ export class MapEditor {
             console.warn("[MapEditor] setMapData: Map data missing mapType, defaulting to 'normal'");
         }
         
+        // КРИТИЧНО: В мультиплеере используем mapType с сервера, а не из сохраненной карты
+        const gameInstance = (window as any).gameInstance;
+        if (gameInstance) {
+            const hasRoomId = gameInstance.multiplayerManager?.getRoomId();
+            const hasPendingMapType = gameInstance.multiplayerManager?.getMapType();
+            const isInMultiplayerRoom = gameInstance.isMultiplayer || 
+                (gameInstance.multiplayerManager?.isConnected() && hasRoomId) || hasPendingMapType;
+            if (isInMultiplayerRoom) {
+                // Используем currentMapType или pendingMapType с сервера
+                const serverMapType = gameInstance.currentMapType || hasPendingMapType;
+                if (serverMapType && normalized.mapType !== serverMapType) {
+                    console.log(`[MapEditor] 🗺️ Мультиплеер: заменяем mapType '${normalized.mapType}' на '${serverMapType}' с сервера`);
+                    normalized.mapType = serverMapType;
+                }
+            }
+        }
+        
         this.mapData = JSON.parse(JSON.stringify(normalized)); // Глубокая копия нормализованных данных
         console.log(`[MapEditor] Map data set: ${this.mapData.name}`, {
             version: this.mapData.version,
@@ -3166,24 +3192,37 @@ export class MapEditor {
      * Используется для загрузки custom карт в игре
      */
     public async applyMapDataWithoutUI(): Promise<void> {
+        // КРИТИЧНО: В мультиплеере не применяем сохраненную карту - все игроки должны видеть одинаковую карту с сервера
+        const gameInstance = (window as any).gameInstance;
+        if (gameInstance) {
+            const hasRoomId = gameInstance.multiplayerManager?.getRoomId();
+            const hasPendingMapType = gameInstance.multiplayerManager?.getMapType();
+            const isInMultiplayerRoom = gameInstance.isMultiplayer || 
+                (gameInstance.multiplayerManager?.isConnected() && hasRoomId) || hasPendingMapType;
+            if (isInMultiplayerRoom) {
+                console.log(`[MapEditor] 🗺️ Мультиплеер: применение сохраненной карты запрещено, используем карту с сервера (roomId=${hasRoomId || 'N/A'}, pendingMapType=${hasPendingMapType || 'N/A'})`);
+                return;
+            }
+        }
+        
         try {
             console.log(`[MapEditor] ===== Applying map data without UI =====`);
             console.log(`[MapEditor] Map name: ${this.mapData.name}`);
             console.log(`[MapEditor] Map type: ${this.mapData.mapType}`);
             
             // КРИТИЧНО: Сначала собираем меши террейна
-            console.log(`[MapEditor] Collecting terrain meshes...`);
             this.collectTerrainMeshes();
-            console.log(`[MapEditor] Collected ${this.terrainMeshes.size} terrain meshes`);
             
             // Ожидаем готовности мешей террейна (если их еще нет, ждем их появления)
-            console.log(`[MapEditor] Waiting for terrain meshes to be ready...`);
             await this.waitForTerrainMeshes();
-            console.log(`[MapEditor] Terrain meshes ready: ${this.terrainMeshes.size} meshes`);
             
             // Повторно собираем меши после ожидания (они могли появиться)
             this.collectTerrainMeshes();
-            console.log(`[MapEditor] Final terrain mesh count: ${this.terrainMeshes.size}`);
+            
+            // Логируем только финальный результат
+            if (this.terrainMeshes.size > 0) {
+                console.log(`[MapEditor] Terrain meshes ready: ${this.terrainMeshes.size} meshes`);
+            }
             
             // Очищаем предыдущие данные
             this.placedObjectMeshes.forEach(mesh => mesh.dispose());

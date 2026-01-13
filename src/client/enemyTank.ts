@@ -27,6 +27,7 @@ import { CHASSIS_TYPES, CANNON_TYPES, ChassisType, CannonType } from "./tankType
 import { TRACK_TYPES, TrackType } from "./trackTypes";
 import { MODULE_PRESETS, ModuleType } from "./tank/modules/ModuleTypes";
 import { createUniqueCannon, CannonAnimationElements } from "./tank/tankCannon";
+import { CHASSIS_SIZE_MULTIPLIERS } from "./tank/tankChassis";
 import type { AICoordinator } from "./ai/AICoordinator";
 import { RicochetSystem, DEFAULT_RICOCHET_CONFIG } from "./tank/combat/RicochetSystem";
 
@@ -959,17 +960,27 @@ export class EnemyTank {
     private setupPhysics(): void {
         // Физика корпуса (chassis) с РЕАЛИСТИЧНЫМ ГУСЕНИЧНЫМ ХИТБОКСОМ
         // Compound shape: центральный BOX + скруглённые CYLINDER спереди и сзади
-        // КРИТИЧНО: Используем размеры из выбранного корпуса
-        const chassisWidth = this.chassisType.width;
-        const chassisHeight = this.chassisType.height;
-        const chassisDepth = this.chassisType.depth;
+        // КРИТИЧНО: Используем множители размеров для синхронизации с визуальной моделью
+        const multipliers = CHASSIS_SIZE_MULTIPLIERS[this.chassisType.id] || CHASSIS_SIZE_MULTIPLIERS["medium"];
+        const realWidth = this.chassisType.width * multipliers.width;
+        const realHeight = this.chassisType.height * multipliers.height;
+        const realDepth = this.chassisType.depth * multipliers.depth;
+        
+        // Для hover и shield используем Math.max для width/depth (как в визуальной модели)
+        let finalWidth = realWidth;
+        let finalDepth = realDepth;
+        if (this.chassisType.id === "hover" || this.chassisType.id === "shield") {
+            const maxSize = Math.max(this.chassisType.width, this.chassisType.depth) * multipliers.width;
+            finalWidth = maxSize;
+            finalDepth = maxSize;
+        }
         
         const chassisShape = new PhysicsShapeContainer(this.scene);
         
-        // Размеры для скруглённых краёв гусениц
-        const cylinderRadius = chassisHeight * 0.45;
-        const cylinderOffset = chassisDepth * 0.42;
-        const chassisLowering = -chassisHeight * 0.1;
+        // Размеры для скруглённых краёв гусениц (используем реальные размеры)
+        const cylinderRadius = realHeight * 0.45;
+        const cylinderOffset = finalDepth * 0.42;
+        const chassisLowering = -realHeight * 0.1;
         
         // 1. Центральный BOX (укороченный, без острых углов)
         const centerBox = new PhysicsShape({
@@ -977,7 +988,7 @@ export class EnemyTank {
             parameters: {
                 center: new Vector3(0, chassisLowering, 0),
                 rotation: Quaternion.Identity(),
-                extents: new Vector3(chassisWidth, chassisHeight * 0.7, chassisDepth * 0.7)
+                extents: new Vector3(finalWidth, realHeight * 0.7, finalDepth * 0.7)
             }
         }, this.scene);
         // HEAVY & RESPONSIVE: Отключено трение Havok, используется только Custom Force
@@ -988,8 +999,8 @@ export class EnemyTank {
         const frontCylinder = new PhysicsShape({
             type: PhysicsShapeType.CYLINDER,
             parameters: {
-                pointA: new Vector3(-chassisWidth * 0.5, chassisLowering, cylinderOffset),
-                pointB: new Vector3(chassisWidth * 0.5, chassisLowering, cylinderOffset),
+                pointA: new Vector3(-finalWidth * 0.5, chassisLowering, cylinderOffset),
+                pointB: new Vector3(finalWidth * 0.5, chassisLowering, cylinderOffset),
                 radius: cylinderRadius
             }
         }, this.scene);
@@ -1001,8 +1012,8 @@ export class EnemyTank {
         const backCylinder = new PhysicsShape({
             type: PhysicsShapeType.CYLINDER,
             parameters: {
-                pointA: new Vector3(-chassisWidth * 0.5, chassisLowering, -cylinderOffset),
-                pointB: new Vector3(chassisWidth * 0.5, chassisLowering, -cylinderOffset),
+                pointA: new Vector3(-finalWidth * 0.5, chassisLowering, -cylinderOffset),
+                pointB: new Vector3(finalWidth * 0.5, chassisLowering, -cylinderOffset),
                 radius: cylinderRadius
             }
         }, this.scene);

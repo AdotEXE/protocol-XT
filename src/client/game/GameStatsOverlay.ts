@@ -132,7 +132,9 @@ export class GameStatsOverlay {
         const playerData = this.getPlayerData();
         const xpProgressHTML = this.getXPProgressHTML();
         
-        if (this.deps.getIsMultiplayer() && this.deps.realtimeStatsTracker) {
+        // ИСПРАВЛЕНО: Показываем мультиплеерный scoreboard если isMultiplayer=true,
+        // даже если realtimeStatsTracker ещё не создан
+        if (this.deps.getIsMultiplayer()) {
             this.renderMultiplayerStats(content, playerData, xpProgressHTML);
         } else {
             this.renderSinglePlayerStats(content, playerData, xpProgressHTML);
@@ -236,20 +238,44 @@ export class GameStatsOverlay {
         xpProgressHTML: string
     ): void {
         const localPlayerId = this.deps.multiplayerManager?.getPlayerId();
-        const tracker = this.deps.realtimeStatsTracker!;
+        const tracker = this.deps.realtimeStatsTracker;
         
-        const leaderboard = tracker.getLeaderboard("score");
-        const localStats = tracker.getLocalPlayerStats();
-        const kdHistory = tracker.getKDHistory();
-        const matchTime = tracker.getMatchTime();
+        let leaderboard: any[] = [];
+        let kdHistory: { time: number; kd: number }[] = [];
+        let matchTime = 0;
         
-        // Update from realtime tracker
-        if (localStats) {
-            playerData.kills = localStats.kills;
-            playerData.deaths = localStats.deaths;
-            playerData.kd = localStats.deaths > 0 
-                ? (localStats.kills / localStats.deaths).toFixed(2) 
-                : localStats.kills.toFixed(2);
+        // Если есть RealtimeStatsTracker - используем его данные
+        if (tracker) {
+            leaderboard = tracker.getLeaderboard("score");
+            const localStats = tracker.getLocalPlayerStats();
+            kdHistory = tracker.getKDHistory();
+            matchTime = tracker.getMatchTime();
+            
+            // Update from realtime tracker
+            if (localStats) {
+                playerData.kills = localStats.kills;
+                playerData.deaths = localStats.deaths;
+                playerData.kd = localStats.deaths > 0 
+                    ? (localStats.kills / localStats.deaths).toFixed(2) 
+                    : localStats.kills.toFixed(2);
+            }
+        } else {
+            // FALLBACK: Если RealtimeStatsTracker ещё не создан,
+            // используем данные из lastPlayerStates от MultiplayerManager
+            const mm = this.deps.multiplayerManager;
+            const lastPlayerStates = (mm as any)?.lastPlayerStates as any[] | undefined;
+            
+            if (lastPlayerStates && lastPlayerStates.length > 0) {
+                leaderboard = lastPlayerStates.map((p: any, index: number) => ({
+                    playerId: p.id,
+                    playerName: p.name || `Player ${index + 1}`,
+                    kills: p.kills || 0,
+                    deaths: p.deaths || 0,
+                    score: p.score || 0,
+                    isAlive: p.status === "alive",
+                    team: p.team
+                })).sort((a, b) => b.score - a.score);
+            }
         }
         
         const leaderboardHTML = this.generateLeaderboardHTML(leaderboard, localPlayerId);

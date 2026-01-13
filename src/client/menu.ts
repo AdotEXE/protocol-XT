@@ -24,8 +24,8 @@ declare const __BUILD_TIME__: string | undefined;
 declare const __COMMIT_HASH__: string | undefined;
 declare const __BUILD_NUMBER__: string | undefined;
 
-const BUILD_TIME = typeof __BUILD_TIME__ !== 'undefined' 
-    ? __BUILD_TIME__ 
+const BUILD_TIME = typeof __BUILD_TIME__ !== 'undefined'
+    ? __BUILD_TIME__
     : (() => {
         const date = new Date();
         const year = String(date.getFullYear()).slice(-2);
@@ -41,8 +41,8 @@ const COMMIT_HASH = typeof __COMMIT_HASH__ !== 'undefined' ? __COMMIT_HASH__ : '
 
 // Используем build number из vite.config.ts (генерируется во время сборки)
 // Для dev режима используем 0
-const buildNumber = typeof __BUILD_NUMBER__ !== 'undefined' 
-    ? parseInt(__BUILD_NUMBER__) 
+const buildNumber = typeof __BUILD_NUMBER__ !== 'undefined'
+    ? parseInt(__BUILD_NUMBER__)
     : (() => {
         // Fallback: вычисляем из commit hash если доступен
         if (COMMIT_HASH !== 'dev' && COMMIT_HASH.length >= 4) {
@@ -69,12 +69,12 @@ const debugError = (...args: any[]) => {
 };
 
 // Импорт функций настроек
-import { 
-    loadSettings as loadSettingsModule, 
+import {
+    loadSettings as loadSettingsModule,
     saveSettingsFromUI as saveSettingsFromUIModule,
     saveSettings as saveSettingsModule,
-    DEFAULT_SETTINGS, 
-    type GameSettings 
+    DEFAULT_SETTINGS,
+    type GameSettings
 } from "./menu/settings";
 
 // GameSettings и DEFAULT_SETTINGS теперь импортируются из menu/settings.ts
@@ -369,6 +369,7 @@ export type MapType = "normal" | "sandbox" | "sand" | "madness" | "expo" | "bres
 
 export class MainMenu {
     private container!: HTMLDivElement;
+    private allRooms: any[] = []; // Храним все комнаты для фильтрации
     private settingsPanel!: HTMLDivElement;
     private statsPanel!: HTMLDivElement;
     private skillsPanel!: HTMLDivElement;
@@ -376,9 +377,9 @@ export class MainMenu {
     private playMenuPanel!: HTMLDivElement;
     private progressPanel!: HTMLDivElement;
     private progressCurrentTab: "level" | "achievements" | "quests" = "level";
-    private onStartGame: (mapType?: MapType) => void = () => {};
-    private onRestartGame: () => void = () => {};
-    private onExitBattle: () => void = () => {};
+    private onStartGame: (mapType?: MapType, mapData?: any) => void = () => { };
+    private onRestartGame: () => void = () => { };
+    private onExitBattle: () => void = () => { };
     private selectedGameMode: string = "";
     private selectedMapType: MapType | null = null;
     private selectedChassis: string = "";
@@ -386,7 +387,7 @@ export class MainMenu {
     private ownedChassisIds: Set<string> = new Set();
     private ownedCannonIds: Set<string> = new Set();
     private currentPlayStep: number = 0;
-    private onPlayIntroSound: () => void = () => {};
+    private onPlayIntroSound: () => void = () => { };
     private settings!: GameSettings;
     private tankConfig!: TankConfig;
     private playerProgression: any = null;
@@ -397,31 +398,56 @@ export class MainMenu {
     private garageCurrencyManager: CurrencyManager | null = null; // Currency manager for garage
     private returnToPlayMenuAfterGarage = false;
     private standaloneMapEditor: any | null = null; // StandaloneMapEditor instance (lazy loaded when needed)
-    
+
     private canvasObserver: MutationObserver | null = null;
     private canvasPointerEventsCheckInterval: number | null = null;
     private _lastPointerEventsState: string | null = null; // Кэш последнего состояния для предотвращения бесконечных циклов
     private _enforceInProgress = false; // Флаг для предотвращения рекурсивных вызовов
     private _enableDetailedLogging = false; // Детальное логирование отключено по умолчанию
     private buttonHandlersAttached = false; // Флаг для предотвращения множественной привязки обработчиков
+
+    // Лобби - автообновление
+    private lobbyAutoRefreshInterval: number | null = null;
+    private lobbyAutoRefreshEnabled: boolean = true;
+    private lobbyAutoRefreshIntervalMs: number = 8000; // 8 секунд по умолчанию
+    private lobbyLastUpdateTime: number = 0;
+    private lobbyVisibilityObserver: IntersectionObserver | null = null;
+
+    // Лобби - фильтрация и поиск игроков
+    private allLobbyPlayers: any[] = []; // Все игроки для фильтрации
+    private filteredLobbyPlayers: any[] = []; // Отфильтрованные игроки
+    private friendsList: Set<string> = new Set(); // Список ID друзей
     
+    // Throttling для логирования updateRoomList
+    private _lastRoomListLogTime: number = 0;
+    private _lastRoomListCount: number = 0;
+    
+    // Throttling для логирования updateLobbyPlayers
+    private _lastLobbyPlayersLogTime: number = 0;
+    private _lastLobbyPlayersCount: number = 0;
+
+    // Лобби - фильтрация комнат (используем общий allRooms)
+
     constructor() {
-        
+
         this.settings = this.loadSettings();
         this.tankConfig = this.loadTankConfig();
         this.ownedChassisIds = this.loadOwnedIds("ownedChassis", ["medium"]);
         this.ownedCannonIds = this.loadOwnedIds("ownedCannons", ["standard"]);
-        
+
+        // Загружаем список друзей
+        this.loadFriendsList();
+
         // ИСПРАВЛЕНО: Создаём PlayerProgressionSystem сразу при создании меню
         // чтобы данные аккаунта были доступны немедленно
         this.playerProgression = new PlayerProgressionSystem();
-        
+
         // Garage will be loaded lazily when needed (when user opens garage from menu)
         // This reduces initial bundle size
-        
-        
+
+
         this.createMenuUI();
-        
+
         this.createSettingsUI();
         this.createStatsPanel();
         this.createSkillsPanel();
@@ -432,11 +458,33 @@ export class MainMenu {
         this.setupCanvasPointerEventsProtection();
         this.setupGlobalEventBlocking();
         this.setupFullscreenListener();
-        
+
         // ИСПРАВЛЕНО: Сразу обновляем данные аккаунта в меню
         this.updatePlayerInfo(true);
+
+        // Listen for lobby chat messages
+        window.addEventListener("mp-lobby-chat-message", (e: any) => {
+            const data = e.detail;
+            const chatMessages = document.getElementById("mp-room-panel-chat-messages");
+            if (chatMessages) {
+                const messageEl = document.createElement("div");
+                messageEl.style.marginBottom = "4px";
+                messageEl.style.wordBreak = "break-word";
+
+                const time = new Date(data.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                if (data.isSystem) {
+                    messageEl.innerHTML = `<span style="color: #aaa; font-size: 10px;">[${time}]</span> <span style="color: #ffff00;">${data.message}</span>`;
+                } else {
+                    messageEl.innerHTML = `<span style="color: #aaa; font-size: 10px;">[${time}]</span> <span style="color: #4ade80; font-weight: bold;">${data.sender}:</span> <span style="color: #fff;">${data.message}</span>`;
+                }
+
+                chatMessages.appendChild(messageEl);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
+        });
     }
-    
+
     private setupFullscreenListener(): void {
         // Слушаем изменения полноэкранного режима для обновления кнопки
         document.addEventListener("fullscreenchange", () => {
@@ -444,18 +492,18 @@ export class MainMenu {
             this.syncFullscreenState(isFullscreen);
         });
     }
-    
+
     private setupGlobalEventBlocking(): void {
         // ГЛОБАЛЬНАЯ БЛОКИРОВКА: Перехватываем все события мыши на уровне document
         // и блокируем их если они идут на canvas, а меню видимо
         const globalHandler = (e: MouseEvent): void => {
             const target = e.target as HTMLElement;
-            
+
             // Если меню не видимо - пропускаем все события
             if (this.container.classList.contains("hidden")) {
                 return;
             }
-            
+
             // Если клик по canvas или его дочерним элементам - блокируем
             const canvas = document.getElementById("gameCanvas");
             if (canvas && (target === canvas || canvas.contains(target))) {
@@ -465,22 +513,22 @@ export class MainMenu {
                 debugLog("[Menu] Blocked click on canvas");
                 return;
             }
-            
+
             // Если клик по элементу меню - разрешаем
             if (this.container.contains(target)) {
                 // Разрешаем событие (не блокируем)
                 return;
             }
         };
-        
+
         // Добавляем обработчики на все фазы событий
         document.addEventListener("mousedown", globalHandler, true);
         document.addEventListener("mouseup", globalHandler, true);
         document.addEventListener("click", globalHandler, true);
-        
+
         debugLog("[Menu] Global event blocking setup complete");
     }
-    
+
     private setupCanvasPointerEventsProtection(): void {
         // Находим canvas
         const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
@@ -495,16 +543,16 @@ export class MainMenu {
             }, 100);
             return;
         }
-        
+
         // КРИТИЧЕСКИ ВАЖНО: Блокируем canvas сразу
         canvas.style.setProperty("pointer-events", "none", "important");
         canvas.style.setProperty("z-index", "0", "important");
-        
+
         // Очищаем старый observer если он есть
         if (this.canvasObserver) {
             this.canvasObserver.disconnect();
         }
-        
+
         // MutationObserver для отслеживания изменений стилей canvas
         // Используем debounce для предотвращения слишком частых вызовов
         let mutationTimeout: number | null = null;
@@ -516,7 +564,7 @@ export class MainMenu {
             mutationTimeout = window.setTimeout(() => {
                 // Принудительно блокируем canvas при любых изменениях стилей (с защитой от циклов)
                 this.enforceCanvasPointerEvents();
-                
+
                 // Также проверяем, не был ли canvas пересоздан
                 const currentCanvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
                 if (currentCanvas && currentCanvas !== canvas) {
@@ -526,7 +574,7 @@ export class MainMenu {
                 mutationTimeout = null;
             }, 50);
         });
-        
+
         this.canvasObserver.observe(canvas, {
             attributes: true,
             attributeFilter: ['style', 'class'],
@@ -534,12 +582,12 @@ export class MainMenu {
             childList: false,
             subtree: false
         });
-        
+
         // Очищаем старый интервал если он есть
         if (this.canvasPointerEventsCheckInterval !== null) {
             clearInterval(this.canvasPointerEventsCheckInterval);
         }
-        
+
         // Периодическая проверка каждые 100мс для оптимизации (увеличено с 25мс для предотвращения таймаутов)
         this.canvasPointerEventsCheckInterval = window.setInterval(() => {
             // Проверяем, что canvas все еще существует
@@ -549,14 +597,14 @@ export class MainMenu {
                 this.setupCanvasPointerEventsProtection();
                 return;
             }
-            
+
             // Принудительно блокируем canvas (с защитой от циклов внутри метода)
             this.enforceCanvasPointerEvents();
         }, 100);
-        
+
         // Начальная установка
         this.enforceCanvasPointerEvents();
-        
+
         // Также устанавливаем через requestAnimationFrame для максимальной надежности (только когда меню видимо)
         let animationFrameId: number | null = null;
         const enforceLoop = () => {
@@ -566,7 +614,7 @@ export class MainMenu {
                 this.skillsPanel?.classList.contains("visible") ||
                 this.settingsPanel?.classList.contains("visible") ||
                 this.progressPanel?.classList.contains("visible");
-            
+
             if (isMenuOrPanelVisible) {
                 this.enforceCanvasPointerEvents();
                 animationFrameId = requestAnimationFrame(enforceLoop);
@@ -574,14 +622,14 @@ export class MainMenu {
                 animationFrameId = null;
             }
         };
-        
+
         // Запускаем loop только когда меню видимо
         const startLoop = () => {
             if (animationFrameId === null) {
                 animationFrameId = requestAnimationFrame(enforceLoop);
             }
         };
-        
+
         // Запускаем при показе меню
         this.container.addEventListener("mouseenter", startLoop);
         // Также запускаем при показе любой панели
@@ -596,54 +644,54 @@ export class MainMenu {
                 observer.observe(panel, { attributes: true, attributeFilter: ['class'] });
             }
         });
-        
+
         // Начальный запуск если меню уже видимо
         if (!this.container.classList.contains("hidden")) {
             startLoop();
         }
     }
-    
+
     private enforceCanvasPointerEvents(): void {
         // Защита от рекурсивных вызовов и бесконечных циклов
         if (this._enforceInProgress) {
             return;
         }
-        
+
         const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
         if (!canvas) {
             debugLog("[Menu] enforceCanvasPointerEvents: canvas not found");
             return;
         }
-        
+
         this._enforceInProgress = true;
-        
+
         try {
             const isMenuVisible = !this.container.classList.contains("hidden");
-            const isAnyPanelVisible = 
+            const isAnyPanelVisible =
                 this.mapSelectionPanel?.classList.contains("visible") ||
                 this.statsPanel?.classList.contains("visible") ||
                 this.skillsPanel?.classList.contains("visible") ||
                 this.settingsPanel?.classList.contains("visible") ||
                 this.progressPanel?.classList.contains("visible");
-            
+
             // Определяем желаемое состояние
             const desiredState = (isMenuVisible || isAnyPanelVisible) ? "none" : "auto";
-            
+
             // Проверяем, изменилось ли состояние - если нет, не делаем ничего (предотвращает бесконечный цикл)
             if (this._lastPointerEventsState === desiredState) {
                 this._enforceInProgress = false;
                 return;
             }
-            
+
             // Блокируем canvas если меню видимо ИЛИ любая панель видима
             if (isMenuVisible || isAnyPanelVisible) {
                 // Упрощенная блокировка - только один способ для предотвращения циклов
                 canvas.style.setProperty("pointer-events", "none", "important");
                 canvas.setAttribute("data-menu-blocked", "true");
-                
+
                 // Обновляем кэш только после успешного применения
                 this._lastPointerEventsState = "none";
-                
+
                 if (this._enableDetailedLogging) {
                     debugLog("[Menu] Canvas blocked, menu visible:", isMenuVisible, "panel visible:", isAnyPanelVisible);
                 }
@@ -651,7 +699,7 @@ export class MainMenu {
                 // Если меню и все панели скрыты, разрешаем pointer-events
                 canvas.style.setProperty("pointer-events", "auto", "important");
                 canvas.removeAttribute("data-menu-blocked");
-                
+
                 // Обновляем кэш только после успешного применения
                 this._lastPointerEventsState = "auto";
             }
@@ -659,7 +707,7 @@ export class MainMenu {
             this._enforceInProgress = false;
         }
     }
-    
+
     destroy(): void {
         // Очистка при уничтожении меню
         if (this.canvasObserver) {
@@ -671,28 +719,28 @@ export class MainMenu {
             this.canvasPointerEventsCheckInterval = null;
         }
     }
-    
+
     setPlayerProgression(progression: any): void {
         // Отписываемся от предыдущей подписки, если она была
         if (this.experienceSubscription) {
             this.experienceSubscription.remove();
             this.experienceSubscription = null;
         }
-        
+
         this.playerProgression = progression;
         // Немедленное обновление при первой установке (без анимации)
         this.updatePlayerInfo(true);
-        
+
         // Также обновляем через небольшую задержку для гарантии (на случай если DOM еще не готов)
         setTimeout(() => {
             this.updatePlayerInfo(true);
         }, 100);
-        
+
         // Обновляем панель навыков, если она видима
         if (this.skillsPanel && this.skillsPanel.classList.contains("visible")) {
             this.updateSkillsPanel();
         }
-        
+
         // Подписываемся на изменения опыта
         if (progression && progression.onExperienceChanged) {
             debugLog("[MainMenu] Subscribing to experience changes");
@@ -714,7 +762,7 @@ export class MainMenu {
             debugWarn("[MainMenu] Cannot subscribe to experience changes - progression or onExperienceChanged is null");
         }
     }
-    
+
     setGarage(garage: any): void {
         // Replace menu garage with game garage (which has proper scene and systems)
         if (this.garage && this.garageScene) {
@@ -723,15 +771,15 @@ export class MainMenu {
                 if (this.garage.isGarageOpen()) {
                     this.garage.close(); // Close if open
                 }
-                
+
                 // ИСПРАВЛЕНО: Получаем engine ПЕРЕД dispose сцены
                 const engine = this.garageScene?.getEngine();
-                
+
                 // ИСПРАВЛЕНО: Безопасный dispose с проверками на isDisposed
                 if (this.garageScene && !this.garageScene.isDisposed) {
                     this.garageScene.dispose();
                 }
-                
+
                 // ИСПРАВЛЕНО: Dispose engine ПОСЛЕ dispose сцены
                 if (engine && !engine.isDisposed) {
                     engine.dispose();
@@ -744,14 +792,14 @@ export class MainMenu {
         this.garage = garage;
         debugLog("[Menu] Garage replaced with game garage");
     }
-    
+
     private createMenuUI(): void {
-        
+
         this.container = document.createElement("div");
         this.container.id = "main-menu";
         // ВАЖНО: НЕ добавляем класс "hidden" по умолчанию - меню должно быть видимо при создании
         // this.container.classList.add("hidden"); // УДАЛЕНО - меню должно быть видимо
-        
+
         const L = getLang(this.settings);
         this.container.innerHTML = `
             <div class="menu-bg"></div>
@@ -1051,14 +1099,112 @@ export class MainMenu {
                 </div>
                 </div><!-- Конец .menu-scrollable -->
             </div>
+            
+            <!-- Лобби игроков -->
+            <div class="lobby-panel" id="lobby-panel">
+                <div class="lobby-header">
+                    <button class="lobby-toggle-btn" id="lobby-toggle-btn" title="Свернуть/Развернуть">◀</button>
+                    <span class="lobby-title">👥 ЛОББИ</span>
+                    <span class="lobby-collapsed-icon" id="lobby-collapsed-icon">👥</span>
+                    <div class="lobby-header-right">
+                        <span class="lobby-count" id="lobby-count">0</span>
+                        <button class="lobby-refresh-btn" id="lobby-refresh-btn" title="Обновить список">🔄</button>
+                        <button class="lobby-auto-refresh-toggle" id="lobby-auto-refresh-toggle" title="Автообновление">⏱️</button>
+                    </div>
+                </div>
+                <div class="lobby-status-bar">
+                    <span class="lobby-last-update" id="lobby-last-update">Обновление...</span>
+                </div>
+                <div class="lobby-tabs">
+                    <button class="lobby-tab active" data-tab="players" id="lobby-tab-players">Игроки</button>
+                    <button class="lobby-tab" data-tab="rooms" id="lobby-tab-rooms">Комнаты</button>
+                </div>
+                <div class="lobby-content">
+                    <div class="lobby-tab-content active" id="lobby-players-tab">
+                        <div class="lobby-filters" id="lobby-players-filters">
+                            <input type="text" class="lobby-search-input" id="lobby-players-search" placeholder="🔍 Поиск игрока..." />
+                            <div class="lobby-filter-row">
+                                <select class="lobby-filter-select" id="lobby-players-filter-status">
+                                    <option value="all">Все статусы</option>
+                                    <option value="online">Онлайн</option>
+                                    <option value="in-room">В комнате</option>
+                                    <option value="in-lobby">В лобби</option>
+                                </select>
+                                <select class="lobby-filter-select" id="lobby-players-filter-friends">
+                                    <option value="all">Все игроки</option>
+                                    <option value="friends">Только друзья</option>
+                                    <option value="not-friends">Не друзья</option>
+                                </select>
+                                <select class="lobby-filter-select" id="lobby-players-sort">
+                                    <option value="name-asc">Имя (А-Я)</option>
+                                    <option value="name-desc">Имя (Я-А)</option>
+                                    <option value="activity-desc">Активность ↓</option>
+                                    <option value="activity-asc">Активность ↑</option>
+                                    <option value="level-desc">Уровень ↓</option>
+                                    <option value="level-asc">Уровень ↑</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="lobby-list-container" id="lobby-players-list">
+                        <div class="lobby-empty" id="lobby-players-empty">Нет игроков онлайн</div>
+                    </div>
+                    </div>
+                    <div class="lobby-tab-content" id="lobby-rooms-tab">
+                        <div class="lobby-filters" id="lobby-rooms-filters">
+                            <input type="text" class="lobby-search-input" id="lobby-rooms-search" placeholder="🔍 Поиск по ID комнаты..." />
+                            <div class="lobby-filter-row">
+                                <select class="lobby-filter-select" id="lobby-rooms-filter-mode">
+                                    <option value="all">Все режимы</option>
+                                    <option value="ffa">FFA</option>
+                                    <option value="tdm">TDM</option>
+                                    <option value="coop">Co-op</option>
+                                    <option value="battle_royale">Battle Royale</option>
+                                    <option value="ctf">CTF</option>
+                                    <option value="control_point">Control Point</option>
+                                </select>
+                                <select class="lobby-filter-select" id="lobby-rooms-filter-status">
+                                    <option value="all">Все статусы</option>
+                                    <option value="waiting">Ожидание</option>
+                                    <option value="active">Игра идет</option>
+                                </select>
+                                <select class="lobby-filter-select" id="lobby-rooms-sort">
+                                    <option value="players-desc">Игроков ↓</option>
+                                    <option value="players-asc">Игроков ↑</option>
+                                    <option value="time-desc">Время ↓</option>
+                                    <option value="time-asc">Время ↑</option>
+                                    <option value="mode-asc">Режим (А-Я)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="lobby-list-container" id="lobby-rooms-list">
+                        <div class="lobby-empty" id="lobby-rooms-empty">Нет доступных комнат</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Общий чат сервера -->
+                <div class="lobby-chat" id="lobby-chat">
+                    <div class="lobby-chat-header">
+                        <span class="lobby-chat-title">💬 ЧАТ</span>
+                        <button class="lobby-chat-toggle" id="lobby-chat-toggle" title="Свернуть/Развернуть чат">▼</button>
+                    </div>
+                    <div class="lobby-chat-messages" id="lobby-chat-messages">
+                        <div class="lobby-chat-welcome">Добро пожаловать в общий чат!</div>
+                    </div>
+                    <div class="lobby-chat-input-container">
+                        <input type="text" class="lobby-chat-input" id="lobby-chat-input" placeholder="Введите сообщение..." maxlength="200" />
+                        <button class="lobby-chat-send" id="lobby-chat-send">➤</button>
+                    </div>
+                </div>
+            </div>
         `;
-        
+
         // Add Google Pixel Font
         const fontLink = document.createElement("link");
         fontLink.href = "https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap";
         fontLink.rel = "stylesheet";
         document.head.appendChild(fontLink);
-        
+
         const style = document.createElement("style");
         style.textContent = `
             /* === PIXEL HACKER THEME === */
@@ -1161,11 +1307,15 @@ export class MainMenu {
                 display: flex;
                 flex-direction: column;
                 gap: clamp(8px, 1.5vh, 15px);
-                overflow: hidden; /* Убрали scroll с основного контента */
+                overflow: hidden;
                 pointer-events: auto !important;
-                margin: 0 auto; /* Центрирование по горизонтали */
-                left: auto; /* Убираем смещение влево */
-                right: auto; /* Убираем смещение вправо */
+                margin: 0 auto;
+                transition: transform 0.3s ease;
+            }
+            
+            /* Смещение меню когда лобби развернуто */
+            .menu-content.lobby-open {
+                transform: translateX(180px);
             }
             
             /* Scrollable область: от блока опыта до блока управления */
@@ -1690,6 +1840,1024 @@ export class MainMenu {
                 font-size: 7px;
                 text-align: right;
                 flex: 1;
+            }
+            
+            /* Лобби игроков */
+            .lobby-panel {
+                position: fixed;
+                top: 20px;
+                left: 20px;
+                width: 360px;
+                max-width: calc(100vw - 40px);
+                height: calc(100vh - 40px);
+                max-height: calc(100vh - 40px);
+                background: rgba(0, 30, 0, 0.8);
+                border: 2px solid #0f0;
+                border-radius: 5px;
+                padding: 10px;
+                z-index: 100001;
+                display: flex;
+                flex-direction: column;
+                box-shadow: 0 0 15px rgba(0, 255, 0, 0.3);
+                font-family: 'Press Start 2P', monospace;
+                pointer-events: auto !important;
+                overflow: hidden;
+                box-sizing: border-box;
+                transition: width 0.3s ease, height 0.3s ease;
+            }
+            
+            .lobby-panel.collapsed {
+                width: 48px;
+                height: 48px;
+                min-height: 48px;
+                padding: 0;
+                cursor: pointer;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+            }
+            
+            .lobby-panel.collapsed .lobby-content,
+            .lobby-panel.collapsed .lobby-tabs,
+            .lobby-panel.collapsed .lobby-status-bar,
+            .lobby-panel.collapsed .lobby-header-right,
+            .lobby-panel.collapsed .lobby-title,
+            .lobby-panel.collapsed .lobby-toggle-btn {
+                display: none !important;
+            }
+            
+            .lobby-panel.collapsed .lobby-header {
+                margin: 0;
+                padding: 0;
+                border: none;
+                width: 100%;
+                height: 100%;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+            }
+            
+            .lobby-collapsed-icon {
+                display: none;
+                font-size: 24px;
+                color: #0f0;
+                text-shadow: 0 0 12px #0f0;
+                cursor: pointer;
+            }
+            
+            .lobby-panel.collapsed .lobby-collapsed-icon {
+                display: block !important;
+            }
+            
+            .lobby-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 8px;
+                padding-bottom: 6px;
+                border-bottom: 1px solid rgba(0, 255, 0, 0.3);
+                flex-shrink: 0;
+            }
+            
+            .lobby-title {
+                color: #0f0;
+                font-size: 11px;
+                text-shadow: 0 0 5px #0f0;
+            }
+            
+            .lobby-header-right {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+            
+            .lobby-count {
+                color: #0ff;
+                font-size: 10px;
+                background: rgba(0, 255, 255, 0.2);
+                padding: 4px 8px;
+                border-radius: 3px;
+                border: 1px solid rgba(0, 255, 255, 0.4);
+            }
+            
+            .lobby-refresh-btn {
+                background: rgba(0, 30, 0, 0.6);
+                border: 1px solid rgba(0, 255, 0, 0.3);
+                color: #0f0;
+                font-size: 11px;
+                padding: 4px 8px;
+                border-radius: 3px;
+                cursor: pointer;
+                transition: all 0.2s;
+                font-family: 'Press Start 2P', monospace;
+            }
+            
+            .lobby-toggle-btn {
+                background: rgba(0, 30, 0, 0.6);
+                border: 1px solid rgba(0, 255, 0, 0.3);
+                color: #0f0;
+                font-size: 11px;
+                padding: 4px 8px;
+                border-radius: 3px;
+                cursor: pointer;
+                transition: all 0.2s;
+                font-family: 'Press Start 2P', monospace;
+                margin-right: 8px;
+                flex-shrink: 0;
+            }
+            
+            .lobby-toggle-btn:hover,
+            .lobby-refresh-btn:hover {
+                background: rgba(0, 50, 0, 0.8);
+                border-color: rgba(0, 255, 0, 0.6);
+                box-shadow: 0 0 5px rgba(0, 255, 0, 0.4);
+            }
+            
+            .lobby-toggle-btn:active,
+            .lobby-refresh-btn:active {
+                transform: scale(0.95);
+            }
+            
+            
+            .lobby-refresh-btn:hover {
+                background: rgba(0, 50, 0, 0.8);
+                border-color: rgba(0, 255, 0, 0.6);
+                box-shadow: 0 0 5px rgba(0, 255, 0, 0.4);
+            }
+            
+            .lobby-refresh-btn:active {
+                transform: scale(0.95);
+            }
+            
+            .lobby-auto-refresh-toggle {
+                background: rgba(0, 30, 0, 0.6);
+                border: 1px solid rgba(0, 255, 0, 0.3);
+                color: #0f0;
+                font-size: 11px;
+                padding: 4px 8px;
+                border-radius: 3px;
+                cursor: pointer;
+                transition: all 0.2s;
+                font-family: 'Press Start 2P', monospace;
+            }
+            
+            .lobby-auto-refresh-toggle:hover {
+                background: rgba(0, 50, 0, 0.8);
+                border-color: rgba(0, 255, 0, 0.6);
+                box-shadow: 0 0 5px rgba(0, 255, 0, 0.4);
+            }
+            
+            .lobby-auto-refresh-toggle:active {
+                transform: scale(0.95);
+            }
+            
+            .lobby-auto-refresh-toggle.disabled {
+                opacity: 0.5;
+                color: #7f7;
+                border-color: rgba(0, 255, 0, 0.2);
+            }
+            
+            .lobby-status-bar {
+                padding: 4px 8px;
+                margin-bottom: 6px;
+                border-bottom: 1px solid rgba(0, 255, 0, 0.2);
+                flex-shrink: 0;
+            }
+            
+            .lobby-last-update {
+                color: #7f7;
+                font-size: 7px;
+                opacity: 0.8;
+            }
+            
+            .lobby-tabs {
+                display: flex;
+                gap: 4px;
+                margin-bottom: 8px;
+                flex-shrink: 0;
+            }
+            
+            .lobby-tab {
+                flex: 1;
+                padding: 6px 10px;
+                background: rgba(0, 20, 0, 0.6);
+                border: 1px solid rgba(0, 255, 0, 0.3);
+                color: #7f7;
+                font-size: 8px;
+                cursor: pointer;
+                transition: all 0.2s;
+                border-radius: 3px;
+                font-family: 'Press Start 2P', monospace;
+            }
+            
+            .lobby-tab:hover {
+                background: rgba(0, 40, 0, 0.7);
+                border-color: rgba(0, 255, 0, 0.6);
+                color: #0f0;
+            }
+            
+            .lobby-tab.active {
+                background: rgba(0, 255, 4, 0.2);
+                border-color: #0f0;
+                color: #0f0;
+            }
+            
+            .lobby-content {
+                flex: 1;
+                overflow-y: auto;
+                overflow-x: hidden;
+                min-height: 0;
+                display: flex;
+                flex-direction: column;
+                width: 100%;
+                box-sizing: border-box;
+            }
+            
+            /* === LOBBY CHAT === */
+            .lobby-chat {
+                border-top: 1px solid rgba(0, 255, 0, 0.3);
+                display: flex;
+                flex-direction: column;
+                max-height: 180px;
+                min-height: 100px;
+                flex-shrink: 0;
+            }
+            
+            .lobby-chat.collapsed {
+                max-height: 28px;
+                min-height: 28px;
+            }
+            
+            .lobby-chat.collapsed .lobby-chat-messages,
+            .lobby-chat.collapsed .lobby-chat-input-container {
+                display: none !important;
+            }
+            
+            .lobby-chat-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 4px 8px;
+                background: rgba(0, 40, 0, 0.6);
+                border-bottom: 1px solid rgba(0, 255, 0, 0.2);
+                flex-shrink: 0;
+            }
+            
+            .lobby-chat-title {
+                font-size: 8px;
+                color: #0f0;
+                text-shadow: 0 0 5px #0f0;
+            }
+            
+            .lobby-chat-toggle {
+                background: transparent;
+                border: none;
+                color: #0f0;
+                font-size: 10px;
+                cursor: pointer;
+                padding: 2px 6px;
+                transition: transform 0.2s;
+            }
+            
+            .lobby-chat-toggle:hover {
+                text-shadow: 0 0 5px #0f0;
+            }
+            
+            .lobby-chat.collapsed .lobby-chat-toggle {
+                transform: rotate(180deg);
+            }
+            
+            .lobby-chat-messages {
+                flex: 1;
+                overflow-y: auto;
+                overflow-x: hidden;
+                padding: 6px;
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                font-size: 7px;
+                background: rgba(0, 10, 0, 0.4);
+            }
+            
+            .lobby-chat-messages::-webkit-scrollbar {
+                width: 4px;
+            }
+            
+            .lobby-chat-messages::-webkit-scrollbar-track {
+                background: rgba(0, 20, 0, 0.3);
+            }
+            
+            .lobby-chat-messages::-webkit-scrollbar-thumb {
+                background: rgba(0, 255, 0, 0.3);
+                border-radius: 2px;
+            }
+            
+            .lobby-chat-welcome {
+                color: rgba(0, 255, 0, 0.5);
+                font-style: italic;
+                text-align: center;
+                padding: 8px;
+            }
+            
+            .lobby-chat-message {
+                display: flex;
+                gap: 6px;
+                padding: 3px 0;
+                border-bottom: 1px solid rgba(0, 255, 0, 0.1);
+            }
+            
+            .lobby-chat-message:last-child {
+                border-bottom: none;
+            }
+            
+            .lobby-chat-time {
+                color: rgba(0, 255, 0, 0.4);
+                flex-shrink: 0;
+                font-size: 6px;
+            }
+            
+            .lobby-chat-sender {
+                color: #0ff;
+                font-weight: bold;
+                flex-shrink: 0;
+                max-width: 80px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            
+            .lobby-chat-sender.self {
+                color: #ff0;
+            }
+            
+            .lobby-chat-text {
+                color: #0f0;
+                word-break: break-word;
+                flex: 1;
+            }
+            
+            .lobby-chat-input-container {
+                display: flex;
+                gap: 4px;
+                padding: 6px;
+                background: rgba(0, 20, 0, 0.5);
+                border-top: 1px solid rgba(0, 255, 0, 0.2);
+                flex-shrink: 0;
+            }
+            
+            .lobby-chat-input {
+                flex: 1;
+                background: rgba(0, 0, 0, 0.6);
+                border: 1px solid rgba(0, 255, 0, 0.3);
+                color: #0f0;
+                padding: 6px 8px;
+                font-size: 8px;
+                font-family: 'Press Start 2P', monospace;
+                border-radius: 3px;
+            }
+            
+            .lobby-chat-input:focus {
+                outline: none;
+                border-color: #0f0;
+                box-shadow: 0 0 5px rgba(0, 255, 0, 0.3);
+            }
+            
+            .lobby-chat-input::placeholder {
+                color: rgba(0, 255, 0, 0.4);
+            }
+            
+            .lobby-chat-send {
+                background: rgba(0, 80, 0, 0.6);
+                border: 1px solid rgba(0, 255, 0, 0.4);
+                color: #0f0;
+                padding: 6px 10px;
+                font-size: 10px;
+                cursor: pointer;
+                border-radius: 3px;
+                transition: all 0.2s;
+            }
+            
+            .lobby-chat-send:hover {
+                background: rgba(0, 120, 0, 0.8);
+                border-color: #0f0;
+                box-shadow: 0 0 8px rgba(0, 255, 0, 0.4);
+            }
+            
+            .lobby-chat-send:active {
+                transform: scale(0.95);
+            }
+            
+            .lobby-panel.collapsed .lobby-chat {
+                display: none !important;
+            }
+            
+            .lobby-tab-content {
+                display: none;
+                flex: 1;
+                flex-direction: column;
+                min-height: 0;
+            }
+            
+            .lobby-tab-content.active {
+                display: flex;
+            }
+            
+            .lobby-filters {
+                padding: 6px;
+                background: rgba(0, 20, 0, 0.4);
+                border-bottom: 1px solid rgba(0, 255, 0, 0.2);
+                flex-shrink: 0;
+            }
+            
+            .lobby-search-input {
+                width: 100%;
+                max-width: 100%;
+                padding: 6px 10px;
+                margin-bottom: 6px;
+                background: rgba(0, 0, 0, 0.5);
+                border: 1px solid rgba(0, 255, 0, 0.3);
+                border-radius: 3px;
+                color: #0f0;
+                font-size: 8px;
+                font-family: 'Press Start 2P', monospace;
+                outline: none;
+                transition: border-color 0.2s;
+                box-sizing: border-box;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            
+            .lobby-search-input:focus {
+                border-color: rgba(0, 255, 0, 0.6);
+                box-shadow: 0 0 5px rgba(0, 255, 0, 0.3);
+            }
+            
+            .lobby-search-input::placeholder {
+                color: #7f7;
+                opacity: 0.6;
+            }
+            
+            .lobby-filter-row {
+                display: flex;
+                gap: 4px;
+                width: 100%;
+                box-sizing: border-box;
+                overflow: hidden;
+            }
+            
+            .lobby-filter-select {
+                flex: 1;
+                min-width: 0;
+                padding: 5px 8px;
+                background: rgba(0, 0, 0, 0.5);
+                border: 1px solid rgba(0, 255, 0, 0.3);
+                border-radius: 3px;
+                color: #0f0;
+                font-size: 7px;
+                font-family: 'Press Start 2P', monospace;
+                outline: none;
+                cursor: pointer;
+                transition: border-color 0.2s;
+                box-sizing: border-box;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            
+            .lobby-filter-select:hover {
+                border-color: rgba(0, 255, 0, 0.5);
+            }
+            
+            .lobby-filter-select:focus {
+                border-color: rgba(0, 255, 0, 0.6);
+                box-shadow: 0 0 5px rgba(0, 255, 0, 0.3);
+            }
+            
+            .lobby-list-container {
+                flex: 1;
+                overflow-y: auto;
+                overflow-x: hidden;
+                min-height: 0;
+                width: 100%;
+                box-sizing: border-box;
+            }
+            
+            .lobby-empty {
+                text-align: center;
+                color: #7f7;
+                font-size: 8px;
+                padding: 20px;
+                opacity: 0.6;
+            }
+            
+            .lobby-player-item,
+            .lobby-room-item {
+                padding: 6px;
+                margin-bottom: 4px;
+                background: rgba(0, 20, 0, 0.5);
+                border: 1px solid rgba(0, 255, 0, 0.2);
+                border-radius: 3px;
+                cursor: pointer;
+                transition: all 0.2s;
+                width: 100%;
+                max-width: 100%;
+                box-sizing: border-box;
+                overflow: hidden;
+            }
+            
+            .lobby-player-item:hover,
+            .lobby-room-item:hover {
+                background: rgba(0, 40, 0, 0.7);
+                border-color: rgba(0, 255, 0, 0.5);
+                transform: translateX(2px);
+            }
+            
+            .lobby-player-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 3px;
+                width: 100%;
+                min-width: 0;
+                gap: 4px;
+            }
+            
+            .lobby-player-avatar {
+                width: 24px;
+                height: 24px;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 8px;
+                color: #000;
+                font-weight: bold;
+                flex-shrink: 0;
+                border: 2px solid rgba(0, 255, 0, 0.5);
+                margin-right: 6px;
+            }
+            
+            .lobby-player-name-row {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                flex: 1;
+                min-width: 0;
+            }
+            
+            .lobby-player-name {
+                color: #0f0;
+                font-size: 9px;
+                font-weight: bold;
+                flex: 1;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            
+            .lobby-friend-badge {
+                color: #ffc800;
+                font-size: 7px;
+                margin-left: 4px;
+            }
+            
+            .lobby-player-level {
+                color: #0ff;
+                font-size: 8px;
+                background: rgba(0, 255, 255, 0.2);
+                padding: 3px 6px;
+                border-radius: 2px;
+                border: 1px solid rgba(0, 255, 255, 0.4);
+            }
+            
+            .lobby-player-online-status {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+            }
+            
+            .lobby-player-stats-row {
+                display: flex;
+                gap: 6px;
+                margin: 4px 0;
+                flex-wrap: wrap;
+                width: 100%;
+                box-sizing: border-box;
+            }
+            
+            .lobby-player-stat {
+                display: flex;
+                align-items: center;
+                gap: 3px;
+                font-size: 7px;
+            }
+            
+            .lobby-stat-label {
+                color: #7f7;
+            }
+            
+            .lobby-stat-value {
+                color: #0ff;
+                font-weight: bold;
+            }
+            
+            .lobby-rank-bronze {
+                color: #cd7f32;
+            }
+            
+            .lobby-rank-silver {
+                color: #c0c0c0;
+            }
+            
+            .lobby-rank-gold {
+                color: #ffd700;
+            }
+            
+            .lobby-rank-platinum {
+                color: #e5e4e2;
+            }
+            
+            .lobby-rank-diamond {
+                color: #b9f2ff;
+            }
+            
+            .lobby-rank-master {
+                color: #ff6b9d;
+            }
+            
+            .lobby-rank-legend {
+                color: #ff0000;
+            }
+            
+            .lobby-player-details {
+                margin-top: 4px;
+                padding-top: 4px;
+                border-top: 1px solid rgba(0, 255, 0, 0.1);
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+            }
+            
+            .lobby-player-detail-item {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                font-size: 7px;
+            }
+            
+            .lobby-detail-label {
+                color: #7f7;
+            }
+            
+            .lobby-detail-value {
+                color: #0ff;
+            }
+            
+            .lobby-status-dot {
+                width: 5px;
+                height: 5px;
+                background: #0f0;
+                border-radius: 50%;
+                box-shadow: 0 0 3px rgba(0, 255, 0, 0.8);
+                animation: lobby-status-pulse 2s ease-in-out infinite;
+            }
+            
+            @keyframes lobby-status-pulse {
+                0%, 100% {
+                    opacity: 1;
+                    box-shadow: 0 0 3px rgba(0, 255, 0, 0.8);
+                }
+                50% {
+                    opacity: 0.7;
+                    box-shadow: 0 0 6px rgba(0, 255, 0, 1);
+                }
+            }
+            
+            .lobby-status-text {
+                color: #0f0;
+                font-size: 6px;
+                font-weight: normal;
+            }
+            
+            .lobby-player-info {
+                color: #7f7;
+                font-size: 7px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 4px;
+            }
+            
+            .lobby-player-room {
+                color: #0ff;
+            }
+            
+            .lobby-player-status {
+                color: #7f7;
+            }
+            
+            .lobby-room-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 3px;
+                width: 100%;
+                min-width: 0;
+                gap: 4px;
+            }
+            
+            .lobby-room-id {
+                color: #0f0;
+                font-size: 9px;
+                font-weight: bold;
+                flex: 1;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            
+            .lobby-room-mode {
+                color: #0ff;
+                font-size: 7px;
+                background: rgba(0, 255, 255, 0.2);
+                padding: 3px 5px;
+                border-radius: 2px;
+            }
+            
+            .lobby-room-info {
+                color: #7f7;
+                font-size: 7px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-top: 3px;
+                margin-bottom: 4px;
+                width: 100%;
+                min-width: 0;
+                gap: 4px;
+            }
+            
+            .lobby-room-players-row {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                flex: 1;
+            }
+            
+            .lobby-room-players {
+                color: #0ff;
+                font-size: 8px;
+                min-width: 50px;
+            }
+            
+            .lobby-room-progress {
+                flex: 1;
+                height: 4px;
+                background: rgba(0, 0, 0, 0.3);
+                border-radius: 2px;
+                overflow: hidden;
+                border: 1px solid rgba(0, 255, 0, 0.2);
+            }
+            
+            .lobby-room-progress-bar {
+                height: 100%;
+                background: linear-gradient(90deg, #0f0, #0ff);
+                transition: width 0.3s ease;
+                box-shadow: 0 0 4px rgba(0, 255, 0, 0.5);
+            }
+            
+            .lobby-room-status {
+                color: #7f7;
+            }
+            
+            .lobby-room-status.active {
+                color: #f00;
+            }
+            
+            .lobby-join-btn {
+                width: 100%;
+                margin-top: 4px;
+                padding: 6px;
+                background: linear-gradient(180deg, rgba(0, 255, 4, 0.3), rgba(0, 255, 4, 0.1));
+                border: 1px solid rgba(0, 255, 4, 0.8);
+                border-radius: 3px;
+                color: #0f0;
+                font-size: 8px;
+                font-weight: bold;
+                cursor: pointer;
+                transition: all 0.2s;
+                font-family: 'Press Start 2P', monospace;
+                text-shadow: 0 0 4px rgba(0, 255, 4, 0.5);
+            }
+            
+            .lobby-join-btn:hover {
+                background: linear-gradient(180deg, rgba(0, 255, 4, 0.5), rgba(0, 255, 4, 0.3));
+                border-color: #0f0;
+                box-shadow: 0 0 15px rgba(0, 255, 4, 0.5);
+                transform: scale(1.02);
+            }
+            
+            .lobby-join-btn:active {
+                background: rgba(0, 255, 4, 0.6);
+                transform: scale(0.98);
+                box-shadow: 0 0 20px rgba(0, 255, 4, 0.8);
+            }
+            
+            .lobby-player-buttons {
+                display: flex;
+                gap: 4px;
+                margin-top: 4px;
+                flex-wrap: wrap;
+                width: 100%;
+                box-sizing: border-box;
+            }
+            
+            .lobby-message-btn {
+                flex: 1;
+                min-width: 0;
+                padding: 6px;
+                background: linear-gradient(180deg, rgba(0, 150, 255, 0.3), rgba(0, 150, 255, 0.1));
+                border: 1px solid rgba(0, 150, 255, 0.8);
+                border-radius: 3px;
+                color: #0ff;
+                font-size: 7px;
+                font-weight: bold;
+                cursor: pointer;
+                transition: all 0.2s;
+                font-family: 'Press Start 2P', monospace;
+                text-shadow: 0 0 4px rgba(0, 150, 255, 0.5);
+                box-sizing: border-box;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            
+            .lobby-message-btn:hover {
+                background: linear-gradient(180deg, rgba(0, 150, 255, 0.5), rgba(0, 150, 255, 0.3));
+                border-color: #0ff;
+                box-shadow: 0 0 15px rgba(0, 150, 255, 0.5);
+                transform: scale(1.02);
+            }
+            
+            .lobby-message-btn:active {
+                background: rgba(0, 150, 255, 0.6);
+                transform: scale(0.98);
+                box-shadow: 0 0 20px rgba(0, 150, 255, 0.8);
+            }
+            
+            .lobby-invite-btn {
+                flex: 1;
+                min-width: 0;
+                padding: 6px;
+                background: linear-gradient(180deg, rgba(255, 200, 0, 0.3), rgba(255, 200, 0, 0.1));
+                border: 1px solid rgba(255, 200, 0, 0.8);
+                border-radius: 3px;
+                color: #ffc800;
+                font-size: 7px;
+                font-weight: bold;
+                cursor: pointer;
+                transition: all 0.2s;
+                font-family: 'Press Start 2P', monospace;
+                text-shadow: 0 0 4px rgba(255, 200, 0, 0.5);
+                box-sizing: border-box;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            
+            .lobby-invite-btn:hover {
+                background: linear-gradient(180deg, rgba(255, 200, 0, 0.5), rgba(255, 200, 0, 0.3));
+                border-color: #ffc800;
+                box-shadow: 0 0 15px rgba(255, 200, 0, 0.5);
+                transform: scale(1.02);
+            }
+            
+            .lobby-invite-btn:active {
+                background: rgba(255, 200, 0, 0.6);
+                transform: scale(0.98);
+                box-shadow: 0 0 20px rgba(255, 200, 0, 0.8);
+            }
+            
+            .lobby-friend-btn {
+                flex: 1;
+                min-width: 0;
+                padding: 5px;
+                background: linear-gradient(180deg, rgba(255, 100, 200, 0.3), rgba(255, 100, 200, 0.1));
+                border: 1px solid rgba(255, 100, 200, 0.8);
+                border-radius: 3px;
+                color: #ff64c8;
+                font-size: 6px;
+                font-weight: bold;
+                cursor: pointer;
+                transition: all 0.2s;
+                font-family: 'Press Start 2P', monospace;
+                text-shadow: 0 0 4px rgba(255, 100, 200, 0.5);
+            }
+            
+            .lobby-friend-btn:hover {
+                background: linear-gradient(180deg, rgba(255, 100, 200, 0.5), rgba(255, 100, 200, 0.3));
+                border-color: #ff64c8;
+                box-shadow: 0 0 15px rgba(255, 100, 200, 0.5);
+                transform: scale(1.02);
+            }
+            
+            .lobby-friend-btn:active {
+                background: rgba(255, 100, 200, 0.6);
+                transform: scale(0.98);
+                box-shadow: 0 0 20px rgba(255, 100, 200, 0.8);
+            }
+            
+            .lobby-friend-btn.added {
+                background: rgba(0, 255, 0, 0.3);
+                border-color: rgba(0, 255, 0, 0.6);
+                color: #0f0;
+                opacity: 0.7;
+                cursor: default;
+            }
+            
+            .lobby-room-full {
+                width: 100%;
+                margin-top: 4px;
+                padding: 6px;
+                background: rgba(255, 0, 0, 0.2);
+                border: 1px solid rgba(255, 0, 0, 0.5);
+                border-radius: 3px;
+                color: #f00;
+                font-size: 7px;
+                text-align: center;
+                font-family: 'Press Start 2P', monospace;
+                opacity: 0.7;
+            }
+            
+            .lobby-room-details {
+                margin-top: 4px;
+                padding-top: 4px;
+                border-top: 1px solid rgba(0, 255, 0, 0.1);
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+            }
+            
+            .lobby-room-detail-item {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                font-size: 7px;
+            }
+            
+            .lobby-room-badge {
+                display: inline-block;
+                padding: 2px 4px;
+                border-radius: 2px;
+                font-size: 6px;
+                margin-top: 2px;
+            }
+            
+            .lobby-room-private {
+                background: rgba(255, 200, 0, 0.2);
+                color: #ffc800;
+                border: 1px solid rgba(255, 200, 0, 0.4);
+            }
+            
+            .lobby-room-password {
+                background: rgba(0, 150, 255, 0.2);
+                color: #0096ff;
+                border: 1px solid rgba(0, 150, 255, 0.4);
+            }
+            
+            .lobby-content::-webkit-scrollbar {
+                width: 6px;
+            }
+            
+            .lobby-content::-webkit-scrollbar-track {
+                background: rgba(0, 10, 0, 0.3);
+            }
+            
+            .lobby-content::-webkit-scrollbar-thumb {
+                background: linear-gradient(180deg, #0f0, #6f6);
+                border-radius: 3px;
+            }
+            
+            .lobby-content::-webkit-scrollbar-thumb:hover {
+                background: linear-gradient(180deg, #0f0, #8f8);
+            }
+            
+            .lobby-group-header {
+                padding: 5px 10px;
+                margin: 12px 0 6px 0;
+                background: rgba(0, 255, 0, 0.1);
+                border-left: 3px solid #0f0;
+                color: #0f0;
+                font-size: 7px;
+                font-weight: bold;
+                text-transform: uppercase;
+            }
+            
+            .lobby-group-separator {
+                height: 1px;
+                background: rgba(0, 255, 0, 0.2);
+                margin: 6px 0;
             }
             
             .version {
@@ -3367,27 +4535,27 @@ export class MainMenu {
                 font-size: 10px;
             }
         `;
-        
+
         document.head.appendChild(style);
         document.body.appendChild(this.container);
-        
-        
+
+
         // ВАЖНО: Убеждаемся, что меню видимо при создании (не добавляем класс hidden)
         // Меню будет показано через show() при загрузке игры
         this.container.classList.remove("hidden");
         // НЕ устанавливаем display/visibility здесь - CSS уже задает display: flex и visibility: visible
         // Полагаемся на CSS стили из #main-menu { display: flex; ... }
-        
-        
+
+
         // Инициализация auth UI
         const authContainer = authUI.createContainer();
         if (authContainer && !document.body.contains(authContainer)) {
             document.body.appendChild(authContainer);
         }
-        
+
         // Обновление UI авторизации
         this.updateAuthUI();
-        
+
         // Слушаем изменения состояния авторизации
         if (firebaseService.isInitialized()) {
             const auth = (firebaseService as any).auth;
@@ -3398,7 +4566,7 @@ export class MainMenu {
                 });
             }
         }
-        
+
         // КРИТИЧЕСКИ ВАЖНО: Блокируем canvas сразу после создания меню
         const blockCanvas = () => {
             const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
@@ -3411,24 +4579,74 @@ export class MainMenu {
                 debugLog("[Menu] Canvas blocked after menu creation");
             }
         };
-        
+
         blockCanvas();
         // Повторяем несколько раз для надежности
         setTimeout(blockCanvas, 0);
         setTimeout(blockCanvas, 50);
         setTimeout(blockCanvas, 100);
         setTimeout(blockCanvas, 500);
-        
+
         // Сохраняем ссылку на обработчик для возможности переустановки
         this.setupMenuEventHandlers();
-        
+
         // ДОПОЛНИТЕЛЬНО: Добавляем обработчики напрямую на кнопки для надежности
         // Используем одну попытку с небольшой задержкой для надежности
         setTimeout(() => {
             this.attachDirectButtonHandlers();
+            this.setupLobbyHandlers();
         }, 100);
+
+        // КРИТИЧНО: Создаем MultiplayerManager при создании меню, если его еще нет
+        this.ensureMultiplayerManager();
+
+        // Настраиваем callbacks для лобби
+        this.setupLobbyCallbacks();
     }
-    
+
+    /**
+     * Убеждаемся, что MultiplayerManager существует и подключен
+     */
+    private async ensureMultiplayerManager(): Promise<void> {
+        const game = (window as any).gameInstance as any;
+
+        // Если MultiplayerManager уже существует, ничего не делаем
+        if (game?.multiplayerManager) {
+            console.log("[Menu] ✅ MultiplayerManager уже существует");
+            return;
+        }
+
+        console.log("[Menu] 🔧 MultiplayerManager не найден, создаем новый...");
+
+        try {
+            const { MultiplayerManager } = await import("./multiplayer");
+            const multiplayerManager = new MultiplayerManager(undefined, true); // autoConnect = true
+            game.multiplayerManager = multiplayerManager;
+
+            console.log("[Menu] ✅ MultiplayerManager создан и подключение запущено");
+
+            // Ждем подключения
+            let attempts = 0;
+            const maxAttempts = 20; // 10 секунд
+            const checkConnection = setInterval(() => {
+                attempts++;
+                if (multiplayerManager.isConnected()) {
+                    console.log("[Menu] ✅ MultiplayerManager подключен к серверу");
+                    clearInterval(checkConnection);
+                    // Запрашиваем список игроков сразу после подключения
+                    setTimeout(() => {
+                        multiplayerManager.getOnlinePlayers();
+                    }, 500);
+                } else if (attempts >= maxAttempts) {
+                    console.warn("[Menu] ⚠️ Превышено время ожидания подключения MultiplayerManager");
+                    clearInterval(checkConnection);
+                }
+            }, 500);
+        } catch (error) {
+            console.error("[Menu] ❌ Ошибка при создании MultiplayerManager:", error);
+        }
+    }
+
     private attachDirectButtonHandlers(): void {
         console.log("[Menu] ====== attachDirectButtonHandlers() CALLED ======");
         // Предотвращаем множественную привязку обработчиков
@@ -3439,7 +4657,7 @@ export class MainMenu {
             }
             return;
         }
-        
+
         try {
             console.log("[Menu] Attaching button handlers...");
             // Добавляем обработчики напрямую на каждую кнопку для максимальной надежности
@@ -3449,12 +4667,14 @@ export class MainMenu {
                 { id: "btn-garage", handler: () => this.showGarage() },
                 { id: "btn-skills", handler: () => this.showSkills() },
                 { id: "btn-stats", handler: () => this.showStats() },
-                { id: "btn-map-editor", handler: () => {
-                    console.log("[Menu] btn-map-editor clicked!");
-                    this.openMapEditor().catch((error) => {
-                        console.error("[Menu] Unhandled error in openMapEditor:", error);
-                    });
-                }},
+                {
+                    id: "btn-map-editor", handler: () => {
+                        console.log("[Menu] btn-map-editor clicked!");
+                        this.openMapEditor().catch((error) => {
+                            console.error("[Menu] Unhandled error in openMapEditor:", error);
+                        });
+                    }
+                },
                 { id: "btn-tank-editor", handler: () => this.openTankEditor() },
                 { id: "btn-settings", handler: () => this.showSettings() },
                 { id: "btn-fullscreen", handler: () => this.toggleFullscreen() },
@@ -3465,7 +4685,7 @@ export class MainMenu {
                 { id: "btn-register", handler: () => this.showRegister() },
                 { id: "btn-profile", handler: () => this.showProfile() }
             ];
-            
+
             buttons.forEach(({ id, handler }) => {
                 try {
                     const btn = document.getElementById(id) as HTMLButtonElement;
@@ -3473,7 +4693,7 @@ export class MainMenu {
                         console.warn(`[Menu] Button ${id} not found!`);
                         return;
                     }
-                    
+
                     // Специальное логирование для кнопки редактора карт
                     if (id === "btn-map-editor") {
                         console.log(`[Menu] ====== Attaching handler to ${id} ======`);
@@ -3481,39 +4701,39 @@ export class MainMenu {
                         console.log(`[Menu] Button visible:`, btn.offsetWidth > 0 && btn.offsetHeight > 0);
                         console.log(`[Menu] Button style pointerEvents:`, window.getComputedStyle(btn).pointerEvents);
                     }
-                    
+
                     if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
                         logger.verbose(`[Menu] Attaching handler to button ${id}`);
                     }
-                    
+
                     // Удаляем все старые обработчики через клонирование
                     const parent = btn.parentNode;
                     if (!parent) {
                         console.warn(`[Menu] Button ${id} has no parent node`);
                         return;
                     }
-                    
+
                     const newBtn = btn.cloneNode(true) as HTMLButtonElement;
                     parent.replaceChild(newBtn, btn);
-                    
+
                     // Убеждаемся, что кнопка видима и доступна для клика
                     newBtn.style.pointerEvents = "auto";
                     newBtn.style.zIndex = "10000";
                     newBtn.style.position = "relative";
-                    
+
                     // Специальная проверка для кнопки редактора карт
                     if (id === "btn-map-editor") {
                         console.log(`[Menu] New button created:`, newBtn);
                         console.log(`[Menu] New button style pointerEvents:`, newBtn.style.pointerEvents);
                     }
-                    
+
                     // Блокируем canvas перед добавлением обработчика
                     const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
                     if (canvas) {
                         canvas.style.setProperty("pointer-events", "none", "important");
                         canvas.style.setProperty("z-index", "0", "important");
                     }
-                    
+
                     // Для кнопок авторизации и редактора карт используем и mousedown, и click для максимальной надежности
                     if (id === "btn-login" || id === "btn-register" || id === "btn-map-editor") {
                         // Обработчик mousedown - срабатывает первым
@@ -3522,18 +4742,18 @@ export class MainMenu {
                             if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
                                 logger.verbose(`[Menu] Button ${id} mousedown`);
                             }
-                            
+
                             try {
                                 // Блокируем canvas
                                 const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
                                 if (canvas) {
                                     canvas.style.setProperty("pointer-events", "none", "important");
                                 }
-                                
+
                                 e.preventDefault();
                                 e.stopPropagation();
                                 e.stopImmediatePropagation();
-                                
+
                                 // Вызываем handler сразу
                                 console.log(`[Menu] Calling handler for ${id} from mousedown`);
                                 if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
@@ -3545,25 +4765,25 @@ export class MainMenu {
                                 debugError(`[Menu] Error in mousedown handler for ${id}:`, error);
                             }
                         }, true);
-                        
+
                         // Обработчик click - резервный, на случай если mousedown не сработал
                         newBtn.addEventListener("click", (e) => {
                             console.log(`[Menu] Button ${id} click event!`);
                             if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
                                 logger.verbose(`[Menu] Button ${id} click (backup)`);
                             }
-                            
+
                             try {
                                 // Блокируем canvas
                                 const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
                                 if (canvas) {
                                     canvas.style.setProperty("pointer-events", "none", "important");
                                 }
-                                
+
                                 e.preventDefault();
                                 e.stopPropagation();
                                 e.stopImmediatePropagation();
-                                
+
                                 // Вызываем handler
                                 console.log(`[Menu] Calling handler for ${id} from click`);
                                 handler();
@@ -3585,22 +4805,22 @@ export class MainMenu {
                                 debugError(`[Menu] Error in mousedown handler for ${id}:`, error);
                             }
                         }, true);
-                        
+
                         // Обработчик click для остальных кнопок
                         newBtn.addEventListener("click", (e) => {
                             try {
                                 console.log(`[Menu] Button ${id} clicked!`, e);
-                                
+
                                 // Блокируем canvas
                                 const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
                                 if (canvas) {
                                     canvas.style.setProperty("pointer-events", "none", "important");
                                 }
-                                
+
                                 e.preventDefault();
                                 e.stopPropagation();
                                 e.stopImmediatePropagation();
-                                
+
                                 if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
                                     logger.verbose(`[Menu] Handler called/completed for ${id}`);
                                 }
@@ -3611,16 +4831,16 @@ export class MainMenu {
                             }
                         }, true);
                     }
-                    
+
                     debugLog(`[Menu] Direct handler attached to ${id}`);
                 } catch (error) {
                     debugError(`[Menu] Error setting up button handler for ${id}:`, error);
                 }
             });
-            
+
             // Устанавливаем флаг после успешной привязки всех обработчиков
             this.buttonHandlersAttached = true;
-            
+
             // Добавляем обработчик клика на карточку игрока для открытия панели прогресса
             const playerCard = document.getElementById("player-info");
             if (playerCard) {
@@ -3642,8 +4862,8 @@ export class MainMenu {
             debugError("[Menu] Error in attachDirectButtonHandlers:", error);
         }
     }
-    
-    
+
+
     private setupCloseButton(id: string, handler: () => void): void {
         try {
             const btn = document.getElementById(id);
@@ -3651,17 +4871,17 @@ export class MainMenu {
                 debugWarn(`[Menu] Close button ${id} not found`);
                 return;
             }
-            
+
             // Удаляем старые обработчики через клонирование
             const parent = btn.parentNode;
             if (!parent) {
                 debugWarn(`[Menu] Close button ${id} has no parent node`);
                 return;
             }
-            
+
             const newBtn = btn.cloneNode(true) as HTMLElement;
             parent.replaceChild(newBtn, btn);
-            
+
             // Единый обработчик в фазе захвата
             newBtn.addEventListener("click", (e) => {
                 try {
@@ -3669,13 +4889,13 @@ export class MainMenu {
                     e.preventDefault();
                     e.stopPropagation();
                     e.stopImmediatePropagation();
-                    
+
                     // Блокируем canvas
                     const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
                     if (canvas) {
                         canvas.style.setProperty("pointer-events", "none", "important");
                     }
-                    
+
                     handler();
                 } catch (error) {
                     debugError(`[Menu] Error in close button handler for ${id}:`, error);
@@ -3685,13 +4905,13 @@ export class MainMenu {
             debugError(`[Menu] Error setting up close button ${id}:`, error);
         }
     }
-    
+
     private setupPanelCloseOnBackground(panel: HTMLDivElement, handler: () => void): void {
         if (!panel) {
             debugWarn("[Menu] setupPanelCloseOnBackground: panel is null");
             return;
         }
-        
+
         try {
             // Закрытие по клику на фон панели (но не на содержимое)
             panel.addEventListener("click", (e) => {
@@ -3708,7 +4928,7 @@ export class MainMenu {
                     debugError("[Menu] Error in panel background click handler:", error);
                 }
             });
-            
+
             // Закрытие по ESC
             const escHandler = (e: KeyboardEvent) => {
                 try {
@@ -3722,14 +4942,14 @@ export class MainMenu {
                 }
             };
             document.addEventListener("keydown", escHandler);
-            
+
             // Сохраняем обработчик для возможности удаления
             (panel as any)._escHandler = escHandler;
         } catch (error) {
             debugError("[Menu] Error setting up panel close handlers:", error);
         }
     }
-    
+
     private setupMenuEventHandlers(): void {
         // Удаляем старые обработчики если они есть (на случай переустановки)
         const oldHandler = (this.container as any)._menuClickHandler;
@@ -3737,7 +4957,7 @@ export class MainMenu {
             this.container.removeEventListener("click", oldHandler, true);
             this.container.removeEventListener("click", oldHandler, false);
         }
-        
+
         // Use event delegation for better reliability with multiple layers of protection
         const handleClick = (e: MouseEvent) => {
             // КРИТИЧЕСКИ ВАЖНО: Блокируем canvas ПЕРЕД любой обработкой
@@ -3745,21 +4965,21 @@ export class MainMenu {
             if (canvas) {
                 canvas.style.setProperty("pointer-events", "none", "important");
             }
-            
+
             // Проверяем, что меню действительно видимо
             if (this.container.classList.contains("hidden")) {
                 return;
             }
-            
+
             const target = e.target as HTMLElement;
-            
+
             // Проверяем, что клик был по элементу меню, а не по canvas
             if (!this.container.contains(target)) {
                 return;
             }
-            
+
             const button = target.closest('.menu-btn') as HTMLButtonElement;
-            
+
             if (!button) {
                 // Play intro sound on first interaction with menu (only if not clicking a button)
                 if (!this.introSoundPlayed) {
@@ -3768,17 +4988,17 @@ export class MainMenu {
                 }
                 return;
             }
-            
+
             // Handle button clicks
             const buttonId = button.id;
             debugLog(`[Menu] Delegated handler: ${buttonId} clicked`);
             e.preventDefault();
             e.stopPropagation();
             e.stopImmediatePropagation();
-            
+
             // Блокируем canvas СРАЗУ перед показом панели
             this.enforceCanvasPointerEvents();
-            
+
             switch (buttonId) {
                 case "btn-play":
                     debugLog("[Menu] Showing play menu");
@@ -3822,7 +5042,7 @@ export class MainMenu {
                     this.exitBattle();
                     break;
             }
-            
+
             // Еще раз блокируем canvas после показа панели (с небольшой задержкой для надежности)
             setTimeout(() => {
                 this.enforceCanvasPointerEvents();
@@ -3834,15 +5054,15 @@ export class MainMenu {
                 this.enforceCanvasPointerEvents();
             }, 50);
         };
-        
+
         // Сохраняем ссылку на обработчик
         (this.container as any)._menuClickHandler = handleClick;
-        
+
         // Добавляем обработчик в фазе захвата (capture) для максимального приоритета
         this.container.addEventListener("click", handleClick, true);
         // Также добавляем в фазе всплытия (bubble) на всякий случай
         this.container.addEventListener("click", handleClick, false);
-        
+
         // Дополнительная защита: блокируем canvas при наведении мыши на меню
         const handleMouseEnter = () => {
             this.enforceCanvasPointerEvents();
@@ -3858,40 +5078,40 @@ export class MainMenu {
         const handleMouseUp = () => {
             this.enforceCanvasPointerEvents();
         };
-        
+
         this.container.addEventListener("mouseenter", handleMouseEnter);
         this.container.addEventListener("mousemove", handleMouseMove);
         this.container.addEventListener("mousedown", handleMouseDown);
         this.container.addEventListener("mouseup", handleMouseUp);
-        
+
         // Сохраняем ссылки на обработчики для возможности переустановки
         (this.container as any)._menuMouseEnterHandler = handleMouseEnter;
         (this.container as any)._menuMouseMoveHandler = handleMouseMove;
         (this.container as any)._menuMouseDownHandler = handleMouseDown;
         (this.container as any)._menuMouseUpHandler = handleMouseUp;
     }
-    
+
     private updatePlayerInfo(immediate: boolean = false): void {
         if (!this.playerProgression) return;
-        
+
         const stats = this.playerProgression.getStats();
         const xpProgress = this.playerProgression.getExperienceProgress();
-        
+
         const levelBadge = document.getElementById("level-badge");
         if (levelBadge) levelBadge.textContent = stats.level.toString();
-        
+
         // Плавная анимация XP-бара (или немедленное обновление)
         const xpBar = document.getElementById("xp-bar") as HTMLElement;
         if (xpBar) {
             const targetPercent = xpProgress.percent;
-            
+
             if (immediate) {
                 // Немедленное обновление без анимации (при первой загрузке)
                 xpBar.style.width = `${targetPercent}%`;
                 xpBar.style.transition = "none";
             } else {
                 const currentPercent = parseFloat(xpBar.style.width) || 0;
-                
+
                 // Плавная интерполяция к целевому значению
                 if (Math.abs(targetPercent - currentPercent) > 0.1) {
                     const diff = targetPercent - currentPercent;
@@ -3903,19 +5123,19 @@ export class MainMenu {
                 }
             }
         }
-        
+
         const xpText = document.getElementById("xp-text");
         if (xpText) xpText.textContent = `${xpProgress.current} / ${xpProgress.required} XP`;
-        
+
         const creditsDisplay = document.getElementById("credits-display");
         if (creditsDisplay) creditsDisplay.textContent = stats.credits.toString();
-        
+
         const killsDisplay = document.getElementById("kills-display");
         if (killsDisplay) killsDisplay.textContent = stats.totalKills.toString();
-        
+
         const playtimeDisplay = document.getElementById("playtime-display");
         if (playtimeDisplay) playtimeDisplay.textContent = this.playerProgression.getPlayTimeFormatted();
-        
+
         const skillPointsHint = document.getElementById("skill-points-hint");
         if (skillPointsHint) {
             if (stats.skillPoints > 0) {
@@ -3925,11 +5145,11 @@ export class MainMenu {
                 skillPointsHint.classList.remove("visible");
             }
         }
-        
+
         // Обновляем позывной
         this.updatePlayerCallsign();
     }
-    
+
     private startAnimations(): void {
         // Первое немедленное обновление при старте (если playerProgression уже установлен)
         if (this.playerProgression) {
@@ -3937,7 +5157,7 @@ export class MainMenu {
                 this.updatePlayerInfo(true);
             }, 0);
         }
-        
+
         // Периодическое обновление статистики в реальном времени (каждые 100мс для плавной анимации XP-бара)
         setInterval(() => {
             if (this.playerProgression) {
@@ -3947,7 +5167,7 @@ export class MainMenu {
                 }
             }
         }, 100); // Обновляем каждые 100мс для плавной анимации
-        
+
         // Fallback обновление раз в 5 секунд (на случай если события не работают)
         setInterval(() => {
             if (this.container && !this.container.classList.contains('hidden')) {
@@ -3955,7 +5175,7 @@ export class MainMenu {
             }
         }, 5000);
     }
-    
+
     private createSettingsUI(): void {
         this.settingsPanel = document.createElement("div");
         this.settingsPanel.className = "panel-overlay";
@@ -4199,6 +5419,10 @@ export class MainMenu {
                             <span class="setting-label">Виртуальная фиксация башни</span>
                             <input type="checkbox" class="setting-checkbox" id="set-virtual-fixation" ${this.settings.virtualTurretFixation ? 'checked' : ''}>
                         </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Экранное управление (джойстик)</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-touch-controls" ${this.settings.showTouchControls ? 'checked' : ''}>
+                        </div>
                     </div>
                     
                     <!-- Gameplay Tab -->
@@ -4382,9 +5606,9 @@ export class MainMenu {
                 </div>
             </div>
         `;
-        
+
         document.body.appendChild(this.settingsPanel);
-        
+
         // Add CSS for tabs
         const style = document.createElement("style");
         style.textContent = `
@@ -4424,9 +5648,9 @@ export class MainMenu {
             }
         `;
         document.head.appendChild(style);
-        
+
         this.setupPanelCloseOnBackground(this.settingsPanel, () => this.hideSettings());
-        
+
         // Tab switching
         document.querySelectorAll(".settings-tab").forEach(tab => {
             tab.addEventListener("click", () => {
@@ -4437,7 +5661,7 @@ export class MainMenu {
                 document.querySelector(`[data-content="${tabName}"]`)?.classList.add("active");
             });
         });
-        
+
         const setupSlider = (id: string, valId: string, suffix: string = "", formatter?: (val: string) => string) => {
             const slider = document.getElementById(id) as HTMLInputElement;
             const val = document.getElementById(valId);
@@ -4447,7 +5671,7 @@ export class MainMenu {
                 }
             });
         };
-        
+
         setupSlider("set-render", "set-render-val");
         setupSlider("set-sound", "set-sound-val", "%");
         setupSlider("set-music", "set-music-val", "%");
@@ -4465,20 +5689,20 @@ export class MainMenu {
         setupSlider("set-auto-save-interval", "set-auto-save-interval-val");
         setupSlider("set-font-size", "set-font-size-val");
         setupSlider("set-max-fps", "set-max-fps-val", "", (val) => val === "0" ? "Без ограничений" : val);
-        
+
         // Language toggle
         document.getElementById("lang-ru")?.addEventListener("click", () => {
             this.settings.language = "ru";
             document.getElementById("lang-ru")?.classList.add("active");
             document.getElementById("lang-en")?.classList.remove("active");
         });
-        
+
         document.getElementById("lang-en")?.addEventListener("click", () => {
             this.settings.language = "en";
             document.getElementById("lang-en")?.classList.add("active");
             document.getElementById("lang-ru")?.classList.remove("active");
         });
-        
+
         // Difficulty selector
         ["easy", "medium", "hard"].forEach(diff => {
             document.getElementById(`diff-${diff}`)?.addEventListener("click", () => {
@@ -4487,11 +5711,11 @@ export class MainMenu {
                 document.getElementById(`diff-${diff}`)?.classList.add("active");
             });
         });
-        
+
         // Seed controls
         const seedInput = document.getElementById("set-seed") as HTMLInputElement;
         const randomSeedCheckbox = document.getElementById("set-random-seed") as HTMLInputElement;
-        
+
         randomSeedCheckbox?.addEventListener("change", () => {
             this.settings.useRandomSeed = randomSeedCheckbox.checked;
             if (seedInput) {
@@ -4503,13 +5727,13 @@ export class MainMenu {
                 }
             }
         });
-        
+
         seedInput?.addEventListener("change", () => {
             const value = parseInt(seedInput.value) || 12345;
             this.settings.worldSeed = value;
             seedInput.value = value.toString();
         });
-        
+
         document.getElementById("seed-copy")?.addEventListener("click", () => {
             const seed = this.settings.worldSeed.toString();
             navigator.clipboard.writeText(seed).then(() => {
@@ -4521,7 +5745,7 @@ export class MainMenu {
                 }
             });
         });
-        
+
         document.getElementById("seed-random")?.addEventListener("click", () => {
             const newSeed = Math.floor(Math.random() * 999999999);
             this.settings.worldSeed = newSeed;
@@ -4543,13 +5767,13 @@ export class MainMenu {
                 window.dispatchEvent(new KeyboardEvent("keydown", { key: "7", code: "Digit7", ctrlKey: true }));
             });
         }
-        
+
         document.getElementById("settings-save")?.addEventListener("click", () => {
             this.saveSettingsFromUI();
             this.hideSettings();
             location.reload();
         });
-        
+
         document.getElementById("settings-reset")?.addEventListener("click", () => {
             // ИСПРАВЛЕНО: Сбрасываем настройки к значениям по умолчанию и сохраняем их напрямую
             this.settings = { ...DEFAULT_SETTINGS };
@@ -4557,10 +5781,10 @@ export class MainMenu {
             window.dispatchEvent(new CustomEvent("settingsChanged", { detail: this.settings }));
             location.reload();
         });
-        
+
         this.setupCloseButton("settings-close", () => this.hideSettings());
     }
-    
+
     private createStatsPanel(): void {
         this.statsPanel = document.createElement("div");
         this.statsPanel.className = "panel-overlay";
@@ -4575,27 +5799,27 @@ export class MainMenu {
                 </div>
             </div>
         `;
-        
+
         document.body.appendChild(this.statsPanel);
-        
+
         this.setupCloseButton("stats-close", () => this.hideStats());
         this.setupCloseButton("stats-back", () => this.hideStats());
         this.setupPanelCloseOnBackground(this.statsPanel, () => this.hideStats());
     }
-    
+
     private createSkillsPanel(): void {
         this.skillsPanel = document.createElement("div");
         this.skillsPanel.className = "panel-overlay";
         this.skillsPanel.id = "skills-panel";
         this.skillsPanel.innerHTML = createSkillsPanelHTML();
-        
+
         document.body.appendChild(this.skillsPanel);
-        
+
         this.setupCloseButton("skills-close", () => this.hideSkills());
         this.setupCloseButton("skills-back", () => this.hideSkills());
         this.setupPanelCloseOnBackground(this.skillsPanel, () => this.hideSkills());
     }
-    
+
     private createProgressPanel(): void {
         this.progressPanel = document.createElement("div");
         this.progressPanel.className = "panel-overlay";
@@ -4624,13 +5848,13 @@ export class MainMenu {
                 </div>
             </div>
         `;
-        
+
         document.body.appendChild(this.progressPanel);
-        
+
         // Setup close button
         this.setupCloseButton("progress-close", () => this.hideProgress());
         this.setupPanelCloseOnBackground(this.progressPanel, () => this.hideProgress());
-        
+
         // Setup tab switching
         this.progressPanel.querySelectorAll(".progress-tab").forEach(tab => {
             tab.addEventListener("click", () => {
@@ -4639,26 +5863,26 @@ export class MainMenu {
             });
         });
     }
-    
+
     private switchProgressTab(tab: "level" | "achievements" | "quests"): void {
         this.progressCurrentTab = tab;
-        
+
         // Update tab buttons
         this.progressPanel.querySelectorAll(".progress-tab").forEach(t => {
             t.classList.toggle("active", (t as HTMLElement).dataset.tab === tab);
         });
-        
+
         // Update content
         this.progressPanel.querySelectorAll(".progress-tab-content").forEach(c => {
             c.classList.remove("active");
         });
-        
+
         const contentId = `progress-${tab}-content`;
         const contentEl = document.getElementById(contentId);
         if (contentEl) {
             contentEl.classList.add("active");
         }
-        
+
         // Render content based on tab
         switch (tab) {
             case "level":
@@ -4672,7 +5896,7 @@ export class MainMenu {
                 break;
         }
     }
-    
+
     private showProgress(): void {
         debugLog("[Menu] showProgress() called");
         if (this.progressPanel) {
@@ -4681,7 +5905,7 @@ export class MainMenu {
             this.progressPanel.style.setProperty("visibility", "visible", "important");
             this.progressPanel.style.setProperty("opacity", "1", "important");
             this.progressPanel.style.setProperty("z-index", "100002", "important");
-            
+
             // Add in-battle class if game is running
             const game = (window as any).gameInstance;
             if (game && game.gameStarted) {
@@ -4689,13 +5913,13 @@ export class MainMenu {
             } else {
                 this.progressPanel.classList.remove("in-battle");
             }
-            
+
             // Render current tab
             this.switchProgressTab(this.progressCurrentTab);
             this.enforceCanvasPointerEvents();
         }
     }
-    
+
     private hideProgress(): void {
         debugLog("[Menu] hideProgress() called");
         if (this.progressPanel) {
@@ -4705,16 +5929,16 @@ export class MainMenu {
             this.enforceCanvasPointerEvents();
         }
     }
-    
+
     private renderLevelTab(): void {
         const content = document.getElementById("progress-level-content");
         if (!content || !this.playerProgression) return;
-        
+
         const stats = this.playerProgression.getStats();
         const xpProgress = this.playerProgression.getExperienceProgress();
         const realTimeStats = this.playerProgression.getRealTimeXpStats();
         const bonuses = getLevelBonuses(stats.level);
-        
+
         // Get current title
         let currentTitle: { title: string; icon: string; color: string } = { title: "Новобранец", icon: "🪖", color: "#888888" };
         for (let lvl = stats.level; lvl >= 1; lvl--) {
@@ -4724,7 +5948,7 @@ export class MainMenu {
                 break;
             }
         }
-        
+
         // Get next title
         let nextTitle = null;
         for (let lvl = stats.level + 1; lvl <= MAX_PLAYER_LEVEL; lvl++) {
@@ -4733,16 +5957,16 @@ export class MainMenu {
                 break;
             }
         }
-        
+
         // Format prestige
-        const prestigeText = stats.prestigeLevel > 0 
-            ? `Престиж ${stats.prestigeLevel} (+${(stats.prestigeLevel * 10)}%)` 
+        const prestigeText = stats.prestigeLevel > 0
+            ? `Престиж ${stats.prestigeLevel} (+${(stats.prestigeLevel * 10)}%)`
             : "Нет престижа";
-        
+
         // Calculate XP per minute display
         const xpPerMin = Math.round(realTimeStats.experiencePerMinute);
         const xpPerMinText = xpPerMin > 0 ? `+${xpPerMin} XP/мин` : "—";
-        
+
         content.innerHTML = `
             <div class="progress-level-section">
                 <div class="progress-level-badge">
@@ -4823,21 +6047,21 @@ export class MainMenu {
             `}
         `;
     }
-    
+
     private achievementCategoryFilter: "all" | "combat" | "survival" | "progression" | "special" = "all";
-    
+
     private renderAchievementsTab(): void {
         const content = document.getElementById("progress-achievements-content");
         if (!content || !this.playerProgression) return;
-        
+
         const { unlocked, locked } = this.playerProgression.getAchievements();
         const allAchievements = [...unlocked, ...locked];
-        
+
         // Filter by category
-        const filtered = this.achievementCategoryFilter === "all" 
-            ? allAchievements 
+        const filtered = this.achievementCategoryFilter === "all"
+            ? allAchievements
             : allAchievements.filter(a => a.category === this.achievementCategoryFilter);
-        
+
         // Category counts
         const categoryCounts = {
             all: allAchievements.length,
@@ -4846,10 +6070,10 @@ export class MainMenu {
             progression: allAchievements.filter(a => a.category === "progression").length,
             special: allAchievements.filter(a => a.category === "special").length
         };
-        
+
         const unlockedCount = unlocked.length;
         const totalCount = allAchievements.length;
-        
+
         content.innerHTML = `
             <div style="margin-bottom: 15px; text-align: center; color: #0f0; font-size: 11px;">
                 Разблокировано: ${unlockedCount} / ${totalCount}
@@ -4875,8 +6099,8 @@ export class MainMenu {
             
             <div class="achievements-grid">
                 ${filtered.map(achievement => {
-                    const isUnlocked = unlocked.some((u: PlayerAchievement) => u.id === achievement.id);
-                    return `
+            const isUnlocked = unlocked.some((u: PlayerAchievement) => u.id === achievement.id);
+            return `
                         <div class="achievement-card ${isUnlocked ? 'unlocked' : 'locked'} tier-${achievement.tier}">
                             <div class="achievement-header">
                                 <span class="achievement-icon">${achievement.icon}</span>
@@ -4892,10 +6116,10 @@ export class MainMenu {
                             <span class="achievement-status">${isUnlocked ? '✅' : '🔒'}</span>
                         </div>
                     `;
-                }).join('')}
+        }).join('')}
             </div>
         `;
-        
+
         // Setup category filter buttons
         content.querySelectorAll(".achievement-category-btn").forEach(btn => {
             btn.addEventListener("click", () => {
@@ -4904,14 +6128,14 @@ export class MainMenu {
             });
         });
     }
-    
+
     private renderQuestsTab(): void {
         const content = document.getElementById("progress-quests-content");
         if (!content || !this.playerProgression) return;
-        
+
         const stats = this.playerProgression.getStats();
         const dailyQuests: DailyQuest[] = stats.dailyQuests || [];
-        
+
         // Calculate time until daily reset (assumes reset at midnight)
         const now = new Date();
         const tomorrow = new Date(now);
@@ -4920,7 +6144,7 @@ export class MainMenu {
         const timeUntilReset = tomorrow.getTime() - now.getTime();
         const hoursLeft = Math.floor(timeUntilReset / (1000 * 60 * 60));
         const minutesLeft = Math.floor((timeUntilReset % (1000 * 60 * 60)) / (1000 * 60));
-        
+
         if (dailyQuests.length === 0) {
             content.innerHTML = `
                 <div class="quests-header">
@@ -4934,9 +6158,9 @@ export class MainMenu {
             `;
             return;
         }
-        
+
         const completedCount = dailyQuests.filter(q => q.completed).length;
-        
+
         content.innerHTML = `
             <div class="quests-header">
                 <div class="quests-title">ЕЖЕДНЕВНЫЕ ЗАДАНИЯ (${completedCount}/${dailyQuests.length})</div>
@@ -4944,8 +6168,8 @@ export class MainMenu {
             </div>
             
             ${dailyQuests.map(quest => {
-                const progressPercent = Math.min(100, (quest.progress / quest.target) * 100);
-                return `
+            const progressPercent = Math.min(100, (quest.progress / quest.target) * 100);
+            return `
                     <div class="quest-card ${quest.completed ? 'completed' : ''}">
                         <div class="quest-header">
                             <span class="quest-name">${quest.name}</span>
@@ -4966,10 +6190,10 @@ export class MainMenu {
                         </div>
                     </div>
                 `;
-            }).join('')}
+        }).join('')}
         `;
     }
-    
+
     private createMapSelectionPanel(): void {
         this.mapSelectionPanel = document.createElement("div");
         this.mapSelectionPanel.className = "panel-overlay";
@@ -5069,23 +6293,23 @@ export class MainMenu {
                 </div>
             </div>
         `;
-        
+
         document.body.appendChild(this.mapSelectionPanel);
-        
+
         const addMapButtonHandler = (mapId: string, mapType: MapType) => {
             document.getElementById(mapId)?.addEventListener("click", () => {
-                
+
                 this.hide();
                 this.hideMapSelection();
                 if (this.onStartGame && typeof this.onStartGame === 'function') {
-                    
+
                     this.onStartGame(mapType);
                 } else {
                     console.error("[Menu] onStartGame callback is not set!");
                 }
             });
         };
-        
+
         addMapButtonHandler("btn-map-normal", "normal");
         addMapButtonHandler("btn-map-sandbox", "sandbox");
         addMapButtonHandler("btn-map-sand", "sand");
@@ -5102,24 +6326,24 @@ export class MainMenu {
         addMapButtonHandler("btn-map-underground", "underground");
         addMapButtonHandler("btn-map-coastal", "coastal");
         addMapButtonHandler("btn-map-tartaria", "tartaria");
-        
+
         this.setupCloseButton("map-selection-close", () => this.hideMapSelection());
         this.setupCloseButton("map-selection-back", () => this.hideMapSelection());
         this.setupPanelCloseOnBackground(this.mapSelectionPanel, () => this.hideMapSelection());
     }
-    
+
     private createPlayMenuPanel(): void {
         this.playMenuPanel = document.createElement("div");
         this.playMenuPanel.className = "panel";
         this.playMenuPanel.id = "play-menu-panel";
         const L = getLang(this.settings);
-        
+
         // Загружаем сохраненные выборы
         const savedChassis = localStorage.getItem("selectedChassis") || "medium";
         const savedCannon = localStorage.getItem("selectedCannon") || "standard";
         this.selectedChassis = savedChassis;
         this.selectedCannon = savedCannon;
-        
+
         this.playMenuPanel.innerHTML = `
                 <div class="panel-content" style="position: relative; min-height: 100vh; height: 100%;">
                 <div class="panel-title">${L.play || "ИГРАТЬ"}</div>
@@ -5207,127 +6431,6 @@ export class MainMenu {
                     </div>
                     <div class="section-title">🌐 МУЛЬТИПЛЕЕР</div>
                     
-                    <!-- Статус подключения -->
-                    <div id="mp-status-container" style="margin: 15px 0; padding: 15px; background: linear-gradient(135deg, rgba(0, 0, 0, 0.4) 0%, rgba(20, 20, 30, 0.4) 100%); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);">
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <span id="mp-connection-indicator" style="width: 10px; height: 10px; border-radius: 50%; background: #888; display: inline-block;"></span>
-                                <span id="mp-connection-status" style="font-size: 13px; font-weight: 500; color: #aaa;">Не подключен</span>
-                            </div>
-                            <span id="mp-ping" style="font-size: 11px; color: #666; font-family: monospace; display: none;">---ms</span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-                            <div style="display: flex; flex-direction: column; gap: 4px;">
-                                <div id="mp-server-info" style="font-size: 11px; color: #666; font-family: monospace;">
-                                    ws://localhost:8080
-                                </div>
-                                <div id="mp-server-hint" style="font-size: 9px; color: #888; font-style: italic; max-width: 300px;">
-                                    Для подключения с другого ПК используйте IP-адрес сервера вместо localhost
-                                </div>
-                            </div>
-                            <div style="display: flex; gap: 8px;">
-                                <button id="mp-btn-test-connection" class="panel-btn" style="padding: 4px 12px; font-size: 11px; display: inline-block;" title="Проверить подключение к серверу">
-                                    🔍 Проверить
-                                </button>
-                                <button id="mp-btn-reconnect" class="panel-btn" style="padding: 4px 12px; font-size: 11px; display: none;">
-                                    🔄 Переподключиться
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Выбор режима игры -->
-                    <div style="margin: 20px 0;">
-                        <div style="font-weight: bold; margin-bottom: 12px; font-size: 14px; color: #fff;">Выберите режим:</div>
-                        <div class="mp-mode-buttons" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
-                            <button class="menu-btn secondary mp-mode-btn" id="mp-btn-ffa" data-mp-mode="ffa" data-mp-desc="Каждый сам за себя. Побеждает игрок с наибольшим количеством убийств.">
-                                <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
-                                    <div style="display: flex; align-items: center; gap: 8px;">
-                                        <span class="btn-icon">⚔️</span>
-                                        <span class="btn-label" style="font-weight: 600;">Free-for-All</span>
-                                    </div>
-                                    <span style="font-size: 10px; opacity: 0.7; text-align: left; line-height: 1.2;">PvP до последнего</span>
-                                </div>
-                            </button>
-                            <button class="menu-btn secondary mp-mode-btn" id="mp-btn-tdm" data-mp-mode="tdm" data-mp-desc="Командная битва. Две команды сражаются за победу.">
-                                <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
-                                    <div style="display: flex; align-items: center; gap: 8px;">
-                                        <span class="btn-icon">👥</span>
-                                        <span class="btn-label" style="font-weight: 600;">Team Deathmatch</span>
-                                    </div>
-                                    <span style="font-size: 10px; opacity: 0.7; text-align: left; line-height: 1.2;">Командная битва</span>
-                                </div>
-                            </button>
-                            <button class="menu-btn secondary mp-mode-btn" id="mp-btn-coop" data-mp-mode="coop" data-mp-desc="Кооператив против ИИ. Сражайтесь вместе с друзьями.">
-                                <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
-                                    <div style="display: flex; align-items: center; gap: 8px;">
-                                        <span class="btn-icon">🤝</span>
-                                        <span class="btn-label" style="font-weight: 600;">Co-op PvE</span>
-                                    </div>
-                                    <span style="font-size: 10px; opacity: 0.7; text-align: left; line-height: 1.2;">Против ИИ</span>
-                                </div>
-                            </button>
-                            <button class="menu-btn secondary mp-mode-btn" id="mp-btn-br" data-mp-mode="battle_royale" data-mp-desc="Королевская битва. Безопасная зона сужается. Последний выживший побеждает.">
-                                <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
-                                    <div style="display: flex; align-items: center; gap: 8px;">
-                                        <span class="btn-icon">👑</span>
-                                        <span class="btn-label" style="font-weight: 600;">Battle Royale</span>
-                                    </div>
-                                    <span style="font-size: 10px; opacity: 0.7; text-align: left; line-height: 1.2;">Последний выживший</span>
-                                </div>
-                            </button>
-                            <button class="menu-btn secondary mp-mode-btn" id="mp-btn-ctf" data-mp-mode="ctf" data-mp-desc="Захват флага. Захватите флаг противника и доставьте на свою базу." style="grid-column: 1 / -1;">
-                                <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
-                                    <div style="display: flex; align-items: center; gap: 8px;">
-                                        <span class="btn-icon">🚩</span>
-                                        <span class="btn-label" style="font-weight: 600;">Capture the Flag</span>
-                                    </div>
-                                    <span style="font-size: 10px; opacity: 0.7; text-align: left; line-height: 1.2;">Захват флага противника</span>
-                                </div>
-                            </button>
-                            <button class="menu-btn secondary mp-mode-btn" id="mp-btn-control-point" data-mp-mode="control_point" data-mp-desc="Захват контрольных точек. Команда, захватившая большинство точек, побеждает.">
-                                <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
-                                    <div style="display: flex; align-items: center; gap: 8px;">
-                                        <span class="btn-icon">📍</span>
-                                        <span class="btn-label" style="font-weight: 600;">Control Point</span>
-                                    </div>
-                                    <span style="font-size: 10px; opacity: 0.7; text-align: left; line-height: 1.2;">Захват контрольных точек</span>
-                                </div>
-                            </button>
-                            <button class="menu-btn secondary mp-mode-btn" id="mp-btn-escort" data-mp-mode="escort" data-mp-desc="Охрана конвоя. Одна команда защищает, другая атакует. Доставьте цель до финиша или уничтожьте её.">
-                                <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
-                                    <div style="display: flex; align-items: center; gap: 8px;">
-                                        <span class="btn-icon">🚛</span>
-                                        <span class="btn-label" style="font-weight: 600;">Escort</span>
-                                    </div>
-                                    <span style="font-size: 10px; opacity: 0.7; text-align: left; line-height: 1.2;">Охрана конвоя</span>
-                                </div>
-                            </button>
-                            <button class="menu-btn secondary mp-mode-btn" id="mp-btn-survival" data-mp-mode="survival" data-mp-desc="Выживание. Кооперативный режим против волн врагов. Выживите как можно дольше.">
-                                <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
-                                    <div style="display: flex; align-items: center; gap: 8px;">
-                                        <span class="btn-icon">⚔️</span>
-                                        <span class="btn-label" style="font-weight: 600;">Survival</span>
-                                    </div>
-                                    <span style="font-size: 10px; opacity: 0.7; text-align: left; line-height: 1.2;">Волны врагов</span>
-                                </div>
-                            </button>
-                            <button class="menu-btn secondary mp-mode-btn" id="mp-btn-raid" data-mp-mode="raid" data-mp-desc="Рейд. Кооперативный режим против мощных боссов. Победите всех боссов для победы.">
-                                <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
-                                    <div style="display: flex; align-items: center; gap: 8px;">
-                                        <span class="btn-icon">👹</span>
-                                        <span class="btn-label" style="font-weight: 600;">Raid</span>
-                                    </div>
-                                    <span style="font-size: 10px; opacity: 0.7; text-align: left; line-height: 1.2;">Против боссов</span>
-                                </div>
-                            </button>
-                        </div>
-                        <!-- Описание выбранного режима -->
-                        <div id="mp-mode-description" style="margin-top: 12px; padding: 10px; background: rgba(102, 126, 234, 0.1); border-radius: 5px; border-left: 3px solid #667eea; font-size: 12px; color: #aaa; line-height: 1.4; display: none;">
-                            <span id="mp-mode-desc-text"></span>
-                        </div>
-                    </div>
-                    
                     <!-- Кнопки действий -->
                     <div style="margin: 20px 0;">
                         <div style="display: flex; gap: 10px; flex-direction: column;">
@@ -5340,6 +6443,40 @@ export class MainMenu {
                                 </button>
                                 <button class="panel-btn" id="mp-btn-join-room" style="padding: 12px; transition: all 0.2s;">
                                     🔗 Присоединиться
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Список доступных комнат -->
+                    <div id="mp-rooms-list" style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid #0f0;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                            <div style="font-weight: bold; color: #0f0; font-size: 14px;">📋 Доступные комнаты</div>
+                            <button id="mp-btn-refresh-rooms" style="padding: 4px 8px; font-size: 10px; background: rgba(0, 255, 0, 0.2); border: 1px solid #0f0; border-radius: 4px; color: #0f0; cursor: pointer; transition: all 0.2s;" title="Обновить список">
+                                🔄
+                            </button>
+                        </div>
+                        <div id="mp-rooms-items" style="display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #0f0 rgba(0, 0, 0, 0.3);">
+                            <div style="text-align: center; padding: 20px; color: #888; font-size: 12px;">Загрузка списка комнат...</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Статус подключения -->
+                    <div id="mp-status-container" style="margin: 15px 0; padding: 10px; background: rgba(0, 0, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
+                        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span id="mp-connection-indicator" style="width: 10px; height: 10px; border-radius: 50%; background: #888; display: inline-block;"></span>
+                                <span id="mp-connection-status" style="font-size: 12px; color: #aaa;">Не подключен</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <button id="mp-btn-check-ws" class="panel-btn" style="padding: 6px 12px; font-size: 11px; font-weight: bold; background: linear-gradient(135deg, rgba(0, 100, 0, 0.6) 0%, rgba(0, 60, 0, 0.8) 100%); border: 1px solid rgba(0, 255, 0, 0.6); border-radius: 4px; transition: all 0.2s ease;" title="Проверить WebSocket соединение">
+                                    🔌 WebSocket
+                                </button>
+                                <button id="mp-btn-check-firebase" class="panel-btn" style="padding: 6px 12px; font-size: 11px; font-weight: bold; background: linear-gradient(135deg, rgba(120, 60, 0, 0.6) 0%, rgba(80, 40, 0, 0.8) 100%); border: 1px solid rgba(255, 165, 0, 0.6); border-radius: 4px; transition: all 0.2s ease;" title="Проверить Firebase соединение">
+                                    🔥 Firebase
+                                </button>
+                                <button id="mp-btn-reconnect" class="panel-btn" style="padding: 6px 12px; font-size: 11px; display: none; border-radius: 4px;">
+                                    🔄 Переподключить
                                 </button>
                             </div>
                         </div>
@@ -5420,6 +6557,35 @@ export class MainMenu {
                                 </div>
                             </div>
                             
+                            <!-- Список игроков в комнате -->
+                            <div style="margin-bottom: 20px;">
+                                <div style="font-size: 12px; font-weight: 600; color: #667eea; margin-bottom: 10px;">👥 Игроки в комнате:</div>
+                                <div id="mp-room-details-players-list" style="max-height: 200px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #667eea rgba(0, 0, 0, 0.3); display: flex; flex-direction: column; gap: 6px;">
+                                    <div style="text-align: center; padding: 10px; color: #888; font-size: 11px;">Загрузка списка игроков...</div>
+                                </div>
+                            </div>
+                            
+                            <!-- Панель управления (только для создателя комнаты) -->
+                            <div id="mp-room-details-admin-panel" style="display: none; margin-bottom: 20px; padding: 15px; background: rgba(102, 126, 234, 0.1); border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.3);">
+                                <div style="font-size: 12px; font-weight: 600; color: #a78bfa; margin-bottom: 12px;">⚙️ Управление комнатой:</div>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+                                    <button id="mp-room-details-change-mode" class="panel-btn" style="padding: 10px; font-size: 11px; background: rgba(102, 126, 234, 0.2); border-color: #667eea; color: #a78bfa;">
+                                        🔄 Изменить режим
+                                    </button>
+                                    <button id="mp-room-details-change-max" class="panel-btn" style="padding: 10px; font-size: 11px; background: rgba(102, 126, 234, 0.2); border-color: #667eea; color: #a78bfa;">
+                                        👥 Макс. игроков
+                                    </button>
+                                </div>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                    <button id="mp-room-details-toggle-private" class="panel-btn" style="padding: 10px; font-size: 11px; background: rgba(102, 126, 234, 0.2); border-color: #667eea; color: #a78bfa;">
+                                        🔒 Приватность
+                                    </button>
+                                    <button id="mp-room-details-transfer" class="panel-btn" style="padding: 10px; font-size: 11px; background: rgba(102, 126, 234, 0.2); border-color: #667eea; color: #a78bfa;">
+                                        👑 Передать права
+                                    </button>
+                                </div>
+                            </div>
+                            
                             <!-- Кнопки действий -->
                             <div style="display: flex; gap: 10px; margin-top: 25px;">
                                 <button id="mp-room-details-join" class="panel-btn primary" style="flex: 1; padding: 14px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; font-size: 14px; font-weight: 600;">
@@ -5429,86 +6595,6 @@ export class MainMenu {
                                     📋
                                 </button>
                             </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Информация о поиске матча -->
-                    <div id="mp-queue-info" style="display: none; margin: 15px 0; padding: 15px; background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%); border-radius: 8px; border: 1px solid #667eea; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);">
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <div id="mp-queue-pulse" style="width: 12px; height: 12px; border-radius: 50%; background: #667eea; animation: pulse 2s infinite; box-shadow: 0 0 8px rgba(102, 126, 234, 0.6);"></div>
-                                <span style="font-weight: bold; color: #667eea; font-size: 14px;">Поиск матча...</span>
-                            </div>
-                            <span id="mp-queue-timer" style="font-size: 12px; color: #aaa; font-family: monospace;">00:00</span>
-                        </div>
-                        <div id="mp-queue-details" style="font-size: 12px; color: #aaa; margin-bottom: 10px; line-height: 1.6;">
-                            <div>Режим: <span id="mp-queue-mode" style="color: #fff; font-weight: 600;">-</span></div>
-                            <div>Игроков в очереди: <span id="mp-queue-size" style="color: #4ade80; font-weight: 600;">-</span></div>
-                            <div id="mp-queue-estimated" style="margin-top: 5px; opacity: 0.8;">Примерное время ожидания: <span id="mp-queue-estimated-time">-</span></div>
-                        </div>
-                        <button class="panel-btn" id="mp-btn-cancel-queue" style="width: 100%; padding: 10px; font-size: 14px; background: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #ef4444;">
-                            ❌ Отменить поиск
-                        </button>
-                    </div>
-                    
-                    <!-- Список доступных комнат -->
-                    <div id="mp-rooms-list" style="margin: 15px 0; padding: 15px; background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%); border-radius: 8px; border: 1px solid #667eea; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);">
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                            <div style="font-weight: bold; color: #667eea; font-size: 14px;">📋 Доступные комнаты</div>
-                            <button id="mp-btn-refresh-rooms" style="padding: 4px 8px; font-size: 10px; background: rgba(102, 126, 234, 0.3); border: 1px solid #667eea; border-radius: 4px; color: #a78bfa; cursor: pointer; transition: all 0.2s;" title="Обновить список">
-                                🔄
-                            </button>
-                        </div>
-                        <div id="mp-rooms-items" style="display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #667eea rgba(0, 0, 0, 0.3);">
-                            <div style="text-align: center; padding: 20px; color: #888; font-size: 12px;">Загрузка списка комнат...</div>
-                        </div>
-                    </div>
-                    
-                    <!-- Информация о текущей комнате -->
-                    <div id="mp-room-info" style="display: none; margin: 15px 0; padding: 15px; background: linear-gradient(135deg, rgba(118, 75, 162, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%); border-radius: 8px; border: 1px solid #764ba2; box-shadow: 0 2px 8px rgba(118, 75, 162, 0.3);">
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                            <div style="font-weight: bold; color: #764ba2; font-size: 14px;">🏠 Текущая комната</div>
-                            <span id="mp-room-players-count" style="font-size: 11px; color: #aaa; background: rgba(0, 0, 0, 0.3); padding: 4px 8px; border-radius: 4px;">0/32</span>
-                        </div>
-                        <div id="mp-room-details" style="font-size: 12px; color: #aaa; margin-bottom: 12px; line-height: 1.6;">
-                            <div>Режим: <span id="mp-room-mode" style="color: #fff; font-weight: 600;">-</span></div>
-                            <div style="display: flex; align-items: center; gap: 8px; margin-top: 5px;">
-                                <span>ID комнаты:</span>
-                                <span id="mp-room-id" style="color: #a78bfa; font-family: monospace; font-weight: 600; flex: 1;">-</span>
-                                <button id="mp-btn-copy-room-id" style="padding: 4px 8px; font-size: 10px; background: rgba(118, 75, 162, 0.3); border: 1px solid #764ba2; border-radius: 4px; color: #a78bfa; cursor: pointer; transition: all 0.2s;" title="Копировать ID">
-                                    📋
-                                </button>
-                            </div>
-                            <div id="mp-room-status" style="margin-top: 8px; padding: 6px; background: rgba(0, 0, 0, 0.2); border-radius: 4px;">
-                                <span id="mp-room-status-text" style="color: #4ade80;">Ожидание игроков...</span>
-                            </div>
-                        </div>
-                        
-                        <!-- Список игроков в комнате -->
-                        <div id="mp-room-players-list" style="margin-top: 12px; margin-bottom: 12px; max-height: 200px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #764ba2 rgba(0, 0, 0, 0.3);">
-                            <div style="font-size: 11px; color: #888; margin-bottom: 6px; font-weight: 600;">Игроки в комнате:</div>
-                            <div id="mp-room-players-items" style="display: flex; flex-direction: column; gap: 4px;">
-                                <!-- Игроки будут добавлены динамически -->
-                            </div>
-                        </div>
-                        
-                        <button class="panel-btn primary battle-btn" id="mp-btn-start-game" style="display: none; width: 100%; padding: 12px; font-size: 16px; font-weight: bold; margin-bottom: 10px; position: relative; overflow: hidden;">
-                            <span class="battle-btn-text">⚔️ В БОЙ!</span>
-                            <span class="battle-btn-shine"></span>
-                        </button>
-                        
-                        <button class="panel-btn" id="mp-btn-leave-room" style="width: 100%; padding: 10px; font-size: 14px; background: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #ef4444;">
-                            🚪 Покинуть комнату
-                        </button>
-                    </div>
-                    
-                    <!-- Сообщения об ошибках -->
-                    <div id="mp-error-message" style="display: none; margin: 15px 0; padding: 12px; background: rgba(239, 68, 68, 0.2); border-radius: 8px; border: 1px solid #ef4444; animation: fadeIn 0.3s ease;">
-                        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
-                            <span style="font-size: 18px;">⚠️</span>
-                            <span style="font-weight: bold; color: #ef4444;">Ошибка</span>
-                        </div>
-                        <div id="mp-error-text" style="font-size: 12px; color: #ffaaaa; line-height: 1.4;">
                         </div>
                     </div>
                     
@@ -5726,6 +6812,433 @@ export class MainMenu {
                     </style>
                 </div>
                 
+                <!-- Панель выбора режима для создания комнаты -->
+                <div class="play-window" id="mp-create-room-mode" data-order="1" data-step="1" style="display: none;">
+                    <div class="play-window-header">
+                        <div class="play-window-title">/[user_id]/multiplayer/mode</div>
+                        <div class="window-actions">
+                            <button class="window-btn" data-nav="back" data-step="1">⟵</button>
+                            <button class="window-btn" data-nav="close" data-step="1">✕</button>
+                        </div>
+                    </div>
+                    <div class="section-title">Выбор режима игры</div>
+                    <div class="gamemode-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 15px;">
+                        <button class="menu-btn secondary gamemode-btn" onclick="window.selectMpCreateRoomMode('ffa')">
+                            <span class="btn-icon">⚔️</span>
+                            <span class="btn-label">Free-for-All</span>
+                        </button>
+                        <button class="menu-btn secondary gamemode-btn" onclick="window.selectMpCreateRoomMode('tdm')">
+                            <span class="btn-icon">👥</span>
+                            <span class="btn-label">Team Deathmatch</span>
+                        </button>
+                        <button class="menu-btn secondary gamemode-btn" onclick="window.selectMpCreateRoomMode('coop')">
+                            <span class="btn-icon">🤝</span>
+                            <span class="btn-label">Co-op PvE</span>
+                        </button>
+                        <button class="menu-btn secondary gamemode-btn" onclick="window.selectMpCreateRoomMode('battle_royale')">
+                            <span class="btn-icon">👑</span>
+                            <span class="btn-label">Battle Royale</span>
+                        </button>
+                        <button class="menu-btn secondary gamemode-btn" onclick="window.selectMpCreateRoomMode('ctf')">
+                            <span class="btn-icon">🚩</span>
+                            <span class="btn-label">Capture the Flag</span>
+                        </button>
+                        <button class="menu-btn secondary gamemode-btn" onclick="window.selectMpCreateRoomMode('survival')">
+                            <span class="btn-icon">⚔️</span>
+                            <span class="btn-label">Survival</span>
+                        </button>
+                        <button class="menu-btn secondary gamemode-btn" onclick="window.selectMpCreateRoomMode('raid')">
+                            <span class="btn-icon">👹</span>
+                            <span class="btn-label">Raid</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Панель выбора карты для создания комнаты -->
+                <div class="play-window play-window-wide" id="mp-create-room-map" data-order="2" data-step="2" style="display: none; pointer-events: auto; position: relative; z-index: 100010;">
+                    <div class="play-window-header">
+                        <div class="play-window-title">/[user_id]/multiplayer/mode/map</div>
+                        <div class="window-actions">
+                            <button class="window-btn" data-nav="back" data-step="2">⟵</button>
+                            <button class="window-btn" data-nav="close" data-step="2">✕</button>
+                        </div>
+                    </div>
+                    <div class="section-title">Выбор карты</div>
+                    <div class="map-grid" style="pointer-events: auto;">
+                        <div class="map-card recommended" onclick="window.selectMpCreateRoomMap('normal', this)" style="cursor: pointer; pointer-events: auto;">
+                            <span class="map-card-icon">🗺</span>
+                            <span class="map-card-name">${L.normalMap || "Обычная карта"}</span>
+                        </div>
+                        <div class="map-card" onclick="window.selectMpCreateRoomMap('sandbox', this)" style="cursor: pointer; pointer-events: auto;">
+                            <span class="map-card-icon">🏖</span>
+                            <span class="map-card-name">${L.sandboxMap || "Песочница"}</span>
+                        </div>
+                        <div class="map-card" onclick="window.selectMpCreateRoomMap('sand', this)" style="cursor: pointer; pointer-events: auto;">
+                            <span class="map-card-icon">🏜</span>
+                            <span class="map-card-name">${L.sandMap || "Песок"}</span>
+                        </div>
+                        <div class="map-card" onclick="window.selectMpCreateRoomMap('madness', this)" style="cursor: pointer; pointer-events: auto;">
+                            <span class="map-card-icon">🎪</span>
+                            <span class="map-card-name">${L.madnessMap || "Безумие"}</span>
+                        </div>
+                        <div class="map-card" onclick="window.selectMpCreateRoomMap('expo', this)" style="cursor: pointer; pointer-events: auto;">
+                            <span class="map-card-icon">🎡</span>
+                            <span class="map-card-name">${L.expoMap || "Expo"}</span>
+                        </div>
+                        <div class="map-card" onclick="window.selectMpCreateRoomMap('brest', this)" style="cursor: pointer; pointer-events: auto;">
+                            <span class="map-card-icon">🏰</span>
+                            <span class="map-card-name">${L.brestMap || "Брестская крепость"}</span>
+                        </div>
+                        <div class="map-card" onclick="window.selectMpCreateRoomMap('arena', this)" style="cursor: pointer; pointer-events: auto;">
+                            <span class="map-card-icon">🏟</span>
+                            <span class="map-card-name">${L.arenaMap || "Арена"}</span>
+                        </div>
+                        <div class="map-card" onclick="window.selectMpCreateRoomMap('polygon', this)" style="cursor: pointer; pointer-events: auto;">
+                            <span class="map-card-icon">🎯</span>
+                            <span class="map-card-name">${L.polygonMap || "Полигон"}</span>
+                        </div>
+                        <div class="map-card" onclick="window.selectMpCreateRoomMap('frontline', this)" style="cursor: pointer; pointer-events: auto;">
+                            <span class="map-card-icon">💥</span>
+                            <span class="map-card-name">${L.frontlineMap || "Передовая"}</span>
+                        </div>
+                        <div class="map-card" onclick="window.selectMpCreateRoomMap('ruins', this)" style="cursor: pointer; pointer-events: auto;">
+                            <span class="map-card-icon">🏚</span>
+                            <span class="map-card-name">${L.ruinsMap || "Руины"}</span>
+                        </div>
+                        <div class="map-card" onclick="window.selectMpCreateRoomMap('canyon', this)" style="cursor: pointer; pointer-events: auto;">
+                            <span class="map-card-icon">⛰</span>
+                            <span class="map-card-name">${L.canyonMap || "Ущелье"}</span>
+                        </div>
+                        <div class="map-card" onclick="window.selectMpCreateRoomMap('industrial', this)" style="cursor: pointer; pointer-events: auto;">
+                            <span class="map-card-icon">🏭</span>
+                            <span class="map-card-name">${L.industrialMap || "Промзона"}</span>
+                        </div>
+                        <div class="map-card" onclick="window.selectMpCreateRoomMap('urban_warfare', this)" style="cursor: pointer; pointer-events: auto;">
+                            <span class="map-card-icon">🏙</span>
+                            <span class="map-card-name">${L.urbanWarfareMap || "Городские бои"}</span>
+                        </div>
+                        <div class="map-card" onclick="window.selectMpCreateRoomMap('underground', this)" style="cursor: pointer; pointer-events: auto;">
+                            <span class="map-card-icon">🕳</span>
+                            <span class="map-card-name">${L.undergroundMap || "Подземелье"}</span>
+                        </div>
+                        <div class="map-card" onclick="window.selectMpCreateRoomMap('coastal', this)" style="cursor: pointer; pointer-events: auto;">
+                            <span class="map-card-icon">🌊</span>
+                            <span class="map-card-name">${L.coastalMap || "Побережье"}</span>
+                        </div>
+                        <div class="map-card" onclick="window.selectMpCreateRoomMap('tartaria', this)" style="cursor: pointer; pointer-events: auto;">
+                            <span class="map-card-new">NEW</span>
+                            <span class="map-card-icon">🏛</span>
+                            <span class="map-card-name">${L.tartariaMap || "Тартария"}</span>
+                        </div>
+                    </div>
+                    <!-- Кнопка "Создать комнату" -->
+                    <div class="panel-buttons" style="margin-top: 20px; display: flex; gap: 10px;">
+                        <button class="panel-btn primary" id="mp-create-room-start-btn" onclick="window.startMpCreateRoom()" style="flex: 1; padding: 14px; font-size: 16px; font-weight: bold; background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%); border: none;">
+                            ➕ Создать комнату
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Панель созданной комнаты -->
+                <div class="play-window" id="mp-room-panel" data-order="3" data-step="3" style="display: none;">
+                    <div class="play-window-header">
+                        <div class="play-window-title">/[user_id]/multiplayer/room</div>
+                        <div class="window-actions">
+                            <button class="window-btn" id="mp-room-panel-minimize" title="Свернуть">─</button>
+                            <button class="window-btn" data-nav="back" data-step="3">⟵</button>
+                            <button class="window-btn" data-nav="close" data-step="3">✕</button>
+                        </div>
+                    </div>
+                    <div class="section-title" style="display: flex; align-items: center; gap: 10px;">
+                        🏠 КОМНАТА
+                        <span id="mp-room-panel-id" style="font-size: 14px; color: #4ade80; font-family: monospace; background: rgba(0, 0, 0, 0.3); padding: 4px 10px; border-radius: 4px;">----</span>
+                        <button id="mp-room-panel-copy-id" style="padding: 4px 8px; font-size: 12px; background: rgba(0, 255, 0, 0.2); border: 1px solid #0f0; border-radius: 4px; color: #0f0; cursor: pointer;" title="Копировать ID">📋</button>
+                    </div>
+                    
+                    <!-- Информация о комнате -->
+                    <div style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                            <div style="padding: 10px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
+                                <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Режим</div>
+                                <div id="mp-room-panel-mode" style="font-size: 16px; font-weight: bold; color: #0f0;">FFA</div>
+                            </div>
+                            <div style="padding: 10px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
+                                <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Карта</div>
+                                <div id="mp-room-panel-map" style="font-size: 16px; font-weight: bold; color: #0f0;">Обычная</div>
+                            </div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div style="font-size: 13px; color: #aaa;">
+                                Игроков: <span id="mp-room-panel-players" style="color: #4ade80; font-weight: bold;">1/32</span>
+                            </div>
+                            <div id="mp-room-panel-status" style="font-size: 12px; padding: 4px 10px; background: rgba(74, 222, 128, 0.2); border-radius: 4px; color: #4ade80;">
+                                Ожидание игроков
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Команды (для TDM/CTF) -->
+                    <div id="mp-room-panel-teams" style="display: none; margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <div style="font-weight: bold; color: #0f0; font-size: 14px;">⚔️ Команды</div>
+                            <button class="panel-btn" id="mp-room-panel-auto-balance" style="padding: 6px 12px; font-size: 11px;">
+                                ⚖️ Автобаланс
+                            </button>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <!-- Команда 1 -->
+                            <div style="padding: 10px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px;">
+                                <div style="font-weight: bold; color: #ef4444; font-size: 12px; margin-bottom: 8px;">
+                                    🔴 Команда 1
+                                    <span id="mp-room-panel-team1-count" style="float: right; color: #aaa; font-size: 11px;">0 игроков</span>
+                                </div>
+                                <div id="mp-room-panel-team1-players" style="display: flex; flex-direction: column; gap: 4px; min-height: 40px;">
+                                    <!-- Игроки команды 1 -->
+                                </div>
+                            </div>
+                            <!-- Команда 2 -->
+                            <div style="padding: 10px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px;">
+                                <div style="font-weight: bold; color: #3b82f6; font-size: 12px; margin-bottom: 8px;">
+                                    🔵 Команда 2
+                                    <span id="mp-room-panel-team2-count" style="float: right; color: #aaa; font-size: 11px;">0 игроков</span>
+                                </div>
+                                <div id="mp-room-panel-team2-players" style="display: flex; flex-direction: column; gap: 4px; min-height: 40px;">
+                                    <!-- Игроки команды 2 -->
+                                </div>
+                            </div>
+                        </div>
+                        <div style="margin-top: 10px; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 4px; font-size: 11px; color: #aaa;">
+                            Баланс: <span id="mp-room-panel-balance-status" style="color: #4ade80;">Сбалансировано</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Список игроков -->
+                    <div style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <div style="font-weight: bold; color: #0f0; font-size: 14px;">👥 Игроки в комнате</div>
+                            <div id="mp-room-panel-ready-status" style="font-size: 11px; color: #888;">
+                                Готовы: <span id="mp-room-panel-ready-count" style="color: #4ade80; font-weight: bold;">0/1</span>
+                            </div>
+                        </div>
+                        <div id="mp-room-panel-players-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto;">
+                            <div style="padding: 10px; background: rgba(74, 222, 128, 0.1); border: 1px solid rgba(74, 222, 128, 0.3); border-radius: 6px; display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <span style="font-size: 18px;">👑</span>
+                                    <span id="mp-room-panel-host-name" style="color: #4ade80; font-weight: bold;">Вы (Хост)</span>
+                                </div>
+                                <button id="mp-room-panel-ready-btn" class="panel-btn" style="padding: 6px 12px; font-size: 11px; background: rgba(74, 222, 128, 0.2); border-color: #4ade80; color: #4ade80;">
+                                    ✓ Готов
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Чат комнаты -->
+                    <div style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
+                        <div style="font-weight: bold; color: #0f0; font-size: 14px; margin-bottom: 10px;">💬 Чат комнаты</div>
+                        <div id="mp-room-panel-chat-messages" style="max-height: 150px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #0f0 rgba(0, 0, 0, 0.3); margin-bottom: 10px; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 4px; font-size: 11px; font-family: 'Consolas', 'Monaco', monospace; min-height: 80px;">
+                            <div style="text-align: center; padding: 10px; color: #888; font-size: 10px;">Сообщения чата появятся здесь...</div>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="text" id="mp-room-panel-chat-input" placeholder="Введите сообщение... (Enter для отправки)" style="
+                                flex: 1;
+                                padding: 8px;
+                                background: rgba(0, 0, 0, 0.5);
+                                border: 1px solid rgba(0, 255, 0, 0.3);
+                                border-radius: 4px;
+                                color: #0f0;
+                                font-family: 'Consolas', 'Monaco', monospace;
+                                font-size: 11px;
+                                outline: none;
+                            " />
+                            <button id="mp-room-panel-chat-send" style="
+                                padding: 8px 16px;
+                                background: rgba(0, 255, 0, 0.2);
+                                border: 1px solid #0f0;
+                                border-radius: 4px;
+                                color: #0f0;
+                                font-family: 'Consolas', 'Monaco', monospace;
+                                font-size: 11px;
+                                cursor: pointer;
+                                transition: all 0.2s;
+                            ">Отправить</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Настройки комнаты (только для хоста) -->
+                    <div id="mp-room-panel-settings" style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <div style="font-weight: bold; color: #0f0; font-size: 14px;">⚙️ Настройки комнаты</div>
+                            <button id="mp-room-panel-settings-toggle" style="
+                                padding: 4px 8px;
+                                font-size: 12px;
+                                background: rgba(0, 255, 0, 0.2);
+                                border: 1px solid rgba(0, 255, 0, 0.4);
+                                border-radius: 4px;
+                                color: #0f0;
+                                cursor: pointer;
+                                transition: all 0.2s;
+                            " title="Свернуть/развернуть">▼</button>
+                        </div>
+                        <div id="mp-room-panel-settings-content">
+                        <!-- Максимальное количество игроков -->
+                        <div style="margin-bottom: 15px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <label style="font-size: 12px; color: #aaa;">Максимум игроков:</label>
+                                <span id="mp-room-panel-max-players-value" style="font-size: 14px; color: #4ade80; font-weight: bold;">32</span>
+                            </div>
+                            <input type="range" id="mp-room-panel-max-players" min="2" max="32" value="32" step="1" style="width: 100%; height: 6px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;">
+                            <div style="display: flex; justify-content: space-between; font-size: 10px; color: #666; margin-top: 4px;">
+                                <span>2</span>
+                                <span>32</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Время раунда -->
+                        <div style="margin-bottom: 15px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <label style="font-size: 12px; color: #aaa;">Время раунда (мин):</label>
+                                <span id="mp-room-panel-round-time-value" style="font-size: 14px; color: #4ade80; font-weight: bold;">10</span>
+                            </div>
+                            <input type="range" id="mp-room-panel-round-time" min="5" max="60" value="10" step="5" style="width: 100%; height: 6px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;">
+                            <div style="display: flex; justify-content: space-between; font-size: 10px; color: #666; margin-top: 4px;">
+                                <span>5</span>
+                                <span>60</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Лимит убийств/очков -->
+                        <div style="margin-bottom: 15px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <label style="font-size: 12px; color: #aaa;">Лимит убийств для победы:</label>
+                                <span id="mp-room-panel-kill-limit-value" style="font-size: 14px; color: #4ade80; font-weight: bold;">50</span>
+                            </div>
+                            <input type="range" id="mp-room-panel-kill-limit" min="10" max="200" value="50" step="10" style="width: 100%; height: 6px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;">
+                            <div style="display: flex; justify-content: space-between; font-size: 10px; color: #666; margin-top: 4px;">
+                                <span>10</span>
+                                <span>200</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Настройки танков и оружия -->
+                        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(0, 255, 0, 0.2);">
+                            <div style="font-weight: bold; color: #0f0; font-size: 12px; margin-bottom: 10px;">🚫 Ограничения</div>
+                            
+                            <!-- Разрешенные танки -->
+                            <div style="margin-bottom: 10px;">
+                                <label style="font-size: 11px; color: #aaa; display: block; margin-bottom: 6px;">Разрешенные классы танков:</label>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;">
+                                        <input type="checkbox" id="mp-room-panel-allow-light" checked style="cursor: pointer;">
+                                        <span>⚡ Легкие</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;">
+                                        <input type="checkbox" id="mp-room-panel-allow-medium" checked style="cursor: pointer;">
+                                        <span>⚖️ Средние</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;">
+                                        <input type="checkbox" id="mp-room-panel-allow-heavy" checked style="cursor: pointer;">
+                                        <span>🛡️ Тяжелые</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;">
+                                        <input type="checkbox" id="mp-room-panel-allow-assault" checked style="cursor: pointer;">
+                                        <span>⚔️ Штурмовые</span>
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <!-- Разрешенное оружие -->
+                            <div style="margin-bottom: 10px;">
+                                <label style="font-size: 11px; color: #aaa; display: block; margin-bottom: 6px;">Разрешенные типы оружия:</label>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;">
+                                        <input type="checkbox" id="mp-room-panel-allow-standard" checked style="cursor: pointer;">
+                                        <span>🔫 Стандартные</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;">
+                                        <input type="checkbox" id="mp-room-panel-allow-rapid" checked style="cursor: pointer;">
+                                        <span>💨 Быстрые</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;">
+                                        <input type="checkbox" id="mp-room-panel-allow-heavy-gun" checked style="cursor: pointer;">
+                                        <span>💣 Тяжелые</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;">
+                                        <input type="checkbox" id="mp-room-panel-allow-sniper" checked style="cursor: pointer;">
+                                        <span>🎯 Снайперские</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Автозапуск при готовности -->
+                        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(0, 255, 0, 0.2);">
+                            <label style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: #aaa; cursor: pointer;">
+                                <input type="checkbox" id="mp-room-panel-auto-start" style="cursor: pointer;">
+                                <span>🚀 Автозапуск при готовности всех игроков</span>
+                            </label>
+                        </div>
+                        
+                        <!-- Кнопка сохранения настроек -->
+                        <button class="panel-btn" id="mp-room-panel-save-settings" style="width: 100%; padding: 10px; font-size: 12px; background: rgba(74, 222, 128, 0.2); border-color: #4ade80; color: #4ade80; margin-top: 10px;">
+                            💾 Сохранить настройки
+                        </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Приглашения -->
+                    <div style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
+                        <div style="font-weight: bold; color: #0f0; font-size: 14px; margin-bottom: 10px;">📨 Приглашения</div>
+                        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                            <button class="panel-btn" id="mp-room-panel-invite-friends" style="flex: 1; padding: 10px; font-size: 12px;">
+                                👥 Пригласить друзей
+                            </button>
+                            <button class="panel-btn" id="mp-room-panel-invite-by-id" style="flex: 1; padding: 10px; font-size: 12px;">
+                                🔗 Пригласить по ID
+                            </button>
+                        </div>
+                        <div id="mp-room-panel-friends-list" style="display: none; max-height: 150px; overflow-y: auto; margin-top: 10px;">
+                            <!-- Список друзей будет добавлен динамически -->
+                        </div>
+                        <div id="mp-room-panel-invite-by-id-form" style="display: none; margin-top: 10px;">
+                            <input type="text" id="mp-room-panel-invite-id-input" placeholder="Введите ID игрока" style="width: 100%; padding: 8px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(0, 255, 0, 0.3); border-radius: 4px; color: #0f0; font-size: 11px; margin-bottom: 6px;">
+                            <button class="panel-btn" id="mp-room-panel-send-invite" style="width: 100%; padding: 8px; font-size: 11px;">
+                                Отправить приглашение
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Управление комнатой (только для хоста) -->
+                    <div id="mp-room-panel-controls" style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
+                        <div style="font-weight: bold; color: #0f0; font-size: 14px; margin-bottom: 10px;">⚙️ Управление комнатой</div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <button class="panel-btn" id="mp-room-panel-change-mode" style="padding: 10px; font-size: 12px;">
+                                🔄 Изменить режим
+                            </button>
+                            <button class="panel-btn" id="mp-room-panel-change-map" style="padding: 10px; font-size: 12px;">
+                                🗺 Изменить карту
+                            </button>
+                            <button class="panel-btn" id="mp-room-panel-toggle-private" style="padding: 10px; font-size: 12px;">
+                                🔒 Сделать приватной
+                            </button>
+                            <button class="panel-btn" id="mp-room-panel-kick-player" style="padding: 10px; font-size: 12px;">
+                                👢 Кикнуть игрока
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Кнопки действий -->
+                    <div style="margin-top: 20px; display: flex; flex-direction: column; gap: 10px;">
+                        <button class="panel-btn primary battle-btn" id="mp-room-panel-start-game" style="width: 100%; padding: 14px; font-size: 18px; font-weight: bold;">
+                            <span class="battle-btn-text">⚔️ НАЧАТЬ ИГРУ</span>
+                            <span class="battle-btn-shine"></span>
+                        </button>
+                        <button class="panel-btn" id="mp-room-panel-leave" style="width: 100%; padding: 12px; font-size: 14px; background: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #ef4444;">
+                            🚪 Покинуть комнату
+                        </button>
+                    </div>
+                </div>
+                
                 <!-- 3. Выбор карты -->
                 <div class="play-window play-window-wide" id="play-window-map" data-order="2" data-step="2">
                     <div class="play-window-header">
@@ -5869,19 +7382,19 @@ export class MainMenu {
                 </div>
             </div>
         `;
-        
+
         document.body.appendChild(this.playMenuPanel);
-        
+
         // Заполняем опции танков
         this.populateTankOptions();
-        
+
         // Загружаем и отображаем сохраненные карты
         this.loadCustomMaps();
-        
+
         // Обработчики выбора типа игры (шаг 1)
         document.getElementById("btn-type-single")?.addEventListener("click", () => this.selectGameType("single"));
         document.getElementById("btn-type-multiplayer")?.addEventListener("click", () => this.selectGameType("multiplayer"));
-        
+
         // Обработчики выбора режима игры (шаг 2)
         document.getElementById("btn-gamemode-ffa")?.addEventListener("click", () => this.selectGameMode("ffa"));
         document.getElementById("btn-gamemode-tdm")?.addEventListener("click", () => this.selectGameMode("tdm"));
@@ -5892,13 +7405,13 @@ export class MainMenu {
         document.getElementById("btn-gamemode-escort")?.addEventListener("click", () => this.selectGameMode("escort"));
         document.getElementById("btn-gamemode-survival")?.addEventListener("click", () => this.selectGameMode("survival"));
         document.getElementById("btn-gamemode-raid")?.addEventListener("click", () => this.selectGameMode("raid"));
-        
+
         // Обработчики выбора карты
         const mapButtons = ["normal", "sandbox", "sand", "madness", "expo", "brest", "arena", "polygon", "frontline", "ruins", "canyon", "industrial", "urban_warfare", "underground", "coastal", "tartaria"];
-        
+
         mapButtons.forEach(map => {
             const button = document.getElementById(`play-btn-map-${map}`);
-            
+
             button?.addEventListener("click", () => {
                 // Очищаем выбранную пользовательскую карту при выборе стандартной
                 localStorage.removeItem("selectedCustomMapData");
@@ -5906,7 +7419,7 @@ export class MainMenu {
                 this.selectMap(map as MapType);
             });
         });
-        
+
         // Обработчики навигации окон-терминалов
         document.querySelectorAll(".window-btn").forEach(btn => {
             btn.addEventListener("click", (e) => {
@@ -5916,12 +7429,42 @@ export class MainMenu {
                 // Специальная обработка для мультиплеер окна
                 if (step === 0.5 && action === "back") {
                     this.showPlayWindow("play-window-mode", 0, 0);
+                } else if (step === 1 && action === "back") {
+                    // Панель выбора режима для создания комнаты - возврат к мультиплеер меню
+                    // Скрываем все панели, включая панель выбора режима
+                    this.hideAllPlayWindows();
+                    // Убеждаемся, что панель выбора режима скрыта
+                    const modePanel = document.getElementById("mp-create-room-mode");
+                    if (modePanel) {
+                        modePanel.style.display = "none";
+                        modePanel.classList.remove("visible");
+                    }
+                    // Показываем только основное мультиплеер меню
+                    this.showPlayWindow("play-window-multiplayer", 0.5, 0.5);
+                } else if (step === 2 && action === "back") {
+                    // Панель выбора карты для создания комнаты - возврат к выбору режима
+                    // Сбрасываем выбранную карту и кнопку "В БОЙ!"
+                    (this as any).selectedCreateRoomMap = undefined;
+                    const startBtn = document.getElementById("mp-create-room-start-btn");
+                    if (startBtn) {
+                        startBtn.style.opacity = "0.5";
+                        startBtn.style.cursor = "not-allowed";
+                        startBtn.style.pointerEvents = "none";
+                        (startBtn as HTMLButtonElement).disabled = true;
+                    }
+                    this.showPlayWindow("mp-create-room-mode", 1, 1);
                 } else if (action === "back") {
                     this.navigatePlayStep(Math.floor(step) - 1);
                 } else if (action === "forward") {
                     this.navigatePlayStep(Math.floor(step) + 1);
                 } else if (action === "close") {
-                    this.hidePlayMenu();
+                    // Закрытие панелей создания комнаты - возвращаемся к меню мультиплеера
+                    if (step === 1 || step === 2) {
+                        this.hideAllPlayWindows();
+                        this.showPlayWindow("play-window-multiplayer", 0, 0);
+                    } else {
+                        this.hidePlayMenu();
+                    }
                 }
             });
         });
@@ -5931,28 +7474,28 @@ export class MainMenu {
         document.getElementById("preset-speed")?.addEventListener("click", () => this.selectPreset("speed"));
         document.getElementById("preset-defense")?.addEventListener("click", () => this.selectPreset("defense"));
         document.getElementById("preset-damage")?.addEventListener("click", () => this.selectPreset("damage"));
-        
+
         // Обработчик кнопки "Гараж" в окне выбора танка
         document.getElementById("btn-tank-garage")?.addEventListener("click", () => {
             this.returnToPlayMenuAfterGarage = true;
             this.hidePlayMenu();
             this.showGarage();
         });
-        
+
         // Обработчик запуска игры
         document.getElementById("btn-start-game")?.addEventListener("click", () => this.startSelectedGame());
-        
+
         // Мультиплеер меню обработчики будут установлены в initMultiplayerMenu
-        
+
         this.setupCloseButton("play-menu-back", () => this.hidePlayMenu());
         this.setupPanelCloseOnBackground(this.playMenuPanel, () => this.hidePlayMenu());
     }
-    
+
     private populateTankOptions(): void {
         // Используем статически импортированные типы танков
         const chassisContainer = document.getElementById("chassis-options");
         const cannonContainer = document.getElementById("cannon-options");
-        
+
         if (chassisContainer) {
             chassisContainer.innerHTML = ""; // Очищаем перед заполнением
             CHASSIS_TYPES.filter(chassis => this.ownedChassisIds.has(chassis.id)).forEach(chassis => {
@@ -5968,7 +7511,7 @@ export class MainMenu {
                 chassisContainer.appendChild(btn);
             });
         }
-        
+
         if (cannonContainer) {
             cannonContainer.innerHTML = ""; // Очищаем перед заполнением
             CANNON_TYPES.filter(cannon => this.ownedCannonIds.has(cannon.id)).forEach(cannon => {
@@ -5985,7 +7528,7 @@ export class MainMenu {
             });
         }
     }
-    
+
     /**
      * Нормализовать MapData к единому формату (совместимо с MapEditor)
      * Использует ту же структуру, что и MapEditor.MapData
@@ -5994,9 +7537,9 @@ export class MainMenu {
         if (!data || typeof data !== "object" || !data.name) {
             return null;
         }
-        
+
         const CURRENT_VERSION = 1;
-        
+
         const normalized: any = {
             version: CURRENT_VERSION,
             name: String(data.name),
@@ -6013,66 +7556,66 @@ export class MainMenu {
                 mapSize: data.metadata?.mapSize
             }
         };
-        
+
         if (data.seed !== undefined) {
             normalized.seed = data.seed;
         }
-        
+
         return normalized;
     }
-    
+
     /**
      * Загрузить и отобразить сохраненные карты из редактора
      */
     private loadCustomMaps(): void {
         const container = document.getElementById("custom-maps-container");
         if (!container) return;
-        
+
         // Очищаем контейнер перед загрузкой
         container.innerHTML = "";
-        
+
         try {
             const saved = localStorage.getItem("savedMaps");
             if (!saved) {
                 return;
             }
-            
+
             const rawMaps: any[] = JSON.parse(saved);
             if (!Array.isArray(rawMaps) || rawMaps.length === 0) {
                 return;
             }
-            
+
             // Нормализуем все карты к единому формату
             const savedMaps = rawMaps.map(map => this.normalizeMapData(map)).filter((map): map is any => map !== null);
-            
+
             if (savedMaps.length === 0) {
                 return;
             }
-            
+
             // Создаем заголовок для секции сохраненных карт
             const header = document.createElement("div");
             header.style.cssText = "margin-top: 30px; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid rgba(0, 255, 80, 0.3);";
             header.innerHTML = `<div class="section-title" style="font-size: 16px; color: #0f0;">📂 Ваши карты (${savedMaps.length})</div>`;
             container.appendChild(header);
-            
+
             // Добавляем сохраненные карты в сетку
             savedMaps.forEach((map, index) => {
                 // Находим индекс в исходном массиве для правильной индексации
                 const originalIndex = rawMaps.findIndex(m => m && m.name === map.name);
                 const mapIndex = originalIndex >= 0 ? originalIndex : index;
-                
+
                 const mapCard = document.createElement("div");
                 mapCard.className = "map-card";
                 mapCard.style.cssText = "position: relative; cursor: pointer;";
                 mapCard.setAttribute("data-custom-map-index", mapIndex.toString());
-                
+
                 // Убеждаемся, что mapType всегда присутствует
                 const baseMapType = map.mapType || "normal";
                 const objectCount = map.placedObjects?.length || 0;
                 const triggerCount = map.triggers?.length || 0;
                 const editCount = map.terrainEdits?.length || 0;
                 const isPreset = map.metadata?.isPreset || map.name.startsWith("[Предустановленная]");
-                
+
                 mapCard.innerHTML = `
                     ${isPreset ? '<span style="position: absolute; top: 5px; right: 5px; font-size: 8px; color: #0ff;">🔒</span>' : ''}
                     <span class="map-card-icon">🗺</span>
@@ -6081,16 +7624,16 @@ export class MainMenu {
                         ${isPreset ? 'Предустановленная' : `Объектов: ${objectCount} | Редакций: ${editCount}`}
                     </span>
                 `;
-                
+
                 mapCard.addEventListener("click", () => {
                     // Сохраняем нормализованные данные карты в localStorage
                     localStorage.setItem("selectedCustomMapData", JSON.stringify(map));
                     localStorage.setItem("selectedCustomMapIndex", mapIndex.toString());
-                    
+
                     // Выбираем базовый тип карты (обязательно должен быть указан)
                     this.selectMap(baseMapType as MapType);
                 });
-                
+
                 // Добавляем стиль при наведении
                 mapCard.addEventListener("mouseenter", () => {
                     mapCard.style.background = "rgba(0, 50, 0, 0.6)";
@@ -6098,30 +7641,30 @@ export class MainMenu {
                     mapCard.style.boxShadow = "0 0 15px rgba(0, 255, 80, 0.4)";
                     mapCard.style.transform = "translateY(-2px)";
                 });
-                
+
                 mapCard.addEventListener("mouseleave", () => {
                     mapCard.style.background = "";
                     mapCard.style.borderColor = "";
                     mapCard.style.boxShadow = "";
                     mapCard.style.transform = "";
                 });
-                
+
                 container.appendChild(mapCard);
             });
-            
+
             debugLog(`[Menu] Loaded ${savedMaps.length} custom maps (normalized to version 1)`);
         } catch (error) {
             console.error("[Menu] Failed to load custom maps:", error);
             container.innerHTML = "";
         }
     }
-    
+
     private selectedGameType: string = "single";
-    
+
     private selectGameType(type: string): void {
         this.selectedGameType = type;
         debugLog("[Menu] Selected game type:", type);
-        
+
         // Обновляем визуал выбранной кнопки
         document.querySelectorAll("[data-type]").forEach(btn => {
             const button = btn as HTMLButtonElement;
@@ -6134,12 +7677,21 @@ export class MainMenu {
                 }
             }
         });
-        
+
         // Update terminal titles
         this.updateTerminalTitles();
-        
+
         // Для мультиплеера показываем специальное меню
         if (type === "multiplayer") {
+            // Скрываем все панели, включая панель выбора режима для создания комнаты
+            this.hideAllPlayWindows();
+            // Убеждаемся, что панель выбора режима скрыта
+            const modePanel = document.getElementById("mp-create-room-mode");
+            if (modePanel) {
+                modePanel.style.display = "none";
+                modePanel.classList.remove("visible");
+            }
+            // Показываем только основное мультиплеер меню
             this.showPlayWindow("play-window-multiplayer", 0.5, 0.5);
             this.initMultiplayerMenu();
         } else {
@@ -6147,11 +7699,11 @@ export class MainMenu {
             this.showPlayWindow("play-window-gamemode", 1, 1);
         }
     }
-    
+
     private selectGameMode(mode: string): void {
         this.selectedGameMode = mode;
         debugLog("[Menu] Selected game mode:", mode);
-        
+
         // Обновляем визуал выбранной кнопки
         document.querySelectorAll("[data-gamemode]").forEach(btn => {
             const button = btn as HTMLButtonElement;
@@ -6161,21 +7713,21 @@ export class MainMenu {
                 button.className = "menu-btn secondary gamemode-btn";
             }
         });
-        
+
         // Update terminal titles
         this.updateTerminalTitles();
-        
+
         // Показываем следующий шаг - выбор карты
         this.showPlayWindow("play-window-map", 2, 2);
     }
-    
+
     private queueTimer: number = 0;
     private queueTimerInterval: NodeJS.Timeout | null = null;
-    
+
     private initMultiplayerMenu(): void {
         // Выбранный режим мультиплеера (по умолчанию FFA)
         let selectedMpMode = "ffa";
-        
+
         // Обработчики выбора режима мультиплеера
         document.querySelectorAll(".mp-mode-btn").forEach(btn => {
             btn.addEventListener("click", (e) => {
@@ -6189,7 +7741,7 @@ export class MainMenu {
                         b.classList.remove("active");
                     });
                     target.classList.add("active");
-                    
+
                     // Показываем описание режима
                     const descEl = document.getElementById("mp-mode-description");
                     const descTextEl = document.getElementById("mp-mode-desc-text");
@@ -6201,7 +7753,7 @@ export class MainMenu {
                 }
             });
         });
-        
+
         // Устанавливаем FFA как активный по умолчанию
         const ffaBtn = document.getElementById("mp-btn-ffa");
         if (ffaBtn) {
@@ -6214,11 +7766,11 @@ export class MainMenu {
                 descEl.style.display = "block";
             }
         }
-        
+
         // Запрашиваем список комнат при открытии меню
         const game = (window as any).gameInstance as any;
         let multiplayerManager = game?.multiplayerManager;
-        
+
         // Если MultiplayerManager не найден, пытаемся создать его
         if (!multiplayerManager && game) {
             console.log(`[Menu] MultiplayerManager не найден, пытаемся создать...`);
@@ -6227,7 +7779,7 @@ export class MainMenu {
                 import("./multiplayer").then(({ MultiplayerManager }) => {
                     multiplayerManager = new MultiplayerManager(undefined, true);
                     game.multiplayerManager = multiplayerManager;
-                    
+
                     // Настраиваем колбэки если gameMultiplayerCallbacks существует
                     if (game.gameMultiplayerCallbacks) {
                         try {
@@ -6271,7 +7823,7 @@ export class MainMenu {
                             console.warn(`[Menu] ⚠️ Не удалось настроить callbacks:`, callbackError);
                         }
                     }
-                    
+
                     // Настраиваем список комнат после создания
                     this.setupRoomListUpdates(multiplayerManager);
                 }).catch(error => {
@@ -6281,7 +7833,7 @@ export class MainMenu {
                 console.error(`[Menu] ❌ Ошибка импорта MultiplayerManager:`, error);
             }
         }
-        
+
         // Если MultiplayerManager доступен, настраиваем обновление списка комнат
         if (multiplayerManager) {
             this.setupRoomListUpdates(multiplayerManager);
@@ -6291,28 +7843,53 @@ export class MainMenu {
         } else {
             console.warn(`[Menu] ⚠️ MultiplayerManager не найден и не удалось создать`);
         }
-        
+
         // Quick Play
         document.getElementById("mp-btn-quick-play")?.addEventListener("click", () => {
             const activeBtn = document.querySelector(".mp-mode-btn.active") as HTMLElement;
             const mode = activeBtn?.dataset.mpMode || selectedMpMode;
             this.startMultiplayerQuickPlay(mode);
         });
-        
-        // Create Room
+
+        // Create Room - скрываем меню мультиплеера и показываем ТОЛЬКО панель выбора режима
         const createRoomBtn = document.getElementById("mp-btn-create-room");
         if (createRoomBtn) {
-            createRoomBtn.addEventListener("click", async () => {
-                debugLog("[Menu] Create room button clicked");
-                const activeBtn = document.querySelector(".mp-mode-btn.active") as HTMLElement;
-                const mode = activeBtn?.dataset.mpMode || selectedMpMode;
-                debugLog("[Menu] Selected mode for room creation:", mode);
-                await this.createMultiplayerRoom(mode);
+            createRoomBtn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                debugLog("[Menu] Create room button clicked - opening mode selection panel");
+
+                // Скрываем ВСЕ панели включая меню мультиплеера
+                this.hideAllPlayWindows();
+
+                // Показываем ТОЛЬКО панель выбора режима
+                this.showPlayWindow("mp-create-room-mode", 0, 0);
             });
         } else {
-            debugError("[Menu] Create room button not found!");
+            debugError("[Menu] Create room button (mp-btn-create-room) not found!");
         }
-        
+
+        // Обработчик кнопки закрытия блока выбора режима
+        const modeCloseBtn = document.getElementById("mp-create-room-mode-close");
+        if (modeCloseBtn) {
+            modeCloseBtn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const modeSection = document.getElementById("mp-create-room-mode-section");
+                if (modeSection) {
+                    modeSection.style.display = "none";
+                    debugLog("[Menu] Mode selection section hidden");
+                }
+            });
+        }
+
+        // Обработчики выбора режима для создания комнаты теперь через onclick в HTML (window.selectMpCreateRoomMode)
+        debugLog("[Menu] Mode selection handlers now use inline onclick");
+
+        // Обработчики выбора карты и кнопки создания комнаты теперь через onclick в HTML
+        // (window.selectMpCreateRoomMap и window.startMpCreateRoom)
+        debugLog("[Menu] Map selection and room creation handlers now use inline onclick");
+
         // Join Room - показываем модальное окно
         document.getElementById("mp-btn-join-room")?.addEventListener("click", () => {
             const modal = document.getElementById("mp-join-room-modal");
@@ -6323,7 +7900,7 @@ export class MainMenu {
                 input.value = "";
                 input.focus();
                 if (errorEl) errorEl.style.display = "none";
-                
+
                 // Обработчик Enter в поле ввода
                 const handleEnter = (e: KeyboardEvent) => {
                     if (e.key === "Enter") {
@@ -6331,7 +7908,7 @@ export class MainMenu {
                     }
                 };
                 input.addEventListener("keydown", handleEnter);
-                
+
                 // Обработчик кнопки "Присоединиться" в модальном окне
                 const joinBtn = document.getElementById("mp-modal-join-btn");
                 if (joinBtn) {
@@ -6349,7 +7926,7 @@ export class MainMenu {
                         this.joinMultiplayerRoom(roomId);
                     };
                 }
-                
+
                 // Обработчик кнопки "Отмена" в модальном окне
                 document.getElementById("mp-modal-cancel-btn")?.addEventListener("click", () => {
                     modal.style.display = "none";
@@ -6357,12 +7934,12 @@ export class MainMenu {
                 });
             }
         });
-        
+
         // Cancel Queue
         document.getElementById("mp-btn-cancel-queue")?.addEventListener("click", () => {
             this.cancelMultiplayerQueue();
         });
-        
+
         // Test connection button
         document.getElementById("mp-btn-test-connection")?.addEventListener("click", () => {
             const game = (window as any).gameInstance as any;
@@ -6370,12 +7947,12 @@ export class MainMenu {
             if (multiplayerManager) {
                 const serverUrl = multiplayerManager.getServerUrl();
                 const hintEl = document.getElementById("mp-server-hint");
-                
+
                 if (hintEl) {
                     hintEl.textContent = "⏳ Проверка подключения...";
                     hintEl.style.color = "#fbbf24";
                 }
-                
+
                 // Проверяем подключение
                 if (multiplayerManager.isConnected()) {
                     const ping = Math.round(multiplayerManager.getRTT());
@@ -6409,7 +7986,7 @@ export class MainMenu {
                 }
             }
         });
-        
+
         // Reconnect button
         document.getElementById("mp-btn-reconnect")?.addEventListener("click", () => {
             const game = (window as any).gameInstance as any;
@@ -6419,17 +7996,100 @@ export class MainMenu {
                 multiplayerManager.connect(serverUrl);
             }
         });
-        
-        // Start Game (only for room creator)
-        document.getElementById("mp-btn-start-game")?.addEventListener("click", () => {
-            this.startMultiplayerGame();
+
+        // Check WebSocket button
+        document.getElementById("mp-btn-check-ws")?.addEventListener("click", () => {
+            const game = (window as any).gameInstance as any;
+            const multiplayerManager = game?.multiplayerManager;
+            const statusEl = document.getElementById("mp-connection-status");
+            const btn = document.getElementById("mp-btn-check-ws") as HTMLButtonElement;
+
+            // Сохраняем оригинальный текст кнопки
+            const originalBtnText = btn?.textContent || "🔌 WebSocket";
+
+            if (btn) {
+                btn.textContent = "⏳...";
+                btn.disabled = true;
+            }
+
+            setTimeout(() => {
+                const isConnected = multiplayerManager && multiplayerManager.isConnected();
+                if (statusEl) {
+                    const currentText = statusEl.textContent || "";
+                    const wsStatus = isConnected ? "✅ WS OK" : "❌ WS Fail";
+                    // Показываем результат проверки
+                    const originalText = currentText;
+                    statusEl.textContent = wsStatus;
+                    setTimeout(() => {
+                        if (statusEl) statusEl.textContent = originalText;
+                        this.updateMultiplayerStatus();
+                    }, 2000);
+                }
+                if (btn) {
+                    btn.textContent = originalBtnText; // Восстанавливаем полный текст
+                    btn.disabled = false;
+                }
+            }, 500);
         });
-        
+
+        // Check Firebase button
+        document.getElementById("mp-btn-check-firebase")?.addEventListener("click", async () => {
+            const btn = document.getElementById("mp-btn-check-firebase") as HTMLButtonElement;
+            const statusEl = document.getElementById("mp-connection-status");
+
+            // Сохраняем оригинальный текст кнопки
+            const originalBtnText = btn?.textContent || "🔥 Firebase";
+
+            if (btn) {
+                btn.textContent = "⏳...";
+                btn.disabled = true;
+            }
+
+            try {
+                // Попытка проверить Firebase
+                const { firebaseService } = await import("./firebaseService");
+                const isConnected = firebaseService && firebaseService.isInitialized();
+
+                if (statusEl) {
+                    const currentText = statusEl.textContent || "";
+                    const fbStatus = isConnected ? "✅ FB OK" : "❌ FB Fail";
+                    const originalText = currentText;
+                    statusEl.textContent = fbStatus;
+                    setTimeout(() => {
+                        if (statusEl) statusEl.textContent = originalText;
+                        this.updateMultiplayerStatus();
+                    }, 2000);
+                }
+            } catch (err) {
+                if (statusEl) {
+                    const originalText = statusEl.textContent || "";
+                    statusEl.textContent = "❌ FB Error";
+                    setTimeout(() => {
+                        if (statusEl) statusEl.textContent = originalText;
+                        this.updateMultiplayerStatus();
+                    }, 2000);
+                }
+            }
+
+            if (btn) {
+                btn.textContent = originalBtnText; // Восстанавливаем полный текст
+                btn.disabled = false;
+            }
+        });
+
+        // Start Game (only for room creator)
+        document.getElementById("mp-btn-start-game")?.addEventListener("click", async () => {
+            await this.startMultiplayerGame();
+        });
+
         // Leave Room
         document.getElementById("mp-btn-leave-room")?.addEventListener("click", () => {
             this.leaveMultiplayerRoom();
         });
-        
+
+        // Chat handlers
+        this.setupMultiplayerChat(multiplayerManager);
+
         // Copy Room ID
         document.getElementById("mp-btn-copy-room-id")?.addEventListener("click", () => {
             const game = (window as any).gameInstance as any;
@@ -6454,20 +8114,46 @@ export class MainMenu {
                 }
             }
         });
-        
+
+        // Настраиваем callback для обновления кнопки при присоединении/выходе игроков
+        if (multiplayerManager) {
+            multiplayerManager.onPlayerJoined(() => {
+                console.log("[Menu] 🎮 Игрок присоединился, обновляем статус кнопки");
+                setTimeout(() => {
+                    this._updateMultiplayerStatus();
+                    // Обновляем счетчик игроков в панели комнаты
+                    this.refreshRoomPanelPlayers();
+                }, 200);
+            });
+
+            multiplayerManager.onPlayerLeft(() => {
+                console.log("[Menu] 🚪 Игрок покинул комнату, обновляем статус кнопки");
+                setTimeout(() => {
+                    this._updateMultiplayerStatus();
+                    // Обновляем счетчик игроков в панели комнаты
+                    this.refreshRoomPanelPlayers();
+                }, 200);
+            });
+        }
+
+
         // Обновляем статус подключения
         this._updateMultiplayerStatus();
-        
-        // Обновляем статус каждые 2 секунды
+
+        // Настройка фильтров комнат
+        this.setupRoomFilters();
+
+        // Обновляем статус каждые 1 секунду (чаще для лучшей отзывчивости)
         const statusUpdateInterval = setInterval(() => {
-            if (document.getElementById("play-window-multiplayer")?.style.display !== "none") {
+            const mpWindow = document.getElementById("play-window-multiplayer");
+            if (mpWindow && mpWindow.style.display !== "none") {
                 this._updateMultiplayerStatus();
             } else {
                 clearInterval(statusUpdateInterval);
             }
-        }, 2000);
+        }, 1000);
     }
-    
+
     private startQueueTimer(): void {
         if (this.queueTimerInterval) clearInterval(this.queueTimerInterval);
         this.queueTimer = 0;
@@ -6481,16 +8167,16 @@ export class MainMenu {
             }
         }, 1000);
     }
-    
+
     // Публичный метод для обновления статуса (вызывается из game.ts)
     updateMultiplayerStatus(): void {
         this._updateMultiplayerStatus();
     }
-    
+
     private _updateMultiplayerStatus(): void {
         const game = (window as any).gameInstance as any;
         const multiplayerManager = game?.multiplayerManager;
-        
+
         const statusEl = document.getElementById("mp-connection-status");
         const indicatorEl = document.getElementById("mp-connection-indicator");
         const pingEl = document.getElementById("mp-ping");
@@ -6498,12 +8184,12 @@ export class MainMenu {
         const queueInfoEl = document.getElementById("mp-queue-info");
         const roomInfoEl = document.getElementById("mp-room-info");
         const serverInfoEl = document.getElementById("mp-server-info");
-        
+
         if (!statusEl || !indicatorEl) return;
-        
+
         // ИСПРАВЛЕНИЕ: Проверка статуса WebSocket и Firebase отдельно
         const isWebSocketConnected = multiplayerManager && multiplayerManager.isConnected();
-        
+
         // Проверка статуса Firebase
         let isFirebaseConnected = false;
         try {
@@ -6515,7 +8201,7 @@ export class MainMenu {
         } catch (error) {
             console.warn("[Menu] Error checking Firebase status:", error);
         }
-        
+
         if (isWebSocketConnected) {
             // ИСПРАВЛЕНИЕ: Показываем статус WebSocket и Firebase отдельно
             let statusText = "WebSocket [Online]";
@@ -6524,18 +8210,18 @@ export class MainMenu {
             } else {
                 statusText += " / Firebase [Offline]";
             }
-            
+
             statusEl.textContent = statusText;
             statusEl.style.color = isFirebaseConnected ? "#4ade80" : "#fa0"; // Оранжевый если Firebase офлайн
             indicatorEl.style.background = isFirebaseConnected ? "#4ade80" : "#fa0";
             indicatorEl.style.boxShadow = isFirebaseConnected ? "0 0 8px rgba(74, 222, 128, 0.6)" : "0 0 8px rgba(255, 170, 0, 0.6)";
-            
+
             // Показываем пинг с цветовой индикацией
             if (pingEl) {
                 pingEl.style.display = "inline-block";
                 const ping = Math.round(multiplayerManager.getRTT());
                 pingEl.textContent = `${ping}ms`;
-                
+
                 // Цвет пинга в зависимости от значения
                 if (ping < 50) {
                     pingEl.style.color = "#4ade80"; // Зеленый - отлично
@@ -6547,15 +8233,15 @@ export class MainMenu {
                     pingEl.style.color = "#ef4444"; // Красный - плохо
                 }
             }
-            
+
             if (reconnectBtn) reconnectBtn.style.display = "none";
-            
+
             // Обновляем адрес сервера
             if (serverInfoEl) {
                 const serverUrl = multiplayerManager.getServerUrl();
                 const cleanUrl = serverUrl.replace("ws://", "").replace("wss://", "");
                 serverInfoEl.textContent = cleanUrl;
-                
+
                 // Обновляем подсказку с инструкциями
                 const hintEl = document.getElementById("mp-server-hint");
                 if (hintEl) {
@@ -6568,7 +8254,7 @@ export class MainMenu {
                     }
                 }
             }
-            
+
             // Показываем информацию о комнате если есть
             const roomId = multiplayerManager.getRoomId();
             if (roomId && roomInfoEl) {
@@ -6578,79 +8264,200 @@ export class MainMenu {
                 const mode = multiplayerManager.getGameMode() || "unknown";
                 document.getElementById("mp-room-mode")!.textContent = mode.toUpperCase();
                 if (queueInfoEl) queueInfoEl.style.display = "none";
-                
+
                 // Обновляем количество игроков (если доступно)
+                // КРИТИЧНО: Используем getRoomPlayersCount() для точного количества игроков
+                let playersCount = 1;
+                try {
+                    if (typeof multiplayerManager.getRoomPlayersCount === 'function') {
+                        playersCount = multiplayerManager.getRoomPlayersCount();
+                    } else {
+                        // Fallback на старый способ
+                        const networkPlayers = multiplayerManager.getNetworkPlayers();
+                        playersCount = networkPlayers ? networkPlayers.size + 1 : 1;
+                    }
+                } catch (e) {
+                    console.error("[Menu] Ошибка получения количества игроков:", e);
+                    const networkPlayers = multiplayerManager.getNetworkPlayers();
+                    playersCount = networkPlayers ? networkPlayers.size + 1 : 1;
+                }
                 const networkPlayers = multiplayerManager.getNetworkPlayers();
-                const playersCount = networkPlayers ? networkPlayers.size + 1 : 1; // +1 для локального игрока
+                console.log(`[Menu] 📊 Игроков в комнате: playersCount=${playersCount}, networkPlayers.size=${networkPlayers?.size || 0}, _roomPlayersCount=${(multiplayerManager as any)._roomPlayersCount || 'N/A'}`);
+
                 const playersCountEl = document.getElementById("mp-room-players-count");
                 if (playersCountEl) {
                     playersCountEl.textContent = `${playersCount}/32`;
                 }
-                
+
                 // Обновляем статус комнаты
                 const roomStatusTextEl = document.getElementById("mp-room-status-text");
+                // КРИТИЧНО: Используем ОДНУ проверку для статуса и кнопки!
+                let isActive = false;
+                try {
+                    if (typeof multiplayerManager.isRoomActive === 'function') {
+                        isActive = multiplayerManager.isRoomActive();
+                    } else if (multiplayerManager._roomIsActive !== undefined) {
+                        isActive = multiplayerManager._roomIsActive === true;
+                    }
+                } catch (e) {
+                    console.warn("[Menu] Ошибка проверки isRoomActive:", e);
+                }
+
+                console.log(`[Menu] 🎮 Статус комнаты: isActive=${isActive}, roomId=${roomId}, playersCount=${playersCount}`);
+
                 if (roomStatusTextEl) {
-                    const isActive = multiplayerManager.isRoomActive ? multiplayerManager.isRoomActive() : false;
                     if (isActive) {
                         roomStatusTextEl.textContent = "⚔️ Игра идет - присоединяйтесь!";
                         roomStatusTextEl.style.color = "#ef4444";
                     } else {
-                        roomStatusTextEl.textContent = "Ожидание игроков...";
+                        roomStatusTextEl.textContent = `Ожидание игроков... (${playersCount} в комнате)`;
                         roomStatusTextEl.style.color = "#4ade80";
                     }
                 }
-                
-                // Показываем кнопку "В БОЙ!" в двух случаях:
-                // 1. Создатель комнаты и >= 2 игрока (для запуска игры)
-                // 2. Комната активна (для присоединения к идущей игре)
+
+                // Обновляем список игроков в комнате
+                this.updateRoomPlayersList(roomId, networkPlayers);
+
+                // Показываем кнопку "В БОЙ!" для всех игроков в комнате
+                // 1. Создатель комнаты - может начать игру
+                // 2. Остальные игроки - могут присоединиться к идущей игре
                 const startGameBtn = document.getElementById("mp-btn-start-game");
                 if (startGameBtn) {
                     try {
-                        const isCreator = multiplayerManager.isRoomCreator ? multiplayerManager.isRoomCreator() : false;
-                        const isActive = multiplayerManager.isRoomActive ? multiplayerManager.isRoomActive() : false;
-                        const debugInfo = `[Menu] Кнопка "В БОЙ!": isCreator=${isCreator}, isActive=${isActive}, playersCount=${playersCount}, roomId=${roomId}`;
-                        
-                        // Показываем кнопку если:
-                        // - Создатель и >= 2 игрока (запуск новой игры)
-                        // - ИЛИ комната активна (присоединение к идущей игре)
-                        const shouldShow = (isCreator && playersCount >= 2) || isActive;
-                        
+                        // Проверяем, является ли пользователь создателем комнаты
+                        let isCreator = false;
+                        try {
+                            // Пробуем разные способы проверки
+                            if (typeof multiplayerManager.isRoomCreator === 'function') {
+                                isCreator = multiplayerManager.isRoomCreator();
+                            } else if (multiplayerManager._isRoomCreator !== undefined) {
+                                isCreator = multiplayerManager._isRoomCreator;
+                            } else {
+                                // Если создатель комнаты не определен, проверяем через roomId
+                                // Если мы создали комнату, то мы создатель
+                                console.warn("[Menu] isRoomCreator не определен, проверяем через roomId");
+                                isCreator = false; // Безопаснее предположить, что мы не создатель
+                            }
+                        } catch (e) {
+                            console.warn("[Menu] Ошибка проверки isRoomCreator:", e);
+                            isCreator = false;
+                        }
+
+                        // КРИТИЧНО: Используем ТОТ ЖЕ isActive, что и для статуса!
+                        // Дополнительно проверяем текст статуса на случай, если isActive не обновлен
+                        let finalIsActive = isActive;
+                        if (roomStatusTextEl && roomStatusTextEl.textContent && roomStatusTextEl.textContent.includes("Игра идет")) {
+                            console.log(`[Menu] ⚠️ Статус показывает "Игра идет", но isActive=${isActive}. Принудительно устанавливаем finalIsActive=true`);
+                            finalIsActive = true;
+                        }
+
+                        console.log(`[Menu] 🔍 Кнопка: isCreator=${isCreator}, isActive=${isActive}, finalIsActive=${finalIsActive}, playersCount=${playersCount}`);
+
+                        const debugInfo = `[Menu] Кнопка "В БОЙ!": isCreator=${isCreator}, isActive=${isActive}, finalIsActive=${finalIsActive}, playersCount=${playersCount}, roomId=${roomId}`;
+                        console.log(debugInfo);
+
+                        // ВСЕГДА показываем кнопку если мы в комнате и есть хотя бы 1 игрок
+                        // Это позволяет всем игрокам видеть кнопку и взаимодействовать с ней
+                        const shouldShow = roomId && playersCount >= 1;
+
                         if (shouldShow) {
-                            console.log(`${debugInfo} -> ПОКАЗЫВАЕМ кнопку`);
+                            console.log(`${debugInfo} -> ПОКАЗЫВАЕМ кнопку (в комнате с ${playersCount} игроками, игра активна: ${finalIsActive})`);
+                            // Принудительно показываем кнопку
                             startGameBtn.style.display = "block";
+                            startGameBtn.style.visibility = "visible";
+                            startGameBtn.style.opacity = "1";
+                            startGameBtn.style.pointerEvents = "auto";
                             startGameBtn.classList.add("battle-btn-ready");
-                            
+
+                            // КРИТИЧНО: Если игра идет, кнопка должна быть видна и кликабельна для ВСЕХ!
+                            if (finalIsActive) {
+                                console.log(`[Menu] 🎮 ИГРА ИДЕТ - кнопка доступна ВСЕМ игрокам для присоединения!`);
+                            }
+
+                            // Дополнительная проверка через небольшую задержку
+                            setTimeout(() => {
+                                const computedStyle = window.getComputedStyle(startGameBtn);
+                                if (computedStyle.display === "none" || computedStyle.visibility === "hidden") {
+                                    console.warn("[Menu] ⚠️ Кнопка скрыта CSS, принудительно показываем");
+                                    startGameBtn.style.setProperty("display", "block", "important");
+                                    startGameBtn.style.setProperty("visibility", "visible", "important");
+                                }
+                            }, 100);
+
                             // Обновляем текст кнопки в зависимости от ситуации
                             const textElement = startGameBtn.querySelector(".battle-btn-text");
-                            if (textElement) {
-                                if (isActive) {
-                                    textElement.textContent = `⚔️ ПРИСОЕДИНИТЬСЯ К БИТВЕ!`;
+                            let buttonText = "";
+
+                            // КРИТИЧНО: Сначала проверяем isActive - если игра идет, ВСЕ игроки могут присоединиться!
+                            if (finalIsActive) {
+                                console.log(`[Menu] ✅ Игра активна (${playersCount} игроков), показываем кнопку "ПРИСОЕДИНИТЬСЯ К БИТВЕ!" для ВСЕХ игроков`);
+                                // Игра уже идет - можно присоединиться (для ВСЕХ игроков, БЕЗ ПРОВЕРОК!)
+                                buttonText = `⚔️ ПРИСОЕДИНИТЬСЯ К БИТВЕ! (${playersCount} игроков)`;
+                                startGameBtn.style.opacity = "1";
+                                startGameBtn.style.cursor = "pointer";
+                                startGameBtn.style.pointerEvents = "auto";
+                                startGameBtn.style.display = "block";
+                                startGameBtn.style.visibility = "visible";
+                                startGameBtn.title = "Присоединиться к идущей игре (доступно всем!)";
+                                // Убираем disabled состояние
+                                startGameBtn.removeAttribute("disabled");
+                                // Убираем классы, которые могут блокировать клик
+                                startGameBtn.classList.remove("disabled");
+                            } else if (isCreator) {
+                                // Создатель комнаты - может начать игру (только если игра НЕ идет)
+                                if (playersCount < 2) {
+                                    buttonText = `⚔️ В БОЙ! (нужно больше игроков: ${playersCount}/2)`;
+                                    startGameBtn.style.opacity = "0.7";
+                                    startGameBtn.style.cursor = "not-allowed";
+                                    startGameBtn.style.pointerEvents = "none";
+                                    startGameBtn.title = "Для начала игры нужно минимум 2 игрока";
                                 } else {
-                                    textElement.textContent = `⚔️ В БОЙ! (${playersCount} игроков)`;
+                                    buttonText = `⚔️ В БОЙ! (${playersCount} игроков готовы)`;
+                                    startGameBtn.style.opacity = "1";
+                                    startGameBtn.style.cursor = "pointer";
+                                    startGameBtn.style.pointerEvents = "auto";
+                                    startGameBtn.title = "Начать игру";
                                 }
                             } else {
+                                // Обычный игрок - ждет начала игры (только если игра НЕ идет)
+                                if (playersCount < 2) {
+                                    buttonText = `⏳ Ожидание игроков (${playersCount}/2)`;
+                                    startGameBtn.style.opacity = "0.7";
+                                    startGameBtn.style.cursor = "not-allowed";
+                                    startGameBtn.style.pointerEvents = "none";
+                                    startGameBtn.title = "Ожидание начала игры создателем комнаты";
+                                } else {
+                                    buttonText = `⏳ Ожидание начала игры (${playersCount} игроков)`;
+                                    startGameBtn.style.opacity = "0.8";
+                                    startGameBtn.style.cursor = "not-allowed";
+                                    startGameBtn.style.pointerEvents = "none";
+                                    startGameBtn.title = "Создатель комнаты должен начать игру";
+                                }
+                            }
+
+                            if (textElement) {
+                                textElement.textContent = buttonText;
+                            } else {
                                 // Если структура нарушена, восстанавливаем её
-                                const buttonText = isActive ? `⚔️ ПРИСОЕДИНИТЬСЯ К БИТВЕ!` : `⚔️ В БОЙ! (${playersCount} игроков)`;
                                 startGameBtn.innerHTML = `<span class="battle-btn-text">${buttonText}</span><span class="battle-btn-shine"></span>`;
                             }
                         } else {
-                            if (roomId) {
-                                // Логируем только если мы в комнате, чтобы не засорять консоль
-                                if (!isCreator && !isActive) {
-                                    console.log(`${debugInfo} -> СКРЫВАЕМ: вы не создатель и игра не идет`);
-                                } else if (isCreator && playersCount < 2) {
-                                    console.log(`${debugInfo} -> СКРЫВАЕМ: нужно минимум 2 игрока (сейчас: ${playersCount})`);
-                                }
-                            }
+                            console.log(`${debugInfo} -> СКРЫВАЕМ: нет комнаты или нет игроков`);
                             startGameBtn.style.display = "none";
                             startGameBtn.classList.remove("battle-btn-ready");
                         }
                     } catch (error) {
                         console.error("[Menu] Error checking room status:", error);
-                        startGameBtn.style.display = "none";
+                        // В случае ошибки все равно показываем кнопку, если есть roomId
+                        if (roomId && playersCount >= 1) {
+                            startGameBtn.style.display = "block";
+                            startGameBtn.style.visibility = "visible";
+                        } else {
+                            startGameBtn.style.display = "none";
+                        }
                     }
                 }
-                
+
                 // Список игроков обновляется автоматически через другие механизмы
             } else {
                 if (roomInfoEl) roomInfoEl.style.display = "none";
@@ -6663,17 +8470,17 @@ export class MainMenu {
             } else {
                 statusText += " / Firebase [Offline]";
             }
-            
+
             statusEl.textContent = statusText;
             statusEl.style.color = "#f00"; // Красный если WebSocket офлайн
             indicatorEl.style.background = "#f00";
             indicatorEl.style.boxShadow = "none";
-            
+
             if (pingEl) pingEl.style.display = "none";
             if (reconnectBtn) reconnectBtn.style.display = "inline-block";
             if (queueInfoEl) queueInfoEl.style.display = "none";
             if (roomInfoEl) roomInfoEl.style.display = "none";
-            
+
             // Обновляем подсказку при отключении
             const hintEl = document.getElementById("mp-server-hint");
             if (hintEl) {
@@ -6682,19 +8489,142 @@ export class MainMenu {
             }
         }
     }
-    
+
+    /**
+     * Обновление списка игроков в комнате
+     */
+    private updateRoomPlayersList(roomId: string, networkPlayers: Map<string, any> | null): void {
+        const playersContainer = document.getElementById("mp-room-panel-players-list");
+        if (!playersContainer) return;
+
+        const game = (window as any).gameInstance as any;
+        const multiplayerManager = game?.multiplayerManager;
+        const currentPlayerId = multiplayerManager?.getPlayerId();
+        const isCreator = multiplayerManager?.isRoomCreator ? multiplayerManager.isRoomCreator() : false;
+
+        // Принудительно обновляем статус кнопки после обновления списка игроков
+        setTimeout(() => {
+            this._updateMultiplayerStatus();
+        }, 100);
+
+        playersContainer.innerHTML = "";
+
+        // Добавляем текущего игрока в начало списка
+        const allPlayers: Array<{ id: string; name: string; isOwner?: boolean }> = [];
+        if (currentPlayerId) {
+            allPlayers.push({ id: currentPlayerId, name: multiplayerManager?.getPlayerName() || "Вы", isOwner: isCreator });
+        }
+
+        // Добавляем остальных игроков
+        if (networkPlayers && networkPlayers.size > 0) {
+            networkPlayers.forEach((player, playerId) => {
+                if (playerId !== currentPlayerId) {
+                    allPlayers.push({
+                        id: playerId,
+                        name: player.name || `Player_${playerId.substring(0, 6)}`,
+                        isOwner: false
+                    });
+                }
+            });
+        }
+
+        allPlayers.forEach(player => {
+            const playerItem = document.createElement("div");
+            playerItem.style.cssText = `
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 8px;
+                background: rgba(0, 0, 0, 0.2);
+                border: 1px solid rgba(118, 75, 162, 0.2);
+                border-radius: 4px;
+                font-size: 11px;
+            `;
+
+            const isCurrentPlayer = player.id === currentPlayerId;
+            const isReady = (this as any).roomReadyPlayers?.has(player.id) || false;
+
+            playerItem.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                    ${player.isOwner ? '<span style="color: #fbbf24;">👑</span>' : ''}
+                    <span style="color: ${isCurrentPlayer ? '#4ade80' : '#fff'}; font-weight: ${isCurrentPlayer ? '600' : '400'};">
+                        ${player.name}${isCurrentPlayer ? ' (Вы)' : ''}
+                    </span>
+                </div>
+                <div style="display: flex; gap: 4px; align-items: center;">
+                    ${isReady ? '<span style="color: #4ade80; font-size: 12px;">✓ Готов</span>' : '<span style="color: #888; font-size: 12px;">Не готов</span>'}
+                    ${!isCurrentPlayer && isCreator ? `
+                        <button class="room-player-kick-btn" data-player-id="${player.id}" data-player-name="${player.name}" 
+                                style="padding: 4px 8px; font-size: 9px; background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; border-radius: 3px; color: #ef4444; cursor: pointer; transition: all 0.2s;"
+                                title="Кикнуть игрока">
+                            🚫
+                        </button>
+                    ` : ''}
+                    ${!isCurrentPlayer ? `
+                        <button class="room-player-profile-btn" data-player-id="${player.id}" data-player-name="${player.name}"
+                                style="padding: 4px 8px; font-size: 9px; background: rgba(102, 126, 234, 0.2); border: 1px solid #667eea; border-radius: 3px; color: #a78bfa; cursor: pointer; transition: all 0.2s;"
+                                title="Профиль игрока">
+                            👤
+                        </button>
+                    ` : ''}
+                </div>
+            `;
+
+            // Обработчик кика игрока
+            if (!isCurrentPlayer && isCreator) {
+                const kickBtn = playerItem.querySelector(".room-player-kick-btn");
+                if (kickBtn) {
+                    kickBtn.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        const playerId = kickBtn.getAttribute("data-player-id");
+                        const playerName = kickBtn.getAttribute("data-player-name");
+                        if (playerId && playerName) {
+                            const reason = prompt(`Введите причину кика игрока ${playerName} (необязательно):`);
+                            this.kickPlayerFromRoom(roomId, playerId, reason || undefined);
+                        }
+                    });
+                }
+            }
+
+            // Обработчик просмотра профиля
+            if (!isCurrentPlayer) {
+                const profileBtn = playerItem.querySelector(".room-player-profile-btn");
+                if (profileBtn) {
+                    profileBtn.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        const playerId = profileBtn.getAttribute("data-player-id");
+                        const playerName = profileBtn.getAttribute("data-player-name");
+                        if (playerId && playerName) {
+                            this.showPlayerProfile(playerId, playerName);
+                        }
+                    });
+                }
+            }
+
+            playersContainer.appendChild(playerItem);
+        });
+    }
+
+    /**
+     * Показать профиль игрока
+     */
+    private showPlayerProfile(playerId: string, playerName: string): void {
+        // TODO: Реализовать просмотр профиля игрока
+        alert(`Профиль игрока ${playerName}\nID: ${playerId}\n\nФункция просмотра профиля будет реализована позже.`);
+    }
+
     private startMultiplayerQuickPlay(mode: string): void {
         debugLog("[Menu] Starting quick play for mode:", mode);
-        
+
         // Сохраняем режим и запускаем игру
         this.selectedGameMode = "multiplayer";
         localStorage.setItem("selectedGameMode", "multiplayer");
-        
+
         // Используем карту по умолчанию если не выбрана
         if (!this.selectedMapType) {
             this.selectedMapType = "normal";
         }
-        
+
         // Показываем информацию о поиске
         const queueInfoEl = document.getElementById("mp-queue-info");
         if (queueInfoEl) {
@@ -6704,12 +8634,12 @@ export class MainMenu {
             // Запускаем таймер очереди
             this.startQueueTimer();
         }
-        
+
         // Закрываем меню и запускаем игру
         this.hide();
         this.hidePlayMenu();
         this.onStartGame(this.selectedMapType);
-        
+
         // После запуска игры подключаемся к мультиплееру
         setTimeout(() => {
             const game = (window as any).gameInstance as any;
@@ -6728,28 +8658,35 @@ export class MainMenu {
             }
         }, 3000);
     }
-    
-    private async createMultiplayerRoom(mode: string): Promise<void> {
-        debugLog("[Menu] Creating multiplayer room for mode:", mode);
+
+    private async createMultiplayerRoom(mode: string, mapType?: string): Promise<void> {
+        debugLog("[Menu] Creating multiplayer room for mode:", mode, "mapType:", mapType);
+        
+        // КРИТИЧНО: Очищаем custom map данные при создании мультиплеер комнаты
+        // Это гарантирует, что все игроки увидят одинаковую карту с сервера
+        localStorage.removeItem("selectedCustomMapData");
+        localStorage.removeItem("selectedCustomMapIndex");
+        console.log("[Menu] 🗺️ Очищены данные custom карты при создании мультиплеер комнаты");
+        
         const game = (window as any).gameInstance as any;
         if (!game) {
             this.showMultiplayerError("Игра еще не инициализирована. Запустите игру сначала.");
             return;
         }
-        
+
         // Проверяем и инициализируем multiplayerManager если нужно
         let multiplayerManager = game?.multiplayerManager;
-        
+
         // Если multiplayerManager не существует, пытаемся создать его
         if (!multiplayerManager) {
             debugLog("[Menu] MultiplayerManager not found, attempting to initialize...");
-            
+
             // Создаем новый MultiplayerManager
             try {
                 const { MultiplayerManager } = await import("./multiplayer");
                 multiplayerManager = new MultiplayerManager(undefined, true);
                 game.multiplayerManager = multiplayerManager;
-                
+
                 // Настраиваем колбэки если gameMultiplayerCallbacks существует
                 if (game.gameMultiplayerCallbacks) {
                     try {
@@ -6766,7 +8703,7 @@ export class MainMenu {
                                 throw new Error("Game scene not available after waiting");
                             }
                         }
-                        
+
                         game.gameMultiplayerCallbacks.updateDependencies({
                             multiplayerManager: multiplayerManager,
                             scene: game.scene,
@@ -6784,7 +8721,7 @@ export class MainMenu {
                         debugWarn("[Menu] Failed to setup multiplayer callbacks:", callbackError);
                     }
                 }
-                
+
                 debugLog("[Menu] MultiplayerManager created successfully");
             } catch (error) {
                 debugError("[Menu] Failed to create MultiplayerManager:", error);
@@ -6792,12 +8729,12 @@ export class MainMenu {
                 return;
             }
         }
-        
+
         if (!multiplayerManager) {
             this.showMultiplayerError("Менеджер мультиплеера не инициализирован.");
             return;
         }
-        
+
         // Проверяем подключение к WebSocket и ждем подключения если нужно
         if (!multiplayerManager.isConnected()) {
             // Ждем подключения до 5 секунд
@@ -6807,32 +8744,32 @@ export class MainMenu {
                 await new Promise(resolve => setTimeout(resolve, 500));
                 attempts++;
             }
-            
+
             if (!multiplayerManager.isConnected()) {
                 this.showMultiplayerError("Не подключено к серверу. Пожалуйста, подключитесь к WebSocket серверу сначала.");
                 debugLog("[Menu] WebSocket not connected after waiting, cannot create room");
                 return;
             }
         }
-        
+
         // Устанавливаем временный callback для показа ID сразу после создания
         // Сохраняем старый callback (если он есть)
         const existingCallback = (multiplayerManager as any).onRoomCreatedCallback;
-        
+
         // Устанавливаем новый callback, который покажет ID и вызовет существующий
         multiplayerManager.onRoomCreated((data: any) => {
             debugLog("[Menu] Room created callback triggered, roomId:", data.roomId);
-            
+
             // Вызываем существующий callback (который обновляет UI через GameMultiplayerCallbacks)
             if (existingCallback && existingCallback !== (multiplayerManager as any).onRoomCreatedCallback) {
                 existingCallback(data);
             }
-            
+
             // Немедленно обновляем UI для показа ID
             setTimeout(() => {
                 this._updateMultiplayerStatus();
             }, 100);
-            
+
             // Показываем уведомление с ID комнаты
             const roomId = data.roomId || multiplayerManager.getRoomId();
             if (roomId) {
@@ -6843,14 +8780,22 @@ export class MainMenu {
             } else {
                 debugWarn("[Menu] Room created but no roomId in data");
             }
+
+            // Запрашиваем обновлённый список комнат для отображения в лобби
+            setTimeout(() => {
+                if (multiplayerManager.isConnected()) {
+                    debugLog("[Menu] Requesting updated room list after room creation");
+                    multiplayerManager.requestRoomList();
+                }
+            }, 500);
         });
-        
+
         // Используем прямой вызов метода multiplayerManager для большей надежности
         try {
-            // Вызываем createRoom напрямую
-            const success = multiplayerManager.createRoom(mode as any, 32, false);
+            // Вызываем createRoom напрямую с mapType
+            const success = multiplayerManager.createRoom(mode as any, 32, false, mapType);
             if (success) {
-                debugLog("[Menu] Room creation request sent for mode:", mode);
+                debugLog("[Menu] Room creation request sent for mode:", mode, "mapType:", mapType);
             } else {
                 debugError("[Menu] Failed to send room creation request");
                 this.showMultiplayerError("Не удалось отправить запрос на создание комнаты. Проверьте подключение к серверу.");
@@ -6860,7 +8805,7 @@ export class MainMenu {
             this.showMultiplayerError(`Ошибка при создании комнаты: ${error.message || "Неизвестная ошибка"}`);
         }
     }
-    
+
     private joinMultiplayerRoom(roomId: string): void {
         debugLog("[Menu] Joining multiplayer room:", roomId);
         const game = (window as any).gameInstance as any;
@@ -6871,7 +8816,7 @@ export class MainMenu {
             alert("Игра еще не инициализирована. Запустите игру сначала.");
         }
     }
-    
+
     private cancelMultiplayerQueue(): void {
         debugLog("[Menu] Cancelling multiplayer queue");
         const game = (window as any).gameInstance as any;
@@ -6879,7 +8824,7 @@ export class MainMenu {
         if (multiplayerManager) {
             // Отправляем запрос на отмену очереди
             multiplayerManager.cancelQueue();
-            
+
             const queueInfoEl = document.getElementById("mp-queue-info");
             if (queueInfoEl) {
                 queueInfoEl.style.display = "none";
@@ -6894,25 +8839,33 @@ export class MainMenu {
             if (timerEl) timerEl.textContent = "00:00";
         }
     }
-    
+
     /**
      * Настроить обновление списка комнат
      */
     private setupRoomListUpdates(multiplayerManager: any): void {
         if (!multiplayerManager) return;
-        
+
         if (multiplayerManager.isConnected()) {
             // ВСЕГДА настраиваем callback при открытии меню (перезаписываем для надежности)
             console.log(`[Menu] ✅ Настройка callback для списка комнат при открытии меню`);
             multiplayerManager.onRoomList((rooms: any[]) => {
-                console.log(`[Menu] 📋 Callback вызван: ${rooms.length} комнат`);
-                this.updateRoomList(rooms);
+                // Throttling: логируем только при изменении количества комнат или раз в 2 секунды
+                const now = Date.now();
+                const shouldLog = (now - this._lastRoomListLogTime) > 30000 || rooms.length !== this._lastRoomListCount;
+                if (shouldLog) {
+                    console.log(`[Menu] 📋 Room list: ${rooms.length} rooms`);
+                    this._lastRoomListLogTime = now;
+                    this._lastRoomListCount = rooms.length;
+                }
+                // Обновляем оба UI одновременно (без логирования)
+                this.updateAllRoomLists(rooms);
             });
-            
+
             // Запрашиваем список комнат сразу
             console.log(`[Menu] 📡 Запрос списка комнат при открытии меню`);
             multiplayerManager.requestRoomList();
-            
+
             // Обновляем список каждые 3 секунды (улучшено для более быстрого обновления)
             // Очищаем предыдущий интервал если есть
             const intervalKey = 'mp-room-list-interval';
@@ -6928,24 +8881,45 @@ export class MainMenu {
             console.warn(`[Menu] ⚠️ Не подключено к серверу, список комнат не будет обновляться`);
         }
     }
-    
-    updateRoomList(rooms: any[]): void {
+
+    /**
+     * Единый метод для обновления всех списков комнат (меню мультиплеера и лобби)
+     */
+    private updateAllRoomLists(rooms: any[]): void {
+        // Сохраняем все комнаты для фильтрации (единый источник данных)
+        this.allRooms = rooms;
+
+        // Обновляем меню мультиплеера
+        this.updateMultiplayerMenuRooms(rooms);
+
+        // Обновляем лобби
+        this.updateLobbyRoomsUI(rooms);
+    }
+
+    /**
+     * Обновление списка комнат в меню мультиплеера
+     */
+    private updateMultiplayerMenuRooms(rooms: any[]): void {
+        // Применяем фильтры
+        const filteredRooms = this.filterRooms(rooms);
+
         const roomsContainer = document.getElementById("mp-rooms-items");
         if (!roomsContainer) {
             console.warn("[Menu] ⚠️ Контейнер mp-rooms-items не найден!");
             return;
         }
-        
-        console.log(`[Menu] 📋 Обновление списка комнат: ${rooms.length} комнат`);
-        
+
+        // Убрано для уменьшения спама в логах
+        // console.log(`[Menu] 📋 Обновление списка комнат в меню мультиплеера: ${rooms.length} комнат (показано: ${filteredRooms.length})`);
+
         roomsContainer.innerHTML = "";
-        
-        if (rooms.length === 0) {
+
+        if (filteredRooms.length === 0) {
             roomsContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #888; font-size: 12px;">Нет доступных комнат</div>';
             return;
         }
-        
-        rooms.forEach(room => {
+
+        filteredRooms.forEach(room => {
             const roomItem = document.createElement("div");
             roomItem.style.cssText = `
                 padding: 10px;
@@ -6972,32 +8946,2903 @@ export class MainMenu {
                 const game = (window as any).gameInstance as any;
                 if (game?.multiplayerManager) {
                     console.log(`[Menu] 🎮 Быстрое присоединение к комнате ${room.id} (двойной клик)`);
-                    game.multiplayerManager.joinRoom(room.id);
+                    this.joinRoom(room.id);
                 }
             };
-            
+
             const statusColor = room.isActive ? "#4ade80" : "#a78bfa";
             const statusText = room.isActive ? "Игра идет" : "Ожидание";
             const isFull = room.players >= room.maxPlayers;
-            
+            const mapType = room.mapType || "normal";
+
             roomItem.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                     <div style="font-weight: bold; color: #fff; font-size: 13px;">Комната ${room.id}</div>
                     <div style="font-size: 11px; color: ${statusColor}; background: rgba(0, 0, 0, 0.3); padding: 2px 6px; border-radius: 4px;">${statusText}</div>
                 </div>
-                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #aaa;">
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #aaa; margin-bottom: 4px;">
                     <span>Режим: <span style="color: #fff;">${room.mode.toUpperCase()}</span></span>
                     <span>Игроков: <span style="color: ${isFull ? '#ef4444' : '#4ade80'};">${room.players}/${room.maxPlayers}</span></span>
+                </div>
+                <div style="font-size: 11px; color: #aaa;">
+                    <span>Карта: <span style="color: #fbbf24;">${mapType}</span></span>
                 </div>
                 <div style="margin-top: 8px; text-align: center; font-size: 10px; color: #667eea; opacity: 0.7;">
                     Клик — детали • Двойной клик — войти
                 </div>
             `;
-            
+
             roomsContainer.appendChild(roomItem);
         });
     }
-    
+
+    /**
+     * Обновление UI списка комнат в лобби (без обновления данных)
+     */
+    private updateLobbyRoomsUI(rooms: any[]): void {
+        // Обновляем время последнего обновления
+        this.updateLastUpdateTime(true);
+
+        // Применяем фильтры и сортировку
+        this.applyLobbyRoomFilters();
+    }
+
+    /**
+     * Обновление списка комнат (публичный метод для обратной совместимости)
+     * Теперь обновляет оба UI одновременно
+     */
+    updateRoomList(rooms: any[]): void {
+        this.updateAllRoomLists(rooms);
+    }
+
+    /**
+     * Обновление панели текущей комнаты
+     */
+    updateRoomPanel(roomId: string, mode: string, mapType: string): void {
+        console.log("[Menu] Updating room panel:", roomId, mode, mapType);
+
+        // Обновляем ID комнаты
+        const idEl = document.getElementById("mp-room-panel-id");
+        if (idEl) idEl.textContent = roomId;
+
+        // Обновляем режим
+        const modeEl = document.getElementById("mp-room-panel-mode");
+        if (modeEl) {
+            const modeNames: Record<string, string> = {
+                "ffa": "Free-for-All",
+                "tdm": "Team Deathmatch",
+                "coop": "Co-op PvE",
+                "battle_royale": "Battle Royale",
+                "ctf": "Capture the Flag",
+                "survival": "Survival",
+                "raid": "Raid"
+            };
+            modeEl.textContent = modeNames[mode] || mode.toUpperCase();
+
+            // Показываем блок команд только для режимов с командами
+            const teamsBlock = document.getElementById("mp-room-panel-teams");
+            if (teamsBlock) {
+                const teamModes = ["tdm", "ctf"];
+                if (teamModes.includes(mode.toLowerCase())) {
+                    teamsBlock.style.display = "block";
+                    this.updateTeamsDisplay();
+                } else {
+                    teamsBlock.style.display = "none";
+                }
+            }
+        }
+
+        // Обновляем карту
+        const mapEl = document.getElementById("mp-room-panel-map");
+        if (mapEl) {
+            const mapNames: Record<string, string> = {
+                "normal": "Обычная карта",
+                "sandbox": "Песочница",
+                "sand": "Песок",
+                "madness": "Безумие",
+                "expo": "Expo",
+                "brest": "Брестская крепость",
+                "arena": "Арена",
+                "polygon": "Полигон",
+                "frontline": "Передовая",
+                "ruins": "Руины",
+                "canyon": "Ущелье",
+                "industrial": "Промзона",
+                "urban_warfare": "Городские бои",
+                "underground": "Подземелье",
+                "coastal": "Побережье",
+                "tartaria": "Тартария"
+            };
+            mapEl.textContent = mapNames[mapType] || mapType;
+        }
+
+        // Определяем, является ли текущий игрок хостом
+        const game = (window as any).gameInstance;
+        const isHost = game?.multiplayerManager?.isRoomCreator ? game.multiplayerManager.isRoomCreator() : true;
+
+        // Обновляем количество игроков
+        const currentPlayers = game?.multiplayerManager?.getRoomPlayersCount?.() || 1;
+        this.updateRoomPanelPlayers(currentPlayers, 32);
+
+        // Обновляем имя хоста
+        const hostNameEl = document.getElementById("mp-room-panel-host-name");
+        if (hostNameEl && game?.multiplayerManager) {
+            if (isHost) {
+                const playerName = game.multiplayerManager.getPlayerName() || "Вы";
+                hostNameEl.textContent = `${playerName} (Хост)`;
+            } else {
+                // Для не-хоста показываем "Ожидание хоста..." (будет обновлено при получении данных)
+                hostNameEl.textContent = "Ожидание данных хоста...";
+            }
+        }
+
+        // Скрываем настройки только для хоста, но кнопка "В БОЙ" видна всем
+        const settingsSection = document.getElementById("mp-room-panel-settings");
+        const controlsSection = document.getElementById("mp-room-panel-controls");
+        const hostOnlyElements = document.querySelectorAll(".mp-room-host-only");
+
+        if (settingsSection) {
+            (settingsSection as HTMLElement).style.display = isHost ? "block" : "none";
+        }
+        if (controlsSection) {
+            (controlsSection as HTMLElement).style.display = isHost ? "block" : "none";
+        }
+        hostOnlyElements.forEach(el => {
+            (el as HTMLElement).style.display = isHost ? "block" : "none";
+        });
+
+        // Кнопка "Начать игру" / "В БОЙ!" видна всем, но с разным текстом
+        const startBtnElement = document.getElementById("mp-room-panel-start-game");
+        if (startBtnElement) {
+            const btnTextEl = startBtnElement.querySelector(".battle-btn-text");
+            if (isHost) {
+                // Хост видит "НАЧАТЬ ИГРУ"
+                if (btnTextEl) btnTextEl.textContent = "⚔️ НАЧАТЬ ИГРУ";
+            } else {
+                // Не-хост видит "В БОЙ!" (ожидание начала)
+                if (btnTextEl) btnTextEl.textContent = "⚔️ В БОЙ!";
+            }
+            (startBtnElement as HTMLElement).style.display = "block";
+        }
+
+
+
+        // Обработчик копирования ID
+        const copyBtn = document.getElementById("mp-room-panel-copy-id");
+        if (copyBtn) {
+            copyBtn.onclick = () => {
+                navigator.clipboard.writeText(roomId).then(() => {
+                    copyBtn.textContent = "✅";
+                    setTimeout(() => { copyBtn.textContent = "📋"; }, 2000);
+                });
+            };
+        }
+
+        // Обработчик кнопки сворачивания
+        const minimizeBtn = document.getElementById("mp-room-panel-minimize");
+        if (minimizeBtn) {
+            minimizeBtn.onclick = () => {
+                const panel = document.getElementById("mp-room-panel");
+                if (panel) {
+                    const isMinimized = panel.style.height === "auto" && panel.style.overflow === "hidden";
+                    if (isMinimized) {
+                        // Разворачиваем
+                        panel.style.height = "";
+                        panel.style.overflow = "";
+                        minimizeBtn.textContent = "─";
+                        minimizeBtn.title = "Свернуть";
+                    } else {
+                        // Сворачиваем - оставляем только заголовок
+                        const header = panel.querySelector(".play-window-header");
+                        if (header) {
+                            const headerHeight = (header as HTMLElement).offsetHeight;
+                            panel.style.height = `${headerHeight}px`;
+                            panel.style.overflow = "hidden";
+                            minimizeBtn.textContent = "□";
+                            minimizeBtn.title = "Развернуть";
+                        }
+                    }
+                }
+            };
+        }
+
+        // Обработчик кнопки "Начать игру"
+        const startGameBtn = document.getElementById("mp-room-panel-start-game");
+        if (startGameBtn) {
+            startGameBtn.onclick = async () => {
+                const game = (window as any).gameInstance;
+                if (game?.multiplayerManager) {
+                    console.log("[Menu] Starting game in room:", roomId);
+                    this.hideAllPlayWindows();
+                    this.hidePlayMenu();
+                    await this.startMultiplayerGame();
+                }
+            };
+        }
+
+
+        // Обработчик кнопки "Покинуть комнату"
+        const leaveBtn = document.getElementById("mp-room-panel-leave");
+        if (leaveBtn) {
+            leaveBtn.onclick = () => {
+                const game = (window as any).gameInstance;
+                if (game?.multiplayerManager) {
+                    console.log("[Menu] Leaving room:", roomId);
+                    game.multiplayerManager.leaveRoom();
+                    this.hideAllPlayWindows();
+                    this.showPlayWindow("play-window-multiplayer", 0.5, 0.5);
+                }
+            };
+        }
+
+        // Обработчики настроек комнаты
+        const maxPlayersSlider = document.getElementById("mp-room-panel-max-players") as HTMLInputElement;
+        const maxPlayersValue = document.getElementById("mp-room-panel-max-players-value");
+        if (maxPlayersSlider && maxPlayersValue) {
+            maxPlayersSlider.oninput = () => {
+                maxPlayersValue.textContent = maxPlayersSlider.value;
+            };
+        }
+
+        const roundTimeSlider = document.getElementById("mp-room-panel-round-time") as HTMLInputElement;
+        const roundTimeValue = document.getElementById("mp-room-panel-round-time-value");
+        if (roundTimeSlider && roundTimeValue) {
+            roundTimeSlider.oninput = () => {
+                roundTimeValue.textContent = roundTimeSlider.value;
+            };
+        }
+
+        const killLimitSlider = document.getElementById("mp-room-panel-kill-limit") as HTMLInputElement;
+        const killLimitValue = document.getElementById("mp-room-panel-kill-limit-value");
+        if (killLimitSlider && killLimitValue) {
+            killLimitSlider.oninput = () => {
+                killLimitValue.textContent = killLimitSlider.value;
+            };
+        }
+
+        const saveSettingsBtn = document.getElementById("mp-room-panel-save-settings");
+        if (saveSettingsBtn) {
+            saveSettingsBtn.onclick = () => {
+                const game = (window as any).gameInstance;
+                if (game?.multiplayerManager) {
+                    const allowLight = (document.getElementById("mp-room-panel-allow-light") as HTMLInputElement)?.checked ?? true;
+                    const allowMedium = (document.getElementById("mp-room-panel-allow-medium") as HTMLInputElement)?.checked ?? true;
+                    const allowHeavy = (document.getElementById("mp-room-panel-allow-heavy") as HTMLInputElement)?.checked ?? true;
+                    const allowAssault = (document.getElementById("mp-room-panel-allow-assault") as HTMLInputElement)?.checked ?? true;
+                    const allowStandard = (document.getElementById("mp-room-panel-allow-standard") as HTMLInputElement)?.checked ?? true;
+                    const allowRapid = (document.getElementById("mp-room-panel-allow-rapid") as HTMLInputElement)?.checked ?? true;
+                    const allowHeavyGun = (document.getElementById("mp-room-panel-allow-heavy-gun") as HTMLInputElement)?.checked ?? true;
+                    const allowSniper = (document.getElementById("mp-room-panel-allow-sniper") as HTMLInputElement)?.checked ?? true;
+
+                    const settings = {
+                        maxPlayers: parseInt(maxPlayersSlider?.value || "32"),
+                        roundTime: parseInt(roundTimeSlider?.value || "10"),
+                        killLimit: parseInt(killLimitSlider?.value || "50"),
+                        allowedChassis: {
+                            light: allowLight,
+                            medium: allowMedium,
+                            heavy: allowHeavy,
+                            assault: allowAssault
+                        },
+                        allowedWeapons: {
+                            standard: allowStandard,
+                            rapid: allowRapid,
+                            heavy: allowHeavyGun,
+                            sniper: allowSniper
+                        }
+                    };
+                    console.log("[Menu] Saving room settings:", settings);
+                    // TODO: Отправить настройки на сервер
+                    this.showMultiplayerNotification("Настройки сохранены!", "#4ade80");
+                }
+            };
+        }
+
+        // Обработчик кнопки сворачивания настроек комнаты
+        const settingsToggleBtn = document.getElementById("mp-room-panel-settings-toggle");
+        const settingsContent = document.getElementById("mp-room-panel-settings-content");
+        if (settingsToggleBtn && settingsContent) {
+            // Загружаем состояние из localStorage (по умолчанию - свернуто)
+            const savedState = localStorage.getItem("roomSettingsCollapsed");
+            const isCollapsed = savedState !== "false"; // По умолчанию свернуто
+
+            // Устанавливаем начальное состояние
+            if (isCollapsed) {
+                settingsContent.style.display = "none";
+                settingsToggleBtn.textContent = "▶";
+                settingsToggleBtn.title = "Развернуть настройки";
+            } else {
+                settingsContent.style.display = "block";
+                settingsToggleBtn.textContent = "▼";
+                settingsToggleBtn.title = "Свернуть настройки";
+            }
+
+            settingsToggleBtn.onclick = () => {
+                const isCurrentlyCollapsed = settingsContent.style.display === "none";
+                if (isCurrentlyCollapsed) {
+                    settingsContent.style.display = "block";
+                    settingsToggleBtn.textContent = "▼";
+                    settingsToggleBtn.title = "Свернуть настройки";
+                    localStorage.setItem("roomSettingsCollapsed", "false");
+                } else {
+                    settingsContent.style.display = "none";
+                    settingsToggleBtn.textContent = "▶";
+                    settingsToggleBtn.title = "Развернуть настройки";
+                    localStorage.setItem("roomSettingsCollapsed", "true");
+                }
+            };
+        }
+
+        // Инициализация системы готовности
+        (this as any).roomReadyPlayers = new Set<string>();
+        (this as any).autoStartTriggered = false;
+        // Используем уже объявленную переменную game
+        if (game?.multiplayerManager) {
+            const playerId = game.multiplayerManager.getPlayerId();
+            if (playerId) {
+                (this as any).roomReadyPlayers.add(playerId);
+            }
+        }
+
+        // Обработчик кнопки "Готов"
+        const readyBtn = document.getElementById("mp-room-panel-ready-btn");
+        if (readyBtn) {
+            // Устанавливаем начальное состояние кнопки
+            const game = (window as any).gameInstance;
+            if (game?.multiplayerManager) {
+                const playerId = game.multiplayerManager.getPlayerId();
+                const isReady = playerId && (this as any).roomReadyPlayers.has(playerId);
+                if (isReady) {
+                    readyBtn.textContent = "✗ Не готов";
+                    readyBtn.style.background = "rgba(239, 68, 68, 0.2)";
+                    readyBtn.style.borderColor = "#ef4444";
+                } else {
+                    readyBtn.textContent = "✓ Готов";
+                    readyBtn.style.background = "rgba(74, 222, 128, 0.2)";
+                    readyBtn.style.borderColor = "#4ade80";
+                }
+            }
+
+            readyBtn.onclick = () => {
+                const game = (window as any).gameInstance;
+                if (game?.multiplayerManager) {
+                    const playerId = game.multiplayerManager.getPlayerId();
+                    if (playerId) {
+                        const isReady = (this as any).roomReadyPlayers.has(playerId);
+                        if (isReady) {
+                            (this as any).roomReadyPlayers.delete(playerId);
+                            readyBtn.textContent = "✓ Готов";
+                            readyBtn.style.background = "rgba(74, 222, 128, 0.2)";
+                            readyBtn.style.borderColor = "#4ade80";
+                            this.addRoomSystemMessage("Вы отменили готовность");
+                        } else {
+                            (this as any).roomReadyPlayers.add(playerId);
+                            readyBtn.textContent = "✗ Не готов";
+                            readyBtn.style.background = "rgba(239, 68, 68, 0.2)";
+                            readyBtn.style.borderColor = "#ef4444";
+                            this.addRoomSystemMessage("Вы готовы к игре!");
+                        }
+                        this.updateReadyStatus();
+                        // TODO: Отправить статус готовности на сервер
+                    }
+                }
+            };
+        }
+
+        this.updateReadyStatus();
+
+        // Обработчики чата комнаты
+        const chatInput = document.getElementById("mp-room-panel-chat-input") as HTMLInputElement;
+        const chatSendBtn = document.getElementById("mp-room-panel-chat-send");
+        const chatMessages = document.getElementById("mp-room-panel-chat-messages");
+
+        const sendChatMessage = () => {
+            if (!chatInput || !chatMessages) {
+                console.warn("[Menu] Chat input or messages container not found");
+                return;
+            }
+            const message = chatInput.value.trim();
+            if (!message) {
+                console.log("[Menu] Empty message, ignoring");
+                return;
+            }
+
+            const game = (window as any).gameInstance;
+            const multiplayerManager = game?.multiplayerManager;
+            
+            if (!multiplayerManager) {
+                console.warn("[Menu] MultiplayerManager not available");
+                return;
+            }
+
+            // Проверяем, что мы действительно в этой комнате
+            const currentRoomId = multiplayerManager.getRoomId();
+            if (currentRoomId !== roomId) {
+                console.warn("[Menu] Not in room", roomId, "current room:", currentRoomId);
+                return;
+            }
+
+            const playerName = multiplayerManager.getPlayerName() || "Вы";
+
+            console.log("[Menu] Sending room chat message:", { roomId, playerName, message });
+
+            // Добавляем сообщение в чат локально для мгновенного отклика
+            // В callback будет проверка на isOwnMessage, чтобы не дублировать
+            this.addRoomChatMessage(playerName, message, "player");
+
+            // Отправляем сообщение на сервер (sendChatMessage автоматически отправляет в комнату, если игрок в комнате)
+            try {
+                multiplayerManager.sendChatMessage(message);
+                console.log("[Menu] Room chat message sent successfully");
+            } catch (error) {
+                console.error("[Menu] Error sending room chat message:", error);
+            }
+
+            chatInput.value = "";
+        };
+
+        if (chatInput) {
+            // Удаляем старые обработчики если есть
+            chatInput.onkeypress = null;
+            // Добавляем новый обработчик
+            chatInput.addEventListener("keypress", (e) => {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    sendChatMessage();
+                }
+            });
+            console.log("[Menu] Room chat input handler attached");
+        } else {
+            console.warn("[Menu] Room chat input element not found");
+        }
+
+        if (chatSendBtn) {
+            // Удаляем старые обработчики если есть
+            chatSendBtn.onclick = null;
+            // Добавляем новый обработчик
+            chatSendBtn.addEventListener("click", sendChatMessage);
+            console.log("[Menu] Room chat send button handler attached");
+        } else {
+            console.warn("[Menu] Room chat send button element not found");
+        }
+
+        // Обработчик входящих сообщений чата для комнаты
+        const gameInstance = (window as any).gameInstance;
+        const multiplayerManager = gameInstance?.multiplayerManager;
+        if (multiplayerManager) {
+            // Сохраняем старый callback если есть
+            const oldCallback = (multiplayerManager as any).onChatMessageCallback;
+            
+            // Устанавливаем новый callback для комнаты
+            multiplayerManager.onChatMessage((data: any) => {
+                console.log("[Menu] Room chat callback received:", { roomId, data, currentRoomId: multiplayerManager.getRoomId() });
+                
+                // Проверяем, находимся ли мы в комнате и что это та же комната
+                const currentRoomId = multiplayerManager.getRoomId();
+                const isInThisRoom = currentRoomId === roomId;
+                const currentPlayerId = multiplayerManager.getPlayerId();
+                const isOwnMessage = data.playerId === currentPlayerId;
+                
+                if (isInThisRoom && data && data.playerName && data.message) {
+                    // Если это наше собственное сообщение, не добавляем его снова (оно уже добавлено локально при отправке)
+                    if (!isOwnMessage) {
+                        console.log("[Menu] Adding message to room chat:", data.playerName, data.message);
+                        // Добавляем сообщение в чат комнаты
+                        this.addRoomChatMessage(data.playerName, data.message, "player");
+                    } else {
+                        console.log("[Menu] Skipping own message (already added locally):", data.message);
+                    }
+                } else {
+                    console.log("[Menu] Message not for this room:", { isInThisRoom, currentRoomId, roomId });
+                }
+                
+                // Вызываем старый callback если он был (для лобби)
+                // Но только если мы не в комнате или это не сообщение для комнаты
+                if (oldCallback) {
+                    // Если мы в комнате, не передаем сообщение в лобби (оно уже обработано выше)
+                    if (!isInThisRoom) {
+                        oldCallback(data);
+                    }
+                }
+            });
+            console.log("[Menu] Room chat callback set up for room:", roomId);
+        } else {
+            console.warn("[Menu] MultiplayerManager not available for room chat");
+        }
+
+        // Обработчики кнопок управления комнатой
+        const changeModeBtn = document.getElementById("mp-room-panel-change-mode");
+        if (changeModeBtn) {
+            changeModeBtn.onclick = () => {
+                console.log("[Menu] Change mode button clicked");
+                // Закрываем панель комнаты и открываем выбор режима
+                this.hideAllPlayWindows();
+                this.showPlayWindow("mp-create-room-mode", 1, 1);
+                // Сохраняем что мы редактируем существующую комнату
+                (this as any).editingRoomId = roomId;
+            };
+        }
+
+        const changeMapBtn = document.getElementById("mp-room-panel-change-map");
+        if (changeMapBtn) {
+            changeMapBtn.onclick = () => {
+                console.log("[Menu] Change map button clicked");
+                // Закрываем панель комнаты и открываем выбор карты
+                this.hideAllPlayWindows();
+                // Сначала нужно выбрать режим (если не выбран), потом карту
+                const currentMode = (this as any).selectedCreateRoomMode || mode;
+                (this as any).selectedCreateRoomMode = currentMode;
+                this.showPlayWindow("mp-create-room-map", 2, 2);
+                (this as any).editingRoomId = roomId;
+            };
+        }
+
+        const togglePrivateBtn = document.getElementById("mp-room-panel-toggle-private");
+        if (togglePrivateBtn) {
+            togglePrivateBtn.onclick = () => {
+                console.log("[Menu] Toggle private button clicked");
+                const game = (window as any).gameInstance;
+                if (game?.multiplayerManager) {
+                    // TODO: Реализовать переключение приватности через сервер
+                    alert("Функция изменения приватности комнаты будет реализована позже");
+                }
+            };
+        }
+
+        const kickPlayerBtn = document.getElementById("mp-room-panel-kick-player");
+        if (kickPlayerBtn) {
+            kickPlayerBtn.onclick = () => {
+                console.log("[Menu] Kick player button clicked");
+                // Показываем список игроков для выбора кого кикнуть
+                const game = (window as any).gameInstance;
+                if (game?.multiplayerManager) {
+                    // TODO: Реализовать выбор игрока и кик через сервер
+                    alert("Функция кика игроков будет реализована позже. Выберите игрока из списка для кика.");
+                }
+            };
+        }
+
+        // Обработчики приглашений
+        const inviteFriendsBtn = document.getElementById("mp-room-panel-invite-friends");
+        const friendsList = document.getElementById("mp-room-panel-friends-list");
+        if (inviteFriendsBtn && friendsList) {
+            inviteFriendsBtn.onclick = () => {
+                const isVisible = friendsList.style.display !== "none";
+                if (isVisible) {
+                    friendsList.style.display = "none";
+                } else {
+                    friendsList.style.display = "block";
+                    this.loadRoomFriendsList(roomId);
+                }
+            };
+        }
+
+        const inviteByIdBtn = document.getElementById("mp-room-panel-invite-by-id");
+        const inviteByIdForm = document.getElementById("mp-room-panel-invite-by-id-form");
+        if (inviteByIdBtn && inviteByIdForm) {
+            inviteByIdBtn.onclick = () => {
+                const isVisible = inviteByIdForm.style.display !== "none";
+                inviteByIdForm.style.display = isVisible ? "none" : "block";
+            };
+        }
+
+        const sendInviteBtn = document.getElementById("mp-room-panel-send-invite");
+        const inviteIdInput = document.getElementById("mp-room-panel-invite-id-input") as HTMLInputElement;
+        if (sendInviteBtn && inviteIdInput) {
+            sendInviteBtn.onclick = () => {
+                const playerId = inviteIdInput.value.trim();
+                if (playerId) {
+                    console.log("[Menu] Sending invite to player:", playerId);
+                    // TODO: Отправить приглашение на сервер
+                    this.addRoomSystemMessage(`Приглашение отправлено игроку ${playerId}`);
+                    inviteIdInput.value = "";
+                }
+            };
+        }
+
+        // Обработчик автобаланса команд
+        const autoBalanceBtn = document.getElementById("mp-room-panel-auto-balance");
+        if (autoBalanceBtn) {
+            autoBalanceBtn.onclick = () => {
+                console.log("[Menu] Auto-balancing teams");
+                this.autoBalanceTeams();
+            };
+        }
+
+        // Инициализация системы команд
+        (this as any).roomTeams = {
+            team1: [],
+            team2: []
+        };
+
+        // Инициализируем команды текущим игроком (хостом)
+        // Используем уже объявленную переменную game
+        if (game?.multiplayerManager) {
+            const playerId = game.multiplayerManager.getPlayerId();
+            const playerName = game.multiplayerManager.getPlayerName() || "Вы";
+            if (playerId) {
+                // Добавляем хоста в команду 1 по умолчанию
+                (this as any).roomTeams.team1.push({ id: playerId, name: playerName });
+            }
+        }
+
+        // Обновляем отображение команд если режим поддерживает команды
+        const teamModes = ["tdm", "ctf"];
+        if (teamModes.includes(mode.toLowerCase())) {
+            this.updateTeamsDisplay();
+        }
+
+        // Отслеживание предыдущего количества игроков для системных сообщений
+        (this as any).previousPlayerCount = 1;
+
+        // Добавляем системное сообщение о создании комнаты
+        this.addRoomSystemMessage(`Комната ${roomId} создана. Ожидание игроков...`);
+
+        // Подписываемся на обновления списка комнат для обновления количества игроков
+        if (game?.multiplayerManager) {
+            const multiplayerManager = game.multiplayerManager;
+            // Сохраняем старый callback если есть
+            const existingRoomListCallback = (multiplayerManager as any).onRoomListCallback;
+
+            // Добавляем обновление панели комнаты
+            multiplayerManager.onRoomList((rooms: any[]) => {
+                // Вызываем существующий callback
+                if (existingRoomListCallback) {
+                    existingRoomListCallback(rooms);
+                }
+
+                // Обновляем панель комнаты если она открыта
+                const panel = document.getElementById("mp-room-panel");
+                if (panel && panel.style.display !== "none") {
+                    const currentRoom = rooms.find((r: any) => r.id === roomId);
+                    if (currentRoom) {
+                        const newPlayerCount = currentRoom.players || 1;
+                        const oldPlayerCount = (this as any).previousPlayerCount || 1;
+
+                        // Отправляем системные сообщения об изменении количества игроков
+                        if (newPlayerCount > oldPlayerCount) {
+                            this.addRoomSystemMessage(`Игрок присоединился к комнате (${oldPlayerCount} → ${newPlayerCount})`);
+                        } else if (newPlayerCount < oldPlayerCount) {
+                            this.addRoomSystemMessage(`Игрок покинул комнату (${oldPlayerCount} → ${newPlayerCount})`);
+                        }
+
+                        (this as any).previousPlayerCount = newPlayerCount;
+                        this.updateRoomPanelPlayers(newPlayerCount, currentRoom.maxPlayers || 32);
+                        this.updateRoomPanelPlayersList(newPlayerCount);
+                    }
+                }
+            });
+        }
+    }
+
+    /**
+     * Обновление списка игроков в панели комнаты
+     */
+    updateRoomPanelPlayersList(playerCount: number): void {
+        const playersListEl = document.getElementById("mp-room-panel-players-list");
+        if (!playersListEl) return;
+
+        // Пока просто обновляем количество, в будущем можно добавить список имён
+        // Сейчас оставляем только хоста, так как полный список игроков требует дополнительных данных с сервера
+    }
+
+    /**
+     * Добавление сообщения в чат комнаты
+     */
+    addRoomChatMessage(playerName: string, message: string, type: "player" | "system" = "player"): void {
+        const chatMessages = document.getElementById("mp-room-panel-chat-messages");
+        if (!chatMessages) {
+            console.warn("[Menu] Room chat messages container not found");
+            return;
+        }
+        
+        console.log("[Menu] Adding room chat message:", { playerName, message, type });
+
+        // Удаляем placeholder если есть
+        const placeholder = chatMessages.querySelector('div[style*="text-align: center"]');
+        if (placeholder) placeholder.remove();
+
+        // Экранируем HTML для безопасности
+        const escapeHtml = (text: string) => {
+            const div = document.createElement("div");
+            div.textContent = text;
+            return div.innerHTML;
+        };
+
+        const messageDiv = document.createElement("div");
+        messageDiv.style.cssText = "padding: 4px 8px; margin-bottom: 4px; border-radius: 4px;";
+
+        if (type === "system") {
+            messageDiv.style.background = "rgba(74, 222, 128, 0.1)";
+            messageDiv.style.borderLeft = "2px solid #4ade80";
+            messageDiv.innerHTML = `<span style="color: #4ade80; font-style: italic;">${escapeHtml(message)}</span>`;
+        } else {
+            messageDiv.style.background = "rgba(0, 0, 0, 0.2)";
+            messageDiv.innerHTML = `<span style="color: #4ade80; font-weight: bold;">${escapeHtml(playerName)}:</span> <span style="color: #0f0;">${escapeHtml(message)}</span>`;
+        }
+
+        chatMessages.appendChild(messageDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    /**
+     * Добавление системного сообщения в чат комнаты
+     */
+    addRoomSystemMessage(message: string): void {
+        this.addRoomChatMessage("", message, "system");
+    }
+
+    /**
+     * Загрузка списка друзей для приглашения
+     */
+    loadRoomFriendsList(roomId: string): void {
+        const friendsList = document.getElementById("mp-room-panel-friends-list");
+        if (!friendsList) return;
+
+        try {
+            const game = (window as any).gameInstance;
+            if (!game?.socialSystem) {
+                friendsList.innerHTML = '<div style="text-align: center; padding: 10px; color: #888; font-size: 11px;">Система друзей не доступна</div>';
+                return;
+            }
+
+            // Получаем список друзей
+            const friends = game.socialSystem.getFriendsList() || [];
+            const onlineFriends = friends.filter((f: any) => f && f.isOnline);
+
+            if (onlineFriends.length === 0) {
+                friendsList.innerHTML = '<div style="text-align: center; padding: 10px; color: #888; font-size: 11px;">Нет друзей онлайн</div>';
+                return;
+            }
+
+            friendsList.innerHTML = "";
+            onlineFriends.forEach((friend: any) => {
+                if (!friend || !friend.id) return;
+
+                const friendItem = document.createElement("div");
+                friendItem.style.cssText = "padding: 8px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(0, 255, 0, 0.2); border-radius: 4px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;";
+
+                // Экранируем имя друга
+                const friendName = friend.name || friend.id;
+                const escapedName = friendName.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+                friendItem.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="color: #4ade80; font-size: 12px;">●</span>
+                        <span style="color: #0f0; font-size: 11px;">${escapedName}</span>
+                    </div>
+                    <button class="panel-btn" data-friend-id="${friend.id}" style="padding: 4px 8px; font-size: 10px; background: rgba(74, 222, 128, 0.2); border-color: #4ade80; color: #4ade80;">
+                        Пригласить
+                    </button>
+                `;
+
+                const inviteBtn = friendItem.querySelector("button");
+                if (inviteBtn) {
+                    inviteBtn.onclick = () => {
+                        const friendId = inviteBtn.getAttribute("data-friend-id");
+                        if (friendId) {
+                            console.log("[Menu] Inviting friend:", friendId);
+                            // TODO: Отправить приглашение на сервер
+                            this.addRoomSystemMessage(`Приглашение отправлено ${friendName}`);
+                        }
+                    };
+                }
+
+                friendsList.appendChild(friendItem);
+            });
+        } catch (error) {
+            console.error("[Menu] Error loading friends list:", error);
+            friendsList.innerHTML = '<div style="text-align: center; padding: 10px; color: #ef4444; font-size: 11px;">Ошибка загрузки списка друзей</div>';
+        }
+    }
+
+    /**
+     * Обновление отображения команд
+     */
+    updateTeamsDisplay(): void {
+        const team1El = document.getElementById("mp-room-panel-team1-players");
+        const team2El = document.getElementById("mp-room-panel-team2-players");
+        const team1CountEl = document.getElementById("mp-room-panel-team1-count");
+        const team2CountEl = document.getElementById("mp-room-panel-team2-count");
+
+        if (!team1El || !team2El) return;
+
+        const teams = (this as any).roomTeams || { team1: [], team2: [] };
+
+        // Очищаем списки
+        team1El.innerHTML = "";
+        team2El.innerHTML = "";
+
+        // Отображаем игроков команды 1
+        if (teams.team1 && Array.isArray(teams.team1)) {
+            teams.team1.forEach((player: any) => {
+                if (!player) return;
+                const playerEl = document.createElement("div");
+                playerEl.style.cssText = "padding: 4px 8px; background: rgba(239, 68, 68, 0.1); border-radius: 4px; font-size: 10px; color: #ef4444;";
+                playerEl.textContent = player.name || player.id || "Неизвестный";
+                team1El.appendChild(playerEl);
+            });
+        }
+
+        // Отображаем игроков команды 2
+        if (teams.team2 && Array.isArray(teams.team2)) {
+            teams.team2.forEach((player: any) => {
+                if (!player) return;
+                const playerEl = document.createElement("div");
+                playerEl.style.cssText = "padding: 4px 8px; background: rgba(59, 130, 246, 0.1); border-radius: 4px; font-size: 10px; color: #3b82f6;";
+                playerEl.textContent = player.name || player.id || "Неизвестный";
+                team2El.appendChild(playerEl);
+            });
+        }
+
+        // Обновляем счётчики
+        const team1Count = teams.team1?.length || 0;
+        const team2Count = teams.team2?.length || 0;
+        if (team1CountEl) team1CountEl.textContent = `${team1Count} ${team1Count === 1 ? 'игрок' : 'игроков'}`;
+        if (team2CountEl) team2CountEl.textContent = `${team2Count} ${team2Count === 1 ? 'игрок' : 'игроков'}`;
+
+        // Обновляем баланс
+        this.updateTeamsBalance();
+    }
+
+    /**
+     * Автоматическое распределение игроков по командам
+     */
+    autoBalanceTeams(): void {
+        const game = (window as any).gameInstance;
+        if (!game?.multiplayerManager) return;
+
+        // Получаем список всех игроков (пока только текущий игрок)
+        const currentPlayer = {
+            id: game.multiplayerManager.getPlayerId(),
+            name: game.multiplayerManager.getPlayerName() || "Вы"
+        };
+
+        const allPlayers = [currentPlayer]; // TODO: Получить полный список игроков с сервера
+
+        // Распределяем игроков по командам
+        const teams = {
+            team1: [] as any[],
+            team2: [] as any[]
+        };
+
+        allPlayers.forEach((player, index) => {
+            if (index % 2 === 0) {
+                teams.team1.push(player);
+            } else {
+                teams.team2.push(player);
+            }
+        });
+
+        (this as any).roomTeams = teams;
+        this.updateTeamsDisplay();
+        this.addRoomSystemMessage("Команды автоматически сбалансированы");
+    }
+
+    /**
+     * Обновление визуализации баланса команд
+     */
+    updateTeamsBalance(): void {
+        const teams = (this as any).roomTeams || { team1: [], team2: [] };
+        const balanceStatusEl = document.getElementById("mp-room-panel-balance-status");
+
+        if (!balanceStatusEl) return;
+
+        const team1Count = teams.team1?.length || 0;
+        const team2Count = teams.team2?.length || 0;
+        const diff = Math.abs(team1Count - team2Count);
+        const total = team1Count + team2Count;
+
+        if (total === 0) {
+            balanceStatusEl.textContent = "Нет игроков в командах";
+            balanceStatusEl.style.color = "#888";
+        } else if (diff === 0) {
+            balanceStatusEl.textContent = "Сбалансировано";
+            balanceStatusEl.style.color = "#4ade80";
+        } else if (diff === 1) {
+            balanceStatusEl.textContent = `Небольшой дисбаланс (${diff} игрок)`;
+            balanceStatusEl.style.color = "#fbbf24";
+        } else {
+            balanceStatusEl.textContent = `Дисбаланс (${diff} игроков)`;
+            balanceStatusEl.style.color = "#ef4444";
+        }
+    }
+
+    /**
+     * Обновление статуса готовности игроков
+     */
+    updateReadyStatus(): void {
+        const readyCount = (this as any).roomReadyPlayers?.size || 0;
+        
+        // Получаем количество игроков из элемента или из multiplayerManager
+        let currentPlayers = 1;
+        const playersEl = document.getElementById("mp-room-panel-players");
+        if (playersEl && playersEl.textContent) {
+            const match = playersEl.textContent.match(/(\d+)\/(\d+)/);
+            if (match && match[1]) {
+                currentPlayers = parseInt(match[1], 10) || 1;
+            }
+        } else {
+            // Fallback: получаем из multiplayerManager
+            const game = (window as any).gameInstance;
+            if (game?.multiplayerManager) {
+                currentPlayers = game.multiplayerManager.getRoomPlayersCount?.() || 1;
+            }
+        }
+
+        const readyCountEl = document.getElementById("mp-room-panel-ready-count");
+        if (readyCountEl) {
+            readyCountEl.textContent = `${readyCount}/${currentPlayers}`;
+        }
+
+        // Проверяем готовность всех игроков
+        const allReady = currentPlayers >= 2 && readyCount >= 2 && readyCount === currentPlayers;
+        const startBtn = document.getElementById("mp-room-panel-start-game") as HTMLButtonElement;
+        const hintEl = document.getElementById("mp-room-panel-start-hint");
+
+        if (allReady && startBtn && hintEl) {
+            hintEl.textContent = "Все игроки готовы! Можно начинать!";
+            hintEl.style.color = "#4ade80";
+
+            // Проверяем автозапуск
+            const autoStart = (document.getElementById("mp-room-panel-auto-start") as HTMLInputElement)?.checked;
+            if (autoStart && !(this as any).autoStartTriggered) {
+                (this as any).autoStartTriggered = true;
+                this.addRoomSystemMessage("Все игроки готовы! Автозапуск через 3 секунды...");
+                setTimeout(async () => {
+                    const game = (window as any).gameInstance;
+                    if (game?.multiplayerManager) {
+                        console.log("[Menu] Auto-starting game - all players ready");
+                        this.hideAllPlayWindows();
+                        this.hidePlayMenu();
+                        await this.startMultiplayerGame();
+                    }
+                }, 3000);
+            }
+        } else {
+            (this as any).autoStartTriggered = false;
+            if (hintEl) {
+                if (currentPlayers < 2) {
+                    hintEl.textContent = `Ожидание игроков... (${currentPlayers}/2 минимум)`;
+                } else if (readyCount < currentPlayers) {
+                    hintEl.textContent = `Ожидание готовности всех игроков... (${readyCount}/${currentPlayers})`;
+                } else {
+                    hintEl.textContent = "Ожидание готовности игроков...";
+                }
+                hintEl.style.color = "#888";
+            }
+        }
+    }
+
+    /**
+     * Обновление панели комнаты при изменении количества игроков
+     * Вызывается из onPlayerJoined/onPlayerLeft callbacks
+     */
+    refreshRoomPanelPlayers(): void {
+        const panel = document.getElementById("mp-room-panel");
+        if (!panel || panel.style.display === "none") {
+            return; // Панель не открыта
+        }
+
+        const game = (window as any).gameInstance;
+        if (!game?.multiplayerManager) return;
+
+        const multiplayerManager = game.multiplayerManager;
+        const currentPlayers = multiplayerManager.getRoomPlayersCount?.() || 1;
+        const maxPlayers = 32; // TODO: получить из настроек комнаты
+
+        console.log(`[Menu] 🔄 Обновляем панель комнаты: ${currentPlayers}/${maxPlayers} игроков`);
+
+        this.updateRoomPanelPlayers(currentPlayers, maxPlayers);
+        this.updateRoomPanelPlayersList(currentPlayers);
+        this.updateReadyStatus();
+    }
+
+    /**
+     * Обновление количества игроков в панели комнаты и состояния кнопки "Начать игру"
+     */
+    updateRoomPanelPlayers(currentPlayers: number, maxPlayers: number): void {
+
+        const playersEl = document.getElementById("mp-room-panel-players");
+        if (playersEl) {
+            playersEl.textContent = `${currentPlayers}/${maxPlayers}`;
+        }
+
+        // Обновляем состояние кнопки "Начать игру"
+        const startBtn = document.getElementById("mp-room-panel-start-game") as HTMLButtonElement;
+        const hintEl = document.getElementById("mp-room-panel-start-hint");
+
+        if (startBtn) {
+            const canStart = currentPlayers >= 2;
+
+            if (canStart) {
+                // Активируем кнопку
+                startBtn.disabled = false;
+                startBtn.style.opacity = "1";
+                startBtn.style.cursor = "pointer";
+                startBtn.style.pointerEvents = "auto";
+                if (hintEl) {
+                    hintEl.textContent = "Готово к запуску!";
+                    hintEl.style.color = "#4ade80";
+                }
+            } else {
+                // Деактивируем кнопку
+                startBtn.disabled = true;
+                startBtn.style.opacity = "0.5";
+                startBtn.style.cursor = "not-allowed";
+                startBtn.style.pointerEvents = "none";
+                if (hintEl) {
+                    hintEl.textContent = `Требуется минимум 2 игрока (сейчас: ${currentPlayers})`;
+                    hintEl.style.color = "#888";
+                }
+            }
+        }
+
+        // Обновляем статус готовности после изменения количества игроков
+        this.updateReadyStatus();
+    }
+
+    /**
+     * Фильтрация комнат по поисковому запросу и фильтрам
+     */
+    private filterRooms(rooms: any[]): any[] {
+        let filtered = [...rooms];
+
+        // Поиск по ID
+        const searchInput = document.getElementById("mp-rooms-search") as HTMLInputElement;
+        if (searchInput && searchInput.value.trim()) {
+            const searchTerm = searchInput.value.trim().toLowerCase();
+            filtered = filtered.filter(room =>
+                room.id.toLowerCase().includes(searchTerm)
+            );
+        }
+
+        // Фильтр по режиму
+        const modeFilter = document.getElementById("mp-rooms-filter-mode") as HTMLSelectElement;
+        if (modeFilter && modeFilter.value !== "all") {
+            filtered = filtered.filter(room => room.mode === modeFilter.value);
+        }
+
+        // Фильтр по статусу
+        const statusFilter = document.getElementById("mp-rooms-filter-status") as HTMLSelectElement;
+        if (statusFilter && statusFilter.value !== "all") {
+            if (statusFilter.value === "waiting") {
+                filtered = filtered.filter(room => !room.isActive);
+            } else if (statusFilter.value === "active") {
+                filtered = filtered.filter(room => room.isActive);
+            }
+        }
+
+        // Сортировка
+        const sortSelect = document.getElementById("mp-rooms-sort") as HTMLSelectElement;
+        if (sortSelect) {
+            const sortValue = sortSelect.value;
+            if (sortValue === "players-desc") {
+                filtered.sort((a, b) => b.players - a.players);
+            } else if (sortValue === "players-asc") {
+                filtered.sort((a, b) => a.players - b.players);
+            } else if (sortValue === "time-desc") {
+                filtered.sort((a, b) => (b.gameTime || 0) - (a.gameTime || 0));
+            } else if (sortValue === "time-asc") {
+                filtered.sort((a, b) => (a.gameTime || 0) - (b.gameTime || 0));
+            }
+        }
+
+        return filtered;
+    }
+
+    /**
+     * Настройка обработчиков фильтров комнат
+     */
+    private setupRoomFilters(): void {
+        const searchInput = document.getElementById("mp-rooms-search");
+        const modeFilter = document.getElementById("mp-rooms-filter-mode");
+        const statusFilter = document.getElementById("mp-rooms-filter-status");
+        const sortSelect = document.getElementById("mp-rooms-sort");
+
+        const applyFilters = () => {
+            this.updateRoomList(this.allRooms);
+        };
+
+        if (searchInput) {
+            searchInput.addEventListener("input", applyFilters);
+        }
+        if (modeFilter) {
+            modeFilter.addEventListener("change", applyFilters);
+        }
+        if (statusFilter) {
+            statusFilter.addEventListener("change", applyFilters);
+        }
+        if (sortSelect) {
+            sortSelect.addEventListener("change", applyFilters);
+        }
+    }
+
+    /**
+     * Обновление списка игроков в лобби
+     */
+    updateLobbyPlayers(players: any[]): void {
+        // Throttling: логируем только при изменении количества игроков или раз в 2 секунды
+        const now = Date.now();
+        const shouldLog = (now - this._lastLobbyPlayersLogTime) > 30000 || players.length !== this._lastLobbyPlayersCount;
+        if (shouldLog) {
+            console.log("[Menu] Lobby players:", players.length);
+            this._lastLobbyPlayersLogTime = now;
+            this._lastLobbyPlayersCount = players.length;
+        }
+        const playersList = document.getElementById("lobby-players-list");
+        const playersEmpty = document.getElementById("lobby-players-empty");
+        const lobbyCount = document.getElementById("lobby-count");
+
+        if (!playersList) {
+            console.warn("[Menu] Элемент lobby-players-list не найден!");
+            return;
+        }
+
+        // Исключаем текущего игрока из списка
+        const game = (window as any).gameInstance as any;
+        const multiplayerManager = game?.multiplayerManager;
+        const currentPlayerId = multiplayerManager?.getPlayerId();
+        const filteredPlayers = players.filter(player => player.id !== currentPlayerId);
+
+        // Сохраняем всех игроков для фильтрации (без текущего игрока)
+        this.allLobbyPlayers = filteredPlayers;
+
+        // Обновляем счетчик (показываем количество без текущего игрока)
+        if (lobbyCount) {
+            lobbyCount.textContent = filteredPlayers.length.toString();
+        }
+
+        // Обновляем время последнего обновления
+        this.updateLastUpdateTime(true);
+
+        // Применяем фильтры и сортировку
+        this.applyLobbyPlayerFilters();
+    }
+
+    /**
+     * Настройка фильтров и поиска игроков
+     */
+    private setupLobbyPlayerFilters(): void {
+        const searchInput = document.getElementById("lobby-players-search") as HTMLInputElement;
+        const statusFilter = document.getElementById("lobby-players-filter-status") as HTMLSelectElement;
+        const friendsFilter = document.getElementById("lobby-players-filter-friends") as HTMLSelectElement;
+        const sortSelect = document.getElementById("lobby-players-sort") as HTMLSelectElement;
+
+        // Загружаем сохраненные настройки
+        const savedSearch = localStorage.getItem("lobbyPlayersSearch");
+        const savedStatusFilter = localStorage.getItem("lobbyPlayersStatusFilter");
+        const savedFriendsFilter = localStorage.getItem("lobbyPlayersFriendsFilter");
+        const savedSort = localStorage.getItem("lobbyPlayersSort");
+
+        if (savedSearch && searchInput) {
+            searchInput.value = savedSearch;
+        }
+        if (savedStatusFilter && statusFilter) {
+            statusFilter.value = savedStatusFilter;
+        }
+        if (savedFriendsFilter && friendsFilter) {
+            friendsFilter.value = savedFriendsFilter;
+        }
+        if (savedSort && sortSelect) {
+            sortSelect.value = savedSort;
+        }
+
+        // Обработчики изменений
+        const applyFilters = () => {
+            this.applyLobbyPlayerFilters();
+        };
+
+        if (searchInput) {
+            searchInput.addEventListener("input", () => {
+                localStorage.setItem("lobbyPlayersSearch", searchInput.value);
+                applyFilters();
+            });
+        }
+
+        if (statusFilter) {
+            statusFilter.addEventListener("change", () => {
+                localStorage.setItem("lobbyPlayersStatusFilter", statusFilter.value);
+                applyFilters();
+            });
+        }
+
+        if (friendsFilter) {
+            friendsFilter.addEventListener("change", () => {
+                localStorage.setItem("lobbyPlayersFriendsFilter", friendsFilter.value);
+                applyFilters();
+            });
+        }
+
+        if (sortSelect) {
+            sortSelect.addEventListener("change", () => {
+                localStorage.setItem("lobbyPlayersSort", sortSelect.value);
+                applyFilters();
+            });
+        }
+    }
+
+    /**
+     * Применение фильтров и сортировки к списку игроков
+     */
+    private applyLobbyPlayerFilters(): void {
+        const playersList = document.getElementById("lobby-players-list");
+        const playersEmpty = document.getElementById("lobby-players-empty");
+
+        if (!playersList) return;
+
+        // Начинаем с копии всех игроков
+        let filtered = [...this.allLobbyPlayers];
+
+        // Поиск по имени
+        const searchInput = document.getElementById("lobby-players-search") as HTMLInputElement;
+        if (searchInput && searchInput.value.trim()) {
+            const searchTerm = searchInput.value.trim().toLowerCase();
+            filtered = filtered.filter(player =>
+                player.name.toLowerCase().includes(searchTerm)
+            );
+        }
+
+        // Фильтр по статусу
+        const statusFilter = document.getElementById("lobby-players-filter-status") as HTMLSelectElement;
+        if (statusFilter && statusFilter.value !== "all") {
+            if (statusFilter.value === "online") {
+                // Все онлайн игроки (уже в списке)
+                // Ничего не фильтруем
+            } else if (statusFilter.value === "in-room") {
+                filtered = filtered.filter(player => player.isInRoom && player.roomId);
+            } else if (statusFilter.value === "in-lobby") {
+                filtered = filtered.filter(player => !player.isInRoom || !player.roomId);
+            }
+        }
+
+        // Фильтр по друзьям
+        const friendsFilter = document.getElementById("lobby-players-filter-friends") as HTMLSelectElement;
+        if (friendsFilter && friendsFilter.value !== "all") {
+            if (friendsFilter.value === "friends") {
+                filtered = filtered.filter(player => this.friendsList.has(player.id));
+            } else if (friendsFilter.value === "not-friends") {
+                const game = (window as any).gameInstance as any;
+                const multiplayerManager = game?.multiplayerManager;
+                const currentPlayerId = multiplayerManager?.getPlayerId();
+                filtered = filtered.filter(player =>
+                    player.id !== currentPlayerId && !this.friendsList.has(player.id)
+                );
+            }
+        }
+
+        // Сортировка
+        const sortSelect = document.getElementById("lobby-players-sort") as HTMLSelectElement;
+        if (sortSelect) {
+            const sortValue = sortSelect.value;
+            if (sortValue === "name-asc") {
+                filtered.sort((a, b) => a.name.localeCompare(b.name));
+            } else if (sortValue === "name-desc") {
+                filtered.sort((a, b) => b.name.localeCompare(a.name));
+            } else if (sortValue === "activity-desc") {
+                // Сортируем по активности (в комнате > в лобби)
+                filtered.sort((a, b) => {
+                    const aActive = a.isInRoom ? 1 : 0;
+                    const bActive = b.isInRoom ? 1 : 0;
+                    return bActive - aActive;
+                });
+            } else if (sortValue === "activity-asc") {
+                filtered.sort((a, b) => {
+                    const aActive = a.isInRoom ? 1 : 0;
+                    const bActive = b.isInRoom ? 1 : 0;
+                    return aActive - bActive;
+                });
+            } else if (sortValue === "level-desc") {
+                // Сортируем по уровню (если доступен)
+                filtered.sort((a, b) => {
+                    const aLevel = a.level || 0;
+                    const bLevel = b.level || 0;
+                    return bLevel - aLevel;
+                });
+            } else if (sortValue === "level-asc") {
+                filtered.sort((a, b) => {
+                    const aLevel = a.level || 0;
+                    const bLevel = b.level || 0;
+                    return aLevel - bLevel;
+                });
+            }
+        }
+
+        // Сохраняем отфильтрованный список
+        this.filteredLobbyPlayers = filtered;
+
+        // Очищаем список
+        playersList.innerHTML = "";
+
+        if (filtered.length === 0) {
+            if (playersEmpty) {
+                playersEmpty.style.display = "block";
+                playersEmpty.textContent = this.allLobbyPlayers.length === 0
+                    ? "Нет игроков онлайн"
+                    : "Нет игроков, соответствующих фильтрам";
+            }
+            return;
+        }
+
+        if (playersEmpty) {
+            playersEmpty.style.display = "none";
+        }
+
+        // Группируем игроков
+        const game = (window as any).gameInstance as any;
+        const multiplayerManager = game?.multiplayerManager;
+        const currentPlayerId = multiplayerManager?.getPlayerId();
+        const currentRoomId = multiplayerManager?.getRoomId();
+
+        const friends = filtered.filter(p => this.friendsList.has(p.id));
+        const inMyRoom = filtered.filter(p => p.roomId === currentRoomId && p.id !== currentPlayerId);
+        const inOtherRooms = filtered.filter(p => p.isInRoom && p.roomId !== currentRoomId);
+        const inLobby = filtered.filter(p => !p.isInRoom || !p.roomId);
+
+        // Рендерим группы игроков
+        let hasRendered = false;
+
+        // Друзья
+        if (friends.length > 0) {
+            this.renderPlayerGroup(playersList, "⭐ Друзья", friends);
+            hasRendered = true;
+        }
+
+        // Игроки в моей комнате
+        if (inMyRoom.length > 0) {
+            if (hasRendered) {
+                this.renderGroupSeparator(playersList);
+            }
+            this.renderPlayerGroup(playersList, "🎮 В моей комнате", inMyRoom);
+            hasRendered = true;
+        }
+
+        // Игроки в других комнатах
+        if (inOtherRooms.length > 0) {
+            if (hasRendered) {
+                this.renderGroupSeparator(playersList);
+            }
+            this.renderPlayerGroup(playersList, "🏠 В других комнатах", inOtherRooms);
+            hasRendered = true;
+        }
+
+        // Игроки в лобби
+        if (inLobby.length > 0) {
+            if (hasRendered) {
+                this.renderGroupSeparator(playersList);
+            }
+            this.renderPlayerGroup(playersList, "💤 В лобби", inLobby);
+        }
+    }
+
+    /**
+     * Рендеринг разделителя группы
+     */
+    private renderGroupSeparator(container: HTMLElement): void {
+        const separator = document.createElement("div");
+        separator.style.cssText = "height: 1px; background: rgba(255, 255, 255, 0.1); margin: 8px 0;";
+        container.appendChild(separator);
+    }
+
+    /**
+     * Рендеринг группы игроков
+     */
+    private renderPlayerGroup(container: HTMLElement, groupTitle: string, players: any[]): void {
+        // Заголовок группы
+        const groupHeader = document.createElement("div");
+        groupHeader.className = "lobby-group-header";
+        groupHeader.textContent = `${groupTitle} (${players.length})`;
+        container.appendChild(groupHeader);
+
+        // Игроки группы
+        players.forEach(player => {
+            const playerItem = document.createElement("div");
+            playerItem.className = "lobby-player-item";
+            playerItem.dataset.playerId = player.id;
+
+            const roomInfo = player.isInRoom && player.roomId
+                ? `<span class="lobby-player-room">Комната ${player.roomId} (${player.roomMode?.toUpperCase() || 'N/A'})</span>`
+                : `<span class="lobby-player-status">В лобби</span>`;
+
+            const buttonsRow = [];
+
+            if (player.isInRoom && player.roomId) {
+                buttonsRow.push(`<button class="lobby-join-btn" data-player-id="${player.id}" data-room-id="${player.roomId}">ПРИСОЕДИНИТЬСЯ</button>`);
+            }
+
+            // Кнопка "Написать" для всех игроков
+            buttonsRow.push(`<button class="lobby-message-btn" data-player-id="${player.id}" data-player-name="${player.name}">💬 НАПИСАТЬ</button>`);
+
+            // Кнопка "Пригласить в команду" для всех игроков (кроме себя)
+            const game = (window as any).gameInstance as any;
+            const multiplayerManager = game?.multiplayerManager;
+            const currentPlayerId = multiplayerManager?.getPlayerId();
+            if (player.id !== currentPlayerId) {
+                buttonsRow.push(`<button class="lobby-invite-btn" data-player-id="${player.id}" data-player-name="${player.name}">👥 ПРИГЛАСИТЬ</button>`);
+                // Кнопка "Добавить в друзья" для всех игроков (кроме себя)
+                buttonsRow.push(`<button class="lobby-friend-btn" data-player-id="${player.id}" data-player-name="${player.name}">⭐ ДОБАВИТЬ</button>`);
+            }
+
+            const buttonsHtml = buttonsRow.length > 0 ? `<div class="lobby-player-buttons">${buttonsRow.join('')}</div>` : '';
+
+            // Получаем расширенную информацию об игроке
+            const level = player.level || 0;
+            const kills = player.kills || 0;
+            const deaths = player.deaths || 0;
+            const kd = deaths > 0 ? (kills / deaths).toFixed(2) : kills > 0 ? kills.toFixed(0) : "0.00";
+            const wins = player.wins || 0;
+            const playTime = player.playTime || 0;
+            const playTimeHours = Math.floor(playTime / 3600);
+            const playTimeMinutes = Math.floor((playTime % 3600) / 60);
+            const playTimeStr = playTimeHours > 0 ? `${playTimeHours}ч ${playTimeMinutes}м` : `${playTimeMinutes}м`;
+            const rank = this.getPlayerRank(level, kills, deaths, wins);
+            const chassisType = player.chassisType || "N/A";
+            const cannonType = player.cannonType || "N/A";
+            const ping = player.ping !== undefined ? `${player.ping}ms` : "N/A";
+            const lastActive = player.lastActive ? this.formatRelativeTime(player.lastActive) : "Сейчас";
+
+            // Определяем, является ли игрок другом
+            const isFriend = this.friendsList.has(player.id);
+
+            playerItem.innerHTML = `
+                <div class="lobby-player-header">
+                    <div class="lobby-player-name-row">
+                        <div class="lobby-player-name">${player.name}${isFriend ? ' <span class="lobby-friend-badge">⭐</span>' : ''}</div>
+                        <div class="lobby-player-level">LVL ${level}</div>
+                    </div>
+                    <div class="lobby-player-online-status">
+                        <span class="lobby-status-dot"></span>
+                        <span class="lobby-status-text">Онлайн</span>
+                    </div>
+                </div>
+                <div class="lobby-player-stats-row">
+                    <div class="lobby-player-stat">
+                        <span class="lobby-stat-label">K/D:</span>
+                        <span class="lobby-stat-value">${kd}</span>
+                    </div>
+                    <div class="lobby-player-stat">
+                        <span class="lobby-stat-label">Победы:</span>
+                        <span class="lobby-stat-value">${wins}</span>
+                    </div>
+                    <div class="lobby-player-stat">
+                        <span class="lobby-stat-label">Ранг:</span>
+                        <span class="lobby-stat-value lobby-rank-${rank.toLowerCase()}">${rank}</span>
+                    </div>
+                </div>
+                <div class="lobby-player-info">
+                    ${roomInfo}
+                </div>
+                <div class="lobby-player-details">
+                    <div class="lobby-player-detail-item">
+                        <span class="lobby-detail-label">Танк:</span>
+                        <span class="lobby-detail-value">${chassisType} / ${cannonType}</span>
+                    </div>
+                    <div class="lobby-player-detail-item">
+                        <span class="lobby-detail-label">Пинг:</span>
+                        <span class="lobby-detail-value">${ping}</span>
+                    </div>
+                    <div class="lobby-player-detail-item">
+                        <span class="lobby-detail-label">Время игры:</span>
+                        <span class="lobby-detail-value">${playTimeStr}</span>
+                    </div>
+                    <div class="lobby-player-detail-item">
+                        <span class="lobby-detail-label">Активность:</span>
+                        <span class="lobby-detail-value">${lastActive}</span>
+                    </div>
+                </div>
+                ${buttonsHtml}
+            `;
+
+            // Клик по кнопке присоединения
+            if (player.isInRoom && player.roomId) {
+                const joinBtn = playerItem.querySelector(".lobby-join-btn");
+                if (joinBtn) {
+                    joinBtn.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        this.joinPlayerRoom(player.id, player.roomId);
+                    });
+                }
+
+                // Также можно кликнуть по самому игроку
+                playerItem.style.cursor = "pointer";
+                playerItem.addEventListener("click", () => {
+                    this.joinPlayerRoom(player.id, player.roomId);
+                });
+            }
+
+            // Клик по кнопке "Написать"
+            const messageBtn = playerItem.querySelector(".lobby-message-btn");
+            if (messageBtn) {
+                messageBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    const playerId = messageBtn.getAttribute("data-player-id");
+                    const playerName = messageBtn.getAttribute("data-player-name");
+                    if (playerId && playerName) {
+                        this.showMessageDialog(playerId, playerName);
+                    }
+                });
+            }
+
+            // Клик по кнопке "Пригласить в команду"
+            const inviteBtn = playerItem.querySelector(".lobby-invite-btn");
+            if (inviteBtn) {
+                inviteBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    const playerId = inviteBtn.getAttribute("data-player-id");
+                    const playerName = inviteBtn.getAttribute("data-player-name");
+                    if (playerId && playerName) {
+                        this.invitePlayerToTeam(playerId, playerName);
+                    }
+                });
+            }
+
+            // Клик по кнопке "Добавить в друзья"
+            const friendBtn = playerItem.querySelector(".lobby-friend-btn");
+            if (friendBtn) {
+                friendBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    const playerId = friendBtn.getAttribute("data-player-id");
+                    const playerName = friendBtn.getAttribute("data-player-name");
+                    if (playerId && playerName) {
+                        this.addPlayerToFriends(playerId, playerName);
+                    }
+                });
+            }
+
+            // Клик по карточке игрока - открыть профиль
+            playerItem.addEventListener("click", (e) => {
+                // Не открываем профиль если кликнули по кнопке
+                if ((e.target as HTMLElement).closest("button")) {
+                    return;
+                }
+                this.showPlayerProfile(player.id, player.name);
+            });
+
+            // Контекстное меню (правый клик)
+            playerItem.addEventListener("contextmenu", (e) => {
+                e.preventDefault();
+                // TODO: Implement context menu for player
+                console.log("[Menu] Context menu requested for player:", player.id, player.name);
+            });
+
+            container.appendChild(playerItem);
+        });
+    }
+
+    /**
+     * Обновление списка комнат в лобби
+     */
+    /**
+     * Обновление списка комнат в лобби (публичный метод для обратной совместимости)
+     * Теперь обновляет оба UI одновременно
+     */
+    updateLobbyRooms(rooms: any[]): void {
+        this.updateAllRoomLists(rooms);
+    }
+
+    /**
+     * Настройка фильтров и поиска комнат
+     */
+    private setupLobbyRoomFilters(): void {
+        const searchInput = document.getElementById("lobby-rooms-search") as HTMLInputElement;
+        const modeFilter = document.getElementById("lobby-rooms-filter-mode") as HTMLSelectElement;
+        const statusFilter = document.getElementById("lobby-rooms-filter-status") as HTMLSelectElement;
+        const sortSelect = document.getElementById("lobby-rooms-sort") as HTMLSelectElement;
+
+        // Загружаем сохраненные настройки
+        const savedSearch = localStorage.getItem("lobbyRoomsSearch");
+        const savedModeFilter = localStorage.getItem("lobbyRoomsModeFilter");
+        const savedStatusFilter = localStorage.getItem("lobbyRoomsStatusFilter");
+        const savedSort = localStorage.getItem("lobbyRoomsSort");
+
+        if (savedSearch && searchInput) {
+            searchInput.value = savedSearch;
+        }
+        if (savedModeFilter && modeFilter) {
+            modeFilter.value = savedModeFilter;
+        }
+        if (savedStatusFilter && statusFilter) {
+            statusFilter.value = savedStatusFilter;
+        }
+        if (savedSort && sortSelect) {
+            sortSelect.value = savedSort;
+        }
+
+        // Обработчики изменений
+        const applyFilters = () => {
+            this.applyLobbyRoomFilters();
+        };
+
+        if (searchInput) {
+            searchInput.addEventListener("input", () => {
+                localStorage.setItem("lobbyRoomsSearch", searchInput.value);
+                applyFilters();
+            });
+        }
+
+        if (modeFilter) {
+            modeFilter.addEventListener("change", () => {
+                localStorage.setItem("lobbyRoomsModeFilter", modeFilter.value);
+                applyFilters();
+            });
+        }
+
+        if (statusFilter) {
+            statusFilter.addEventListener("change", () => {
+                localStorage.setItem("lobbyRoomsStatusFilter", statusFilter.value);
+                applyFilters();
+            });
+        }
+
+        if (sortSelect) {
+            sortSelect.addEventListener("change", () => {
+                localStorage.setItem("lobbyRoomsSort", sortSelect.value);
+                applyFilters();
+            });
+        }
+    }
+
+    /**
+     * Применение фильтров и сортировки к списку комнат
+     */
+    private applyLobbyRoomFilters(): void {
+        const roomsList = document.getElementById("lobby-rooms-list");
+        const roomsEmpty = document.getElementById("lobby-rooms-empty");
+
+        if (!roomsList) return;
+
+        // Начинаем с копии всех комнат (используем общий allRooms)
+        let filtered = [...this.allRooms];
+
+        // Поиск по ID
+        const searchInput = document.getElementById("lobby-rooms-search") as HTMLInputElement;
+        if (searchInput && searchInput.value.trim()) {
+            const searchTerm = searchInput.value.trim().toLowerCase();
+            filtered = filtered.filter(room =>
+                room.id.toLowerCase().includes(searchTerm) ||
+                (room.name && room.name.toLowerCase().includes(searchTerm))
+            );
+        }
+
+        // Фильтр по режиму
+        const modeFilter = document.getElementById("lobby-rooms-filter-mode") as HTMLSelectElement;
+        if (modeFilter && modeFilter.value !== "all") {
+            filtered = filtered.filter(room => room.mode === modeFilter.value);
+        }
+
+        // Фильтр по статусу
+        const statusFilter = document.getElementById("lobby-rooms-filter-status") as HTMLSelectElement;
+        if (statusFilter && statusFilter.value !== "all") {
+            if (statusFilter.value === "waiting") {
+                filtered = filtered.filter(room => !room.isActive);
+            } else if (statusFilter.value === "active") {
+                filtered = filtered.filter(room => room.isActive);
+            }
+        }
+
+        // Сортировка
+        const sortSelect = document.getElementById("lobby-rooms-sort") as HTMLSelectElement;
+        if (sortSelect) {
+            const sortValue = sortSelect.value;
+            if (sortValue === "players-desc") {
+                filtered.sort((a, b) => b.players - a.players);
+            } else if (sortValue === "players-asc") {
+                filtered.sort((a, b) => a.players - b.players);
+            } else if (sortValue === "time-desc") {
+                filtered.sort((a, b) => (b.gameTime || 0) - (a.gameTime || 0));
+            } else if (sortValue === "time-asc") {
+                filtered.sort((a, b) => (a.gameTime || 0) - (b.gameTime || 0));
+            } else if (sortValue === "mode-asc") {
+                filtered.sort((a, b) => (a.mode || "").localeCompare(b.mode || ""));
+            }
+        }
+
+        // Очищаем список
+        roomsList.innerHTML = "";
+
+        if (filtered.length === 0) {
+            if (roomsEmpty) {
+                roomsEmpty.style.display = "block";
+                roomsEmpty.textContent = this.allRooms.length === 0
+                    ? "Нет доступных комнат"
+                    : "Нет комнат, соответствующих фильтрам";
+            }
+            return;
+        }
+
+        if (roomsEmpty) {
+            roomsEmpty.style.display = "none";
+        }
+
+        // Убрано для уменьшения спама в логах
+        // console.log("[Menu] Отображаем", filtered.length, "из", this.allRooms.length, "комнат");
+
+        // Рендерим отфильтрованные комнаты
+        filtered.forEach(room => {
+            const roomItem = document.createElement("div");
+            roomItem.className = "lobby-room-item";
+            roomItem.dataset.roomId = room.id;
+
+            const isFull = room.players >= room.maxPlayers;
+            const statusClass = room.isActive ? "active" : "";
+            const statusText = room.isActive ? "Игра идет" : "Ожидание";
+            const mapType = room.mapType || "N/A";
+            const isPrivate = room.isPrivate || false;
+            const hasPassword = room.password || false;
+            const gameTime = room.gameTime ? this.formatGameTime(room.gameTime) : "0:00";
+
+            roomItem.innerHTML = `
+                <div class="lobby-room-header">
+                    <span class="lobby-room-id">Комната ${room.id}</span>
+                    <span class="lobby-room-mode">${room.mode?.toUpperCase() || 'N/A'}</span>
+                </div>
+                <div class="lobby-room-info">
+                    <span class="lobby-room-players">${room.players}/${room.maxPlayers}</span>
+                    <span class="lobby-room-status ${statusClass}">${statusText}</span>
+                </div>
+                <div class="lobby-room-details">
+                    <div class="lobby-room-detail-item">
+                        <span class="lobby-detail-label">Карта:</span>
+                        <span class="lobby-detail-value">${mapType}</span>
+                    </div>
+                    ${room.isActive ? `<div class="lobby-room-detail-item">
+                        <span class="lobby-detail-label">Время:</span>
+                        <span class="lobby-detail-value">${gameTime}</span>
+                    </div>` : ''}
+                    ${isPrivate ? '<div class="lobby-room-badge lobby-room-private">🔒 Приватная</div>' : ''}
+                    ${hasPassword ? '<div class="lobby-room-badge lobby-room-password">🔑 Пароль</div>' : ''}
+                </div>
+                ${!isFull ? `<button class="lobby-join-btn" data-room-id="${room.id}">ПРИСОЕДИНИТЬСЯ</button>` : '<div class="lobby-room-full">КОМНАТА ЗАПОЛНЕНА</div>'}
+            `;
+
+            // Клик по комнате - присоединение (если не полная)
+            if (!isFull) {
+                const joinBtn = roomItem.querySelector(".lobby-join-btn");
+                if (joinBtn) {
+                    joinBtn.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        this.joinRoom(room.id);
+                    });
+                }
+
+                // Также можно кликнуть по самой комнате
+                roomItem.style.cursor = "pointer";
+            } else {
+                roomItem.style.opacity = "0.5";
+                roomItem.style.cursor = "not-allowed";
+            }
+
+            roomsList.appendChild(roomItem);
+        });
+    }
+
+    /**
+     * Форматирование времени игры
+     */
+    private formatGameTime(seconds: number): string {
+        const minutes = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${minutes}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    /**
+     * Присоединение к комнате игрока
+     */
+    joinPlayerRoom(playerId: string, roomId: string | null): void {
+        if (!roomId) {
+            console.warn(`[Menu] Игрок ${playerId} не в комнате`);
+            return;
+        }
+
+        this.joinRoom(roomId);
+    }
+
+    /**
+     * Показать диалог отправки сообщения игроку (без prompt/alert - используем встроенный UI)
+     */
+    showMessageDialog(playerId: string, playerName: string): void {
+        const game = (window as any).gameInstance as any;
+        const multiplayerManager = game?.multiplayerManager;
+
+        if (!multiplayerManager) {
+            if (game?.chatSystem) {
+                game.chatSystem.addMessage("❌ MultiplayerManager не найден", "error", 1);
+            }
+            return;
+        }
+
+        if (!multiplayerManager.isConnected()) {
+            if (game?.chatSystem) {
+                game.chatSystem.addMessage("❌ Не подключено к серверу", "error", 1);
+            }
+            return;
+        }
+
+        // Создаем встроенное модальное окно для ввода сообщения (вместо prompt)
+        const modal = document.createElement("div");
+        modal.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, rgba(0, 30, 0, 0.95) 0%, rgba(0, 20, 0, 0.95) 100%);
+            border: 2px solid #0f0;
+            border-radius: 8px;
+            padding: 20px;
+            z-index: 100010;
+            min-width: 400px;
+            max-width: 600px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            box-shadow: 0 0 30px rgba(0, 255, 0, 0.5);
+        `;
+
+        modal.innerHTML = `
+            <div style="margin-bottom: 15px;">
+                <div style="font-size: 18px; color: #0f0; margin-bottom: 10px;">💬 Отправить сообщение игроку ${playerName}</div>
+                <textarea id="chat-message-input" placeholder="Введите сообщение..." style="
+                    width: 100%;
+                    min-height: 100px;
+                    padding: 10px;
+                    background: rgba(0, 0, 0, 0.5);
+                    border: 1px solid #0f0;
+                    border-radius: 4px;
+                    color: #0f0;
+                    font-family: 'Consolas', 'Monaco', monospace;
+                    font-size: 14px;
+                    resize: vertical;
+                    outline: none;
+                "></textarea>
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button id="chat-send-btn" style="
+                    padding: 10px 20px;
+                    background: rgba(0, 255, 0, 0.2);
+                    border: 1px solid #0f0;
+                    color: #0f0;
+                    font-family: 'Consolas', 'Monaco', monospace;
+                    font-size: 14px;
+                    cursor: pointer;
+                    border-radius: 4px;
+                ">Отправить</button>
+                <button id="chat-cancel-btn" style="
+                    padding: 10px 20px;
+                    background: rgba(255, 0, 0, 0.2);
+                    border: 1px solid #f00;
+                    color: #f00;
+                    font-family: 'Consolas', 'Monaco', monospace;
+                    font-size: 14px;
+                    cursor: pointer;
+                    border-radius: 4px;
+                ">Отмена</button>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        const input = modal.querySelector("#chat-message-input") as HTMLTextAreaElement;
+        const sendBtn = modal.querySelector("#chat-send-btn") as HTMLButtonElement;
+        const cancelBtn = modal.querySelector("#chat-cancel-btn") as HTMLButtonElement;
+
+        // Фокус на поле ввода
+        if (input) {
+            input.focus();
+        }
+
+        // Отправка по Enter (Ctrl+Enter для новой строки)
+        if (input) {
+            input.addEventListener("keydown", (e) => {
+                if (e.key === "Enter" && !e.ctrlKey && !e.shiftKey) {
+                    e.preventDefault();
+                    sendBtn?.click();
+                }
+            });
+        }
+
+        // Обработчик отправки
+        if (sendBtn) {
+            sendBtn.onclick = () => {
+                const message = input?.value.trim() || "";
+                if (message === "") {
+                    modal.remove();
+                    return;
+                }
+
+                // Отправляем через общий чат с упоминанием игрока
+                const chatMessage = `@${playerName} ${message}`;
+
+                try {
+                    multiplayerManager.sendChatMessage(chatMessage);
+                    console.log(`[Menu] Сообщение отправлено игроку ${playerName}: ${message}`);
+
+                    // Показываем уведомление
+                    if (game?.chatSystem) {
+                        game.chatSystem.addMessage(`📤 Сообщение отправлено ${playerName}: "${message}"`, "success", 1);
+                    }
+                } catch (error) {
+                    console.error("[Menu] Ошибка при отправке сообщения:", error);
+                    if (game?.chatSystem) {
+                        game.chatSystem.addMessage(`❌ Ошибка при отправке сообщения: ${error}`, "error", 1);
+                    }
+                }
+
+                modal.remove();
+            };
+        }
+
+        // Обработчик отмены
+        if (cancelBtn) {
+            cancelBtn.onclick = () => {
+                modal.remove();
+            };
+        }
+
+        // Закрытие по клику вне модального окна
+        modal.addEventListener("click", (e) => {
+            if (e.target === modal) {
+                modal.remove();
+            }
+        });
+
+        // Закрытие по Escape
+        const escapeHandler = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                modal.remove();
+                document.removeEventListener("keydown", escapeHandler);
+            }
+        };
+        document.addEventListener("keydown", escapeHandler);
+    }
+
+    /**
+     * Пригласить игрока в команду/комнату
+     */
+    async invitePlayerToTeam(playerId: string, playerName: string): Promise<void> {
+        const game = (window as any).gameInstance as any;
+        const multiplayerManager = game?.multiplayerManager;
+
+        if (!multiplayerManager) {
+            alert("MultiplayerManager не найден");
+            return;
+        }
+
+        if (!multiplayerManager.isConnected()) {
+            alert("Не подключено к серверу");
+            return;
+        }
+
+        let currentRoomId = multiplayerManager.getRoomId();
+        let gameMode = multiplayerManager.getGameMode() || "ffa";
+
+        try {
+            // Если мы не в комнате, автоматически создаем комнату
+            if (!currentRoomId) {
+                console.log(`[Menu] 🏠 Автоматическое создание комнаты для приглашения ${playerName}...`);
+
+                // Показываем уведомление о создании комнаты
+                this.showMultiplayerNotification(`Создание комнаты для игры с ${playerName}...`, "#4ade80");
+
+                // Создаем комнату с режимом по умолчанию (FFA)
+                await this.createMultiplayerRoom(gameMode);
+
+                // Ждем создания комнаты (максимум 3 секунды)
+                let attempts = 0;
+                const maxAttempts = 30; // 30 попыток по 100мс = 3 секунды
+
+                while (!currentRoomId && attempts < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    currentRoomId = multiplayerManager.getRoomId();
+                    attempts++;
+                }
+
+                if (!currentRoomId) {
+                    alert("Не удалось создать комнату. Попробуйте еще раз.");
+                    return;
+                }
+
+                console.log(`[Menu] ✅ Комната создана: ${currentRoomId}`);
+                this.showMultiplayerNotification(`Комната создана! Отправка приглашения...`, "#4ade80");
+            }
+
+            // Отправляем приглашение с ID комнаты
+            console.log(`[Menu] 👥 Приглашение игрока ${playerName} в комнату ${currentRoomId}`);
+            multiplayerManager.sendGameInvite(playerId, gameMode);
+
+            // Показываем уведомление
+            if (game?.chatSystem) {
+                game.chatSystem.addMessage(`👥 Приглашение отправлено ${playerName} в комнату ${currentRoomId}`, "success", 1);
+            }
+            this.showMultiplayerNotification(`Приглашение отправлено игроку ${playerName}!`, "#4ade80");
+
+        } catch (error) {
+            console.error("[Menu] Ошибка при отправке приглашения:", error);
+            alert("Ошибка при отправке приглашения");
+        }
+    }
+
+    /**
+     * Добавить игрока в друзья
+     */
+    /**
+     * Загрузка списка друзей из localStorage
+     */
+    private loadFriendsList(): void {
+        try {
+            const saved = localStorage.getItem("lobbyFriendsList");
+            if (saved) {
+                const friends = JSON.parse(saved);
+                this.friendsList = new Set(friends);
+                console.log(`[Menu] Загружено ${this.friendsList.size} друзей из localStorage`);
+            }
+        } catch (error) {
+            console.error("[Menu] Ошибка загрузки списка друзей:", error);
+            this.friendsList = new Set();
+        }
+    }
+
+    /**
+     * Сохранение списка друзей в localStorage
+     */
+    private saveFriendsList(): void {
+        try {
+            const friends = Array.from(this.friendsList);
+            localStorage.setItem("lobbyFriendsList", JSON.stringify(friends));
+        } catch (error) {
+            console.error("[Menu] Ошибка сохранения списка друзей:", error);
+        }
+    }
+
+    async addPlayerToFriends(playerId: string, playerName: string): Promise<void> {
+        const game = (window as any).gameInstance as any;
+
+        // Проверяем, есть ли SocialSystem
+        let socialSystem = game?.socialSystem;
+        if (!socialSystem) {
+            // Пытаемся импортировать и создать SocialSystem
+            try {
+                const { SocialSystem } = await import("./socialSystem");
+                socialSystem = new SocialSystem();
+                await socialSystem.initialize();
+                game.socialSystem = socialSystem;
+            } catch (error) {
+                console.error("[Menu] Ошибка при создании SocialSystem:", error);
+                alert("Система друзей недоступна. Проверьте подключение к Firebase.");
+                return;
+            }
+        }
+
+        try {
+            console.log(`[Menu] Отправка запроса на добавление в друзья игроку ${playerName} (${playerId})`);
+            const success = await socialSystem.sendFriendRequest(playerId, playerName);
+
+            if (success) {
+                // Добавляем в локальный список друзей (для фильтрации)
+                this.friendsList.add(playerId);
+                this.saveFriendsList();
+
+                // Показываем уведомление
+                if (game?.chatSystem) {
+                    game.chatSystem.addMessage(`⭐ Запрос на добавление в друзья отправлен ${playerName}`, "success", 1);
+                }
+                alert(`Запрос на добавление в друзья отправлен игроку ${playerName}!`);
+
+                // Обновляем кнопку (можно добавить визуальную индикацию)
+                const friendBtn = document.querySelector(`.lobby-friend-btn[data-player-id="${playerId}"]`);
+                if (friendBtn) {
+                    friendBtn.classList.add("added");
+                    (friendBtn as HTMLElement).textContent = "⭐ ОТПРАВЛЕНО";
+                    (friendBtn as HTMLElement).style.pointerEvents = "none";
+                }
+
+                // Обновляем фильтры, если они активны
+                this.applyLobbyPlayerFilters();
+            } else {
+                alert("Не удалось отправить запрос на добавление в друзья. Возможно, запрос уже отправлен или игрок уже в друзьях.");
+            }
+        } catch (error) {
+            console.error("[Menu] Ошибка при добавлении в друзья:", error);
+            alert("Ошибка при отправке запроса на добавление в друзья");
+        }
+    }
+
+    /**
+     * Присоединение к комнате
+     */
+    joinRoom(roomId: string): void {
+        // КРИТИЧНО: Очищаем custom map данные при входе в мультиплеер
+        // Это гарантирует, что все игроки увидят одинаковую карту с сервера
+        localStorage.removeItem("selectedCustomMapData");
+        localStorage.removeItem("selectedCustomMapIndex");
+        console.log("[Menu] 🗺️ Очищены данные custom карты при входе в мультиплеер (joinRoom)");
+        
+        const game = (window as any).gameInstance as any;
+        const multiplayerManager = game?.multiplayerManager;
+
+        if (!multiplayerManager) {
+            console.warn("[Menu] MultiplayerManager не найден");
+            return;
+        }
+
+        if (!multiplayerManager.isConnected()) {
+            console.warn("[Menu] Не подключено к серверу");
+            return;
+        }
+
+        console.log(`[Menu] Присоединение к комнате ${roomId}`);
+
+        // Находим информацию о комнате из списка
+        const room = this.allRooms.find(r => r.id === roomId);
+
+        // Устанавливаем callback для показа панели комнаты после присоединения
+        multiplayerManager.onRoomJoined((data: any) => {
+            console.log("[Menu] Room joined:", data);
+
+            // Обновляем панель комнаты с данными из комнаты
+            this.updateRoomPanel(
+                data.roomId || roomId,
+                data.mode || room?.mode || "ffa",
+                data.mapType || room?.mapType || "normal"
+            );
+
+            // Скрываем модальное окно деталей (если открыто)
+            this.hideRoomDetails();
+
+            // Скрываем все play-окна
+            this.hideAllPlayWindows();
+
+            // Показываем панель комнаты
+            this.showPlayWindow("mp-room-panel", 3, 3);
+
+            // Скрываем настройки для не-хоста, но кнопка видна с другим текстом
+            const isHost = multiplayerManager.isRoomCreator ? multiplayerManager.isRoomCreator() : false;
+            const settingsSection = document.getElementById("mp-room-panel-settings");
+            const controlsSection = document.getElementById("mp-room-panel-controls");
+            const hostOnlyElements = document.querySelectorAll(".mp-room-host-only");
+
+            if (settingsSection) {
+                (settingsSection as HTMLElement).style.display = isHost ? "block" : "none";
+            }
+            if (controlsSection) {
+                (controlsSection as HTMLElement).style.display = isHost ? "block" : "none";
+            }
+            hostOnlyElements.forEach(el => {
+                (el as HTMLElement).style.display = isHost ? "block" : "none";
+            });
+
+            // Кнопка видна всем с разным текстом
+            const startBtnEl = document.getElementById("mp-room-panel-start-game");
+            if (startBtnEl) {
+                const btnTextEl = startBtnEl.querySelector(".battle-btn-text");
+                if (btnTextEl) {
+                    btnTextEl.textContent = isHost ? "⚔️ НАЧАТЬ ИГРУ" : "⚔️ В БОЙ!";
+                }
+                (startBtnEl as HTMLElement).style.display = "block";
+            }
+
+            console.log("[Menu] Room panel shown for joined room:", data.roomId || roomId, "isHost:", isHost);
+        });
+
+        // Присоединяемся к комнате
+        multiplayerManager.joinRoom(roomId);
+    }
+
+    /**
+     * Настройка обработчиков для лобби
+     */
+    private setupLobbyHandlers(): void {
+        // Обработчики для вкладок
+        const playersTab = document.getElementById("lobby-tab-players");
+        const roomsTab = document.getElementById("lobby-tab-rooms");
+        const refreshBtn = document.getElementById("lobby-refresh-btn");
+
+        if (playersTab) {
+            playersTab.addEventListener("click", () => {
+                this.switchLobbyTab("players");
+            });
+        }
+
+        if (roomsTab) {
+            roomsTab.addEventListener("click", () => {
+                this.switchLobbyTab("rooms");
+            });
+        }
+
+        if (refreshBtn) {
+            refreshBtn.addEventListener("click", () => {
+                this.refreshLobbyData();
+            });
+        }
+
+        // Обработчик переключателя автообновления
+        const autoRefreshToggle = document.getElementById("lobby-auto-refresh-toggle");
+        if (autoRefreshToggle) {
+            autoRefreshToggle.addEventListener("click", () => {
+                this.toggleLobbyAutoRefresh();
+            });
+        }
+
+        // Настройка фильтров и поиска игроков
+        this.setupLobbyPlayerFilters();
+
+        // Настройка фильтров и поиска комнат
+        this.setupLobbyRoomFilters();
+
+        // Настройка горячих клавиш для лобби
+        this.setupLobbyHotkeys();
+
+        // Настройка кнопки сворачивания
+        this.setupLobbyToggle();
+
+        // Настройка чата
+        this.setupLobbyChat();
+    }
+
+    /**
+     * Переключение вкладок лобби
+     */
+    private switchLobbyTab(tab: "players" | "rooms"): void {
+        const playersTab = document.getElementById("lobby-tab-players");
+        const roomsTab = document.getElementById("lobby-tab-rooms");
+        const playersTabContent = document.getElementById("lobby-players-tab");
+        const roomsTabContent = document.getElementById("lobby-rooms-tab");
+
+        if (tab === "players") {
+            if (playersTab) playersTab.classList.add("active");
+            if (roomsTab) roomsTab.classList.remove("active");
+            if (playersTabContent) playersTabContent.classList.add("active");
+            if (roomsTabContent) roomsTabContent.classList.remove("active");
+        } else {
+            if (playersTab) playersTab.classList.remove("active");
+            if (roomsTab) roomsTab.classList.add("active");
+            if (playersTabContent) playersTabContent.classList.remove("active");
+            if (roomsTabContent) roomsTabContent.classList.add("active");
+        }
+    }
+
+    /**
+     * Настройка горячих клавиш для лобби
+     */
+    private setupLobbyHotkeys(): void {
+        document.addEventListener("keydown", (e) => {
+            const lobbyPanel = document.getElementById("lobby-panel");
+            if (!lobbyPanel || lobbyPanel.offsetParent === null) {
+                return; // Лобби не видно
+            }
+
+            // Ctrl+R или F5 - обновить лобби
+            if ((e.ctrlKey && e.key === "r") || e.key === "F5") {
+                e.preventDefault();
+                this.refreshLobbyData();
+            }
+
+            // Ctrl+F - фокус на поиск
+            if (e.ctrlKey && e.key === "f") {
+                e.preventDefault();
+                const activeTab = document.querySelector(".lobby-tab.active");
+                if (activeTab && activeTab.id === "lobby-tab-players") {
+                    const searchInput = document.getElementById("lobby-players-search") as HTMLInputElement;
+                    if (searchInput) {
+                        searchInput.focus();
+                        searchInput.select();
+                    }
+                } else if (activeTab && activeTab.id === "lobby-tab-rooms") {
+                    const searchInput = document.getElementById("lobby-rooms-search") as HTMLInputElement;
+                    if (searchInput) {
+                        searchInput.focus();
+                        searchInput.select();
+                    }
+                }
+            }
+        });
+        console.log("[Menu] Горячие клавиши лобби настроены (Ctrl+R, Ctrl+F)");
+    }
+
+    /**
+     * Настройка кнопки сворачивания лобби
+     */
+    private setupLobbyToggle(): void {
+        const toggleBtn = document.getElementById("lobby-toggle-btn");
+        const lobbyPanel = document.getElementById("lobby-panel");
+
+        if (!toggleBtn || !lobbyPanel) {
+            console.warn("[Menu] Не найдены элементы для сворачивания лобби");
+            return;
+        }
+
+        const menuContent = document.querySelector(".menu-content");
+
+        // Загружаем состояние из localStorage (по умолчанию - закрыто)
+        const savedState = localStorage.getItem("lobbyCollapsed");
+        const isCollapsed = savedState !== "false"; // По умолчанию закрыто (если не было явно открыто)
+
+        // Отключаем анимацию при первой загрузке
+        lobbyPanel.style.transition = "none";
+        if (menuContent) (menuContent as HTMLElement).style.transition = "none";
+
+        if (isCollapsed) {
+            lobbyPanel.classList.add("collapsed");
+            toggleBtn.textContent = "▶";
+            if (menuContent) menuContent.classList.remove("lobby-open");
+        } else {
+            lobbyPanel.classList.remove("collapsed");
+            toggleBtn.textContent = "◀";
+            if (menuContent) menuContent.classList.add("lobby-open");
+        }
+
+        // Включаем анимацию обратно после отрисовки
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                lobbyPanel.style.transition = "";
+                if (menuContent) (menuContent as HTMLElement).style.transition = "";
+            });
+        });
+
+        // Удаляем старые обработчики
+        const newToggleBtn = toggleBtn.cloneNode(true) as HTMLElement;
+        toggleBtn.parentNode?.replaceChild(newToggleBtn, toggleBtn);
+
+        // Клик по кнопке сворачивания
+        newToggleBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this.toggleLobbyPanel();
+        });
+
+        // Клик по свёрнутой панели - развернуть
+        lobbyPanel.addEventListener("click", (e) => {
+            if (lobbyPanel.classList.contains("collapsed")) {
+                e.stopPropagation();
+                this.toggleLobbyPanel();
+            }
+        });
+
+        console.log("[Menu] Кнопка сворачивания лобби настроена");
+    }
+
+    /**
+     * Переключение состояния панели лобби
+     */
+    private toggleLobbyPanel(): void {
+        const panel = document.getElementById("lobby-panel");
+        const toggleBtn = document.getElementById("lobby-toggle-btn");
+        const menuContent = document.querySelector(".menu-content");
+        if (!panel) return;
+
+        const isCollapsed = panel.classList.contains("collapsed");
+
+        if (isCollapsed) {
+            panel.classList.remove("collapsed");
+            if (toggleBtn) toggleBtn.textContent = "◀";
+            if (menuContent) menuContent.classList.add("lobby-open");
+            localStorage.setItem("lobbyCollapsed", "false");
+            console.log("[Menu] Лобби развернуто");
+        } else {
+            panel.classList.add("collapsed");
+            if (toggleBtn) toggleBtn.textContent = "▶";
+            if (menuContent) menuContent.classList.remove("lobby-open");
+            localStorage.setItem("lobbyCollapsed", "true");
+            console.log("[Menu] Лобби свернуто");
+        }
+    }
+
+    /**
+     * Настройка общего чата лобби
+     */
+    private setupLobbyChat(): void {
+        const chatToggle = document.getElementById("lobby-chat-toggle");
+        const chatContainer = document.getElementById("lobby-chat");
+        const chatInput = document.getElementById("lobby-chat-input") as HTMLInputElement;
+        const chatSend = document.getElementById("lobby-chat-send");
+        const chatMessages = document.getElementById("lobby-chat-messages");
+
+        // Загрузка состояния свернутости из localStorage
+        const chatCollapsed = localStorage.getItem("lobbyChatCollapsed") === "true";
+        if (chatCollapsed && chatContainer) {
+            chatContainer.classList.add("collapsed");
+        }
+
+        // Сворачивание/разворачивание чата
+        if (chatToggle && chatContainer) {
+            chatToggle.addEventListener("click", () => {
+                chatContainer.classList.toggle("collapsed");
+                const isCollapsed = chatContainer.classList.contains("collapsed");
+                localStorage.setItem("lobbyChatCollapsed", isCollapsed ? "true" : "false");
+            });
+        }
+
+        // Отправка сообщения
+        const sendMessage = () => {
+            if (!chatInput || !chatMessages) return;
+
+            const message = chatInput.value.trim();
+            if (!message) return;
+
+            // Получаем MultiplayerManager из глобального объекта game
+            const game = (window as any).gameInstance as any;
+            const multiplayerManager = game?.multiplayerManager;
+
+            if (multiplayerManager && multiplayerManager.isConnected()) {
+                // Показываем сообщение локально сразу
+                const playerId = multiplayerManager.getPlayerId() || "";
+                const playerName = multiplayerManager.getPlayerName() || "Вы";
+                this.addLobbyChatMessage(playerId, playerName, message, Date.now());
+
+                // Отправляем на сервер
+                multiplayerManager.sendLobbyChatMessage(message);
+            }
+
+            chatInput.value = "";
+        };
+
+        if (chatSend) {
+            chatSend.addEventListener("click", sendMessage);
+        }
+
+        if (chatInput) {
+            chatInput.addEventListener("keypress", (e) => {
+                if (e.key === "Enter") {
+                    sendMessage();
+                }
+            });
+        }
+
+        console.log("[Menu] Чат лобби настроен");
+    }
+
+    /**
+     * Добавить сообщение в чат лобби
+     */
+    addLobbyChatMessage(playerId: string, playerName: string, message: string, timestamp: number): void {
+        const chatMessages = document.getElementById("lobby-chat-messages");
+        if (!chatMessages) return;
+
+        // Удаляем приветственное сообщение если это первое сообщение
+        const welcomeMsg = chatMessages.querySelector(".lobby-chat-welcome");
+        if (welcomeMsg) {
+            welcomeMsg.remove();
+        }
+
+        const time = new Date(timestamp).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+        const game = (window as any).gameInstance as any;
+        const multiplayerManager = game?.multiplayerManager;
+        const isSelf = multiplayerManager && multiplayerManager.getPlayerId() === playerId;
+
+        const msgEl = document.createElement("div");
+        msgEl.className = "lobby-chat-message";
+        msgEl.innerHTML = `
+            <span class="lobby-chat-time">${time}</span>
+            <span class="lobby-chat-sender ${isSelf ? "self" : ""}">${this.escapeHtml(playerName)}:</span>
+            <span class="lobby-chat-text">${this.escapeHtml(message)}</span>
+        `;
+
+        chatMessages.appendChild(msgEl);
+
+        // Прокрутка вниз
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+
+        // Ограничение количества сообщений (макс 50)
+        while (chatMessages.children.length > 50) {
+            chatMessages.removeChild(chatMessages.firstChild as Node);
+        }
+    }
+
+    /**
+     * Экранирование HTML
+     */
+    private escapeHtml(text: string): string {
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    /**
+     * Настройка чата мультиплеера
+     */
+    setupMultiplayerChat(multiplayerManager: any): void {
+        if (!multiplayerManager) return;
+
+        const chatInput = document.getElementById("mp-chat-input") as HTMLInputElement;
+        const chatSendBtn = document.getElementById("mp-chat-send") as HTMLButtonElement;
+        const chatMessages = document.getElementById("mp-chat-messages");
+        const chatToggle = document.getElementById("mp-chat-toggle");
+        let chatExpanded = true;
+
+        // Toggle chat
+        if (chatToggle) {
+            chatToggle.addEventListener("click", () => {
+                chatExpanded = !chatExpanded;
+                const messagesContainer = document.getElementById("mp-chat-messages");
+                if (messagesContainer) {
+                    if (chatExpanded) {
+                        messagesContainer.style.display = "block";
+                        chatToggle.textContent = "▲";
+                    } else {
+                        messagesContainer.style.display = "none";
+                        chatToggle.textContent = "▼";
+                    }
+                }
+            });
+        }
+
+        // Send message
+        const sendMessage = () => {
+            if (!chatInput || !multiplayerManager.isConnected()) return;
+
+            const message = chatInput.value.trim();
+            if (message === "") return;
+
+            try {
+                multiplayerManager.sendChatMessage(message);
+                chatInput.value = "";
+
+                // Показываем отправленное сообщение
+                this.addChatMessage("Вы", message, true);
+            } catch (error) {
+                console.error("[Menu] Ошибка отправки сообщения:", error);
+            }
+        };
+
+        if (chatSendBtn) {
+            chatSendBtn.addEventListener("click", sendMessage);
+        }
+
+        if (chatInput) {
+            chatInput.addEventListener("keydown", (e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+        }
+
+        // Настраиваем callback для входящих сообщений
+        multiplayerManager.onChatMessage((data: any) => {
+            if (data && data.playerName && data.message) {
+                this.addChatMessage(data.playerName, data.message, false);
+                // Также добавляем в чат лобби
+                this.addLobbyChatMessage(data.playerId || "", data.playerName, data.message, data.timestamp || Date.now());
+            }
+        });
+    }
+
+    /**
+     * Добавить сообщение в чат
+     */
+    private addChatMessage(playerName: string, message: string, isOwn: boolean): void {
+        const chatMessages = document.getElementById("mp-chat-messages");
+        if (!chatMessages) return;
+
+        // Удаляем placeholder если есть
+        const placeholder = chatMessages.querySelector("div[style*='text-align: center']");
+        if (placeholder) placeholder.remove();
+
+        const messageDiv = document.createElement("div");
+        messageDiv.style.cssText = `
+            padding: 6px 8px;
+            margin-bottom: 4px;
+            background: ${isOwn ? "rgba(0, 255, 4, 0.1)" : "rgba(0, 0, 0, 0.2)"};
+            border-left: 2px solid ${isOwn ? "#0f0" : "rgba(0, 255, 4, 0.4)"};
+            border-radius: 4px;
+            word-wrap: break-word;
+            line-height: 1.4;
+        `;
+
+        const nameSpan = document.createElement("span");
+        nameSpan.style.cssText = `color: ${isOwn ? "#0f0" : "#4ade80"}; font-weight: 600; margin-right: 6px;`;
+        nameSpan.textContent = `${playerName}:`;
+
+        const textSpan = document.createElement("span");
+        textSpan.style.cssText = "color: #aaa;";
+        textSpan.textContent = message;
+
+        messageDiv.appendChild(nameSpan);
+        messageDiv.appendChild(textSpan);
+        chatMessages.appendChild(messageDiv);
+
+        // Автопрокрутка
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+
+        // Также показываем в System Terminal
+        const game = (window as any).gameInstance as any;
+        if (game?.chatSystem) {
+            game.chatSystem.addMessage(`${playerName}: ${message}`, "info", 0);
+        }
+    }
+
+    /**
+     * Настройка callbacks для лобби
+     */
+    setupLobbyCallbacks(): void {
+        const game = (window as any).gameInstance as any;
+        const multiplayerManager = game?.multiplayerManager;
+
+        if (!multiplayerManager) {
+            console.warn("[Menu] ❌ MultiplayerManager не найден для настройки лобби, повторная попытка через 1 секунду...");
+            // Попробуем позже
+            setTimeout(() => this.setupLobbyCallbacks(), 1000);
+            return;
+        }
+
+        const isConnected = multiplayerManager.isConnected();
+        console.log("[Menu] 🔧 Настройка callbacks для лобби, подключен:", isConnected);
+        console.log("[Menu] 🔧 MultiplayerManager:", multiplayerManager);
+        console.log("[Menu] 🔧 Метод getOnlinePlayers:", typeof multiplayerManager.getOnlinePlayers);
+
+        // Настраиваем callback для списка игроков (логирование отключено для уменьшения спама)
+        multiplayerManager.onOnlinePlayersList((data: { players?: any[] }) => {
+            this.updateLobbyPlayers(data.players || []);
+        });
+
+        // Настраиваем callback для списка комнат (обновляет оба UI одновременно)
+        multiplayerManager.onRoomList((rooms: any[]) => {
+            // Убрано для уменьшения спама в логах
+            // console.log("[Menu] ✅ Получен список комнат для лобби:", rooms.length, "комнат");
+            // Обновляем оба UI одновременно
+            this.updateAllRoomLists(rooms);
+        });
+
+        // Настраиваем callback для сообщений чата
+        multiplayerManager.onChatMessage((data: any) => {
+            if (data && data.playerName && data.message) {
+                // Не добавляем сообщение если это наше собственное (уже добавлено локально)
+                const currentPlayerId = multiplayerManager.getPlayerId?.() || "";
+                if (data.playerId !== currentPlayerId) {
+                    this.addLobbyChatMessage(data.playerId || "", data.playerName, data.message, data.timestamp || Date.now());
+                }
+            }
+        });
+
+        // Функция для запроса списка игроков
+        const requestPlayers = () => {
+            if (multiplayerManager.isConnected()) {
+                console.log("[Menu] 📡 Запрос списка игроков для лобби...");
+                try {
+                    multiplayerManager.getOnlinePlayers();
+                    console.log("[Menu] ✅ Запрос отправлен успешно");
+                } catch (error) {
+                    console.error("[Menu] ❌ Ошибка при отправке запроса:", error);
+                }
+            } else {
+                console.warn("[Menu] ⚠️ MultiplayerManager не подключен, ожидание подключения...");
+            }
+        };
+
+        // Запрашиваем список игроков сразу, если подключен
+        if (isConnected) {
+            console.log("[Menu] 🚀 Подключен, запрашиваем список игроков сразу");
+            requestPlayers();
+        } else {
+            console.log("[Menu] ⏳ Не подключен, ждем подключения...");
+            // Если не подключен, ждем подключения
+            let attempts = 0;
+            const maxAttempts = 20; // 10 секунд (20 * 500ms)
+            const checkConnection = setInterval(() => {
+                attempts++;
+                if (multiplayerManager.isConnected()) {
+                    console.log("[Menu] ✅ MultiplayerManager подключен, запрашиваем список игроков");
+                    requestPlayers();
+                    clearInterval(checkConnection);
+                } else if (attempts >= maxAttempts) {
+                    console.warn("[Menu] ⚠️ Превышено время ожидания подключения");
+                    clearInterval(checkConnection);
+                } else {
+                    console.log(`[Menu] ⏳ Ожидание подключения... (попытка ${attempts}/${maxAttempts})`);
+                }
+            }, 500);
+        }
+
+        // Настраиваем умное автообновление
+        this.setupLobbyAutoRefresh(multiplayerManager);
+
+        // Настраиваем отслеживание видимости панели
+        this.setupLobbyVisibilityObserver();
+    }
+
+    /**
+     * Настройка умного автообновления лобби
+     */
+    private setupLobbyAutoRefresh(multiplayerManager: any): void {
+        // Останавливаем предыдущий интервал если есть
+        if (this.lobbyAutoRefreshInterval !== null) {
+            clearInterval(this.lobbyAutoRefreshInterval);
+            this.lobbyAutoRefreshInterval = null;
+        }
+
+        // Загружаем настройки из localStorage
+        const savedAutoRefresh = localStorage.getItem("lobbyAutoRefreshEnabled");
+        if (savedAutoRefresh !== null) {
+            this.lobbyAutoRefreshEnabled = savedAutoRefresh === "true";
+        }
+
+        const savedInterval = localStorage.getItem("lobbyAutoRefreshInterval");
+        if (savedInterval !== null) {
+            const interval = parseInt(savedInterval, 10);
+            if (interval >= 5000 && interval <= 30000) {
+                this.lobbyAutoRefreshIntervalMs = interval;
+            }
+        }
+
+        // Обновляем UI переключателя
+        this.updateLobbyAutoRefreshUI();
+
+        // Запускаем автообновление если включено
+        if (this.lobbyAutoRefreshEnabled) {
+            this.startLobbyAutoRefresh(multiplayerManager);
+        }
+    }
+
+    /**
+     * Запуск автообновления лобби
+     */
+    private startLobbyAutoRefresh(multiplayerManager: any): void {
+        if (this.lobbyAutoRefreshInterval !== null) {
+            return; // Уже запущено
+        }
+
+        this.lobbyAutoRefreshInterval = window.setInterval(() => {
+            // Проверяем видимость меню и панели лобби
+            const isMenuVisible = this.container &&
+                !this.container.classList.contains("hidden") &&
+                this.container.style.display !== "none";
+
+            const lobbyPanel = document.getElementById("lobby-panel");
+            const isLobbyVisible = lobbyPanel &&
+                lobbyPanel.offsetParent !== null &&
+                !lobbyPanel.classList.contains("hidden") &&
+                lobbyPanel.style.display !== "none";
+
+            if (!isMenuVisible || !isLobbyVisible) {
+                console.log("[Menu] ⏸️ Пропуск автообновления - меню или лобби не видно");
+                return;
+            }
+
+            if (multiplayerManager.isConnected()) {
+                console.log("[Menu] 🔄 Автоматическое обновление лобби");
+                this.refreshLobbyData(multiplayerManager);
+            } else {
+                console.warn("[Menu] ⚠️ Пропуск автообновления - не подключен");
+            }
+        }, this.lobbyAutoRefreshIntervalMs);
+
+        console.log(`[Menu] ✅ Автообновление лобби запущено (интервал: ${this.lobbyAutoRefreshIntervalMs}ms)`);
+    }
+
+    /**
+     * Остановка автообновления лобби
+     */
+    private stopLobbyAutoRefresh(): void {
+        if (this.lobbyAutoRefreshInterval !== null) {
+            clearInterval(this.lobbyAutoRefreshInterval);
+            this.lobbyAutoRefreshInterval = null;
+            console.log("[Menu] ⏸️ Автообновление лобби остановлено");
+        }
+    }
+
+    /**
+     * Переключение автообновления
+     */
+    private toggleLobbyAutoRefresh(): void {
+        this.lobbyAutoRefreshEnabled = !this.lobbyAutoRefreshEnabled;
+        localStorage.setItem("lobbyAutoRefreshEnabled", this.lobbyAutoRefreshEnabled.toString());
+
+        const game = (window as any).gameInstance as any;
+        const multiplayerManager = game?.multiplayerManager;
+
+        if (this.lobbyAutoRefreshEnabled) {
+            this.startLobbyAutoRefresh(multiplayerManager);
+        } else {
+            this.stopLobbyAutoRefresh();
+        }
+
+        this.updateLobbyAutoRefreshUI();
+    }
+
+    /**
+     * Обновление UI переключателя автообновления
+     */
+    private updateLobbyAutoRefreshUI(): void {
+        const toggle = document.getElementById("lobby-auto-refresh-toggle");
+        if (toggle) {
+            if (this.lobbyAutoRefreshEnabled) {
+                toggle.classList.remove("disabled");
+                toggle.title = `Автообновление: ВКЛ (${this.lobbyAutoRefreshIntervalMs / 1000}с)`;
+            } else {
+                toggle.classList.add("disabled");
+                toggle.title = "Автообновление: ВЫКЛ";
+            }
+        }
+    }
+
+    /**
+     * Настройка отслеживания видимости панели лобби
+     */
+    private setupLobbyVisibilityObserver(): void {
+        const lobbyPanel = document.getElementById("lobby-panel");
+        if (!lobbyPanel) return;
+
+        // Используем IntersectionObserver для отслеживания видимости
+        if (typeof IntersectionObserver !== "undefined") {
+            this.lobbyVisibilityObserver = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (!entry.isIntersecting && this.lobbyAutoRefreshInterval !== null) {
+                        console.log("[Menu] 👁️ Панель лобби скрыта, автообновление приостановлено");
+                    }
+                });
+            }, {
+                threshold: 0.1
+            });
+
+            this.lobbyVisibilityObserver.observe(lobbyPanel);
+        }
+    }
+
+    /**
+     * Обновление данных лобби (игроки и комнаты)
+     */
+    private refreshLobbyData(multiplayerManager?: any): void {
+        const game = (window as any).gameInstance as any;
+        const mm = multiplayerManager || game?.multiplayerManager;
+
+        if (!mm || !mm.isConnected()) {
+            console.warn("[Menu] ⚠️ Не могу обновить - MultiplayerManager не подключен");
+            this.updateLastUpdateTime(false);
+            return;
+        }
+
+        console.log("[Menu] 🔄 Ручное обновление данных лобби");
+        mm.getOnlinePlayers();
+        mm.requestRoomList();
+        this.updateLastUpdateTime(true);
+    }
+
+    /**
+     * Обновление времени последнего обновления
+     */
+    private updateLastUpdateTime(success: boolean): void {
+        this.lobbyLastUpdateTime = Date.now();
+        const lastUpdateEl = document.getElementById("lobby-last-update");
+
+        if (lastUpdateEl) {
+            if (success) {
+                const now = new Date();
+                const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+                lastUpdateEl.textContent = `Обновлено: ${timeStr}`;
+                lastUpdateEl.style.color = "#0f0";
+            } else {
+                lastUpdateEl.textContent = "Ошибка обновления";
+                lastUpdateEl.style.color = "#f00";
+            }
+        }
+
+        // Обновляем каждую секунду для показа относительного времени
+        if (success) {
+            setTimeout(() => this.updateRelativeTime(), 1000);
+        }
+    }
+
+    /**
+     * Обновление относительного времени последнего обновления
+     */
+    private updateRelativeTime(): void {
+        const lastUpdateEl = document.getElementById("lobby-last-update");
+        if (!lastUpdateEl || this.lobbyLastUpdateTime === 0) return;
+
+        const elapsed = Math.floor((Date.now() - this.lobbyLastUpdateTime) / 1000);
+
+        if (elapsed < 60) {
+            lastUpdateEl.textContent = `Обновлено: ${elapsed}с назад`;
+        } else if (elapsed < 3600) {
+            const minutes = Math.floor(elapsed / 60);
+            lastUpdateEl.textContent = `Обновлено: ${minutes}м назад`;
+        } else {
+            const hours = Math.floor(elapsed / 3600);
+            lastUpdateEl.textContent = `Обновлено: ${hours}ч назад`;
+        }
+
+        // Обновляем каждые 5 секунд
+        if (this.lobbyAutoRefreshEnabled) {
+            setTimeout(() => this.updateRelativeTime(), 5000);
+        }
+    }
+
     /**
      * Показать детальное меню выбранной комнаты
      */
@@ -7007,7 +11852,7 @@ export class MainMenu {
             console.warn("[Menu] ⚠️ Модальное окно деталей комнаты не найдено");
             return;
         }
-        
+
         // Заполняем информацию о комнате
         const roomIdEl = document.getElementById("mp-room-details-id");
         const roomModeEl = document.getElementById("mp-room-details-mode");
@@ -7016,11 +11861,11 @@ export class MainMenu {
         const roomTimeEl = document.getElementById("mp-room-details-time");
         const progressBarEl = document.getElementById("mp-room-details-progress-bar");
         const progressTextEl = document.getElementById("mp-room-details-progress-text");
-        
+
         if (roomIdEl) roomIdEl.textContent = room.id;
         if (roomModeEl) roomModeEl.textContent = room.mode.toUpperCase();
         if (roomPlayersEl) roomPlayersEl.textContent = `${room.players}/${room.maxPlayers}`;
-        
+
         // Статус
         if (roomStatusEl) {
             if (room.isActive) {
@@ -7031,7 +11876,7 @@ export class MainMenu {
                 roomStatusEl.style.color = "#a78bfa";
             }
         }
-        
+
         // Время игры
         if (roomTimeEl) {
             if (room.isActive && room.gameTime) {
@@ -7042,7 +11887,7 @@ export class MainMenu {
                 roomTimeEl.textContent = "Не начата";
             }
         }
-        
+
         // Прогресс-бар
         const fillPercent = (room.players / room.maxPlayers) * 100;
         if (progressBarEl) {
@@ -7051,25 +11896,23 @@ export class MainMenu {
         if (progressTextEl) {
             progressTextEl.textContent = `${Math.round(fillPercent)}%`;
         }
-        
+
         // Настраиваем кнопки
         const joinBtn = document.getElementById("mp-room-details-join");
         const copyBtn = document.getElementById("mp-room-details-copy-id");
         const closeBtn = document.getElementById("mp-room-details-close");
-        
+
         // Удаляем старые обработчики
         if (joinBtn) {
             joinBtn.onclick = null;
             joinBtn.onclick = () => {
-                const game = (window as any).gameInstance as any;
-                if (game?.multiplayerManager) {
-                    console.log(`[Menu] Присоединение к комнате ${room.id}`);
-                    game.multiplayerManager.joinRoom(room.id);
-                    this.hideRoomDetails();
-                }
+                // Используем единый метод joinRoom(), который уже содержит всю логику показа панели
+                console.log(`[Menu] Присоединение к комнате ${room.id} из модального окна`);
+                this.joinRoom(room.id);
             };
         }
-        
+
+
         if (copyBtn) {
             copyBtn.onclick = null;
             copyBtn.onclick = () => {
@@ -7090,25 +11933,303 @@ export class MainMenu {
                 });
             };
         }
-        
+
         if (closeBtn) {
             closeBtn.onclick = null;
             closeBtn.onclick = () => {
                 this.hideRoomDetails();
             };
         }
-        
+
         // Закрытие по клику вне модального окна
         modal.onclick = (e) => {
             if (e.target === modal) {
                 this.hideRoomDetails();
             }
         };
-        
+
+        // Загружаем список игроков в комнате
+        this.loadRoomPlayers(room.id);
+
+        // Проверяем, является ли текущий игрок создателем комнаты
+        const game = (window as any).gameInstance as any;
+        const multiplayerManager = game?.multiplayerManager;
+        const currentPlayerId = multiplayerManager?.getPlayerId();
+        const isOwner = room.creatorId === currentPlayerId;
+
+        // Показываем/скрываем панель управления
+        const adminPanel = document.getElementById("mp-room-details-admin-panel");
+        if (adminPanel) {
+            adminPanel.style.display = isOwner ? "block" : "none";
+        }
+
+        // Настраиваем обработчики для панели управления
+        if (isOwner) {
+            this.setupRoomAdminHandlers(room);
+        }
+
         // Показываем модальное окно
         modal.style.display = "flex";
     }
-    
+
+    /**
+     * Загрузка списка игроков в комнате
+     */
+    private loadRoomPlayers(roomId: string): void {
+        const game = (window as any).gameInstance as any;
+        const multiplayerManager = game?.multiplayerManager;
+
+        if (!multiplayerManager || !multiplayerManager.isConnected()) {
+            return;
+        }
+
+        const playersList = document.getElementById("mp-room-details-players-list");
+        if (!playersList) return;
+
+        // Получаем список игроков из networkPlayers
+        const networkPlayers = multiplayerManager.getNetworkPlayers();
+        const currentPlayerId = multiplayerManager.getPlayerId();
+        const isCreator = multiplayerManager.isRoomCreator ? multiplayerManager.isRoomCreator() : false;
+
+        playersList.innerHTML = "";
+
+        if (!networkPlayers || networkPlayers.size === 0) {
+            playersList.innerHTML = '<div style="text-align: center; padding: 10px; color: #888; font-size: 11px;">Нет игроков в комнате</div>';
+            return;
+        }
+
+        // Добавляем текущего игрока
+        const allPlayers: Array<{ id: string; name: string; isOwner?: boolean }> = [];
+        if (currentPlayerId) {
+            allPlayers.push({ id: currentPlayerId, name: multiplayerManager.getPlayerName() || "Вы", isOwner: isCreator });
+        }
+
+        // Добавляем остальных игроков
+        networkPlayers.forEach((player: any, playerId: string) => {
+            if (playerId !== currentPlayerId) {
+                allPlayers.push({
+                    id: playerId,
+                    name: player.name || `Player_${playerId.substring(0, 6)}`,
+                    isOwner: false
+                });
+            }
+        });
+
+        allPlayers.forEach(player => {
+            const playerItem = document.createElement("div");
+            playerItem.style.cssText = `
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 10px;
+                background: rgba(0, 0, 0, 0.3);
+                border: 1px solid rgba(102, 126, 234, 0.2);
+                border-radius: 6px;
+                margin-bottom: 6px;
+                font-size: 12px;
+            `;
+
+            const isCurrentPlayer = player.id === currentPlayerId;
+
+            playerItem.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 10px; flex: 1;">
+                    ${player.isOwner ? '<span style="color: #fbbf24; font-size: 14px;">👑</span>' : ''}
+                    <span style="color: ${isCurrentPlayer ? '#4ade80' : '#fff'}; font-weight: ${isCurrentPlayer ? '600' : '400'};">
+                        ${player.name}${isCurrentPlayer ? ' (Вы)' : ''}
+                    </span>
+                </div>
+                <div style="display: flex; gap: 6px;">
+                    ${!isCurrentPlayer && isCreator ? `
+                        <button class="room-details-player-kick-btn" data-player-id="${player.id}" data-player-name="${player.name}" 
+                                style="padding: 6px 10px; font-size: 10px; background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; border-radius: 4px; color: #ef4444; cursor: pointer; transition: all 0.2s;"
+                                title="Кикнуть игрока">
+                            🚫 Кик
+                        </button>
+                    ` : ''}
+                    ${!isCurrentPlayer ? `
+                        <button class="room-details-player-profile-btn" data-player-id="${player.id}" data-player-name="${player.name}"
+                                style="padding: 6px 10px; font-size: 10px; background: rgba(102, 126, 234, 0.2); border: 1px solid #667eea; border-radius: 4px; color: #a78bfa; cursor: pointer; transition: all 0.2s;"
+                                title="Профиль игрока">
+                            👤 Профиль
+                        </button>
+                    ` : ''}
+                </div>
+            `;
+
+            // Обработчик кика игрока
+            if (!isCurrentPlayer && isCreator) {
+                const kickBtn = playerItem.querySelector(".room-details-player-kick-btn");
+                if (kickBtn) {
+                    kickBtn.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        const playerId = kickBtn.getAttribute("data-player-id");
+                        const playerName = kickBtn.getAttribute("data-player-name");
+                        if (playerId && playerName) {
+                            const reason = prompt(`Введите причину кика игрока ${playerName} (необязательно):`);
+                            this.kickPlayerFromRoom(roomId, playerId, reason || undefined);
+                        }
+                    });
+                }
+            }
+
+            // Обработчик просмотра профиля
+            if (!isCurrentPlayer) {
+                const profileBtn = playerItem.querySelector(".room-details-player-profile-btn");
+                if (profileBtn) {
+                    profileBtn.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        const playerId = profileBtn.getAttribute("data-player-id");
+                        const playerName = profileBtn.getAttribute("data-player-name");
+                        if (playerId && playerName) {
+                            this.showPlayerProfile(playerId, playerName);
+                        }
+                    });
+                }
+            }
+
+            playersList.appendChild(playerItem);
+        });
+    }
+
+    /**
+     * Настройка обработчиков для панели управления комнатой
+     */
+    private setupRoomAdminHandlers(room: any): void {
+        const changeModeBtn = document.getElementById("mp-room-details-change-mode");
+        const changeMaxBtn = document.getElementById("mp-room-details-change-max");
+        const togglePrivateBtn = document.getElementById("mp-room-details-toggle-private");
+        const transferBtn = document.getElementById("mp-room-details-transfer");
+
+        if (changeModeBtn) {
+            changeModeBtn.onclick = () => this.showChangeRoomModeDialog(room);
+        }
+
+        if (changeMaxBtn) {
+            changeMaxBtn.onclick = () => this.showChangeRoomMaxPlayersDialog(room);
+        }
+
+        if (togglePrivateBtn) {
+            togglePrivateBtn.onclick = () => this.toggleRoomPrivacy(room);
+        }
+
+        if (transferBtn) {
+            transferBtn.onclick = () => this.showTransferOwnershipDialog(room);
+        }
+    }
+
+    /**
+     * Диалог изменения режима комнаты
+     */
+    private showChangeRoomModeDialog(room: any): void {
+        const modes = ["deathmatch", "team", "ctf", "survival", "raid"];
+        const modeNames: { [key: string]: string } = {
+            "deathmatch": "Deathmatch",
+            "team": "Team Deathmatch",
+            "ctf": "Capture the Flag",
+            "survival": "Survival",
+            "raid": "Raid"
+        };
+
+        const selected = prompt(`Выберите режим комнаты:\n${modes.map((m, i) => `${i + 1}. ${modeNames[m]}`).join("\n")}\n\nВведите номер (1-${modes.length}):`);
+        if (!selected) return;
+
+        const index = parseInt(selected) - 1;
+        if (index >= 0 && index < modes.length) {
+            const newMode = modes[index] as any;
+            this.changeRoomSettings(room.id, { mode: newMode });
+        }
+    }
+
+    /**
+     * Диалог изменения максимального количества игроков
+     */
+    private showChangeRoomMaxPlayersDialog(room: any): void {
+        const max = prompt(`Введите максимальное количество игроков (текущее: ${room.maxPlayers}, минимум: 2, максимум: 32):`);
+        if (!max) return;
+
+        const maxPlayers = parseInt(max);
+        if (maxPlayers >= 2 && maxPlayers <= 32) {
+            this.changeRoomSettings(room.id, { maxPlayers });
+        } else {
+            alert("Количество игроков должно быть от 2 до 32");
+        }
+    }
+
+    /**
+     * Переключение приватности комнаты
+     */
+    private toggleRoomPrivacy(room: any): void {
+        const newPrivacy = !room.isPrivate;
+        const password = newPrivacy ? prompt("Введите пароль для комнаты (оставьте пустым для отмены):") : null;
+        if (password === null && newPrivacy) return; // Отменено
+
+        this.changeRoomSettings(room.id, {
+            isPrivate: newPrivacy,
+            password: password || undefined
+        });
+    }
+
+    /**
+     * Диалог передачи прав владельца
+     */
+    private showTransferOwnershipDialog(room: any): void {
+        const playerId = prompt("Введите ID игрока, которому передать права владельца:");
+        if (!playerId || playerId.trim() === "") return;
+
+        this.transferRoomOwnership(room.id, playerId.trim());
+    }
+
+    /**
+     * Изменение настроек комнаты
+     */
+    private changeRoomSettings(roomId: string, settings: any): void {
+        const game = (window as any).gameInstance as any;
+        const multiplayerManager = game?.multiplayerManager;
+
+        if (!multiplayerManager || !multiplayerManager.isConnected()) {
+            alert("Не подключено к серверу");
+            return;
+        }
+
+        // TODO: Добавить метод в MultiplayerManager для изменения настроек комнаты
+        console.log(`[Menu] Изменение настроек комнаты ${roomId}:`, settings);
+        alert("Функция изменения настроек комнаты будет реализована на сервере");
+    }
+
+    /**
+     * Передача прав владельца комнаты
+     */
+    private transferRoomOwnership(roomId: string, newOwnerId: string): void {
+        const game = (window as any).gameInstance as any;
+        const multiplayerManager = game?.multiplayerManager;
+
+        if (!multiplayerManager || !multiplayerManager.isConnected()) {
+            alert("Не подключено к серверу");
+            return;
+        }
+
+        // TODO: Добавить метод в MultiplayerManager для передачи прав
+        console.log(`[Menu] Передача прав владельца комнаты ${roomId} игроку ${newOwnerId}`);
+        alert("Функция передачи прав будет реализована на сервере");
+    }
+
+    /**
+     * Кик игрока из комнаты
+     */
+    kickPlayerFromRoom(roomId: string, playerId: string, reason?: string): void {
+        const game = (window as any).gameInstance as any;
+        const multiplayerManager = game?.multiplayerManager;
+
+        if (!multiplayerManager || !multiplayerManager.isConnected()) {
+            alert("Не подключено к серверу");
+            return;
+        }
+
+        // TODO: Добавить метод в MultiplayerManager для кика игрока
+        console.log(`[Menu] Кик игрока ${playerId} из комнаты ${roomId}, причина: ${reason || "не указана"}`);
+        alert("Функция кика игрока будет реализована на сервере");
+    }
+
     /**
      * Скрыть детальное меню комнаты
      */
@@ -7118,11 +12239,11 @@ export class MainMenu {
             modal.style.display = "none";
         }
     }
-    
+
     // Метод для обновления информации об очереди (вызывается из game.ts через callback)
     updateQueueInfo(queueSize: number, estimatedWait: number, mode: string | null): void {
         const queueInfoEl = document.getElementById("mp-queue-info");
-        
+
         // Если mode === null, скрываем очередь (матч найден)
         if (!mode || mode === "null") {
             if (queueInfoEl) {
@@ -7136,17 +12257,17 @@ export class MainMenu {
             }
             return;
         }
-        
+
         // Показываем очередь и обновляем информацию
         if (queueInfoEl) {
             queueInfoEl.style.display = "block";
             queueInfoEl.style.animation = "fadeIn 0.3s ease";
         }
-        
+
         const queueSizeEl = document.getElementById("mp-queue-size");
         const estimatedTimeEl = document.getElementById("mp-queue-estimated-time");
         const queueModeEl = document.getElementById("mp-queue-mode");
-        
+
         if (queueSizeEl) queueSizeEl.textContent = String(queueSize);
         if (queueModeEl) queueModeEl.textContent = mode.toUpperCase();
         if (estimatedTimeEl) {
@@ -7154,14 +12275,14 @@ export class MainMenu {
             const seconds = estimatedWait % 60;
             estimatedTimeEl.textContent = `${minutes > 0 ? `${minutes} мин ` : ""}${seconds} сек`;
         }
-        
+
         // Запускаем таймер если еще не запущен
         if (!this.queueTimerInterval) {
             this.startQueueTimer();
         }
     }
-    
-    private startMultiplayerGame(): void {
+
+    private async startMultiplayerGame(): Promise<void> {
         debugLog("[Menu] Starting multiplayer game");
         const game = (window as any).gameInstance as any;
         const multiplayerManager = game?.multiplayerManager;
@@ -7169,42 +12290,202 @@ export class MainMenu {
             this.showMultiplayerError("Менеджер мультиплеера не инициализирован.");
             return;
         }
-        
-        // Проверяем количество игроков
-        const networkPlayers = multiplayerManager.getNetworkPlayers();
-        const playersCount = networkPlayers ? networkPlayers.size + 1 : 1;
-        if (playersCount < 2) {
-            this.showMultiplayerError("Для начала игры нужно минимум 2 игрока!");
+
+        // Проверяем, идет ли игра уже
+        const isActive = multiplayerManager.isRoomActive ? multiplayerManager.isRoomActive() : false;
+        const isActiveDirect = multiplayerManager._roomIsActive !== undefined ? multiplayerManager._roomIsActive : false;
+        const gameIsActive = isActive || isActiveDirect;
+
+        // КРИТИЧНО: Если игра уже идет, ЛЮБОЙ игрок может присоединиться!
+        if (gameIsActive) {
+            console.log("[Menu] 🎮 Игра уже идет, присоединяемся (любой игрок может присоединиться)!");
+
+            // Проверяем подключение
+            if (!multiplayerManager.isConnected()) {
+                this.showMultiplayerError("Не подключено к серверу. Проверьте подключение.");
+                return;
+            }
+
+            // Закрываем меню и запускаем игру - БЕЗ ПРОВЕРОК НА СОЗДАТЕЛЯ!
+            this.hide();
+
+            if (game && typeof game.startGame === 'function') {
+                try {
+                    console.log("[Menu] ✅ Запускаем игру для присоединения к идущей битве");
+
+                    // КРИТИЧНО: Проверяем инициализацию игры перед запуском
+                    if (!game.gameInitialized) {
+                        console.log("[Menu] ⚠️ Игра не инициализирована, инициализируем...");
+                        try {
+                            // Проверяем, что init не вызывается уже
+                            if ((game as any)._isInitializing) {
+                                console.log("[Menu] ⏳ Инициализация уже идет, ждем...");
+                                // Ждем завершения инициализации
+                                let waitCount = 0;
+                                while ((game as any)._isInitializing && waitCount < 50) {
+                                    await new Promise(resolve => setTimeout(resolve, 100));
+                                    waitCount++;
+                                }
+                                if (!game.gameInitialized) {
+                                    throw new Error("Initialization timeout");
+                                }
+                            } else {
+                                (game as any)._isInitializing = true;
+                                try {
+                                    await game.init();
+                                    game.gameInitialized = true;
+                                    console.log("[Menu] ✅ Игра успешно инициализирована");
+                                    
+                                    // КРИТИЧНО: Проверяем и исправляем mapType после init()
+                                    // Это гарантирует синхронизацию карты с сервером
+                                    const serverMapType = multiplayerManager.getMapType();
+                                    if (serverMapType && game.currentMapType !== serverMapType) {
+                                        console.log(`%c[Menu] 🗺️ КРИТИЧНО: mapType не совпадает после init()! Текущий: ${game.currentMapType}, Сервер: ${serverMapType}`, 'color: #ef4444; font-weight: bold; font-size: 14px;');
+                                        game.currentMapType = serverMapType;
+                                        if (game.chunkSystem) {
+                                            console.log("[Menu] 🗺️ Перезагружаем карту для синхронизации...");
+                                            await game.reloadMap(serverMapType);
+                                            console.log("[Menu] ✅ Карта синхронизирована с сервером");
+                                        }
+                                    } else {
+                                        console.log(`[Menu] ✅ mapType совпадает: ${game.currentMapType} (сервер: ${serverMapType || 'N/A'})`);
+                                    }
+                                } finally {
+                                    (game as any)._isInitializing = false;
+                                }
+                            }
+                        } catch (error) {
+                            console.error("[Menu] ❌ Ошибка инициализации игры:", error);
+                            this.showMultiplayerError("Не удалось инициализировать игру. Попробуйте еще раз.");
+                            return;
+                        }
+                    }
+
+                    // Убеждаемся, что canvas виден и имеет правильный размер
+                    if (game.canvas) {
+                        game.canvas.style.display = "block";
+                        game.canvas.style.visibility = "visible";
+                        game.canvas.style.opacity = "1";
+                        game.canvas.style.zIndex = "1";
+                        game.canvas.style.position = "fixed";
+                        game.canvas.style.top = "0";
+                        game.canvas.style.left = "0";
+                        game.canvas.style.width = "100%";
+                        game.canvas.style.height = "100%";
+
+                        // Убеждаемся, что canvas имеет правильный размер
+                        if (game.canvas.width === 0 || game.canvas.height === 0) {
+                            if (game.engine) {
+                                game.engine.resize();
+                            }
+                        }
+                    } else {
+                        console.error("[Menu] ❌ Canvas не найден!");
+                        this.showMultiplayerError("Canvas не инициализирован. Попробуйте еще раз.");
+                        return;
+                    }
+
+                    // Проверяем, что сцена готова к рендерингу
+                    if (!game.scene) {
+                        console.error("[Menu] ❌ Сцена не инициализирована!");
+                        this.showMultiplayerError("Сцена не готова. Попробуйте еще раз.");
+                        return;
+                    }
+
+                    // Проверяем, что камера установлена
+                    if (!game.camera) {
+                        console.warn("[Menu] ⚠️ Камера еще не создана, но продолжаем...");
+                    } else {
+                        // Убеждаемся, что камера активна
+                        if (game.scene) {
+                            game.scene.activeCamera = game.camera;
+                            game.camera.setEnabled(true);
+                        }
+                    }
+
+                    // Небольшая задержка для синхронизации с сервером при присоединении к активной игре
+                    await new Promise(resolve => setTimeout(resolve, 100));
+
+                    // Запускаем игру
+                    game.startGame();
+                    console.log("[Menu] ✅ Игра запущена для присоединения к идущей битве");
+                } catch (error) {
+                    console.error("[Menu] ❌ Ошибка при запуске игры:", error);
+                    this.showMultiplayerError("Не удалось запустить игру. Попробуйте еще раз.");
+                }
+            } else {
+                console.error("[Menu] ❌ Метод startGame не найден в game instance");
+                this.showMultiplayerError("Не удалось запустить игру. Попробуйте еще раз.");
+            }
             return;
         }
-        
+
+        // Если игра не идет, проверяем, является ли пользователь создателем комнаты
+        let isCreator = false;
+        try {
+            if (multiplayerManager.isRoomCreator) {
+                isCreator = multiplayerManager.isRoomCreator();
+            } else if (multiplayerManager._isRoomCreator !== undefined) {
+                isCreator = multiplayerManager._isRoomCreator;
+            }
+        } catch (e) {
+            console.warn("[Menu] Ошибка проверки isRoomCreator:", e);
+        }
+
+        if (!isCreator) {
+            this.showMultiplayerError("Только создатель комнаты может начать игру!");
+            return;
+        }
+
+        // Проверяем количество игроков
+        const playersCount = multiplayerManager.getRoomPlayersCount ? multiplayerManager.getRoomPlayersCount() : 1;
+        if (playersCount < 2) {
+            this.showMultiplayerError("Для начала игры нужно минимум 2 игрока! Сейчас в комнате только вы.");
+            return;
+        }
+
+        // Проверяем подключение
+        if (!multiplayerManager.isConnected()) {
+            this.showMultiplayerError("Не подключено к серверу. Проверьте подключение.");
+            return;
+        }
+
         // Отправляем запрос на начало игры
+        console.log("[Menu] 🎮 Отправка запроса на начало игры...");
         const success = multiplayerManager.startGame();
         if (success) {
             debugLog("[Menu] Start game request sent");
-            // Скрываем кнопку после нажатия
+            console.log("[Menu] ✅ Запрос на начало игры отправлен успешно");
+
+            // Обновляем текст кнопки
             const startGameBtn = document.getElementById("mp-btn-start-game");
             if (startGameBtn) {
-                startGameBtn.style.display = "none";
+                const textElement = startGameBtn.querySelector(".battle-btn-text");
+                if (textElement) {
+                    textElement.textContent = "⏳ Запуск игры...";
+                }
+                startGameBtn.style.opacity = "0.7";
+                startGameBtn.style.cursor = "wait";
             }
         } else {
+            console.error("[Menu] ❌ Не удалось отправить запрос на начало игры");
             this.showMultiplayerError("Не удалось начать игру. Проверьте подключение.");
         }
     }
-    
+
     private leaveMultiplayerRoom(): void {
         debugLog("[Menu] Leaving multiplayer room");
         const game = (window as any).gameInstance as any;
         const multiplayerManager = game?.multiplayerManager;
         if (multiplayerManager) {
             multiplayerManager.leaveRoom();
-            
+
             // Сбрасываем флаг мультиплеера чтобы боты могли спавниться в одиночной игре
             if (game.disableMultiplayer) {
                 game.disableMultiplayer();
                 debugLog("[Menu] Disabled multiplayer mode after leaving room");
             }
-            
+
             const roomInfoEl = document.getElementById("mp-room-info");
             if (roomInfoEl) {
                 roomInfoEl.style.display = "none";
@@ -7218,7 +12499,7 @@ export class MainMenu {
             this._updateMultiplayerStatus();
         }
     }
-    
+
     // Метод для отображения ошибок в меню
     showMultiplayerError(message: string): void {
         const errorEl = document.getElementById("mp-error-message");
@@ -7227,14 +12508,14 @@ export class MainMenu {
             errorTextEl.textContent = message;
             errorEl.style.display = "block";
             errorEl.style.animation = "fadeIn 0.3s ease";
-            
+
             // Автоматически скрываем через 5 секунд
             setTimeout(() => {
                 errorEl.style.display = "none";
             }, 5000);
         }
     }
-    
+
     // Метод для отображения уведомлений (успешных сообщений) в меню
     showGameInviteNotification(data: { fromPlayerId: string; fromPlayerName: string; roomId?: string; gameMode?: string; worldSeed?: number }): void {
         // Создаем модальное окно для приглашения
@@ -7255,7 +12536,7 @@ export class MainMenu {
             font-family: 'Consolas', 'Monaco', monospace;
             box-shadow: 0 0 30px rgba(74, 222, 128, 0.5);
         `;
-        
+
         modal.innerHTML = `
             <div style="text-align: center; margin-bottom: 20px;">
                 <div style="font-size: 24px; color: #4ade80; margin-bottom: 10px;">🎮 ПРИГЛАШЕНИЕ В ИГРУ</div>
@@ -7288,39 +12569,163 @@ export class MainMenu {
                 ">ОТКЛОНИТЬ</button>
             </div>
         `;
-        
+
         document.body.appendChild(modal);
-        
+
         // Обработчики кнопок
         const acceptBtn = document.getElementById("invite-accept");
         const declineBtn = document.getElementById("invite-decline");
-        
+
         if (acceptBtn) {
-            acceptBtn.onclick = () => {
+            acceptBtn.onclick = async () => {
                 const game = (window as any).gameInstance as any;
                 const multiplayerManager = game?.multiplayerManager;
-                
-                if (data.roomId && multiplayerManager) {
-                    // Присоединяемся к комнате
-                    multiplayerManager.joinRoom(data.roomId);
-                    this.showMultiplayerNotification(`Присоединение к комнате ${data.fromPlayerName}...`, "#4ade80");
-                } else if (multiplayerManager) {
-                    // Создаем комнату с указанным режимом
-                    const mode = data.gameMode || "ffa";
-                    multiplayerManager.createRoom(mode as any, 32, false);
-                    this.showMultiplayerNotification(`Создание комнаты для игры с ${data.fromPlayerName}...`, "#4ade80");
+
+                if (!multiplayerManager) {
+                    alert("MultiplayerManager не найден");
+                    modal.remove();
+                    return;
                 }
-                
-                modal.remove();
+
+                if (!multiplayerManager.isConnected()) {
+                    alert("Не подключено к серверу");
+                    modal.remove();
+                    return;
+                }
+
+                try {
+                    if (data.roomId) {
+                        // Присоединяемся к существующей комнате
+                        console.log(`[Menu] 🎮 Принятие приглашения: присоединение к комнате ${data.roomId}`);
+                        this.showMultiplayerNotification(`Присоединение к комнате ${data.fromPlayerName}...`, "#4ade80");
+                        // Используем единый метод joinRoom() для показа панели комнаты
+                        this.joinRoom(data.roomId);
+                    } else {
+                        // Если комнаты нет, создаем новую и приглашаем отправителя
+                        console.log(`[Menu] 🏠 Принятие приглашения: создание новой комнаты`);
+                        const mode = data.gameMode || "ffa";
+                        this.showMultiplayerNotification(`Создание комнаты для игры с ${data.fromPlayerName}...`, "#4ade80");
+
+                        // Создаем комнату
+                        await this.createMultiplayerRoom(mode);
+
+                        // Ждем создания комнаты
+                        let attempts = 0;
+                        const maxAttempts = 30;
+                        let roomId = multiplayerManager.getRoomId();
+
+                        while (!roomId && attempts < maxAttempts) {
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                            roomId = multiplayerManager.getRoomId();
+                            attempts++;
+                        }
+
+                        if (roomId) {
+                            // Отправляем приглашение обратно отправителю
+                            console.log(`[Menu] 👥 Отправка приглашения обратно ${data.fromPlayerId} в комнату ${roomId}`);
+                            multiplayerManager.sendGameInvite(data.fromPlayerId, mode);
+                            this.showMultiplayerNotification(`Комната создана! Приглашение отправлено ${data.fromPlayerName}...`, "#4ade80");
+                        } else {
+                            if (game?.chatSystem) {
+                                game.chatSystem.addMessage("❌ Не удалось создать комнату. Попробуйте еще раз.", "error", 1);
+                            }
+                            modal.remove();
+                            return;
+                        }
+                    }
+
+                    // После присоединения/создания комнаты открываем меню выбора карты и режима
+                    console.log(`[Menu] 🗺️ Открытие меню выбора карты и режима после принятия приглашения`);
+
+                    // Закрываем модальное окно приглашения
+                    modal.remove();
+
+                    // Устанавливаем режим мультиплеера
+                    this.selectedGameMode = "multiplayer";
+                    localStorage.setItem("selectedGameMode", "multiplayer");
+
+                    // Открываем главное меню, если оно закрыто
+                    if (!this.playMenuPanel || !this.playMenuPanel.classList.contains("visible")) {
+                        this.showPlayMenu();
+                    }
+
+                    // Скрываем все окна и показываем нужные
+                    this.hideAllPlayWindows();
+
+                    // Показываем окно выбора типа игры (single/multiplayer) - автоматически выберем multiplayer
+                    this.showPlayWindow("play-window-mode", 0, 0);
+
+                    // Выбираем тип игры "multiplayer" программно
+                    setTimeout(() => {
+                        this.selectGameType("multiplayer");
+                    }, 50);
+
+                    // Показываем окно мультиплеера с выбором режима
+                    setTimeout(() => {
+                        this.showPlayWindow("play-window-multiplayer", 0.5, 0.5);
+                        this.initMultiplayerMenu();
+
+                        // Выбираем режим из приглашения, если указан
+                        if (data.gameMode) {
+                            setTimeout(() => {
+                                const modeBtn = document.querySelector(`[data-mp-mode="${data.gameMode}"]`) as HTMLElement;
+                                if (modeBtn) {
+                                    modeBtn.click();
+                                }
+                            }, 100);
+                        }
+                    }, 150);
+
+                    // Показываем окно выбора карты
+                    setTimeout(() => {
+                        this.showPlayWindow("play-window-map", 2, 2);
+                        this.loadCustomMaps();
+                    }, 250);
+
+                    // Обновляем статус комнаты, чтобы кнопка "В БОЙ!" появилась
+                    setTimeout(() => {
+                        this._updateMultiplayerStatus();
+
+                        // Принудительно показываем кнопку "В БОЙ!" если мы в комнате
+                        const roomId = multiplayerManager.getRoomId();
+                        if (roomId) {
+                            const startGameBtn = document.getElementById("mp-btn-start-game");
+                            if (startGameBtn) {
+                                startGameBtn.style.display = "block";
+                                startGameBtn.style.opacity = "1";
+                                startGameBtn.style.cursor = "pointer";
+
+                                // Обновляем текст кнопки
+                                const textElement = startGameBtn.querySelector(".battle-btn-text");
+                                if (textElement) {
+                                    const playersCount = multiplayerManager.getRoomPlayersCount ? multiplayerManager.getRoomPlayersCount() : 1;
+                                    textElement.textContent = `⚔️ В БОЙ! (${playersCount} игроков)`;
+                                }
+                            }
+                        }
+                    }, 1000);
+
+                    // Показываем уведомление
+                    if (game?.chatSystem) {
+                        game.chatSystem.addMessage(`✅ Приглашение принято! Выберите карту и режим, затем нажмите "В БОЙ!"`, "success", 1);
+                    }
+
+                } catch (error) {
+                    console.error("[Menu] Ошибка при принятии приглашения:", error);
+                    if (game?.chatSystem) {
+                        game.chatSystem.addMessage(`❌ Ошибка при принятии приглашения: ${error}`, "error", 1);
+                    }
+                    modal.remove();
+                }
             };
         }
-        
+
         if (declineBtn) {
             declineBtn.onclick = () => {
                 modal.remove();
             };
         }
-        
+
         // Автоматически закрываем через 30 секунд
         setTimeout(() => {
             if (document.body.contains(modal)) {
@@ -7328,7 +12733,7 @@ export class MainMenu {
             }
         }, 30000);
     }
-    
+
     showMultiplayerNotification(message: string, color: string = "#4ade80"): void {
         const errorEl = document.getElementById("mp-error-message");
         const errorTextEl = document.getElementById("mp-error-text");
@@ -7340,7 +12745,7 @@ export class MainMenu {
             errorTextEl.style.color = color;
             errorEl.style.display = "block";
             errorEl.style.animation = "fadeIn 0.3s ease";
-            
+
             // Автоматически скрываем через 4 секунды
             setTimeout(() => {
                 errorEl.style.display = "none";
@@ -7351,11 +12756,11 @@ export class MainMenu {
             }, 4000);
         }
     }
-    
+
     private selectMap(map: MapType): void {
         this.selectedMapType = map;
         debugLog("[Menu] Selected map:", map);
-        
+
         // Если выбрана стандартная карта, очищаем данные пользовательской карты
         const customMapData = localStorage.getItem("selectedCustomMapData");
         if (customMapData && map !== "custom") {
@@ -7370,7 +12775,7 @@ export class MainMenu {
                 // Игнорируем ошибки парсинга
             }
         }
-        
+
         // Обновляем визуал стандартных карт
         document.querySelectorAll("[data-map]").forEach(btn => {
             const button = btn as HTMLButtonElement;
@@ -7382,7 +12787,7 @@ export class MainMenu {
                 button.style.borderColor = "";
             }
         });
-        
+
         // Обновляем визуал пользовательских карт (если выбрана пользовательская карта)
         const customMapIndex = localStorage.getItem("selectedCustomMapIndex");
         document.querySelectorAll("[data-custom-map-index]").forEach(btn => {
@@ -7398,25 +12803,25 @@ export class MainMenu {
                 button.style.boxShadow = "";
             }
         });
-        
+
         // Update terminal titles
         this.updateTerminalTitles();
-        
+
         // Используем сохранённый выбор или значения по умолчанию
         const savedChassis = localStorage.getItem("selectedChassis") || "medium";
         const savedCannon = localStorage.getItem("selectedCannon") || "standard";
-        
+
         this.selectedChassis = savedChassis;
         this.selectedCannon = savedCannon;
         localStorage.setItem("selectedChassis", savedChassis);
         localStorage.setItem("selectedCannon", savedCannon);
-        
+
         // Всегда показываем окно выбора танка - там кнопка "В БОЙ!"
         this.showPlayWindow("play-window-tank", 3, 3);
-        
+
         this.checkCanStartGame();
     }
-    
+
     /**
      * Проверяет наличие сохранённых пользовательских пресетов танков
      */
@@ -7432,7 +12837,7 @@ export class MainMenu {
         }
         return false;
     }
-    
+
     private selectChassis(chassisId: string): void {
         if (!this.ownedChassisIds.has(chassisId)) {
             debugLog("[Menu] Attempt to select chassis not owned:", chassisId);
@@ -7441,7 +12846,7 @@ export class MainMenu {
         this.selectedChassis = chassisId;
         localStorage.setItem("selectedChassis", chassisId);
         debugLog("[Menu] Selected chassis:", chassisId);
-        
+
         // Обновляем визуал
         document.querySelectorAll("[data-chassis]").forEach(btn => {
             const button = btn as HTMLButtonElement;
@@ -7451,13 +12856,13 @@ export class MainMenu {
                 button.className = "menu-btn";
             }
         });
-        
+
         // Update terminal titles (path doesn't change, but ensure it's up to date)
         this.updateTerminalTitles();
-        
+
         this.checkCanStartGame();
     }
-    
+
     private selectCannon(cannonId: string): void {
         if (!this.ownedCannonIds.has(cannonId)) {
             debugLog("[Menu] Attempt to select cannon not owned:", cannonId);
@@ -7466,7 +12871,7 @@ export class MainMenu {
         this.selectedCannon = cannonId;
         localStorage.setItem("selectedCannon", cannonId);
         debugLog("[Menu] Selected cannon:", cannonId);
-        
+
         // Обновляем визуал
         document.querySelectorAll("[data-cannon]").forEach(btn => {
             const button = btn as HTMLButtonElement;
@@ -7476,16 +12881,16 @@ export class MainMenu {
                 button.className = "menu-btn";
             }
         });
-        
+
         // Update terminal titles (path doesn't change, but ensure it's up to date)
         this.updateTerminalTitles();
-        
+
         this.checkCanStartGame();
     }
-    
+
     private selectPreset(preset: string): void {
         debugLog("[Menu] Selected preset:", preset);
-        
+
         // Обновляем визуал выбранного пресета
         document.querySelectorAll("[data-preset]").forEach(btn => {
             const button = btn as HTMLButtonElement;
@@ -7495,11 +12900,11 @@ export class MainMenu {
                 button.className = "menu-btn secondary";
             }
         });
-        
+
         // Применяем пресет (tankTypes уже импортирован статически)
         let chassisId = "medium";
         let cannonId = "standard";
-        
+
         switch (preset) {
             case "balanced":
                 chassisId = "medium";
@@ -7528,18 +12933,18 @@ export class MainMenu {
         if (!this.ownedCannonIds.has(cannonId) && ownedCannon.length > 0) {
             cannonId = ownedCannon[0] || cannonId; // Fallback to original if undefined
         }
-        
+
         this.selectChassis(chassisId);
         this.selectCannon(cannonId);
     }
-    
+
     private checkCanStartGame(): void {
         // Проверяем, все ли выбрано
-        const canStart = this.selectedGameMode && 
-                        this.selectedMapType && 
-                        this.selectedChassis && 
-                        this.selectedCannon;
-        
+        const canStart = this.selectedGameMode &&
+            this.selectedMapType &&
+            this.selectedChassis &&
+            this.selectedCannon;
+
         // Кнопка "В БОЙ!" всегда видна в окне выбора танка, но может быть disabled
         const startButton = document.getElementById("btn-start-game");
         if (startButton) {
@@ -7560,19 +12965,32 @@ export class MainMenu {
             el.classList.remove("visible");
             el.style.zIndex = "100002";
             el.style.transform = "translate(0,0)";
+            el.style.display = "none";
         });
+        // Дополнительно убеждаемся, что панель выбора режима для создания комнаты скрыта
+        const modePanel = document.getElementById("mp-create-room-mode");
+        if (modePanel) {
+            modePanel.style.display = "none";
+            modePanel.classList.remove("visible");
+        }
+        // И панель выбора карты для создания комнаты тоже
+        const mapPanel = document.getElementById("mp-create-room-map");
+        if (mapPanel) {
+            mapPanel.style.display = "none";
+            mapPanel.classList.remove("visible");
+        }
     }
 
     private getUserName(): string {
         // Try to get user_id from localStorage
         let storedUserId = localStorage.getItem("userId");
         if (storedUserId) return storedUserId;
-        
+
         // Try to get from Firebase if available (synchronous check)
         try {
             // Check if firebaseService is available in global scope or window
-            const firebaseService = (window as any).firebaseService || 
-                                   (globalThis as any).firebaseService;
+            const firebaseService = (window as any).firebaseService ||
+                (globalThis as any).firebaseService;
             if (firebaseService && firebaseService.isInitialized && firebaseService.isInitialized()) {
                 const userId = firebaseService.getUserId();
                 if (userId) {
@@ -7583,13 +13001,13 @@ export class MainMenu {
         } catch (e) {
             // Firebase not available, ignore
         }
-        
+
         // Default fallback - use "user_id" as placeholder
         const defaultUserId = "user_id";
         localStorage.setItem("userId", defaultUserId);
         return defaultUserId;
     }
-    
+
     private getModeDisplayName(mode: string): string {
         const modeNames: Record<string, string> = {
             "single": "single",
@@ -7601,7 +13019,7 @@ export class MainMenu {
         };
         return modeNames[mode] || mode;
     }
-    
+
     private getMapDisplayName(map: MapType | null): string {
         if (!map) return "";
         const mapNames: Record<string, string> = {
@@ -7619,24 +13037,24 @@ export class MainMenu {
         };
         return mapNames[map] || map;
     }
-    
+
     private updateTerminalTitles(): void {
         const userId = this.getUserName();
         const basePath = `/${userId}`;
         const typePath = this.selectedGameType || "single";
-        
+
         // Update type selection terminal title (step 1)
         const typeTitle = document.querySelector("#play-window-mode .play-window-title");
         if (typeTitle) {
             typeTitle.textContent = `${basePath}/type`;
         }
-        
+
         // Update gamemode terminal title (step 2)
         const gamemodeTitle = document.querySelector("#play-window-gamemode .play-window-title");
         if (gamemodeTitle) {
             gamemodeTitle.textContent = `${basePath}/${typePath}/mode`;
         }
-        
+
         // Update map terminal title (step 3)
         const mapTitle = document.querySelector("#play-window-map .play-window-title");
         if (mapTitle) {
@@ -7648,7 +13066,7 @@ export class MainMenu {
             path += "/map";
             mapTitle.textContent = path;
         }
-        
+
         // Update tank terminal title (step 4)
         const tankTitle = document.querySelector("#play-window-tank .play-window-title");
         if (tankTitle) {
@@ -7668,21 +13086,79 @@ export class MainMenu {
 
     private showPlayWindow(id: string, order: number, step?: number): void {
         const el = document.getElementById(id) as HTMLDivElement | null;
-        if (!el) return;
+        if (!el) {
+            debugError(`[Menu] showPlayWindow: Element with id "${id}" not found!`);
+            return;
+        }
+        debugLog(`[Menu] showPlayWindow: Showing window "${id}" with order ${order}`);
+        el.style.display = "block";
         el.classList.add("visible");
         el.style.zIndex = (100002 + order).toString();
         el.style.transform = `translate(${order * 12}px, ${order * 12}px)`;
-        
+
         // Автоматически подстраиваем высоту под контент
         // Сбрасываем любые фиксированные высоты
         el.style.height = "auto";
         el.style.bottom = "auto";
-        
+
         // Если открывается окно выбора карты, обновляем список сохраненных карт
-        if (id === "play-window-map") {
+        if (id === "play-window-map" || id === "mp-create-room-map") {
             this.loadCustomMaps();
+            // Добавляем обработчики для карточек карт при открытии панели
+            if (id === "mp-create-room-map") {
+                setTimeout(() => {
+                    const mapCards = document.querySelectorAll("#mp-create-room-map .map-card");
+                    debugLog(`[Menu] Adding click handlers to ${mapCards.length} map cards`);
+
+                    // Сначала извлекаем типы карт из атрибутов
+                    const cardMapTypes: Map<HTMLElement, string> = new Map();
+                    mapCards.forEach((card) => {
+                        const cardEl = card as HTMLElement;
+                        const onclickStr = cardEl.getAttribute("onclick") || "";
+                        const match = onclickStr.match(/selectMpCreateRoomMap\('([^']+)'/);
+                        const mapType = (match && match[1]) ? match[1] : "normal";
+                        cardMapTypes.set(cardEl, mapType);
+                    });
+
+                    // Теперь добавляем обработчики
+                    mapCards.forEach((card) => {
+                        const cardEl = card as HTMLElement;
+                        const mapType = cardMapTypes.get(cardEl) || "normal";
+
+                        // Добавляем обработчик через addEventListener (не удаляя inline)
+                        cardEl.addEventListener("click", (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+
+                            debugLog("[Menu] Map card clicked:", mapType);
+
+                            // Сохраняем выбранную карту
+                            (this as any).selectedCreateRoomMap = mapType;
+
+                            // Убираем выделение со всех карточек
+                            mapCards.forEach(c => {
+                                (c as HTMLElement).style.border = "2px solid rgba(0, 255, 80, 0.3)";
+                                (c as HTMLElement).style.boxShadow = "";
+                                (c as HTMLElement).style.background = "rgba(0, 20, 0, 0.4)";
+                                (c as HTMLElement).style.transform = "";
+                                c.classList.remove("selected");
+                            });
+
+                            // Выделяем выбранную карточку - ОЧЕНЬ ЗАМЕТНО
+                            cardEl.style.border = "3px solid #4ade80";
+                            cardEl.style.boxShadow = "0 0 20px rgba(74, 222, 128, 0.8), 0 0 40px rgba(74, 222, 128, 0.4), inset 0 0 20px rgba(74, 222, 128, 0.2)";
+                            cardEl.style.background = "linear-gradient(135deg, rgba(74, 222, 128, 0.3) 0%, rgba(34, 197, 94, 0.2) 100%)";
+                            cardEl.style.transform = "scale(1.05)";
+                            cardEl.classList.add("selected");
+                        }, { once: false });
+                    });
+
+                    // Обработчик кнопки создания комнаты использует window.startMpCreateRoom (через onclick в HTML)
+                    // Дублирующий addEventListener удалён для предотвращения запуска игры вместо показа панели комнаты
+                }, 100);
+            }
         }
-        
+
         // Применяем стили после небольшой задержки, чтобы контент успел отрендериться
         setTimeout(() => {
             const contentHeight = el.scrollHeight;
@@ -7696,7 +13172,7 @@ export class MainMenu {
                 el.style.overflowY = "auto";
             }
         }, 10);
-        
+
         if (typeof step === "number") {
             this.currentPlayStep = step;
         }
@@ -7713,16 +13189,16 @@ export class MainMenu {
             this.showPlayWindow(id, clamped, clamped);
         }
     }
-    
+
     private startSelectedGame(): void {
         if (!this.selectedMapType) return;
-        
+
         // Сохраняем выборы
         if (this.selectedGameMode) localStorage.setItem("selectedGameMode", this.selectedGameMode);
         if (this.selectedMapType) localStorage.setItem("selectedMapType", this.selectedMapType);
         if (this.selectedChassis) localStorage.setItem("selectedChassis", this.selectedChassis);
         if (this.selectedCannon) localStorage.setItem("selectedCannon", this.selectedCannon);
-        
+
         // КРИТИЧНО: Получаем данные сохраненной/отредактированной карты из localStorage
         let mapData: any = null;
         const customMapDataStr = localStorage.getItem("selectedCustomMapData");
@@ -7734,11 +13210,11 @@ export class MainMenu {
                 console.error("[Menu] Failed to parse custom map data:", error);
             }
         }
-        
+
         // Закрываем меню
         this.hide();
         this.hidePlayMenu();
-        
+
         // Если выбран мультиплеер, запускаем игру и подключаемся к матчмейкингу
         if (this.selectedGameMode === "multiplayer") {
             // Запускаем игру в одиночном режиме (карта нужна для генерации мира)
@@ -7750,7 +13226,7 @@ export class MainMenu {
             } else {
                 console.error("[Menu] startSelectedGame (multiplayer): onStartGame callback is not set!");
             }
-            
+
             // После запуска игры подключаемся к мультиплееру
             // Используем задержку чтобы игра успела инициализироваться и MultiplayerManager создался
             setTimeout(() => {
@@ -7775,14 +13251,14 @@ export class MainMenu {
             // Обычный старт для одиночной игры
             console.log("[Menu] Starting game with mapType:", this.selectedMapType, "mapData:", mapData ? mapData.name : "none");
             console.log("[Menu] onStartGame callback:", typeof this.onStartGame);
-            
+
             // Сбрасываем флаг мультиплеера чтобы боты спавнились
             const game = (window as any).gameInstance as any;
             if (game && game.disableMultiplayer) {
                 game.disableMultiplayer();
                 debugLog("[Menu] Disabled multiplayer mode for single-player game");
             }
-            
+
             if (this.onStartGame && typeof this.onStartGame === 'function') {
                 // КРИТИЧНО: Передаем mapType и mapData (если есть)
                 this.onStartGame(this.selectedMapType, mapData);
@@ -7791,7 +13267,7 @@ export class MainMenu {
             }
         }
     }
-    
+
     private quickStart(): void {
         const savedMap = localStorage.getItem("selectedMapType") as MapType | null;
         if (!savedMap) {
@@ -7804,7 +13280,7 @@ export class MainMenu {
         this.selectedGameMode = localStorage.getItem("selectedGameMode") || "";
         this.selectedChassis = localStorage.getItem("selectedChassis") || this.selectedChassis;
         this.selectedCannon = localStorage.getItem("selectedCannon") || this.selectedCannon;
-        
+
         this.hide();
         this.hidePlayMenu();
         console.log("[Menu] quickStart: calling onStartGame with map:", savedMap);
@@ -7815,7 +13291,7 @@ export class MainMenu {
             console.error("[Menu] quickStart: onStartGame callback is not set!");
         }
     }
-    
+
     private showPlayMenu(): void {
         debugLog("[Menu] showPlayMenu() called");
         if (this.playMenuPanel) {
@@ -7823,13 +13299,13 @@ export class MainMenu {
             this.selectedGameMode = "";
             this.selectedMapType = null;
             this.currentPlayStep = 0;
-            
+
             // Скрываем все окна шагов
             this.hideAllPlayWindows();
-            
+
             // Показываем только окно выбора режима
             this.showPlayWindow("play-window-mode", 0, 0);
-            
+
             // Сбрасываем выборы кнопок
             document.querySelectorAll("[data-mode]").forEach(btn => {
                 (btn as HTMLButtonElement).className = "menu-btn secondary";
@@ -7840,13 +13316,13 @@ export class MainMenu {
             document.querySelectorAll("[data-preset]").forEach(btn => {
                 (btn as HTMLButtonElement).className = "menu-btn secondary";
             });
-            
+
             // Восстанавливаем сохраненные выборы (если есть)
             const savedMode = localStorage.getItem("selectedGameMode");
             const savedMap = localStorage.getItem("selectedMapType") as MapType | null;
             const savedChassis = localStorage.getItem("selectedChassis");
             const savedCannon = localStorage.getItem("selectedCannon");
-            
+
             // Если сохраненного нет или его нет в владении — сбросим
             if (savedChassis && !this.ownedChassisIds.has(savedChassis)) {
                 localStorage.removeItem("selectedChassis");
@@ -7872,13 +13348,13 @@ export class MainMenu {
             }
             if (savedChassis) this.selectChassis(savedChassis);
             if (savedCannon) this.selectCannon(savedCannon);
-            
+
             // Если нет сохраненных данных — открываем первый шаг
             if (!savedMode) this.showPlayWindow("play-window-mode", 0);
-            
+
             // Update terminal titles
             this.updateTerminalTitles();
-            
+
             this.playMenuPanel.classList.add("visible");
             this.playMenuPanel.style.setProperty("display", "flex", "important");
             this.playMenuPanel.style.setProperty("visibility", "visible", "important");
@@ -7887,20 +13363,20 @@ export class MainMenu {
             this.enforceCanvasPointerEvents();
         }
     }
-    
+
     private hidePlayMenu(): void {
         debugLog("[Menu] hidePlayMenu() called");
         if (this.playMenuPanel) {
             // Сначала скрываем все play-windows внутри
             this.hideAllPlayWindows();
-            
+
             this.playMenuPanel.classList.remove("visible");
             this.playMenuPanel.style.setProperty("display", "none", "important");
             this.playMenuPanel.style.setProperty("visibility", "hidden", "important");
             this.enforceCanvasPointerEvents();
         }
     }
-    
+
     private showMapSelection(): void {
         debugLog("[Menu] showMapSelection() called");
         debugLog("[Menu] mapSelectionPanel exists:", !!this.mapSelectionPanel);
@@ -7918,7 +13394,7 @@ export class MainMenu {
             debugError("[Menu] mapSelectionPanel is null!");
         }
     }
-    
+
     private hideMapSelection(): void {
         debugLog("[Menu] hideMapSelection() called");
         if (this.mapSelectionPanel) {
@@ -7929,7 +13405,7 @@ export class MainMenu {
             this.enforceCanvasPointerEvents(); // Обновляем состояние canvas
         }
     }
-    
+
     private showStats(): void {
         debugLog("[Menu] showStats() called");
         debugLog("[Menu] statsPanel exists:", !!this.statsPanel);
@@ -7948,7 +13424,7 @@ export class MainMenu {
             debugError("[Menu] statsPanel is null!");
         }
     }
-    
+
     private hideStats(): void {
         debugLog("[Menu] hideStats() called");
         if (this.statsPanel) {
@@ -7959,14 +13435,14 @@ export class MainMenu {
             this.enforceCanvasPointerEvents(); // Обновляем состояние canvas
         }
     }
-    
+
     private updateStatsPanel(): void {
         if (!this.playerProgression) return;
-        
+
         const stats = this.playerProgression.getStats();
         const grid = document.getElementById("stats-grid");
         if (!grid) return;
-        
+
         grid.innerHTML = `
             <div class="stat-card">
                 <div class="stat-value">${stats.level}</div>
@@ -8002,7 +13478,7 @@ export class MainMenu {
             </div>
         `;
     }
-    
+
     private showSkills(): void {
         debugLog("[Menu] showSkills() called");
         debugLog("[Menu] skillsPanel exists:", !!this.skillsPanel);
@@ -8021,13 +13497,13 @@ export class MainMenu {
             debugError("[Menu] skillsPanel is null!");
         }
     }
-    
+
     private hideSkills(): void {
         debugLog("[Menu] hideSkills() called");
         if (this.skillsPanel) {
             // Сохраняем позицию камеры перед закрытием
             saveSkillTreeCameraPosition();
-            
+
             this.skillsPanel.classList.remove("visible");
             // Сбрасываем inline стили для гарантии скрытия
             this.skillsPanel.style.setProperty("display", "none", "important");
@@ -8035,7 +13511,7 @@ export class MainMenu {
             this.enforceCanvasPointerEvents(); // Обновляем состояние canvas
         }
     }
-    
+
     private updateSkillsPanel(): void {
         // Создаем mock stats если playerProgression не установлен (для отображения дерева до инициализации игры)
         const stats: PlayerStats = this.playerProgression ? this.playerProgression.getStats() : {
@@ -8045,7 +13521,7 @@ export class MainMenu {
             experience: 0,
             experienceToNext: 100
         };
-        
+
         const callbacks: SkillTreeCallbacks = {
             onUpgrade: (skillId: string) => {
                 if (this.playerProgression) {
@@ -8057,27 +13533,27 @@ export class MainMenu {
                 this.updatePlayerInfo();
             }
         };
-        
+
         updateSkillTreeDisplay(stats, callbacks);
     }
-    
+
     public async showGarage(): Promise<void> {
         debugLog("[Menu] showGarage() called");
-        
+
         const wantsPlayMenuBack = this.returnToPlayMenuAfterGarage;
         const wasPlayVisible = this.playMenuPanel?.classList.contains("visible");
-        
+
         // Lazy load Garage if not already loaded
         if (!this.garage) {
             debugLog("[Menu] Garage not loaded, loading now...");
             await this.loadGarageInMenu();
         }
-        
+
         if (!this.garage) {
             logger.error("[Menu] Garage still not available after loading attempt!");
             return;
         }
-        
+
         debugLog("[Menu] Opening Garage class");
         const wasVisible = this.isVisible();
         if (wasVisible) {
@@ -8087,7 +13563,7 @@ export class MainMenu {
             try {
                 const shouldReturnToPlay = this.returnToPlayMenuAfterGarage || wantsPlayMenuBack || wasPlayVisible;
                 this.returnToPlayMenuAfterGarage = false;
-                
+
                 // ИСПРАВЛЕНИЕ: Безопасная проверка canvas с дополнительными проверками
                 const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
                 if (canvas) {
@@ -8095,7 +13571,7 @@ export class MainMenu {
                     const canvasDisplay = canvas.style.display;
                     const canvasComputed = window.getComputedStyle(canvas).display;
                     const isCanvasVisible = canvasDisplay !== "none" && canvasComputed !== "none";
-                    
+
                     if (isCanvasVisible) {
                         debugLog("[Menu] Game is running, not showing menu after garage close");
                         // Восстанавливаем pointer-events для canvas
@@ -8107,7 +13583,7 @@ export class MainMenu {
                         return;
                     }
                 }
-                
+
                 if (shouldReturnToPlay) {
                     debugLog("[Menu] Returning to play menu after garage close");
                     try {
@@ -8123,7 +13599,7 @@ export class MainMenu {
                         console.error("[Menu] Error showing menu:", error);
                     }
                 }
-                
+
                 // Восстанавливаем pointer-events для canvas после закрытия гаража
                 setTimeout(() => {
                     try {
@@ -8146,24 +13622,24 @@ export class MainMenu {
         });
         this.garage.open();
     }
-    
+
     // Lazy load Garage in menu
     private async loadGarageInMenu(): Promise<void> {
         if (this.garage) return; // Already loaded
-        
+
         try {
             const { Garage } = await import("./garage");
-            
+
             // Create minimal scene and currency manager for garage
             this.garageCurrencyManager = new CurrencyManager();
-            
+
             // Create a minimal scene for garage (will be replaced by game scene later if needed)
             const canvas = document.createElement("canvas");
             canvas.style.display = "none";
             document.body.appendChild(canvas);
             const engine = new Engine(canvas, false);
             this.garageScene = new Scene(engine);
-            
+
             // Create garage with minimal scene
             this.garage = new Garage(this.garageScene, this.garageCurrencyManager);
             debugLog("[Menu] Garage loaded lazily");
@@ -8171,54 +13647,54 @@ export class MainMenu {
             logger.error("[Menu] Failed to load Garage:", error);
         }
     }
-    
+
     // Deprecated: Garage is now loaded lazily via loadGarageInMenu()
     // This method is kept for compatibility but does nothing
     // Garage is now loaded lazily when showGarage() is called
     private initializeGarageInMenu(): void {
         debugLog("[Menu] initializeGarageInMenu() called (deprecated - garage is lazy loaded)");
     }
-    
+
     private initializeGarage(): void {
         // Garage is already initialized in constructor
         // This method is kept for compatibility
         debugLog("[Menu] Garage already initialized");
     }
-    
+
     private hideGarage(): void {
         // Старый метод для совместимости, но теперь гараж закрывается через свой callback
         debugLog("[Menu] hideGarage() called (deprecated, garage closes via its own callback)");
         if (this.garage && this.garage.isGarageOpen()) {
             this.garage.close();
         }
-        
+
         if (this.returnToPlayMenuAfterGarage) {
             this.returnToPlayMenuAfterGarage = false;
             this.showPlayMenu();
         }
     }
-    
+
     /**
      * Открыть редактор карт
      */
     private async openMapEditor(): Promise<void> {
         console.log("[Menu] ====== openMapEditor() CALLED ======");
-        
+
         try {
             // Загружаем MapEditorLauncher для выбора карты
             console.log("[Menu] Loading MapEditorLauncher...");
             const { MapEditorLauncher } = await import("./mapEditorLauncher");
             const launcher = new MapEditorLauncher();
-            
+
             // Показываем лаунчер и ждем выбора пользователя
             console.log("[Menu] Showing map editor launcher...");
             const result = await launcher.show();
-            
+
             if (result.action === "cancel") {
                 console.log("[Menu] User cancelled map editor");
                 return;
             }
-            
+
             // Lazy load StandaloneMapEditor
             if (!this.standaloneMapEditor) {
                 console.log("[Menu] Loading StandaloneMapEditor...");
@@ -8229,7 +13705,7 @@ export class MainMenu {
             } else {
                 console.log("[Menu] StandaloneMapEditor already loaded");
             }
-            
+
             // Открываем редактор с выбранной конфигурацией
             if (this.standaloneMapEditor && typeof this.standaloneMapEditor.open === "function" && result.config) {
                 console.log("[Menu] Opening StandaloneMapEditor with config:", result.config);
@@ -8246,7 +13722,7 @@ export class MainMenu {
                 console.error("[Menu] Error message:", error.message);
                 console.error("[Menu] Error stack:", error.stack);
             }
-            
+
             // Fallback: пытаемся через gameInstance (если игра запущена)
             const gameInstance = (window as any).gameInstance;
             console.log("[Menu] Trying fallback... gameInstance:", !!gameInstance);
@@ -8260,12 +13736,12 @@ export class MainMenu {
                     console.error("[Menu] ❌ Fallback also failed:", fallbackError);
                 }
             }
-            
+
             // Показываем сообщение об ошибке пользователю
             alert(`Не удалось открыть редактор карт:\n${error instanceof Error ? error.message : String(error)}`);
         }
     }
-    
+
     /**
      * Открыть редактор танков
      */
@@ -8275,18 +13751,18 @@ export class MainMenu {
         // Открываем гараж, где можно редактировать танк
         this.showGarage();
     }
-    
+
     private saveTankConfig(): void {
         localStorage.setItem("tankConfig", JSON.stringify(this.tankConfig));
         window.dispatchEvent(new CustomEvent("tankConfigChanged", { detail: this.tankConfig }));
     }
-    
+
     private loadTankConfig(): TankConfig {
         const saved = localStorage.getItem("tankConfig");
         if (saved) {
             try {
                 return { ...DEFAULT_TANK, ...JSON.parse(saved) };
-            } catch (e) {}
+            } catch (e) { }
         }
         return { ...DEFAULT_TANK };
     }
@@ -8305,7 +13781,7 @@ export class MainMenu {
         }
         return new Set(fallback);
     }
-    
+
     private showSettings(): void {
         debugLog("[Menu] showSettings() called");
         debugLog("[Menu] settingsPanel exists:", !!this.settingsPanel);
@@ -8323,7 +13799,7 @@ export class MainMenu {
             debugError("[Menu] settingsPanel is null!");
         }
     }
-    
+
     private hideSettings(): void {
         debugLog("[Menu] hideSettings() called");
         if (this.settingsPanel) {
@@ -8339,18 +13815,18 @@ export class MainMenu {
 
     private showLogin(): void {
         console.log("[Menu] showLogin() called - START");
-        
+
         // Проверяем, что мы в главном меню, а не на паузе
         const pauseButtons = document.getElementById("pause-buttons");
         const mainButtons = document.getElementById("main-buttons");
         const isPaused = pauseButtons && pauseButtons.style.display !== "none";
         const isMainMenu = mainButtons && mainButtons.style.display !== "none";
-        
+
         if (isPaused || !isMainMenu) {
             console.warn("[Menu] Login form can only be opened from main menu, not during pause");
             return;
         }
-        
+
         // СРАЗУ открываем окно, без задержек!
         console.log("[Menu] Opening login form IMMEDIATELY");
         authUI.showLoginForm({
@@ -8363,7 +13839,7 @@ export class MainMenu {
                 this.enforceCanvasPointerEvents();
             }
         });
-        
+
         // Инициализируем Firebase в фоне (не блокируем открытие окна)
         if (!firebaseService.isInitialized()) {
             console.log("[Menu] Firebase not initialized, initializing in background...");
@@ -8371,25 +13847,25 @@ export class MainMenu {
                 console.error("[Menu] Failed to initialize Firebase:", err);
             });
         }
-        
+
         this.enforceCanvasPointerEvents();
         console.log("[Menu] showLogin() called - END");
     }
 
     private showRegister(): void {
         console.log("[Menu] showRegister() called - START");
-        
+
         // Проверяем, что мы в главном меню, а не на паузе
         const pauseButtons = document.getElementById("pause-buttons");
         const mainButtons = document.getElementById("main-buttons");
         const isPaused = pauseButtons && pauseButtons.style.display !== "none";
         const isMainMenu = mainButtons && mainButtons.style.display !== "none";
-        
+
         if (isPaused || !isMainMenu) {
             console.warn("[Menu] Register form can only be opened from main menu, not during pause");
             return;
         }
-        
+
         // СРАЗУ открываем окно, без задержек!
         console.log("[Menu] Opening register form IMMEDIATELY");
         authUI.showRegisterForm({
@@ -8402,7 +13878,7 @@ export class MainMenu {
                 this.enforceCanvasPointerEvents();
             }
         });
-        
+
         // Инициализируем Firebase в фоне (не блокируем открытие окна)
         if (!firebaseService.isInitialized()) {
             console.log("[Menu] Firebase not initialized, initializing in background...");
@@ -8410,9 +13886,43 @@ export class MainMenu {
                 console.error("[Menu] Failed to initialize Firebase:", err);
             });
         }
-        
+
         this.enforceCanvasPointerEvents();
         console.log("[Menu] showRegister() called - END");
+    }
+
+    /**
+     * Определение ранга игрока на основе статистики
+     */
+    private getPlayerRank(level: number, kills: number, deaths: number, wins: number): string {
+        const kd = deaths > 0 ? kills / deaths : kills;
+        const score = level * 10 + kills * 2 + wins * 5 + (kd > 1 ? kd * 10 : 0);
+
+        if (score >= 10000) return "LEGEND";
+        if (score >= 7000) return "MASTER";
+        if (score >= 5000) return "DIAMOND";
+        if (score >= 3000) return "PLATINUM";
+        if (score >= 1500) return "GOLD";
+        if (score >= 500) return "SILVER";
+        return "BRONZE";
+    }
+
+    /**
+     * Форматирование относительного времени
+     */
+    private formatRelativeTime(timestamp: number): string {
+        const now = Date.now();
+        const diff = now - timestamp;
+        const seconds = Math.floor(diff / 1000);
+        const minutes = Math.floor(seconds / 60);
+        const hours = Math.floor(minutes / 60);
+        const days = Math.floor(hours / 24);
+
+        if (seconds < 60) return "Только что";
+        if (minutes < 60) return `${minutes}м назад`;
+        if (hours < 24) return `${hours}ч назад`;
+        if (days < 7) return `${days}д назад`;
+        return "Давно";
     }
 
     private showProfile(): void {
@@ -8436,7 +13946,7 @@ export class MainMenu {
         if (!authInfo || !authButtons) return;
 
         const isAuthenticated = firebaseService.isAuthenticated();
-        
+
         if (isAuthenticated) {
             // Показываем информацию о пользователе
             authInfo.style.display = "block";
@@ -8466,21 +13976,21 @@ export class MainMenu {
             authInfo.style.display = "none";
             authButtons.style.display = "flex";
         }
-        
+
         // Обновляем позывной
         await this.updatePlayerCallsign();
     }
-    
+
     private async updatePlayerCallsign(): Promise<void> {
         const callsignElement = document.getElementById("player-callsign");
         if (!callsignElement) return;
 
         const isAuthenticated = firebaseService.isAuthenticated();
-        
+
         if (isAuthenticated) {
             // Проверяем, является ли пользователь админом
             const isAdmin = await firebaseService.isAdmin();
-            
+
             if (isAdmin) {
                 callsignElement.textContent = "[admin]";
                 callsignElement.style.color = "#ff0";
@@ -8506,7 +14016,7 @@ export class MainMenu {
             callsignElement.style.background = "rgba(0, 255, 255, 0.1)";
         }
     }
-    
+
     private async toggleFullscreen(): Promise<void> {
         const entering = !document.fullscreenElement;
         if (entering) {
@@ -8531,12 +14041,12 @@ export class MainMenu {
             }
         }
     }
-    
+
     private updateFullscreenButton(isFullscreen: boolean): void {
         const L = getLang(this.settings);
         const icon = document.getElementById("fullscreen-icon");
         const label = document.getElementById("fullscreen-label");
-        
+
         if (icon) {
             icon.textContent = isFullscreen ? "⛶" : "⛶";
         }
@@ -8564,50 +14074,50 @@ export class MainMenu {
             this.syncFullscreenState(!!document.fullscreenElement);
         }
     }
-    
+
     private saveSettingsFromUI(): void {
         this.settings = saveSettingsFromUIModule();
         window.dispatchEvent(new CustomEvent("settingsChanged", { detail: this.settings }));
     }
-    
+
     private loadSettings(): GameSettings {
         return loadSettingsModule();
     }
-    
-    setOnStartGame(callback: (mapType?: MapType) => void): void {
+
+    setOnStartGame(callback: (mapType?: MapType, mapData?: any) => void): void {
         this.onStartGame = callback;
     }
-    
+
     setOnRestartGame(callback: () => void): void {
         this.onRestartGame = callback;
     }
-    
+
     setOnExitBattle(callback: () => void): void {
         this.onExitBattle = callback;
     }
-    
+
     setOnPlayIntroSound(callback: () => void): void {
         this.onPlayIntroSound = callback;
     }
-    
+
     getSettings(): GameSettings {
         return this.settings;
     }
-    
+
     getTankConfig(): TankConfig {
         return this.tankConfig;
     }
-    
+
     // ИСПРАВЛЕНО: Геттер для получения PlayerProgression из game.ts
     getPlayerProgression(): PlayerProgressionSystem | null {
         return this.playerProgression;
     }
-    
+
     show(isPaused: boolean = false): void {
-        
+
         debugLog("[Menu] show() called");
         if (!this.container) {
-            
+
             console.error("[Menu] Container not initialized in show()!");
             return;
         }
@@ -8616,13 +14126,24 @@ export class MainMenu {
         this.container.style.removeProperty("display");
         this.container.style.removeProperty("visibility");
         document.body.classList.add("menu-visible");
-        
+
+        // Настраиваем callbacks для лобби при показе меню
+        setTimeout(() => {
+            this.setupLobbyCallbacks();
+            // Запускаем автообновление если оно было включено
+            const game = (window as any).gameInstance as any;
+            const multiplayerManager = game?.multiplayerManager;
+            if (multiplayerManager && this.lobbyAutoRefreshEnabled) {
+                this.startLobbyAutoRefresh(multiplayerManager);
+            }
+        }, 500);
+
         // Показываем курсор и выходим из pointer lock
         if (document.pointerLockElement) {
             document.exitPointerLock();
         }
         document.body.style.cursor = 'default';
-        
+
         // Добавляем класс "in-battle" если игра запущена (для 50% прозрачности фона)
         const game = (window as any).gameInstance;
         if (game && game.gameStarted) {
@@ -8630,30 +14151,30 @@ export class MainMenu {
         } else {
             this.container.classList.remove("in-battle");
         }
-        
+
         // Немедленное обновление при показе меню (без анимации для первой загрузки)
         this.updatePlayerInfo(true);
         // Также обновляем через небольшую задержку для гарантии
         setTimeout(() => {
             this.updatePlayerInfo(true);
         }, 50);
-        
+
         // Показываем/скрываем кнопки в зависимости от того, на паузе ли игра
         this.updatePauseButtons(isPaused);
-        
+
         // КРИТИЧЕСКИ ВАЖНО: Блокируем canvas СРАЗУ
         const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
         if (canvas) {
             canvas.style.setProperty("pointer-events", "none", "important");
             canvas.style.setProperty("z-index", "0", "important");
         }
-        
+
         // КРИТИЧЕСКИ ВАЖНО: Переустанавливаем обработчики событий при каждом показе меню
         this.setupMenuEventHandlers();
-        
+
         // КРИТИЧЕСКИ ВАЖНО: Переустанавливаем защиту canvas при каждом показе меню
         this.setupCanvasPointerEventsProtection();
-        
+
         // Переустанавливаем прямые обработчики на кнопки
         // Для кнопок авторизации важно привязать обработчики сразу, без задержки
         if (!this.buttonHandlersAttached) {
@@ -8673,31 +14194,31 @@ export class MainMenu {
         } else {
             // Если обработчики уже привязаны и мы в главном меню, убеждаемся что кнопки авторизации работают
         }
-        
+
         // Принудительно блокируем pointer-events на canvas МНОЖЕСТВЕННО
         this.enforceCanvasPointerEvents();
         setTimeout(() => this.enforceCanvasPointerEvents(), 0);
         setTimeout(() => this.enforceCanvasPointerEvents(), 10);
-        
+
     }
-    
+
     private updatePauseButtons(isPaused: boolean): void {
         const pauseButtons = document.getElementById("pause-buttons");
         const mainButtons = document.getElementById("main-buttons");
         const authSection = document.getElementById("auth-section");
-        
+
         if (pauseButtons) {
             pauseButtons.style.display = isPaused ? "block" : "none";
         }
         if (mainButtons) {
             mainButtons.style.display = isPaused ? "none" : "block";
         }
-        
+
         // Скрываем секцию авторизации во время паузы
         if (authSection) {
             authSection.style.display = isPaused ? "none" : "block";
         }
-        
+
         // Если показываем кнопки паузы, нужно перепривязать обработчики
         if (isPaused) {
             setTimeout(() => {
@@ -8706,33 +14227,33 @@ export class MainMenu {
             }, 100);
         }
     }
-    
+
     private attachPauseButtonHandlers(): void {
         // Прямое прикрепление обработчиков к кнопкам паузы
         const resumeBtn = document.getElementById("btn-resume") as HTMLButtonElement;
         const restartBtn = document.getElementById("btn-restart") as HTMLButtonElement;
         const exitBtn = document.getElementById("btn-exit-battle") as HTMLButtonElement;
         const pauseContainer = document.getElementById("pause-buttons");
-        
+
         // КРИТИЧЕСКИ ВАЖНО: Убеждаемся, что контейнер и кнопки кликабельны
         if (pauseContainer) {
             pauseContainer.style.setProperty("pointer-events", "auto", "important");
             pauseContainer.style.setProperty("z-index", "10000", "important");
             pauseContainer.style.setProperty("position", "relative", "important");
         }
-        
+
         const setupButton = (btn: HTMLButtonElement | null, name: string, handler: () => void) => {
             if (!btn) return;
-            
+
             // Принудительно делаем кнопку кликабельной
             btn.style.setProperty("pointer-events", "auto", "important");
             btn.style.setProperty("cursor", "pointer", "important");
             btn.style.setProperty("z-index", "10001", "important");
             btn.disabled = false;
-            
+
             // Удаляем старые обработчики
             btn.onclick = null;
-            
+
             // Добавляем обработчик только через onclick (не дублируем!)
             btn.onclick = (e) => {
                 e.preventDefault();
@@ -8740,14 +14261,14 @@ export class MainMenu {
                 debugLog(`[Menu] ${name} button clicked`);
                 handler();
             };
-            
+
             debugLog(`[Menu] ${name} button setup complete`);
         };
-        
+
         setupButton(resumeBtn, "Resume", () => this.resumeGame());
         setupButton(restartBtn, "Restart", () => this.restartGame());
         setupButton(exitBtn, "Exit", () => this.exitBattle());
-        
+
         debugLog("[Menu] Pause button handlers attached directly:", {
             resume: !!resumeBtn,
             restart: !!restartBtn,
@@ -8755,7 +14276,7 @@ export class MainMenu {
             container: !!pauseContainer
         });
     }
-    
+
     private resumeGame(): void {
         console.log("[Menu] resumeGame() called");
         // Если игра запущена и на паузе, возобновляем игру
@@ -8770,7 +14291,7 @@ export class MainMenu {
         }
         this.hide();
     }
-    
+
     private restartGame(): void {
         debugLog("[Menu] Restart game requested");
         this.showConfirmDialog(
@@ -8782,7 +14303,7 @@ export class MainMenu {
             }
         );
     }
-    
+
     private exitBattle(): void {
         debugLog("[Menu] Exit battle requested");
         this.showConfirmDialog(
@@ -8794,7 +14315,7 @@ export class MainMenu {
             }
         );
     }
-    
+
     private showConfirmDialog(title: string, message: string, onConfirm: () => void): void {
         // Создаём оверлей
         const overlay = document.createElement("div");
@@ -8811,7 +14332,7 @@ export class MainMenu {
             align-items: center;
             z-index: 100000;
         `;
-        
+
         // Создаём диалог
         const dialog = document.createElement("div");
         dialog.className = "confirm-dialog";
@@ -8825,7 +14346,7 @@ export class MainMenu {
             box-shadow: 0 0 30px rgba(0, 255, 0, 0.3);
             min-width: 350px;
         `;
-        
+
         dialog.innerHTML = `
             <h2 style="color: #0f0; margin: 0 0 20px 0; font-size: 18px;">${title}</h2>
             <p style="color: #aaa; margin: 0 0 30px 0; font-size: 12px;">${message}</p>
@@ -8852,39 +14373,39 @@ export class MainMenu {
                 ">НЕТ</button>
             </div>
         `;
-        
+
         overlay.appendChild(dialog);
         document.body.appendChild(overlay);
-        
+
         // Обработчики кнопок
         const yesBtn = dialog.querySelector("#confirm-yes") as HTMLButtonElement;
         const noBtn = dialog.querySelector("#confirm-no") as HTMLButtonElement;
-        
+
         const closeDialog = () => {
             overlay.remove();
         };
-        
+
         yesBtn.onclick = () => {
             closeDialog();
             onConfirm();
         };
-        
+
         noBtn.onclick = closeDialog;
         overlay.onclick = (e) => {
             if (e.target === overlay) closeDialog();
         };
-        
+
         // Hover эффекты
         yesBtn.onmouseenter = () => { yesBtn.style.background = "#0c0"; };
         yesBtn.onmouseleave = () => { yesBtn.style.background = "#0f0"; };
         noBtn.onmouseenter = () => { noBtn.style.background = "#444"; };
         noBtn.onmouseleave = () => { noBtn.style.background = "#333"; };
     }
-    
+
     isVisible(): boolean {
         return !this.container.classList.contains("hidden");
     }
-    
+
     /**
      * Настройка обработчика ESC для возврата в игру
      */
@@ -8894,7 +14415,7 @@ export class MainMenu {
         if (oldEscHandler) {
             window.removeEventListener("keydown", oldEscHandler, true);
         }
-        
+
         // ИСПРАВЛЕНО: ESC теперь работает как переключатель (toggle)
         // Обработчик в menu.ts только закрывает меню, переключение обрабатывается в game.ts
         const escHandler = (e: KeyboardEvent) => {
@@ -8906,17 +14427,17 @@ export class MainMenu {
                     e.preventDefault();
                     e.stopPropagation();
                     e.stopImmediatePropagation();
-                    
+
                     // КРИТИЧНО: Блокируем движение мыши ПЕРЕД закрытием меню через флаг
                     if (game.pointerMoveBlocked !== undefined) {
                         game.pointerMoveBlocked = true;
-                        
+
                         // Разблокируем через задержку
                         setTimeout(() => {
                             game.pointerMoveBlocked = false;
                         }, 400);
                     }
-                    
+
                     this.hide();
                     if (game.gamePaused) {
                         game.togglePause();
@@ -8931,36 +14452,39 @@ export class MainMenu {
                 }
             }
         };
-        
+
         // Сохраняем ссылку на обработчик
         (this.container as any)._escHandler = escHandler;
-        
+
         // Добавляем обработчик на window для перехвата ESC
         window.addEventListener("keydown", escHandler, true); // Используем capture phase для приоритета
     }
-    
+
     hide(): void {
         this.container.classList.add("hidden");
         this.container.classList.remove("in-battle");
         document.body.classList.remove("menu-visible");
-        
+
+        // Останавливаем автообновление лобби при скрытии меню
+        this.stopLobbyAutoRefresh();
+
         // КРИТИЧНО: Скрываем ВСЕ панели при входе в битву
         this.hideSettings();
         this.hideStats();
         this.hideSkills();
         this.hideProgress();
         this.hideMapSelection();
-        
+
         // Скрываем playMenuPanel если открыто
         if (this.playMenuPanel) {
             this.playMenuPanel.classList.remove("visible");
             this.playMenuPanel.style.setProperty("display", "none", "important");
             this.playMenuPanel.style.setProperty("visibility", "hidden", "important");
         }
-        
+
         // Разрешаем pointer-events на canvas и восстанавливаем видимость
         this.enforceCanvasPointerEvents();
-        
+
         // Дополнительно убеждаемся, что canvas виден
         const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
         if (canvas) {
@@ -8969,10 +14493,10 @@ export class MainMenu {
             canvas.style.setProperty("opacity", "1", "important");
             canvas.style.setProperty("z-index", "0", "important");
         }
-        
+
         // Также отправляем событие для Game класса
         window.dispatchEvent(new CustomEvent("menuVisibilityChanged", { detail: { visible: false } }));
-        
+
         // Восстанавливаем курсор только если игра активна
         const game = (window as any).gameInstance;
         if (game?.gameStarted && !game.gamePaused) {
@@ -8982,13 +14506,13 @@ export class MainMenu {
 }
 
 // Глобальная функция для показа меню (можно вызвать из консоли)
-(window as any).showMainMenu = async function() {
+(window as any).showMainMenu = async function () {
     const game = (window as any).gameInstance;
     if (!game) {
         console.error("Game instance not found!");
         return;
     }
-    
+
     // Если меню не загружено, загружаем его
     if (!game.mainMenu) {
         console.log("Menu not loaded, loading...");
@@ -8999,12 +14523,12 @@ export class MainMenu {
             return;
         }
     }
-    
+
     if (game.mainMenu) {
         console.log("Showing menu...");
         game.mainMenu.show();
         console.log("Главное меню показано");
-        
+
         // Проверяем состояние через небольшую задержку
         setTimeout(() => {
             const menu = document.getElementById("main-menu");
@@ -9023,12 +14547,174 @@ export class MainMenu {
 };
 
 // Глобальная функция для скрытия меню
-(window as any).hideMainMenu = function() {
+(window as any).hideMainMenu = function () {
     const game = (window as any).gameInstance;
     if (game && game.mainMenu) {
         game.mainMenu.hide();
         console.log("Главное меню скрыто");
     } else {
         console.error("Главное меню не найдено.");
+    }
+};
+
+// Глобальная функция для выбора режима при создании комнаты
+(window as any).selectMpCreateRoomMode = function (mode: string) {
+    console.log("[Menu] selectMpCreateRoomMode called with:", mode);
+    const game = (window as any).gameInstance;
+    if (game && game.mainMenu) {
+        const menu = game.mainMenu as MainMenu;
+        // Сохраняем выбранный режим
+        (menu as any).selectedCreateRoomMode = mode;
+        // Сбрасываем выбранную карту
+        (menu as any).selectedCreateRoomMap = undefined;
+
+        // Открываем панель выбора карты
+        (menu as any).hideAllPlayWindows();
+        (menu as any).showPlayWindow("mp-create-room-map", 0.5, 0.5);
+    } else {
+        console.error("[Menu] Game or mainMenu not found");
+    }
+};
+
+// Глобальная функция для выбора карты при создании комнаты
+(window as any).selectMpCreateRoomMap = function (mapType: string, element: HTMLElement) {
+    console.log("[Menu] selectMpCreateRoomMap called with:", mapType);
+    const game = (window as any).gameInstance;
+    if (game && game.mainMenu) {
+        const menu = game.mainMenu as MainMenu;
+
+        // ДИАГНОСТИКА: Явно логируем и показываем подтверждение выбора карты
+        console.log(`[Menu] 🗺️ SELECTED MAP: ${mapType}`);
+        // alert(`Выбрана карта: ${mapType}`); // Uncomment for extreme debugging
+
+        // Сохраняем выбранную карту
+        (menu as any).selectedCreateRoomMap = mapType;
+        console.log(`[Menu] Saved map type to menu instance: ${(menu as any).selectedCreateRoomMap}`);
+
+        // Убираем выделение со всех карточек
+        const allCards = document.querySelectorAll("#mp-create-room-map .map-card");
+        allCards.forEach(card => {
+            (card as HTMLElement).style.border = "2px solid rgba(0, 255, 80, 0.3)";
+            (card as HTMLElement).style.boxShadow = "";
+            (card as HTMLElement).style.background = "rgba(0, 20, 0, 0.4)";
+            (card as HTMLElement).style.transform = "";
+            card.classList.remove("selected");
+        });
+
+        // Выделяем выбранную карточку - ОЧЕНЬ ЗАМЕТНО
+        if (element) {
+            element.style.border = "3px solid #4ade80";
+            element.style.boxShadow = "0 0 20px rgba(74, 222, 128, 0.8), 0 0 40px rgba(74, 222, 128, 0.4), inset 0 0 20px rgba(74, 222, 128, 0.2)";
+            element.style.background = "linear-gradient(135deg, rgba(74, 222, 128, 0.3) 0%, rgba(34, 197, 94, 0.2) 100%)";
+            element.style.transform = "scale(1.05)";
+            element.classList.add("selected");
+        }
+    } else {
+        console.error("[Menu] Game or mainMenu not found");
+    }
+};
+
+// Глобальная функция для запуска создания комнаты
+(window as any).startMpCreateRoom = async function () {
+    console.log("[Menu] startMpCreateRoom called");
+    
+    // КРИТИЧНО: Очищаем custom map данные при создании мультиплеер комнаты
+    // Это гарантирует, что все игроки увидят одинаковую карту с сервера
+    localStorage.removeItem("selectedCustomMapData");
+    localStorage.removeItem("selectedCustomMapIndex");
+    console.log("[Menu] 🗺️ Очищены данные custom карты при создании комнаты (startMpCreateRoom)");
+    
+    const game = (window as any).gameInstance;
+    if (game && game.mainMenu) {
+        const menu = game.mainMenu as MainMenu;
+        const mode = (menu as any).selectedCreateRoomMode || "ffa";
+        const mapType = (menu as any).selectedCreateRoomMap || "normal";
+
+        console.log(`[Menu] 🚀 STARTING CREATE ROOM. Mode: ${mode}, Map: ${mapType}`);
+        console.log(`[Menu] Value in menu.selectedCreateRoomMap: ${(menu as any).selectedCreateRoomMap}`);
+
+        if (mapType === "normal" && (menu as any).selectedCreateRoomMap === undefined) {
+            console.warn("[Menu] ⚠️ Warning: Map defaulted to 'normal' because selectedCreateRoomMap was undefined!");
+        }
+
+        console.log(`[Menu] 🔍 startMpCreateRoom: Selected Map '${mapType}' (Var type: ${typeof mapType})`);
+        console.log("[Menu] Creating room with mode:", mode, "and map:", mapType);
+
+        // Получаем или создаем MultiplayerManager
+        let multiplayerManager = game.multiplayerManager;
+
+        if (!multiplayerManager) {
+            console.error("[Menu] MultiplayerManager not available");
+            alert("Подключение к серверу не установлено. Попробуйте обновить страницу.");
+            return;
+        }
+
+        // Проверяем подключение
+        if (!multiplayerManager.isConnected()) {
+            alert("Нет подключения к серверу. Ожидание...");
+            // Ждём подключения
+            let attempts = 0;
+            while (!multiplayerManager.isConnected() && attempts < 10) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+                attempts++;
+            }
+            if (!multiplayerManager.isConnected()) {
+                alert("Не удалось подключиться к серверу.");
+                return;
+            }
+        }
+
+        // Устанавливаем временный callback для открытия панели комнаты после создания
+        const originalCallback = (multiplayerManager as any).onRoomCreatedCallback;
+
+        multiplayerManager.onRoomCreated((data: any) => {
+            console.log("[Menu] Room created via startMpCreateRoom:", data);
+            const roomId = data.roomId || multiplayerManager.getRoomId();
+
+            if (roomId) {
+                // Обновляем информацию в панели комнаты
+                (menu as any).updateRoomPanel(roomId, mode, mapType);
+
+                // Закрываем все панели и открываем панель комнаты
+                (menu as any).hideAllPlayWindows();
+
+                // Показываем панель комнаты
+                const roomPanel = document.getElementById("mp-room-panel");
+                if (roomPanel) {
+                    roomPanel.style.display = "block";
+                    roomPanel.style.zIndex = "100020";
+                }
+
+                // Убеждаемся, что меню видимо
+                menu.show();
+
+                (menu as any).showPlayWindow("mp-room-panel", 3, 3);
+                console.log("[Menu] Room panel shown for room:", roomId);
+            } else {
+                console.error("[Menu] Room created but no roomId in data");
+            }
+
+            // Восстанавливаем оригинальный callback
+            if (originalCallback) {
+                (multiplayerManager as any).onRoomCreatedCallback = originalCallback;
+            }
+        });
+
+        // Создаем комнату через multiplayerManager напрямую с mapType
+        try {
+            const success = multiplayerManager.createRoom(mode as any, 32, false, mapType);
+            if (!success) {
+                console.error("[Menu] Failed to create room");
+                alert("Не удалось создать комнату. Проверьте подключение.");
+            } else {
+                console.log("[Menu] Room creation request sent:", mode, mapType);
+            }
+        } catch (error) {
+            console.error("[Menu] Error creating room:", error);
+            alert("Ошибка создания комнаты: " + error);
+        }
+    } else {
+        console.error("[Menu] Game or mainMenu not found");
+        alert("Игра не инициализирована. Попробуйте обновить страницу.");
     }
 };

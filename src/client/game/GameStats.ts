@@ -10,6 +10,7 @@ import type { RealtimeStatsTracker } from "../realtimeStats";
 import type { MultiplayerManager } from "../multiplayer";
 import type { EnemyTank } from "../enemyTank";
 import type { EnemyManager } from "../enemy";
+import type { NetworkPlayerTank } from "../networkPlayerTank";
 
 /**
  * Интерфейс для доступа к системам игры
@@ -22,7 +23,9 @@ export interface StatsSystemsAccess {
     multiplayerManager?: MultiplayerManager;
     enemyTanks: EnemyTank[];
     enemyManager?: EnemyManager;
+    networkPlayerTanks?: Map<string, NetworkPlayerTank>; // Сетевые танки игроков
     getIsMultiplayer: () => boolean; // Геттер для актуального значения isMultiplayer
+    setIsMultiplayer: (value: boolean) => void; // Сеттер для установки isMultiplayer
     currentMapType?: string;
 }
 
@@ -164,7 +167,30 @@ export class GameStats {
         const xpProgressHTML = this.getXPProgressHTML();
         
         // Мультиплеер или одиночная игра (getIsMultiplayer возвращает актуальное значение)
-        if (this.systems.getIsMultiplayer() && this.systems.realtimeStatsTracker) {
+        // ДИАГНОСТИКА: Проверяем наличие multiplayerManager для отображения отладочной информации
+        const hasMultiplayerManager = !!this.systems?.multiplayerManager;
+        const mm = this.systems.multiplayerManager;
+        const isConnectedToRoom = mm?.isConnected() && mm?.getRoomId();
+        
+        // КРИТИЧНО: Принудительно устанавливаем isMultiplayer=true если подключены к комнате
+        if (hasMultiplayerManager && isConnectedToRoom && !this.systems.getIsMultiplayer()) {
+            // Безопасная проверка перед вызовом setIsMultiplayer
+            if (this.systems?.setIsMultiplayer) {
+                this.systems.setIsMultiplayer(true);
+            }
+            // Создаем RealtimeStatsTracker если его нет
+            if (!this.systems.realtimeStatsTracker && mm?.getPlayerId()) {
+                import("../realtimeStats").then(({ RealtimeStatsTracker }) => {
+                    const tracker = new RealtimeStatsTracker();
+                    (this.systems as any).setRealtimeStatsTracker?.(tracker);
+                    tracker.startMatch(mm.getPlayerId()!);
+                }).catch(() => {});
+            }
+        }
+        
+        const isMultiplayer = this.systems.getIsMultiplayer() && this.systems.realtimeStatsTracker;
+        
+        if (isMultiplayer) {
             content.innerHTML = this.renderMultiplayerStats(playerData, xpProgressHTML);
         } else {
             content.innerHTML = this.renderSinglePlayerStats(playerData, xpProgressHTML);
@@ -290,13 +316,40 @@ export class GameStats {
         });
         
         const mapName = this.getMapDisplayName();
+        
+        // Получаем отладочную информацию (показываем всегда, если есть multiplayerManager)
+        const debugInfo = this.getDebugInfo();
+        const hasMultiplayerManager = !!this.systems?.multiplayerManager;
+        
+        // Генерируем HTML отладочной информации (показываем если есть multiplayerManager или в мультиплеере)
+        const debugHTML = hasMultiplayerManager ? `
+            <div style="background:#1a1a1a; padding:8px 20px; border-bottom:1px solid #222; font-size:10px">
+                <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; color:#888">
+                    <div><span style="color:#0aa">Room ID:</span> <span style="color:#fff">${debugInfo.roomId || 'N/A'}</span></div>
+                    <div><span style="color:#0aa">World Seed:</span> <span style="color:#fff">${debugInfo.worldSeed || 'N/A'}</span></div>
+                    <div><span style="color:#0aa">Map Type:</span> <span style="color:#fff">${debugInfo.mapType || 'N/A'}</span></div>
+                    <div><span style="color:#0aa">Network Players:</span> <span style="color:#fff">${debugInfo.networkPlayersCount}</span></div>
+                    <div><span style="color:#0aa">Network Tanks:</span> <span style="color:#fff">${debugInfo.tanksCount}</span></div>
+                    <div><span style="color:#0aa">Ping:</span> <span style="color:#fff">${debugInfo.ping}ms</span></div>
+                    <div><span style="color:#0aa">Connected:</span> <span style="color:${debugInfo.connected ? '#0f0' : '#f00'}">${debugInfo.connected ? 'YES' : 'NO'}</span></div>
+                    <div><span style="color:#0aa">Room Active:</span> <span style="color:${debugInfo.roomActive ? '#0f0' : '#f00'}">${debugInfo.roomActive ? 'YES' : 'NO'}</span></div>
+                    <div><span style="color:#0aa">Player ID:</span> <span style="color:#fff; font-size:9px">${debugInfo.playerId || 'N/A'}</span></div>
+                </div>
+            </div>
+        ` : '';
+        
+        // Определяем режим игры
+        const gameMode = hasMultiplayerManager && debugInfo.connected ? 'MULTIPLAYER' : 'SINGLE PLAYER';
+        const modeColor = hasMultiplayerManager && debugInfo.connected ? '#0ff' : '#666';
+        
         return `
             <!-- Заголовок -->
             <div style="background:#0f01; padding:12px 20px; border-bottom:1px solid #0f02; display:flex; justify-content:space-between; align-items:center">
                 <div style="display:flex; flex-direction:column; gap:4px">
                     <div style="display:flex; align-items:center; gap:15px">
                         <span style="font-size:18px; font-weight:bold; color:#0f0; text-shadow:0 0 10px #0f06">SCOREBOARD</span>
-                        <span style="font-size:11px; color:#666">SINGLE PLAYER</span>
+                        <span style="font-size:11px; color:${modeColor}">${gameMode}</span>
+                        ${hasMultiplayerManager && !debugInfo.connected ? '<span style="font-size:10px; color:#f80">⚠️ NOT CONNECTED</span>' : ''}
                     </div>
                     ${mapName ? `<span style="color:#0aa; font-size:10px">🗺️ ${mapName}</span>` : ''}
                 </div>
@@ -306,6 +359,8 @@ export class GameStats {
                     <span style="color:#0ff">⏱️ ${playerData.playTime}</span>
                 </div>
             </div>
+            
+            ${debugHTML}
             
             <!-- Статистика игрока -->
             <div style="padding:12px 20px; background:#0a0a0a; border-bottom:1px solid #222">
@@ -390,6 +445,9 @@ export class GameStats {
         const seconds = Math.floor(matchTime % 60);
         const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
         
+        // Получаем отладочную информацию
+        const debugInfo = this.getDebugInfo();
+        
         // Генерируем HTML лидерборда
         let leaderboardHTML = "";
         leaderboard.forEach((player, index) => {
@@ -417,6 +475,23 @@ export class GameStats {
             `;
         });
         
+        // Генерируем HTML отладочной информации
+        const debugHTML = `
+            <div style="background:#1a1a1a; padding:8px 20px; border-bottom:1px solid #222; font-size:10px">
+                <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; color:#888">
+                    <div><span style="color:#0aa">Room ID:</span> <span style="color:#fff">${debugInfo.roomId || 'N/A'}</span></div>
+                    <div><span style="color:#0aa">World Seed:</span> <span style="color:#fff">${debugInfo.worldSeed || 'N/A'}</span></div>
+                    <div><span style="color:#0aa">Map Type:</span> <span style="color:#fff">${debugInfo.mapType || 'N/A'}</span></div>
+                    <div><span style="color:#0aa">Network Players:</span> <span style="color:#fff">${debugInfo.networkPlayersCount}</span></div>
+                    <div><span style="color:#0aa">Network Tanks:</span> <span style="color:#fff">${debugInfo.tanksCount}</span></div>
+                    <div><span style="color:#0aa">Ping:</span> <span style="color:#fff">${debugInfo.ping}ms</span></div>
+                    <div><span style="color:#0aa">Connected:</span> <span style="color:${debugInfo.connected ? '#0f0' : '#f00'}">${debugInfo.connected ? 'YES' : 'NO'}</span></div>
+                    <div><span style="color:#0aa">Room Active:</span> <span style="color:${debugInfo.roomActive ? '#0f0' : '#f00'}">${debugInfo.roomActive ? 'YES' : 'NO'}</span></div>
+                    <div><span style="color:#0aa">Player ID:</span> <span style="color:#fff; font-size:9px">${debugInfo.playerId || 'N/A'}</span></div>
+                </div>
+            </div>
+        `;
+        
         return `
             <!-- Заголовок -->
             <div style="background:#0f01; padding:12px 20px; border-bottom:1px solid #0f02; display:flex; justify-content:space-between; align-items:center">
@@ -429,6 +504,8 @@ export class GameStats {
                     <span style="color:#0ff">⏱️ ${timeStr}</span>
                 </div>
             </div>
+            
+            ${debugHTML}
             
             <!-- Статистика игрока -->
             <div style="padding:12px 20px; background:#0a0a0a; border-bottom:1px solid #222">
@@ -537,6 +614,7 @@ export class GameStats {
         const mapNames: Record<string, string> = {
             "normal": "Эта самая карта",
             "sandbox": "Песочница",
+            "sand": "Песок",
             "polygon": "Полигон",
             "frontline": "Передовая",
             "ruins": "Руины",
@@ -549,6 +627,56 @@ export class GameStats {
         };
         
         return mapNames[this.systems.currentMapType] || this.systems.currentMapType;
+    }
+    
+    /**
+     * Получить отладочную информацию для мультиплеера
+     */
+    private getDebugInfo(): {
+        roomId: string | null;
+        worldSeed: number | null;
+        mapType: string;
+        networkPlayersCount: number;
+        tanksCount: number;
+        ping: number;
+        connected: boolean;
+        roomActive: boolean;
+        playerId: string | null;
+    } {
+        const mm = this.systems?.multiplayerManager;
+        const game = (window as any).gameInstance;
+        
+        // Получаем ping из networkMetrics если доступно
+        let ping = 0;
+        if (mm && (mm as any).networkMetrics) {
+            ping = Math.round((mm as any).networkMetrics.rtt || 0);
+        }
+        
+        // КРИТИЧНО: Улучшенная логика получения roomId
+        // Пробуем несколько способов получить roomId
+        let roomId = mm?.getRoomId();
+        if (!roomId && mm) {
+            // Fallback: попробуем получить из приватного поля
+            roomId = (mm as any).roomId || (mm as any)._roomId || null;
+        }
+        
+        const isRoomActive = (mm as any)?._roomIsActive || false;
+        const isConnected = mm?.isConnected() || false;
+        
+        // Если комната активна или есть roomId, считаем подключенным
+        const effectiveConnected = isConnected || isRoomActive || !!roomId;
+        
+        return {
+            roomId: roomId || null,  // Не используем ACTIVE как fallback - показываем реальный ID
+            worldSeed: mm?.getWorldSeed() || null,
+            mapType: this.systems?.currentMapType || game?.currentMapType || 'unknown',
+            networkPlayersCount: mm?.getNetworkPlayers()?.size || 0,
+            tanksCount: this.systems?.networkPlayerTanks?.size || game?.networkPlayerTanks?.size || 0,
+            ping: ping,
+            connected: effectiveConnected,
+            roomActive: isRoomActive,
+            playerId: mm?.getPlayerId() || null
+        };
     }
     
     /**

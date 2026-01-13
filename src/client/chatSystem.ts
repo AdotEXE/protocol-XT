@@ -215,7 +215,7 @@ export class ChatSystem {
             box-shadow: 0 0 ${15 * scaleFactor}px rgba(0, 255, 0, 0.4), inset 0 0 ${20 * scaleFactor}px rgba(0, 10, 0, 0.5);
             transform-origin: top;
             pointer-events: auto;
-            display: none;
+            display: block;
             transition: all 0.3s ease;
             backdrop-filter: blur(4px);
         `;

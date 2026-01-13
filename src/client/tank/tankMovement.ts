@@ -20,21 +20,32 @@ export class TankMovementModule {
         
         // ВАЖНО: updateInputs() НЕ зависит от isAiming!
         // Управление танком работает одинаково в любом режиме!
-        this.tank.throttleTarget = 0;
+        
+        // Получаем touch input (если есть)
+        const touchThrottle = (this.tank as any).getTouchThrottle?.() ?? 0;
+        const touchSteer = (this.tank as any).getTouchSteer?.() ?? 0;
+        const touchTurret = (this.tank as any).getTouchTurret?.() ?? { left: false, right: false };
+        
+        // Keyboard input
+        let keyboardThrottle = 0;
+        let keyboardSteer = 0;
+        
         if ((this.tank as any)._inputMap["KeyW"] || (this.tank as any)._inputMap["ArrowUp"]) {
-            this.tank.throttleTarget += 1;
+            keyboardThrottle += 1;
         }
         if ((this.tank as any)._inputMap["KeyS"] || (this.tank as any)._inputMap["ArrowDown"]) {
-            this.tank.throttleTarget -= 1;
+            keyboardThrottle -= 1;
         }
-
-        this.tank.steerTarget = 0;
         if ((this.tank as any)._inputMap["KeyA"] || (this.tank as any)._inputMap["ArrowLeft"]) {
-            this.tank.steerTarget -= 1;
+            keyboardSteer -= 1;
         }
         if ((this.tank as any)._inputMap["KeyD"] || (this.tank as any)._inputMap["ArrowRight"]) {
-            this.tank.steerTarget += 1;
+            keyboardSteer += 1;
         }
+        
+        // Объединяем keyboard и touch input (приоритет клавиатуре если нажата)
+        this.tank.throttleTarget = keyboardThrottle !== 0 ? keyboardThrottle : touchThrottle;
+        this.tank.steerTarget = keyboardSteer !== 0 ? keyboardSteer : touchSteer;
         
         // Notify HUD about movement (for tutorial)
         if ((this.tank.throttleTarget !== 0 || this.tank.steerTarget !== 0) && this.tank.hud) {
@@ -49,16 +60,31 @@ export class TankMovementModule {
         
         // Ручное управление (отменяет авто-центрирование)
         const inputMap = (this.tank as any)._inputMap;
-        if (inputMap["KeyZ"]) {
+        const turretLeftPressed = inputMap["KeyZ"] || touchTurret.left;
+        const turretRightPressed = inputMap["KeyX"] || touchTurret.right;
+        
+        // Аналоговое управление башней с джойстика (если есть)
+        const touchTurretRotation = (this.tank as any).getTouchTurretRotation?.() ?? 0;
+        const touchAimPitch = (this.tank as any).getTouchAimPitch?.() ?? 0;
+        
+        if (turretLeftPressed) {
             this.tank.turretTurnTarget -= 1;
             (this.tank as any).isAutoCentering = false;
             (this.tank as any).isKeyboardTurretControl = true; // Активируем клавиатурное управление
             window.dispatchEvent(new CustomEvent("stopCenterCamera"));
         }
-        if (inputMap["KeyX"]) {
+        if (turretRightPressed) {
             this.tank.turretTurnTarget += 1;
             (this.tank as any).isAutoCentering = false;
             (this.tank as any).isKeyboardTurretControl = true; // Активируем клавиатурное управление
+            window.dispatchEvent(new CustomEvent("stopCenterCamera"));
+        }
+        
+        // Аналоговое управление башней с правого джойстика (плавнее чем кнопки)
+        if (Math.abs(touchTurretRotation) > 0.1) {
+            this.tank.turretTurnTarget += touchTurretRotation;
+            (this.tank as any).isAutoCentering = false;
+            (this.tank as any).isKeyboardTurretControl = true;
             window.dispatchEvent(new CustomEvent("stopCenterCamera"));
         }
 
@@ -135,6 +161,11 @@ export class TankMovementModule {
         if (inputMap["KeyF"]) {
             // F - вниз (уменьшает угол pitch, ствол опускается)
             this.tank.barrelPitchTarget = 1;
+        }
+        
+        // Аналоговый наклон пушки с правого джойстика
+        if (Math.abs(touchAimPitch) > 0.1) {
+            this.tank.barrelPitchTarget = -touchAimPitch; // Инвертируем: вверх джойстика = ствол вверх
         }
     }
     

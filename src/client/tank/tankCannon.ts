@@ -63,18 +63,26 @@ export interface CannonAnimationElements {
 
 /**
  * Создает уникальную пушку по типу
+ * @param cannonType - тип пушки
+ * @param scene - сцена Babylon.js
+ * @param barrelWidth - ширина ствола
+ * @param barrelLength - длина ствола
+ * @param animationElements - элементы для анимации
+ * @param prefix - префикс имени меша (по умолчанию "barrel_", для сетевых танков используйте "netBarrel_")
  */
 export function createUniqueCannon(
     cannonType: CannonType,
     scene: Scene,
     barrelWidth: number,
     barrelLength: number,
-    animationElements: CannonAnimationElements
+    animationElements: CannonAnimationElements,
+    prefix: string = "barrel_"
 ): Mesh {
     const cannonColor = Color3.FromHexString(cannonType.color);
     
     // КРИТИЧНО: Уникальное имя для каждого меша, чтобы избежать дублирования
-    const uniqueBarrelId = `barrel_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // Для сетевых танков используется prefix="netBarrel_" чтобы cleanup код не удалял их
+    const uniqueBarrelId = `${prefix}${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
     // ПРИМЕЧАНИЕ: Удаление старых стволов удалено - это вызывало удаление стволов у ВСЕХ танков
     // Очистка стволов теперь должна происходить локально при смене пушки конкретного танка

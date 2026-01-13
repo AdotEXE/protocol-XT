@@ -1,11 +1,11 @@
-import { 
-    Scene, 
-    Vector3, 
-    Mesh, 
-    MeshBuilder, 
-    PhysicsBody, 
-    PhysicsMotionType, 
-    PhysicsShape, 
+import {
+    Scene,
+    Vector3,
+    Mesh,
+    MeshBuilder,
+    PhysicsBody,
+    PhysicsMotionType,
+    PhysicsShape,
     PhysicsShapeType,
     PhysicsShapeContainer,
     Quaternion,
@@ -29,12 +29,15 @@ import { TankMovementModule } from "./tank/tankMovement";
 import { TankProjectilesModule } from "./tank/tankProjectiles";
 import { TankVisualsModule } from "./tank/tankVisuals";
 import type { ChassisAnimationElements } from "./tank/tankChassis";
+import { CHASSIS_SIZE_MULTIPLIERS } from "./tank/tankChassis";
 import type { ShellCasing } from "./tank/types";
 import { getSkinById, loadSelectedSkin, applySkinToTank, applySkinColorToMaterial } from "./tank/tankSkins";
 import { PHYSICS_CONFIG } from "./config/physicsConfig";
 import { tankDuplicationLogger } from "./tankDuplicationLogger";
 import { RicochetSystem, RicochetConfig, RICOCHET_CANNON_CONFIG, DEFAULT_RICOCHET_CONFIG } from "./tank/combat/RicochetSystem";
 import { upgradeManager, UpgradeBonuses } from "./upgrade";
+import { ClientMessageType } from "../shared/messages";
+import { createClientMessage } from "../shared/protocol";
 
 export class TankController {
     scene: Scene;
@@ -47,50 +50,50 @@ export class TankController {
     effectsManager: EffectsManager | null = null;
     enemyManager: EnemyManager | null = null;
     enemyTanks: any[] = []; // Reference to enemy tanks for hit detection
-    
+
     // Callback for camera shake
     cameraShakeCallback: ((intensity: number) => void) | null = null;
     chatSystem: any = null; // ChatSystem для сообщений
     experienceSystem: any = null; // ExperienceSystem для опыта
     playerProgression: any = null; // PlayerProgressionSystem для глобального прогресса
     achievementsSystem: any = null; // AchievementsSystem для достижений
-    
+
     // Callback для получения позиции респавна (гараж)
     respawnPositionCallback: (() => Vector3 | null) | null = null;
-    
+
     // Callback для отправки выстрела на сервер (мультиплеер)
     private onShootCallback: ((data: any) => void) | null = null;
-    
+
     // Reference to network players for hit detection
     networkPlayers: Map<string, any> | null = null; // NetworkPlayerTank instances
-    
+
     // Респавн с таймером
     private respawnCountdown = 0; // Секунды до респавна
     private respawnIntervalId: number | null = null;
-    
+
     // Модули
     private healthModule: TankHealthModule;
     private movementModule: TankMovementModule;
     private projectilesModule: TankProjectilesModule;
     private visualsModule: TankVisualsModule;
-    
+
     // Эффекты движения
     private _lastMovementSoundTime: number = 0;
     private _lastSmokeTime: number = 0;
-    
+
     // Special chassis abilities
     chassisAnimationElements: ChassisAnimationElements & {
         stealthActive?: boolean;
         shieldActive?: boolean;
         energyBoosters?: Mesh[];
     } = { animationTime: 0 };
-    
+
     // Special ability cooldowns
     private stealthCooldown = 0;
     private shieldCooldown = 0;
     private droneCooldown = 0;
     private commandCooldown = 0;
-    
+
     // Отдача при выстреле
     private barrelRecoilOffset = 0; // Текущий откат пушки (0 = норма, <0 = откат назад)
     private barrelRecoilTarget = 0; // Целевой откат
@@ -102,10 +105,10 @@ export class TankController {
     private _baseBarrelY = 0; // Исходная позиция Y пушки
     private _barrelRecoilY = 0; // Вертикальный откат пушки (подъем при выстреле)
     private _barrelRecoilYTarget = 0; // Целевой вертикальный откат
-    
+
     // Массив активных гильз для анимации
     shellCasings: ShellCasing[] = [];
-    
+
     // Cannon animation elements (for animated cannons)
     private cannonAnimationElements: {
         sniperLens?: Mesh;
@@ -154,16 +157,16 @@ export class TankController {
         flamethrowerNozzle?: Mesh;
         animationTime?: number;
     } = { animationTime: 0 };
-    
+
     // Tank type configuration
     chassisType: ChassisType;
     cannonType: CannonType;
     trackType: TrackType;
-    
+
     // Config (будут переопределены типом корпуса)
     mass = 3500; // Масса танка в кг
     hoverHeight = 1.0;  // Hover height
-    
+
     // Movement Settings (будут переопределены типом корпуса)
     moveSpeed = 24;         // Slower max speed
     turnSpeed = 5.0;        // Moderate turning
@@ -175,7 +178,7 @@ export class TankController {
     sideDrag = 8000;        // Боковое сопротивление при остановке
     fwdDrag = 7000;         // Продольное сопротивление при остановке
     angularDrag = 5000;     // Угловое сопротивление при остановке
-    
+
     // Stability
     hoverStiffness = 7000;   // ТАНКОВАЯ ПРОХОДИМОСТЬ: +56% жёсткая подвеска для препятствий
     hoverDamping = 18000;    // ТАНКОВАЯ ПРОХОДИМОСТЬ: -49% меньше сопротивления подъёму
@@ -185,7 +188,7 @@ export class TankController {
     emergencyForce = 18000; // Экстренные ситуации
     liftForce = 0;          // Отключено для предотвращения взлета
     downForce = 1500;       // СКРУГЛЁННЫЕ ГУСЕНИЦЫ: -75% минимальное прижатие для свободного подъёма
-    
+
     // СИСТЕМА "СКРУГЛЁННЫЕ ГУСЕНИЦЫ" - РАЗУМНАЯ ПРОХОДИМОСТЬ (уменьшено для предотвращения взбирания по стенам)
     climbAssistForce = 40000;    // Уменьшено с 120000 - разумный автоподъём для склонов
     maxClimbHeight = 1.5;        // Уменьшено с 3.0 - до 1.5 метров (реалистично для танка)
@@ -193,7 +196,7 @@ export class TankController {
     frontClimbForce = 60000;     // Уменьшено с 180000 - сила подъёма передней части
     wallPushForce = 25000;       // Уменьшено с 80000 - сила проталкивания
     climbTorque = 12000;         // Уменьшено с 25000 - момент для наклона при подъёме
-    
+
     // ВЕРТИКАЛЬНЫЕ СТЕНЫ - система прилипания и горизонтального движения
     verticalWallThreshold = 0.34; // sin(70°) ≈ 0.34 - порог для определения вертикальной стены
     wallAttachmentForce = 15000; // Сила прилипания к стене (направлена к стене) - уменьшено для более плавного поведения
@@ -208,16 +211,16 @@ export class TankController {
     maxHealth = 100;
     currentHealth = 100;
     isAlive = true;
-    
+
     // Fuel System
     maxFuel = 500; // Литров
     currentFuel = 500;
     fuelConsumptionRate = 0.5; // Литров в секунду при движении
     isFuelEmpty = false;
-    
+
     // Shooting (будет переопределено типом пушки)
     damage = 25; // Базовый урон
-    
+
     // КРИТИЧНО: Сохранённые характеристики в начале боя (НЕ должны изменяться после смерти!)
     private _initialMaxHealth: number = 0;
     private _initialMoveSpeed: number = 0;
@@ -228,7 +231,7 @@ export class TankController {
     private _initialTurretSpeed: number = 0;
     private _initialBaseTurretSpeed: number = 0;
     private _characteristicsInitialized: boolean = false;
-    
+
     // Tracer System (T key)
     tracerCount = 5; // Количество трассеров
     maxTracerCount = 5; // Максимум трассеров
@@ -245,35 +248,35 @@ export class TankController {
     private _tmpVector5 = new Vector3(); // For torque scaling to avoid mutations
     private _tmpVector6 = new Vector3(); // For hoverForceVec (to avoid corrupting up)
     private _tmpVector7 = new Vector3(); // For correctiveTorque (to avoid corrupting forward)
-    
+
     // Position caching for performance optimization
     private _cachedChassisPosition = new Vector3();
     private _cachedTurretPosition: Vector3 | null = null;
     private _cachedBarrelPosition: Vector3 | null = null;
     private _positionCacheFrame = -1; // Frame number when cache was last updated
-    
+
     // Кэш для scene.meshes.filter - очень дорогая операция
     private _cachedEnemyWalls: AbstractMesh[] | null = null;
     private _enemyWallsCacheFrame = -1;
-    
+
     // Кэш для Date.now() и performance.now() - оптимизация частых вызовов
     private _cachedTime: number = 0;
     private _timeCacheFrame = -1;
-    
+
     private _resetTimer: number = 0; // Таймер для автоматического сброса при опрокидывания
     private _logFrameCounter = 0; // Счетчик кадров для логирования
-    
+
     // Ground clamping cache
     private _groundRaycastCache: { groundHeight: number, frame: number } | null = null;
     private _enableDetailedLogging = false; // Детальное логирование отключено по умолчанию для производительности
     private _tick = 0;
-    
+
     // Vertical wall climbing state
     private _isOnVerticalWall: boolean = false; // Флаг состояния "на вертикальной стене"
     private _wallNormal: Vector3 | null = null; // Нормаль текущей стены (кэшируется)
     private _wallDistance: number = 0; // Расстояние до стены
     private _wallHitPoint: Vector3 | null = null; // Точка контакта со стеной
-    
+
     // Inputs (smoothed)
     throttleTarget = 0;
     steerTarget = 0;
@@ -285,12 +288,12 @@ export class TankController {
     private turretAccelStartTime = 0; // Время начала ускорения башни
     isAutoCentering = false; // Флаг автоматического центрирования башни (публичный для game.ts)
     isKeyboardTurretControl = false; // Флаг клавиатурного управления башней (Z/X)
-    
+
     // Скорость вращения башни (публичная для game.ts)
     turretSpeed = 0.08; // Базовая скорость вращения башни (рад/кадр) - УВЕЛИЧЕНО для более быстрого поворота
     baseTurretSpeed = 0.08; // Базовая скорость башни для центрирования - УВЕЛИЧЕНО
     turretLerpSpeed = 0.25; // Резкая реакция башни
-    
+
     // Barrel pitch control (vertical tilt of barrel) - keyboard R/F
     barrelPitchTarget = 0; // Целевое направление наклона ствола (-1, 0, +1)
     barrelPitchSmooth = 0; // Сглаженное значение для интерполяции
@@ -301,20 +304,20 @@ export class TankController {
     private barrelPitchAccelStartTime = 0; // Время начала ускорения наклона ствола
     baseBarrelPitchSpeed = 0.035; // Базовая скорость наклона ствола (рад/кадр)
     barrelPitchLerpSpeed = 0.15; // Скорость интерполяции наклона ствола
-    
+
     // Aiming pitch (vertical angle for aiming) - set from game.ts
     aimPitch = 0;
-    
+
     // Mouse control for turret
     mouseSensitivity = 0.003; // Чувствительность мыши для башни (публичная для game.ts)
     private isPointerLocked = false; // Флаг блокировки указателя
     private lastMouseX = 0; // Последняя позиция мыши X (используется в pointerlockchange handler)
-    
+
     // Control settings (applied from SettingsManager)
     invertMouseY = false; // Инверсия вертикальной оси мыши
     autoReload = false; // Автоматическая перезарядка
     holdToAim = false; // Удерживать для прицеливания (вместо toggle)
-    
+
     // Shooting (будут переопределены типом пушки)
     lastShotTime = 0;
     cooldown = 1800; // УЛУЧШЕНО: Уменьшено с 2000 до 1800 мс для более быстрой перезарядки
@@ -322,11 +325,11 @@ export class TankController {
     isReloading = false;
     projectileSpeed = 200;
     projectileSize = 0.2;
-    
+
     // Автоматическая стрельба при зажатии кнопки
     private isFireKeyPressed = false; // Пробел зажат
     private isMouseButtonPressed = false; // ЛКМ зажата
-    
+
     // Модули (кнопки 6-0)
     private module6Walls: Array<{
         mesh: Mesh;
@@ -379,15 +382,26 @@ export class TankController {
     visualWheels: Mesh[] = [];
     leftTrack: Mesh | null = null;
     rightTrack: Mesh | null = null;
-    
+
     // Module visuals - визуальные меши для модулей (6-0)
     private moduleVisuals: Map<number, Mesh[]> = new Map();
-    
+
     // Pre-created materials for optimization
     bulletMat: StandardMaterial;
 
     private _inputMap: { [key: string]: boolean } = {};
-    
+    private _lastJumpWarnTime: number = 0; // Throttle для лога "Cannot start jump"
+
+    // Touch input (экранное управление)
+    private _touchThrottle = 0;  // -1..1 газ/тормоз
+    private _touchSteer = 0;     // -1..1 поворот
+    private _touchTurretLeft = false;
+    private _touchTurretRight = false;
+    private _touchTurretRotation = 0;  // -1..1 аналоговый поворот башни
+    private _touchAimPitch = 0;  // -1..1 наклон пушки
+    private _touchFire = false;
+    private _touchAim = false;
+
     // Load tank configuration from localStorage (зарезервировано для будущего использования)
     // private loadTankConfig(): { color: string, turretColor: string, speed: number, armor: number, firepower: number } {
     //     const saved = localStorage.getItem("tankConfig");
@@ -404,13 +418,13 @@ export class TankController {
     constructor(scene: Scene, position: Vector3) {
         logger.log("TankController: Init Start");
         this.scene = scene;
-        
+
         // КРИТИЧНО: Защита от множественного создания - проверяем, нет ли уже танка в сцене
         const existingTanks = scene.meshes.filter(mesh => {
             if (!mesh.name || mesh.isDisposed()) return false;
-            return mesh.name.startsWith("tankHull_") && 
-                   mesh.metadata && 
-                   (mesh.metadata as any).type === "playerTank";
+            return mesh.name.startsWith("tankHull_") &&
+                mesh.metadata &&
+                (mesh.metadata as any).type === "playerTank";
         });
         if (existingTanks.length > 0) {
             logger.error(`[TankController] WARNING: Found ${existingTanks.length} existing player tank(s) in scene! Disposing them.`);
@@ -435,14 +449,14 @@ export class TankController {
                 }
             });
         }
-        
+
         // КРИТИЧНО: Агрессивная очистка всех старых мешей танка перед созданием новых
         // Это предотвращает дублирование танка при повторном создании
         const oldTankMeshes = scene.meshes.filter(mesh => {
             if (!mesh.name || mesh.isDisposed()) return false;
-            return mesh.name.startsWith("tankHull_") || 
-                   mesh.name.startsWith("turret_") || 
-                   mesh.name.startsWith("barrel_");
+            return mesh.name.startsWith("tankHull_") ||
+                mesh.name.startsWith("turret_") ||
+                mesh.name.startsWith("barrel_");
         });
         if (oldTankMeshes.length > 0) {
             logger.warn(`[TankController] Found ${oldTankMeshes.length} old tank meshes, disposing them`);
@@ -467,7 +481,7 @@ export class TankController {
                 }
             });
         }
-        
+
         // КРИТИЧНО: Удаляем все старые observers, которые могут работать со старыми мешами
         // Это предотвращает дублирование при рендеринге
         if (scene.onBeforeActiveMeshesEvaluationObservable) {
@@ -479,9 +493,9 @@ export class TankController {
                 // Удаляем все меши танка из активных мешей
                 const tankMeshesInActive = activeMeshes.filter((mesh: any) => {
                     if (!mesh || !mesh.name) return false;
-                    return mesh.name.startsWith("tankHull_") || 
-                           mesh.name.startsWith("turret_") || 
-                           mesh.name.startsWith("barrel_");
+                    return mesh.name.startsWith("tankHull_") ||
+                        mesh.name.startsWith("turret_") ||
+                        mesh.name.startsWith("barrel_");
                 });
                 tankMeshesInActive.forEach((mesh: any) => {
                     const index = activeMeshes.indexOf(mesh);
@@ -490,7 +504,7 @@ export class TankController {
                     }
                 });
             }
-            
+
             // Очищаем rendering groups от старых мешей танка
             const renderingGroups = (scene as any)._renderingGroups;
             if (renderingGroups) {
@@ -499,9 +513,9 @@ export class TankController {
                     if (group && group.meshes && Array.isArray(group.meshes)) {
                         const tankMeshesInGroup = group.meshes.filter((mesh: any) => {
                             if (!mesh || !mesh.name) return false;
-                            return mesh.name.startsWith("tankHull_") || 
-                                   mesh.name.startsWith("turret_") || 
-                                   mesh.name.startsWith("barrel_");
+                            return mesh.name.startsWith("tankHull_") ||
+                                mesh.name.startsWith("turret_") ||
+                                mesh.name.startsWith("barrel_");
                         });
                         tankMeshesInGroup.forEach((mesh: any) => {
                             const index = group.meshes.indexOf(mesh);
@@ -513,7 +527,7 @@ export class TankController {
                 });
             }
         }
-        
+
         // Pre-create bullet material - VERY BRIGHT for visibility
         this.bulletMat = new StandardMaterial("bulletMat", scene);
         this.bulletMat.diffuseColor = new Color3(1, 1, 0); // Bright yellow
@@ -521,7 +535,7 @@ export class TankController {
         this.bulletMat.specularColor = Color3.Black();
         this.bulletMat.disableLighting = true;
         this.bulletMat.freeze();
-        
+
         // Pre-create tracer material - BRIGHT RED/ORANGE for visibility
         this.tracerMat = new StandardMaterial("tracerMat", scene);
         this.tracerMat.diffuseColor = new Color3(1, 0.2, 0); // Red-orange
@@ -529,16 +543,16 @@ export class TankController {
         this.tracerMat.specularColor = Color3.Black();
         this.tracerMat.disableLighting = true;
         this.tracerMat.freeze();
-        
+
         // Загружаем типы корпуса, пушки и гусениц из localStorage или используем по умолчанию
         const savedChassisId = localStorage.getItem("selectedChassis") || "medium";
         const savedCannonId = localStorage.getItem("selectedCannon") || "standard";
         const savedTrackId = localStorage.getItem("selectedTrack") || "standard";
-        
+
         this.chassisType = getChassisById(savedChassisId);
         this.cannonType = getCannonById(savedCannonId);
         this.trackType = getTrackById(savedTrackId);
-        
+
         // Применяем параметры корпуса
         this.mass = this.chassisType.mass;
         this.moveSpeed = this.chassisType.moveSpeed;
@@ -546,17 +560,17 @@ export class TankController {
         this.acceleration = this.chassisType.acceleration;
         this.maxHealth = this.chassisType.maxHealth;
         this.currentHealth = this.chassisType.maxHealth;
-        
+
         // Применяем параметры пушки
         this.cooldown = this.cannonType.cooldown;
         this.baseCooldown = this.cannonType.cooldown; // Сохраняем базовый cooldown
         this.damage = this.cannonType.damage;
         this.projectileSpeed = this.cannonType.projectileSpeed;
         this.projectileSize = this.cannonType.projectileSize;
-        
+
         // Применяем улучшения из гаража
         this.applyUpgrades();
-        
+
         // КРИТИЧНО: Сохраняем характеристики ПОСЛЕ применения улучшений
         // Эти характеристики НЕ должны изменяться после смерти!
         this._initialMaxHealth = this.maxHealth;
@@ -569,22 +583,22 @@ export class TankController {
         this._initialBaseTurretSpeed = this.baseTurretSpeed;
         this._characteristicsInitialized = true;
         logger.log(`[TANK] Initial characteristics saved: HP=${this._initialMaxHealth}, Speed=${this._initialMoveSpeed}, Damage=${this._initialDamage}, Cooldown=${this._initialCooldown}, TurretSpeed=${this._initialTurretSpeed}`);
-        
+
         // 5. Initialize modules (before visuals to use them)
         this.healthModule = new TankHealthModule(this);
         this.movementModule = new TankMovementModule(this);
         this.projectilesModule = new TankProjectilesModule(this);
         this.visualsModule = new TankVisualsModule(this);
-        
+
         // 1. Visuals - создаём уникальные формы для каждого типа корпуса
         // КРИТИЧНО: Проверяем, не создан ли уже корпус
         if ((this as any).chassis && !(this as any).chassis.isDisposed()) {
             logger.warn("[TankController] Chassis already exists, disposing old one");
             (this as any).chassis.dispose();
         }
-        
+
         this.chassis = this.visualsModule.createUniqueChassis(scene, position);
-        
+
         // КРИТИЧНО: Проверяем, что меш не добавлен в сцену дважды
         const chassisCount = scene.meshes.filter(m => m === this.chassis).length;
         if (chassisCount > 1) {
@@ -596,16 +610,16 @@ export class TankController {
                 }
             }
         }
-        
+
         // КРИТИЧНО: Убеждаемся, что меш имеет правильный parent (null для корневого меша)
         if (this.chassis.parent) {
             logger.warn(`[TankController] Chassis has unexpected parent: ${this.chassis.parent.name}, removing`);
             this.chassis.parent = null;
         }
-        
+
         // КРИТИЧНО: MeshBuilder.CreateBox автоматически добавляет меш в scene.meshes
         // НЕ добавляем его вручную, чтобы избежать дублирования
-        
+
         // КРИТИЧНО: Предотвращаем исчезновение корпуса при frustum culling
         this.chassis.alwaysSelectAsActiveMesh = true;
         // ИСПРАВЛЕНИЕ: Полностью отключаем occlusion culling для предотвращения пропадания за стенами гаража
@@ -631,7 +645,7 @@ export class TankController {
         }
         // КРИТИЧНО: Убеждаемся, что меш не клонируется и не инстанцируется
         this.chassis.doNotSyncBoundingInfo = false; // Включаем синхронизацию bounding info
-        
+
         // Применяем скин к корпусу, если выбран
         const selectedSkinId = loadSelectedSkin();
         if (selectedSkinId && this.chassis.material) {
@@ -643,7 +657,7 @@ export class TankController {
                 console.warn(`[SKIN] Constructor: Skin not found: ${selectedSkinId}`);
             }
         }
-        
+
         // ВАЖНО: Metadata для обнаружения снарядами врагов
         this.chassis.metadata = { type: "playerTank", instance: this };
 
@@ -655,12 +669,12 @@ export class TankController {
             logger.warn("[TankController] Turret already exists, disposing old one");
             (this as any).turret.dispose();
         }
-        
+
         // КРИТИЧНО: Уникальное имя для каждого меша, чтобы избежать дублирования
         const uniqueTurretId = `turret_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
+
         // КРИТИЧНО: Удаляем все старые меши башни с паттерном turret_, чтобы избежать дублирования
-        const oldTurrets = scene.meshes.filter(mesh => 
+        const oldTurrets = scene.meshes.filter(mesh =>
             mesh.name && mesh.name.startsWith("turret_") && !mesh.isDisposed()
         );
         oldTurrets.forEach(mesh => {
@@ -683,17 +697,17 @@ export class TankController {
                 // Игнорируем ошибки при удалении уже удаленных мешей
             }
         });
-        
+
         const turretWidth = this.chassisType.width * 0.65;
         const turretHeight = this.chassisType.height * 0.75;
         const turretDepth = this.chassisType.depth * 0.6;
-        
-        this.turret = MeshBuilder.CreateBox(uniqueTurretId, { 
-            width: turretWidth, 
-            height: turretHeight, 
-            depth: turretDepth 
+
+        this.turret = MeshBuilder.CreateBox(uniqueTurretId, {
+            width: turretWidth,
+            height: turretHeight,
+            depth: turretDepth
         }, scene);
-        
+
         // КРИТИЧНО: Проверяем, что меш не добавлен в сцену дважды
         const turretCount = scene.meshes.filter(m => m === this.turret).length;
         if (turretCount > 1) {
@@ -705,7 +719,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Башня строго по центру корпуса (X=0, Z=0) и на нужной высоте
         this.turret.position = new Vector3(0, this.chassisType.height / 2 + turretHeight / 2, 0);
         this.turret.parent = this.chassis;
@@ -714,7 +728,7 @@ export class TankController {
         // Устанавливаем флаг, чтобы движок знал, что этот меш не должен рендериться отдельно
         (this.turret as any)._isChildMesh = true;
         (this.turret as any)._shouldBeChild = true; // Флаг, что этот меш должен быть дочерним
-        
+
         // КРИТИЧНО: Проверяем, не создались ли instances после установки parent
         const turretInstancesAfterParent = (this.turret as any).instances;
         if (turretInstancesAfterParent && Array.isArray(turretInstancesAfterParent) && turretInstancesAfterParent.length > 0) {
@@ -730,10 +744,10 @@ export class TankController {
             });
             (this.turret as any).instances = [];
         }
-        
+
         // КРИТИЧНО: В Babylon.js дочерние меши ДОЛЖНЫ быть в scene.meshes для рендеринга
         // НЕ удаляем turret из scene.meshes - это скрывает башню
-        
+
         // КРИТИЧНО: Уникальное имя для материала
         const uniqueTurretMatId = `turretMat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         const turretMat = new StandardMaterial(uniqueTurretMatId, scene);
@@ -760,23 +774,23 @@ export class TankController {
         // Дочерние меши (turret, barrel) наследуют видимость от родителя (chassis)
         // Установка alwaysSelectAsActiveMesh = true на дочерних мешах вызывает ДВОЙНОЙ РЕНДЕРИНГ
         // this.turret.alwaysSelectAsActiveMesh = true; // УБРАНО - причина дублирования танка!
-        
+
         // ИСПРАВЛЕНИЕ: Полностью отключаем occlusion culling для предотвращения пропадания за стенами гаража
         this.turret.occlusionType = AbstractMesh.OCCLUSION_TYPE_NONE;
         this.turret.isOccluded = false;
         // КРИТИЧНО: Отключаем получение теней
         this.turret.receiveShadows = false;
-        
+
         // FIX: НЕ переопределяем isInFrustum для дочерних мешей!
         // Дочерние меши автоматически рендерятся вместе с родителем
         // Переопределение isInFrustum вызывает двойной рендеринг
-        
+
         // FIX: НЕ добавляем observers для принудительной видимости дочерних мешей!
         // Это вызывает их двойное добавление в _activeMeshes
-        
+
         // Пушка - создаём уникальные формы для каждого типа
         // КРИТИЧНО: Удаляем все старые меши пушки с паттерном barrel_, чтобы избежать дублирования
-        const oldBarrels = scene.meshes.filter(mesh => 
+        const oldBarrels = scene.meshes.filter(mesh =>
             mesh.name && mesh.name.startsWith("barrel_") && !mesh.isDisposed()
         );
         oldBarrels.forEach(mesh => {
@@ -786,13 +800,13 @@ export class TankController {
                 // Игнорируем ошибки при удалении уже удаленных мешей
             }
         });
-        
+
         const barrelWidth = this.cannonType.barrelWidth;
         const barrelLength = this.cannonType.barrelLength;
         const baseBarrelZ = turretDepth / 2 + barrelLength / 2;
-        
+
         this.barrel = this.visualsModule.createUniqueCannon(scene, barrelWidth, barrelLength);
-        
+
         // КРИТИЧНО: Проверяем, что меш не добавлен в сцену дважды
         const barrelCount = scene.meshes.filter(m => m === this.barrel).length;
         if (barrelCount > 1) {
@@ -804,17 +818,17 @@ export class TankController {
                 }
             }
         }
-        
+
         // Ствол строго по центру башни по X и Y, и выдвинут вперед по Z
         this.barrel.position = new Vector3(0, 0, baseBarrelZ);
         this.barrel.parent = this.turret;
-        
+
         // КРИТИЧНО: Инициализируем rotation.x для всех пушек, включая Sniper
         // Убеждаемся, что ствол может поворачиваться по вертикали
         this.barrel.rotation.x = 0;
         this.barrel.rotation.y = 0;
         this.barrel.rotation.z = 0;
-        
+
         // КРИТИЧНО: Инициализируем переменные поворота ствола
         // Это особенно важно для Sniper, чтобы вертикальный поворот работал
         this._barrelCurrentRotationX = 0;
@@ -824,7 +838,7 @@ export class TankController {
         // Устанавливаем флаг, чтобы движок знал, что этот меш не должен рендериться отдельно
         (this.barrel as any)._isChildMesh = true;
         (this.barrel as any)._shouldBeChild = true; // Флаг, что этот меш должен быть дочерним
-        
+
         // КРИТИЧНО: Проверяем, не создались ли instances после установки parent
         const barrelInstancesAfterParent = (this.barrel as any).instances;
         if (barrelInstancesAfterParent && Array.isArray(barrelInstancesAfterParent) && barrelInstancesAfterParent.length > 0) {
@@ -840,7 +854,7 @@ export class TankController {
             });
             (this.barrel as any).instances = [];
         }
-        
+
         // КРИТИЧНО: В Babylon.js дочерние меши ДОЛЖНЫ быть в scene.meshes для рендеринга
         // НЕ удаляем barrel из scene.meshes - это скрывает башню
         this.barrel.renderingGroupId = 0;
@@ -848,44 +862,62 @@ export class TankController {
         // Дочерние меши (turret, barrel) наследуют видимость от родителя (chassis)
         // Установка alwaysSelectAsActiveMesh = true на дочерних мешах вызывает ДВОЙНОЙ РЕНДЕРИНГ
         // this.barrel.alwaysSelectAsActiveMesh = true; // УБРАНО - причина дублирования танка!
-        
+
         // ИСПРАВЛЕНИЕ: Полностью отключаем occlusion culling для предотвращения пропадания за стенами гаража
         this.barrel.occlusionType = AbstractMesh.OCCLUSION_TYPE_NONE;
         this.barrel.isOccluded = false;
         this.barrel.scaling.set(1.0, 1.0, 1.0);
         // КРИТИЧНО: Отключаем получение теней
         this.barrel.receiveShadows = false;
-        
+
         // FIX: НЕ переопределяем isInFrustum для дочерних мешей!
         // Дочерние меши автоматически рендерятся вместе с родителем
         // Переопределение isInFrustum вызывает двойной рендеринг
-        
+
         // FIX: НЕ добавляем observers для принудительной видимости дочерних мешей!
         // Это вызывает их двойное добавление в _activeMeshes
-        
+
         // Устанавливаем точку поворота (pivot) в задней части ствола (место крепления к башне)
         // Pivot в локальных координатах: задняя часть ствола находится на -barrelLength/2 по оси Z
         const pivotPoint = new Vector3(0, 0, -barrelLength / 2);
         this.barrel.setPivotPoint(pivotPoint);
         // После установки pivot позиция автоматически корректируется, чтобы визуальное положение не изменилось
-        
+
         // Сохраняем исходную позицию пушки для отката
         this._baseBarrelZ = baseBarrelZ;
         this._baseBarrelY = 0;
-        
+
         // Переменные для анимации отката ствола (подъем/опускание)
         this._barrelRecoilY = 0;
         this._barrelRecoilYTarget = 0;
-        
+
         // 2. Physics - корпус (chassis) с РЕАЛИСТИЧНЫМ ГУСЕНИЧНЫМ ХИТБОКСОМ
-        // Compound shape: центральный BOX + скруглённые CYLINDER спереди и сзади
+        // КРИТИЧНО: Физика создаётся ТОЛЬКО для основного корпуса (chassis mesh)!
+        // Детали корпуса (люки, фары, выхлопы и т.д.) НЕ участвуют в физике - они только визуальные элементы
+        // Башня и ствол также НЕ имеют физических тел - они привязаны к корпусу как дочерние меши
+        // Хитбокс - это простой прямоугольник (BOX) + скруглённые CYLINDER спереди и сзади для гусениц
         const chassisShape = new PhysicsShapeContainer(scene);
-        
-        // Размеры для скруглённых краёв гусениц
-        const cylinderRadius = this.chassisType.height * 0.45; // Радиус скругления
-        const cylinderOffset = this.chassisType.depth * 0.42; // Смещение от центра
-        const chassisLowering = -this.chassisType.height * 0.1; // Опускаем хитбокс чуть ниже
-        
+
+        // КРИТИЧНО: Используем множители размеров для синхронизации с визуальной моделью
+        const multipliers = CHASSIS_SIZE_MULTIPLIERS[this.chassisType.id] ?? CHASSIS_SIZE_MULTIPLIERS["medium"]!;
+        const realWidth = this.chassisType.width * multipliers!.width;
+        const realHeight = this.chassisType.height * multipliers!.height;
+        const realDepth = this.chassisType.depth * multipliers!.depth;
+
+        // Для hover и shield используем Math.max для width/depth (как в визуальной модели)
+        let finalWidth = realWidth;
+        let finalDepth = realDepth;
+        if (this.chassisType.id === "hover" || this.chassisType.id === "shield") {
+            const maxSize = Math.max(this.chassisType.width, this.chassisType.depth) * multipliers!.width;
+            finalWidth = maxSize;
+            finalDepth = maxSize;
+        }
+
+        // Размеры для скруглённых краёв гусениц (используем реальные размеры)
+        const cylinderRadius = realHeight * 0.45; // Радиус скругления
+        const cylinderOffset = finalDepth * 0.42; // Смещение от центра
+        const chassisLowering = -realHeight * 0.1; // Опускаем хитбокс чуть ниже
+
         // 1. Центральный BOX (укороченный, без острых углов)
         const centerBox = new PhysicsShape({
             type: PhysicsShapeType.BOX,
@@ -893,46 +925,46 @@ export class TankController {
                 center: new Vector3(0, chassisLowering, 0),
                 rotation: Quaternion.Identity(),
                 extents: new Vector3(
-                    this.chassisType.width,
-                    this.chassisType.height * 0.7,
-                    this.chassisType.depth * 0.7
+                    finalWidth,
+                    realHeight * 0.7,
+                    finalDepth * 0.7
                 )
             }
         }, scene);
         // HEAVY & RESPONSIVE: Отключено трение Havok, используется только Custom Force
         centerBox.material = { friction: PHYSICS_CONFIG.tank.collisionMaterials.centerBoxFriction, restitution: PHYSICS_CONFIG.tank.collisionMaterials.centerBoxRestitution };
         chassisShape.addChildFromParent(this.chassis, centerBox, this.chassis);
-        
+
         // 2. Передний CYLINDER (скруглённый край - позволяет заезжать на препятствия)
         const frontCylinder = new PhysicsShape({
             type: PhysicsShapeType.CYLINDER,
             parameters: {
-                pointA: new Vector3(-this.chassisType.width * 0.5, chassisLowering, cylinderOffset),
-                pointB: new Vector3(this.chassisType.width * 0.5, chassisLowering, cylinderOffset),
+                pointA: new Vector3(-finalWidth * 0.5, chassisLowering, cylinderOffset),
+                pointB: new Vector3(finalWidth * 0.5, chassisLowering, cylinderOffset),
                 radius: cylinderRadius
             }
         }, scene);
         // HEAVY & RESPONSIVE: Отключено трение Havok, используется только Custom Force
         frontCylinder.material = { friction: PHYSICS_CONFIG.tank.collisionMaterials.frontCylinderFriction, restitution: PHYSICS_CONFIG.tank.collisionMaterials.frontCylinderRestitution };
         chassisShape.addChildFromParent(this.chassis, frontCylinder, this.chassis);
-        
+
         // 3. Задний CYLINDER (скруглённый край)
         const backCylinder = new PhysicsShape({
             type: PhysicsShapeType.CYLINDER,
             parameters: {
-                pointA: new Vector3(-this.chassisType.width * 0.5, chassisLowering, -cylinderOffset),
-                pointB: new Vector3(this.chassisType.width * 0.5, chassisLowering, -cylinderOffset),
+                pointA: new Vector3(-finalWidth * 0.5, chassisLowering, -cylinderOffset),
+                pointB: new Vector3(finalWidth * 0.5, chassisLowering, -cylinderOffset),
                 radius: cylinderRadius
             }
         }, scene);
         // HEAVY & RESPONSIVE: Отключено трение Havok, используется только Custom Force
         backCylinder.material = { friction: PHYSICS_CONFIG.tank.collisionMaterials.backCylinderFriction, restitution: PHYSICS_CONFIG.tank.collisionMaterials.backCylinderRestitution };
         chassisShape.addChildFromParent(this.chassis, backCylinder, this.chassis);
-        
+
         // Настройки фильтрации столкновений для всего compound shape
         chassisShape.filterMembershipMask = 1;
         chassisShape.filterCollideMask = 2 | 32;
-        
+
         // КРИТИЧНО: Проверяем, не создано ли уже физическое тело для этого меша
         const existingBody = (this as any).physicsBody;
         if (existingBody && !existingBody.isDisposed) {
@@ -940,7 +972,7 @@ export class TankController {
             existingBody.dispose();
             (this as any).physicsBody = null;
         }
-        
+
         // КРИТИЧНО: Проверяем, не привязано ли уже физическое тело к этому мешу
         const existingPhysicsBody = (this.chassis as any).physicsBody;
         if (existingPhysicsBody) {
@@ -954,49 +986,49 @@ export class TankController {
             // Очищаем ссылку
             (this.chassis as any).physicsBody = null;
         }
-        
+
         this.physicsBody = new PhysicsBody(this.chassis, PhysicsMotionType.DYNAMIC, false, scene);
         this.physicsBody.shape = chassisShape;
-        
+
         // КРИТИЧНО: disablePreStep = true - физика становится единственным источником истины для позиции
         // Без этого Babylon.js перед каждым шагом физики копирует mesh.position в physics body,
         // а после шага копирует обратно, создавая "двойной танк" эффект
         this.physicsBody.disablePreStep = true;
-        
+
         // HEAVY & RESPONSIVE: Центр масс смещен ниже для предотвращения опрокидывания
-        this.physicsBody.setMassProperties({ 
-            mass: this.mass, 
-            centerOfMass: PHYSICS_CONFIG.tank.centerOfMass.clone() 
+        this.physicsBody.setMassProperties({
+            mass: this.mass,
+            centerOfMass: PHYSICS_CONFIG.tank.centerOfMass.clone()
         });
         this.physicsBody.setLinearDamping(PHYSICS_CONFIG.tank.stability.linearDamping);
         this.physicsBody.setAngularDamping(PHYSICS_CONFIG.tank.stability.angularDamping);
 
         // 3. Loop
         scene.onBeforePhysicsObservable.add(() => this.updatePhysics());
-        
+
         // 3.1 КРИТИЧНО: Обновляем кэш позиций ПОСЛЕ шага физики, чтобы камера использовала актуальные данные
         // Это исправляет проблему "двойного танка" - когда камера использовала устаревшую позицию
         scene.onAfterPhysicsObservable.add(() => this.updatePositionCache());
-        
+
         // 3.2 Инициализируем кэш позиций сразу, чтобы избежать (0,0,0) при первом использовании
         this._cachedChassisPosition.copyFrom(this.chassis.absolutePosition);
-        
+
         // 4. Inputs
         this.setupInput();
-        
+
         // 5. Initialize modules
         this.healthModule = new TankHealthModule(this);
         this.movementModule = new TankMovementModule(this);
-        
+
         // 6. Create module visuals
         this.createModuleVisuals();
-        
+
         // КРИТИЧНО: Финальная проверка на дубликаты мешей танка в сцене
         // Проверяем только chassis в scene.meshes (turret и barrel должны быть дочерними элементами)
         const chassisInScene = scene.meshes.filter(m => m === this.chassis).length;
         const turretInScene = scene.meshes.filter(m => m === this.turret).length;
         const barrelInScene = scene.meshes.filter(m => m === this.barrel).length;
-        
+
         // Проверяем количество мешей в scene.meshes
         // В Babylon.js дочерние меши могут быть в scene.meshes, это нормально
         // Главное - проверить, что нет дубликатов (одинаковых мешей)
@@ -1009,7 +1041,7 @@ export class TankController {
         if (barrelInScene > 1) {
             logger.error(`[TankController] ERROR: Barrel is in scene.meshes ${barrelInScene} times (expected 0-1)!`);
         }
-        
+
         // Проверяем иерархию
         if (this.turret.parent !== this.chassis) {
             logger.error(`[TankController] ERROR: Turret parent is ${this.turret.parent?.name || 'null'}, expected chassis!`);
@@ -1019,21 +1051,21 @@ export class TankController {
             logger.error(`[TankController] ERROR: Barrel parent is ${this.barrel.parent?.name || 'null'}, expected turret!`);
             this.barrel.parent = this.turret;
         }
-        
+
         // КРИТИЧНО: Проверяем, не создаются ли меши дважды из-за клонирования или других причин
         // Проверяем все меши в сцене с именами танка
         const allTankMeshes = scene.meshes.filter(mesh => {
             if (!mesh.name || mesh.isDisposed()) return false;
-            return mesh.name.startsWith("tankHull_") || 
-                   mesh.name.startsWith("turret_") || 
-                   mesh.name.startsWith("barrel_");
+            return mesh.name.startsWith("tankHull_") ||
+                mesh.name.startsWith("turret_") ||
+                mesh.name.startsWith("barrel_");
         });
-        
+
         // Проверяем, есть ли дубликаты по имени (разные меши с похожими именами)
         const chassisMeshes = allTankMeshes.filter(m => m.name.startsWith("tankHull_"));
         const turretMeshes = allTankMeshes.filter(m => m.name.startsWith("turret_"));
         const barrelMeshes = allTankMeshes.filter(m => m.name.startsWith("barrel_"));
-        
+
         if (chassisMeshes.length > 1) {
             logger.error(`[TankController] CRITICAL: Found ${chassisMeshes.length} chassis meshes!`);
             chassisMeshes.forEach((mesh, idx) => {
@@ -1050,7 +1082,7 @@ export class TankController {
                 }
             });
         }
-        
+
         if (turretMeshes.length > 1) {
             logger.error(`[TankController] CRITICAL: Found ${turretMeshes.length} turret meshes!`);
             turretMeshes.forEach((mesh, idx) => {
@@ -1067,7 +1099,7 @@ export class TankController {
                 }
             });
         }
-        
+
         if (barrelMeshes.length > 1) {
             logger.error(`[TankController] CRITICAL: Found ${barrelMeshes.length} barrel meshes!`);
             barrelMeshes.forEach((mesh, idx) => {
@@ -1084,7 +1116,7 @@ export class TankController {
                 }
             });
         }
-        
+
         // КРИТИЧНО: Проверяем, не создаются ли физические тела дважды
         const chassisPhysicsBodies = [];
         let currentMesh: any = this.chassis;
@@ -1103,7 +1135,7 @@ export class TankController {
             }
             currentMesh = currentMesh.parent;
         }
-        
+
         if (chassisPhysicsBodies.length > 1) {
             logger.error(`[TankController] CRITICAL: Found ${chassisPhysicsBodies.length} physics bodies on chassis hierarchy!`);
             // Оставляем только первый (основной)
@@ -1117,7 +1149,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // КРИТИЧНО: Проверяем, не рендерятся ли меши дважды из-за того, что они в _activeMeshes дважды
         // Эта проверка выполняется в каждом кадре через observer, но здесь мы делаем начальную проверку
         const activeMeshes = (scene as any)._activeMeshes;
@@ -1125,7 +1157,7 @@ export class TankController {
             const chassisInActive = activeMeshes.filter((m: any) => m === this.chassis).length;
             const turretInActive = activeMeshes.filter((m: any) => m === this.turret).length;
             const barrelInActive = activeMeshes.filter((m: any) => m === this.barrel).length;
-            
+
             if (chassisInActive > 1 || turretInActive > 1 || barrelInActive > 1) {
                 logger.error(`[TankController] CRITICAL: Meshes in _activeMeshes multiple times! chassis=${chassisInActive}, turret=${turretInActive}, barrel=${barrelInActive}`);
                 // Удаляем дубликаты из _activeMeshes
@@ -1156,7 +1188,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // FIX: Упрощенный observer - теперь только проверяем целостность parent-child связей
         // Тяжёлые per-frame проверки дубликатов больше не нужны, так как причина дублирования устранена
         // (убрали alwaysSelectAsActiveMesh с дочерних мешей turret и barrel)
@@ -1174,11 +1206,11 @@ export class TankController {
             }
         });
         (this as any)._parentCheckObserver = parentCheckObserver;
-        
+
         // ========== КРИТИЧНО: ПРОВЕРКА И ОЧИСТКА INSTANCES ПОСЛЕ ВСЕХ ОПЕРАЦИЙ ==========
         // Проверяем и очищаем instances для всех мешей танка ПОСЛЕ создания всех компонентов
         // Это предотвращает визуальное дублирование, вызванное instances
-        
+
         // 1. Проверка и очистка instances для chassis
         const chassisInstances = (this.chassis as any).instances;
         if (chassisInstances && Array.isArray(chassisInstances) && chassisInstances.length > 0) {
@@ -1198,7 +1230,7 @@ export class TankController {
             (this.chassis as any).instances = [];
             logger.error(`[TankController] Chassis instances cleared`);
         }
-        
+
         // 2. Проверка и очистка instances для turret
         const turretInstances = (this.turret as any).instances;
         if (turretInstances && Array.isArray(turretInstances) && turretInstances.length > 0) {
@@ -1216,7 +1248,7 @@ export class TankController {
             (this.turret as any).instances = [];
             logger.error(`[TankController] Turret instances cleared`);
         }
-        
+
         // 3. Проверка и очистка instances для barrel
         const barrelInstances = (this.barrel as any).instances;
         if (barrelInstances && Array.isArray(barrelInstances) && barrelInstances.length > 0) {
@@ -1234,7 +1266,7 @@ export class TankController {
             (this.barrel as any).instances = [];
             logger.error(`[TankController] Barrel instances cleared`);
         }
-        
+
         // 4. Финальная проверка: убеждаемся, что все instances очищены
         const finalChassisInstances = (this.chassis as any).instances;
         const finalTurretInstances = (this.turret as any).instances;
@@ -1247,16 +1279,16 @@ export class TankController {
         } else {
             logger.log(`[TankController] ✅ All instances cleared successfully`);
         }
-        
+
         // ========== КОМПЛЕКСНАЯ ДИАГНОСТИКА ДУБЛИРОВАНИЯ ТАНКА ==========
         logger.log(`[TankController] ========== TANK DUPLICATION DIAGNOSTICS ==========`);
-        
+
         // 1. Проверка мешей в scene.meshes
         const diagChassisInScene = scene.meshes.filter(m => m === this.chassis).length;
         const diagTurretInScene = scene.meshes.filter(m => m === this.turret).length;
         const diagBarrelInScene = scene.meshes.filter(m => m === this.barrel).length;
         logger.log(`[TankController] [1] scene.meshes count: chassis=${diagChassisInScene}, turret=${diagTurretInScene}, barrel=${diagBarrelInScene}`);
-        
+
         // КРИТИЧНО: В Babylon.js дочерние меши ДОЛЖНЫ быть в scene.meshes для рендеринга
         // Но если они также рендерятся как корневые меши, это может вызвать визуальное дублирование
         // Проверяем, не рендерятся ли они дважды из-за того, что они и в scene.meshes, и как дочерние элементы
@@ -1269,7 +1301,7 @@ export class TankController {
         if (diagBarrelInScene > 1) {
             logger.error(`[TankController] [1] ERROR: Barrel in scene.meshes ${diagBarrelInScene} times (expected 1)!`);
         }
-        
+
         // КРИТИЧНО: В Babylon.js дочерние меши ДОЛЖНЫ быть в scene.meshes для рендеринга
         // Проверяем, что turret и barrel в scene.meshes (они дочерние элементы, но должны быть в scene.meshes)
         if (diagTurretInScene === 0 && this.turret && !this.turret.isDisposed()) {
@@ -1280,7 +1312,7 @@ export class TankController {
             logger.warn(`[TankController] [1] Barrel not in scene.meshes! Adding it back.`);
             scene.meshes.push(this.barrel);
         }
-        
+
         // 2. Проверка мешей в _activeMeshes
         const diagActiveMeshes = (scene as any)._activeMeshes;
         if (diagActiveMeshes && Array.isArray(diagActiveMeshes)) {
@@ -1332,7 +1364,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // 3. Проверка иерархии parent-child
         logger.log(`[TankController] [3] Hierarchy: chassis.parent=${(this.chassis.parent as any)?.name || 'null'}, turret.parent=${(this.turret.parent as any)?.name || 'null'}, barrel.parent=${(this.barrel.parent as any)?.name || 'null'}`);
         if (this.turret.parent !== this.chassis) {
@@ -1341,7 +1373,7 @@ export class TankController {
         if (this.barrel.parent !== this.turret) {
             logger.error(`[TankController] [3] ERROR: Barrel parent is not turret!`);
         }
-        
+
         // 4. Проверка shadow generator
         const shadowGenerator = (scene as any).terrainShadowGenerator;
         if (shadowGenerator) {
@@ -1384,13 +1416,13 @@ export class TankController {
         } else {
             logger.log(`[TankController] [4] No shadow generator found`);
         }
-        
+
         // 5. Проверка rendering groups
         logger.log(`[TankController] [5] RenderingGroupId: chassis=${this.chassis.renderingGroupId}, turret=${this.turret.renderingGroupId}, barrel=${this.barrel.renderingGroupId}`);
         if (this.chassis.renderingGroupId !== this.turret.renderingGroupId || this.turret.renderingGroupId !== this.barrel.renderingGroupId) {
             logger.error(`[TankController] [5] ERROR: Different renderingGroupId values!`);
         }
-        
+
         // КРИТИЧНО: Проверяем, не добавлены ли меши в несколько rendering groups
         const renderingGroups = (scene as any)._renderingGroups;
         if (renderingGroups) {
@@ -1446,24 +1478,24 @@ export class TankController {
                 });
             }
         }
-        
+
         // 6. Проверка материалов
         logger.log(`[TankController] [6] Materials: chassis=${this.chassis.material?.name || 'none'}, turret=${this.turret.material?.name || 'none'}, barrel=${this.barrel.material?.name || 'none'}`);
         logger.log(`[TankController] [6] Material instances: chassis=${this.chassis.material === this.turret.material ? 'SAME' : 'DIFFERENT'}, turret=${this.turret.material === this.barrel.material ? 'SAME' : 'DIFFERENT'}`);
-        
+
         // 7. Проверка теней
         logger.log(`[TankController] [7] Shadows: chassis.receiveShadows=${this.chassis.receiveShadows}, turret.receiveShadows=${this.turret.receiveShadows}, barrel.receiveShadows=${this.barrel.receiveShadows}`);
-        
+
         // 8. Проверка видимости и enabled
         logger.log(`[TankController] [8] Visibility: chassis=${this.chassis.isVisible}, turret=${this.turret.isVisible}, barrel=${this.barrel.isVisible}`);
         logger.log(`[TankController] [8] Enabled: chassis=${this.chassis.isEnabled()}, turret=${this.turret.isEnabled()}, barrel=${this.barrel.isEnabled()}`);
-        
+
         // 9. Проверка позиций (если дубликаты, позиции могут отличаться)
         logger.log(`[TankController] [9] Positions: chassis=(${this.chassis.position.x.toFixed(2)}, ${this.chassis.position.y.toFixed(2)}, ${this.chassis.position.z.toFixed(2)}), turret=(${this.turret.position.x.toFixed(2)}, ${this.turret.position.y.toFixed(2)}, ${this.turret.position.z.toFixed(2)}), barrel=(${this.barrel.position.x.toFixed(2)}, ${this.barrel.position.y.toFixed(2)}, ${this.barrel.position.z.toFixed(2)})`);
-        
+
         // 10. Проверка масштаба (если масштаб неправильный, может показаться дубликатом)
         logger.log(`[TankController] [10] Scaling: chassis=(${this.chassis.scaling.x.toFixed(2)}, ${this.chassis.scaling.y.toFixed(2)}, ${this.chassis.scaling.z.toFixed(2)}), turret=(${this.turret.scaling.x.toFixed(2)}, ${this.turret.scaling.y.toFixed(2)}, ${this.turret.scaling.z.toFixed(2)}), barrel=(${this.barrel.scaling.x.toFixed(2)}, ${this.barrel.scaling.y.toFixed(2)}, ${this.barrel.scaling.z.toFixed(2)})`);
-        
+
         // 11. Проверка физических тел
         const chassisPhysicsBody = (this.chassis as any).physicsBody;
         const turretPhysicsBody = (this.turret as any).physicsBody;
@@ -1472,20 +1504,20 @@ export class TankController {
         if (turretPhysicsBody || barrelPhysicsBody) {
             logger.error(`[TankController] [11] ERROR: Turret or barrel has physics body (should only be on chassis)!`);
         }
-        
+
         // 12. Проверка уникальных идентификаторов мешей
         logger.log(`[TankController] [12] Mesh names: chassis=${this.chassis.name}, turret=${this.turret.name}, barrel=${this.barrel.name}`);
         logger.log(`[TankController] [12] Mesh uniqueIds: chassis=${this.chassis.uniqueId}, turret=${this.turret.uniqueId}, barrel=${this.barrel.uniqueId}`);
-        
+
         // 13. Проверка всех мешей с похожими именами (возможные дубликаты)
         const allTankMeshesByName = scene.meshes.filter(mesh => {
             if (!mesh.name || mesh.isDisposed()) return false;
-            return (mesh.name.startsWith("tankHull_") || 
-                   mesh.name.startsWith("turret_") || 
-                   mesh.name.startsWith("barrel_")) &&
-                   mesh !== this.chassis && 
-                   mesh !== this.turret && 
-                   mesh !== this.barrel;
+            return (mesh.name.startsWith("tankHull_") ||
+                mesh.name.startsWith("turret_") ||
+                mesh.name.startsWith("barrel_")) &&
+                mesh !== this.chassis &&
+                mesh !== this.turret &&
+                mesh !== this.barrel;
         });
         if (allTankMeshesByName.length > 0) {
             logger.error(`[TankController] [13] ERROR: Found ${allTankMeshesByName.length} additional tank meshes with similar names!`);
@@ -1495,12 +1527,12 @@ export class TankController {
         } else {
             logger.log(`[TankController] [13] No additional tank meshes found`);
         }
-        
+
         logger.log(`[TankController] ========== END DIAGNOSTICS ==========`);
-        
+
         logger.log("TankController: Init Success");
     }
-    
+
     // Создать визуальные меши для модулей
     // Модули размещаются в фиксированных слотах:
     // - На корпусе: модули 6 (щит), 9 (платформа), 0 (прыжок)
@@ -1511,11 +1543,11 @@ export class TankController {
         // Функция оставлена для совместимости, но не создаёт визуализацию
         return;
     }
-    
+
     // Модуль 6 - Защитная стенка (щит на корпусе)
     private createModule6Visual(w: number, h: number, d: number): void {
         const meshes: Mesh[] = [];
-        
+
         // Защитный щит на передней части корпуса
         const shield = MeshBuilder.CreateBox("module6_shield", {
             width: w * 0.6,
@@ -1524,21 +1556,21 @@ export class TankController {
         }, this.scene);
         shield.position = new Vector3(0, h * 0.1, d * 0.45);
         shield.parent = this.chassis;
-        
+
         const shieldMat = new StandardMaterial("module6Mat", this.scene);
         shieldMat.diffuseColor = new Color3(0.2, 0.4, 0.8); // Синий щит
         shieldMat.emissiveColor = new Color3(0.1, 0.2, 0.4);
         shieldMat.specularColor = Color3.Black();
         shield.material = shieldMat;
         meshes.push(shield);
-        
+
         this.moduleVisuals.set(6, meshes);
     }
-    
+
     // Модуль 7 - Ускоренная стрельба (индикатор на пушке)
     private createModule7Visual(): void {
         const meshes: Mesh[] = [];
-        
+
         // Индикатор на пушке
         const indicator = MeshBuilder.CreateBox("module7_indicator", {
             width: 0.3,
@@ -1547,21 +1579,21 @@ export class TankController {
         }, this.scene);
         indicator.position = new Vector3(0, 0.2, this.cannonType.barrelLength * 0.3);
         indicator.parent = this.barrel;
-        
+
         const indicatorMat = new StandardMaterial("module7Mat", this.scene);
         indicatorMat.diffuseColor = new Color3(1, 0.8, 0); // Желтый/оранжевый
         indicatorMat.emissiveColor = new Color3(0.5, 0.4, 0);
         indicatorMat.specularColor = Color3.Black();
         indicator.material = indicatorMat;
         meshes.push(indicator);
-        
+
         this.moduleVisuals.set(7, meshes);
     }
-    
+
     // Модуль 8 - Автонаводка (радар на башне)
     private createModule8Visual(w: number): void {
         const meshes: Mesh[] = [];
-        
+
         // Радар/сенсор на башне
         const radar = MeshBuilder.CreateBox("module8_radar", {
             width: w * 0.3,
@@ -1570,21 +1602,21 @@ export class TankController {
         }, this.scene);
         radar.position = new Vector3(0, this.chassisType.height * 0.75 + 0.3, 0);
         radar.parent = this.turret;
-        
+
         const radarMat = new StandardMaterial("module8Mat", this.scene);
         radarMat.diffuseColor = new Color3(0.8, 0.2, 0.2); // Красный радар
         radarMat.emissiveColor = new Color3(0.4, 0.1, 0.1);
         radarMat.specularColor = Color3.Black();
         radar.material = radarMat;
         meshes.push(radar);
-        
+
         this.moduleVisuals.set(8, meshes);
     }
-    
+
     // Модуль 9 - Платформа (гидравлические опоры снизу корпуса)
     private createModule9Visual(w: number, h: number, d: number): void {
         const meshes: Mesh[] = [];
-        
+
         // Гидравлические опоры по углам корпуса (для подъёма платформы)
         const positions = [
             new Vector3(-w * 0.35, -h * 0.4, d * 0.35),
@@ -1592,7 +1624,7 @@ export class TankController {
             new Vector3(-w * 0.35, -h * 0.4, -d * 0.35),
             new Vector3(w * 0.35, -h * 0.4, -d * 0.35)
         ];
-        
+
         for (let i = 0; i < 4; i++) {
             const piston = MeshBuilder.CreateCylinder(`module9_piston_${i}`, {
                 height: 0.4,
@@ -1601,7 +1633,7 @@ export class TankController {
             }, this.scene);
             piston.position = positions[i]!;
             piston.parent = this.chassis;
-            
+
             const pistonMat = new StandardMaterial(`module9Mat_${i}`, this.scene);
             pistonMat.diffuseColor = new Color3(1, 0.6, 0.1); // Оранжевый (гидравлика)
             pistonMat.emissiveColor = new Color3(0.4, 0.2, 0);
@@ -1609,14 +1641,14 @@ export class TankController {
             piston.material = pistonMat;
             meshes.push(piston);
         }
-        
+
         this.moduleVisuals.set(9, meshes);
     }
-    
+
     // Модуль 0 - Прыжок (реактивные двигатели снизу/сзади)
     private createModule0Visual(w: number, h: number, d: number): void {
         const meshes: Mesh[] = [];
-        
+
         // Реактивные двигатели сзади корпуса
         for (let i = 0; i < 2; i++) {
             const engine = MeshBuilder.CreateBox(`module0_engine_${i}`, {
@@ -1630,7 +1662,7 @@ export class TankController {
                 -d * 0.45
             );
             engine.parent = this.chassis;
-            
+
             const engineMat = new StandardMaterial(`module0Mat_${i}`, this.scene);
             engineMat.diffuseColor = new Color3(1, 0.5, 0); // Оранжевый/красный
             engineMat.emissiveColor = new Color3(0.5, 0.25, 0);
@@ -1638,16 +1670,16 @@ export class TankController {
             engine.material = engineMat;
             meshes.push(engine);
         }
-        
+
         this.moduleVisuals.set(0, meshes);
     }
-    
+
     // Обновить видимость модулей в зависимости от установки
     private updateModuleVisuals(): void {
         // Проверяем установленные модули через localStorage
         // Пока что делаем все модули видимыми (можно будет добавить проверку установки)
         const installedModules = this.getInstalledModules();
-        
+
         for (const [moduleId, meshes] of this.moduleVisuals.entries()) {
             const isInstalled = installedModules.has(moduleId);
             // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach
@@ -1660,11 +1692,11 @@ export class TankController {
             }
         }
     }
-    
+
     // Получить список установленных модулей
     private getInstalledModules(): Set<number> {
         const installed = new Set<number>();
-        
+
         // Проверяем localStorage для установленных модулей
         try {
             const savedModules = localStorage.getItem("installedModules");
@@ -1684,10 +1716,10 @@ export class TankController {
             logger.warn("[TankController] Failed to load installed modules:", e);
             // В случае ошибки возвращаем пустой набор - модули не установлены
         }
-        
+
         return installed;
     }
-    
+
     // Сохранить список установленных модулей в localStorage
     private saveInstalledModules(modules: Set<number>): void {
         try {
@@ -1697,7 +1729,7 @@ export class TankController {
             logger.warn("[TankController] Failed to save installed modules:", e);
         }
     }
-    
+
     // Установить модуль (вызывается из гаража)
     public installModule(moduleId: number): void {
         const installed = this.getInstalledModules();
@@ -1705,7 +1737,7 @@ export class TankController {
         this.saveInstalledModules(installed);
         this.updateModuleVisuals();
     }
-    
+
     // Удалить модуль (вызывается из гаража)
     public uninstallModule(moduleId: number): void {
         const installed = this.getInstalledModules();
@@ -1713,7 +1745,7 @@ export class TankController {
         this.saveInstalledModules(installed);
         this.updateModuleVisuals();
     }
-    
+
     // Публичный метод для обновления визуализации модулей (вызывается из гаража)
     public updateModuleVisualsFromGarage(): void {
         this.updateModuleVisuals();
@@ -1728,7 +1760,7 @@ export class TankController {
     setSoundManager(soundManager: SoundManager) {
         this.soundManager = soundManager;
     }
-    
+
     /**
      * Применить настройки управления
      */
@@ -1744,10 +1776,82 @@ export class TankController {
         }
     }
 
+    /**
+     * Установить состояние экранного управления (touch input)
+     * Вызывается из HUD при изменении состояния джойстика/кнопок
+     */
+    setTouchInput(state: {
+        throttle?: number;
+        steer?: number;
+        turretLeft?: boolean;
+        turretRight?: boolean;
+        turretRotation?: number;  // Аналоговый поворот башни -1..1
+        aimPitch?: number;        // Наклон пушки -1..1
+        fire?: boolean;
+        aim?: boolean;
+    }): void {
+        if (state.throttle !== undefined) this._touchThrottle = state.throttle;
+        if (state.steer !== undefined) this._touchSteer = state.steer;
+        if (state.turretLeft !== undefined) this._touchTurretLeft = state.turretLeft;
+        if (state.turretRight !== undefined) this._touchTurretRight = state.turretRight;
+        if (state.turretRotation !== undefined) this._touchTurretRotation = state.turretRotation;
+        if (state.aimPitch !== undefined) this._touchAimPitch = state.aimPitch;
+        if (state.fire !== undefined) {
+            // Если touch fire стал true и не было fire раньше - стреляем
+            if (state.fire && !this._touchFire) {
+                this.fire();
+            }
+            this._touchFire = state.fire;
+        }
+        if (state.aim !== undefined) this._touchAim = state.aim;
+    }
+
+    /**
+     * Получить состояние touch throttle (для TankMovementModule)
+     */
+    getTouchThrottle(): number {
+        return this._touchThrottle;
+    }
+
+    /**
+     * Получить состояние touch steer (для TankMovementModule)
+     */
+    getTouchSteer(): number {
+        return this._touchSteer;
+    }
+
+    /**
+     * Получить состояние touch turret (для TankMovementModule)
+     */
+    getTouchTurret(): { left: boolean; right: boolean } {
+        return { left: this._touchTurretLeft, right: this._touchTurretRight };
+    }
+
+    /**
+     * Получить аналоговое значение поворота башни от джойстика (-1..1)
+     */
+    getTouchTurretRotation(): number {
+        return this._touchTurretRotation;
+    }
+
+    /**
+     * Получить аналоговое значение наклона пушки от джойстика (-1..1)
+     */
+    getTouchAimPitch(): number {
+        return this._touchAimPitch;
+    }
+
+    /**
+     * Получить состояние touch aim
+     */
+    isTouchAiming(): boolean {
+        return this._touchAim;
+    }
+
     setEffectsManager(effectsManager: EffectsManager) {
         this.effectsManager = effectsManager;
     }
-    
+
     setCameraShakeCallback(callback: (intensity: number) => void) {
         this.cameraShakeCallback = callback;
     }
@@ -1755,16 +1859,16 @@ export class TankController {
     setEnemyManager(enemyManager: EnemyManager) {
         this.enemyManager = enemyManager;
     }
-    
+
     setEnemyTanks(enemyTanks: any[]) {
         this.enemyTanks = enemyTanks;
     }
-    
+
     // Установить callback для получения позиции респавна (гараж)
     setRespawnPositionCallback(callback: () => Vector3 | null) {
         this.respawnPositionCallback = callback;
     }
-    
+
     setOnShootCallback(callback: ((data: any) => void)) {
         this.onShootCallback = callback;
     }
@@ -1775,20 +1879,20 @@ export class TankController {
         if (this.respawnIntervalId !== null) {
             clearInterval(this.respawnIntervalId);
         }
-        
+
         // Без сообщения о смерти - тихий респавн
-        
+
         // Обратный отсчёт каждую секунду
         this.respawnIntervalId = window.setInterval(() => {
             this.respawnCountdown--;
-            
+
             if (this.respawnCountdown <= 0) {
                 // Останавливаем таймер
                 if (this.respawnIntervalId !== null) {
                     clearInterval(this.respawnIntervalId);
                     this.respawnIntervalId = null;
                 }
-                
+
                 // Респавн!
                 logger.log("[TANK] Respawn timer complete!");
                 if (!this.isAlive) {
@@ -1812,33 +1916,33 @@ export class TankController {
     heal(amount: number) {
         return this.healthModule.heal(amount);
     }
-    
+
     // Топливная система
     addFuel(amount: number): void {
         return this.healthModule.addFuel(amount);
     }
-    
+
     consumeFuel(deltaTime: number): void {
         return this.healthModule.consumeFuel(deltaTime);
     }
-    
+
     getFuelPercent(): number {
         return this.healthModule.getFuelPercent();
     }
-    
+
     // Защита от урона
     private activateInvulnerability(): void {
         return this.healthModule.activateInvulnerability();
     }
-    
+
     private updateInvulnerability(): void {
         return this.healthModule.updateInvulnerability();
     }
-    
+
     isInvulnerableNow(): boolean {
         return this.healthModule.isInvulnerableNow();
     }
-    
+
     getInvulnerabilityTimeLeft(): number {
         return this.healthModule.getInvulnerabilityTimeLeft();
     }
@@ -1859,14 +1963,14 @@ export class TankController {
         this.turnSpeed = this.chassisType.turnSpeed;
         this.acceleration = this.chassisType.acceleration;
         this.maxHealth = this.chassisType.maxHealth;
-        
+
         // Сбрасываем характеристики к базовым значениям из типа пушки
         this.cooldown = this.cannonType.cooldown;
         this.baseCooldown = this.cannonType.cooldown;
         this.damage = this.cannonType.damage;
         this.projectileSpeed = this.cannonType.projectileSpeed;
         this.projectileSize = this.cannonType.projectileSize;
-        
+
         // Сбрасываем скорость поворота башни к базовым значениям
         this.turretSpeed = 0.08;
         this.baseTurretSpeed = 0.08;
@@ -1878,38 +1982,38 @@ export class TankController {
             // КРИТИЧНО: Сначала сбрасываем все характеристики к базовым значениям
             // Это предотвращает накопление бонусов при каждом респавне
             this.resetBaseStats();
-            
+
             // === 1. УЛУЧШЕНИЯ ИЗ ГАРАЖА ===
             const saved = localStorage.getItem("tx_garage_progress");
             if (saved) {
                 const progress = JSON.parse(saved);
                 if (progress.upgrades) {
                     const upgrades = progress.upgrades;
-                    
+
                     // Здоровье
                     if (upgrades.health_1) {
                         const healthBonus = upgrades.health_1 * 20;
                         this.maxHealth += healthBonus;
                     }
-                    
+
                     // Скорость
                     if (upgrades.speed_1) {
                         const speedBonus = upgrades.speed_1 * 2;
                         this.moveSpeed += speedBonus;
                     }
-                    
+
                     // Броня (увеличиваем здоровье)
                     if (upgrades.armor_1) {
                         const armorBonus = upgrades.armor_1 * 0.2;
                         this.maxHealth += Math.floor(armorBonus * 50);
                     }
-                    
+
                     // Урон
                     if (upgrades.damage_1) {
                         const damageBonus = upgrades.damage_1 * 5;
                         this.damage += damageBonus;
                     }
-                    
+
                     // Перезарядка
                     if (upgrades.reload_1) {
                         const reloadBonus = upgrades.reload_1 * 100;
@@ -1917,7 +2021,7 @@ export class TankController {
                     }
                 }
             }
-            
+
             // === 2. БОНУСЫ ОТ УРОВНЯ ОПЫТА ===
             if (this.experienceSystem) {
                 // Бонусы корпуса
@@ -1928,7 +2032,7 @@ export class TankController {
                     this.turnSpeed += chassisBonus.turnSpeedBonus;
                     // Броня применяется как процент снижения урона в takeDamage
                 }
-                
+
                 // Бонусы пушки
                 const cannonBonus = this.experienceSystem.getCannonLevelBonus(this.cannonType.id);
                 if (cannonBonus) {
@@ -1936,13 +2040,13 @@ export class TankController {
                     this.cooldown = Math.max(300, this.cooldown - cannonBonus.reloadBonus);
                     this.projectileSpeed += cannonBonus.projectileSpeedBonus;
                 }
-                
+
                 // Логируем применённые бонусы
                 const chassisLevel = this.experienceSystem.getChassisLevel(this.chassisType.id);
                 const cannonLevel = this.experienceSystem.getCannonLevel(this.cannonType.id);
                 logger.log(`[Tank] Experience bonuses applied: Chassis Lv.${chassisLevel}, Cannon Lv.${cannonLevel}`);
             }
-            
+
             // === 3. БОНУСЫ ОТ НАВЫКОВ ИГРОКА ===
             if (this.playerProgression) {
                 const skillBonuses = this.playerProgression.getSkillBonuses();
@@ -1953,32 +2057,32 @@ export class TankController {
                 // ИСПРАВЛЕНО: turretSpeedBonus влияет на скорость БАШНИ, а не корпуса
                 this.turretSpeed += skillBonuses.turretSpeedBonus;
                 this.baseTurretSpeed += skillBonuses.turretSpeedBonus;
-                
+
                 logger.log(`[Tank] Skill bonuses applied: +${skillBonuses.healthBonus} HP, +${skillBonuses.damageBonus} dmg, +${skillBonuses.speedBonus.toFixed(1)} speed`);
             }
-            
+
             // === 4. ПАССИВНЫЕ БОНУСЫ ОТ УРОВНЯ ИГРОКА ===
             if (this.playerProgression) {
                 const levelBonuses = this.playerProgression.getLevelBonuses();
                 this.maxHealth += levelBonuses.healthBonus;
                 this.damage += levelBonuses.damageBonus;
                 this.moveSpeed += levelBonuses.speedBonus;
-                
+
                 logger.log(`[Tank] Level bonuses applied: +${levelBonuses.healthBonus} HP, +${levelBonuses.damageBonus.toFixed(1)} dmg, +${levelBonuses.speedBonus.toFixed(1)} speed`);
             }
-            
+
             // === 5. БОНУСЫ ОТ СИСТЕМЫ ПРОКАЧКИ (UpgradeManager) ===
             this.applyUpgradeManagerBonuses();
-            
+
             // Обновляем текущее здоровье
             this.currentHealth = this.maxHealth;
-            
+
             logger.log(`[Tank] Final stats: HP=${this.maxHealth}, Speed=${this.moveSpeed.toFixed(1)}, Damage=${this.damage}, Reload=${this.cooldown}ms, ProjSpeed=${this.projectileSpeed}`);
         } catch (e) {
             logger.warn("[Tank] Failed to apply upgrades:", e);
         }
     }
-    
+
     /**
      * Применить бонусы от системы прокачки (UpgradeManager)
      */
@@ -1996,13 +2100,13 @@ export class TankController {
             if (cannonBonuses.projectileSpeedMultiplier && cannonBonuses.projectileSpeedMultiplier > 1) {
                 this.projectileSpeed = Math.round(this.projectileSpeed * cannonBonuses.projectileSpeedMultiplier);
             }
-            
+
             // Бонусы корпуса
             const chassisBonuses = upgradeManager.getChassisBonuses(this.chassisType.id);
             if (chassisBonuses.healthMultiplier && chassisBonuses.healthMultiplier > 1) {
                 this.maxHealth = Math.round(this.maxHealth * chassisBonuses.healthMultiplier);
             }
-            
+
             // Бонусы шасси
             const tracksBonuses = upgradeManager.getTracksBonuses(this.trackType?.id || "standard");
             if (tracksBonuses.speedMultiplier && tracksBonuses.speedMultiplier > 1) {
@@ -2014,12 +2118,12 @@ export class TankController {
             if (tracksBonuses.accelerationMultiplier && tracksBonuses.accelerationMultiplier > 1) {
                 this.acceleration = this.acceleration * tracksBonuses.accelerationMultiplier;
             }
-            
+
             // Логируем уровни прокачки
             const cannonLevel = upgradeManager.getElementLevel("cannon", this.cannonType.id);
             const chassisLevel = upgradeManager.getElementLevel("chassis", this.chassisType.id);
             const tracksLevel = upgradeManager.getElementLevel("tracks", this.trackType?.id || "standard");
-            
+
             if (cannonLevel > 1 || chassisLevel > 1 || tracksLevel > 1) {
                 logger.log(`[Tank] UpgradeManager bonuses: Cannon Lv.${cannonLevel}, Chassis Lv.${chassisLevel}, Tracks Lv.${tracksLevel}`);
             }
@@ -2030,15 +2134,15 @@ export class TankController {
 
     respawn() {
         logger.log("[TANK] Respawning...");
-        
+
         // Перезагружаем конфигурацию корпуса и пушки из localStorage (на случай если игрок выбрал новые)
         const savedChassisId = localStorage.getItem("selectedChassis") || "medium";
         const savedCannonId = localStorage.getItem("selectedCannon") || "standard";
         const savedTrackId = localStorage.getItem("selectedTrack") || "standard";
-        
+
         logger.log(`[TANK] Respawn: current types - chassis=${this.chassisType?.id}, cannon=${this.cannonType?.id}, track=${this.trackType?.id}`);
         logger.log(`[TANK] Respawn: saved types - chassis=${savedChassisId}, cannon=${savedCannonId}, track=${savedTrackId}`);
-        
+
         // Проверяем, изменились ли типы частей
         // Сравниваем строки, приводим к нижнему регистру для надёжности
         const currentChassisId = (this.chassisType?.id || "").toLowerCase();
@@ -2047,26 +2151,26 @@ export class TankController {
         const savedChassisIdLower = savedChassisId.toLowerCase();
         const savedCannonIdLower = savedCannonId.toLowerCase();
         const savedTrackIdLower = savedTrackId.toLowerCase();
-        
+
         const chassisChanged = currentChassisId !== savedChassisIdLower;
         const cannonChanged = currentCannonId !== savedCannonIdLower;
         const trackChanged = currentTrackId !== savedTrackIdLower;
         const needsRecreation = chassisChanged || cannonChanged || trackChanged;
-        
+
         logger.log(`[TANK] Parts comparison: current(${currentChassisId}, ${currentCannonId}, ${currentTrackId}) vs saved(${savedChassisIdLower}, ${savedCannonIdLower}, ${savedTrackIdLower})`);
         logger.log(`[TANK] Parts changed: chassis=${chassisChanged}, cannon=${cannonChanged}, track=${trackChanged}, needsRecreation=${needsRecreation}`);
-        
+
         if (needsRecreation) {
             logger.log(`[TANK] Recreating parts...`);
-            
+
             // Сохраняем текущую позицию
             const currentPos = this.chassis?.position?.clone() || new Vector3(0, 1.2, 0);
-            
+
             // Обновляем типы
             this.chassisType = getChassisById(savedChassisId);
             this.cannonType = getCannonById(savedCannonId);
             this.trackType = getTrackById(savedTrackId);
-            
+
             // Обновляем параметры
             this.mass = this.chassisType.mass;
             this.moveSpeed = this.chassisType.moveSpeed;
@@ -2078,7 +2182,7 @@ export class TankController {
             this.damage = this.cannonType.damage;
             this.projectileSpeed = this.cannonType.projectileSpeed;
             this.projectileSize = this.cannonType.projectileSize;
-            
+
             // Dispose старых частей
             if (this.chassis && !this.chassis.isDisposed()) {
                 this.chassis.dispose();
@@ -2095,25 +2199,25 @@ export class TankController {
             if (this.rightTrack && !this.rightTrack.isDisposed()) {
                 this.rightTrack.dispose();
             }
-            
+
             // Пересоздаём части
             this.chassis = this.visualsModule.createUniqueChassis(this.scene, currentPos);
             this.visualsModule.createVisualWheels();
-            
+
             // Пересоздаём башню и пушку
             const turretWidth = this.chassisType.width * 0.65;
             const turretHeight = this.chassisType.height * 0.75;
             const turretDepth = this.chassisType.depth * 0.6;
-            
+
             const uniqueTurretId = `turret_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            this.turret = MeshBuilder.CreateBox(uniqueTurretId, { 
-                width: turretWidth, 
-                height: turretHeight, 
-                depth: turretDepth 
+            this.turret = MeshBuilder.CreateBox(uniqueTurretId, {
+                width: turretWidth,
+                height: turretHeight,
+                depth: turretDepth
             }, this.scene);
             this.turret.position = new Vector3(0, this.chassisType.height / 2 + turretHeight / 2, 0);
             this.turret.parent = this.chassis;
-            
+
             const turretMat = new StandardMaterial("turretMat", this.scene);
             const selectedSkinId = loadSelectedSkin();
             if (selectedSkinId) {
@@ -2127,7 +2231,7 @@ export class TankController {
             }
             turretMat.specularColor = Color3.Black();
             this.turret.material = turretMat;
-            
+
             // Пересоздаём пушку
             const barrelWidth = this.cannonType.barrelWidth;
             const barrelLength = this.cannonType.barrelLength;
@@ -2137,7 +2241,7 @@ export class TankController {
             this.barrel.parent = this.turret;
             (this.barrel as any)._isChildMesh = true;
             (this.barrel as any)._shouldBeChild = true;
-            
+
             // Применяем скин к корпусу
             if (selectedSkinId && this.chassis.material) {
                 const skin = getSkinById(selectedSkinId);
@@ -2146,7 +2250,7 @@ export class TankController {
                     applySkinColorToMaterial(this.chassis.material as StandardMaterial, skinColors.chassisColor);
                 }
             }
-            
+
             // Восстанавливаем физику (dispose старой, если есть)
             if (this.physicsBody) {
                 try {
@@ -2156,15 +2260,15 @@ export class TankController {
                 }
                 (this as any).physicsBody = null;
             }
-            
+
             // Также очищаем physicsBody из chassis, если есть
             if ((this.chassis as any).physicsBody) {
                 (this.chassis as any).physicsBody = null;
             }
-            
+
             logger.log(`[TANK] Parts recreated. Chassis: ${this.chassis?.name}, Turret: ${this.turret?.name}, Barrel: ${this.barrel?.name}`);
         }
-        
+
         // КРИТИЧНО: НЕ применяем улучшения заново! Характеристики НЕ должны изменяться после смерти!
         // Вместо этого восстанавливаем сохранённые характеристики из начала боя
         if (this._characteristicsInitialized) {
@@ -2193,7 +2297,7 @@ export class TankController {
             this._initialBaseTurretSpeed = this.baseTurretSpeed;
             this._characteristicsInitialized = true;
         }
-        
+
         // ВОССТАНАВЛИВАЕМ здоровье и состояние
         this.currentHealth = this.maxHealth;
         this.currentFuel = this.maxFuel;
@@ -2203,7 +2307,7 @@ export class TankController {
         // Это предотвращает конфликт между анимацией и updatePhysics/updateCamera
         this.isReloading = false;
         this.lastShotTime = 0;
-        
+
         // Получаем позицию респавна
         let respawnPos: Vector3;
         if (this.respawnPositionCallback) {
@@ -2212,7 +2316,7 @@ export class TankController {
         } else {
             respawnPos = new Vector3(0, 1.2, 0);
         }
-        
+
         // Анимация сборки танка (если были разрушенные части)
         if (this.healthModule && (this.healthModule as any).destroyedParts && (this.healthModule as any).destroyedParts.length > 0) {
             // Запускаем анимацию сборки, после завершения выполняем остальную логику респавна
@@ -2221,11 +2325,11 @@ export class TankController {
             });
             return; // Выходим раньше, остальное сделает анимация
         }
-        
+
         // Если анимации нет, выполняем обычный респавн
         this.completeRespawn(respawnPos);
     }
-    
+
     /**
      * Завершает респавн - устанавливает позицию и восстанавливает физику
      */
@@ -2243,7 +2347,7 @@ export class TankController {
             // Сохраняем ссылку на turret для проверки пересоздания
             (this as any)._savedTurretBeforeRespawn = this.turret;
         }
-        
+
         // КРИТИЧНО: Устанавливаем lastRespawnTime и сбрасываем флаги ДО isAlive = true!
         // Это предотвращает race condition: игровой цикл может запуститься до установки lastRespawnTime
         const game = (window as any).gameInstance;
@@ -2260,29 +2364,29 @@ export class TankController {
             }
             logger.log(`[TANK] Respawn flags reset BEFORE isAlive: lastRespawnTime=${game.lastRespawnTime}, shouldCenterCamera=${game.shouldCenterCamera}, cameraYaw=${game.cameraYaw.toFixed(3)}, turretRotY=${this.turret ? this.turret.rotation.y.toFixed(3) : 'N/A'}`);
         }
-        
+
         // КРИТИЧНО: Устанавливаем isAlive = true ЗДЕСЬ, после завершения анимации сборки!
         // Это предотвращает конфликт между анимацией и updatePhysics/updateCamera
         this.isAlive = true;
-        
+
         const targetX = respawnPos.x;
         const targetZ = respawnPos.z;
-        
+
         // КРИТИЧНО: Проверяем был ли танк уже телепортирован через startGarageRespawn
         // Если да - НЕ пересчитываем позицию, просто используем текущую (избегаем дёрганья)
         const wasTeleportedToGarage = (this as any)._wasTeleportedToGarage === true;
-        
+
         // КРИТИЧНО: Проверяем флаг переодевания на месте (из GameGarage)
         const isInPlaceDressing = (this as any)._inPlaceDressing === true;
-        
+
         let targetY = respawnPos.y;
-        
+
         // Проверяем, находится ли танк в гараже через gameGarage
         let isInGarage = false;
         if (game && (game as any).gameGarage && typeof (game as any).gameGarage.isPlayerInAnyGarage === 'function') {
             isInGarage = (game as any).gameGarage.isPlayerInAnyGarage();
         }
-        
+
         // КРИТИЧНО: Если переодевание на месте - используем ПЕРЕДАННУЮ позицию БЕЗ ИЗМЕНЕНИЙ
         if (isInPlaceDressing) {
             // Используем Y из respawnPos (которая уже содержит текущую позицию танка)
@@ -2314,22 +2418,22 @@ export class TankController {
                 }
             }
         }
-        
+
         logger.log(`[TANK] Completing respawn at: X=${targetX.toFixed(2)}, Y=${targetY.toFixed(2)}, Z=${targetZ.toFixed(2)}`);
-        
+
         // ТЕЛЕПОРТИРУЕМ ТАНК В ГАРАЖ - ЖЁСТКО И ПРИНУДИТЕЛЬНО!
         if (this.chassis) {
             // 1. Устанавливаем позицию С ПРАВИЛЬНОЙ ВЫСОТОЙ
             this.chassis.position.set(targetX, targetY, targetZ);
-            
+
             // 2. Сбрасываем вращение
             this.chassis.rotationQuaternion = Quaternion.Identity();
             this.chassis.rotation.set(0, 0, 0);
-            
+
             // КРИТИЧНО: Проверяем, была ли башня пересоздана ДО сброса rotation
-            const turretWasRecreated = !turretExistsBefore || !this.turret || this.turret.isDisposed() || 
-                                       (turretExistsBefore && this.turret !== (this as any)._savedTurretBeforeRespawn);
-            
+            const turretWasRecreated = !turretExistsBefore || !this.turret || this.turret.isDisposed() ||
+                (turretExistsBefore && this.turret !== (this as any)._savedTurretBeforeRespawn);
+
             if (this.turret) {
                 if (turretWasRecreated) {
                     // Башня была пересоздана - сбрасываем rotation (обычный респавн)
@@ -2348,21 +2452,21 @@ export class TankController {
                 this.barrel.rotationQuaternion = Quaternion.Identity();
                 this.barrel.rotation.set(0, 0, 0);
             }
-            
+
             // 3. Обновляем матрицы ПРИНУДИТЕЛЬНО
             this.chassis.computeWorldMatrix(true);
             if (this.turret) this.turret.computeWorldMatrix(true);
             if (this.barrel) this.barrel.computeWorldMatrix(true);
-            
+
             // 4. Восстанавливаем физику, если её нет (с РЕАЛИСТИЧНЫМ ГУСЕНИЧНЫМ ХИТБОКСОМ)
             if (!this.physicsBody) {
                 const chassisShape = new PhysicsShapeContainer(this.scene);
-                
+
                 // Размеры для скруглённых краёв гусениц
                 const cylinderRadius = this.chassisType.height * 0.45;
                 const cylinderOffset = this.chassisType.depth * 0.42;
                 const chassisLowering = -this.chassisType.height * 0.1;
-                
+
                 // Центральный BOX
                 const centerBox = new PhysicsShape({
                     type: PhysicsShapeType.BOX,
@@ -2373,9 +2477,9 @@ export class TankController {
                     }
                 }, this.scene);
                 // HEAVY & RESPONSIVE: Отключено трение Havok, используется только Custom Force
-        centerBox.material = { friction: PHYSICS_CONFIG.tank.collisionMaterials.centerBoxFriction, restitution: PHYSICS_CONFIG.tank.collisionMaterials.centerBoxRestitution };
+                centerBox.material = { friction: PHYSICS_CONFIG.tank.collisionMaterials.centerBoxFriction, restitution: PHYSICS_CONFIG.tank.collisionMaterials.centerBoxRestitution };
                 chassisShape.addChildFromParent(this.chassis, centerBox, this.chassis);
-                
+
                 // Передний CYLINDER
                 const frontCylinder = new PhysicsShape({
                     type: PhysicsShapeType.CYLINDER,
@@ -2386,9 +2490,9 @@ export class TankController {
                     }
                 }, this.scene);
                 // HEAVY & RESPONSIVE: Отключено трение Havok, используется только Custom Force
-        frontCylinder.material = { friction: PHYSICS_CONFIG.tank.collisionMaterials.frontCylinderFriction, restitution: PHYSICS_CONFIG.tank.collisionMaterials.frontCylinderRestitution };
+                frontCylinder.material = { friction: PHYSICS_CONFIG.tank.collisionMaterials.frontCylinderFriction, restitution: PHYSICS_CONFIG.tank.collisionMaterials.frontCylinderRestitution };
                 chassisShape.addChildFromParent(this.chassis, frontCylinder, this.chassis);
-                
+
                 // Задний CYLINDER
                 const backCylinder = new PhysicsShape({
                     type: PhysicsShapeType.CYLINDER,
@@ -2399,12 +2503,12 @@ export class TankController {
                     }
                 }, this.scene);
                 // HEAVY & RESPONSIVE: Отключено трение Havok, используется только Custom Force
-        backCylinder.material = { friction: PHYSICS_CONFIG.tank.collisionMaterials.backCylinderFriction, restitution: PHYSICS_CONFIG.tank.collisionMaterials.backCylinderRestitution };
+                backCylinder.material = { friction: PHYSICS_CONFIG.tank.collisionMaterials.backCylinderFriction, restitution: PHYSICS_CONFIG.tank.collisionMaterials.backCylinderRestitution };
                 chassisShape.addChildFromParent(this.chassis, backCylinder, this.chassis);
-                
+
                 chassisShape.filterMembershipMask = 1;
                 chassisShape.filterCollideMask = 2 | 32;
-                
+
                 // КРИТИЧНО: Проверяем, не создано ли уже физическое тело
                 const existingPhysics = this.physicsBody as any;
                 if (existingPhysics && !existingPhysics.isDisposed) {
@@ -2421,35 +2525,35 @@ export class TankController {
                     }
                     (this.chassis as any).physicsBody = null;
                 }
-                
+
                 this.physicsBody = new PhysicsBody(this.chassis, PhysicsMotionType.DYNAMIC, false, this.scene);
                 this.physicsBody.shape = chassisShape;
-                
+
                 // КРИТИЧНО: disablePreStep = true - физика единственный источник истины
                 this.physicsBody.disablePreStep = true;
-                
+
                 // HEAVY & RESPONSIVE: Используем значения из конфига
-                this.physicsBody.setMassProperties({ 
-                    mass: this.mass, 
-                    centerOfMass: PHYSICS_CONFIG.tank.centerOfMass.clone() 
+                this.physicsBody.setMassProperties({
+                    mass: this.mass,
+                    centerOfMass: PHYSICS_CONFIG.tank.centerOfMass.clone()
                 });
                 this.physicsBody.setLinearDamping(PHYSICS_CONFIG.tank.stability.linearDamping);
                 this.physicsBody.setAngularDamping(PHYSICS_CONFIG.tank.stability.angularDamping);
             }
-            
+
             // 5. КРИТИЧНО: Телепортация с правильной синхронизацией физики
             // Шаг 1: Переключаем в ANIMATED режим для прямого позиционирования
             this.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
-            
+
             // Шаг 2: Сбрасываем скорости
             this.physicsBody.setLinearVelocity(Vector3.Zero());
             this.physicsBody.setAngularVelocity(Vector3.Zero());
-            
+
             // Шаг 3: Устанавливаем позицию и вращение меша
             this.chassis.position.set(targetX, targetY, targetZ);
             this.chassis.rotationQuaternion = Quaternion.Identity();
             this.chassis.rotation.set(0, 0, 0);
-            
+
             // КРИТИЧНО: НЕ сбрасываем rotation башни если она не была пересоздана (переодевание)
             // Rotation башни уже восстановлен выше, не трогаем его здесь
             if (this.turret && turretWasRecreated) {
@@ -2457,63 +2561,63 @@ export class TankController {
                 this.turret.rotationQuaternion = Quaternion.Identity();
                 this.turret.rotation.set(0, 0, 0);
             }
-            
+
             this.chassis.computeWorldMatrix(true);
-            
+
             // Шаг 4: Временно включаем preStep для синхронизации позиции с физикой
             this.physicsBody.disablePreStep = false;
-            
+
             // Шаг 5: Возвращаем в DYNAMIC режим (физика возьмёт позицию из меша)
             this.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
-            
+
             // Шаг 6: Сбрасываем скорости после переключения
             this.physicsBody.setLinearVelocity(Vector3.Zero());
             this.physicsBody.setAngularVelocity(Vector3.Zero());
-            
+
             // Шаг 7: Восстанавливаем disablePreStep после одного кадра
             setTimeout(() => {
                 if (this.physicsBody) {
                     this.physicsBody.disablePreStep = true;
                 }
             }, 0);
-            
+
             // 6. Активируем защиту от урона
             this.activateInvulnerability();
-            
+
             // 7. Дополнительная проверка через задержку - убеждаемся что танк не перевёрнут
             setTimeout(() => {
                 if (this.physicsBody && this.chassis) {
                     // Проверяем ориентацию танка
                     const rotMatrix = this.chassis.getWorldMatrix();
                     const up = Vector3.TransformNormal(Vector3.Up(), rotMatrix);
-                    
+
                     // Если танк перевёрнут - принудительно выравниваем
                     if (up.y < 0.7) {
                         logger.warn(`[TANK] Tank is flipped on spawn! Correcting...`);
-                        
+
                         // Используем правильный метод телепортации
                         this.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
                         this.physicsBody.setLinearVelocity(Vector3.Zero());
                         this.physicsBody.setAngularVelocity(Vector3.Zero());
-                        
+
                         this.chassis.position.set(targetX, targetY, targetZ);
                         this.chassis.rotationQuaternion = Quaternion.Identity();
                         this.chassis.rotation.set(0, 0, 0);
-                        
+
                         // КРИТИЧНО: НЕ сбрасываем rotation башни если она не была пересоздана
                         if (this.turret && turretWasRecreated) {
                             this.turret.rotationQuaternion = Quaternion.Identity();
                             this.turret.rotation.set(0, 0, 0);
                         }
-                        
+
                         this.chassis.computeWorldMatrix(true);
-                        
+
                         // Временно включаем preStep для синхронизации
                         this.physicsBody.disablePreStep = false;
                         this.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
                         this.physicsBody.setLinearVelocity(Vector3.Zero());
                         this.physicsBody.setAngularVelocity(Vector3.Zero());
-                        
+
                         // Восстанавливаем disablePreStep
                         setTimeout(() => {
                             if (this.physicsBody) {
@@ -2521,21 +2625,21 @@ export class TankController {
                             }
                         }, 0);
                     }
-                    
+
                     logger.log(`[TANK] Physics re-enabled at garage position`);
                 }
             }, 100);
         } else {
             logger.error("[TANK] Cannot complete respawn - chassis missing!");
         }
-        
+
         // Обновляем HUD
         if (this.hud) {
             this.hud.setHealth(this.currentHealth, this.maxHealth);
         }
-        
+
         tankLogger.verbose("[TANK] Respawn completed!");
-        
+
         // Сбрасываем все инпуты
         this.throttleTarget = 0;
         this.steerTarget = 0;
@@ -2545,11 +2649,11 @@ export class TankController {
         this.turretTurnSmooth = 0;
         this.turretAcceleration = 0;
         this.turretAccelStartTime = 0;
-        
+
         // КРИТИЧНО: Сбрасываем флаги управления башней для восстановления поворота
         this.isKeyboardTurretControl = false;
         this.isAutoCentering = false;
-        
+
         // КРИТИЧНО: НЕ применяем улучшения! Характеристики НЕ должны изменяться после смерти!
         // Восстанавливаем сохранённые характеристики из начала боя
         if (this._characteristicsInitialized) {
@@ -2565,23 +2669,23 @@ export class TankController {
             logger.log(`[TANK] Characteristics restored in completeRespawn: HP=${this.maxHealth}, Speed=${this.moveSpeed}, Damage=${this.damage}, TurretSpeed=${this.turretSpeed}`);
         } else {
             // Fallback: если характеристики не были сохранены, используем значения по умолчанию
-            const defaultTurretSpeed = 0.08;
-            this.turretSpeed = defaultTurretSpeed;
-            this.baseTurretSpeed = defaultTurretSpeed;
+            this.turretSpeed = 0.08;
+            this.baseTurretSpeed = 0.08;
             logger.warn(`[TANK] Characteristics not initialized in completeRespawn, using default values`);
         }
-        
+
         // КРИТИЧНО: Гарантируем, что turretSpeed не равен 0, NaN, Infinity или слишком маленький
         // Это должно быть ДО отправки события respawn, чтобы game.ts получил правильное значение
+        const safeDefaultTurretSpeed = 0.08;
         if (!this.turretSpeed || this.turretSpeed === 0 || !isFinite(this.turretSpeed) || isNaN(this.turretSpeed) || this.turretSpeed === Infinity || this.turretSpeed === -Infinity || this.turretSpeed < 0.06) {
-            this.turretSpeed = defaultTurretSpeed;
-            logger.warn(`[TANK] turretSpeed was invalid after respawn (value: ${this.turretSpeed}), resetting to ${defaultTurretSpeed}`);
+            this.turretSpeed = safeDefaultTurretSpeed;
+            logger.warn(`[TANK] turretSpeed was invalid after respawn, resetting to ${safeDefaultTurretSpeed}`);
         }
         if (!this.baseTurretSpeed || this.baseTurretSpeed === 0 || !isFinite(this.baseTurretSpeed) || isNaN(this.baseTurretSpeed) || this.baseTurretSpeed === Infinity || this.baseTurretSpeed === -Infinity || this.baseTurretSpeed < 0.06) {
-            this.baseTurretSpeed = defaultTurretSpeed;
-            logger.warn(`[TANK] baseTurretSpeed was invalid after respawn (value: ${this.baseTurretSpeed}), resetting to ${defaultTurretSpeed}`);
+            this.baseTurretSpeed = safeDefaultTurretSpeed;
+            logger.warn(`[TANK] baseTurretSpeed was invalid after respawn, resetting to ${safeDefaultTurretSpeed}`);
         }
-        
+
         // КРИТИЧНО: Ограничиваем максимальную скорость поворота башни
         // После применения бонусов turretSpeed может стать слишком большим
         const maxTurretSpeed = 0.15; // Максимальная скорость поворота башни
@@ -2593,24 +2697,24 @@ export class TankController {
             logger.warn(`[TANK] baseTurretSpeed (${this.baseTurretSpeed.toFixed(4)}) exceeded max (${maxTurretSpeed}), clamping`);
             this.baseTurretSpeed = maxTurretSpeed;
         }
-        
+
         // КРИТИЧНО: Финальная проверка перед использованием
         if (!isFinite(this.turretSpeed) || this.turretSpeed <= 0) {
-            this.turretSpeed = defaultTurretSpeed;
-            logger.error(`[TANK] turretSpeed failed final validation, forcing to ${defaultTurretSpeed}`);
+            this.turretSpeed = safeDefaultTurretSpeed;
+            logger.error(`[TANK] turretSpeed failed final validation, forcing to ${safeDefaultTurretSpeed}`);
         }
         if (!isFinite(this.baseTurretSpeed) || this.baseTurretSpeed <= 0) {
-            this.baseTurretSpeed = defaultTurretSpeed;
-            logger.error(`[TANK] baseTurretSpeed failed final validation, forcing to ${defaultTurretSpeed}`);
+            this.baseTurretSpeed = safeDefaultTurretSpeed;
+            logger.error(`[TANK] baseTurretSpeed failed final validation, forcing to ${safeDefaultTurretSpeed}`);
         }
-        
+
         // КРИТИЧНО: Сбрасываем ВСЕ переменные, связанные с вращением башни
         this.turretTurnTarget = 0;
         this.turretTurnSmooth = 0;
         this.turretAcceleration = 0;
         this.turretAccelStartTime = 0;
         this.turretLerpSpeed = 0.25;
-        
+
         // Сбрасываем наклон ствола
         this.barrelPitchTarget = 0;
         this.barrelPitchSmooth = 0;
@@ -2619,12 +2723,12 @@ export class TankController {
         this.barrelPitchAcceleration = 0;
         this.barrelPitchAccelStartTime = 0;
         this.aimPitch = 0;
-        
+
         // Сбрасываем режим прицеливания
         if (this.isAiming) {
             this.toggleAimMode(false);
         }
-        
+
         // КРИТИЧНО: Отправляем событие для сброса углов камеры в game.ts ПОСЛЕ сброса вращения
         // Используем несколько попыток чтобы убедиться, что башня уже сброшена
         const sendRespawnEvent = () => {
@@ -2632,12 +2736,12 @@ export class TankController {
                 logger.warn(`[TANK] Cannot send respawn event - turret is missing or disposed!`);
                 return;
             }
-            
+
             const turretRotY = this.turret.rotation.y;
-            const chassisRotY = this.chassis.rotationQuaternion 
-                ? this.chassis.rotationQuaternion.toEulerAngles().y 
+            const chassisRotY = this.chassis.rotationQuaternion
+                ? this.chassis.rotationQuaternion.toEulerAngles().y
                 : this.chassis.rotation.y;
-            
+
             // КРИТИЧНО: НЕ сбрасываем флаги управления башней при переодевании!
             // Флаги сбрасываются только при обычном респавне (когда башня была пересоздана)
             const turretWasRecreated = !this.turret || this.turret.isDisposed();
@@ -2647,13 +2751,13 @@ export class TankController {
                 this.isAutoCentering = false;
             }
             // Если башня НЕ была пересоздана (переодевание), НЕ сбрасываем флаги!
-            
+
             // КРИТИЧНО: Убеждаемся, что turretSpeed не равен 0 и не слишком маленький
             if (!this.turretSpeed || this.turretSpeed === 0 || this.turretSpeed < 0.06) {
                 this.turretSpeed = 0.08; // Восстанавливаем стандартную скорость (увеличено)
                 logger.warn(`[TANK] turretSpeed was invalid, resetting to 0.08`);
             }
-            
+
             // КРИТИЧНО: Ограничиваем максимальную скорость поворота башни
             // После применения бонусов turretSpeed может стать слишком большим
             const maxTurretSpeed = 0.15; // Максимальная скорость поворота башни
@@ -2665,48 +2769,48 @@ export class TankController {
                 logger.warn(`[TANK] baseTurretSpeed (${this.baseTurretSpeed.toFixed(4)}) exceeded max (${maxTurretSpeed}) in sendRespawnEvent, clamping`);
                 this.baseTurretSpeed = maxTurretSpeed;
             }
-            
-            window.dispatchEvent(new CustomEvent("tankRespawned", { 
-                detail: { 
+
+            window.dispatchEvent(new CustomEvent("tankRespawned", {
+                detail: {
                     turretRotY: turretRotY,
                     chassisRotY: chassisRotY
-                } 
+                }
             }));
-            
+
             logger.log(`[TANK] Respawn event sent: turretRotY=${turretRotY.toFixed(3)}, chassisRotY=${chassisRotY.toFixed(3)}, isKeyboardTurretControl=${this.isKeyboardTurretControl}, isAutoCentering=${this.isAutoCentering}, turretSpeed=${this.turretSpeed}`);
         };
-        
+
         // КРИТИЧНО: Отправляем событие ТОЛЬКО ОДИН РАЗ!
         // Повторная отправка сбрасывает cameraYaw и вызывает дёрганье башни к центру
         setTimeout(sendRespawnEvent, 0);
-        
+
         // Сообщение в чат о респавне (БЕЗ визуальных эффектов - пункт 16!)
         if (this.chatSystem) {
             this.chatSystem.success("Респавн в гараже", 1);
         }
-        
+
         // БЕЗ звука респавна - моментальный телепорт
         // БЕЗ визуальных эффектов - моментальный телепорт (пункт 16)
-        
+
         // ТЕЛЕПОРТИРУЕМ ТАНК В ГАРАЖ - ЖЁСТКО И ПРИНУДИТЕЛЬНО!
         if (this.chassis && this.physicsBody) {
             const targetX = respawnPos.x;
             const targetZ = respawnPos.z;
-            
+
             // КРИТИЧНО: Если танк уже находится в гараже (переодевание), сохраняем текущую Y-позицию
             // НЕ поднимаем танк вверх, чтобы он не застревал в потолке
             let targetY = respawnPos.y;
-            
+
             // Проверяем флаг переодевания на месте (устанавливается из GameGarage)
             const isInPlaceDressingHere = (this as any)._inPlaceDressing === true;
-            
+
             // Проверяем, находится ли танк в гараже через gameGarage
             const game = (window as any).gameInstance;
             let isInGarage = false;
             if (game && (game as any).gameGarage && typeof (game as any).gameGarage.isPlayerInAnyGarage === 'function') {
                 isInGarage = (game as any).gameGarage.isPlayerInAnyGarage();
             }
-            
+
             // КРИТИЧНО: Если переодевание на месте - используем ТОЧНУЮ позицию из respawnPos
             if (isInPlaceDressingHere) {
                 targetY = respawnPos.y;
@@ -2729,28 +2833,28 @@ export class TankController {
                     logger.warn(`[TANK] Teleport height too low (${respawnPos.y.toFixed(2)}), forcing to 2.0`);
                 }
             }
-            
+
             logger.log(`[TANK] Teleporting to garage: X=${targetX.toFixed(2)}, Y=${targetY.toFixed(2)}, Z=${targetZ.toFixed(2)}`);
-            
+
             // 1. ОТКЛЮЧАЕМ физику временно
             this.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
-            
+
             // 2. Сбрасываем ВСЕ скорости СРАЗУ
             this.physicsBody.setLinearVelocity(Vector3.Zero());
             this.physicsBody.setAngularVelocity(Vector3.Zero());
-            
+
             // 3. Устанавливаем позицию
             this.chassis.position.set(targetX, targetY, targetZ);
-            
+
             // 4. КРИТИЧНО: НЕ сбрасываем rotation башни при переодевании!
             // Проверяем, была ли башня пересоздана - сравниваем текущий turret с сохранённым в начале
-            const turretWasRecreated = !turretExistsBefore || !this.turret || this.turret.isDisposed() || 
-                                       (turretExistsBefore && this.turret !== (this as any)._savedTurretBeforeRespawn);
-            
+            const turretWasRecreated = !turretExistsBefore || !this.turret || this.turret.isDisposed() ||
+                (turretExistsBefore && this.turret !== (this as any)._savedTurretBeforeRespawn);
+
             // Сбрасываем вращение корпуса (всегда сбрасываем)
             this.chassis.rotationQuaternion = Quaternion.Identity();
             this.chassis.rotation.set(0, 0, 0);
-            
+
             if (turretWasRecreated) {
                 // Башня была пересоздана - сбрасываем rotation (обычный респавн)
                 if (this.turret) {
@@ -2761,12 +2865,12 @@ export class TankController {
                 // Башня НЕ была пересоздана - НЕ сбрасываем rotation (переодевание)
                 // Rotation уже сохранён в начале функции
             }
-            
+
             if (this.barrel) {
                 this.barrel.rotationQuaternion = Quaternion.Identity();
                 this.barrel.rotation.set(0, 0, 0);
             }
-            
+
             // Восстанавливаем rotation башни если она не была пересоздана
             if (!turretWasRecreated && this.turret && !this.turret.isDisposed()) {
                 this.turret.rotation.y = savedTurretRotY;
@@ -2775,20 +2879,20 @@ export class TankController {
                 }
                 logger.log(`[TANK] Turret rotation restored after respawn (dressing): ${savedTurretRotY.toFixed(3)}`);
             }
-            
-            
+
+
             // 5. Обновляем матрицы ПРИНУДИТЕЛЬНО
             this.chassis.computeWorldMatrix(true);
             this.turret.computeWorldMatrix(true);
             this.barrel.computeWorldMatrix(true);
-            
+
             // 6. Временно включаем preStep для синхронизации позиции с физикой
             // В ANIMATED режиме это безопасно
             this.physicsBody.disablePreStep = false;
-            
+
             // 7. Активируем защиту от урона ПОСЛЕ установки позиции (чтобы эффект появился в правильном месте)
             this.activateInvulnerability();
-            
+
             // 8. Включаем физику обратно через задержку (ОДИН раз, чтобы избежать конфликтов)
             // КРИТИЧНО: Сохраняем флаги для использования в setTimeout
             const turretWasRecreatedForTimeout = turretWasRecreated;
@@ -2798,16 +2902,16 @@ export class TankController {
                     // КРИТИЧНО: Если танк в гараже или переодевание на месте, сохраняем текущую Y-позицию (не поднимаем)
                     const game = (window as any).gameInstance;
                     let finalY = targetY;
-                    
+
                     // Используем СОХРАНЁННЫЙ флаг переодевания на месте (не читаем заново, он мог уже сброситься)
                     const isInPlaceDressing = isInPlaceDressingForTimeout;
-                    
+
                     // Проверяем, находится ли танк в гараже
                     let isInGarage = false;
                     if (game && (game as any).gameGarage && typeof (game as any).gameGarage.isPlayerInAnyGarage === 'function') {
                         isInGarage = (game as any).gameGarage.isPlayerInAnyGarage();
                     }
-                    
+
                     // КРИТИЧНО: Если переодевание на месте - используем ТОЧНУЮ Y-позицию из targetY (уже установлена ранее)
                     if (isInPlaceDressing) {
                         finalY = targetY; // targetY уже содержит правильную высоту из respawnPos
@@ -2822,7 +2926,7 @@ export class TankController {
                         // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
                         finalY = groundHeight + 1.0;
                     }
-                    
+
                     // Убеждаемся, что позиция правильная
                     this.chassis.position.set(targetX, finalY, targetZ);
                     this.chassis.rotationQuaternion = Quaternion.Identity();
@@ -2846,18 +2950,18 @@ export class TankController {
                     this.chassis.computeWorldMatrix(true);
                     if (this.turret) this.turret.computeWorldMatrix(true);
                     if (this.barrel) this.barrel.computeWorldMatrix(true);
-                    
+
                     // Сбрасываем скорости ПЕРЕД включением физики
                     this.physicsBody.setLinearVelocity(Vector3.Zero());
                     this.physicsBody.setAngularVelocity(Vector3.Zero());
-                    
+
                     // Включаем физику (disablePreStep уже false, физика возьмёт позицию из меша)
                     this.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
-                    
+
                     // Ещё раз сбрасываем скорости после включения
                     this.physicsBody.setLinearVelocity(Vector3.Zero());
                     this.physicsBody.setAngularVelocity(Vector3.Zero());
-                    
+
                     // Восстанавливаем disablePreStep после синхронизации
                     setTimeout(() => {
                         if (this.physicsBody) {
@@ -2866,20 +2970,20 @@ export class TankController {
                             this.physicsBody.setAngularVelocity(Vector3.Zero());
                         }
                     }, 10);
-                    
+
                     logger.log(`[TANK] Physics re-enabled at garage position`);
                 }
             }, 100);
         } else {
             logger.error("[TANK] Cannot respawn - chassis or physics body missing!");
         }
-        
+
         // Обновляем HUD
         if (this.hud) {
             this.hud.setHealth(this.currentHealth, this.maxHealth);
             // Без сообщения о респавне - просто телепорт
         }
-        
+
         tankLogger.verbose("[TANK] Respawned!");
     }
 
@@ -2893,16 +2997,16 @@ export class TankController {
         trackMat.diffuseColor = trackColor;
         trackMat.specularColor = Color3.Black();
         trackMat.freeze();
-        
+
         // Используем размеры из выбранного типа гусениц
         const trackWidth = this.trackType.width;
         const trackHeight = this.trackType.height;
         const trackDepth = this.trackType.depth;
-        
+
         // Позиционирование относительно корпуса
         const w = this.chassisType.width;
         const h = this.chassisType.height;
-        
+
         // Left track - позиционирование ближе к корпусу для избежания глитчей
         this.leftTrack = MeshBuilder.CreateBox("leftTrack", {
             width: trackWidth,
@@ -2912,7 +3016,7 @@ export class TankController {
         this.leftTrack.position = new Vector3(-w * 0.55, -h * 0.25, 0); // Ближе к центру и ниже
         this.leftTrack.parent = this.chassis;
         this.leftTrack.material = trackMat;
-        
+
         // Right track - позиционирование ближе к корпусу для избежания глитчей
         this.rightTrack = MeshBuilder.CreateBox("rightTrack", {
             width: trackWidth,
@@ -2922,7 +3026,7 @@ export class TankController {
         this.rightTrack.position = new Vector3(w * 0.55, -h * 0.25, 0); // Ближе к центру и ниже
         this.rightTrack.parent = this.chassis;
         this.rightTrack.material = trackMat;
-        
+
         // Применяем бонусы от типа гусениц
         if (this.trackType.stats.speedBonus) {
             this.moveSpeed *= (1 + this.trackType.stats.speedBonus);
@@ -2936,24 +3040,24 @@ export class TankController {
             this.currentHealth = this.maxHealth;
         }
     }
-    
+
 
     setupInput() {
         this.scene.actionManager = new ActionManager(this.scene);
-        
+
         // Use window events for better reliability
         const handleKeyDown = (evt: KeyboardEvent) => {
             const code = evt.code;
             this._inputMap[code] = true;
-            
+
             // Debug: Log key presses for movement keys
             if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
-                if (code === "KeyW" || code === "KeyS" || code === "KeyA" || code === "KeyD" || 
+                if (code === "KeyW" || code === "KeyS" || code === "KeyA" || code === "KeyD" ||
                     code === "ArrowUp" || code === "ArrowDown" || code === "ArrowLeft" || code === "ArrowRight") {
                     tankLogger.verbose(`[KeyPress] ${code} pressed`);
                 }
             }
-            
+
             // ОТКЛЮЧЕНО: Авто-центрирование башни отключено
             // if (code === "KeyC") {
             //     this.isAutoCentering = true;
@@ -2964,18 +3068,18 @@ export class TankController {
                 this.isAutoCentering = false;
                 window.dispatchEvent(new CustomEvent("stopCenterCamera"));
             }
-            
+
             if (code === "Space") {
                 this.isFireKeyPressed = true;
                 this.fire(); // Стреляем сразу при нажатии
             }
-            
+
             // Tracer (T key) - fires tracer round if available and not reloading
             if (code === "KeyT") this.fireTracer();
-            
+
             // Special chassis abilities (V key)
             if (code === "KeyV") this.activateChassisAbility();
-            
+
             // Модули (кнопки 6-0)
             if (code === "Digit6" || code === "Numpad6") {
                 this.activateModule6();
@@ -2993,7 +3097,7 @@ export class TankController {
                 // Начинаем зарядку прыжка (игнорируем, если нажата Ctrl - используется для других функций)
                 const now = Date.now();
                 logger.log(`[TANK] Key 0 pressed: module0Charging=${this.module0Charging}, canJump=${this.canJump}, hasPhysics=${!!this.physicsBody}, isAlive=${this.isAlive}`);
-                
+
                 if (!this.module0Charging && this.canJump && this.physicsBody && this.isAlive) {
                     // Проверка кулдауна
                     if (now - this.module0LastUse < this.module0Cooldown) {
@@ -3012,26 +3116,31 @@ export class TankController {
                         this.chatSystem.log("Прыжок: зарядка...");
                     }
                 } else {
-                    logger.warn(`[TANK] Cannot start jump: module0Charging=${this.module0Charging}, canJump=${this.canJump}, hasPhysics=${!!this.physicsBody}, isAlive=${this.isAlive}`);
+                    // Throttle: логируем не чаще раз в 5 секунд
+                    const now = Date.now();
+                    if (!this._lastJumpWarnTime || now - this._lastJumpWarnTime > 5000) {
+                        logger.warn(`[TANK] Cannot start jump: module0Charging=${this.module0Charging}, canJump=${this.canJump}`);
+                        this._lastJumpWarnTime = now;
+                    }
                 }
             }
         };
-        
+
         const handleKeyUp = (evt: KeyboardEvent) => {
             this._inputMap[evt.code] = false;
-            
+
             // Сбрасываем флаг стрельбы при отпускании пробела
             if (evt.code === "Space") {
                 this.isFireKeyPressed = false;
             }
-            
+
             // Модуль 9: Останавливаем платформу при отпускании кнопки
             if (evt.code === "Digit9" || evt.code === "Numpad9") {
                 if (this.module9Active) {
                     this.deactivateModule9Platform();
                 }
             }
-            
+
             // Модуль 0: Выполняем прыжок при отпускании кнопки
             // Игнорируем, если была нажата Ctrl (используется для других функций, например Ctrl+0 для редактора физики)
             if ((evt.code === "Digit0" || evt.code === "Numpad0") && !evt.ctrlKey && !evt.metaKey) {
@@ -3042,17 +3151,17 @@ export class TankController {
                 // Убрано предупреждение - это нормальная ситуация, если клавиша 0 использовалась для других целей
             }
         };
-        
+
         window.addEventListener("keydown", handleKeyDown);
         window.addEventListener("keyup", handleKeyUp);
-        
+
         // Also use scene keyboard observable as backup
         this.scene.onKeyboardObservable.add((kbInfo) => {
             const evt = kbInfo.event;
-            const code = evt.code; 
+            const code = evt.code;
             const isPressed = kbInfo.type === 1;
             this._inputMap[code] = isPressed;
-            
+
             if (code === "Space") {
                 if (isPressed) {
                     this.isFireKeyPressed = true;
@@ -3065,7 +3174,7 @@ export class TankController {
 
         // Mouse control for turret and aiming
         const canvas = this.scene.getEngine().getRenderingCanvas() as HTMLCanvasElement;
-        
+
         // Pointer lock change detection
         document.addEventListener("pointerlockchange", () => {
             this.isPointerLocked = document.pointerLockElement === canvas;
@@ -3075,10 +3184,10 @@ export class TankController {
             // Явное использование lastMouseX для подавления предупреждения линтера
             void this.lastMouseX;
         });
-        
+
         // ВАЖНО: Управление мышкой обрабатывается в game.ts для синхронизации с режимом прицеливания
         // Здесь только клавиатурное управление (Z, X, C) - работает ВСЕГДА
-        
+
         // Prevent context menu on RMB (используем уже объявленный canvas)
         if (canvas) {
             canvas.addEventListener("contextmenu", (e) => {
@@ -3086,52 +3195,52 @@ export class TankController {
                 return false;
             });
         }
-        
+
         // Left click - enter pointer lock and ALWAYS shoot
         this.scene.onPointerDown = (evt) => {
-             if (evt.button === 0) { // Left click
-                 // Pointer lock handled by browser
-                 if (canvas) {
-                     try {
-                         canvas.requestPointerLock();
-                     } catch (err) {
-                         console.error("[Tank] Pointer lock error:", err);
-                     }
-                 }
-                 // Устанавливаем флаг зажатой ЛКМ и стреляем сразу
-                 this.isMouseButtonPressed = true;
-                 this.fire();
-             }
-             if (evt.button === 2) { // Right click - AIM MODE
-                 console.log("[Tank] RMB pressed - toggling aim mode ON");
-                 this.toggleAimMode(true);
-             }
+            if (evt.button === 0) { // Left click
+                // Pointer lock handled by browser
+                if (canvas) {
+                    try {
+                        canvas.requestPointerLock();
+                    } catch (err) {
+                        // Pointer lock error - ignore
+                    }
+                }
+                // Устанавливаем флаг зажатой ЛКМ и стреляем сразу
+                this.isMouseButtonPressed = true;
+                this.fire();
+            }
+            if (evt.button === 2) { // Right click - AIM MODE
+                // RMB pressed - aim mode ON
+                this.toggleAimMode(true);
+            }
         };
-        
+
         this.scene.onPointerUp = (evt) => {
             if (evt.button === 0) { // Left click released
                 this.isMouseButtonPressed = false;
             }
             if (evt.button === 2) { // Release right click
-                console.log("[Tank] RMB released - toggling aim mode OFF");
+                // RMB released - aim mode OFF
                 this.toggleAimMode(false);
             }
         };
-        
+
         // Ctrl key for aim mode too
         window.addEventListener("keydown", (e) => {
             if (e.code === "ControlLeft" || e.code === "ControlRight") {
-                console.log(`[Tank] CTRL keydown: ${e.code} - toggling aim mode ON`);
+                // CTRL keydown - aim mode ON
                 this.toggleAimMode(true);
             }
         });
         window.addEventListener("keyup", (e) => {
             if (e.code === "ControlLeft" || e.code === "ControlRight") {
-                console.log(`[Tank] CTRL keyup: ${e.code} - toggling aim mode OFF`);
+                // CTRL keyup - aim mode OFF
                 this.toggleAimMode(false);
             }
         });
-        
+
         // Автоматическая стрельба при зажатой кнопке (пробел или ЛКМ)
         this.scene.registerBeforeRender(() => {
             // Проверяем, зажата ли кнопка стрельбы
@@ -3140,26 +3249,26 @@ export class TankController {
                 this.fire();
             }
         });
-        
+
         // Сбрасываем флаги при потере фокуса окна (чтобы избежать "залипания" кнопок)
         window.addEventListener("blur", () => {
             this.isFireKeyPressed = false;
             this.isMouseButtonPressed = false;
         });
     }
-    
+
     // === AIM MODE ===
     isAiming = false;
-    
+
     toggleAimMode(enabled: boolean) {
-        console.log(`[Tank] toggleAimMode called: enabled=${enabled}, current isAiming=${this.isAiming}`);
+        // toggleAimMode called - performance optimized by removing log
         if (this.isAiming === enabled) return;
         this.isAiming = enabled;
-        
+
         // Dispatch event for camera to handle zoom
         window.dispatchEvent(new CustomEvent("aimModeChanged", { detail: { aiming: enabled } }));
-        console.log(`[Tank] aimModeChanged event dispatched: aiming=${enabled}`);
-        
+        // aimModeChanged event dispatched
+
         if (this.hud) {
             this.hud.setAimMode(enabled);
         }
@@ -3179,23 +3288,23 @@ export class TankController {
         // Используем статический список всех врагов
         const enemies = EnemyTank.getAllEnemies();
         if (!enemies || enemies.length === 0) return null;
-        
+
         let closestTarget: Vector3 | null = null;
         let closestDot = Math.cos(coneAngle); // Минимальный dot product для попадания в конус
         let closestDistance = maxDistance;
-        
+
         for (const enemy of enemies) {
             if (!enemy.isAlive || !enemy.chassis || enemy.chassis.isDisposed()) continue;
-            
+
             const enemyPos = enemy.chassis.getAbsolutePosition();
             const toEnemy = enemyPos.subtract(origin);
             const distance = toEnemy.length();
-            
+
             if (distance > maxDistance || distance < 5) continue; // Слишком далеко или слишком близко
-            
+
             const dirToEnemy = toEnemy.normalize();
             const dot = Vector3.Dot(direction, dirToEnemy);
-            
+
             // Враг в линии огня (в узком конусе перед стволом)?
             if (dot > closestDot && distance < closestDistance) {
                 closestDot = dot;
@@ -3203,70 +3312,70 @@ export class TankController {
                 closestTarget = enemyPos.clone();
             }
         }
-        
+
         return closestTarget;
     }
-    
+
     fire() {
         try {
             if (!this.isAlive) return;
-            
+
             const now = Date.now();
             if (this.isReloading || now - this.lastShotTime < this.cooldown) return;
-            
+
             // Get muzzle position and direction (exactly along barrel forward)
             // КРИТИЧЕСКИ ВАЖНО: Временно включаем barrel если он скрыт, чтобы получить правильное направление!
             const wasBarrelEnabled = this.barrel.isEnabled();
             if (!wasBarrelEnabled) {
                 this.barrel.setEnabled(true);
             }
-            
+
             // Force compute world matrix for accurate direction
             this.chassis.computeWorldMatrix(true);
             this.turret.computeWorldMatrix(true);
             this.barrel.computeWorldMatrix(true);
-            
+
             // КРИТИЧЕСКИ ВАЖНО: Получаем фактическое направление ствола напрямую
             // getDirection() автоматически учитывает все повороты: chassis + turret + barrel pitch
             // Это гарантирует, что снаряд полетит строго туда, куда смотрит ствол
             let shootDirection = this.barrel.getDirection(Vector3.Forward()).normalize();
-            
+
             // === АВТОНАВОДКА ===
             // Проверяем, есть ли враг строго в линии огня (узкий конус)
             const muzzlePreviewPos = this.barrel.getAbsolutePosition();
             const autoAimTarget = this.findTargetInLineOfFire(muzzlePreviewPos, shootDirection, 200, 0.08);
-            
+
             if (autoAimTarget) {
                 // Корректируем направление на врага
                 const correctedDir = autoAimTarget.subtract(muzzlePreviewPos).normalize();
                 // Плавно смешиваем направление (80% коррекция, 20% исходное)
                 shootDirection = shootDirection.scale(0.2).add(correctedDir.scale(0.8)).normalize();
             }
-            
-            
+
+
             // ВАЖНО: Используем shootDirection (фактическое направление ствола) для направления выстрела
             // shootDirection получен напрямую из barrel.getDirection(), что гарантирует точность
             const forward = shootDirection;
-            
+
             // Получаем позицию конца ствола (дульный срез)
             // Используем реальную длину ствола для точного позиционирования
             const barrelLength = this.cannonType.barrelLength;
             const barrelCenter = this.barrel.getAbsolutePosition();
-            
-            
+
+
             // ВАЖНО: После установки pivot, позиция дула должна рассчитываться на основе реального направления выстрела
             // Используем shootDirection (forward) для расчета позиции дула, так как это правильное направление
             // Позиция дула = центр ствола + направление выстрела * (половина длины + смещение вперед для избежания коллизии)
             const muzzleOffset = 0.3; // Смещение вперед от конца ствола для избежания коллизии с самим стволом
             const muzzlePos = barrelCenter.add(forward.scale(barrelLength / 2 + muzzleOffset));
-            
-            
-            
+
+
+
             // Возвращаем состояние barrel обратно
             if (!wasBarrelEnabled) {
                 this.barrel.setEnabled(false);
             }
-            
+
             // === ПРОВЕРКА ПРЕПЯТСТВИЙ ПЕРЕД СТВОЛОМ ===
             // Проверяем, не упирается ли ствол в препятствие (стена, здание и т.д.)
             // Используем forward (shootDirection) для проверки препятствий
@@ -3282,17 +3391,17 @@ export class TankController {
                 // НЕ вызываем this.isReloading = true
                 return; // Не создаём снаряд - выстрел заблокирован
             }
-            
+
             // Устанавливаем перезарядку только если выстрел не заблокирован
             this.lastShotTime = now;
             this.isReloading = true;
-            
+
             // Start reload on HUD
             if (this.hud) {
                 this.hud.startReload(this.cooldown);
                 this.hud.notifyPlayerShot(); // Tutorial notification
             }
-            
+
             // End reload after cooldown
             setTimeout(() => {
                 this.isReloading = false;
@@ -3300,12 +3409,12 @@ export class TankController {
                     this.soundManager.playReloadComplete();
                 }
             }, this.cooldown);
-            
+
             // Play shooting sound (с учётом типа пушки) with 3D positioning
             if (this.soundManager) {
                 this.soundManager.playShoot(this.cannonType.id, muzzlePos.clone());
             }
-            
+
             // Записываем выстрел для опыта пушки
             if (this.experienceSystem) {
                 this.experienceSystem.recordShot(this.cannonType.id);
@@ -3314,17 +3423,17 @@ export class TankController {
             if (this.playerProgression) {
                 this.playerProgression.recordShot(false);
             }
-            
+
             if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
                 combatLogger.debug("[FIRE] Cannon fired!");
             }
-            
+
             // Special handling for Support cannon
             if (this.cannonType.id === "support") {
                 this.fireSupportBeam(muzzlePos, shootDirection);
                 return; // Support doesn't create regular projectile
             }
-            
+
             // Send shoot event to multiplayer server
             if (this.onShootCallback) {
                 this.onShootCallback({
@@ -3336,13 +3445,13 @@ export class TankController {
                     timestamp: Date.now()
                 });
             }
-            
+
             // Create muzzle flash effect with cannon type
             // Используем forward (shootDirection) для эффекта вспышки
             if (this.effectsManager) {
                 this.effectsManager.createMuzzleFlash(muzzlePos, forward, this.cannonType.id);
             }
-            
+
             // === ПРОВЕРКА СТЕНЫ ПЕРЕД СОЗДАНИЕМ СНАРЯДА ===
             // Проверяем, не упирается ли ствол в стену
             // Используем forward (shootDirection) для проверки стен
@@ -3350,7 +3459,7 @@ export class TankController {
             if (wallCheck.hit && wallCheck.wallMesh && wallCheck.hitPoint) {
                 // Выстрел блокируется стеной - создаём эффект попадания и наносим урон
                 const bulletDamage = this.damage;
-                
+
                 if (wallCheck.wallType === "protectiveWall") {
                     // Наносим урон защитной стенке
                     this.damageWall(wallCheck.wallMesh, bulletDamage);
@@ -3361,7 +3470,7 @@ export class TankController {
                         wallMeta.owner.damageEnemyWall(bulletDamage);
                     }
                 }
-                
+
                 // Создаём эффект попадания
                 if (this.effectsManager) {
                     this.effectsManager.createHitSpark(wallCheck.hitPoint);
@@ -3369,25 +3478,25 @@ export class TankController {
                 if (this.soundManager) {
                     this.soundManager.playHit("armor", wallCheck.hitPoint);
                 }
-                
+
                 if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
                     combatLogger.debug("[FIRE] Shot blocked by wall!");
                 }
                 return; // Не создаём снаряд - выстрел заблокирован
             }
-            
+
             // Create projectile - используем параметры пушки
             // forward теперь равен shootDirection (правильное направление выстрела)
-            
-            
+
+
             // Размер снаряда из типа пушки
             const bulletSize = this.projectileSize;
-            
+
             // Special handling for different cannon types
             let projectileMesh: Mesh;
             let projectileMaterial: StandardMaterial;
             let projectileColor: Color3;
-            
+
             // Set unique colors and materials based on cannon type
             switch (this.cannonType.id) {
                 case "plasma":
@@ -3426,7 +3535,7 @@ export class TankController {
                 default:
                     projectileColor = new Color3(1, 1, 0); // Yellow (default)
             }
-            
+
             // Create projectile mesh with unique shape for some types
             if (this.cannonType.id === "shotgun") {
                 // Shotgun fires multiple projectiles
@@ -3438,16 +3547,16 @@ export class TankController {
                 return; // Cluster handled separately
             } else {
                 // Standard projectile - УВЕЛИЧЕННЫЙ РАЗМЕР для видимости
-                projectileMesh = MeshBuilder.CreateBox("bullet", { 
+                projectileMesh = MeshBuilder.CreateBox("bullet", {
                     width: bulletSize * 2, // УВЕЛИЧЕНО в 2 раза
                     height: bulletSize * 2, // УВЕЛИЧЕНО в 2 раза
                     depth: bulletSize * 4 // УВЕЛИЧЕНО в 2 раза
                 }, this.scene);
             }
-            
+
             projectileMesh.position.copyFrom(muzzlePos);
             projectileMesh.lookAt(projectileMesh.position.add(forward));
-            
+
             // Create unique material for projectile - ЯРЧЕ для видимости
             projectileMaterial = new StandardMaterial("projectileMat", this.scene);
             projectileMaterial.diffuseColor = projectileColor;
@@ -3459,7 +3568,7 @@ export class TankController {
             projectileMaterial.specularColor = projectileColor.scale(0.5);
             // metallicFactor не существует в StandardMaterial, используем emissiveColor для эффекта
             projectileMesh.material = projectileMaterial;
-            
+
             // Enhanced metadata with special properties
             const specialProperties: any = {
                 isHoming: this.cannonType.id === "homing",
@@ -3471,10 +3580,10 @@ export class TankController {
                 chainTargets: this.cannonType.id === "tesla" ? 3 : 0,
                 effectType: this.cannonType.id // For hit effects
             };
-            
-            projectileMesh.metadata = { 
-                type: "bullet", 
-                owner: "player", 
+
+            projectileMesh.metadata = {
+                type: "bullet",
+                owner: "player",
                 damage: this.damage,
                 cannonType: this.cannonType.id,
                 ...specialProperties
@@ -3484,22 +3593,22 @@ export class TankController {
             if (this.effectsManager) {
                 this.effectsManager.createBulletTrail(projectileMesh, projectileColor, this.cannonType.id);
             }
-            
+
             const ball = projectileMesh; // For compatibility with existing code
-            
+
             // Special handling for homing projectiles
             if (specialProperties.isHoming && this.enemyTanks) {
                 ball.metadata.homingTarget = null;
                 ball.metadata.homingStrength = 0.15; // How strongly it tracks
             }
 
-            const shape = new PhysicsShape({ 
-                type: PhysicsShapeType.BOX, 
-                parameters: { extents: new Vector3(bulletSize * 0.75, bulletSize * 0.75, bulletSize * 2) } 
+            const shape = new PhysicsShape({
+                type: PhysicsShapeType.BOX,
+                parameters: { extents: new Vector3(bulletSize * 0.75, bulletSize * 0.75, bulletSize * 2) }
             }, this.scene);
             shape.filterMembershipMask = 4; // Player bullet group
             shape.filterCollideMask = 2 | 8 | 32; // Can collide with environment (2), enemy tanks (8), and protective walls (32)
-            
+
             const body = new PhysicsBody(ball, PhysicsMotionType.DYNAMIC, false, this.scene);
             body.shape = shape;
             // АРКАДНЫЙ СТИЛЬ: Минимальная масса - снаряд НЕ толкает танки при попадании
@@ -3508,19 +3617,19 @@ export class TankController {
 
             // Скорость снаряда из типа пушки (уменьшен импульс из-за малой массы)
             const impulse = this.projectileSpeed * 0.018;
-            
+
             body.applyImpulse(forward.scale(impulse), ball.position);
-            
+
 
             // === GUN FEEL: УСИЛЕННАЯ ОТДАЧА ===
             // Множитель отдачи зависит от типа пушки
             const recoilMultiplier = this.cannonType.recoilMultiplier ?? 1.0;
-            
+
             // 1. Физическая отдача - применяется как импульс к дулу/башне для создания рычага
             const recoilConfig = PHYSICS_CONFIG.shooting.recoil;
             const effectiveRecoilForce = this.recoilForce * recoilMultiplier;
             const recoilForceVec = forward.scale(-effectiveRecoilForce);
-            
+
             // GUN FEEL: Применяем отдачу к дулу/башне вместо центра масс для создания крутящего момента
             if (recoilConfig.applicationPoint === "muzzle") {
                 const barrelWorldPos = this.barrel.getAbsolutePosition();
@@ -3529,14 +3638,14 @@ export class TankController {
                 // Fallback на центр масс (старое поведение)
                 this.physicsBody.applyImpulse(recoilForceVec, this.chassis.absolutePosition);
             }
-            
+
             // 2. Угловая отдача - танк наклоняется назад (усилена для аркадного геймплея)
             const effectiveRecoilTorque = this.recoilTorque * recoilMultiplier;
             const barrelWorldPos = this.barrel.getAbsolutePosition();
             const chassisPos = this.chassis.absolutePosition;
             const torqueDir = barrelWorldPos.subtract(chassisPos).normalize();
             this.applyTorque(new Vector3(-torqueDir.z * effectiveRecoilTorque, 0, torqueDir.x * effectiveRecoilTorque));
-            
+
             // 3. Визуальный откат пушки - пушка откатывается назад и поднимается
             // Устанавливаем текущие значения отката (мгновенно)
             this.barrelRecoilOffset = this.barrelRecoilAmount; // Откат пушки назад
@@ -3544,22 +3653,22 @@ export class TankController {
             // Целевые значения - возврат в исходное положение (0)
             this.barrelRecoilTarget = 0;
             this._barrelRecoilYTarget = 0;
-            
+
             // 4. Выброс гильзы (используем forward - barrelForward)
             this.projectilesModule.createShellCasing(muzzlePos, forward);
-            
+
             // ВАЖНО: Отдача НЕ влияет на камеру - только физика танка и визуальный откат пушки
 
             // === ПРОВЕРКА ПОПАДАНИЙ ===
             const projectileDamage = this.damage; // Урон из типа пушки
             let hasHit = false;
             let ricochetCount = 0;
-            
+
             // Создаём систему рикошета с учётом типа пушки
-            const ricochetConfig: RicochetConfig = this.cannonType.id === "ricochet" 
+            const ricochetConfig: RicochetConfig = this.cannonType.id === "ricochet"
                 ? { ...RICOCHET_CANNON_CONFIG, maxRicochets: (this.cannonType.maxRicochets || 5) }
                 : { ...DEFAULT_RICOCHET_CONFIG, maxRicochets: (this.cannonType.maxRicochets || 3) };
-            
+
             // Учитываем параметры пушки
             if (this.cannonType.ricochetSpeedRetention) {
                 ricochetConfig.ricochetSpeedRetention = this.cannonType.ricochetSpeedRetention;
@@ -3567,38 +3676,38 @@ export class TankController {
             if (this.cannonType.ricochetAngle) {
                 ricochetConfig.baseRicochetAngle = this.cannonType.ricochetAngle;
             }
-            
+
             const ricochetSystem = new RicochetSystem(ricochetConfig);
             const maxRicochets = ricochetConfig.maxRicochets;
 
             // === ОСНОВНАЯ ПРОВЕРКА ПО РАССТОЯНИЮ (надёжнее чем физика!) ===
             const HIT_RADIUS_TANK = 4.0;   // Радиус попадания в танк
             const HIT_RADIUS_TURRET = 2.5; // Радиус попадания в турель
-            
+
             // Сохраняем предыдущую позицию для рейкаста
             let prevBulletPos = ball.absolutePosition.clone();
-            
+
             const checkHit = () => {
                 if (hasHit || ball.isDisposed()) return;
-                
+
                 const bulletPos = ball.absolutePosition;
                 const bulletMeta = ball.metadata as any;
-                
+
                 // === УЛУЧШЕННАЯ ПРОВЕРКА СТЕН С РЕЙКАСТОМ ===
                 // Используем рейкаст от предыдущей позиции к текущей для обнаружения быстрых снарядов
                 const moveDistance = Vector3.Distance(prevBulletPos, bulletPos);
                 if (moveDistance > 0.1) { // Только если снаряд переместился достаточно
                     const moveDirection = bulletPos.subtract(prevBulletPos).normalize();
                     const ray = new Ray(prevBulletPos, moveDirection, moveDistance + 0.5);
-                    
+
                     // Проверяем защитные стены
                     for (const wallData of this.module6Walls) {
                         if (!wallData.mesh || wallData.mesh.isDisposed()) continue;
-                        
+
                         const pick = this.scene.pickWithRay(ray, (mesh) => {
                             return mesh === wallData.mesh;
                         });
-                        
+
                         if (pick && pick.hit && pick.pickedPoint) {
                             // Проверяем, что точка попадания внутри стены
                             if (this.checkPointInWall(pick.pickedPoint, wallData.mesh, "protectiveWall")) {
@@ -3612,22 +3721,22 @@ export class TankController {
                             }
                         }
                     }
-                    
+
                     // Проверяем стены врагов
                     // ОПТИМИЗАЦИЯ: Кэшируем результат filter для enemyWalls
                     if (!this._cachedEnemyWalls || this._enemyWallsCacheFrame !== this._logFrameCounter) {
-                        this._cachedEnemyWalls = this.scene.meshes.filter(mesh => 
+                        this._cachedEnemyWalls = this.scene.meshes.filter(mesh =>
                             mesh.metadata && mesh.metadata.type === "enemyWall" && !mesh.isDisposed()
                         );
                         this._enemyWallsCacheFrame = this._logFrameCounter;
                     }
                     const enemyWalls = this._cachedEnemyWalls;
                     for (const wall of enemyWalls) {
-                    const wallMesh = wall as Mesh;
-                    const pick = this.scene.pickWithRay(ray, (mesh) => {
-                        return mesh === wallMesh;
-                    });
-                        
+                        const wallMesh = wall as Mesh;
+                        const pick = this.scene.pickWithRay(ray, (mesh) => {
+                            return mesh === wallMesh;
+                        });
+
                         if (pick && pick.hit && pick.pickedPoint) {
                             if (this.checkPointInWall(pick.pickedPoint, wallMesh, "enemyWall")) {
                                 hasHit = true;
@@ -3644,19 +3753,19 @@ export class TankController {
                         }
                     }
                 }
-                
+
                 // Homing projectile guidance
                 if (bulletMeta?.isHoming && this.enemyTanks && this.enemyTanks.length > 0) {
                     // Find nearest enemy
                     let nearestEnemy: any = null;
                     let nearestDist = 50; // Max homing range
-                    
+
                     // ОПТИМИЗАЦИЯ: Используем квадрат расстояния вместо Vector3.Distance
                     const enemyCount = this.enemyTanks.length;
                     for (let i = 0; i < enemyCount; i++) {
                         const enemy = this.enemyTanks[i];
                         if (!enemy || !enemy.isAlive || !enemy.chassis || enemy.chassis.isDisposed()) continue;
-                        
+
                         // КРИТИЧНО: Используем absolutePosition для правильной позиции в мировых координатах
                         const enemyPos = enemy.chassis.absolutePosition;
                         const dx = bulletPos.x - enemyPos.x;
@@ -3668,7 +3777,7 @@ export class TankController {
                             nearestEnemy = enemy;
                         }
                     }
-                    
+
                     if (nearestEnemy) {
                         // Steer towards target
                         const targetPos = nearestEnemy.chassis.absolutePosition;
@@ -3683,12 +3792,12 @@ export class TankController {
                         }
                     }
                 }
-                
+
                 // === ПРОВЕРКА СТОЛКНОВЕНИЯ СО СТЕНКАМИ (дополнительная проверка текущей позиции) ===
                 // Используем вспомогательную функцию для проверки
                 for (const wallData of this.module6Walls) {
                     if (!wallData.mesh || wallData.mesh.isDisposed()) continue;
-                    
+
                     if (this.checkPointInWall(bulletPos, wallData.mesh, "protectiveWall")) {
                         hasHit = true;
                         const bulletDamage = (ball.metadata && (ball.metadata as any).damage) ? (ball.metadata as any).damage : 25;
@@ -3699,11 +3808,11 @@ export class TankController {
                         return;
                     }
                 }
-                
+
                 // === ПРОВЕРКА ПОПАДАНИЯ В СТЕНКИ ВРАГОВ ===
                 // ОПТИМИЗАЦИЯ: Кэшируем результат filter для enemyWalls
                 if (!this._cachedEnemyWalls || this._enemyWallsCacheFrame !== this._logFrameCounter) {
-                    this._cachedEnemyWalls = this.scene.meshes.filter(mesh => 
+                    this._cachedEnemyWalls = this.scene.meshes.filter(mesh =>
                         mesh.metadata && mesh.metadata.type === "enemyWall" && !mesh.isDisposed()
                     );
                     this._enemyWallsCacheFrame = this._logFrameCounter;
@@ -3727,7 +3836,7 @@ export class TankController {
                         return;
                     }
                 }
-                
+
                 // === ПРОВЕРКА ПОПАДАНИЯ В ТУРЕЛИ ===
                 if (this.enemyManager) {
                     // ОПТИМИЗАЦИЯ: Используем квадрат расстояния вместо Vector3.Distance
@@ -3750,38 +3859,47 @@ export class TankController {
                             }
                             turret.takeDamage(projectileDamage);
                             if (this.effectsManager) this.effectsManager.createExplosion(bulletPos, 1.0);
-                        if (this.soundManager) {
-                            const hitType = projectileDamage > 30 ? "critical" : projectileDamage > 15 ? "armor" : "normal";
-                            this.soundManager.playHit(hitType, bulletPos);
-                        }
-                        // Записываем попадание и урон для опыта
-                        if (this.experienceSystem) {
-                            this.experienceSystem.recordHit(this.cannonType.id, false);
-                            this.experienceSystem.recordDamageDealt(this.chassisType.id, this.cannonType.id, projectileDamage);
-                        }
-                        // Записываем урон в статистику игрока
-                        if (this.playerProgression) {
-                            this.playerProgression.recordShot(true);
-                            this.playerProgression.recordDamageDealt(projectileDamage);
-                        }
-                        // Награда XP от UpgradeManager
-                        upgradeManager.addXpForDamage(projectileDamage);
-                        // Show hit marker on HUD
-                        if (this.hud) {
-                            this.hud.showHitMarker(false);
-                        }
+                            if (this.soundManager) {
+                                const hitType = projectileDamage > 30 ? "critical" : projectileDamage > 15 ? "armor" : "normal";
+                                this.soundManager.playHit(hitType, bulletPos);
+                            }
+                            // Записываем попадание и урон для опыта
+                            if (this.experienceSystem) {
+                                this.experienceSystem.recordHit(this.cannonType.id, false);
+                                this.experienceSystem.recordDamageDealt(this.chassisType.id, this.cannonType.id, projectileDamage);
+                            }
+                            // Записываем урон в статистику игрока
+                            if (this.playerProgression) {
+                                this.playerProgression.recordShot(true);
+                                this.playerProgression.recordDamageDealt(projectileDamage);
+                            }
+                            // Награда XP от UpgradeManager
+                            upgradeManager.addXpForDamage(projectileDamage);
+                            // Show hit marker on HUD
+                            if (this.hud) {
+                                this.hud.showHitMarker(false);
+                            }
+                            // Вибрация при попадании (мобильные устройства)
+                            if (typeof window !== 'undefined' && 'vibrate' in navigator) {
+                                try {
+                                    const { getHapticFeedback } = require('./mobile');
+                                    getHapticFeedback().hit();
+                                } catch (e) {
+                                    // Игнорируем ошибки если модуль не загружен
+                                }
+                            }
                             ball.dispose();
                             return;
                         }
                     }
                 }
-                
+
                 // === ПРОВЕРКА ПОПАДАНИЯ В ТАНКИ ===
                 const enemies = this.enemyTanks || [];
                 for (let i = 0; i < enemies.length; i++) {
                     const enemy = enemies[i];
                     if (!enemy || !enemy.isAlive || !enemy.chassis || enemy.chassis.isDisposed()) continue;
-                    
+
                     const enemyPos = enemy.chassis.absolutePosition;
                     // ОПТИМИЗАЦИЯ: Используем квадрат расстояния вместо Vector3.Distance
                     const dx = bulletPos.x - enemyPos.x;
@@ -3794,13 +3912,13 @@ export class TankController {
                         const bulletMeta = ball.metadata as any;
                         const cannonTypeId = bulletMeta?.cannonType || this.cannonType.id;
                         const effectType = bulletMeta?.effectType || cannonTypeId;
-                        
+
                         if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
                             // ОПТИМИЗАЦИЯ: Вычисляем dist только для лога
                             const dist = Math.sqrt(distSq);
                             combatLogger.debug("%c[HIT] ENEMY TANK! Damage: " + projectileDamage + " | Distance: " + dist.toFixed(1), "color: red; font-weight: bold");
                         }
-                        
+
                         // Handle special mechanics
                         if (bulletMeta?.isExplosive && bulletMeta?.explosionRadius > 0) {
                             // Explosive AOE damage
@@ -3813,7 +3931,7 @@ export class TankController {
                             enemy.takeDamage(projectileDamage);
                             this.createHitEffect(bulletPos, effectType);
                         }
-                        
+
                         // Piercing projectiles continue through
                         if (!bulletMeta?.isPiercing) {
                             if (this.soundManager) {
@@ -3857,14 +3975,14 @@ export class TankController {
                         return;
                     }
                 }
-                
+
                 // === РИКОШЕТ ОТ ЗЕМЛИ (используем RicochetSystem) ===
                 if (bulletPos.y < 0.6 && ricochetCount < maxRicochets) {
                     const velocity = body.getLinearVelocity();
                     if (velocity) {
                         const groundNormal = new Vector3(0, 1, 0);
                         const cannonType = this.cannonType.id;
-                        
+
                         const result = ricochetSystem.calculate({
                             velocity,
                             hitPoint: bulletPos.clone(),
@@ -3873,31 +3991,31 @@ export class TankController {
                             currentRicochetCount: ricochetCount,
                             projectileType: cannonType === "tracer" ? "tracer" : undefined
                         });
-                        
+
                         if (result.shouldRicochet) {
                             ricochetCount = result.ricochetCount;
                             body.setLinearVelocity(result.newVelocity);
                             ball.position.y = 0.7; // Поднимаем над землёй
                             ball.lookAt(ball.position.add(result.newVelocity.normalize()));
-                            
+
                             // Эффекты и звук
                             if (this.effectsManager) this.effectsManager.createHitSpark(bulletPos);
                             if (this.soundManager && result.sound) {
                                 this.soundManager.playRicochet(bulletPos);
                             }
-                            
+
                             // Управление трейлом
                             if (!result.showTrail && ball.metadata?.trailParticles) {
                                 ball.metadata.trailParticles.stop();
                             }
-                            
+
                             if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
                                 combatLogger.verbose(`[RICOCHET] Ground #${ricochetCount} speed=${result.newSpeed.toFixed(1)}`);
                             }
                         }
                     }
                 }
-                
+
                 // === РИКОШЕТ ОТ ГРАНИЦ КАРТЫ (стены) ===
                 const mapBorder = 1000;
                 if (Math.abs(bulletPos.x) > mapBorder || Math.abs(bulletPos.z) > mapBorder) {
@@ -3911,7 +4029,7 @@ export class TankController {
                             } else {
                                 wallNormal = new Vector3(0, 0, -Math.sign(bulletPos.z));
                             }
-                            
+
                             const cannonType = this.cannonType.id;
                             const result = ricochetSystem.calculate({
                                 velocity,
@@ -3921,22 +4039,22 @@ export class TankController {
                                 currentRicochetCount: ricochetCount,
                                 projectileType: cannonType === "tracer" ? "tracer" : undefined
                             });
-                            
+
                             if (result.shouldRicochet) {
                                 ricochetCount = result.ricochetCount;
                                 body.setLinearVelocity(result.newVelocity);
                                 ball.lookAt(ball.position.add(result.newVelocity.normalize()));
-                                
+
                                 if (this.effectsManager) this.effectsManager.createHitSpark(bulletPos);
                                 if (this.soundManager && result.sound) {
                                     this.soundManager.playRicochet(bulletPos);
                                 }
-                                
+
                                 // Управление трейлом
                                 if (!result.showTrail && ball.metadata?.trailParticles) {
                                     ball.metadata.trailParticles.stop();
                                 }
-                                
+
                                 if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
                                     combatLogger.verbose(`[RICOCHET] Wall #${ricochetCount} speed=${result.newSpeed.toFixed(1)}`);
                                 }
@@ -3944,24 +4062,24 @@ export class TankController {
                         }
                     }
                 }
-                
+
                 // Удаление за границами (увеличено максимальное расстояние)
-                if (bulletPos.y < -10 || bulletPos.y > 100 || 
+                if (bulletPos.y < -10 || bulletPos.y > 100 ||
                     Math.abs(bulletPos.x) > 1200 || Math.abs(bulletPos.z) > 1200) {
                     ball.dispose();
                     return;
                 }
-                
+
                 // Сохраняем текущую позицию для следующего кадра (для рейкаста)
                 prevBulletPos = bulletPos.clone();
-                
+
                 // Продолжаем проверку КАЖДЫЙ КАДР
                 requestAnimationFrame(checkHit);
             };
-            
+
             // Запускаем проверку СРАЗУ
             checkHit();
-            
+
             // Авто-удаление через 6 секунд (дольше для большей дальности)
             setTimeout(() => {
                 if (!ball.isDisposed()) ball.dispose();
@@ -3970,12 +4088,12 @@ export class TankController {
     }
 
     // ============ SPECIAL MECHANICS ============
-    
+
     private fireShotgunSpread(muzzlePos: Vector3, direction: Vector3): void {
         // Shotgun fires 5 projectiles in a spread pattern
         const spreadAngle = 0.3; // 30 degrees total spread
         const pelletCount = 5;
-        
+
         for (let i = 0; i < pelletCount; i++) {
             const angle = (i - (pelletCount - 1) / 2) * spreadAngle / (pelletCount - 1);
             const right = Vector3.Cross(direction, Vector3.Up()).normalize();
@@ -3984,7 +4102,7 @@ export class TankController {
             spreadDir.addInPlace(right.scale(Math.sin(angle)));
             spreadDir.addInPlace(up.scale(Math.sin(angle * 0.5)));
             spreadDir.normalize();
-            
+
             // Create smaller projectile
             const pellet = MeshBuilder.CreateBox("shotgunPellet", {
                 width: this.projectileSize * 0.6,
@@ -3993,20 +4111,20 @@ export class TankController {
             }, this.scene);
             pellet.position = muzzlePos.clone();
             pellet.lookAt(pellet.position.add(spreadDir));
-            
+
             const pelletMat = new StandardMaterial("pelletMat", this.scene);
             pelletMat.diffuseColor = new Color3(1, 0.7, 0.2);
             pelletMat.emissiveColor = new Color3(1, 0.5, 0.1);
             pelletMat.disableLighting = true;
             pellet.material = pelletMat;
-            
+
             pellet.metadata = {
                 type: "bullet",
                 owner: "player",
                 damage: this.damage * 0.4, // Each pellet does less damage
                 cannonType: "shotgun"
             };
-            
+
             // Physics
             const shape = new PhysicsShape({
                 type: PhysicsShapeType.BOX,
@@ -4014,35 +4132,35 @@ export class TankController {
             }, this.scene);
             shape.filterMembershipMask = 4;
             shape.filterCollideMask = 2 | 8 | 32;
-            
+
             const body = new PhysicsBody(pellet, PhysicsMotionType.DYNAMIC, false, this.scene);
             body.shape = shape;
             // АРКАДНЫЙ СТИЛЬ: Минимальная масса
             body.setMassProperties({ mass: 0.001 });
             body.setLinearDamping(0.01);
             body.applyImpulse(spreadDir.scale(this.projectileSpeed * 0.018), pellet.position);
-            
+
             // Trail
             if (this.effectsManager) {
                 this.effectsManager.createBulletTrail(pellet, new Color3(1, 0.7, 0.2), "shotgun");
             }
-            
+
             // Hit detection (same as normal projectile)
             this.setupProjectileHitDetection(pellet, body);
         }
     }
-    
+
     private fireClusterProjectiles(muzzlePos: Vector3, direction: Vector3): void {
         // Cluster fires main projectile that splits into 4 smaller ones after distance
         const mainProjectile = this.createStandardProjectile(muzzlePos, direction, this.damage, "cluster");
         const splitDistance = 20; // Split after 20 units
         const splitTime = splitDistance / this.projectileSpeed;
-        
+
         setTimeout(() => {
             if (mainProjectile && !mainProjectile.isDisposed()) {
                 const splitPos = mainProjectile.absolutePosition.clone();
                 mainProjectile.dispose();
-                
+
                 // Create 4 smaller projectiles
                 for (let i = 0; i < 4; i++) {
                     const angle = (i * Math.PI * 2) / 4;
@@ -4050,7 +4168,7 @@ export class TankController {
                     const spreadDir = direction.clone();
                     spreadDir.addInPlace(right.scale(Math.cos(angle) * 0.2));
                     spreadDir.normalize();
-                    
+
                     const cluster = this.createStandardProjectile(splitPos, spreadDir, this.damage * 0.6, "cluster");
                     // Trail
                     if (this.effectsManager) {
@@ -4060,7 +4178,7 @@ export class TankController {
             }
         }, splitTime * 1000);
     }
-    
+
     private createStandardProjectile(pos: Vector3, dir: Vector3, damage: number, cannonType: string): Mesh {
         const bulletSize = this.projectileSize;
         const ball = MeshBuilder.CreateBox("bullet", {
@@ -4070,41 +4188,41 @@ export class TankController {
         }, this.scene);
         ball.position = pos.clone();
         ball.lookAt(ball.position.add(dir));
-        
+
         const mat = new StandardMaterial("bulletMat", this.scene);
         mat.diffuseColor = new Color3(1, 1, 0);
         mat.emissiveColor = new Color3(1, 0.8, 0);
         mat.disableLighting = true;
         ball.material = mat;
-        
+
         ball.metadata = {
             type: "bullet",
             owner: "player",
             damage: damage,
             cannonType: cannonType
         };
-        
+
         const shape = new PhysicsShape({
             type: PhysicsShapeType.BOX,
             parameters: { extents: new Vector3(bulletSize * 0.75, bulletSize * 0.75, bulletSize * 2) }
         }, this.scene);
         shape.filterMembershipMask = 4;
         shape.filterCollideMask = 2 | 8 | 32;
-        
+
         const projConfig = PHYSICS_CONFIG.shooting.projectiles;
         const body = new PhysicsBody(ball, PhysicsMotionType.DYNAMIC, false, this.scene);
         body.shape = shape;
         // PROJECTILE BALLISTICS: Минимальная масса - снаряд НЕ толкает танки при попадании
         body.setMassProperties({ mass: projConfig.mass });
         body.setLinearDamping(projConfig.linearDamping);
-        
+
         // PROJECTILE BALLISTICS: Continuous Collision Detection для быстрых снарядов
         // Примечание: В Babylon.js Havok CCD настраивается через shape properties, не через motionType
-        
+
         // PROJECTILE BALLISTICS: Применяем импульс с учетом конфига
         const impulse = dir.scale(this.projectileSpeed * projConfig.impulseMultiplier);
         body.applyImpulse(impulse, ball.position);
-        
+
         // PROJECTILE BALLISTICS: Усиленная гравитация для более "хищных" траекторий
         // Применяется через кастомную гравитацию в updatePhysics или через world gravity
         if (projConfig.gravityScale !== 1.0) {
@@ -4113,29 +4231,29 @@ export class TankController {
             ball.metadata.ricochetMode = projConfig.ricochetMode;
             ball.metadata.ricochetSpeedLoss = projConfig.ricochetSpeedLoss;
         }
-        
+
         this.setupProjectileHitDetection(ball, body);
         return ball;
     }
-    
+
     private setupProjectileHitDetection(ball: Mesh, _body: PhysicsBody): void {
         // Use the same hit detection logic as main fire() method
         // This is a simplified version that integrates with existing checkHit
         let hasHit = false;
         const HIT_RADIUS_TANK = 4.0;
-        
+
         const checkHit = () => {
             if (hasHit || ball.isDisposed()) return;
-            
+
             const bulletPos = ball.absolutePosition;
             const bulletMeta = ball.metadata as any;
             const projectileDamage = bulletMeta?.damage || this.damage;
-            
+
             // === ПРОВЕРКА СТОЛКНОВЕНИЯ СО СТЕНКАМИ ===
             // Проверяем защитные стены игрока
             for (const wallData of this.module6Walls) {
                 if (!wallData.mesh || wallData.mesh.isDisposed()) continue;
-                
+
                 if (this.checkPointInWall(bulletPos, wallData.mesh, "protectiveWall")) {
                     hasHit = true;
                     const bulletDamage = (ball.metadata && (ball.metadata as any).damage) ? (ball.metadata as any).damage : 25;
@@ -4146,11 +4264,11 @@ export class TankController {
                     return;
                 }
             }
-            
+
             // Проверяем стены врагов
             // ОПТИМИЗАЦИЯ: Кэшируем результат filter для enemyWalls
             if (!this._cachedEnemyWalls || this._enemyWallsCacheFrame !== this._logFrameCounter) {
-                this._cachedEnemyWalls = this.scene.meshes.filter(mesh => 
+                this._cachedEnemyWalls = this.scene.meshes.filter(mesh =>
                     mesh.metadata && mesh.metadata.type === "enemyWall" && !mesh.isDisposed()
                 );
                 this._enemyWallsCacheFrame = this._logFrameCounter;
@@ -4171,7 +4289,7 @@ export class TankController {
                     return;
                 }
             }
-            
+
             // Check enemy hits
             // ОПТИМИЗАЦИЯ: Используем квадрат расстояния вместо Vector3.Distance
             const enemies = this.enemyTanks || [];
@@ -4180,7 +4298,7 @@ export class TankController {
             for (let i = 0; i < enemyCount; i++) {
                 const enemy = enemies[i];
                 if (!enemy || !enemy.isAlive || !enemy.chassis || enemy.chassis.isDisposed()) continue;
-                
+
                 // КРИТИЧНО: Используем absolutePosition для правильной позиции в мировых координатах
                 // position может быть локальной позицией относительно родителя, что даст неправильный результат
                 const enemyPos = enemy.chassis.absolutePosition;
@@ -4197,7 +4315,7 @@ export class TankController {
                     return;
                 }
             }
-            
+
             // Check network player hits (with lag compensation)
             if (this.networkPlayers) {
                 const shootTime = bulletMeta?.shootTime || Date.now();
@@ -4205,13 +4323,13 @@ export class TankController {
                 const multiplayerManager = (this as any).multiplayerManager || (window as any).game?.multiplayerManager;
                 const estimatedPing = multiplayerManager?.getRTT?.() || 100; // Fallback to 100ms
                 const rewindTime = shootTime - estimatedPing; // Rewind to when shot was fired
-                
+
                 for (const [, networkTank] of this.networkPlayers.entries()) {
                     if (!networkTank || !networkTank.chassis) continue;
-                    
+
                     // Get position at time of shot (lag compensation)
                     const targetPos = networkTank.getPositionAtTime?.(rewindTime) || networkTank.chassis.position;
-                    
+
                     // ОПТИМИЗАЦИЯ: Используем квадрат расстояния вместо Vector3.Distance
                     const dx = bulletPos.x - targetPos.x;
                     const dy = bulletPos.y - targetPos.y;
@@ -4228,36 +4346,36 @@ export class TankController {
                     }
                 }
             }
-            
+
             // Bounds check
             if (bulletPos.y < -10 || Math.abs(bulletPos.x) > 1200 || Math.abs(bulletPos.z) > 1200) {
                 ball.dispose();
                 return;
             }
-            
+
             requestAnimationFrame(checkHit);
         };
-        
+
         checkHit();
-        
+
         // Auto-remove after 6 seconds
         setTimeout(() => {
             if (ball && !ball.isDisposed()) ball.dispose();
         }, 6000);
     }
-    
+
     private handleExplosiveHit(center: Vector3, damage: number, radius: number, effectType: string): void {
         // AOE damage to all enemies in radius
         const enemies = this.enemyTanks || [];
         let hitCount = 0;
-        
+
         // ОПТИМИЗАЦИЯ: Используем квадрат расстояния вместо Vector3.Distance
         const enemyCount = enemies.length;
         const radiusSq3 = radius * radius;
         for (let i = 0; i < enemyCount; i++) {
             const enemy = enemies[i];
             if (!enemy || !enemy.isAlive || !enemy.chassis || enemy.chassis.isDisposed()) continue;
-            
+
             // КРИТИЧНО: Используем absolutePosition для правильной позиции в мировых координатах
             const enemyPos = enemy.chassis.absolutePosition;
             const dx = center.x - enemyPos.x;
@@ -4269,7 +4387,7 @@ export class TankController {
                 if (this.isExplosionBlockedByWall(center, enemyPos)) {
                     continue; // Стенка блокирует AOE урон
                 }
-                
+
                 // Вычисляем реальное расстояние только для damageMultiplier
                 const dist = Math.sqrt(distSq);
                 // Damage falls off with distance
@@ -4279,38 +4397,38 @@ export class TankController {
                 hitCount++;
             }
         }
-        
+
         // Create explosion effect
         if (this.effectsManager) {
             this.effectsManager.createExplosion(center, radius / 5);
         }
         this.createHitEffect(center, effectType);
-        
+
         if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
             combatLogger.debug(`[EXPLOSIVE] Hit ${hitCount} enemies in ${radius}m radius`);
         }
     }
-    
+
     private handleChainLightning(startPos: Vector3, firstTarget: any, damage: number, range: number, maxTargets: number): void {
         const hitTargets = new Set<any>();
         hitTargets.add(firstTarget);
         firstTarget.takeDamage(damage);
-        
+
         let currentPos = firstTarget.chassis.absolutePosition.clone();
         let currentDamage = damage;
-        
+
         // Chain to nearby enemies
         for (let chain = 1; chain < maxTargets; chain++) {
             const enemies = this.enemyTanks || [];
             let nearestEnemy: any = null;
             let nearestDist = range;
-            
+
             // ОПТИМИЗАЦИЯ: Используем квадрат расстояния вместо Vector3.Distance
             const enemyCount = enemies.length;
             for (let i = 0; i < enemyCount; i++) {
                 const enemy = enemies[i];
                 if (!enemy || !enemy.isAlive || hitTargets.has(enemy) || !enemy.chassis || enemy.chassis.isDisposed()) continue;
-                
+
                 // КРИТИЧНО: Используем absolutePosition для правильной позиции в мировых координатах
                 const enemyPos = enemy.chassis.absolutePosition;
                 const dx = currentPos.x - enemyPos.x;
@@ -4322,34 +4440,34 @@ export class TankController {
                     nearestEnemy = enemy;
                 }
             }
-            
+
             if (nearestEnemy) {
                 hitTargets.add(nearestEnemy);
                 currentDamage = Math.round(currentDamage * 0.7); // Damage reduces with each chain
                 nearestEnemy.takeDamage(currentDamage);
-                
+
                 // Visual chain effect
                 if (this.effectsManager) {
                     this.createLightningBolt(currentPos, nearestEnemy.chassis.absolutePosition);
                 }
-                
+
                 currentPos = nearestEnemy.chassis.absolutePosition.clone();
             } else {
                 break; // No more targets
             }
         }
-        
+
         this.createHitEffect(startPos, "tesla");
         if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
             combatLogger.debug(`[CHAIN] Hit ${hitTargets.size} enemies`);
         }
     }
-    
+
     private createLightningBolt(start: Vector3, end: Vector3): void {
         // Simple lightning bolt visual
         const mid = start.add(end).scale(0.5);
         mid.y += 2; // Arc upward
-        
+
         const bolt = MeshBuilder.CreateBox("lightning", {
             width: 0.1,
             height: 0.1,
@@ -4357,21 +4475,21 @@ export class TankController {
         }, this.scene);
         bolt.position = mid;
         bolt.lookAt(end);
-        
+
         const boltMat = new StandardMaterial("lightningMat", this.scene);
         boltMat.diffuseColor = new Color3(0, 1, 1);
         boltMat.emissiveColor = new Color3(0, 0.8, 0.8);
         boltMat.disableLighting = true;
         bolt.material = boltMat;
-        
+
         setTimeout(() => {
             if (bolt && !bolt.isDisposed()) bolt.dispose();
         }, 200);
     }
-    
+
     private createHitEffect(position: Vector3, effectType: string): void {
         if (!this.effectsManager) return;
-        
+
         switch (effectType) {
             case "plasma":
                 this.effectsManager.createPlasmaBurst(position);
@@ -4390,7 +4508,7 @@ export class TankController {
                 this.effectsManager.createExplosion(position, 1.0);
         }
     }
-    
+
     // ============ TRACER SYSTEM ============
     // Tracer round - special marking projectile fired with T key
     // Uses same cooldown as normal fire, limited ammo, marks enemies on hit
@@ -4399,19 +4517,19 @@ export class TankController {
         // Support beam - instant hit, repairs allies or damages enemies
         const maxRange = 50; // Maximum range for support beam
         const beamEnd = muzzlePos.add(direction.scale(maxRange));
-        
+
         // Raycast to find target
         const ray = new Ray(muzzlePos, direction);
         ray.length = maxRange;
-        
+
         // Check for hits
         const hit = this.scene.pickWithRay(ray);
-        
+
         if (hit && hit.pickedMesh) {
             const target = hit.pickedMesh;
             const targetPos = target.absolutePosition;
             const distance = Vector3.Distance(muzzlePos, targetPos);
-            
+
             // Check if target is enemy tank
             if (target.metadata && target.metadata.type === "enemyTank" && target.metadata.instance) {
                 const enemy = target.metadata.instance;
@@ -4421,7 +4539,7 @@ export class TankController {
                     if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
                         combatLogger.debug(`[SUPPORT] Damaged enemy for ${this.damage} damage`);
                     }
-                    
+
                     // Visual effect
                     if (this.effectsManager) {
                         this.effectsManager.createMuzzleFlash(targetPos, direction.scale(-1));
@@ -4443,17 +4561,17 @@ export class TankController {
                 }
             }
         }
-        
+
         // Create visual beam effect
         if (this.effectsManager) {
             // Create beam line
             const beamLength = hit ? Vector3.Distance(muzzlePos, hit.pickedPoint || beamEnd) : maxRange;
             const beamEndPoint = muzzlePos.add(direction.scale(beamLength));
-            
+
             // Create green healing beam or red damage beam
             const isHealing = hit && hit.pickedMesh && hit.pickedMesh.metadata && hit.pickedMesh.metadata.type === "playerTank";
             const beamColor = isHealing ? new Color3(0, 1, 0.5) : new Color3(1, 0.5, 0);
-            
+
             // Create temporary beam mesh
             const beam = MeshBuilder.CreateBox("supportBeam", {
                 width: 0.1,
@@ -4462,12 +4580,12 @@ export class TankController {
             }, this.scene);
             beam.position = muzzlePos.add(direction.scale(beamLength / 2));
             beam.lookAt(beamEndPoint);
-            
+
             const beamMat = new StandardMaterial("supportBeamMat", this.scene);
             beamMat.diffuseColor = beamColor;
             beamMat.emissiveColor = beamColor.scale(0.5);
             beam.material = beamMat;
-            
+
             // Remove beam after short time
             setTimeout(() => {
                 if (beam && !beam.isDisposed()) {
@@ -4476,11 +4594,11 @@ export class TankController {
             }, 200);
         }
     }
-    
+
     fireTracer() {
         try {
             if (!this.isAlive) return;
-            
+
             // Check if we have tracers
             if (this.tracerCount <= 0) {
                 if (this.chatSystem) {
@@ -4488,9 +4606,9 @@ export class TankController {
                 }
                 return;
             }
-            
+
             const now = Date.now();
-            
+
             // Check cooldown (same as normal fire)
             if (this.isReloading || now - this.lastShotTime < this.cooldown) {
                 if (this.chatSystem) {
@@ -4499,18 +4617,18 @@ export class TankController {
                 }
                 return;
             }
-            
+
             // Use tracer
             this.tracerCount--;
             this.lastShotTime = now;
             this.isReloading = true;
-            
+
             // Update HUD for tracer count
             if (this.hud) {
                 this.hud.startReload(this.cooldown);
                 // Could add tracer count display here
             }
-            
+
             // End reload after cooldown
             setTimeout(() => {
                 this.isReloading = false;
@@ -4518,101 +4636,101 @@ export class TankController {
                     this.soundManager.playReloadComplete();
                 }
             }, this.cooldown);
-            
+
             if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
                 combatLogger.debug(`[TRACER] Fired! ${this.tracerCount}/${this.maxTracerCount} remaining`);
             }
-            
+
             // Get muzzle position and direction (строго по направлению ствола)
             const wasBarrelEnabled = this.barrel.isEnabled();
             if (!wasBarrelEnabled) this.barrel.setEnabled(true);
-            
+
             this.chassis.computeWorldMatrix(true);
             this.turret.computeWorldMatrix(true);
             this.barrel.computeWorldMatrix(true);
-            
+
             // Получаем РЕАЛЬНОЕ направление ствола в мировых координатах
             const barrelWorldMatrix = this.barrel.getWorldMatrix();
             const barrelForward = Vector3.TransformNormal(Vector3.Forward(), barrelWorldMatrix).normalize();
-            
+
             // Получаем позицию конца ствола (дульный срез)
             const barrelLength = this.cannonType.barrelLength;
             const barrelCenter = this.barrel.getAbsolutePosition();
             const muzzlePos = barrelCenter.add(barrelForward.scale(barrelLength / 2));
-            
+
             // Направление выстрела = реальное направление ствола (строго по траектории ствола)
             const shootDirection = barrelForward.clone();
-            
+
             if (!wasBarrelEnabled) this.barrel.setEnabled(false);
-            
+
             // Play tracer sound (can use different sound if available)
             if (this.soundManager) {
                 this.soundManager.playShoot(this.cannonType.id, muzzlePos.clone());
             }
-            
+
             // Create tracer muzzle flash (slightly different color)
             if (this.effectsManager) {
                 this.effectsManager.createMuzzleFlash(muzzlePos, shootDirection);
             }
-            
+
             // Create tracer projectile - BRIGHT RED/ORANGE, larger, more visible
             const tracerSize = this.projectileSize * 1.5; // Bigger than normal
-            const tracer = MeshBuilder.CreateBox("tracer", { 
-                width: tracerSize, 
-                height: tracerSize, 
+            const tracer = MeshBuilder.CreateBox("tracer", {
+                width: tracerSize,
+                height: tracerSize,
                 depth: tracerSize * 4 // Longer trail
             }, this.scene);
             tracer.position.copyFrom(muzzlePos);
             tracer.lookAt(tracer.position.add(shootDirection));
             tracer.material = this.tracerMat!;
             tracer.metadata = { type: "tracer", owner: "player", damage: this.tracerDamage, markDuration: this.tracerMarkDuration };
-            
+
             // Create bullet trail effect
             if (this.effectsManager) {
                 this.effectsManager.createBulletTrail(tracer);
             }
-            
+
             // Physics
-            const shape = new PhysicsShape({ 
-                type: PhysicsShapeType.BOX, 
-                parameters: { extents: new Vector3(tracerSize * 0.75, tracerSize * 0.75, tracerSize * 3) } 
+            const shape = new PhysicsShape({
+                type: PhysicsShapeType.BOX,
+                parameters: { extents: new Vector3(tracerSize * 0.75, tracerSize * 0.75, tracerSize * 3) }
             }, this.scene);
             shape.filterMembershipMask = 4;
             shape.filterCollideMask = 2 | 8 | 32;
-            
+
             const body = new PhysicsBody(tracer, PhysicsMotionType.DYNAMIC, false, this.scene);
             body.shape = shape;
             // АРКАДНЫЙ СТИЛЬ: Минимальная масса
             body.setMassProperties({ mass: 0.001 });
             body.setLinearDamping(0.01);
-            
+
             // Faster than normal projectile for better tracking
             const impulse = this.projectileSpeed * 0.022;
             body.applyImpulse(shootDirection.scale(impulse), tracer.position);
-            
+
             // Light recoil for tracer
             const recoilForceVec = shootDirection.scale(-this.recoilForce * 0.3);
             this.physicsBody.applyImpulse(recoilForceVec, this.chassis.absolutePosition);
-            
+
             // === TRACER HIT DETECTION ===
             const tracerDamage = this.tracerDamage;
             const markDuration = this.tracerMarkDuration;
             const HIT_RADIUS = 4.5; // Slightly larger hit radius for tracer
-            
+
             const checkInterval = setInterval(() => {
                 if (tracer.isDisposed()) {
                     clearInterval(checkInterval);
                     return;
                 }
-                
+
                 const tracerPos = tracer.absolutePosition;
-                
+
                 // Check enemy tanks
                 const enemies = this.enemyTanks || [];
                 for (let i = 0; i < enemies.length; i++) {
                     const enemy = enemies[i];
                     if (!enemy || !enemy.isAlive || !enemy.chassis || enemy.chassis.isDisposed()) continue;
-                    
+
                     // КРИТИЧНО: Используем absolutePosition для правильной позиции в мировых координатах
                     const enemyPos = enemy.chassis.absolutePosition;
                     const dx = tracerPos.x - enemyPos.x;
@@ -4622,43 +4740,43 @@ export class TankController {
                     const HIT_RADIUS_SQ = HIT_RADIUS * HIT_RADIUS;
                     if (distSq < HIT_RADIUS_SQ) {
                         if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
-                            combatLogger.debug("%c[TRACER HIT] Enemy marked for " + (markDuration/1000) + "s!", "color: orange; font-weight: bold");
+                            combatLogger.debug("%c[TRACER HIT] Enemy marked for " + (markDuration / 1000) + "s!", "color: orange; font-weight: bold");
                         }
-                        
+
                         // Deal tracer damage (reduced)
                         enemy.takeDamage(tracerDamage);
-                        
+
                         // MARK THE ENEMY - make them visible/highlighted
                         if (enemy.setMarked) {
                             enemy.setMarked(true, markDuration);
                         }
-                        
+
                         // Visual effect
                         if (this.effectsManager) {
                             this.effectsManager.createExplosion(tracerPos, 0.8);
                         }
-                        
+
                         // Sound
                         if (this.soundManager) {
                             this.soundManager.playHit("normal", tracerPos);
                         }
-                        
+
                         // Show special marker on HUD
                         if (this.hud) {
                             this.hud.showHitMarker(false);
                         }
-                        
+
                         // Chat notification
                         if (this.chatSystem) {
-                            this.chatSystem.log(`Enemy marked for ${markDuration/1000}s!`);
+                            this.chatSystem.log(`Enemy marked for ${markDuration / 1000}s!`);
                         }
-                        
+
                         tracer.dispose();
                         clearInterval(checkInterval);
                         return;
                     }
                 }
-                
+
                 // Dispose if too far or too old
                 // ОПТИМИЗАЦИЯ: Используем квадрат расстояния вместо Vector3.Distance
                 const dx = tracerPos.x - muzzlePos.x;
@@ -4670,16 +4788,16 @@ export class TankController {
                     clearInterval(checkInterval);
                 }
             }, 16);
-            
+
             // Auto-dispose after 5 seconds
             setTimeout(() => {
                 clearInterval(checkInterval);
                 if (!tracer.isDisposed()) tracer.dispose();
             }, 5000);
-            
+
         } catch (e) { logger.error("[TRACER ERROR]", e); }
     }
-    
+
     // Refill tracers (can be called from consumables or pickups)
     refillTracers(amount: number = this.maxTracerCount): void {
         this.tracerCount = Math.min(this.tracerCount + amount, this.maxTracerCount);
@@ -4690,12 +4808,12 @@ export class TankController {
             this.chatSystem.log(`Tracers refilled: ${this.tracerCount}/${this.maxTracerCount}`);
         }
     }
-    
+
     // Get current tracer count (for HUD display)
     getTracerCount(): number {
         return this.tracerCount;
     }
-    
+
     getMaxTracerCount(): number {
         return this.maxTracerCount;
     }
@@ -4703,20 +4821,20 @@ export class TankController {
     private applyTorque(torque: Vector3) {
         // Защитные проверки перед применением момента
         if (!this.physicsBody || !this.chassis || this.chassis.isDisposed()) return;
-        
+
         // Проверка на валидность вектора момента
         if (!isFinite(torque.x) || !isFinite(torque.y) || !isFinite(torque.z)) return;
-        
+
         return this.movementModule.applyTorque(torque);
     }
 
     updatePhysics() {
         // Защитные проверки для предотвращения крашей
         if (!this.chassis || !this.physicsBody) return;
-        
+
         // Проверка на валидность chassis (disposed состояние)
         if (this.chassis.isDisposed()) return;
-        
+
         // КРИТИЧЕСКИ ВАЖНО: Физика НЕ работает когда танк мёртв!
         if (!this.isAlive) {
             // Когда мёртв - останавливаем всю физику (с проверкой на валидность)
@@ -4730,11 +4848,11 @@ export class TankController {
             }
             return;
         }
-        
+
         try {
             // Дополнительная проверка валидности перед использованием
             if (!this.physicsBody || !this.chassis || this.chassis.isDisposed()) return;
-            
+
             // КРИТИЧНО: Проверяем иерархию мешей ТОЛЬКО если она сломана (редкий случай)
             // Башня ДОЛЖНА быть дочерним элементом корпуса
             if (this.turret && this.turret.parent !== this.chassis) {
@@ -4748,16 +4866,16 @@ export class TankController {
                 // Восстанавливаем позицию ствола строго по центру башни
                 this.barrel.position.set(0, this.barrel.position.y, this.barrel.position.z);
             }
-            
+
             // УДАЛЕНО: Постоянные проверки position.x/z каждый кадр
             // Эти проверки вызывали "двойной танк" из-за floating-point сравнений
             // Позиции башни и ствола устанавливаются ОДИН РАЗ при создании
-            
+
             // Обновляем время игры для системы опыта
             if (this.experienceSystem) {
                 this.experienceSystem.updatePlayTime(this.chassisType.id, this.cannonType.id);
             }
-            
+
             // Low health smoke effect - subtle, barely visible
             const healthPercent = this.currentHealth / this.maxHealth;
             if (healthPercent < 0.3 && this.effectsManager && this.chassis) {
@@ -4773,17 +4891,17 @@ export class TankController {
                     this._lastSmokeTime = now;
                 }
             }
-            
+
             // КРИТИЧЕСКИ ВАЖНО: Физика танка НЕ зависит от режима прицеливания!
             // isAiming влияет ТОЛЬКО на камеру и прицел, НЕ на физику, позицию, скорость или вращение танка!
             // Танк должен вести себя одинаково независимо от режима прицеливания!
             this.updateInputs();
 
             const body = this.physicsBody;
-            
+
             // Проверка валидности перед получением скорости
             if (!body) return;
-            
+
             // КРИТИЧЕСКИ ВАЖНО: В onBeforePhysicsObservable физика еще не обновилась!
             // Физическое тело автоматически синхронизирует позицию меша ПОСЛЕ шага физики
             // Но мы находимся ДО шага физики, поэтому используем позицию меша, которая уже синхронизирована
@@ -4792,7 +4910,7 @@ export class TankController {
             // position уже синхронизирован с физикой после предыдущего шага
             const pos = this._tmpVector;
             pos.copyFrom(this.chassis.position);
-            
+
             // Проверка отрыва от стены (если были на стене в предыдущем кадре)
             if (this._isOnVerticalWall && this._wallNormal) {
                 // Проверяем расстояние до стены через raycast
@@ -4800,7 +4918,7 @@ export class TankController {
                 checkRayStart.y -= (this.chassisType?.height || 1.5) * 0.3;
                 const checkDir = this._wallNormal.scale(-1); // Направление к стене
                 const checkRay = new Ray(checkRayStart, checkDir, this.wallAttachmentDistance * 2.0);
-                
+
                 const obstacleFilter = (mesh: any) => {
                     if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
                     const meta = mesh.metadata;
@@ -4808,9 +4926,9 @@ export class TankController {
                     if (mesh === this.chassis || mesh === this.turret || mesh === this.barrel) return false;
                     return true;
                 };
-                
+
                 const checkHit = this.scene.pickWithRay(checkRay, obstacleFilter);
-                
+
                 // Если стена слишком далеко или не найдена - отрываемся
                 if (!checkHit || !checkHit.hit || (checkHit.distance > this.wallAttachmentDistance * 1.8)) {
                     this._isOnVerticalWall = false;
@@ -4822,11 +4940,11 @@ export class TankController {
                     this._wallDistance = checkHit.distance;
                 }
             }
-            
+
             // Центр масс смещен на (0, -0.4, 0), но applyForce автоматически учитывает это
             let vel: Vector3 | null = null;
             let angVel: Vector3 | null = null;
-            
+
             try {
                 vel = body.getLinearVelocity();
                 angVel = body.getAngularVelocity();
@@ -4834,10 +4952,10 @@ export class TankController {
                 // Если не удалось получить скорость, выходим
                 return;
             }
-            
+
             // Проверка на null/undefined после получения скорости
             if (!vel || !angVel) return;
-            
+
             // Проверка на валидность векторов (NaN или Infinity)
             if (!isFinite(vel.x) || !isFinite(vel.y) || !isFinite(vel.z) ||
                 !isFinite(angVel.x) || !isFinite(angVel.y) || !isFinite(angVel.z)) {
@@ -4850,7 +4968,7 @@ export class TankController {
             // Ограничиваем вертикальную скорость и угловую скорость, чтобы исключить "взлёты"
             const maxUpwardSpeed = 4.0; // Снижено с 12 до 4.0 м/с для предотвращения подпрыгиваний
             const maxDownwardSpeed = 35; // Оставлено без изменений (нормально для падения)
-            
+
             // Плавное принудительное ограничение вертикальной скорости каждый кадр
             const targetVelY = Math.max(-maxDownwardSpeed, Math.min(maxUpwardSpeed, vel.y));
             if (Math.abs(vel.y - targetVelY) > 0.1) {
@@ -4861,12 +4979,12 @@ export class TankController {
                     // ignore
                 }
             }
-            
+
             // Экстренное демпфирование при слишком быстром подъеме
             if (vel.y > 3.0) {
                 emergencyDampingForce = -(vel.y - 3.0) * this.mass * 200; // Сильное демпфирование
             }
-            
+
             const maxAngularSpeed = 2.5;
             const angMag = angVel.length();
             if (angMag > maxAngularSpeed) {
@@ -4884,7 +5002,7 @@ export class TankController {
             // Вызов computeWorldMatrix здесь может вызывать конфликт и дрожание
             // Используем getWorldMatrix() который автоматически обновит матрицу если нужно
             const rotMatrix = this.chassis.getWorldMatrix();
-            
+
             // Используем переиспользуемые векторы для оптимизации памяти
             const forward = Vector3.TransformNormalToRef(Vector3.Forward(), rotMatrix, this._tmpVector2);
             forward.normalize();
@@ -4892,7 +5010,7 @@ export class TankController {
             right.normalize();
             const up = Vector3.TransformNormalToRef(Vector3.Up(), rotMatrix, this._tmpVector4);
             up.normalize();
-            
+
             // === ИСПРАВЛЕНИЕ: Блокировка движения при перевороте танка ===
             // Если танк перевёрнут или лежит на боку (up.y < 0.3), полностью блокируем движение
             if (up.y < 0.3) {
@@ -4901,13 +5019,13 @@ export class TankController {
                 this.smoothSteer = 0;
                 this.throttleTarget = 0;
                 this.steerTarget = 0;
-                
+
                 // Мягко демпфируем скорость (не резкая остановка)
                 const dampedVel = vel.scale(0.92);
                 try {
                     body.setLinearVelocity(dampedVel);
                 } catch (e) { /* ignore */ }
-                
+
                 // Применяем только корректирующий момент для выравнивания танка
                 const tiltX = Math.asin(Math.max(-1, Math.min(1, up.z)));
                 const tiltZ = Math.asin(Math.max(-1, Math.min(1, -up.x)));
@@ -4917,7 +5035,7 @@ export class TankController {
                     -tiltZ * 20000   // Выравнивание по Z
                 );
                 this.applyTorque(emergencyTorque);
-                
+
                 // Пропускаем ВСЕ остальные системы движения (hover, climb, movement и т.д.)
                 // Но продолжаем обновлять башню и ствол
                 if (this.turret && !this.turret.isDisposed()) {
@@ -4925,24 +5043,24 @@ export class TankController {
                 }
                 return;
             }
-            
+
             // Кэшируем часто используемые значения для оптимизации
             const fwdSpeed = Vector3.Dot(vel, forward);
             const absFwdSpeed = Math.abs(fwdSpeed);
             const isMoving = absFwdSpeed > 0.5;
-            
+
             // === ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ===
             this._logFrameCounter++;
-            const shouldLog = loggingSettings.getLevel() >= LogLevel.VERBOSE && 
-                             loggingSettings.isCategoryEnabled(LogCategory.PHYSICS) &&
-                             (this._logFrameCounter % 30 === 0 || up.y < 0.7 || Math.abs(vel.length()) > 30);
-            
+            const shouldLog = loggingSettings.getLevel() >= LogLevel.VERBOSE &&
+                loggingSettings.isCategoryEnabled(LogCategory.PHYSICS) &&
+                (this._logFrameCounter % 30 === 0 || up.y < 0.7 || Math.abs(vel.length()) > 30);
+
             if (shouldLog) {
                 const tiltX = Math.asin(Math.max(-1, Math.min(1, up.z)));
                 const tiltZ = Math.asin(Math.max(-1, Math.min(1, -up.x)));
                 const speed = vel.length();
                 // Используем кэшированное значение fwdSpeed
-                
+
                 physicsLogger.verbose("═══════════════════════════════════════════════════════");
                 physicsLogger.verbose(`[TANK PHYSICS] Frame ${this._logFrameCounter}`);
                 physicsLogger.verbose(`  POSITION:     [${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)}]`);
@@ -4961,7 +5079,7 @@ export class TankController {
             // СНАЧАЛА определяем высоту земли, чтобы hover система работала относительно неё
             // Raycast вниз для определения высоты земли (кэшируем каждые 8 кадров для оптимизации)
             let groundHeight = pos.y - this.hoverHeight; // Значение по умолчанию
-            
+
             // ОПТИМИЗАЦИЯ: Увеличено кэш-время raycast с 6 до 8 кадров для лучшей производительности
             if (!this._groundRaycastCache || (this._logFrameCounter - this._groundRaycastCache.frame) >= 8) {
                 // ОПТИМИЗАЦИЯ: Переиспользуем Vector3 вместо clone()
@@ -4985,8 +5103,8 @@ export class TankController {
                 };
 
                 const groundPick = this.scene.pickWithRay(groundRay, groundFilter);
-                
-                
+
+
                 if (groundPick && groundPick.hit && groundPick.pickedPoint) {
                     groundHeight = groundPick.pickedPoint.y;
                     this._groundRaycastCache = {
@@ -5007,7 +5125,7 @@ export class TankController {
             // --- 1. OPTIMIZED HOVER (Simplified height control) ---
             // КРИТИЧЕСКИ ВАЖНО: Hover работает ОТНОСИТЕЛЬНО ЗЕМЛИ, а не абсолютной высоты!
             // Целевая высота = высота земли + hoverHeight
-            
+
             // НА СТЕНЕ: hover система работает по-другому
             let hoverForce = 0;
             let totalVerticalForce = 0;
@@ -5030,87 +5148,87 @@ export class TankController {
                         }
                     }
                 }
-                
+
                 const targetHeight = groundHeight + this.hoverHeight;
                 const deltaY = targetHeight - pos.y; // Положительно когда танк ниже цели
                 const velY = vel.y;
-                
+
                 const absVelY = Math.abs(velY);
-                
+
                 // ТАНКОВАЯ ПРОХОДИМОСТЬ: Адаптивная hover-система с поддержкой преодоления препятствий
                 if (deltaY > 0) {
-                // Танк ниже цели - применяем hover для поднятия
-                // ТАНКОВАЯ ПРОХОДИМОСТЬ: При движении вверх по склону - НЕ уменьшаем hover
-                const isClimbing = deltaY > 0 && Math.abs(this.smoothThrottle) > 0.3;
-                const hoverSensitivity = isMoving && !isClimbing ? 0.4 : 1.0; // УВЕЛИЧЕНО: меньше уменьшение при движении
-                const stiffnessMultiplier = 1.0 + Math.min(Math.abs(deltaY) * 0.03, 0.2) * hoverSensitivity; // УВЕЛИЧЕНО для более быстрой реакции
-                const dampingMultiplier = isMoving ? 2.5 : 2.0; // УМЕНЬШЕНО демпфирование для лучшего подъёма
-                hoverForce = (deltaY * this.hoverStiffness * stiffnessMultiplier) - (velY * this.hoverDamping * dampingMultiplier);
-                
-                // ТАНКОВАЯ ПРОХОДИМОСТЬ: При движении вверх по склону - НЕ уменьшаем hover
-                const movementReduction = isMoving && !isClimbing ? 0.6 : 1.0; // УВЕЛИЧЕНО с 0.35 до 0.6
-                // ТАНКОВАЯ ПРОХОДИМОСТЬ: Значительно увеличенные лимиты для преодоления препятствий
-                const dynamicMaxForce = Math.min(
-                    (absVelY > 30 ? 3000 : (absVelY > 15 ? 6000 : 10000)) * movementReduction, // 4x УВЕЛИЧЕНО
-                    this.hoverStiffness * 1.5 // УВЕЛИЧЕНО с 0.5 до 1.5
-                );
-                hoverForce = Math.max(-dynamicMaxForce, Math.min(dynamicMaxForce, hoverForce));
-            } else {
-                // Танк выше цели - демпфирование вниз
-                // КРИТИЧНО: Во время прыжка или при активном газе ослабляем демпфирование
-                const isActiveClimb = Math.abs(this.smoothThrottle) > 0.3;
-                const dampingMultiplier = this.isJumping ? 0.1 : (isActiveClimb ? 1.5 : 3.0); // УМЕНЬШЕНО при активном газе
-                hoverForce = -velY * this.hoverDamping * dampingMultiplier;
-                
-                // ТАНКОВАЯ ПРОХОДИМОСТЬ: Прижатие только при НЕАКТИВНОМ движении
-                if (deltaY < -0.15 && !this.isJumping && !isActiveClimb) {
-                    hoverForce -= Math.abs(deltaY) * this.mass * 60; // УМЕНЬШЕНО с 120 до 60
-                }
-                
-                // КРИТИЧНО: Во время прыжка и при движении вверх - полностью отключаем hover
-                if (this.isJumping && velY > 2) {
-                    hoverForce = 0;
-                }
-                const clampedHoverForce = hoverForce;
-                
-                // Накопление всех вертикальных сил в одну для предотвращения конфликтов
-                let totalVerticalForce = clampedHoverForce;
-            
-                // Добавляем экстренное демпфирование при слишком быстром подъеме (из ограничения скорости)
-                if (emergencyDampingForce !== 0) {
-                    totalVerticalForce += emergencyDampingForce;
-                }
-                
-                // ТАНКОВАЯ ПРОХОДИМОСТЬ: Прижимаем ТОЛЬКО если танк летит вверх БЕЗ газа (нежелательный полёт)
-                const heightDiff = pos.y - targetHeight;
-                const isUnwantedFlight = heightDiff > 0.1 && Math.abs(this.smoothThrottle) < 0.2;
-                if (isUnwantedFlight) {
-                    const clampForce = -heightDiff * this.mass * 60; // УМЕНЬШЕНО с 120 до 60
-                    const maxClampForce = -this.mass * 200; // УМЕНЬШЕНО с 400 до 200
-                    const clampedForce = Math.max(maxClampForce, clampForce);
-                    totalVerticalForce += clampedForce;
-                    
-                    // Дополнительное демпфирование при полете (только без газа)
-                    if (vel.y > 0.5) {
-                        totalVerticalForce -= vel.y * this.mass * 15; // УМЕНЬШЕНО с 25 до 15
+                    // Танк ниже цели - применяем hover для поднятия
+                    // ТАНКОВАЯ ПРОХОДИМОСТЬ: При движении вверх по склону - НЕ уменьшаем hover
+                    const isClimbing = deltaY > 0 && Math.abs(this.smoothThrottle) > 0.3;
+                    const hoverSensitivity = isMoving && !isClimbing ? 0.4 : 1.0; // УВЕЛИЧЕНО: меньше уменьшение при движении
+                    const stiffnessMultiplier = 1.0 + Math.min(Math.abs(deltaY) * 0.03, 0.2) * hoverSensitivity; // УВЕЛИЧЕНО для более быстрой реакции
+                    const dampingMultiplier = isMoving ? 2.5 : 2.0; // УМЕНЬШЕНО демпфирование для лучшего подъёма
+                    hoverForce = (deltaY * this.hoverStiffness * stiffnessMultiplier) - (velY * this.hoverDamping * dampingMultiplier);
+
+                    // ТАНКОВАЯ ПРОХОДИМОСТЬ: При движении вверх по склону - НЕ уменьшаем hover
+                    const movementReduction = isMoving && !isClimbing ? 0.6 : 1.0; // УВЕЛИЧЕНО с 0.35 до 0.6
+                    // ТАНКОВАЯ ПРОХОДИМОСТЬ: Значительно увеличенные лимиты для преодоления препятствий
+                    const dynamicMaxForce = Math.min(
+                        (absVelY > 30 ? 3000 : (absVelY > 15 ? 6000 : 10000)) * movementReduction, // 4x УВЕЛИЧЕНО
+                        this.hoverStiffness * 1.5 // УВЕЛИЧЕНО с 0.5 до 1.5
+                    );
+                    hoverForce = Math.max(-dynamicMaxForce, Math.min(dynamicMaxForce, hoverForce));
+                } else {
+                    // Танк выше цели - демпфирование вниз
+                    // КРИТИЧНО: Во время прыжка или при активном газе ослабляем демпфирование
+                    const isActiveClimb = Math.abs(this.smoothThrottle) > 0.3;
+                    const dampingMultiplier = this.isJumping ? 0.1 : (isActiveClimb ? 1.5 : 3.0); // УМЕНЬШЕНО при активном газе
+                    hoverForce = -velY * this.hoverDamping * dampingMultiplier;
+
+                    // ТАНКОВАЯ ПРОХОДИМОСТЬ: Прижатие только при НЕАКТИВНОМ движении
+                    if (deltaY < -0.15 && !this.isJumping && !isActiveClimb) {
+                        hoverForce -= Math.abs(deltaY) * this.mass * 60; // УМЕНЬШЕНО с 120 до 60
                     }
-                }
-                
-                // ТАНКОВАЯ ПРОХОДИМОСТЬ: Экстренное прижатие только если НЕ едем вперед
-                const isNotDriving = Math.abs(this.smoothThrottle) < 0.1;
-                if (heightDiff > 0.5 && isNotDriving) {
-                    const emergencyClampForce = -this.mass * 300; // УМЕНЬШЕНО с 500 до 300
-                    totalVerticalForce += emergencyClampForce;
-                    // Принудительно ограничиваем вертикальную скорость
-                    if (vel.y > 0) {
-                        const emergencyVelDamping = -vel.y * this.mass * 30; // УМЕНЬШЕНО с 50 до 30
-                        totalVerticalForce += emergencyVelDamping;
+
+                    // КРИТИЧНО: Во время прыжка и при движении вверх - полностью отключаем hover
+                    if (this.isJumping && velY > 2) {
+                        hoverForce = 0;
                     }
-                }
-                
-                if (shouldLog) {
-                    physicsLogger.verbose(`  [HOVER] GroundY: ${groundHeight.toFixed(2)} | TargetY: ${targetHeight.toFixed(2)} | CurrentY: ${pos.y.toFixed(2)} | DeltaY: ${deltaY.toFixed(3)} | VelY: ${velY.toFixed(2)} | Force: ${clampedHoverForce.toFixed(0)}`);
-                }
+                    const clampedHoverForce = hoverForce;
+
+                    // Накопление всех вертикальных сил в одну для предотвращения конфликтов
+                    let totalVerticalForce = clampedHoverForce;
+
+                    // Добавляем экстренное демпфирование при слишком быстром подъеме (из ограничения скорости)
+                    if (emergencyDampingForce !== 0) {
+                        totalVerticalForce += emergencyDampingForce;
+                    }
+
+                    // ТАНКОВАЯ ПРОХОДИМОСТЬ: Прижимаем ТОЛЬКО если танк летит вверх БЕЗ газа (нежелательный полёт)
+                    const heightDiff = pos.y - targetHeight;
+                    const isUnwantedFlight = heightDiff > 0.1 && Math.abs(this.smoothThrottle) < 0.2;
+                    if (isUnwantedFlight) {
+                        const clampForce = -heightDiff * this.mass * 60; // УМЕНЬШЕНО с 120 до 60
+                        const maxClampForce = -this.mass * 200; // УМЕНЬШЕНО с 400 до 200
+                        const clampedForce = Math.max(maxClampForce, clampForce);
+                        totalVerticalForce += clampedForce;
+
+                        // Дополнительное демпфирование при полете (только без газа)
+                        if (vel.y > 0.5) {
+                            totalVerticalForce -= vel.y * this.mass * 15; // УМЕНЬШЕНО с 25 до 15
+                        }
+                    }
+
+                    // ТАНКОВАЯ ПРОХОДИМОСТЬ: Экстренное прижатие только если НЕ едем вперед
+                    const isNotDriving = Math.abs(this.smoothThrottle) < 0.1;
+                    if (heightDiff > 0.5 && isNotDriving) {
+                        const emergencyClampForce = -this.mass * 300; // УМЕНЬШЕНО с 500 до 300
+                        totalVerticalForce += emergencyClampForce;
+                        // Принудительно ограничиваем вертикальную скорость
+                        if (vel.y > 0) {
+                            const emergencyVelDamping = -vel.y * this.mass * 30; // УМЕНЬШЕНО с 50 до 30
+                            totalVerticalForce += emergencyVelDamping;
+                        }
+                    }
+
+                    if (shouldLog) {
+                        physicsLogger.verbose(`  [HOVER] GroundY: ${groundHeight.toFixed(2)} | TargetY: ${targetHeight.toFixed(2)} | CurrentY: ${pos.y.toFixed(2)} | DeltaY: ${deltaY.toFixed(3)} | VelY: ${velY.toFixed(2)} | Force: ${clampedHoverForce.toFixed(0)}`);
+                    }
                 }
             }
 
@@ -5128,23 +5246,23 @@ export class TankController {
             // --- 2. KEEP UPRIGHT (Проактивная система выравнивания) ---
             const tiltX = Math.asin(Math.max(-1, Math.min(1, up.z)));  // Forward/back tilt
             const tiltZ = Math.asin(Math.max(-1, Math.min(1, -up.x))); // Left/right tilt
-            
+
             // Определяем степень опрокидывания (менее чувствительные пороги для уменьшения тряски)
             const isSlightlyTilted = up.y < 0.80 || Math.abs(tiltX) > 0.25 || Math.abs(tiltZ) > 0.25;
             const isModeratelyTilted = up.y < 0.65 || Math.abs(tiltX) > 0.5 || Math.abs(tiltZ) > 0.5;
             const isSeverelyTilted = up.y < 0.45 || Math.abs(tiltX) > 0.7 || Math.abs(tiltZ) > 0.7;
             const isCriticallyTilted = up.y < 0.25 || Math.abs(tiltX) > 1.1 || Math.abs(tiltZ) > 1.1;
-            
+
             // КРИТИЧЕСКИ ВАЖНО: При движении уменьшаем корректирующие моменты для предотвращения тряски
             // Используем кэшированное значение isMoving для оптимизации
             // УВЕЛИЧЕНО уменьшение при движении для устранения дрожания
             const uprightSensitivity = isMoving ? 0.3 : 1.0; // Еще больше уменьшено при движении (было 0.5)
-            
+
             // Адаптивное ограничение: больше силы при сильном опрокидывании (уменьшено для плавности)
             // Дополнительно уменьшаем при движении для предотвращения тряски
             const baseMaxTorque = isCriticallyTilted ? 15000 : (isSeverelyTilted ? 10000 : (isModeratelyTilted ? 6000 : 4000));
             const maxTorquePerFrame = isMoving ? baseMaxTorque * 0.7 : baseMaxTorque; // Уменьшаем при движении
-            
+
             // Базовая корректирующая сила (всегда активна, но менее агрессивная при движении)
             // Дополнительно уменьшаем агрессивность при движении для предотвращения дёргания
             const movementDamping = isMoving ? 0.5 : 1.0; // Еще больше уменьшено при движении (было 0.7)
@@ -5152,7 +5270,7 @@ export class TankController {
             let correctiveZ = -tiltZ * this.uprightForce * 0.6 * uprightSensitivity * movementDamping - angVel.z * this.uprightDamp * uprightSensitivity * movementDamping;
             const baseCorrectiveX = correctiveX;
             const baseCorrectiveZ = correctiveZ;
-            
+
             // Усиливаем силу при наклоне (менее агрессивные множители для уменьшения тряски)
             // Дополнительно уменьшаем множители при движении
             let multiplier = 1.0;
@@ -5162,7 +5280,7 @@ export class TankController {
                 correctiveX *= multiplier;
                 correctiveZ *= multiplier;
             }
-            
+
             // Ограничиваем максимальную силу за кадр (но больше при опрокидывании)
             const torqueMagnitude = Math.sqrt(correctiveX * correctiveX + correctiveZ * correctiveZ);
             const wasClamped = torqueMagnitude > maxTorquePerFrame;
@@ -5171,11 +5289,11 @@ export class TankController {
                 correctiveX *= scale;
                 correctiveZ *= scale;
             }
-            
+
             // Накопление всех корректирующих моментов в один для предотвращения конфликтов
             let totalCorrectiveX = correctiveX;
             let totalCorrectiveZ = correctiveZ;
-            
+
             // Применяем ВСЕ корректирующие моменты одной командой (предотвращает конфликты и тряску)
             const totalCorrectiveMagnitude = Math.sqrt(totalCorrectiveX * totalCorrectiveX + totalCorrectiveZ * totalCorrectiveZ);
             const totalMaxTorque = maxTorquePerFrame * 1.5; // Общий максимум для всех корректирующих сил
@@ -5184,12 +5302,12 @@ export class TankController {
                 totalCorrectiveX *= scale;
                 totalCorrectiveZ *= scale;
             }
-            
+
             // Use separate vector to avoid corrupting forward
             const totalCorrectiveTorque = this._tmpVector7;
             totalCorrectiveTorque.set(totalCorrectiveX, 0, totalCorrectiveZ);
             this.applyTorque(totalCorrectiveTorque);
-            
+
             if (shouldLog) {
                 physicsLogger.verbose(`  [UPRIGHT] Tilt: X=${(tiltX * 180 / Math.PI).toFixed(1)}° Z=${(tiltZ * 180 / Math.PI).toFixed(1)}°`);
                 physicsLogger.verbose(`    States: Slight=${isSlightlyTilted} Moderate=${isModeratelyTilted} Severe=${isSeverelyTilted} Critical=${isCriticallyTilted}`);
@@ -5205,7 +5323,7 @@ export class TankController {
                 const emergencyMultiplier = isMoving ? baseEmergencyMultiplier * 0.7 : baseEmergencyMultiplier; // Сильно уменьшено при движении
                 let emergencyX = -tiltX * this.emergencyForce * emergencyMultiplier * 0.6;
                 let emergencyZ = -tiltZ * this.emergencyForce * emergencyMultiplier * 0.6;
-                
+
                 // Ограничиваем экстренную силу (но больше при критическом опрокидывании)
                 const emergencyMax = isCriticallyTilted ? maxTorquePerFrame * 1.8 : (isSeverelyTilted ? maxTorquePerFrame * 1.5 : maxTorquePerFrame * 1.2); // Уменьшено
                 const emergencyMagnitude = Math.sqrt(emergencyX * emergencyX + emergencyZ * emergencyZ);
@@ -5215,19 +5333,19 @@ export class TankController {
                     emergencyX *= scale;
                     emergencyZ *= scale;
                 }
-                
+
                 // Добавляем к общей корректирующей силе вместо отдельного применения
                 totalCorrectiveX += emergencyX;
                 totalCorrectiveZ += emergencyZ;
-                
+
                 // Lift force полностью отключен для предотвращения подпрыгиваний
                 // (liftForce = 0 в параметрах физики)
-                
+
                 if (shouldLog) {
                     physicsLogger.verbose(`  [EMERGENCY] Torque: [${emergencyX.toFixed(0)}, ${emergencyZ.toFixed(0)}] | Mult: ${emergencyMultiplier.toFixed(2)} | Clamped: ${emergencyWasClamped}`);
                 }
             }
-            
+
             // HEAVY & RESPONSIVE: Прижимная сила при движении (зависит от скорости)
             // Используем кэшированное значение absFwdSpeed для оптимизации
             if (absFwdSpeed > 1) {
@@ -5235,16 +5353,16 @@ export class TankController {
                 const downforceFactor = PHYSICS_CONFIG.tank.arcade.downforceFactor;
                 const downForceVal = downforceFactor * absFwdSpeed * (1.0 - up.y) * 0.5;
                 totalVerticalForce -= downForceVal; // Добавляем к общей вертикальной силе
-                
+
                 if (shouldLog) {
                     physicsLogger.verbose(`  [DOWNFORCE] Force: ${downForceVal.toFixed(0)} | Factor: ${downforceFactor} | Speed: ${absFwdSpeed.toFixed(2)}`);
                 }
             }
-            
+
             // Автоматический сброс при критическом опрокидывании или застревании
             const isFallen = pos.y < -10 || up.y < 0.2 || Math.abs(tiltX) > 1.2 || Math.abs(tiltZ) > 1.2;
             const isStuck = Math.abs(vel.length()) < 0.5 && Math.abs(angVel.length()) < 0.1 && up.y < 0.4;
-            
+
             if (isFallen || isStuck) {
                 if (shouldLog) {
                     physicsLogger.verbose(`  [RESET] Fallen: ${isFallen} | Stuck: ${isStuck} | Timer: ${this._resetTimer ? ((Date.now() - this._resetTimer) / 1000).toFixed(1) + 's' : 'none'}`);
@@ -5269,7 +5387,7 @@ export class TankController {
                 const throttleDownForceVal = Math.abs(this.smoothThrottle) * downforceFactor * absFwdSpeed * 0.4;
                 totalVerticalForce -= throttleDownForceVal; // Добавляем к общей вертикальной силе
             }
-            
+
             // Применяем ВСЮ вертикальную силу одной командой (предотвращает конфликты и тряску)
             // Проверка валидности перед применением силы
             if (body && isFinite(totalVerticalForce)) {
@@ -5289,7 +5407,7 @@ export class TankController {
             let climbForce = 0;
             let slopeMultiplier = 1.0;
             let isClimbingObstacle = false;
-            
+
             // Фильтр для raycast (исключаем танк и снаряды)
             const obstacleFilter = (mesh: any) => {
                 if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
@@ -5298,12 +5416,12 @@ export class TankController {
                 if (mesh === this.chassis || mesh === this.turret || mesh === this.barrel) return false;
                 return true;
             };
-            
+
             const throttleAbs = Math.abs(this.smoothThrottle);
             const movingForward = this.smoothThrottle > 0.1;
             const movingBackward = this.smoothThrottle < -0.1;
             const isClimbMoving = throttleAbs > 0.1;
-            
+
             // Если танк не движется и был на стене - сбрасываем состояние
             if (!isClimbMoving && this._isOnVerticalWall) {
                 this._isOnVerticalWall = false;
@@ -5311,35 +5429,35 @@ export class TankController {
                 this._wallDistance = 0;
                 this._wallHitPoint = null;
             }
-            
+
             if (isClimbMoving) {
                 // Направление движения (вперёд или назад)
                 const moveDir = movingForward ? forward.clone() : forward.scale(-1);
                 const tankHeight = this.chassisType?.height || 1.5;
                 const tankDepth = this.chassisType?.depth || 4.0;
-                
+
                 // === ЛУЧ 1: ГОРИЗОНТАЛЬНЫЙ (обнаружение стены) ===
                 // Стреляем от нижней передней части танка горизонтально
                 const wallRayStart = pos.clone();
                 wallRayStart.y -= tankHeight * 0.3; // Ниже центра (уровень гусениц)
                 wallRayStart.addInPlace(moveDir.scale(tankDepth * 0.3)); // Смещение к передней части
-                
+
                 const wallRay = new Ray(wallRayStart, moveDir, 2.5);
                 const wallHit = this.scene.pickWithRay(wallRay, obstacleFilter);
-                
+
                 if (wallHit && wallHit.hit && wallHit.pickedPoint && wallHit.distance < this.wallAttachmentDistance) {
                     // ИСПРАВЛЕНИЕ: Проверяем нормаль поверхности чтобы различать склоны от вертикальных стен
                     const wallNormal = wallHit.getNormal(true); // true = world space
-                    
+
                     if (wallNormal && wallNormal.y < this.verticalWallThreshold) {
                         // Это ВЕРТИКАЛЬНАЯ СТЕНА (угол ≥70°)
-                        
+
                         // Плавное включение режима прилипания
                         const attachmentIntensity = 1.0 - Math.min(wallHit.distance / this.wallAttachmentDistance, 1.0);
-                        const smoothAttachment = this._isOnVerticalWall ? 
-                            1.0 : 
+                        const smoothAttachment = this._isOnVerticalWall ?
+                            1.0 :
                             Math.min(1.0, attachmentIntensity / this.wallAttachmentSmoothing);
-                        
+
                         // Сохраняем состояние стены
                         this._isOnVerticalWall = smoothAttachment > 0.1;
                         if (this._isOnVerticalWall) {
@@ -5353,7 +5471,7 @@ export class TankController {
                             }
                             this._wallHitPoint.copyFrom(wallHit.pickedPoint);
                         }
-                        
+
                         // Применяем силу прилипания (направлена к стене)
                         // Базовая сила работает всегда, дополнительная - при движении
                         if (this._isOnVerticalWall && body && this._wallNormal) {
@@ -5362,7 +5480,7 @@ export class TankController {
                             // Дополнительная сила при движении
                             const movementAttachmentForce = this.wallAttachmentForce * smoothAttachment * throttleAbs * 0.5;
                             const totalAttachmentForce = baseAttachmentForce + movementAttachmentForce;
-                            
+
                             if (isFinite(totalAttachmentForce) && totalAttachmentForce > 0) {
                                 this._wallNormal.scaleToRef(-totalAttachmentForce, this._tmpVector7); // К стене
                                 try {
@@ -5370,7 +5488,7 @@ export class TankController {
                                 } catch (e) { /* ignore */ }
                             }
                         }
-                        
+
                         isClimbingObstacle = false; // Не применяем climb assist
                     } else {
                         // Это ПОЛОГИЙ СКЛОН (нормаль направлена вверх, y >= verticalWallThreshold) - применяем climb assist
@@ -5381,127 +5499,127 @@ export class TankController {
                         }
                         isClimbingObstacle = true;
                     }
-                    
+
                     // Применяем climb assist ТОЛЬКО для пологих склонов
                     if (!isClimbingObstacle) {
                         // Вертикальная стена - пропускаем весь climb assist код
                     } else {
-                    // === ЛУЧ 2: ВЕРТИКАЛЬНЫЙ ВВЕРХ (определение высоты препятствия) ===
-                    const heightRayStart = wallHit.pickedPoint.clone();
-                    heightRayStart.y = pos.y - tankHeight * 0.5; // От нижней точки танка
-                    
-                    const heightRay = new Ray(heightRayStart, Vector3.Up(), this.maxClimbHeight + 1);
-                    const heightHit = this.scene.pickWithRay(heightRay, obstacleFilter);
-                    
-                    // Высота препятствия = расстояние до верха или maxClimbHeight если не нашли
-                    let obstacleHeight: number;
-                    if (heightHit && heightHit.hit) {
-                        obstacleHeight = heightHit.distance;
-                    } else {
-                        // Луч не попал - препятствие ниже чем мы думали или это край
-                        // Попробуем определить высоту по точке удара
-                        obstacleHeight = Math.max(0, wallHit.pickedPoint.y - (pos.y - tankHeight * 0.5));
-                    }
-                    
-                    // === ЛУЧ 3: ПРОВЕРКА ВЕРХА ПРЕПЯТСТВИЯ ===
-                    // Стреляем вниз сверху препятствия чтобы найти его верхнюю грань
-                    const topCheckStart = wallHit.pickedPoint.clone();
-                    topCheckStart.y = pos.y + this.maxClimbHeight;
-                    topCheckStart.addInPlace(moveDir.scale(0.5)); // Чуть впереди
-                    
-                    const topRay = new Ray(topCheckStart, Vector3.Down(), this.maxClimbHeight * 2);
-                    const topHit = this.scene.pickWithRay(topRay, obstacleFilter);
-                    
-                    if (topHit && topHit.hit && topHit.pickedPoint) {
-                        // Нашли верхнюю грань - пересчитываем высоту
-                        const topY = topHit.pickedPoint.y;
-                        const currentBottomY = pos.y - tankHeight * 0.5;
-                        obstacleHeight = Math.max(0, topY - currentBottomY);
-                    }
-                    
-                    // Проверяем можем ли преодолеть
-                    if (obstacleHeight > 0.05 && obstacleHeight <= this.maxClimbHeight) {
-                        // Интенсивность зависит от близости к стене и высоты препятствия
-                        const proximityFactor = 1.0 - Math.min(wallHit.distance / 2.0, 1.0);
-                        const heightFactor = Math.min(obstacleHeight / this.maxClimbHeight, 1.0);
-                        const climbIntensity = proximityFactor * (0.5 + heightFactor * 0.5) * throttleAbs;
-                        
-                        // === СИЛА 1: ПОДЪЁМ ВВЕРХ ===
-                        // Чем ближе к стене и чем выше препятствие - тем сильнее подъём
-                        climbForce = this.climbAssistForce * climbIntensity;
-                        
-                        // === СИЛА 2: ПОДЪЁМ ПЕРЕДНЕЙ ЧАСТИ (применяется к точке впереди) ===
-                        const frontLiftForce = this.frontClimbForce * climbIntensity;
-                        const frontPoint = pos.clone();
-                        frontPoint.addInPlace(moveDir.scale(tankDepth * 0.4)); // Передняя точка
-                        frontPoint.y -= tankHeight * 0.3;
-                        
-                        if (body && isFinite(frontLiftForce)) {
-                            const liftVec = new Vector3(0, frontLiftForce, 0);
-                            try {
-                                body.applyForce(liftVec, frontPoint);
-                            } catch (e) { /* ignore */ }
+                        // === ЛУЧ 2: ВЕРТИКАЛЬНЫЙ ВВЕРХ (определение высоты препятствия) ===
+                        const heightRayStart = wallHit.pickedPoint.clone();
+                        heightRayStart.y = pos.y - tankHeight * 0.5; // От нижней точки танка
+
+                        const heightRay = new Ray(heightRayStart, Vector3.Up(), this.maxClimbHeight + 1);
+                        const heightHit = this.scene.pickWithRay(heightRay, obstacleFilter);
+
+                        // Высота препятствия = расстояние до верха или maxClimbHeight если не нашли
+                        let obstacleHeight: number;
+                        if (heightHit && heightHit.hit) {
+                            obstacleHeight = heightHit.distance;
+                        } else {
+                            // Луч не попал - препятствие ниже чем мы думали или это край
+                            // Попробуем определить высоту по точке удара
+                            obstacleHeight = Math.max(0, wallHit.pickedPoint.y - (pos.y - tankHeight * 0.5));
                         }
-                        
-                        // === СИЛА 3: ПРОТАЛКИВАНИЕ ВПЕРЁД ===
-                        const pushForce = this.wallPushForce * climbIntensity;
-                        if (body && isFinite(pushForce)) {
-                            const pushVec = moveDir.scale(pushForce);
-                            try {
-                                body.applyForce(pushVec, pos);
-                            } catch (e) { /* ignore */ }
+
+                        // === ЛУЧ 3: ПРОВЕРКА ВЕРХА ПРЕПЯТСТВИЯ ===
+                        // Стреляем вниз сверху препятствия чтобы найти его верхнюю грань
+                        const topCheckStart = wallHit.pickedPoint.clone();
+                        topCheckStart.y = pos.y + this.maxClimbHeight;
+                        topCheckStart.addInPlace(moveDir.scale(0.5)); // Чуть впереди
+
+                        const topRay = new Ray(topCheckStart, Vector3.Down(), this.maxClimbHeight * 2);
+                        const topHit = this.scene.pickWithRay(topRay, obstacleFilter);
+
+                        if (topHit && topHit.hit && topHit.pickedPoint) {
+                            // Нашли верхнюю грань - пересчитываем высоту
+                            const topY = topHit.pickedPoint.y;
+                            const currentBottomY = pos.y - tankHeight * 0.5;
+                            obstacleHeight = Math.max(0, topY - currentBottomY);
                         }
-                        
-                        // === МОМЕНТ: ПОДНЯТИЕ НОСА ТАНКА ===
-                        // Создаём момент чтобы нос танка поднимался при преодолении препятствия
-                        // ИНВЕРТИРОВАНО: минус делает нос вверх, а не зад!
-                        const climbTorqueValue = -this.climbTorque * climbIntensity * (movingForward ? 1 : -1);
-                        if (body && isFinite(climbTorqueValue)) {
-                            // Момент вокруг боковой оси (pitch) - поднимаем нос
-                            const rightAxis = Vector3.Cross(Vector3.Up(), forward).normalize();
-                            const torqueVec = rightAxis.scale(climbTorqueValue);
-                            try {
-                                body.applyAngularImpulse(torqueVec);
-                            } catch (e) { /* ignore */ }
+
+                        // Проверяем можем ли преодолеть
+                        if (obstacleHeight > 0.05 && obstacleHeight <= this.maxClimbHeight) {
+                            // Интенсивность зависит от близости к стене и высоты препятствия
+                            const proximityFactor = 1.0 - Math.min(wallHit.distance / 2.0, 1.0);
+                            const heightFactor = Math.min(obstacleHeight / this.maxClimbHeight, 1.0);
+                            const climbIntensity = proximityFactor * (0.5 + heightFactor * 0.5) * throttleAbs;
+
+                            // === СИЛА 1: ПОДЪЁМ ВВЕРХ ===
+                            // Чем ближе к стене и чем выше препятствие - тем сильнее подъём
+                            climbForce = this.climbAssistForce * climbIntensity;
+
+                            // === СИЛА 2: ПОДЪЁМ ПЕРЕДНЕЙ ЧАСТИ (применяется к точке впереди) ===
+                            const frontLiftForce = this.frontClimbForce * climbIntensity;
+                            const frontPoint = pos.clone();
+                            frontPoint.addInPlace(moveDir.scale(tankDepth * 0.4)); // Передняя точка
+                            frontPoint.y -= tankHeight * 0.3;
+
+                            if (body && isFinite(frontLiftForce)) {
+                                const liftVec = new Vector3(0, frontLiftForce, 0);
+                                try {
+                                    body.applyForce(liftVec, frontPoint);
+                                } catch (e) { /* ignore */ }
+                            }
+
+                            // === СИЛА 3: ПРОТАЛКИВАНИЕ ВПЕРЁД ===
+                            const pushForce = this.wallPushForce * climbIntensity;
+                            if (body && isFinite(pushForce)) {
+                                const pushVec = moveDir.scale(pushForce);
+                                try {
+                                    body.applyForce(pushVec, pos);
+                                } catch (e) { /* ignore */ }
+                            }
+
+                            // === МОМЕНТ: ПОДНЯТИЕ НОСА ТАНКА ===
+                            // Создаём момент чтобы нос танка поднимался при преодолении препятствия
+                            // ИНВЕРТИРОВАНО: минус делает нос вверх, а не зад!
+                            const climbTorqueValue = -this.climbTorque * climbIntensity * (movingForward ? 1 : -1);
+                            if (body && isFinite(climbTorqueValue)) {
+                                // Момент вокруг боковой оси (pitch) - поднимаем нос
+                                const rightAxis = Vector3.Cross(Vector3.Up(), forward).normalize();
+                                const torqueVec = rightAxis.scale(climbTorqueValue);
+                                try {
+                                    body.applyAngularImpulse(torqueVec);
+                                } catch (e) { /* ignore */ }
+                            }
+
+                            if (shouldLog) {
+                                physicsLogger.verbose(`  [ROUNDED TRACKS] WallDist: ${wallHit.distance.toFixed(2)} | ObstacleH: ${obstacleHeight.toFixed(2)} | Intensity: ${climbIntensity.toFixed(2)} | LiftF: ${climbForce.toFixed(0)} | FrontF: ${frontLiftForce.toFixed(0)}`);
+                            }
                         }
-                        
-                        if (shouldLog) {
-                            physicsLogger.verbose(`  [ROUNDED TRACKS] WallDist: ${wallHit.distance.toFixed(2)} | ObstacleH: ${obstacleHeight.toFixed(2)} | Intensity: ${climbIntensity.toFixed(2)} | LiftF: ${climbForce.toFixed(0)} | FrontF: ${frontLiftForce.toFixed(0)}`);
-                        }
-                    }
                     } // Закрытие else блока (пологий склон)
                 }
-                
+
                 // === ДОПОЛНИТЕЛЬНЫЙ ЛУЧ: НАКЛОННЫЙ ВПЕРЁД-ВНИЗ (склоны) ===
                 if (!isClimbingObstacle) {
                     const slopeRayStart = pos.clone();
                     slopeRayStart.y += tankHeight * 0.2;
-                    
+
                     const slopeDir = moveDir.clone();
                     slopeDir.y = -0.5;
                     slopeDir.normalize();
-                    
+
                     const slopeRay = new Ray(slopeRayStart, slopeDir, 4.0);
                     const slopeHit = this.scene.pickWithRay(slopeRay, obstacleFilter);
-                    
+
                     if (slopeHit && slopeHit.hit && slopeHit.pickedPoint) {
                         const slopeHeight = slopeHit.pickedPoint.y - groundHeight;
-                        
+
                         if (slopeHeight > 0.1 && slopeHeight < this.maxClimbHeight) {
                             // Пологий склон - применяем буст
                             const slopeAngle = Math.atan2(slopeHeight, slopeHit.distance);
                             slopeMultiplier = 1.0 + Math.min(slopeAngle * 3.0, this.slopeBoostMax - 1.0);
-                            
+
                             // Небольшая помощь подъёму
                             climbForce += this.climbAssistForce * 0.3 * throttleAbs * Math.min(slopeAngle, 0.8);
-                            
+
                             if (shouldLog) {
                                 physicsLogger.verbose(`  [SLOPE BOOST] SlopeH: ${slopeHeight.toFixed(2)} | Angle: ${(slopeAngle * 180 / Math.PI).toFixed(1)}° | Mult: ${slopeMultiplier.toFixed(2)}`);
                             }
                         }
                     }
                 }
-                
+
                 // --- ЗАМЕДЛЕНИЕ НА КРУТЫХ СКЛОНАХ ---
                 // Если танк поднимается под большим углом - замедляем его
                 if (isClimbingObstacle) {
@@ -5510,26 +5628,26 @@ export class TankController {
                     this.chassis.rotationQuaternion?.toRotationMatrix(rotMatrix);
                     const tankUpTransformed = Vector3.TransformNormal(Vector3.Up(), rotMatrix);
                     const tiltAngle = Math.acos(Math.min(1, Math.max(-1, Vector3.Dot(tankUpTransformed, Vector3.Up()))));
-                    
+
                     // Если наклон больше 20 градусов (0.35 рад) - замедляем
                     if (tiltAngle > 0.35) {
                         const slowdownFactor = 1.0 - Math.min(0.5, (tiltAngle - 0.35) * 1.5);
                         slopeMultiplier *= slowdownFactor;
-                        
+
                         if (shouldLog) {
                             physicsLogger.verbose(`  [CLIMB SLOWDOWN] TiltAngle: ${(tiltAngle * 180 / Math.PI).toFixed(1)}° | Slowdown: ${slowdownFactor.toFixed(2)}`);
                         }
                     }
                 }
             }
-            
+
             // ИСПРАВЛЕНИЕ: Если танк слишком наклонён (> 45°) - НЕ применяем climb assist
             // Это предотвращает взбирание по стенам
             if (up.y < 0.7) { // cos(45°) ≈ 0.707
                 climbForce = 0;
                 isClimbingObstacle = false;
             }
-            
+
             // Применяем основную силу подъёма к центру танка
             if (climbForce > 0 && body && isFinite(climbForce)) {
                 const climbForceVec = this._tmpVector6;
@@ -5559,20 +5677,20 @@ export class TankController {
                     }
                 }
             }
-            
+
             // Плавная интерполяция throttle (увеличена плавность)
             this.smoothThrottle += (this.throttleTarget - this.smoothThrottle) * 0.12;
             this.smoothSteer += (this.steerTarget - this.smoothSteer) * 0.18;
-            
+
             // Вычисляем целевую скорость вперед
             // Используем кэшированное значение fwdSpeed для оптимизации
             const targetSpeed = this.smoothThrottle * this.moveSpeed;
             const speedDiff = targetSpeed - fwdSpeed;
-            
+
             // Применяем силу для достижения целевой скорости (УЛУЧШЕНО для пересечённой местности)
             if (Math.abs(this.smoothThrottle) > 0.05) {
                 let movementDirection = forward.clone();
-                
+
                 // Если танк на вертикальной стене - проецируем движение на плоскость стены
                 if (this._isOnVerticalWall && this._wallNormal) {
                     // Проекция: projected = v - (v · n) * n
@@ -5580,12 +5698,12 @@ export class TankController {
                     const projectedDir = movementDirection.subtract(
                         this._wallNormal.scale(dot)
                     );
-                    
+
                     // Проверяем длину проекции
                     const projectedLength = projectedDir.length();
                     if (projectedLength > 0.01) {
                         projectedDir.normalize();
-                        
+
                         // Проверяем, не пытается ли танк двигаться вверх
                         const verticalComponent = Vector3.Dot(projectedDir, Vector3.Up());
                         if (verticalComponent > 0.05) {
@@ -5618,7 +5736,7 @@ export class TankController {
                         }
                     }
                 }
-                
+
                 // ТАНКОВАЯ МОЩЬ: Применяем slopeMultiplier для усиления тяги на склонах
                 const accelForce = speedDiff * this.acceleration * slopeMultiplier;
                 // ТАНКОВАЯ МОЩЬ: Увеличена максимальная сила для преодоления препятствий
@@ -5633,7 +5751,7 @@ export class TankController {
                         logger.warn("[TANK] Error applying movement force:", e);
                     }
                 }
-                
+
                 if (shouldLog) {
                     physicsLogger.verbose(`  [MOVEMENT] TargetSpeed: ${targetSpeed.toFixed(2)} | Current: ${fwdSpeed.toFixed(2)} | Diff: ${speedDiff.toFixed(2)} | Force: ${clampedAccelForce.toFixed(0)} | SlopeMult: ${slopeMultiplier.toFixed(2)}`);
                 }
@@ -5648,7 +5766,7 @@ export class TankController {
                 const pitchDirection = -this.smoothThrottle; // Инвертируем для правильного эффекта
                 const speedFactor = Math.min(1.0, absFwdSpeed / this.moveSpeed); // Пропорционально скорости
                 const effectivePitchTorque = pitchDirection * pitchTorque * speedFactor;
-                
+
                 // Применяем torque в локальных координатах танка (вокруг оси Right)
                 const right = this.chassis.getDirection(Vector3.Right());
                 const torqueVec = right.scale(effectivePitchTorque);
@@ -5669,31 +5787,31 @@ export class TankController {
             // НА СТЕНЕ: значительно уменьшаем поворот для предотвращения вращения
             const speedRatio = absFwdSpeed / this.moveSpeed;
             let turnSpeedMultiplier = 1.0 + (1.0 - speedRatio) * 0.5; // +50% скорости поворота на месте
-            
+
             // КРИТИЧНО: На стене уменьшаем поворот в 3 раза для предотвращения вращения
             if (this._isOnVerticalWall) {
                 turnSpeedMultiplier *= 0.3; // Уменьшаем поворот на 70%
             }
-            
+
             const effectiveTurnSpeed = this.turnSpeed * turnSpeedMultiplier;
-            
+
             const targetTurnRate = this.smoothSteer * effectiveTurnSpeed;
             const currentTurnRate = angVel.y;
-            
+
             // Адаптивное угловое ускорение
             const isTurning = Math.abs(this.smoothSteer) > 0.1;
             let angularAccelMultiplier = isTurning ? 1.2 : 1.5; // Быстрее останавливаем поворот
-            
+
             // На стене увеличиваем демпфирование поворота
             if (this._isOnVerticalWall) {
                 angularAccelMultiplier *= 2.0; // Увеличиваем демпфирование в 2 раза
             }
-            
+
             const turnAccelVal = (targetTurnRate - currentTurnRate) * this.turnAccel * angularAccelMultiplier;
-            
+
             // Накопление всех угловых моментов для предотвращения конфликтов
             let totalAngularTorqueY = turnAccelVal;
-            
+
             // Дополнительная стабилизация при повороте на скорости (объединена)
             if (Math.abs(speedRatio) > 0.3 && Math.abs(this.smoothSteer) > 0.2) {
                 let stabilityMultiplier = speedRatio * 0.5; // Уменьшено
@@ -5704,7 +5822,7 @@ export class TankController {
                 const stabilityTorqueVal = -angVel.y * this.stabilityTorque * stabilityMultiplier;
                 totalAngularTorqueY += stabilityTorqueVal;
             }
-            
+
             // Yaw damping when not turning (объединен)
             if (Math.abs(this.smoothSteer) < 0.05) {
                 let yawDampingMultiplier = 0.7; // Уменьшено
@@ -5714,12 +5832,12 @@ export class TankController {
                 }
                 totalAngularTorqueY += -angVel.y * this.yawDamping * yawDampingMultiplier;
             }
-            
+
             // Применяем ВСЕ угловые моменты одной командой (предотвращает конфликты)
             const totalAngularTorque = this._tmpVector7;
             totalAngularTorque.set(0, totalAngularTorqueY, 0);
             this.applyTorque(totalAngularTorque);
-            
+
             if (shouldLog) {
                 physicsLogger.verbose(`  [TURN] Target: ${targetTurnRate.toFixed(2)} rad/s | Current: ${currentTurnRate.toFixed(2)} rad/s`);
                 physicsLogger.verbose(`    Accel: ${turnAccelVal.toFixed(0)} | Mult: ${angularAccelMultiplier.toFixed(2)} | SpeedRatio: ${speedRatio.toFixed(2)}`);
@@ -5732,16 +5850,16 @@ export class TankController {
                 const antiRollFactor = PHYSICS_CONFIG.tank.arcade.antiRollFactor;
                 // Вычисляем крен (наклон в сторону поворота)
                 const rollAngle = this.smoothSteer > 0 ? tiltZ : -tiltZ; // Крен в сторону поворота
-                
+
                 // Применяем корректирующий момент для противодействия крену
                 // Чем больше крен и скорость поворота, тем сильнее корректирующий момент
                 const rollCorrection = -rollAngle * antiRollFactor * absFwdSpeed * this.mass * 50;
-                
+
                 if (isFinite(rollCorrection) && Math.abs(rollCorrection) > 0.1) {
                     const rollTorque = this._tmpVector6;
                     rollTorque.set(rollCorrection, 0, 0); // Момент вокруг оси X (крен)
                     this.applyTorque(rollTorque);
-                    
+
                     if (shouldLog) {
                         physicsLogger.verbose(`  [ANTI-ROLL] RollAngle: ${(rollAngle * 180 / Math.PI).toFixed(1)}° | Correction: ${rollCorrection.toFixed(0)} | Factor: ${antiRollFactor}`);
                     }
@@ -5752,22 +5870,22 @@ export class TankController {
             // Определяем, находится ли танк в воздухе (выше целевой высоты + порог)
             const targetHeight = groundHeight + this.hoverHeight;
             const isInAir = pos.y > targetHeight + 0.3; // Порог 0.3 м для определения "в воздухе"
-            
+
             if (isInAir) {
                 const arcadeConfig = PHYSICS_CONFIG.tank.arcade;
-                
+
                 // ARCADE MODIFIERS: Air Control - позволяет доворачивать корпус в прыжке
                 if (Math.abs(this.smoothSteer) > 0.1 && arcadeConfig.airControl > 0) {
                     const airControlTorque = this.smoothSteer * this.turnAccel * arcadeConfig.airControl;
                     const airTorque = this._tmpVector7;
                     airTorque.set(0, airControlTorque, 0);
                     this.applyTorque(airTorque);
-                    
+
                     if (shouldLog) {
                         physicsLogger.verbose(`  [AIR CONTROL] Steer: ${this.smoothSteer.toFixed(2)} | Torque: ${airControlTorque.toFixed(0)} | Factor: ${arcadeConfig.airControl}`);
                     }
                 }
-                
+
                 // ARCADE MODIFIERS: Angular Drag в воздухе - предотвращает бесконечное вращение
                 if (arcadeConfig.angularDragAir > 0) {
                     const airAngularDamping = this._tmpVector6;
@@ -5789,7 +5907,7 @@ export class TankController {
                         body.setAngularVelocity(angVel);
                     } catch (e) { /* ignore */ }
                 }
-                
+
                 // Также демпфируем угловую скорость по X и Z осям (наклон)
                 if (Math.abs(angVel.x) > 0.1 || Math.abs(angVel.z) > 0.1) {
                     angVel.x *= wallAngularDamping;
@@ -5798,7 +5916,7 @@ export class TankController {
                         body.setAngularVelocity(angVel);
                     } catch (e) { /* ignore */ }
                 }
-                
+
                 // Вычисляем горизонтальную скорость вдоль стены
                 const wallRight = Vector3.Cross(this._wallNormal, Vector3.Up());
                 if (wallRight.length() > 0.1) {
@@ -5806,11 +5924,11 @@ export class TankController {
                     const wallForward = Vector3.Cross(wallRight, this._wallNormal);
                     if (wallForward.length() > 0.1) {
                         wallForward.normalize();
-                        
+
                         const horizontalVelX = Vector3.Dot(vel, wallRight);
                         const horizontalVelZ = Vector3.Dot(vel, wallForward);
                         const horizontalSpeed = Math.sqrt(horizontalVelX * horizontalVelX + horizontalVelZ * horizontalVelZ);
-                        
+
                         // Если горизонтальная скорость слишком мала И танк не движется - соскальзываем вниз
                         const isNotMoving = Math.abs(this.smoothThrottle) < 0.1;
                         if (horizontalSpeed < this.wallMinHorizontalSpeed && isNotMoving) {
@@ -5825,7 +5943,7 @@ export class TankController {
                         }
                     }
                 }
-                
+
                 // Мягко ограничиваем вертикальную скорость вверх (если танк пытается подняться)
                 if (vel.y > 1.0) { // Увеличен порог с 0.5 до 1.0
                     const downwardForce = -vel.y * this.mass * 30; // Уменьшено с 50 до 30 для более плавного поведения
@@ -5852,7 +5970,7 @@ export class TankController {
                     logger.warn("[TANK] Error applying side friction:", e);
                 }
             }
-            
+
             if (shouldLog) {
                 physicsLogger.verbose(`  [SIDE FRICTION] SideSpeed: ${sideSpeed.toFixed(2)} | Force: ${sideFrictionForce.toFixed(0)} | Mult: ${sideFrictionMultiplier.toFixed(2)}`);
             }
@@ -5871,7 +5989,7 @@ export class TankController {
                         logger.warn("[TANK] Error applying side drag:", e);
                     }
                 }
-                
+
                 // Продольное сопротивление
                 const fwdVel = Vector3.Dot(vel, forward);
                 const fwdDragVal = -fwdVel * this.fwdDrag;
@@ -5884,13 +6002,13 @@ export class TankController {
                         logger.warn("[TANK] Error applying forward drag:", e);
                     }
                 }
-                
+
                 // Угловое сопротивление
                 const angularDragVal = -angVel.y * this.angularDrag;
                 if (isFinite(angularDragVal)) {
                     this.applyTorque(new Vector3(0, angularDragVal, 0));
                 }
-                
+
                 if (shouldLog) {
                     physicsLogger.verbose(`  [DRAG] Side: ${sideDragVal.toFixed(0)} | Fwd: ${fwdDragVal.toFixed(0)} | Angular: ${angularDragVal.toFixed(0)}`);
                 }
@@ -5907,7 +6025,7 @@ export class TankController {
             //         this.respawn();
             //     }
             // }
-            
+
             // --- 7. MOVEMENT SOUNDS (Track sounds when moving) ---
             if (Math.abs(this.smoothThrottle) > 0.2) {
                 const now = Date.now();
@@ -5923,7 +6041,7 @@ export class TankController {
 
             // === ПЛАВНЫЙ РАЗГОН БАШНИ: от 1% до 100% за 1 СЕКУНДУ ===
             const now = performance.now();
-            
+
             if (this.turretTurnTarget !== 0) {
                 // Начало вращения - запоминаем время старта
                 if (this.turretAccelStartTime === 0) {
@@ -5937,7 +6055,7 @@ export class TankController {
                 this.turretAccelStartTime = 0;
                 this.turretAcceleration *= 0.8; // Плавное торможение
             }
-            
+
             // Применяем скорость башни при клавиатурном управлении (Z/X) ИЛИ автоцентрировании (C)
             // Когда isKeyboardTurretControl = false И isAutoCentering = false, game.ts управляет башней через мышь/камеру
             // ИСПРАВЛЕНИЕ: Добавлена проверка isAutoCentering для работы центровки башни (C key)
@@ -5957,13 +6075,13 @@ export class TankController {
                         this.baseTurretSpeed = maxTurretSpeed;
                         logger.warn(`[TANK] baseTurretSpeed exceeded max in updatePhysics, clamping to ${maxTurretSpeed}`);
                     }
-                    
+
                     // Плавная интерполяция цели вращения
                     this.turretTurnSmooth += (this.turretTurnTarget - this.turretTurnSmooth) * this.turretLerpSpeed;
-                    
+
                     // Применяем поворот с ускорением
                     let rotationDelta = this.turretTurnSmooth * baseTurretSpeed * this.turretAcceleration;
-                    
+
                     // КРИТИЧНО: Ограничиваем максимальную скорость поворота
                     // Защита от слишком быстрого поворота (например, если baseTurretSpeed стал слишком большим)
                     const maxRotationDelta = 0.15; // Максимальная скорость поворота за кадр
@@ -5971,13 +6089,13 @@ export class TankController {
                         rotationDelta = Math.sign(rotationDelta) * maxRotationDelta;
                         logger.warn(`[TANK] rotationDelta (${rotationDelta.toFixed(4)}) exceeded max (${maxRotationDelta}), clamping`);
                     }
-                    
+
                     // КРИТИЧНО: Проверяем на NaN и Infinity
                     if (!isFinite(rotationDelta) || isNaN(rotationDelta)) {
                         logger.error(`[TANK] rotationDelta is invalid (${rotationDelta}), skipping rotation`);
                         rotationDelta = 0;
                     }
-                    
+
                     // ЛОГИРОВАНИЕ: Состояние поворота башни (только если есть значительное вращение)
                     if (Math.abs(rotationDelta) > 0.0001 && Math.random() < 0.01) { // Логируем 1% кадров
                         console.log(`[TANK] [updatePhysics] Turret rotation:`, {
@@ -5992,11 +6110,11 @@ export class TankController {
                             turretRotationY: this.turret.rotation.y.toFixed(4)
                         });
                     }
-                    
+
                     if (isFinite(rotationDelta) && !isNaN(rotationDelta) && Math.abs(rotationDelta) > 0.0001) {
                         const oldRot = this.turret.rotation.y;
                         this.turret.rotation.y += rotationDelta;
-                        
+
                         // КРИТИЧНО: Проверяем что поворот не сбросился и восстанавливаем если нужно
                         const newRot = this.turret.rotation.y;
                         const expectedRot = oldRot + rotationDelta;
@@ -6004,7 +6122,7 @@ export class TankController {
                             // Поворот был сброшен - восстанавливаем
                             this.turret.rotation.y = expectedRot;
                         }
-                        
+
                         // Синхронизируем rotationQuaternion если используется
                         if (this.turret.rotationQuaternion) {
                             this.turret.rotationQuaternion = Quaternion.RotationYawPitchRoll(
@@ -6016,7 +6134,7 @@ export class TankController {
                     }
                 }
             }
-            
+
             // === ПЛАВНЫЙ НАКЛОН СТВОЛА КЛАВИАТУРОЙ (R/F) ===
             // Работает только вне режима прицеливания (в режиме прицеливания game.ts управляет aimPitch)
             if (!this.isAiming && this.barrel && !this.barrel.isDisposed() && this.barrel.parent === this.turret) {
@@ -6033,7 +6151,7 @@ export class TankController {
                     this.barrelPitchAccelStartTime = 0;
                     this.barrelPitchAcceleration *= 0.8; // Плавное торможение
                 }
-                
+
                 // Применяем скорость наклона ствола (с проверкой валидности)
                 this.barrelPitchSmooth += (this.barrelPitchTarget - this.barrelPitchSmooth) * this.barrelPitchLerpSpeed;
                 const pitchDelta = this.barrelPitchSmooth * this.baseBarrelPitchSpeed * this.barrelPitchAcceleration;
@@ -6050,14 +6168,14 @@ export class TankController {
                 this.barrelPitchAcceleration = 0;
                 this.barrelPitchSmooth = 0;
             }
-            
+
             // === ОТКАТ ПУШКИ ПРИ ВЫСТРЕЛЕ ===
             // Плавно возвращаем пушку в исходное положение (горизонтальный откат)
             this.barrelRecoilOffset += (this.barrelRecoilTarget - this.barrelRecoilOffset) * this.barrelRecoilSpeed;
-            
+
             // Вертикальный откат (подъем при выстреле, затем возврат в исходное положение)
             this._barrelRecoilY += (this._barrelRecoilYTarget - this._barrelRecoilY) * this.barrelRecoilSpeed;
-            
+
             // ИСПРАВЛЕНИЕ: Применяем вертикальное движение ствола при прицеливании (aimPitch) с плавной интерполяцией
             // КРИТИЧНО: Восстанавливаем parent если он потерялся (например, после переодевания)
             if (this.barrel && !this.barrel.isDisposed() && this.turret && !this.turret.isDisposed()) {
@@ -6072,7 +6190,7 @@ export class TankController {
                 if (!isFinite(this.aimPitch)) {
                     this.aimPitch = 0; // Сбрасываем если невалиден
                 }
-                
+
                 // Применяем aimPitch к rotation.x ствола (вертикальный поворот)
                 // Ограничиваем угол от -10° (вниз) до +5° (вверх)
                 const clampedPitch = Math.max(-Math.PI / 18, Math.min(Math.PI / 36, this.aimPitch));
@@ -6080,20 +6198,20 @@ export class TankController {
                     // ИСПРАВЛЕНИЕ: В Babylon.js rotation.x положительный = вниз, отрицательный = вверх
                     // Поэтому инвертируем знак, чтобы визуал ствола соответствовал направлению снаряда
                     this._barrelTargetRotationX = -clampedPitch;
-                    
+
                     // Плавная интерполяция rotation.x ствола для устранения дёрганий
                     const rotationDiff = this._barrelTargetRotationX - this._barrelCurrentRotationX;
                     // Используем адаптивное сглаживание: быстрее при больших изменениях, медленнее при малых
                     const rotationEasing = Math.min(1.0, Math.abs(rotationDiff) * 8);
                     const adaptiveSmoothing = this._barrelRotationXSmoothing * (0.5 + rotationEasing * 0.5);
                     this._barrelCurrentRotationX += rotationDiff * adaptiveSmoothing;
-                    
+
                     // КРИТИЧНО: Применяем сглаженное значение к стволу
                     // Для всех типов пушек
                     this.barrel.rotation.x = this._barrelCurrentRotationX;
                 }
             }
-            
+
             // Применяем откат к позиции пушки (относительно башни)
             if (this.barrel && !this.barrel.isDisposed() && this._baseBarrelZ > 0) {
                 if (isFinite(this.barrelRecoilOffset) && isFinite(this._barrelRecoilY)) {
@@ -6101,19 +6219,19 @@ export class TankController {
                     const baseZ = this._baseBarrelZ + this.barrelRecoilOffset;
                     // Ствол всегда по центру башни по X
                     this.barrel.position = new Vector3(0, this._baseBarrelY + this._barrelRecoilY, baseZ);
-                    
+
                     // Затем проверяем и скрываем части ствола, которые пересекаются с башней или корпусом
                     // Это изменит позицию и масштаб для скрытия пересечений
                     this.visualsModule.updateBarrelVisibility(baseZ);
                 }
             }
-            
+
             // Обновляем гильзы
             this.projectilesModule.updateShellCasings();
-            
+
             // Animate Cannon (for animated cannons)
             this.updateCannonAnimations();
-            
+
             // Animate Chassis (for animated chassis)
             this.updateChassisAnimations();
 
@@ -6137,15 +6255,15 @@ export class TankController {
             if (this._tick % 2 === 0) {
                 this.updateInvulnerability();
             }
-            
+
             // === UPDATE MODULES (каждые 2 кадра для оптимизации) ===
             if (this._tick % 2 === 0) {
                 this.updateModules();
             }
-            
+
             // Модуль 9: Обновление платформы КАЖДЫЙ КАДР для максимальной плавности
             this.updateModule9Platform();
-            
+
             // FIX: УБРАНО принудительное обновление видимости дочерних мешей каждый кадр
             // Дочерние меши (turret, barrel) наследуют видимость от родителя (chassis)
             // Принудительная установка isVisible/setEnabled может вызывать проблемы с рендерингом
@@ -6159,7 +6277,7 @@ export class TankController {
                 }
                 this.hud.updateReload();
             }
-            
+
             // === UPDATE ENGINE SOUND (каждые 2 кадра для оптимизации) with 3D positioning ===
             // Обновляем звук мотора каждые 2 кадра для оптимизации
             if (this._tick % 2 === 0 && this.soundManager && isFinite(fwdSpeed)) {
@@ -6169,7 +6287,7 @@ export class TankController {
                     this.soundManager.updateEngine(speedRatio, Math.abs(this.smoothThrottle), pos);
                 }
             }
-            
+
             // КЭШИРОВАНИЕ ПОЗИЦИЙ ПЕРЕНЕСЕНО в updatePositionCache() 
             // который вызывается в onAfterPhysicsObservable
             // Это исправляет проблему "двойного танка" при движении
@@ -6192,7 +6310,7 @@ export class TankController {
             }
         }
     }
-    
+
     // Get current speed for external use
     getSpeed(): number {
         const vel = this.physicsBody.getLinearVelocity();
@@ -6201,11 +6319,11 @@ export class TankController {
         const forward = Vector3.TransformNormal(Vector3.Forward(), rotMatrix).normalize();
         return Vector3.Dot(vel, forward);
     }
-    
+
     // === КЭШИРОВАННЫЕ ПОЗИЦИИ ДЛЯ ПРОИЗВОДИТЕЛЬНОСТИ ===
     // Публичные методы для получения кэшированных позиций
     // Используйте эти методы вместо getAbsolutePosition() для лучшей производительности
-    
+
     /**
      * Обновить кэш позиций ПОСЛЕ шага физики
      * Вызывается из onAfterPhysicsObservable для синхронизации с физикой
@@ -6213,17 +6331,17 @@ export class TankController {
      */
     updatePositionCache(): void {
         if (!this.chassis || this.chassis.isDisposed()) return;
-        
+
         // КРИТИЧНО: После шага физики Havok обновляет mesh.position напрямую,
         // но WorldMatrix НЕ обновляется автоматически.
         // Без computeWorldMatrix, absolutePosition будет устаревшей!
         // Это вызывает эффект "двойного танка" при движении.
         this.chassis.computeWorldMatrix(true);
-        
+
         // Используем absolutePosition (мировые координаты) вместо position (локальные)
         // После computeWorldMatrix это гарантированно актуальные данные
         this._cachedChassisPosition.copyFrom(this.chassis.absolutePosition);
-        
+
         if (this.turret && !this.turret.isDisposed()) {
             // computeWorldMatrix для дочерних элементов обновляет их абсолютные позиции
             this.turret.computeWorldMatrix(true);
@@ -6232,7 +6350,7 @@ export class TankController {
             }
             this._cachedTurretPosition.copyFrom(this.turret.absolutePosition);
         }
-        
+
         if (this.barrel && !this.barrel.isDisposed()) {
             this.barrel.computeWorldMatrix(true);
             if (!this._cachedBarrelPosition) {
@@ -6240,10 +6358,10 @@ export class TankController {
             }
             this._cachedBarrelPosition.copyFrom(this.barrel.absolutePosition);
         }
-        
+
         this._positionCacheFrame = this._tick;
     }
-    
+
     /**
      * Получить кэшированную позицию корпуса
      * Возвращает absolutePosition (мировые координаты), синхронизированную с физикой
@@ -6252,7 +6370,7 @@ export class TankController {
     getCachedChassisPosition(): Vector3 {
         return this._cachedChassisPosition;
     }
-    
+
     /**
      * Получить кэшированную позицию башни
      * Возвращает position (локальная позиция относительно корпуса)
@@ -6260,7 +6378,7 @@ export class TankController {
     getCachedTurretPosition(): Vector3 | null {
         return this._cachedTurretPosition;
     }
-    
+
     /**
      * Получить кэшированную позицию ствола
      * Возвращает position (локальная позиция относительно башни)
@@ -6268,9 +6386,9 @@ export class TankController {
     getCachedBarrelPosition(): Vector3 | null {
         return this._cachedBarrelPosition;
     }
-    
+
     // === МОДУЛИ (кнопки 6-0) ===
-    
+
     // Модуль 6: Временная защитная стенка цвета поверхности (10 секунд)
     private activateModule6(): void {
         const now = Date.now();
@@ -6283,7 +6401,7 @@ export class TankController {
             return;
         }
         this.module6LastUse = now;
-        
+
         // Если уже есть максимальное количество стенок, удаляем самую старую (первую)
         if (this.module6Walls.length >= this.MAX_WALLS) {
             const oldestWall = this.module6Walls.shift(); // Удаляем первую (самую старую)
@@ -6300,24 +6418,24 @@ export class TankController {
                 }
             }
         }
-        
+
         if (!this.chassis || !this.barrel) return;
-        
+
         // Обновляем матрицы для получения актуального направления пушки
         this.chassis.computeWorldMatrix(true);
         this.turret.computeWorldMatrix(true);
         this.barrel.computeWorldMatrix(true);
-        
+
         // Получаем позицию и направление пушки
         const barrelPos = this.barrel.getAbsolutePosition();
         const barrelForward = this.barrel.getDirection(Vector3.Forward()).normalize();
-        
+
         // Получаем позицию дула ствола (как при выстреле)
         const muzzlePos = barrelPos.add(barrelForward.scale(1.5));
-        
+
         // Создаём стенку перед дулом ствола на расстоянии 2 метра
         const wallPos = muzzlePos.add(barrelForward.scale(2));
-        
+
         // КРИТИЧНО: Определяем высоту поверхности через raycast вниз
         // Стенка должна появляться на ЛЮБОЙ поверхности на ЛЮБОЙ высоте (даже в воздухе)
         let groundY = wallPos.y; // По умолчанию используем Y координату позиции стенки (для появления в воздухе)
@@ -6330,47 +6448,47 @@ export class TankController {
         // Но также убеждаемся, что мы можем найти поверхности ниже (до -10 для защитной плоскости)
         const rayLength = Math.max(500, rayStart.y - (-10) + 50); // Достаточно для поиска от 200 до -10
         const ray = new Ray(rayStart, rayDirection, rayLength);
-        
+
         const pick = this.scene.pickWithRay(ray, (mesh) => {
             if (!mesh || !mesh.isEnabled()) return false;
-            
+
             // Исключаем танки, пули, стенки и другие динамические объекты
             const meta = mesh.metadata;
             if (meta && (meta.type === "playerTank" || meta.type === "bullet" || meta.type === "consumable" || meta.type === "protectiveWall" || meta.type === "enemyWall" || meta.type === "platform")) return false;
-            
+
             // Исключаем UI элементы
             if (mesh.name.includes("billboard") || mesh.name.includes("hp")) return false;
-            
+
             // КРИТИЧНО: Проверяем имя меша для поиска поверхностей
             const meshName = mesh.name.toLowerCase();
-            const isSurface = meshName.startsWith("ground_") || 
-                             meshName.includes("terrain") || 
-                             meshName.includes("chunk") ||
-                             meshName.includes("floor") ||
-                             meshName.includes("platform") ||
-                             meshName.includes("wall") ||
-                             meshName.includes("road") ||
-                             meshName.includes("asphalt") ||
-                             meshName.includes("concrete") ||
-                             meshName.includes("dirt") ||
-                             meshName.includes("sand") ||
-                             meshName.includes("grass");
-            
+            const isSurface = meshName.startsWith("ground_") ||
+                meshName.includes("terrain") ||
+                meshName.includes("chunk") ||
+                meshName.includes("floor") ||
+                meshName.includes("platform") ||
+                meshName.includes("wall") ||
+                meshName.includes("road") ||
+                meshName.includes("asphalt") ||
+                meshName.includes("concrete") ||
+                meshName.includes("dirt") ||
+                meshName.includes("sand") ||
+                meshName.includes("grass");
+
             // Если это поверхность, принимаем её даже если isPickable = false
             if (isSurface) {
                 return mesh.visibility > 0.5;
             }
-            
+
             // Для остальных мешей проверяем isPickable
             return mesh.isPickable && mesh.visibility > 0.5;
         });
-        
+
         // Определяем цвет поверхности и высоту пола
         let surfaceColor = new Color3(0.5, 0.5, 0.5); // Цвет по умолчанию (серый)
         if (pick && pick.hit && pick.pickedPoint) {
             // Нашли поверхность - используем её высоту
             groundY = pick.pickedPoint.y;
-            
+
             // КРИТИЧНО: Определяем цвет поверхности из материала
             if (pick.pickedMesh && pick.pickedMesh.material) {
                 const material = pick.pickedMesh.material;
@@ -6392,37 +6510,37 @@ export class TankController {
             // НЕ нашли поверхность - используем Y координату позиции стенки (для появления в воздухе)
             groundY = wallPos.y;
         }
-        
+
         // КРИТИЧНО: Финальная позиция стенки (центр на высоте groundY + 2)
         // Стенка высотой 4, так что центр на groundY + 2 означает, что нижняя грань на groundY
         const finalY = groundY + 2;
         const finalWallPos = new Vector3(wallPos.x, finalY, wallPos.z);
-        
+
         // КРИТИЧНО: Начальная позиция (под поверхностью, чтобы стенка полностью была скрыта)
         // Стенка высотой 4, так что начинаем на 4 единицы ниже поверхности
         // Убеждаемся, что startY не слишком низко (минимум -10 для безопасности)
         const startY = Math.max(groundY - 4, groundY - 10);
         const startWallPos = new Vector3(wallPos.x, startY, wallPos.z);
-        
+
         // Создаём стенку
         const newWall = MeshBuilder.CreateBox(`protectiveWall_${Date.now()}`, {
             width: 6,
             height: 4,
             depth: 0.5
         }, this.scene);
-        
+
         // Начинаем с позиции под полом
         newWall.position.copyFrom(startWallPos);
         // Поворачиваем стенку в направлении пушки (горизонтальное направление)
         newWall.rotation.y = Math.atan2(barrelForward.x, barrelForward.z);
-        
+
         // Материал стенки с цветом поверхности
         const wallMat = new StandardMaterial(`wallMat_${Date.now()}`, this.scene);
         wallMat.diffuseColor = surfaceColor;
         wallMat.emissiveColor = surfaceColor.scale(0.3);
         wallMat.specularColor = Color3.Black();
         newWall.material = wallMat;
-        
+
         // Создаём объект для хранения данных стенки (объявляем ДО использования в metadata)
         const wallData: { mesh: Mesh; physics: PhysicsBody | null; timeout: number; health: number; maxHealth: number } = {
             mesh: newWall,
@@ -6431,58 +6549,58 @@ export class TankController {
             health: this.WALL_MAX_HEALTH,
             maxHealth: this.WALL_MAX_HEALTH
         };
-        
+
         // Метаданные для распознавания стенки и хранения HP
-        newWall.metadata = { 
+        newWall.metadata = {
             type: "protectiveWall",
             wallData: wallData, // Ссылка на данные стенки для доступа из других классов
             tankController: this // Ссылка на TankController для вызова damageWall
         };
-        
+
         // Анимация появления из пола (1 секунда)
         const animationDuration = 1000; // 1 секунда
         const startTime = Date.now();
         const startPos = startWallPos.clone();
         const endPos = finalWallPos.clone();
-        
+
         const animateWall = () => {
             if (!newWall || newWall.isDisposed()) return;
-            
+
             const elapsed = Date.now() - startTime;
             const progress = Math.min(elapsed / animationDuration, 1);
-            
+
             // Используем easing функцию для плавности (ease-out)
             const easeProgress = 1 - Math.pow(1 - progress, 3);
-            
+
             // Интерполируем позицию
             newWall.position.y = startPos.y + (endPos.y - startPos.y) * easeProgress;
-            
+
             if (progress < 1) {
                 // Продолжаем анимацию
                 requestAnimationFrame(animateWall);
             } else {
                 // Анимация завершена, создаём физику
                 newWall.position.y = endPos.y;
-        
-        // Физика стенки (статическая, непроходимая и непростреливаемая - блокирует всё)
-        const shape = new PhysicsShape({
-            type: PhysicsShapeType.BOX,
-            parameters: { extents: new Vector3(6, 4, 0.5) }
-        }, this.scene);
-        shape.filterMembershipMask = 32; // Группа стенки (32, чтобы не конфликтовать с пулями врагов 16)
-        shape.filterCollideMask = 1 | 2 | 4 | 8 | 16; // Столкновение со всем: игрок (1), окружение (2), пули игрока (4), враги (8), пули врагов (16)
-        
+
+                // Физика стенки (статическая, непроходимая и непростреливаемая - блокирует всё)
+                const shape = new PhysicsShape({
+                    type: PhysicsShapeType.BOX,
+                    parameters: { extents: new Vector3(6, 4, 0.5) }
+                }, this.scene);
+                shape.filterMembershipMask = 32; // Группа стенки (32, чтобы не конфликтовать с пулями врагов 16)
+                shape.filterCollideMask = 1 | 2 | 4 | 8 | 16; // Столкновение со всем: игрок (1), окружение (2), пули игрока (4), враги (8), пули врагов (16)
+
                 wallData.physics = new PhysicsBody(newWall, PhysicsMotionType.STATIC, false, this.scene);
                 wallData.physics.shape = shape;
             }
         };
-        
+
         // Запускаем анимацию
         animateWall();
-        
+
         // Добавляем стенку в массив
         this.module6Walls.push(wallData);
-        
+
         // Добавляем эффект в HUD только если это первая стенка
         if (this.hud && this.module6Walls.length === 1) {
             this.hud.addActiveEffect("Защитная стенка", "🛡️", "#0ff", 10000);
@@ -6496,7 +6614,22 @@ export class TankController {
         if (this.soundManager) {
             this.soundManager.playShoot();
         }
-        
+
+        // Send to server
+        const game = (window as any).game;
+        const multiplayerManager = game?.multiplayerManager;
+        if (multiplayerManager && multiplayerManager.isConnected()) {
+            const playerId = multiplayerManager.getPlayerId();
+            if (playerId) {
+                multiplayerManager.send(createClientMessage(ClientMessageType.WALL_SPAWN, {
+                    position: finalWallPos,
+                    rotation: newWall.rotation.y,
+                    duration: 10000,
+                    ownerId: playerId
+                }));
+            }
+        }
+
         // Удаляем через 10 секунд с анимацией разрушения
         wallData.timeout = window.setTimeout(() => {
             // Удаляем стенку из массива
@@ -6507,17 +6640,17 @@ export class TankController {
             this.destroyWall(wallData);
         }, 10000);
     }
-    
+
     // Публичный метод для нанесения урона стенке (вызывается из других классов)
     // Вспомогательная функция для проверки, находится ли точка внутри стены
     private checkPointInWall(pos: Vector3, wallMesh: Mesh, wallType: "protectiveWall" | "enemyWall"): boolean {
         if (!wallMesh || wallMesh.isDisposed()) return false;
-        
+
         const wallPos = wallMesh.absolutePosition;
         const wallRotation = wallMesh.rotation.y;
-        
+
         let wallHalfWidth: number, wallHalfHeight: number, wallHalfDepth: number;
-        
+
         if (wallType === "protectiveWall") {
             // Размеры защитной стенки: width=6, height=4, depth=0.5
             wallHalfWidth = 3;
@@ -6529,80 +6662,80 @@ export class TankController {
             wallHalfHeight = 2;
             wallHalfDepth = 0.25;
         }
-        
+
         // Переводим позицию в локальную систему координат стенки
         const localPos = pos.subtract(wallPos);
         const cosY = Math.cos(-wallRotation);
         const sinY = Math.sin(-wallRotation);
-        
+
         // Поворачиваем позицию в локальную систему координат стенки
         const localX = localPos.x * cosY - localPos.z * sinY;
         const localY = localPos.y;
         const localZ = localPos.x * sinY + localPos.z * cosY;
-        
+
         // Проверяем, находится ли точка внутри границ стенки
-        return Math.abs(localX) < wallHalfWidth && 
-               Math.abs(localY) < wallHalfHeight && 
-               Math.abs(localZ) < wallHalfDepth;
+        return Math.abs(localX) < wallHalfWidth &&
+            Math.abs(localY) < wallHalfHeight &&
+            Math.abs(localZ) < wallHalfDepth;
     }
-    
+
     // Проверка столкновения со стеной с помощью рейкаста
     private checkWallCollisionRaycast(startPos: Vector3, direction: Vector3, maxDistance: number = 0.5): { hit: boolean; wallMesh: Mesh | null; hitPoint: Vector3 | null; wallType: "protectiveWall" | "enemyWall" | null } {
         const ray = new Ray(startPos, direction, maxDistance);
-        
+
         // Проверяем защитные стены игрока
         for (const wallData of this.module6Walls) {
             if (!wallData.mesh || wallData.mesh.isDisposed()) continue;
-            
+
             // Используем рейкаст для проверки столкновения
             const pick = this.scene.pickWithRay(ray, (mesh) => {
                 return mesh === wallData.mesh;
             });
-            
+
             if (pick && pick.hit && pick.pickedPoint) {
                 // Дополнительная проверка: точка попадания должна быть внутри стены
                 if (this.checkPointInWall(pick.pickedPoint, wallData.mesh, "protectiveWall")) {
                     return { hit: true, wallMesh: wallData.mesh, hitPoint: pick.pickedPoint, wallType: "protectiveWall" };
                 }
             }
-            
+
             // Также проверяем, находится ли стартовая позиция внутри стены
             if (this.checkPointInWall(startPos, wallData.mesh, "protectiveWall")) {
                 return { hit: true, wallMesh: wallData.mesh, hitPoint: startPos.clone(), wallType: "protectiveWall" };
             }
         }
-        
+
         // Проверяем стены врагов
         // ОПТИМИЗАЦИЯ: Кэшируем результат filter для enemyWalls
         if (!this._cachedEnemyWalls || this._enemyWallsCacheFrame !== this._logFrameCounter) {
-            this._cachedEnemyWalls = this.scene.meshes.filter(mesh => 
+            this._cachedEnemyWalls = this.scene.meshes.filter(mesh =>
                 mesh.metadata && mesh.metadata.type === "enemyWall" && !mesh.isDisposed()
             );
             this._enemyWallsCacheFrame = this._logFrameCounter;
         }
         const enemyWalls = this._cachedEnemyWalls;
-        
+
         for (const wall of enemyWalls) {
             const wallMesh = wall as Mesh;
             const pick = this.scene.pickWithRay(ray, (mesh) => {
                 return mesh === wallMesh;
             });
-            
+
             if (pick && pick.hit && pick.pickedPoint) {
                 if (this.checkPointInWall(pick.pickedPoint, wallMesh, "enemyWall")) {
                     return { hit: true, wallMesh, hitPoint: pick.pickedPoint, wallType: "enemyWall" };
                 }
             }
-            
+
             // Также проверяем, находится ли стартовая позиция внутри стены
             if (this.checkPointInWall(startPos, wallMesh, "enemyWall")) {
                 return { hit: true, wallMesh, hitPoint: startPos.clone(), wallType: "enemyWall" };
             }
         }
-        
+
         return { hit: false, wallMesh: null, hitPoint: null, wallType: null };
     }
-    
+
     /**
      * Проверяет, блокирует ли защитная стенка взрывную волну между двумя точками
      * Используется для защиты от AOE урона взрывов
@@ -6611,19 +6744,19 @@ export class TankController {
         // Направление от взрыва к цели
         const direction = targetPos.subtract(explosionCenter).normalize();
         const distance = Vector3.Distance(explosionCenter, targetPos);
-        
+
         // Проверяем защитные стены игрока
         for (const wallData of this.module6Walls) {
             if (!wallData.mesh || wallData.mesh.isDisposed()) continue;
-            
+
             const wallMesh = wallData.mesh;
             const wallPos = wallMesh.absolutePosition;
             const wallRotation = wallMesh.rotation.y;
-            
+
             // Размеры защитной стенки: width=6, height=4, depth=0.5
             const wallHalfWidth = 3;
             const wallHalfHeight = 2;
-            
+
             // Проверяем пересечение луча со стенкой
             // Упрощённая проверка: стенка как плоскость
             const toWall = wallPos.subtract(explosionCenter);
@@ -6632,103 +6765,103 @@ export class TankController {
                 0,
                 Math.cos(wallRotation)
             );
-            
+
             // Проверяем, пересекает ли луч плоскость стенки
             const denom = Vector3.Dot(direction, wallNormal);
             if (Math.abs(denom) < 0.0001) continue; // Луч параллелен стенке
-            
+
             const t = Vector3.Dot(toWall, wallNormal) / denom;
             if (t < 0 || t > distance) continue; // Пересечение за пределами отрезка
-            
+
             // Точка пересечения
             const hitPoint = explosionCenter.add(direction.scale(t));
-            
+
             // Проверяем, находится ли точка пересечения в пределах стенки
             const localHit = hitPoint.subtract(wallPos);
             const cosY = Math.cos(-wallRotation);
             const sinY = Math.sin(-wallRotation);
             const localX = localHit.x * cosY - localHit.z * sinY;
             const localY = localHit.y;
-            
+
             if (Math.abs(localX) < wallHalfWidth && Math.abs(localY) < wallHalfHeight) {
                 return true; // Стенка блокирует взрывную волну
             }
         }
-        
+
         // Проверяем стены врагов
-        const enemyWalls = this.scene.meshes.filter(mesh => 
+        const enemyWalls = this.scene.meshes.filter(mesh =>
             mesh.metadata && mesh.metadata.type === "enemyWall" && !mesh.isDisposed()
         );
-        
+
         for (const wall of enemyWalls) {
             const wallMesh = wall as Mesh;
             const wallPos = wallMesh.absolutePosition;
             const wallRotation = wallMesh.rotation.y;
-            
+
             // Размеры стенки врага: width=6, height=4, depth=0.5 (те же, что и у игрока!)
             const wallHalfWidth = 3;
             const wallHalfHeight = 2;
-            
+
             const toWall = wallPos.subtract(explosionCenter);
             const wallNormal = new Vector3(
                 Math.sin(wallRotation),
                 0,
                 Math.cos(wallRotation)
             );
-            
+
             const denom = Vector3.Dot(direction, wallNormal);
             if (Math.abs(denom) < 0.0001) continue;
-            
+
             const t = Vector3.Dot(toWall, wallNormal) / denom;
             if (t < 0 || t > distance) continue;
-            
+
             const hitPoint = explosionCenter.add(direction.scale(t));
             const localHit = hitPoint.subtract(wallPos);
             const cosY = Math.cos(-wallRotation);
             const sinY = Math.sin(-wallRotation);
             const localX = localHit.x * cosY - localHit.z * sinY;
             const localY = localHit.y;
-            
+
             if (Math.abs(localX) < wallHalfWidth && Math.abs(localY) < wallHalfHeight) {
                 return true;
             }
         }
-        
+
         return false; // Ничего не блокирует взрывную волну
     }
-    
+
     // Проверка препятствий перед стволом перед выстрелом
     private checkBarrelObstacle(muzzlePos: Vector3, direction: Vector3, maxDistance: number = 1.5): boolean {
         const ray = new Ray(muzzlePos, direction, maxDistance);
-        
+
         const pick = this.scene.pickWithRay(ray, (mesh: any) => {
             // Ранний выход: проверки в порядке частоты
             if (!mesh || !mesh.isEnabled()) return false;
             if (mesh.visibility <= 0.5) return false; // Прозрачные/невидимые объекты
             if (!mesh.isPickable) return false; // Объекты без коллизий
-            
+
             // Игнорируем части самого танка
             if (mesh === this.chassis || mesh === this.turret || mesh === this.barrel) return false;
-            
+
             // Игнорируем дочерние элементы танка
             if (mesh.parent === this.chassis || mesh.parent === this.turret || mesh.parent === this.barrel) return false;
-            
+
             // Проверка через isPartOf если метод доступен (для вражеских танков)
             // Для игрока проверяем напрямую через parent
-            
+
             // Игнорируем билборды
             if (mesh.name.includes("billboard") || mesh.name.includes("hp") || mesh.name.includes("Hp")) return false;
-            
+
             // Игнорируем пули
             const meta = mesh.metadata;
             if (meta && (meta.type === "bullet" || meta.type === "enemyBullet")) return false;
-            
+
             // Игнорируем расходники
             if (meta && meta.type === "consumable") return false;
-            
+
             // Игнорируем танки
             if (meta && (meta.type === "playerTank" || meta.type === "enemyTank")) return false;
-            
+
             // Гаражные ворота - проверяем открыты ли они
             if (mesh.name.includes("garageFrontDoor") || mesh.name.includes("garageBackDoor")) {
                 // Если ворота высоко (открыты), игнорируем их
@@ -6736,32 +6869,32 @@ export class TankController {
                 // Закрытые ворота - это препятствие
                 return true;
             }
-            
+
             // Все остальные объекты с isPickable === true и visibility > 0.5
             return true;
         });
-        
+
         // Если препятствие найдено на расстоянии < maxDistance
         if (pick && pick.hit && pick.distance < maxDistance) {
             return true; // Препятствие найдено, выстрел заблокирован
         }
-        
+
         return false; // Путь свободен, выстрел разрешён
     }
-    
+
     public damageWall(wallMesh: Mesh, damage: number): boolean {
         // Находим стенку в массиве
         for (const wallData of this.module6Walls) {
             if (wallData.mesh === wallMesh && !wallData.mesh.isDisposed()) {
                 wallData.health = Math.max(0, wallData.health - damage);
-                
+
                 if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
                     combatLogger.debug(`[WALL] Damage taken: ${damage}, HP: ${wallData.health}/${wallData.maxHealth}`);
                 }
-                
+
                 // Обновляем визуальный вид
                 this.updateWallVisuals(wallData);
-                
+
                 // Если HP <= 0, разрушаем стенку
                 if (wallData.health <= 0) {
                     // Удаляем стенку из массива
@@ -6780,17 +6913,17 @@ export class TankController {
         }
         return false; // Стенка не найдена
     }
-    
+
     // Обновление визуального вида стенки в зависимости от HP
     private updateWallVisuals(wallData: { mesh: Mesh; physics: PhysicsBody | null; timeout: number; health: number; maxHealth: number }): void {
         if (!wallData.mesh || wallData.mesh.isDisposed() || !wallData.mesh.material) return;
-        
+
         const material = wallData.mesh.material as StandardMaterial;
         const healthPercent = wallData.health / wallData.maxHealth;
-        
+
         // Получаем исходный цвет (из diffuseColor)
         const baseColor = material.diffuseColor.clone();
-        
+
         // Изменяем цвет в зависимости от HP:
         // 100% - исходный цвет
         // 50% - желтоватый
@@ -6816,21 +6949,21 @@ export class TankController {
             material.emissiveColor = material.diffuseColor.scale(0.6);
         }
     }
-    
+
     // Разрушение стенки на кусочки
     private destroyWall(wallData: { mesh: Mesh; physics: PhysicsBody | null; timeout: number; health: number; maxHealth: number }): void {
         if (!wallData || !wallData.mesh || wallData.mesh.isDisposed()) {
             return;
         }
-        
+
         const wallPos = wallData.mesh.absolutePosition.clone();
         const wallMat = wallData.mesh.material as StandardMaterial;
         const wallColor = wallMat ? wallMat.diffuseColor.clone() : new Color3(0.5, 0.5, 0.5);
-        
+
         // Создаём кусочки (8-12 кусочков)
         const debrisCount = 8 + Math.floor(Math.random() * 5);
         const debrisPieces: Mesh[] = [];
-        
+
         for (let i = 0; i < debrisCount; i++) {
             const size = 0.3 + Math.random() * 0.4;
             const debris = MeshBuilder.CreateBox(`wallDebris_${Date.now()}_${i}`, {
@@ -6838,38 +6971,38 @@ export class TankController {
                 height: size,
                 depth: size
             }, this.scene);
-            
+
             // Позиция кусочка (случайная точка внутри стенки)
             const offsetX = (Math.random() - 0.5) * 6;
             const offsetY = (Math.random() - 0.5) * 4;
             const offsetZ = (Math.random() - 0.5) * 0.5;
             debris.position = wallPos.add(new Vector3(offsetX, offsetY, offsetZ));
-            
+
             // Материал кусочка
             const debrisMat = new StandardMaterial(`debrisMat_${Date.now()}_${i}`, this.scene);
             debrisMat.diffuseColor = wallColor;
             debrisMat.emissiveColor = wallColor.scale(0.2);
             debrisMat.specularColor = Color3.Black();
             debris.material = debrisMat;
-            
+
             debrisPieces.push(debris);
         }
-        
+
         // Удаляем физику и основную стенку
         if (wallData.physics) {
             wallData.physics.dispose();
         }
         wallData.mesh.dispose();
-        
+
         // Анимация разлёта кусочков
         const animationDuration = 1500; // 1.5 секунды
         const startTime = Date.now();
-        
+
         // Случайные скорости для каждого кусочка
         // ОПТИМИЗАЦИЯ: Используем for цикл вместо map
-        const velocities: Array<{vx: number, vy: number, vz: number, rotX: number, rotY: number, rotZ: number}> = [];
+        const velocities: Array<{ vx: number, vy: number, vz: number, rotX: number, rotY: number, rotZ: number }> = [];
         const startPositions: Vector3[] = [];
-        const startRotations: Array<{x: number, y: number, z: number}> = [];
+        const startRotations: Array<{ x: number, y: number, z: number }> = [];
         const debrisPiecesCount = debrisPieces.length;
         for (let i = 0; i < debrisPiecesCount; i++) {
             velocities.push({
@@ -6892,41 +7025,41 @@ export class TankController {
                 z: Math.random() * Math.PI * 2
             });
         }
-        
+
         const animateDebris = () => {
             const elapsed = Date.now() - startTime;
             const progress = Math.min(elapsed / animationDuration, 1);
-            
+
             // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach
             for (let i = 0; i < debrisPiecesCount; i++) {
                 const debris = debrisPieces[i];
                 if (!debris || debris.isDisposed()) continue;
-                
+
                 const vel = velocities[i];
                 const startPos = startPositions[i];
                 const startRot = startRotations[i];
                 if (!vel || !startPos || !startRot) continue;
-                
+
                 // Физика падения (гравитация)
                 const gravity = -15; // Ускорение свободного падения
                 const t = progress;
-                
+
                 // Позиция с учётом гравитации
                 debris.position.x = startPos.x + vel.vx * t;
                 debris.position.y = startPos.y + vel.vy * t + 0.5 * gravity * t * t;
                 debris.position.z = startPos.z + vel.vz * t;
-                
+
                 // Вращение
                 debris.rotation.x = startRot.x + vel.rotX * t;
                 debris.rotation.y = startRot.y + vel.rotY * t;
                 debris.rotation.z = startRot.z + vel.rotZ * t;
-                
+
                 // Прозрачность (исчезает к концу)
                 if (debris.material instanceof StandardMaterial) {
                     debris.material.alpha = 1 - progress;
                 }
             }
-            
+
             if (progress < 1) {
                 requestAnimationFrame(animateDebris);
             } else {
@@ -6941,20 +7074,20 @@ export class TankController {
                 }
             }
         };
-        
+
         animateDebris();
-        
+
         // Обновляем HUD только если это была последняя стенка
         if (this.module6Walls.length === 0) {
             if (this.hud) {
                 this.hud.removeActiveEffect("Защитная стенка");
             }
-            }
-            if (this.chatSystem) {
+        }
+        if (this.chatSystem) {
             this.chatSystem.log(`Защитная стенка исчезла (осталось: ${this.module6Walls.length}/${this.MAX_WALLS})`);
-            }
+        }
     }
-    
+
     // Модуль 7: Ускоренная стрельба в 2 раза (10 секунд)
     private activateModule7(): void {
         const now = Date.now();
@@ -6967,18 +7100,18 @@ export class TankController {
             return;
         }
         this.module7LastUse = now;
-        
+
         if (this.module7Active) return; // Уже активен
-        
+
         // Очищаем предыдущий timeout если есть
         if (this.module7Timeout !== null) {
             clearTimeout(this.module7Timeout);
             this.module7Timeout = null;
         }
-        
+
         this.module7Active = true;
         this.cooldown = Math.floor(this.baseCooldown / 2); // Ускоряем в 2 раза
-        
+
         if (this.hud) {
             this.hud.addActiveEffect("Ускоренная стрельба", "⚡", "#ff0", 10000);
             this.hud.setModuleCooldown(7, this.module7Cooldown);
@@ -6989,13 +7122,13 @@ export class TankController {
         if (this.soundManager) {
             this.soundManager.playShoot();
         }
-        
+
         // Визуальный эффект
         if (this.effectsManager && this.chassis) {
             const color = Color3.FromHexString("#ffff00");
             this.effectsManager.createConsumableEffect(this.chassis.absolutePosition, color, "speed");
         }
-        
+
         // Отключаем через 10 секунд
         this.module7Timeout = window.setTimeout(() => {
             this.cooldown = this.baseCooldown;
@@ -7009,7 +7142,7 @@ export class TankController {
             }
         }, 10000);
     }
-    
+
     // Модуль 8: Автоматическая наводка и стрельба на ближайшего врага (10 секунд)
     private activateModule8(): void {
         const now = Date.now();
@@ -7022,18 +7155,18 @@ export class TankController {
             return;
         }
         this.module8LastUse = now;
-        
+
         if (this.module8Active) return;
-        
+
         // Очищаем предыдущий timeout если есть
         if (this.module8Timeout !== null) {
             clearTimeout(this.module8Timeout);
             this.module8Timeout = null;
         }
-        
+
         this.module8Active = true;
         this.module8LastAutoFire = 0;
-        
+
         if (this.hud) {
             this.hud.addActiveEffect("Автонаводка + Стрельба", "🎯", "#f0f", 10000);
             this.hud.setModuleCooldown(8, this.module8Cooldown);
@@ -7044,7 +7177,7 @@ export class TankController {
         if (this.soundManager) {
             this.soundManager.playShoot();
         }
-        
+
         // Отключаем через 10 секунд
         this.module8Timeout = window.setTimeout(() => {
             this.module8Active = false;
@@ -7057,7 +7190,7 @@ export class TankController {
             }
         }, 10000);
     }
-    
+
     // Модуль 9: Платформа - поднимает платформу под танком пока зажата кнопка (макс 10 сек)
     private activateModule9(): void {
         // Проверка кулдауна
@@ -7069,24 +7202,24 @@ export class TankController {
             }
             return;
         }
-        
+
         if (this.module9Active) return;
         if (!this.chassis) return;
-        
+
         this.module9Active = true;
         this.module9State = "rising";
         this.module9LastUse = now;
         this.module9StartTime = now;
-        
+
         // Определяем высоту поверхности под танком
         const tankPos = this.chassis.absolutePosition;
         const rayStart = new Vector3(tankPos.x, tankPos.y + 2, tankPos.z);
         const rayDirection = new Vector3(0, -1, 0);
         const ray = new Ray(rayStart, rayDirection, 30);
-        
+
         let groundY = 0;
         let surfaceColor = new Color3(0.4, 0.4, 0.4);
-        
+
         const pick = this.scene.pickWithRay(ray, (mesh) => {
             if (!mesh || !mesh.isEnabled()) return false;
             const meta = mesh.metadata;
@@ -7094,7 +7227,7 @@ export class TankController {
             if (mesh.name.includes("billboard") || mesh.name.includes("hp")) return false;
             return mesh.isPickable && mesh.visibility > 0.5;
         });
-        
+
         if (pick && pick.hit && pick.pickedPoint) {
             groundY = pick.pickedPoint.y;
             if (pick.pickedMesh && pick.pickedMesh.material) {
@@ -7104,49 +7237,49 @@ export class TankController {
                 }
             }
         }
-        
+
         this.module9GroundY = groundY;
-        
+
         // Создаём платформу (прямоугольник под танком) - размер 1.2x от размера танка
         const platformWidth = this.chassisType.width * 1.2;
         const platformDepth = this.chassisType.depth * 1.2;
         const platformHeight = 0.5;
-        
+
         // Начальная высота - чуть ниже танка (под его дном)
         // Это гарантирует что платформа сразу начнёт поднимать танк
         const tankBottomY = tankPos.y - this.chassisType.height / 2;
         const startY = tankBottomY - 0.1; // Чуть ниже дна танка
         this.module9CurrentY = startY;
-        
+
         this.module9Platform = MeshBuilder.CreateBox(`platform_${Date.now()}`, {
             width: platformWidth,
             height: platformHeight,
             depth: platformDepth
         }, this.scene);
-        
+
         // Начальная позиция - чуть ниже танка (верхняя грань касается дна танка)
         this.module9Platform.position = new Vector3(
             tankPos.x,
             startY + platformHeight / 2, // Верхняя грань чуть ниже танка
             tankPos.z
         );
-        
+
         // Поворачиваем платформу в направлении танка
-        const chassisRot = this.chassis.rotationQuaternion 
-            ? this.chassis.rotationQuaternion.toEulerAngles().y 
+        const chassisRot = this.chassis.rotationQuaternion
+            ? this.chassis.rotationQuaternion.toEulerAngles().y
             : this.chassis.rotation.y;
         this.module9Platform.rotation.y = chassisRot;
-        
+
         // Материал платформы - цвет поверхности
         const platformMat = new StandardMaterial(`platformMat_${Date.now()}`, this.scene);
         platformMat.diffuseColor = surfaceColor.scale(1.1); // Немного светлее поверхности
         platformMat.emissiveColor = surfaceColor.scale(0.15);
         platformMat.specularColor = Color3.Black();
         this.module9Platform.material = platformMat;
-        
+
         // Метаданные
         this.module9Platform.metadata = { type: "platform", owner: this };
-        
+
         // Физика платформы (ANIMATED для движения с коллизиями)
         const shape = new PhysicsShape({
             type: PhysicsShapeType.BOX,
@@ -7154,10 +7287,10 @@ export class TankController {
         }, this.scene);
         shape.filterMembershipMask = 2; // Как окружение/terrain
         shape.filterCollideMask = 1 | 8; // Игрок (1), враги (8)
-        
+
         this.module9PlatformPhysics = new PhysicsBody(this.module9Platform, PhysicsMotionType.ANIMATED, false, this.scene);
         this.module9PlatformPhysics.shape = shape;
-        
+
         if (this.hud) {
             this.hud.addActiveEffect("Платформа", "⬆️", "#f80", this.MODULE9_MAX_DURATION);
             this.hud.setModuleCooldown(9, this.module9Cooldown);
@@ -7169,23 +7302,23 @@ export class TankController {
             this.soundManager.playShoot();
         }
     }
-    
+
     /**
      * Вызывается при отпускании кнопки 9 - переводит платформу в состояние "staying"
      */
     private deactivateModule9Platform(): void {
         if (!this.module9Active) return;
         if (this.module9State !== "rising") return; // Только из rising можно перейти в staying
-        
+
         // Переходим в состояние удержания (платформа остаётся на месте 3 секунды)
         this.module9State = "staying";
         this.module9ReleaseTime = Date.now();
-        
+
         if (this.chatSystem) {
             this.chatSystem.log("Платформа удерживается...");
         }
     }
-    
+
     /**
      * Полностью удаляет платформу и сбрасывает состояние
      */
@@ -7195,17 +7328,17 @@ export class TankController {
             this.module9PlatformPhysics.dispose();
             this.module9PlatformPhysics = null;
         }
-        
+
         // Удаляем меш
         if (this.module9Platform && !this.module9Platform.isDisposed()) {
             this.module9Platform.dispose();
             this.module9Platform = null;
         }
-        
+
         // Сбрасываем состояние
         this.module9Active = false;
         this.module9State = "idle";
-        
+
         if (this.hud) {
             this.hud.removeActiveEffect("Платформа");
         }
@@ -7213,7 +7346,7 @@ export class TankController {
             this.chatSystem.log("Платформа опустилась");
         }
     }
-    
+
     /**
      * Обновление платформы (вызывается каждый кадр)
      * State machine: idle → rising → staying → falling → idle
@@ -7227,22 +7360,22 @@ export class TankController {
             return;
         }
         if (!this.chassis) return;
-        
+
         const now = Date.now();
         // КРИТИЧНО: Используем реальное время кадра для максимально плавного движения
         const deltaTimeMs = this.scene.getEngine().getDeltaTime();
         const deltaTime = deltaTimeMs / 1000; // Конвертируем в секунды
-        
+
         // Защита от слишком больших deltaTime (например, при паузе или табе)
         const clampedDeltaTime = Math.min(deltaTime, 0.1); // Максимум 100мс за кадр
-        
+
         const platformHeight = 0.5;
-        
+
         switch (this.module9State) {
             case "rising": {
                 // Платформа поднимается пока кнопка зажата
                 const elapsed = now - this.module9StartTime;
-                
+
                 // Проверяем максимальную длительность подъёма (10 секунд)
                 if (elapsed >= this.MODULE9_MAX_DURATION) {
                     // Автоматически переходим в staying
@@ -7253,11 +7386,11 @@ export class TankController {
                     }
                     return;
                 }
-                
+
                 // Плавно поднимаем платформу каждый кадр с использованием clampedDeltaTime
                 const maxY = this.module9GroundY + this.MODULE9_MAX_HEIGHT;
                 this.module9CurrentY += this.MODULE9_LIFT_SPEED * clampedDeltaTime;
-                
+
                 // Ограничиваем максимальную высоту
                 if (this.module9CurrentY >= maxY) {
                     this.module9CurrentY = maxY;
@@ -7269,11 +7402,11 @@ export class TankController {
                 }
                 break;
             }
-            
+
             case "staying": {
                 // Платформа стоит на месте 3 секунды после отпускания
                 const stayElapsed = now - this.module9ReleaseTime;
-                
+
                 if (stayElapsed >= this.MODULE9_STAY_DURATION) {
                     // Переходим к опусканию
                     this.module9State = "falling";
@@ -7284,11 +7417,11 @@ export class TankController {
                 // Высота не меняется во время staying
                 break;
             }
-            
+
             case "falling": {
                 // Платформа опускается обратно в землю с использованием clampedDeltaTime
                 this.module9CurrentY -= this.MODULE9_FALL_SPEED * clampedDeltaTime;
-                
+
                 // Если достигли уровня земли - удаляем платформу
                 if (this.module9CurrentY <= this.module9GroundY) {
                     this.module9CurrentY = this.module9GroundY;
@@ -7297,32 +7430,32 @@ export class TankController {
                 }
                 break;
             }
-            
+
             case "idle":
             default:
                 return;
         }
-        
+
         // КРИТИЧНО: Обновляем позицию платформы КАЖДЫЙ КАДР для максимальной плавности
         // Верхняя грань на текущей высоте
         const targetY = this.module9CurrentY + platformHeight / 2;
-        
+
         // Плавная интерполяция позиции для устранения дёрганий
         const currentY = this.module9Platform.position.y;
         const yDiff = targetY - currentY;
-        
+
         // Используем линейную интерполяцию с коэффициентом для плавности
         // Чем больше коэффициент, тем быстрее движение (но может быть менее плавным)
         // Используем достаточно высокий коэффициент для отзывчивости, но не слишком высокий
         const lerpFactor = Math.min(1.0, clampedDeltaTime * 30); // 30x для быстрой, но плавной интерполяции
         const newY = currentY + yDiff * lerpFactor;
-        
+
         // КРИТИЧНО: Обновляем физику КАЖДЫЙ КАДР для максимальной плавности
         if (this.module9PlatformPhysics) {
-            const chassisRot = this.chassis.rotationQuaternion 
-                ? this.chassis.rotationQuaternion.toEulerAngles().y 
+            const chassisRot = this.chassis.rotationQuaternion
+                ? this.chassis.rotationQuaternion.toEulerAngles().y
                 : this.chassis.rotation.y;
-            
+
             // Используем интерполированную позицию для физики
             // Обновляем позицию меша перед вызовом setTargetTransform
             this.module9Platform.position.y = newY;
@@ -7332,11 +7465,11 @@ export class TankController {
             );
         }
     }
-    
+
     // Модуль 0: Выполнение прыжка с накопленной силой
     private executeModule0Jump(): void {
         logger.log(`[TANK] executeModule0Jump called: module0Charging=${this.module0Charging}, hasPhysics=${!!this.physicsBody}, isAlive=${this.isAlive}`);
-        
+
         if (!this.module0Charging) {
             logger.warn(`[TANK] Jump failed: module0Charging is false`);
             return;
@@ -7349,21 +7482,21 @@ export class TankController {
             logger.warn(`[TANK] Jump failed: tank is not alive`);
             return;
         }
-        
+
         // УЛУЧШЕНО: Вычисляем силу прыжка на основе времени зарядки (максимум 5 секунд для быстрого прыжка)
         const chargeTime = Math.max(Date.now() - this.module0ChargeStart, 100); // Минимум 100мс зарядки
         const maxChargeTime = 5000; // УЛУЧШЕНО: Уменьшено с 10000 до 5000 для быстрой зарядки
         const chargeRatio = Math.min(chargeTime / maxChargeTime, 1.0); // 0.0 - 1.0
-        
+
         // УЛУЧШЕНО: Более мощная минимальная и максимальная сила прыжка
         const basePower = 50000; // УЛУЧШЕНО: Увеличено с 30000 до 50000 для мощного прыжка
         const maxPower = 800000; // УЛУЧШЕНО: Увеличено с 500000 до 800000 для супер-прыжков!
         const jumpPower = basePower + (maxPower - basePower) * chargeRatio;
-        
+
         // Получаем текущую вертикальную скорость
         const vel = this.physicsBody.getLinearVelocity();
         const currentVerticalVel = vel ? vel.y : 0;
-        
+
         // Если падаем, компенсируем падение и добавляем силу прыжка
         // Если уже летим вверх, добавляем дополнительную силу
         let jumpForceY = jumpPower;
@@ -7372,64 +7505,64 @@ export class TankController {
             const compensation = Math.abs(currentVerticalVel) * 3500; // УЛУЧШЕНО: Увеличено с 3000 до 3500
             jumpForceY += compensation;
         }
-        
+
         // УЛУЧШЕНО: Направленный прыжок - добавляем горизонтальную силу в направлении движения
         let jumpForceX = 0;
         let jumpForceZ = 0;
-        
+
         // Если зажат throttle (W/S), добавляем горизонтальную силу
         if (this.chassis && Math.abs(this.smoothThrottle) > 0.1) {
             const chassisQuat = this.chassis.rotationQuaternion;
             const chassisAngle = chassisQuat ? chassisQuat.toEulerAngles().y : this.chassis.rotation.y;
-            
+
             // Направление движения танка
             const directionX = Math.sin(chassisAngle);
             const directionZ = Math.cos(chassisAngle);
-            
+
             // Сила горизонтального прыжка - 30% от вертикальной силы
             const horizontalPower = jumpPower * 0.30 * Math.sign(this.smoothThrottle);
             jumpForceX = directionX * horizontalPower;
             jumpForceZ = directionZ * horizontalPower;
         }
-        
+
         // Проверяем режим физики - должен быть DYNAMIC для применения импульса
         if (this.physicsBody.motionType !== PhysicsMotionType.DYNAMIC) {
             logger.warn(`[TANK] Physics body is not DYNAMIC (${this.physicsBody.motionType}), setting to DYNAMIC`);
             this.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
         }
-        
+
         // Устанавливаем флаг прыжка
         this.isJumping = true;
         this.jumpStartTime = Date.now();
-        
+
         // УЛУЧШЕНО: Применяем 3D силу для направленного прыжка!
         const jumpForce = new Vector3(jumpForceX, jumpForceY, jumpForceZ);
         const jumpPosition = this.chassis.absolutePosition.clone();
-        
+
         logger.log(`[TANK] Applying jump impulse: force=(${jumpForceX.toFixed(0)}, ${jumpForceY.toFixed(0)}, ${jumpForceZ.toFixed(0)}), position=(${jumpPosition.x.toFixed(2)}, ${jumpPosition.y.toFixed(2)}, ${jumpPosition.z.toFixed(2)})`);
-        
+
         this.physicsBody.applyImpulse(jumpForce, jumpPosition);
-        
+
         // Проверяем, что импульс применился
         const velAfter = this.physicsBody.getLinearVelocity();
         logger.log(`[TANK] Jump executed: power=${jumpPower.toFixed(0)}, force=${jumpForceY.toFixed(0)}, velY before=${currentVerticalVel.toFixed(2)}, velY after=${velAfter ? velAfter.y.toFixed(2) : 'null'}`);
-        
+
         this.module0Charging = false;
-        
+
         // Сбрасываем флаг прыжка через заданное время
         setTimeout(() => {
             this.isJumping = false;
             logger.log(`[TANK] Jump flag reset`);
         }, this.jumpDuration);
         this.module0LastUse = Date.now();
-        
+
         // Восстанавливаем canJump сразу после прыжка (для быстрых прыжков)
         // Но проверяем кулдаун модуля 0
         this.canJump = false;
         setTimeout(() => {
             this.canJump = true;
         }, Math.max(this.jumpCooldown, 500)); // Минимум 500мс между прыжками
-        
+
         if (this.hud) {
             this.hud.setModuleCooldown(0, this.module0Cooldown);
         }
@@ -7440,25 +7573,25 @@ export class TankController {
         if (this.soundManager) {
             this.soundManager.playShoot();
         }
-        
+
         // Визуальный эффект
         if (this.effectsManager && this.chassis) {
             const color = Color3.FromHexString("#00ffff");
             this.effectsManager.createConsumableEffect(this.chassis.absolutePosition, color, "jump");
         }
     }
-    
+
     // Обновление гильз
     // ============ CANNON ANIMATIONS ============
     private updateCannonAnimations(): void {
         if (!this.cannonAnimationElements || !this.barrel || this.barrel.isDisposed()) return;
-        
+
         const deltaTime = this.scene.getEngine().getDeltaTime() / 1000; // Convert to seconds
         if (!this.cannonAnimationElements.animationTime) this.cannonAnimationElements.animationTime = 0;
         this.cannonAnimationElements.animationTime += deltaTime;
-        
+
         const time = this.cannonAnimationElements.animationTime;
-        
+
         // Gatling - вращение стволов
         // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach
         if (this.cannonAnimationElements.gatlingBarrels) {
@@ -7472,7 +7605,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Gatling - пульсация блока питания
         if (this.cannonAnimationElements.gatlingPowerBlock) {
             const powerBlock = this.cannonAnimationElements.gatlingPowerBlock;
@@ -7486,7 +7619,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Sniper - пульсация линзы прицела
         if (this.cannonAnimationElements.sniperLens) {
             const lens = this.cannonAnimationElements.sniperLens;
@@ -7500,7 +7633,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Tesla - пульсация катушек и генератора
         // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach
         if (this.cannonAnimationElements.teslaCoils) {
@@ -7535,7 +7668,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Railgun - пульсация конденсаторов
         // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach
         if (this.cannonAnimationElements.railgunCapacitors) {
@@ -7554,7 +7687,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Plasma - пульсация ядра и вращение катушек
         if (this.cannonAnimationElements.plasmaCore) {
             const core = this.cannonAnimationElements.plasmaCore;
@@ -7590,7 +7723,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Laser - мерцание линзы и вращение колец
         if (this.cannonAnimationElements.laserLens) {
             const lens = this.cannonAnimationElements.laserLens;
@@ -7618,7 +7751,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Vortex - вращение колец и генератора
         // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach
         if (this.cannonAnimationElements.vortexRings) {
@@ -7655,7 +7788,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Support - вращение колец и пульсация эмиттера
         if (this.cannonAnimationElements.supportEmitter) {
             const emitter = this.cannonAnimationElements.supportEmitter;
@@ -7693,7 +7826,7 @@ export class TankController {
                 gen.rotation.x += deltaTime * 2;
             }
         }
-        
+
         // Rocket - пульсация трубы
         if (this.cannonAnimationElements.rocketTube) {
             const tube = this.cannonAnimationElements.rocketTube;
@@ -7702,7 +7835,7 @@ export class TankController {
                 tube.scaling.y = pulse;
             }
         }
-        
+
         // Mortar - вибрация базы
         if (this.cannonAnimationElements.mortarBase) {
             const base = this.cannonAnimationElements.mortarBase;
@@ -7711,7 +7844,7 @@ export class TankController {
                 base.rotation.z = shake;
             }
         }
-        
+
         // Cluster - вращение трубок
         // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach
         if (this.cannonAnimationElements.clusterTubes) {
@@ -7724,7 +7857,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Acid - пульсация резервуара
         if (this.cannonAnimationElements.acidTank) {
             const tank = this.cannonAnimationElements.acidTank;
@@ -7735,7 +7868,7 @@ export class TankController {
                 tank.rotation.y += deltaTime * 0.5;
             }
         }
-        
+
         // Freeze - вибрация рёбер охлаждения
         // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach
         if (this.cannonAnimationElements.freezeFins) {
@@ -7749,7 +7882,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // EMP - вращение и пульсация излучателя
         if (this.cannonAnimationElements.empDish) {
             const dish = this.cannonAnimationElements.empDish;
@@ -7759,7 +7892,7 @@ export class TankController {
                 dish.scaling.setAll(pulse);
             }
         }
-        
+
         // Rocket - пульсация направляющих
         // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach
         if (this.cannonAnimationElements.rocketGuides) {
@@ -7773,7 +7906,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Acid - пульсация резервуара
         if (this.cannonAnimationElements.acidTank) {
             const tank = this.cannonAnimationElements.acidTank;
@@ -7788,7 +7921,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Freeze - вибрация рёбер и пульсация резервуара
         if (this.cannonAnimationElements.freezeFins) {
             // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach
@@ -7815,7 +7948,7 @@ export class TankController {
                 cryo.rotation.y += deltaTime * 1;
             }
         }
-        
+
         // Poison - пульсация инжектора
         if (this.cannonAnimationElements.poisonInjector) {
             const injector = this.cannonAnimationElements.poisonInjector;
@@ -7825,7 +7958,7 @@ export class TankController {
                 injector.rotation.y += deltaTime * 2;
             }
         }
-        
+
         // EMP - вращение катушек и генератора
         // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach
         if (this.cannonAnimationElements.empCoils) {
@@ -7854,7 +7987,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Flamethrower - пульсация сопла
         if (this.cannonAnimationElements.flamethrowerNozzle) {
             const nozzle = this.cannonAnimationElements.flamethrowerNozzle;
@@ -7868,7 +8001,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Shotgun - вращение стволов
         // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach
         if (this.cannonAnimationElements.shotgunBarrels) {
@@ -7881,7 +8014,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Multishot - вращение стволов
         // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach
         if (this.cannonAnimationElements.multishotBarrels) {
@@ -7894,7 +8027,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Homing - пульсация системы наведения
         if (this.cannonAnimationElements.homingGuidance) {
             const guidance = this.cannonAnimationElements.homingGuidance;
@@ -7910,7 +8043,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Piercing - вращение острия
         if (this.cannonAnimationElements.piercingTip) {
             const tip = this.cannonAnimationElements.piercingTip;
@@ -7918,7 +8051,7 @@ export class TankController {
                 tip.rotation.y += deltaTime * 5;
             }
         }
-        
+
         // Shockwave - пульсация усилителя
         if (this.cannonAnimationElements.shockwaveAmp) {
             const amp = this.cannonAnimationElements.shockwaveAmp;
@@ -7928,7 +8061,7 @@ export class TankController {
                 amp.rotation.y += deltaTime * 1;
             }
         }
-        
+
         // Beam - вращение и пульсация фокусировщика и линз
         if (this.cannonAnimationElements.beamFocuser) {
             const focuser = this.cannonAnimationElements.beamFocuser;
@@ -7956,7 +8089,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Shockwave - пульсация усилителя (обновлено)
         if (this.cannonAnimationElements.shockwaveAmp) {
             const amp = this.cannonAnimationElements.shockwaveAmp;
@@ -7965,7 +8098,7 @@ export class TankController {
                 amp.scaling.setAll(pulse);
             }
         }
-        
+
         // Standard, Rapid, Heavy, Sniper, Explosive, Flamethrower, Poison, Shotgun - subtle idle animations
         if (this.barrel && !this.barrel.isDisposed()) {
             const cannonId = this.cannonType.id;
@@ -7976,17 +8109,17 @@ export class TankController {
             }
         }
     }
-    
+
     // ============ CHASSIS ANIMATIONS ============
     private updateChassisAnimations(): void {
         if (!this.chassisAnimationElements || !this.chassis || this.chassis.isDisposed()) return;
-        
+
         const deltaTime = this.scene.getEngine().getDeltaTime() / 1000;
         if (!this.chassisAnimationElements.animationTime) this.chassisAnimationElements.animationTime = 0;
         this.chassisAnimationElements.animationTime += deltaTime;
-        
+
         const time = this.chassisAnimationElements.animationTime;
-        
+
         // Stealth - пульсация генератора невидимости
         if (this.chassisAnimationElements.stealthMesh) {
             const gen = this.chassisAnimationElements.stealthMesh;
@@ -8001,7 +8134,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Hover - пульсация реактивных двигателей
         if (this.chassisAnimationElements.hoverThrusters) {
             // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach
@@ -8020,7 +8153,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Shield - пульсация генератора щита
         if (this.chassisAnimationElements.shieldMesh) {
             const gen = this.chassisAnimationElements.shieldMesh;
@@ -8036,7 +8169,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Drone - пульсация платформ
         if (this.chassisAnimationElements.droneMeshes) {
             // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach
@@ -8056,7 +8189,7 @@ export class TankController {
                 }
             }
         }
-        
+
         // Command - вращение ауры
         if (this.chassisAnimationElements.commandAura) {
             const aura = this.chassisAnimationElements.commandAura;
@@ -8072,16 +8205,16 @@ export class TankController {
             }
         }
     }
-    
+
     // ============ CHASSIS SPECIAL ABILITIES ============
     private activateChassisAbility(): void {
         if (!this.isAlive) return;
-        
+
         const ability = this.chassisType.specialAbility;
         if (!ability) return;
-        
+
         const now = Date.now();
-        
+
         switch (ability) {
             case "stealth":
                 if (this.stealthCooldown > now) {
@@ -8093,7 +8226,7 @@ export class TankController {
                 }
                 this.activateStealth();
                 break;
-                
+
             case "shield":
                 if (this.shieldCooldown > now) {
                     if (this.chatSystem) {
@@ -8104,7 +8237,7 @@ export class TankController {
                 }
                 this.activateShield();
                 break;
-                
+
             case "drone":
                 if (this.droneCooldown > now) {
                     if (this.chatSystem) {
@@ -8115,7 +8248,7 @@ export class TankController {
                 }
                 this.activateDrones();
                 break;
-                
+
             case "command":
                 if (this.commandCooldown > now) {
                     if (this.chatSystem) {
@@ -8126,17 +8259,17 @@ export class TankController {
                 }
                 this.activateCommandAura();
                 break;
-                
+
             case "racer":
                 this.activateRacerBoost();
                 break;
-                
+
             case "siege":
                 this.activateSiegeRegen();
                 break;
         }
     }
-    
+
     private activateStealth(): void {
         this.chassisAnimationElements.stealthActive = true;
         this.stealthCooldown = Date.now() + 20000;
@@ -8155,7 +8288,7 @@ export class TankController {
             if (this.hud) this.hud.removeActiveEffect("Невидимость");
         }, 5000);
     }
-    
+
     private activateShield(): void {
         this.chassisAnimationElements.shieldActive = true;
         this.shieldCooldown = Date.now() + 30000;
@@ -8192,7 +8325,7 @@ export class TankController {
             if (this.hud) this.hud.removeActiveEffect("Энергощит");
         }, 8000);
     }
-    
+
     private activateDrones(): void {
         this.droneCooldown = Date.now() + 25000;
         if (this.chatSystem) this.chatSystem.success("🚁 Боевые дроны выпущены!");
@@ -8224,7 +8357,7 @@ export class TankController {
         }
         setTimeout(() => { if (this.hud) this.hud.removeActiveEffect("Дроны"); }, 15000);
     }
-    
+
     private activateCommandAura(): void {
         this.commandCooldown = Date.now() + 20000;
         const originalDamage = this.damage;
@@ -8239,7 +8372,7 @@ export class TankController {
             if (this.hud) this.hud.removeActiveEffect("Командная аура");
         }, 10000);
     }
-    
+
     private activateRacerBoost(): void {
         const originalSpeed = this.moveSpeed;
         const originalAccel = this.acceleration;
@@ -8253,7 +8386,7 @@ export class TankController {
             if (this.hud) this.hud.removeActiveEffect("Ускорение");
         }, 3000);
     }
-    
+
     private activateSiegeRegen(): void {
         if (this.currentHealth >= this.maxHealth) return;
         const regenAmount = 30;
@@ -8265,11 +8398,11 @@ export class TankController {
         if (this.chatSystem) this.chatSystem.success(`💚 Восстановлено ${regenAmount} HP`);
         setTimeout(() => { if (this.hud) this.hud.removeActiveEffect("Регенерация"); }, 2000);
     }
-    
+
     private updateModules(): void {
         // Модуль 7: Обновление ускоренной стрельбы (cooldown уже изменён в activateModule7)
         // module7Timeout используется в activateModule7 setTimeout callback
-        
+
         // Модуль 8: Автонаводка и автострельба на ближайшего врага
         // module8Timeout используется в activateModule8 setTimeout callback
         if (this.module8Active && this.enemyTanks && this.enemyTanks.length > 0) {
@@ -8277,42 +8410,42 @@ export class TankController {
             const tankPos = this.getCachedChassisPosition();
             let nearestEnemy: any = null;
             let nearestDist = Infinity;
-            
+
             // ОПТИМИЗАЦИЯ: Используем квадрат расстояния вместо Vector3.Distance
             const enemyCount = this.enemyTanks.length;
             let nearestDistSq = Infinity;
             for (let i = 0; i < enemyCount; i++) {
                 const enemy = this.enemyTanks[i];
                 if (!enemy || !enemy.chassis || !enemy.isAlive) continue;
-                
+
                 // КРИТИЧНО: Используем absolutePosition для правильной позиции в мировых координатах
                 const enemyPos = enemy.chassis.absolutePosition;
                 const dx = tankPos.x - enemyPos.x;
                 const dy = tankPos.y - enemyPos.y;
                 const dz = tankPos.z - enemyPos.z;
                 const distSq = dx * dx + dy * dy + dz * dz;
-                
+
                 if (distSq < nearestDistSq) {
                     nearestDist = Math.sqrt(distSq);
                     nearestDistSq = distSq;
                     nearestEnemy = enemy;
                 }
             }
-            
+
             if (nearestEnemy && nearestEnemy.chassis) {
                 // Поворачиваем башню к врагу
                 const enemyPos = nearestEnemy.chassis.absolutePosition;
                 const toEnemy = enemyPos.subtract(tankPos).normalize();
                 const targetAngle = Math.atan2(toEnemy.x, toEnemy.z);
-                
+
                 // Плавно поворачиваем башню
                 let currentAngle = this.turret.rotation.y;
                 let angleDiff = targetAngle - currentAngle;
-                
+
                 // Нормализуем угол к [-PI, PI]
                 while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
                 while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-                
+
                 // Поворачиваем быстрее при активной наводке
                 const turnSpeed = 0.15;
                 if (Math.abs(angleDiff) > 0.05) {
@@ -8320,7 +8453,7 @@ export class TankController {
                 } else {
                     this.turret.rotation.y = targetAngle;
                 }
-                
+
                 // Автострельба: если башня наведена (угол < 0.1 радиан) и cooldown готов
                 if (Math.abs(angleDiff) < 0.1) {
                     const now = Date.now();
@@ -8331,12 +8464,12 @@ export class TankController {
                 }
             }
         }
-        
+
         // Модуль 0: Обновление зарядки прыжка
         if (this.module0Charging) {
             const chargeTime = Date.now() - this.module0ChargeStart;
             const maxChargeTime = 10000; // 10 секунд максимум
-            
+
             if (chargeTime >= maxChargeTime) {
                 // Достигнут максимум - автоматически выполняем прыжок
                 this.executeModule0Jump();
@@ -8344,7 +8477,7 @@ export class TankController {
                 // Обновляем накопленную силу для визуализации
                 const chargeRatio = chargeTime / maxChargeTime;
                 this.module0ChargePower = 20000 + (500000 - 20000) * chargeRatio;
-                
+
                 // Можно добавить визуальную индикацию зарядки в HUD
                 if (this.hud && this._tick % 30 === 0) { // Каждые 30 кадров
                     // Можно обновить какой-то индикатор зарядки
@@ -8355,7 +8488,7 @@ export class TankController {
             }
         }
     }
-    
+
     // Methods for changing tank parts from garage
     setChassisType(chassisId: string): void {
         this.chassisType = getChassisById(chassisId);
@@ -8367,7 +8500,7 @@ export class TankController {
         this.currentHealth = Math.min(this.currentHealth, this.maxHealth);
         // Recreate chassis visuals would require full respawn, so we just update stats
     }
-    
+
     setCannonType(cannonId: string): void {
         this.cannonType = getCannonById(cannonId);
         this.cooldown = this.cannonType.cooldown;
@@ -8377,7 +8510,7 @@ export class TankController {
         this.projectileSize = this.cannonType.projectileSize;
         // Recreate cannon visuals would require full respawn, so we just update stats
     }
-    
+
     setTrackType(trackId: string): void {
         this.trackType = getTrackById(trackId);
         // Recreate tracks if they exist
@@ -8387,7 +8520,7 @@ export class TankController {
             this.createVisualWheels();
         }
     }
-    
+
     /**
      * Анимация механической смены частей танка
      * Старые части "слетают" вверх, новые "прилетают" на место
@@ -8402,11 +8535,11 @@ export class TankController {
             if (onComplete) onComplete();
             return;
         }
-        
+
         const animationDuration = 1500; // ИСПРАВЛЕНО: 1.5 секунды
         const dismountPhase = 600; // Фаза демонтажа
         const mountPhase = 900; // Фаза монтажа
-        
+
         // Сохраняем оригинальные позиции и состояния
         const partsToAnimate: Array<{
             mesh: Mesh;
@@ -8414,7 +8547,7 @@ export class TankController {
             originalRot: Vector3;
             type: 'chassis' | 'turret' | 'barrel' | 'track';
         }> = [];
-        
+
         // Собираем части для анимации
         // КРИТИЧНО: НЕ анимируем chassis - это подбрасывает весь танк вверх
         // Анимируем только визуальные части (turret, barrel, tracks)
@@ -8426,7 +8559,7 @@ export class TankController {
         //         type: 'chassis'
         //     });
         // }
-        
+
         if (applied.cannon) {
             if (this.turret && !this.turret.isDisposed()) {
                 partsToAnimate.push({
@@ -8445,7 +8578,7 @@ export class TankController {
                 });
             }
         }
-        
+
         if (applied.track) {
             if (this.leftTrack && !this.leftTrack.isDisposed()) {
                 partsToAnimate.push({
@@ -8464,49 +8597,49 @@ export class TankController {
                 });
             }
         }
-        
+
         if (partsToAnimate.length === 0) {
             if (onComplete) onComplete();
             return;
         }
-        
+
         // Воспроизводим звук механизма
         if (this.soundManager) {
             this.soundManager.playReloadComplete?.();
         }
-        
+
         // Создаём эффект искр в центре танка
         if (this.effectsManager) {
             const sparkPos = this.chassis.getAbsolutePosition().clone();
             sparkPos.y += 1;
             this.effectsManager.createMuzzleFlash?.(sparkPos, Vector3.Up());
         }
-        
+
         const startTime = Date.now();
-        
+
         // Функция анимации
         const animate = () => {
             const elapsed = Date.now() - startTime;
             const progress = Math.min(elapsed / animationDuration, 1);
-            
+
             // Фаза 1: Демонтаж (0-40%)
             if (progress < 0.4) {
                 const dismountProgress = progress / 0.4;
                 const easeOut = 1 - Math.pow(1 - dismountProgress, 3); // Cubic ease out
-                
+
                 for (const part of partsToAnimate) {
                     if (part.mesh.isDisposed()) continue;
-                    
+
                     // Поднимаем часть вверх с вращением (уменьшена высота для меньшего подбрасывания)
                     const maxLiftHeight = 1.0; // Уменьшено с 3 до 1.0 единицы
                     const liftHeight = easeOut * maxLiftHeight;
                     const rotationAmount = easeOut * Math.PI * 0.2; // Уменьшено вращение с 0.3 до 0.2
-                    
+
                     // Применяем в локальных координатах относительно оригинала
                     part.mesh.position.y = part.originalPos.y + liftHeight;
                     part.mesh.rotation.x = part.originalRot.x + rotationAmount * 0.5;
                     part.mesh.rotation.z = part.originalRot.z + rotationAmount;
-                    
+
                     // Fade out эффект
                     if (part.mesh.material && (part.mesh.material as any).alpha !== undefined) {
                         (part.mesh.material as any).alpha = 1 - easeOut * 0.3;
@@ -8526,26 +8659,26 @@ export class TankController {
             else {
                 const mountProgress = (progress - 0.5) / 0.5;
                 const easeIn = Math.pow(mountProgress, 2); // Quadratic ease in
-                
+
                 const maxLiftHeight = 1.0; // Уменьшено с 3 до 1.0 единицы
-                
+
                 for (const part of partsToAnimate) {
                     if (part.mesh.isDisposed()) continue;
-                    
+
                     // Опускаем часть обратно
                     const liftHeight = maxLiftHeight * (1 - easeIn);
                     const rotationAmount = Math.PI * 0.2 * (1 - easeIn); // Уменьшено вращение с 0.3 до 0.2
-                    
+
                     part.mesh.position.y = part.originalPos.y + liftHeight;
                     part.mesh.rotation.x = part.originalRot.x + rotationAmount * 0.5;
                     part.mesh.rotation.z = part.originalRot.z + rotationAmount;
-                    
+
                     // Fade in эффект
                     if (part.mesh.material && (part.mesh.material as any).alpha !== undefined) {
                         (part.mesh.material as any).alpha = 0.7 + easeIn * 0.3;
                     }
                 }
-                
+
                 // Искры при установке (в конце анимации)
                 if (progress > 0.9 && this.effectsManager) {
                     const sparkPos = this.chassis.getAbsolutePosition().clone();
@@ -8556,7 +8689,7 @@ export class TankController {
                     }
                 }
             }
-            
+
             // Продолжаем или завершаем анимацию
             if (progress < 1) {
                 requestAnimationFrame(animate);
@@ -8570,7 +8703,7 @@ export class TankController {
                         (part.mesh.material as any).alpha = 1;
                     }
                 }
-                
+
                 // КРИТИЧНО: Принудительно разблокируем башню после анимации
                 // Во время анимации игрок мог случайно нажать Z/X, что установило isKeyboardTurretControl = true
                 this.isKeyboardTurretControl = false;
@@ -8583,7 +8716,7 @@ export class TankController {
                 if ((this as any).turretAccelStartTime !== undefined) {
                     (this as any).turretAccelStartTime = 0;
                 }
-                
+
                 // Также сбрасываем флаги в game.ts если доступен
                 if ((window as any).gameInstance) {
                     const game = (window as any).gameInstance;
@@ -8597,17 +8730,17 @@ export class TankController {
                         game.cameraYaw = this.turret.rotation.y;
                     }
                 }
-                
+
                 // Финальный звук установки
                 if (this.soundManager) {
                     this.soundManager.playHit?.();
                 }
-                
+
                 // Вызываем callback
                 if (onComplete) onComplete();
             }
         };
-        
+
         // Запускаем анимацию
         requestAnimationFrame(animate);
     }

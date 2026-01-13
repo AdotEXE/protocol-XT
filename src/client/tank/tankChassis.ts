@@ -11,6 +11,28 @@ import { loadSelectedSkin, getSkinById, applySkinToTank, applySkinColorToMateria
 import { ChassisDetailsGenerator } from "../garage/chassisDetails";
 import { MaterialFactory } from "../garage/materials";
 
+/**
+ * Множители размеров для каждого типа корпуса
+ * Используются для синхронизации визуального меша и физического хитбокса
+ */
+export const CHASSIS_SIZE_MULTIPLIERS: Record<string, {width: number, height: number, depth: number}> = {
+    "light":      { width: 0.75, height: 0.85, depth: 1.2 },
+    "scout":      { width: 0.7,  height: 0.65, depth: 0.85 },
+    "heavy":      { width: 1.08, height: 1.2,  depth: 1.08 },
+    "assault":    { width: 1.12, height: 1.1,  depth: 1.05 },
+    "stealth":    { width: 1.05, height: 0.7,  depth: 1.15 },
+    "hover":      { width: 1.1,  height: 0.95, depth: 1.1 },
+    "siege":      { width: 1.25, height: 1.35, depth: 1.2 },
+    "racer":      { width: 0.75, height: 0.75, depth: 1.3 },
+    "amphibious": { width: 1.15, height: 1.1,  depth: 1.1 },
+    "shield":     { width: 1.2,  height: 1.1,  depth: 1.2 },
+    "drone":      { width: 1.1,  height: 1.12, depth: 1.05 },
+    "artillery":  { width: 1.2,  height: 1.25, depth: 1.15 },
+    "destroyer":  { width: 0.85, height: 0.75, depth: 1.4 },
+    "command":    { width: 1.1,  height: 1.2,  depth: 1.1 },
+    "medium":     { width: 1.0,  height: 1.0,  depth: 1.0 }
+};
+
 export interface ChassisAnimationElements {
     stealthActive?: boolean;
     stealthMesh?: Mesh;
@@ -66,147 +88,35 @@ export function createUniqueChassis(
     });
     
     // Base chassis mesh - более выразительные пропорции
-    let chassis: Mesh;
+    // Используем централизованные множители для синхронизации с физикой
+    const multipliers = CHASSIS_SIZE_MULTIPLIERS[chassisType.id] || CHASSIS_SIZE_MULTIPLIERS["medium"];
     
-    switch (chassisType.id) {
-        case "light":
-            // Light - Прототип: БТ-7 / Т-70 - Узкий, низкий, обтекаемый
-            chassis = MeshBuilder.CreateBox(uniqueId, { 
-                width: w * 0.75, 
-                height: h * 0.7, 
-                depth: d * 1.2 
-            }, scene);
-            break;
-            
-        case "scout":
-            // Scout - Прототип: Т-70 / БТ-7 - Очень маленький, клиновидный
-            chassis = MeshBuilder.CreateBox(uniqueId, { 
-                width: w * 0.7, 
-                height: h * 0.65, 
-                depth: d * 0.85 
-            }, scene);
-            break;
-            
-        case "heavy":
-            // Heavy - Прототип: ИС-2 / ИС-7 - Огромный, массивный, квадратный
-            chassis = MeshBuilder.CreateBox(uniqueId, { 
-                width: w * 1.08, 
-                height: h * 1.2, 
-                depth: d * 1.08 
-            }, scene);
-            break;
-            
-        case "assault":
-            // Assault - ШИРОКИЙ, АГРЕССИВНЫЙ, УГЛОВАТЫЙ
-            chassis = MeshBuilder.CreateBox(uniqueId, { 
-                width: w * 1.12, 
-                height: h * 1.1, 
-                depth: d * 1.05 
-            }, scene);
-            break;
-            
-        case "stealth":
-            // Stealth - ОЧЕНЬ НИЗКИЙ, ПЛОСКИЙ, УГЛОВАТЫЙ
-            chassis = MeshBuilder.CreateBox(uniqueId, { 
-                width: w * 1.05, 
-                height: h * 0.7, 
-                depth: d * 1.15 
-            }, scene);
-            break;
-            
-        case "hover":
-            // Hover - Прототип: Концепт на воздушной подушке - Округлый, обтекаемый
-            const hoverSize = Math.max(w, d) * 1.1;
-            chassis = MeshBuilder.CreateBox(uniqueId, { 
-                width: hoverSize,
-                height: h * 0.95,
-                depth: hoverSize
-            }, scene);
-            break;
-            
-        case "siege":
-            // Siege - ОГРОМНЫЙ, МАССИВНЫЙ
-            chassis = MeshBuilder.CreateBox(uniqueId, { 
-                width: w * 1.25, 
-                height: h * 1.35, 
-                depth: d * 1.2 
-            }, scene);
-            break;
-            
-        case "racer":
-            // Racer - ЭКСТРЕМАЛЬНО НИЗКИЙ, ДЛИННЫЙ
-            chassis = MeshBuilder.CreateBox(uniqueId, { 
-                width: w * 0.75, 
-                height: h * 0.55, 
-                depth: d * 1.3 
-            }, scene);
-            break;
-            
-        case "amphibious":
-            // Amphibious - ШИРОКИЙ, С ПОПЛАВКАМИ
-            chassis = MeshBuilder.CreateBox(uniqueId, { 
-                width: w * 1.15, 
-                height: h * 1.1, 
-                depth: d * 1.1 
-            }, scene);
-            break;
-            
-        case "shield":
-            // Shield - Прототип: Т-72 + генератор щита - Широкий, с генератором
-            const shieldSize = Math.max(w, d) * 1.2;
-            chassis = MeshBuilder.CreateBox(uniqueId, { 
-                width: shieldSize,
-                height: h * 1.1,
-                depth: shieldSize
-            }, scene);
-            break;
-            
-        case "drone":
-            // Drone - СРЕДНИЙ, С ПЛАТФОРМАМИ
-            chassis = MeshBuilder.CreateBox(uniqueId, { 
-                width: w * 1.1, 
-                height: h * 1.12, 
-                depth: d * 1.05 
-            }, scene);
-            break;
-            
-        case "artillery":
-            // Artillery - ШИРОКИЙ, ВЫСОКИЙ
-            chassis = MeshBuilder.CreateBox(uniqueId, { 
-                width: w * 1.2, 
-                height: h * 1.25, 
-                depth: d * 1.15 
-            }, scene);
-            break;
-            
-        case "destroyer":
-            // Destroyer - ОЧЕНЬ ДЛИННЫЙ, НИЗКИЙ
-            chassis = MeshBuilder.CreateBox(uniqueId, { 
-                width: w * 0.85, 
-                height: h * 0.75, 
-                depth: d * 1.4 
-            }, scene);
-            break;
-            
-        case "command":
-            // Command - ВЫСОКИЙ, С АНТЕННАМИ
-            chassis = MeshBuilder.CreateBox(uniqueId, { 
-                width: w * 1.1, 
-                height: h * 1.2, 
-                depth: d * 1.1 
-            }, scene);
-            break;
-            
-        default: // medium
-            // Medium - СБАЛАНСИРОВАННЫЙ, КЛАССИЧЕСКИЙ
-            chassis = MeshBuilder.CreateBox(uniqueId, { 
-                width: w * 1.0, 
-                height: h * 1.0, 
-                depth: d * 1.0 
-            }, scene);
+    // Для hover и shield используем Math.max для width/depth (как было в оригинале)
+    let finalWidth = w * multipliers.width;
+    let finalDepth = d * multipliers.depth;
+    
+    if (chassisType.id === "hover" || chassisType.id === "shield") {
+        const maxSize = Math.max(w, d) * multipliers.width;
+        finalWidth = maxSize;
+        finalDepth = maxSize;
     }
     
+    const chassis = MeshBuilder.CreateBox(uniqueId, { 
+        width: finalWidth,
+        height: h * multipliers.height,
+        depth: finalDepth
+    }, scene);
+    
     chassis.position.copyFrom(position);
+    
+    // Поднимаем низкопрофильные корпуса выше от пола (fix: касание пола/гусениц)
+    const yOffsets: Record<string, number> = {
+        "racer": 0.10,   // Racer - небольшой подъём
+        "light": 0.08,   // Light - небольшой подъём
+        "scout": 0.12    // Scout - низкий
+    };
+    const yOffset = yOffsets[chassisType.id] || 0;
+    chassis.position.y += yOffset;
     
     // Base material - улучшенный low-poly стиль
     // КРИТИЧНО: Уникальное имя для материала, чтобы избежать конфликтов
@@ -234,6 +144,9 @@ export function createUniqueChassis(
     chassis.material = mat;
     
     // Add visual details for specific chassis types only: light, medium, racer, scout
+    // КРИТИЧНО: Детали - это ТОЛЬКО визуальные элементы, они НЕ участвуют в физике!
+    // Детали привязываются как дочерние меши (parent = chassis) и не имеют physicsBody
+    // Хитбокс создаётся ТОЛЬКО для основного корпуса (chassis mesh) как простой прямоугольник
     addChassisDetails(chassis, chassisType, scene, color, animationElements);
     
     return chassis;
@@ -242,6 +155,10 @@ export function createUniqueChassis(
 /**
  * Добавляет детали к корпусу танка
  * ДЕТАЛИ ТОЛЬКО ДЛЯ: light, medium, racer, scout
+ * 
+ * КРИТИЧНО: Детали - это ТОЛЬКО визуальные элементы (люки, фары, выхлопы и т.д.)
+ * Они привязываются как дочерние меши (parent = chassis) и НЕ участвуют в физике!
+ * Хитбоксы создаются ТОЛЬКО для основного корпуса, башни и ствола как простые прямоугольники.
  */
 export function addChassisDetails(
     chassis: Mesh,

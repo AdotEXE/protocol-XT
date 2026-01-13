@@ -11,7 +11,7 @@
     "vite-plugin-compression": "^0.5.1"
   },
   "name": "tx",
-  "version": "0.4.20170",
+  "version": "0.4.20224",
   "description": "Protocol TX - Advanced tank combat simulator with procedural world generation, multiplayer support, and extensive customization",
   "main": "index.js",
   "directories": {
@@ -60,7 +60,8 @@
     "preview": "vite preview",
     "serve": "vite preview",
     "server": "tsx src/server/index.ts",
-    "server:dev": "tsx watch src/server/index.ts",
+    "server:dev": "tsx src/server/index.ts",
+    "server:watch": "tsx watch src/server/index.ts",
     "server:start": "pwsh scripts/start-server.ps1",
     "kill:ports": "pwsh scripts/kill-ports.ps1",
     "monitor": "tsx scripts/start-all.ts",

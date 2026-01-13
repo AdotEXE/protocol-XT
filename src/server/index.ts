@@ -143,6 +143,8 @@ let gameServerInstance: GameServer | null = null;
 
 startServer().then((server) => {
     gameServerInstance = server;
+    // Устанавливаем ссылку на сервер в TUI логгере для мониторинга
+    serverLogger.setGameServer(server);
 }).catch((error) => {
     serverLogger.error("[Server] ❌ Критическая ошибка при запуске сервера:", error);
     process.exit(1);
@@ -154,6 +156,7 @@ process.on("SIGINT", () => {
     if (gameServerInstance) {
         gameServerInstance.shutdown();
     }
+    serverLogger.cleanup();
     process.exit(0);
 });
 
@@ -162,6 +165,7 @@ process.on("SIGTERM", () => {
     if (gameServerInstance) {
         gameServerInstance.shutdown();
     }
+    serverLogger.cleanup();
     process.exit(0);
 });
 

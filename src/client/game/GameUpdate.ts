@@ -52,7 +52,7 @@ export class GameUpdate {
         enemyManager: 5,
         turrets: 10,
         garage: 2,
-        multiplayer: 2,
+        multiplayer: 1, // ИСПРАВЛЕНО: Было 2, теперь 1 - мультиплеер обновляется КАЖДЫЙ кадр для точной синхронизации
         consumables: 10
     };
     private _lastFPS = 60;
@@ -726,7 +726,7 @@ export class GameUpdate {
                 enemyManager: 5,
                 turrets: 10,
                 garage: 2,
-                multiplayer: 2,
+                multiplayer: 1, // КРИТИЧНО: Всегда каждый кадр для мультиплеера
                 consumables: 10
             };
         } else if (fps >= 55) {
@@ -736,7 +736,7 @@ export class GameUpdate {
                 enemyManager: 8,      // 5 * 1.5 (округлено)
                 turrets: 15,          // 10 * 1.5
                 garage: 3,            // 2 * 1.5 (округлено)
-                multiplayer: 3,       // 2 * 1.5 (округлено)
+                multiplayer: 1,       // КРИТИЧНО: Всегда каждый кадр для мультиплеера
                 consumables: 15       // 10 * 1.5
             };
         } else if (fps >= 45) {
@@ -746,7 +746,7 @@ export class GameUpdate {
                 enemyManager: 10,     // 5 * 2
                 turrets: 20,          // 10 * 2
                 garage: 4,            // 2 * 2
-                multiplayer: 4,       // 2 * 2
+                multiplayer: 1,       // КРИТИЧНО: Всегда каждый кадр для мультиплеера
                 consumables: 20       // 10 * 2
             };
         } else if (fps >= 35) {
@@ -756,7 +756,7 @@ export class GameUpdate {
                 enemyManager: 15,     // 5 * 3
                 turrets: 30,          // 10 * 3
                 garage: 6,            // 2 * 3
-                multiplayer: 6,       // 2 * 3
+                multiplayer: 1,       // КРИТИЧНО: Всегда каждый кадр для мультиплеера
                 consumables: 30       // 10 * 3
             };
         } else if (fps >= 25) {
@@ -766,7 +766,7 @@ export class GameUpdate {
                 enemyManager: 20,     // 5 * 4
                 turrets: 40,          // 10 * 4
                 garage: 8,            // 2 * 4
-                multiplayer: 8,       // 2 * 4
+                multiplayer: 1,       // КРИТИЧНО: Всегда каждый кадр для мультиплеера
                 consumables: 40       // 10 * 4
             };
         } else {
@@ -776,7 +776,7 @@ export class GameUpdate {
                 enemyManager: 30,     // Максимальный интервал
                 turrets: 60,          // Максимальный интервал
                 garage: 10,           // Максимальный интервал
-                multiplayer: 10,      // Максимальный интервал
+                multiplayer: 1,       // КРИТИЧНО: Всегда каждый кадр для мультиплеера (даже при низком FPS)
                 consumables: 60       // Максимальный интервал
             };
         }

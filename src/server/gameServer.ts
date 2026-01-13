@@ -5,6 +5,7 @@ import * as os from "os";
 import { ServerPlayer } from "./player";
 import { GameRoom } from "./room";
 import { ServerProjectile } from "./projectile";
+import { ServerWall } from "./wall";
 import { MatchmakingSystem } from "./matchmaking";
 import { createServerMessage, deserializeMessage, serializeMessage } from "../shared/protocol";
 import type { ClientMessage, ServerMessage, PongData } from "../shared/messages";
@@ -15,6 +16,7 @@ import { DeltaCompressor, PrioritizedBroadcaster } from "./deltaCompression";
 import { initializeFirebaseAdmin, verifyIdToken } from "./auth";
 import { MonitoringAPI } from "./monitoring";
 import { serverLogger } from "./logger";
+import { SpatialHashGrid } from "./spatialHash";
 
 const TICK_RATE = 60; // 60 Hz
 const TICK_INTERVAL = 1000 / TICK_RATE; // ~16.67ms
@@ -33,32 +35,35 @@ export class GameServer {
     private monitoringAPI: MonitoringAPI;
     private monitoringClients: Set<WebSocket> = new Set();
     private rateLimiter: RateLimiter = new RateLimiter(); // Per-player rate limiting
-    
+
+    // Spatial partitioning: per-room spatial hash grids
+    private spatialGrids: Map<string, SpatialHashGrid> = new Map();
+
     // Adaptive update rate tracking: Map<receiverId, Map<senderId, lastUpdateTick>>
     private lastPlayerUpdateTick: Map<string, Map<string, number>> = new Map();
-    
+
     // Ban system: playerId -> ban expiry timestamp (0 for permanent)
     private bannedPlayers: Map<string, { expiry: number; reason: string; banCount: number }> = new Map();
-    
+
     // Счетчики для простой системы наименований
     private guestPlayerCounter: number = 0; // Счетчик для гостей (ID и имя: 0001, 0002...)
     private roomCounter: number = 0; // Счетчик для комнат (0001, 0002...)
-    
+
     constructor(port: number = 8000, host: string = "0.0.0.0") {
         // ИСПРАВЛЕНО: Настройка WebSocketServer с правильной обработкой upgrade
-        this.wss = new WebSocketServer({ 
-            port, 
+        this.wss = new WebSocketServer({
+            port,
             host,
             perMessageDeflate: false, // Отключаем сжатие для совместимости
             clientTracking: true // Отслеживание клиентов
         });
-        
+
         // Настраиваем генератор ID комнат для matchmaking
         this.matchmaking.setRoomIdGenerator(() => {
             this.roomCounter++;
             return String(this.roomCounter).padStart(4, '0');
         });
-        
+
         // Обработка ошибок сервера (включая EADDRINUSE)
         this.wss.on("error", (error: Error & { code?: string }) => {
             if (error.code === 'EADDRINUSE') {
@@ -72,35 +77,35 @@ export class GameServer {
                 serverLogger.error(`[Server] ❌ WebSocket server error:`, error);
             }
         });
-        
+
         this.wss.on("listening", () => {
             serverLogger.log(`[Server] ✅ WebSocket server started on ${host}:${port}`);
         });
-        
+
         // Выводим информацию о доступных адресах для подключения
         this.printNetworkInfo(port);
-        
+
         // Инициализация Firebase Admin для валидации токенов
         initializeFirebaseAdmin();
-        
+
         // Инициализация Monitoring API
         this.monitoringAPI = new MonitoringAPI(this);
-        
+
         this.setupWebSocket();
         this.startGameLoop();
         this.startMonitoringBroadcast();
         this.startPeriodicStats();
-        
+
         serverLogger.log(`[Server] ✅ Сервер готов к работе. Активных комнат: 0, подключенных игроков: 0`);
     }
-    
+
     private printNetworkInfo(port: number): void {
         const interfaces = os.networkInterfaces();
-        
+
         serverLogger.log(`\n[Server] Доступные адреса для подключения:`);
         serverLogger.log(`  - localhost: ws://localhost:${port} (только на этой машине)`);
         serverLogger.log(`  - 127.0.0.1: ws://127.0.0.1:${port} (только на этой машине)`);
-        
+
         // Выводим все локальные IP-адреса
         const addresses: string[] = [];
         Object.keys(interfaces).forEach((iface) => {
@@ -111,7 +116,7 @@ export class GameServer {
                 }
             });
         });
-        
+
         if (addresses.length === 0) {
             serverLogger.log(`  ⚠️  Локальные IP-адреса не найдены. Используйте localhost для подключения на этой машине.`);
         } else {
@@ -119,13 +124,13 @@ export class GameServer {
         }
         serverLogger.log(``);
     }
-    
+
     private setupWebSocket(): void {
         // Обработка ошибок сервера
         this.wss.on("error", (error: Error) => {
             serverLogger.error("[Server] WebSocket server error:", error);
         });
-        
+
         // Обработка HTTP запросов (для отладки)
         this.wss.on("headers", (headers: string[], req: any) => {
             // Логируем заголовки для отладки
@@ -133,15 +138,15 @@ export class GameServer {
                 serverLogger.log("[Server] Upgrade request from:", req.socket.remoteAddress, "URL:", req.url);
             }
         });
-        
+
         // Обработка подключений
         this.wss.on("connection", (ws: WebSocket, req: any) => {
             serverLogger.log("[Server] New client connected from:", req.socket.remoteAddress || "unknown");
-            
+
             ws.on("message", (data: Buffer) => {
                 try {
                     let message: any;
-                    
+
                     // Try to deserialize binary data first (for game messages)
                     // Buffer in Node.js extends Uint8Array, so we can pass it directly
                     try {
@@ -151,7 +156,7 @@ export class GameServer {
                     } catch (binaryError) {
                         // Not binary format, try JSON fallback
                     }
-                    
+
                     // Fallback: try to parse as JSON (for monitoring messages)
                     const dataStr = data.toString();
                     try {
@@ -178,20 +183,20 @@ export class GameServer {
                     }
                 }
             });
-            
+
             ws.on("close", () => {
                 this.handleDisconnect(ws);
             });
-            
+
             ws.on("error", (error) => {
                 serverLogger.error("[Server] WebSocket error:", error);
             });
         });
     }
-    
+
     // Соединения для голосового чата (НЕ создаём для них игроков)
     private voiceClients: Set<WebSocket> = new Set();
-    
+
     private handleMessage(ws: WebSocket, message: ClientMessage | any): void {
         // Check for monitoring messages first (before parsing as ClientMessage)
         if (message && typeof message === 'object' && message.type) {
@@ -206,7 +211,7 @@ export class GameServer {
                 this.monitoringClients.delete(ws);
                 return;
             }
-            
+
             // КРИТИЧНО: Voice соединения НЕ создают игроков
             if (message.type === "voice_join") {
                 this.voiceClients.add(ws);
@@ -214,106 +219,114 @@ export class GameServer {
                 // TODO: Можно добавить логику для WebRTC signaling
                 return;
             }
-            
+
             // Другие voice сообщения
-            if (message.type === "voice_offer" || message.type === "voice_answer" || 
+            if (message.type === "voice_offer" || message.type === "voice_answer" ||
                 message.type === "voice_ice_candidate" || message.type === "voice_leave") {
                 // Обрабатываем voice сигналы без создания игрока
                 // TODO: Реализовать WebRTC signaling
                 return;
             }
         }
-        
+
         // Skip game message handling for monitoring clients
         if (this.monitoringClients.has(ws)) {
             return;
         }
-        
+
         // Skip game message handling for voice clients
         if (this.voiceClients.has(ws)) {
             return;
         }
-        
+
         // Handle regular game messages
         const player = this.getPlayerBySocket(ws);
-        
+
         switch (message.type) {
             case ClientMessageType.CONNECT:
                 this.handleConnect(ws, message.data);
                 break;
-                
+
             case ClientMessageType.CREATE_ROOM:
                 if (player) this.handleCreateRoom(player, message.data);
                 break;
-                
+
             case ClientMessageType.JOIN_ROOM:
                 if (player) this.handleJoinRoom(player, message.data);
                 break;
-                
+
             case ClientMessageType.LEAVE_ROOM:
                 if (player) this.handleLeaveRoom(player);
                 break;
-                
+
             case ClientMessageType.LIST_ROOMS:
                 if (player) this.handleListRooms(player, message.data);
                 break;
-                
+
+            case ClientMessageType.GET_ONLINE_PLAYERS:
+                if (player) this.handleGetOnlinePlayers(player);
+                break;
+
             case ClientMessageType.QUICK_PLAY:
                 if (player) this.handleQuickPlay(player, message.data);
                 break;
-                
+
             case ClientMessageType.CANCEL_QUEUE:
                 if (player) this.handleCancelQueue(player, message.data);
                 break;
-                
+
             case ClientMessageType.GAME_INVITE:
                 if (player) this.handleGameInvite(player, message.data);
                 break;
-                
+
             case ClientMessageType.START_GAME:
                 if (player) this.handleStartGame(player, message.data);
                 break;
-                
+
             case ClientMessageType.PLAYER_INPUT:
                 if (player) this.handlePlayerInput(player, message.data);
                 break;
-                
+
             case ClientMessageType.PLAYER_SHOOT:
                 if (player) this.handlePlayerShoot(player, message.data);
                 break;
-                
+
             case ClientMessageType.CHAT_MESSAGE:
                 if (player) this.handleChatMessage(player, message.data);
                 break;
-                
+
             case ClientMessageType.CONSUMABLE_PICKUP_REQUEST:
                 if (player) this.handleConsumablePickup(player, message.data);
                 break;
-                
+
             case ClientMessageType.CLIENT_METRICS:
                 if (player) this.handleClientMetrics(player, message.data);
                 break;
-                
+
+            case ClientMessageType.WALL_SPAWN:
+                if (player) this.handleWallSpawn(player, message.data);
+                break;
+
             case ClientMessageType.VOICE_OFFER:
             case ClientMessageType.VOICE_ANSWER:
             case ClientMessageType.VOICE_ICE_CANDIDATE:
                 // Voice signaling handled elsewhere
                 // if (player) this._handleVoiceSignaling(player, message);
                 break;
-                
+
             case ClientMessageType.PING:
                 if (player) this.handlePing(player, message.data);
                 break;
-                
+
             default:
                 serverLogger.warn(`[Server] Unknown message type: ${message.type}`);
         }
     }
-    
+
     private async handleConnect(ws: WebSocket, data: any): Promise<void> {
         const playerId = data.playerId;
         const idToken = data.idToken; // Firebase ID токен
-        
+
         // NOTE: Auto-ban system disabled for now
         // Check if player is banned (before validation to save resources)
         // if (playerId) {
@@ -330,7 +343,7 @@ export class GameServer {
         //         return;
         //     }
         // }
-        
+
         // Валидация токена, если предоставлен
         let verifiedUserId: string | null = null;
         if (idToken) {
@@ -338,7 +351,7 @@ export class GameServer {
             if (decodedToken) {
                 verifiedUserId = decodedToken.uid;
                 serverLogger.log(`[Server] Token verified for user: ${verifiedUserId}`);
-                
+
                 // Используем UID из токена вместо переданного playerId для безопасности
                 if (verifiedUserId !== playerId) {
                     serverLogger.warn(`[Server] Player ID mismatch: provided ${playerId}, token UID ${verifiedUserId}`);
@@ -349,28 +362,49 @@ export class GameServer {
                 // Для гибкости разрешаем подключение без валидации
             }
         }
-        
-        // Простая система наименований: для гостей генерируем простой ID и имя anon_ID:XXXX
+
+        // Простая система наименований: для гостей используем ID от клиента (если есть) или генерируем новый
         // Для авторизованных используем Firebase UID
         let finalPlayerId: string;
         let finalPlayerName: string;
-        
+
         if (verifiedUserId) {
             // Авторизованный игрок - используем Firebase UID как ID
             finalPlayerId = verifiedUserId;
             finalPlayerName = data.playerName || `User_${verifiedUserId.substring(0, 6)}`;
         } else {
-            // Гость - генерируем простой ID (0001, 0002, 0003...) и имя anon_ID:XXXX
-            // Используем ОДИН счетчик для согласованности ID и имени
-            this.guestPlayerCounter++;
-            const guestNumber = String(this.guestPlayerCounter).padStart(4, '0');
-            finalPlayerId = guestNumber; // ID = 0001, 0002, 0003...
-            finalPlayerName = `anon_ID:${guestNumber}`; // Имя = anon_ID:0001, anon_ID:0002, anon_ID:0003...
-            serverLogger.log(`[Server] Гость подключился: ID=${finalPlayerId}, имя=${finalPlayerName} (игнорировано имя от клиента: ${data.playerName || 'не указано'})`);
+            // Гость - используем ID от клиента, если он валидный, иначе генерируем новый
+            const clientPlayerId = data.playerId;
+
+            // Проверяем, валидный ли ID от клиента (не пустой, не слишком короткий)
+            if (clientPlayerId && clientPlayerId.length >= 4 && /^[a-zA-Z0-9_-]+$/.test(clientPlayerId)) {
+                // Проверяем, не занят ли этот ID другим активным игроком
+                const existingPlayer = this.players.get(clientPlayerId);
+                if (!existingPlayer || !existingPlayer.connected) {
+                    // ID свободен или игрок отключен - используем ID от клиента
+                    finalPlayerId = clientPlayerId;
+                    finalPlayerName = data.playerName || `anon_ID:${clientPlayerId.substring(0, 8)}`;
+                    serverLogger.log(`[Server] Гость подключился с сохраненным ID: ${finalPlayerId}, имя=${finalPlayerName}`);
+                } else {
+                    // ID занят - генерируем новый
+                    this.guestPlayerCounter++;
+                    const guestNumber = String(this.guestPlayerCounter).padStart(4, '0');
+                    finalPlayerId = guestNumber;
+                    finalPlayerName = `anon_ID:${guestNumber}`;
+                    serverLogger.log(`[Server] Гость подключился: ID ${clientPlayerId} занят, присвоен новый ID=${finalPlayerId}, имя=${finalPlayerName}`);
+                }
+            } else {
+                // ID от клиента невалидный - генерируем новый
+                this.guestPlayerCounter++;
+                const guestNumber = String(this.guestPlayerCounter).padStart(4, '0');
+                finalPlayerId = guestNumber;
+                finalPlayerName = `anon_ID:${guestNumber}`;
+                serverLogger.log(`[Server] Гость подключился: ID от клиента невалидный (${clientPlayerId}), присвоен новый ID=${finalPlayerId}, имя=${finalPlayerName}`);
+            }
         }
-        
+
         let player = this.players.get(finalPlayerId);
-        
+
         if (!player) {
             // Новое подключение - создаем игрока с правильным ID и именем
             player = new ServerPlayer(ws, finalPlayerId, finalPlayerName);
@@ -385,44 +419,50 @@ export class GameServer {
             player.connected = true;
             serverLogger.log(`[Server] Игрок переподключен: ID=${player.id}, имя=${player.name}${verifiedUserId ? ' [AUTHENTICATED]' : ' [GUEST]'}`);
         }
-        
+
         this.send(ws, createServerMessage(ServerMessageType.CONNECTED, {
             playerId: player.id,
             playerName: player.name,
             authenticated: !!verifiedUserId
         }));
     }
-    
+
     private handleCreateRoom(player: ServerPlayer, data: any): void {
         const { mode, maxPlayers, isPrivate, settings, worldSeed, mapType } = data;
-        
+
         // Генерируем простой ID комнаты (0001, 0002, и т.д.)
         this.roomCounter++;
         const roomId = String(this.roomCounter).padStart(4, '0');
         serverLogger.log(`[Server] 🔧 Генерация ID комнаты: roomCounter=${this.roomCounter}, roomId=${roomId}`);
-        
+        serverLogger.log(`[Server] 📋 CREATE_ROOM: mode=${mode}, maxPlayers=${maxPlayers}, isPrivate=${isPrivate}, mapType=${mapType}`);
+
         const room = new GameRoom(mode, maxPlayers, isPrivate, worldSeed, roomId, mapType);
         room.settings = settings || {};
-        
+
         // Проверяем, что ID комнаты правильный
         if (room.id !== roomId) {
             serverLogger.error(`[Server] ❌ ОШИБКА: ID комнаты не совпадает! Ожидалось: ${roomId}, получено: ${room.id}`);
         } else {
             serverLogger.log(`[Server] ✅ ID комнаты подтвержден: ${room.id}`);
         }
-        
+
         if (room.addPlayer(player)) {
             this.rooms.set(room.id, room);
             room.creatorId = player.id; // Сохраняем ID создателя
-            serverLogger.log(`[Server] Комната создана: ID=${room.id}, режим=${mode}, игроков=1/${maxPlayers}, создатель=${player.id} (${player.name}), seed=${room.worldSeed}`);
-            
+
+            // Создаём spatial grid для комнаты
+            this.spatialGrids.set(room.id, new SpatialHashGrid(100));
+
+            serverLogger.log(`[Server] ✅ Комната создана: ID=${room.id}, режим=${mode} (room.mode=${room.mode}), игроков=1/${maxPlayers}, создатель=${player.id} (${player.name}), seed=${room.worldSeed}`);
+            serverLogger.log(`[Server] 📋 Комната ${room.id} поддерживает ботов: ${room.mode === "coop" || room.mode === "ffa" || room.mode === "tdm" || room.mode === "survival" || room.mode === "raid" ? "ДА" : "НЕТ"}`);
+
             this.send(player.socket, createServerMessage(ServerMessageType.ROOM_CREATED, {
                 roomId: room.id,
                 mode: room.mode,
                 worldSeed: room.worldSeed,
                 isCreator: true
             }));
-            
+
             // Отправляем обновленный список комнат всем подключенным клиентам
             this.broadcastRoomListToAll();
         } else {
@@ -430,32 +470,46 @@ export class GameServer {
             this.sendError(player.socket, "ROOM_CREATE_FAILED", "Failed to create room");
         }
     }
-    
+
     private handleJoinRoom(player: ServerPlayer, data: any): void {
         const { roomId } = data;
+        serverLogger.log(`[Server] 🔍 JOIN_ROOM запрос от ${player.id} (${player.name}): roomId=${roomId}`);
         const room = this.rooms.get(roomId);
-        
+
         if (!room) {
+            serverLogger.warn(`[Server] ❌ Комната ${roomId} не найдена для игрока ${player.id}`);
             this.sendError(player.socket, "ROOM_NOT_FOUND", "Room not found");
             return;
         }
-        
+
+        serverLogger.log(`[Server] ✅ Комната ${roomId} найдена: режим=${room.mode}, активна=${room.isActive}, игроков=${room.players.size}/${room.maxPlayers}`);
+
         if (room.isFull()) {
             this.sendError(player.socket, "ROOM_FULL", "Room is full");
             return;
         }
-        
+
         // Leave current room if any
         if (player.roomId) {
             this.handleLeaveRoom(player);
         }
-        
+
         if (room.addPlayer(player)) {
             serverLogger.log(`[Server] Игрок ${player.id} (${player.name}) присоединился к комнате ${room.id}, игроков в комнате: ${room.players.size}/${room.maxPlayers}`);
-            
+
+            // Добавляем игрока в spatial grid комнаты
+            let spatialGrid = this.spatialGrids.get(room.id);
+            if (!spatialGrid) {
+                spatialGrid = new SpatialHashGrid(100);
+                this.spatialGrids.set(room.id, spatialGrid);
+            }
+            if (player.position) {
+                spatialGrid.addPlayer(player.id, player.position);
+            }
+
             // Cancel deletion timer if room was scheduled for deletion
             room.cancelDeletion();
-            
+
             // Notify player
             this.send(player.socket, createServerMessage(ServerMessageType.ROOM_JOINED, {
                 roomId: room.id,
@@ -465,43 +519,74 @@ export class GameServer {
                 isCreator: room.creatorId === player.id,
                 isActive: room.isActive // Добавляем информацию о статусе игры
             }));
-            
+
             // Если комната активна, сразу отправляем GAME_START для присоединения к идущей игре
             if (room.isActive) {
-                serverLogger.log(`[Server] Комната ${room.id} активна, отправляем GAME_START новому игроку ${player.id}`);
+                const enemyData = room.getEnemyData();
+                serverLogger.log(`[Server] Комната ${room.id} активна, отправляем GAME_START новому игроку ${player.id} (ботов: ${enemyData.length})`);
                 this.send(player.socket, createServerMessage(ServerMessageType.GAME_START, {
                     roomId: room.id,
                     mode: room.mode,
                     worldSeed: room.worldSeed,
+                    mapType: room.mapType, // КРИТИЧНО: Добавляем тип карты для синхронизации
                     players: room.getPlayerData(),
-                    enemies: room.getEnemyData() // Отправляем данные о ботах для синхронизации
+                    enemies: enemyData // Отправляем данные о ботах для синхронизации
                 }));
             }
-            
+
             // Notify other players
             this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_JOINED, {
                 player: player.toPlayerData()
             }), player.id);
+
+            // АВТОСТАРТ: Запускаем игру когда 2+ игрока присоединились к комнате
+            serverLogger.log(`[Server] 🔍 Проверка АВТОСТАРТА: room.isActive=${room.isActive}, players.size=${room.players.size}, mode=${room.mode}`);
+            if (!room.isActive && room.players.size >= 2) {
+                serverLogger.log(`[Server] 🚀 АВТОСТАРТ: Запускаем игру в комнате ${room.id}...`);
+                room.startMatch();
+                const enemyData = room.getEnemyData();
+                serverLogger.log(`[Server] ✅ АВТОСТАРТ (join): Игра запущена в комнате ${room.id} (${room.players.size} игроков, ботов: ${enemyData.length})`);
+
+                // ИСПРАВЛЕНО: Добавлены enemies для синхронизации ботов между клиентами
+                const gameStartData = {
+                    roomId: room.id,
+                    mode: room.mode, // КРИТИЧНО: Добавляем режим!
+                    gameTime: 0,
+                    worldSeed: room.worldSeed,
+                    mapType: room.mapType, // КРИТИЧНО: Добавляем тип карты для синхронизации
+                    players: room.getPlayerData(),
+                    enemies: enemyData
+                };
+                serverLogger.log(`[Server] 📤 АВТОСТАРТ GAME_START: roomId=${room.id}, mode=${room.mode}, players=${gameStartData.players.length}, enemies=${enemyData.length}`);
+                this.broadcastToRoom(room, createServerMessage(ServerMessageType.GAME_START, gameStartData));
+            }
         }
     }
-    
+
     private handleLeaveRoom(player: ServerPlayer): void {
         if (!player.roomId) return;
-        
+
         const room = this.rooms.get(player.roomId);
         if (room) {
             room.removePlayer(player.id);
-            
+
             // Notify other players
             this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_LEFT, {
                 playerId: player.id
             }));
-            
+
+            // Удаляем игрока из spatial grid
+            const spatialGrid = this.spatialGrids.get(room.id);
+            if (spatialGrid) {
+                spatialGrid.removePlayer(player.id);
+            }
+
             // Schedule room deletion if empty, otherwise cancel any existing deletion timer
             if (room.isEmpty()) {
                 // Schedule deletion after delay
                 room.scheduleDeletion(ROOM_DELETION_DELAY, () => {
                     this.rooms.delete(room.id);
+                    this.spatialGrids.delete(room.id); // Удаляем spatial grid вместе с комнатой
                     // Отправляем обновленный список комнат всем подключенным клиентам
                     this.broadcastRoomListToAll();
                 });
@@ -510,65 +595,68 @@ export class GameServer {
                 room.cancelDeletion();
             }
         }
-        
+
         player.roomId = null;
     }
-    
+
     private handleStartGame(player: ServerPlayer, _data: any): void {
         if (!player.roomId) {
             this.sendError(player.socket, "NOT_IN_ROOM", "You are not in a room");
             return;
         }
-        
+
         const room = this.rooms.get(player.roomId);
         if (!room) {
             this.sendError(player.socket, "ROOM_NOT_FOUND", "Room not found");
             return;
         }
-        
+
         // Проверяем, что игрок является создателем комнаты
         if (room.creatorId !== player.id) {
             this.sendError(player.socket, "NOT_CREATOR", "Only room creator can start the game");
             return;
         }
-        
+
         // Проверяем минимальное количество игроков (минимум 2)
         if (room.players.size < 2) {
             this.sendError(player.socket, "NOT_ENOUGH_PLAYERS", "Need at least 2 players to start the game");
             return;
         }
-        
+
         // Проверяем, что игра еще не началась
         if (room.isActive) {
             this.sendError(player.socket, "GAME_ALREADY_STARTED", "Game is already in progress");
             return;
         }
-        
+
         // Запускаем игру
         room.startMatch();
-        serverLogger.log(`[Server] Игра запущена в комнате ${room.id} создателем ${player.id} (${player.name}), игроков: ${room.players.size}`);
-        
+        const enemyData = room.getEnemyData();
+        serverLogger.log(`[Server] Игра запущена в комнате ${room.id} создателем ${player.id} (${player.name}), игроков: ${room.players.size}, ботов: ${enemyData.length}`);
+
         // Отправляем всем игрокам в комнате
         this.broadcastToRoom(room, createServerMessage(ServerMessageType.GAME_START, {
             roomId: room.id,
             mode: room.mode,
             worldSeed: room.worldSeed,
+            mapType: room.mapType, // КРИТИЧНО: Добавляем тип карты для синхронизации
             players: room.getPlayerData(),
-            enemies: room.getEnemyData() // Отправляем данные о ботах для синхронизации
+            enemies: enemyData // Отправляем данные о ботах для синхронизации
         }));
     }
-    
+
     private handleQuickPlay(player: ServerPlayer, data: any): void {
         const { mode, region, skillBased } = data;
-        
+        serverLogger.log(`[Server] 🎮 QUICK_PLAY запрос от ${player.id} (${player.name}): mode=${mode}, region=${region}, skillBased=${skillBased}`);
+
         // СНАЧАЛА ищем существующие комнаты с таким же режимом
         const availableRooms = Array.from(this.rooms.values()).filter(room => {
-            return room.mode === mode && 
-                   !room.isPrivate && 
-                   !room.isActive && 
-                   room.players.size < room.maxPlayers;
+            return room.mode === mode &&
+                !room.isPrivate &&
+                !room.isActive &&
+                room.players.size < room.maxPlayers;
         });
-        
+
         if (availableRooms.length > 0) {
             // Нашли существующую комнату - присоединяемся к ней
             const room = availableRooms[0]; // Берем первую доступную
@@ -577,14 +665,14 @@ export class GameServer {
                 return;
             }
             serverLogger.log(`[Server] Quick play: присоединение к существующей комнате ${room.id} (режим: ${mode})`);
-            
+
             if (player.roomId) {
                 this.handleLeaveRoom(player);
             }
-            
+
             if (room.addPlayer(player)) {
                 player.roomId = room.id;
-                
+
                 this.send(player.socket, createServerMessage(ServerMessageType.ROOM_JOINED, {
                     roomId: room.id,
                     mode: room.mode,
@@ -592,7 +680,7 @@ export class GameServer {
                     players: room.getPlayerData(),
                     maxPlayers: room.maxPlayers
                 }));
-                
+
                 // Уведомляем других игроков в комнате
                 room.getAllPlayers().forEach(p => {
                     if (p.id !== player.id) {
@@ -601,33 +689,52 @@ export class GameServer {
                         }));
                     }
                 });
-                
-                // Не запускаем игру автоматически - ждем команды от создателя комнаты
-                
+
+                // АВТОСТАРТ: Запускаем игру когда 2+ игрока присоединились через Quick Play
+                if (!room.isActive && room.players.size >= 2) {
+                    room.startMatch();
+                    serverLogger.log(`[Server] ✅ АВТОСТАРТ: Игра запущена в комнате ${room.id} (${room.players.size} игроков)`);
+
+                    // Отправляем всем игрокам в комнате сигнал старта
+                    // ИСПРАВЛЕНО: Добавлены enemies и mode для синхронизации ботов между клиентами
+                    const enemyDataQP = room.getEnemyData();
+                    const gameStartDataQP = {
+                        roomId: room.id,
+                        mode: room.mode, // КРИТИЧНО: Добавляем режим!
+                        gameTime: 0,
+                        worldSeed: room.worldSeed,
+                        mapType: room.mapType, // КРИТИЧНО: Добавляем тип карты для синхронизации
+                        players: room.getPlayerData(),
+                        enemies: enemyDataQP
+                    };
+                    serverLogger.log(`[Server] 📤 QuickPlay АВТОСТАРТ GAME_START: roomId=${room.id}, mode=${room.mode}, players=${gameStartDataQP.players.length}, enemies=${enemyDataQP.length}`);
+                    this.broadcastToRoom(room, createServerMessage(ServerMessageType.GAME_START, gameStartDataQP));
+                }
+
                 return; // Успешно присоединились, выходим
             }
         }
-        
+
         // Если не нашли существующую комнату, добавляем в очередь матчмейкинга
         this.matchmaking.addToQueue(player, mode, region);
-        
+
         // Try to find match
         const room = this.matchmaking.findMatch(player, mode, region, skillBased || false);
-        
+
         if (room) {
             // Match found!
             this.rooms.set(room.id, room);
-            
+
             if (player.roomId) {
                 this.handleLeaveRoom(player);
             }
-            
+
             this.send(player.socket, createServerMessage(ServerMessageType.MATCH_FOUND, {
                 roomId: room.id,
                 mode: room.mode,
                 worldSeed: room.worldSeed
             }));
-            
+
             // Notify other player in room
             const otherPlayer = room.getAllPlayers().find(p => p.id !== player.id);
             if (otherPlayer) {
@@ -637,8 +744,26 @@ export class GameServer {
                     worldSeed: room.worldSeed
                 }));
             }
-            
-            // Не запускаем игру автоматически - ждем команды от создателя комнаты
+
+            // АВТОСТАРТ: Запускаем игру когда матч найден через матчмейкинг
+            if (!room.isActive && room.players.size >= 2) {
+                room.startMatch();
+                serverLogger.log(`[Server] ✅ АВТОСТАРТ (matchmaking): Игра запущена в комнате ${room.id} (${room.players.size} игроков)`);
+
+                // ИСПРАВЛЕНО: Добавлены enemies и mode для синхронизации ботов между клиентами
+                const enemyDataMM = room.getEnemyData();
+                const gameStartDataMM = {
+                    roomId: room.id,
+                    mode: room.mode, // КРИТИЧНО: Добавляем режим!
+                    gameTime: 0,
+                    worldSeed: room.worldSeed,
+                    mapType: room.mapType, // КРИТИЧНО: Добавляем тип карты для синхронизации
+                    players: room.getPlayerData(),
+                    enemies: enemyDataMM
+                };
+                serverLogger.log(`[Server] 📤 Matchmaking АВТОСТАРТ GAME_START: roomId=${room.id}, mode=${room.mode}, players=${gameStartDataMM.players.length}, enemies=${enemyDataMM.length}`);
+                this.broadcastToRoom(room, createServerMessage(ServerMessageType.GAME_START, gameStartDataMM));
+            }
         } else {
             // No match found, send queue update
             const queueSize = this.matchmaking.getQueueSize(mode, region);
@@ -649,18 +774,18 @@ export class GameServer {
             }));
         }
     }
-    
+
     private handleListRooms(player: ServerPlayer, data: any): void {
         const { mode } = data || {};
-        
+
         // Получаем список всех доступных комнат
         const allRooms = Array.from(this.rooms.values());
-        
+
         // Фильтруем по режиму если указан
-        const filteredRooms = mode 
+        const filteredRooms = mode
             ? allRooms.filter(room => room.mode === mode && !room.isPrivate)
             : allRooms.filter(room => !room.isPrivate);
-        
+
         // Формируем данные о комнатах
         const roomsList = filteredRooms.map(room => ({
             id: room.id,
@@ -671,31 +796,59 @@ export class GameServer {
             gameTime: room.gameTime,
             mapType: room.mapType || "normal"
         }));
-        
+
         serverLogger.log(`[Server] Запрос списка комнат от ${player.id} (${player.name}): найдено ${filteredRooms.length} комнат${mode ? ` (режим: ${mode})` : ''}`);
-        
+
         this.send(player.socket, createServerMessage(ServerMessageType.ROOM_LIST, {
             rooms: roomsList
         }));
     }
-    
+
+    private handleGetOnlinePlayers(player: ServerPlayer): void {
+        // Получаем список всех подключенных игроков (включая самого запрашивающего)
+        const allPlayers = Array.from(this.players.values());
+        const connectedPlayers = allPlayers.filter(p => p.connected);
+
+        serverLogger.log(`[Server] 📋 Запрос списка игроков онлайн от ${player.id} (${player.name})`);
+        serverLogger.log(`[Server] 📋 Всего игроков в системе: ${allPlayers.length}, подключено: ${connectedPlayers.length}`);
+
+        const onlinePlayers = connectedPlayers.map(p => {
+            const room = p.roomId ? this.rooms.get(p.roomId) : null;
+            const playerData = {
+                id: p.id,
+                name: p.name,
+                roomId: p.roomId || null,
+                roomMode: room ? room.mode : null,
+                isInRoom: !!p.roomId
+            };
+            serverLogger.log(`[Server] 📋   - ${p.name} (${p.id})${p.roomId ? ` в комнате ${p.roomId}` : ' (в лобби)'}`);
+            return playerData;
+        });
+
+        serverLogger.log(`[Server] ✅ Отправка списка из ${onlinePlayers.length} игроков игроку ${player.id}`);
+
+        this.send(player.socket, createServerMessage(ServerMessageType.ONLINE_PLAYERS_LIST, {
+            players: onlinePlayers
+        }));
+    }
+
     private handlePlayerInput(player: ServerPlayer, data: any): void {
         if (!player.roomId) return;
-        
+
         const room = this.rooms.get(player.roomId);
         if (!room || !room.isActive) return;
-        
+
         // Rate limiting using RateLimiter (max 120 inputs per second - allows for some network bursts)
         if (!this.rateLimiter.checkLimit(player.id, "input", 120)) {
             const currentRate = this.rateLimiter.getRate(player.id, "input");
             serverLogger.warn(`[Server] Input rate limit exceeded for player ${player.id}: ${currentRate} inputs/sec`);
-            
+
             // NOTE: Anti-cheat disabled - just log rate limit violation
             serverLogger.warn(`[Server] Rate limit exceeded for player ${player.id}: ${currentRate} inputs/sec`);
             // Don't kick, just ignore the input
             return;
         }
-        
+
         // NOTE: Anti-cheat checks disabled
         // Basic input validation only (to prevent crashes from invalid data)
         const deltaTime = 1 / 60; // Approximate delta time
@@ -705,30 +858,40 @@ export class GameServer {
             player.position,
             deltaTime
         );
-        
+
         if (!validation.valid) {
             serverLogger.warn(`[Server] Invalid input from player ${player.id}: ${validation.reason}`);
             // Don't process invalid input, but don't disconnect player
             return;
         }
-        
+
         // ANTI-CHEAT DISABLED: Speed hack detection
         // const speedHackCheck = InputValidator.detectSpeedHack(player.positionHistory, 40);
         // if (speedHackCheck.suspicious) { ... }
-        
+
         // Update last valid position
         player.lastValidPosition = player.position.clone();
-        
+
         // Track sequence number for reconciliation
         if (data.sequence !== undefined && typeof data.sequence === 'number') {
             player.lastProcessedSequence = data.sequence;
         }
-        
+
         // ANTI-CHEAT DISABLED: Track turret rotation for aimbot detection
         // this.trackTurretRotation(player, data.turretRotation);
-        
+
         player.updateFromInput(data);
-        
+
+        // Обновляем spatial grid
+        const spatialGrid = this.spatialGrids.get(player.roomId);
+        if (spatialGrid && player.position) {
+            if (spatialGrid.getPlayerCount() === 0 || !this.spatialGrids.has(player.roomId)) {
+                spatialGrid.addPlayer(player.id, player.position);
+            } else {
+                spatialGrid.updatePlayer(player.id, player.position);
+            }
+        }
+
         // Check CTF flag pickup
         if (room.mode === "ctf") {
             const ctfSystem = (room as any).ctfSystem;
@@ -736,10 +899,10 @@ export class GameServer {
                 ctfSystem.checkFlagPickup(player);
             }
         }
-        
+
         // Position will be updated in game loop
     }
-    
+
     /**
      * Track turret rotation history for aimbot detection
      * NOTE: ANTI-CHEAT DISABLED
@@ -747,13 +910,13 @@ export class GameServer {
     // @ts-ignore - Unused but kept for future use
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private turretHistory: Map<string, Array<{ time: number; rotation: number }>> = new Map();
-    
+
     // @ts-ignore - Unused but kept for future use
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private trackTurretRotation(_player: ServerPlayer, _turretRotation: number): void {
         // ANTI-CHEAT DISABLED
         return;
-        
+
         /* Original implementation:
         const now = Date.now();
         
@@ -781,7 +944,7 @@ export class GameServer {
         }
         */
     }
-    
+
     /**
      * Check if a player is banned
      * NOTE: Auto-ban system disabled for now - kept for future use
@@ -791,7 +954,7 @@ export class GameServer {
     private isPlayerBanned(_playerId: string): { banned: boolean; reason?: string; remaining?: number } {
         // Auto-ban system disabled
         return { banned: false };
-        
+
         /* Original implementation:
         const banInfo = this.bannedPlayers.get(_playerId);
         if (!banInfo) {
@@ -814,7 +977,7 @@ export class GameServer {
         return { banned: true, reason: banInfo.reason, remaining: banInfo.expiry - now };
         */
     }
-    
+
     /**
      * Apply automatic ban based on suspiciousScore/violationCount
      * NOTE: Auto-ban system disabled for now - kept for future use
@@ -830,7 +993,7 @@ export class GameServer {
         // this.kickPlayer(_player, _reason);
         return;
     }
-    
+
     /* Original applyAutoBan implementation - kept for future use:
     private applyAutoBan(player: ServerPlayer, reason: string): void {
         const score = player.violationCount;
@@ -874,38 +1037,38 @@ export class GameServer {
         this.handleDisconnect(player.socket);
     }
     */
-    
+
     /**
      * Kick player from server
      */
     private kickPlayer(player: ServerPlayer, reason: string): void {
         serverLogger.log(`[Server] Kicking player ${player.id} (${player.name}): ${reason}`);
-        
+
         // Send error message before disconnecting
         this.send(player.socket, createServerMessage(ServerMessageType.ERROR, {
             code: "KICKED",
             message: `You have been kicked: ${reason}`
         }));
-        
+
         // Clean up rate limiter
         this.rateLimiter.resetPlayer(player.id);
-        
+
         // NOTE: Anti-cheat disabled - turret history cleanup not needed
         // this.turretHistory.delete(player.id);
-        
+
         // Disconnect player
         player.disconnect();
         this.handleDisconnect(player.socket);
     }
-    
+
     private handlePlayerShoot(player: ServerPlayer, data: any): void {
         if (!player.roomId) return;
-        
+
         const room = this.rooms.get(player.roomId);
         if (!room || !room.isActive) return;
-        
+
         if (player.status !== "alive") return;
-        
+
         // Rate limiting for shoots using RateLimiter (max 10 shots per second)
         if (!this.rateLimiter.checkLimit(player.id, "shoot", 10)) {
             const currentRate = this.rateLimiter.getRate(player.id, "shoot");
@@ -913,23 +1076,23 @@ export class GameServer {
             // NOTE: Anti-cheat disabled - just ignore the shoot
             return;
         }
-        
+
         // Basic validation only (to prevent crashes)
         const validation = InputValidator.validateShootData(data);
         if (!validation.valid) {
             serverLogger.warn(`[Server] Invalid shoot data from player ${player.id}: ${validation.reason}`);
             return;
         }
-        
+
         // Create projectile on server
         const projId = nanoid();
         const projPos = new Vector3(data.position.x, data.position.y, data.position.z);
         const projVel = new Vector3(data.direction.x, data.direction.y, data.direction.z).scale(100); // Projectile speed
         const shootTime = data.timestamp || Date.now();
-        
+
         // Store shooter's RTT for lag compensation (use ping if available, estimate otherwise)
         const shooterRTT = player.ping > 0 ? player.ping : 100; // Use measured ping or default
-        
+
         const projectile = new ServerProjectile({
             id: projId,
             ownerId: player.id,
@@ -940,9 +1103,9 @@ export class GameServer {
             spawnTime: shootTime,
             shooterRTT: shooterRTT // Store RTT for lag compensation
         });
-        
+
         room.projectiles.set(projId, projectile);
-        
+
         // Broadcast to all players
         this.broadcastToRoom(room, createServerMessage(ServerMessageType.PROJECTILE_SPAWN, {
             ...data,
@@ -950,63 +1113,68 @@ export class GameServer {
             id: projId
         }));
     }
-    
+
     private handleChatMessage(player: ServerPlayer, data: any): void {
-        if (!player.roomId) return;
-        
-        const room = this.rooms.get(player.roomId);
-        if (!room) return;
-        
         // Rate limiting for chat messages (max 5 messages per second)
         if (!this.rateLimiter.checkLimit(player.id, "chat", 5)) {
             serverLogger.warn(`[Server] Chat rate limit exceeded for player ${player.id}`);
             return;
         }
-        
+
         // Validate chat message
         const validation = InputValidator.validateChatMessage(data.message);
         if (!validation.valid) {
             serverLogger.warn(`[Server] Invalid chat message from player ${player.id}: ${validation.reason}`);
             return;
         }
-        
+
         const chatData = {
             playerId: player.id,
             playerName: player.name,
             message: data.message,
             timestamp: Date.now()
         };
-        
-        this.broadcastToRoom(room, createServerMessage(ServerMessageType.CHAT_MESSAGE, chatData));
+
+        // Если игрок в комнате - отправляем в комнату
+        if (player.roomId) {
+            const room = this.rooms.get(player.roomId);
+            if (room) {
+                this.broadcastToRoom(room, createServerMessage(ServerMessageType.CHAT_MESSAGE, chatData));
+                return;
+            }
+        }
+
+        // Иначе - отправляем всем игрокам в лобби (не в комнатах)
+        this.broadcastToLobby(createServerMessage(ServerMessageType.CHAT_MESSAGE, chatData));
     }
-    
+
     private handleConsumablePickup(player: ServerPlayer, data: any): void {
         if (!player.roomId) return;
-        
+
         const room = this.rooms.get(player.roomId);
         if (!room || !room.isActive) return;
-        
+
         if (player.status !== "alive") return;
-        
+
         const { consumableId, type, position } = data;
-        
+
         // Validate pickup (check if already picked up, distance, etc.)
         if ((room as any).pickedUpConsumables?.has(consumableId)) {
             return; // Already picked up
         }
-        
+
         // Check distance (simple validation)
         const playerPos = player.position;
         const consumablePos = new Vector3(position.x, position.y, position.z);
         const distance = Vector3.Distance(playerPos, consumablePos);
-        
+
         if (distance > 5) {
             return; // Too far
         }
-        
+
         // Mark as picked up
         (room as any).pickedUpConsumables?.add(consumableId);
-        
+
         // Broadcast to all players
         this.broadcastToRoom(room, createServerMessage(ServerMessageType.CONSUMABLE_PICKUP, {
             consumableId,
@@ -1015,66 +1183,98 @@ export class GameServer {
             position
         }));
     }
-    
+    private handleWallSpawn(player: ServerPlayer, data: any): void {
+        if (!player.roomId) return;
+        const room = this.rooms.get(player.roomId);
+        if (!room) return;
+
+        // Basic validation
+        if (!data.position || typeof data.rotation !== 'number' || !data.duration) {
+            return;
+        }
+
+        // Create server wall
+        const wall = new ServerWall({
+            position: new Vector3(data.position.x, data.position.y, data.position.z),
+            rotation: data.rotation,
+            duration: data.duration,
+            ownerId: player.id
+        });
+
+        // Add to room
+        room.spawnWall(wall);
+
+        // Broadcast to other players in room
+        const spawnMsg = createServerMessage(ServerMessageType.WALL_SPAWN, {
+            position: data.position,
+            rotation: data.rotation,
+            duration: data.duration,
+            ownerId: player.id
+        });
+
+        this.broadcastToRoom(room.id, spawnMsg, player.id); // Exclude sender as they already spawned it locally
+    }
+
+
     private handleClientMetrics(player: ServerPlayer, data: any): void {
         // Store client metrics in monitoring API
         this.monitoringAPI.storeClientMetrics(player.id, data);
     }
-    
+
     private handlePing(player: ServerPlayer, data: any): void {
         // Respond to ping with pong
         const pingData = data as { timestamp: number; sequence: number };
         const currentTime = Date.now();
         const rtt = currentTime - pingData.timestamp;
-        
+
         // Update player's ping (use EWMA for smoothing)
         const alpha = 0.125; // Weight for new measurement
         player.ping = (1 - alpha) * player.ping + alpha * rtt;
         player.lastPing = currentTime;
-        
+
         const pongData: PongData = {
             timestamp: pingData.timestamp,
             sequence: pingData.sequence,
             serverTime: currentTime
         };
-        
+
         this.send(player.socket, createServerMessage(ServerMessageType.PONG, pongData));
     }
-    
+
     private handleCancelQueue(player: ServerPlayer, data: any): void {
         const { mode, region } = data;
         this.matchmaking.removeFromQueue(player, mode, region);
         serverLogger.log(`[Server] Player ${player.id} cancelled queue for ${mode}`);
     }
-    
+
     private handleGameInvite(player: ServerPlayer, data: any): void {
         const { targetPlayerId, gameMode, roomId } = data;
-        
+
         if (!targetPlayerId) {
             this.sendError(player.socket, "INVALID_INVITE", "Target player ID is required");
             return;
         }
-        
+
         // Находим целевого игрока
         const targetPlayer = this.getPlayerById(targetPlayerId);
         if (!targetPlayer || !targetPlayer.connected) {
             this.sendError(player.socket, "PLAYER_NOT_FOUND", "Target player not found or not connected");
             return;
         }
-        
+
         // Если указана комната, проверяем что отправитель в ней
         if (roomId) {
             if (player.roomId !== roomId) {
                 this.sendError(player.socket, "NOT_IN_ROOM", "You are not in the specified room");
                 return;
             }
-            
+
             const room = this.rooms.get(roomId);
             if (!room) {
                 this.sendError(player.socket, "ROOM_NOT_FOUND", "Room not found");
                 return;
             }
-            
+
             // Отправляем приглашение в комнату
             this.send(targetPlayer.socket, createServerMessage(ServerMessageType.GAME_INVITE, {
                 fromPlayerId: player.id,
@@ -1083,7 +1283,7 @@ export class GameServer {
                 gameMode: gameMode || room.mode,
                 worldSeed: room.worldSeed
             }));
-            
+
             serverLogger.log(`[Server] Game invite sent from ${player.id} to ${targetPlayerId} for room ${roomId}`);
         } else {
             // Приглашение без комнаты - создаем новую или используем режим игры
@@ -1092,34 +1292,34 @@ export class GameServer {
                 fromPlayerName: player.name,
                 gameMode: gameMode || "ffa"
             }));
-            
+
             serverLogger.log(`[Server] Game invite sent from ${player.id} to ${targetPlayerId} for mode ${gameMode || "ffa"}`);
         }
     }
-    
+
     private handleDisconnect(ws: WebSocket): void {
         // Check if it's a monitoring client
         if (this.monitoringClients.has(ws)) {
             this.monitoringClients.delete(ws);
             return;
         }
-        
+
         // Check if it's a voice client (НЕ создаёт игрока)
         if (this.voiceClients.has(ws)) {
             this.voiceClients.delete(ws);
             serverLogger.log("[Server] Voice client disconnected");
             return;
         }
-        
+
         const player = this.getPlayerBySocket(ws);
         if (player) {
             serverLogger.log(`[Server] Player disconnected: ${player.id}`);
-            
+
             // Clean up rate limiter
             this.rateLimiter.resetPlayer(player.id);
             // NOTE: Anti-cheat disabled - turret history cleanup not needed
             // this.turretHistory.delete(player.id);
-            
+
             this.handleLeaveRoom(player);
             // Remove from all queues
             for (const mode of ["ffa", "tdm", "coop", "battle_royale", "ctf"] as GameMode[]) {
@@ -1129,16 +1329,16 @@ export class GameServer {
             this.players.delete(player.id);
         }
     }
-    
+
     private startGameLoop(): void {
         this.tickInterval = setInterval(() => {
             const now = Date.now();
             const tickStartTime = now;
             const deltaTime = (now - this.lastTick) / 1000; // Convert to seconds
             this.lastTick = now;
-            
+
             this.update(deltaTime);
-            
+
             // Record tick time for monitoring
             const tickEndTime = Date.now();
             const tickTime = tickEndTime - tickStartTime;
@@ -1146,14 +1346,14 @@ export class GameServer {
             this.tickCount++;
         }, TICK_INTERVAL);
     }
-    
+
     private startMonitoringBroadcast(): void {
         // Broadcast monitoring stats every second to monitoring clients
         setInterval(() => {
             this.broadcastMonitoringStats();
         }, 1000);
     }
-    
+
     private startPeriodicStats(): void {
         // Выводим статистику каждые 30 секунд
         setInterval(() => {
@@ -1161,16 +1361,16 @@ export class GameServer {
             const totalRooms = this.rooms.size;
             const totalPlayers = this.players.size;
             const connectedPlayers = Array.from(this.players.values()).filter(p => p.connected).length;
-            
+
             serverLogger.log(`[Server] 📊 Статистика: комнат=${totalRooms} (активных=${activeRooms}), игроков=${totalPlayers} (подключено=${connectedPlayers})`);
         }, 30000); // 30 секунд
     }
-    
+
     private broadcastMonitoringStats(): void {
         if (this.monitoringClients.size === 0) return;
-        
+
         const stats = this.monitoringAPI.getStats();
-        
+
         // Add detailed room info to stats
         const detailedRooms = this.monitoringAPI.getDetailedRoomStats();
         const roomsList = detailedRooms.map(room => ({
@@ -1181,15 +1381,15 @@ export class GameServer {
             status: room.isActive ? 'ACTIVE' : 'WAITING',
             gameTime: room.gameTime
         }));
-        
+
         const enhancedStats = {
             ...stats,
             roomsList
         };
-        
+
         const message = createServerMessage(ServerMessageType.MONITORING_STATS, enhancedStats);
         const serialized = serializeMessage(message);
-        
+
         for (const client of this.monitoringClients) {
             if (client.readyState === WebSocket.OPEN) {
                 client.send(serialized);
@@ -1198,10 +1398,10 @@ export class GameServer {
             }
         }
     }
-    
+
     private sendMonitoringStats(ws: WebSocket): void {
         const stats = this.monitoringAPI.getStats();
-        
+
         // Add detailed room info to stats
         const detailedRooms = this.monitoringAPI.getDetailedRoomStats();
         const roomsList = detailedRooms.map(room => ({
@@ -1212,26 +1412,26 @@ export class GameServer {
             status: room.isActive ? 'ACTIVE' : 'WAITING',
             gameTime: room.gameTime
         }));
-        
+
         const enhancedStats = {
             ...stats,
             roomsList
         };
-        
+
         this.send(ws, createServerMessage(ServerMessageType.MONITORING_STATS, enhancedStats));
     }
-    
+
     private update(deltaTime: number): void {
         // Periodic rate limiter cleanup (every 600 ticks = ~10 seconds at 60Hz)
         if (this.tickCount % 600 === 0) {
             this.rateLimiter.cleanup();
         }
-        
+
         // Update all active rooms
         for (const room of this.rooms.values()) {
             if (room.isActive) {
                 room.update(deltaTime);
-                
+
                 // Check win condition
                 const winCondition = room.getWinCondition();
                 if (winCondition && winCondition.winner) {
@@ -1243,7 +1443,7 @@ export class GameServer {
                     }));
                     continue; // Skip broadcasting for ended match
                 }
-                
+
                 // Broadcast damage/kill events if any
                 const lastDamageEvent = (room as any).lastDamageEvent;
                 if (lastDamageEvent) {
@@ -1255,7 +1455,7 @@ export class GameServer {
                             killerId: lastDamageEvent.attackerId,
                             killerName: lastDamageEvent.attackerName
                         }));
-                        
+
                         this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_DIED, {
                             playerId: lastDamageEvent.victimId,
                             playerName: lastDamageEvent.victimName
@@ -1272,26 +1472,48 @@ export class GameServer {
                     }
                     (room as any).lastDamageEvent = null;
                 }
-                
+
                 // Broadcast game state to all players in room (60 Hz)
                 // Send individual messages with serverSequence for each player
-                // Use delta compression and prioritization
+                // Use delta compression, prioritization, and SPATIAL PARTITIONING
                 const allPlayerData = room.getPlayerData();
-                
+
                 // Get or create delta compressor for this room
                 let compressor = this.deltaCompressor.get(room.id);
                 if (!compressor) {
                     compressor = new DeltaCompressor();
                     this.deltaCompressor.set(room.id, compressor);
                 }
-                
+
+                // Get spatial grid for this room
+                let spatialGrid = this.spatialGrids.get(room.id);
+                if (!spatialGrid) {
+                    spatialGrid = new SpatialHashGrid(100);
+                    this.spatialGrids.set(room.id, spatialGrid);
+                }
+
+                // КРИТИЧНО: Убедиться что ВСЕ игроки комнаты добавлены в spatial grid
+                for (const p of room.getAllPlayers()) {
+                    if (p.position) {
+                        spatialGrid.updatePlayer(p.id, p.position);
+                    }
+                }
+
                 for (const player of room.getAllPlayers()) {
                     // Initialize tracking map for this receiver if needed
                     if (!this.lastPlayerUpdateTick.has(player.id)) {
                         this.lastPlayerUpdateTick.set(player.id, new Map());
                     }
                     const playerUpdateTracker = this.lastPlayerUpdateTick.get(player.id)!;
-                    
+
+                    // SPATIAL PARTITIONING: Get nearby players from spatial grid
+                    // ВАЖНО: Если игроков мало (< 10), не используем spatial filtering - всех видно
+                    let nearbyPlayerIds: Set<string> | null = null;
+                    const playerCount = room.getAllPlayers().length;
+                    if (playerCount >= 10 && spatialGrid.getPlayerCount() > 0) {
+                        nearbyPlayerIds = spatialGrid.getNearbyPlayers(player.id, 300); // 300 unit radius
+                    }
+
                     // Prioritize players based on distance
                     const playerPos = player.position;
                     const prioritizedPlayers = this.prioritizedBroadcaster.prioritizePlayers(
@@ -1299,50 +1521,82 @@ export class GameServer {
                         playerPos,
                         20 // Max 20 prioritized players
                     );
-                    
-                    // ADAPTIVE UPDATE RATE: Filter players based on distance and time since last update
-                    // Close players get updates every tick, distant players get updates less frequently
+
+                    // ADAPTIVE UPDATE RATE with SPATIAL PARTITIONING:
+                    // Filter players based on distance, spatial proximity, and time since last update
                     const playersToSend = prioritizedPlayers.filter(targetPlayer => {
                         // Always include local player's own data
                         if (targetPlayer.id === player.id) return true;
-                        
+
+                        // КРИТИЧНО: На первых 60 тиках (1 секунда) ВСЕГДА отправлять ВСЕХ игроков
+                        // Это гарантирует, что все клиенты увидят друг друга при подключении
+                        if (this.tickCount < 60) {
+                            playerUpdateTracker.set(targetPlayer.id, this.tickCount);
+                            return true;
+                        }
+
+                        // КРИТИЧНО: Если игрок ещё НЕ был обновлён (lastTick = 0), ВСЕГДА включаем его
+                        const lastTick = playerUpdateTracker.get(targetPlayer.id) || 0;
+                        if (lastTick === 0) {
+                            playerUpdateTracker.set(targetPlayer.id, this.tickCount);
+                            return true;
+                        }
+
+                        // SPATIAL PARTITIONING: If spatial grid is active, only include nearby players
+                        // Players not in spatial proximity get updates much less frequently
+                        // ВАЖНО: Если nearbyPlayerIds null - spatial не используется, все игроки nearby
+                        // Если nearbyPlayerIds пустой Set - это значит игрок в grid, но рядом никого нет
+                        const isNearby = nearbyPlayerIds === null || nearbyPlayerIds.has(targetPlayer.id);
+
                         // Calculate distance
                         const distance = Vector3.Distance(playerPos, targetPlayer.position);
-                        
+
                         // Get adaptive rate (1.0 = every tick, 0.5 = every 2 ticks, etc.)
-                        const rate = this.prioritizedBroadcaster.getAdaptiveUpdateRate(
+                        let rate = this.prioritizedBroadcaster.getAdaptiveUpdateRate(
                             distance,
                             room.getAllPlayers().length,
                             0 // Network load - could be calculated based on send queue size
                         );
-                        
+
+                        // SPATIAL OPTIMIZATION: Reduce rate for distant players not in spatial grid
+                        // ОПТИМИЗИРОВАНО: Увеличен rate до 0.25 (15 Hz) для плавного появления далёких игроков
+                        if (!isNearby) {
+                            rate = Math.min(rate, 0.25); // Max 25% update rate for far players (15 Hz)
+                        }
+
                         // Calculate required tick interval based on rate
                         const tickInterval = Math.ceil(1 / rate);
-                        
+
                         // Check if enough ticks have passed since last update
-                        const lastTick = playerUpdateTracker.get(targetPlayer.id) || 0;
                         if (this.tickCount - lastTick >= tickInterval) {
                             // Update tracking and include this player
                             playerUpdateTracker.set(targetPlayer.id, this.tickCount);
                             return true;
                         }
-                        
+
                         return false;
                     });
-                    
+
                     // Send filtered player states with adaptive update rate
                     const statesData = {
                         players: playersToSend,
                         gameTime: room.gameTime,
                         serverSequence: player.lastProcessedSequence
                     };
+
+                    // ДИАГНОСТИКА: Логируем отправку PLAYER_STATES каждые 60 тиков (1 раз в секунду)
+                    if (this.tickCount % 60 === 0 && playersToSend.length > 1) {
+                        const otherPlayers = playersToSend.filter(p => p.id !== player.id);
+                        serverLogger.log(`[Server] 📤 PLAYER_STATES для ${player.name}: отправляю ${otherPlayers.length} других игроков (всего в комнате: ${room.players.size})`);
+                    }
+
                     this.send(player.socket, createServerMessage(ServerMessageType.PLAYER_STATES, statesData));
                 }
-                
+
                 // BATCH UPDATES: Collect all room-wide updates into a single batch
                 // This reduces network overhead by sending one message instead of many
                 const batchMessages: ServerMessage[] = [];
-                
+
                 // Broadcast projectile updates
                 const projectileUpdates = Array.from(room.projectiles.values()).map(p => p.toProjectileData());
                 if (projectileUpdates.length > 0) {
@@ -1350,9 +1604,10 @@ export class GameServer {
                         projectiles: projectileUpdates
                     }));
                 }
-                
-                // Broadcast enemy updates (for Co-op mode)
-                if (room.mode === "coop") {
+
+                // Broadcast enemy updates (for modes with enemies: coop, ffa, tdm, survival, raid)
+                // ИСПРАВЛЕНО: Боты спавнятся для всех этих режимов, поэтому обновления нужны тоже для всех
+                if (room.mode === "coop" || room.mode === "ffa" || room.mode === "tdm" || room.mode === "survival" || room.mode === "raid") {
                     const enemyUpdates = Array.from(room.enemies.values()).map(e => e.toEnemyData());
                     if (enemyUpdates.length > 0) {
                         batchMessages.push(createServerMessage(ServerMessageType.ENEMY_UPDATE, {
@@ -1360,7 +1615,7 @@ export class GameServer {
                         }));
                     }
                 }
-                
+
                 // Broadcast safe zone updates (for Battle Royale mode)
                 if (room.mode === "battle_royale") {
                     const safeZoneData = room.getSafeZoneData();
@@ -1368,28 +1623,28 @@ export class GameServer {
                         batchMessages.push(createServerMessage(ServerMessageType.SAFE_ZONE_UPDATE, safeZoneData));
                     }
                 }
-                
+
                 // Broadcast CTF flag updates
                 if (room.mode === "ctf") {
                     const flags = room.getCTFFlags();
                     if (flags && flags.length > 0) {
                         batchMessages.push(createServerMessage(ServerMessageType.CTF_FLAG_UPDATE, { flags }));
                     }
-                    
+
                     // Add CTF events to batch
                     const pickupEvent = (room as any).lastCTFPickupEvent;
                     if (pickupEvent) {
                         batchMessages.push(createServerMessage(ServerMessageType.CTF_FLAG_PICKUP, pickupEvent));
                         (room as any).lastCTFPickupEvent = null;
                     }
-                    
+
                     const captureEvent = (room as any).lastCTFCaptureEvent;
                     if (captureEvent) {
                         batchMessages.push(createServerMessage(ServerMessageType.CTF_FLAG_CAPTURE, captureEvent));
                         (room as any).lastCTFCaptureEvent = null;
                     }
                 }
-                
+
                 // Send all room-wide updates as a single batch
                 if (batchMessages.length > 0) {
                     this.broadcastBatchToRoom(room, batchMessages);
@@ -1397,10 +1652,10 @@ export class GameServer {
             }
         }
     }
-    
+
     private broadcastToRoom(room: GameRoom, message: ServerMessage, excludePlayerId?: string): void {
         const serialized = serializeMessage(message);
-        
+
         for (const player of room.getAllPlayers()) {
             if (player.id === excludePlayerId) continue;
             if (player.socket.readyState === WebSocket.OPEN) {
@@ -1408,12 +1663,30 @@ export class GameServer {
             }
         }
     }
-    
+
+    /**
+     * Отправка сообщения всем игрокам которые не в комнатах (в лобби)
+     */
+    private broadcastToLobby(message: ServerMessage): void {
+        const serialized = serializeMessage(message);
+        let sentCount = 0;
+
+        for (const player of this.players.values()) {
+            // Только игрокам которые не в комнате
+            if (!player.roomId && player.socket.readyState === WebSocket.OPEN) {
+                player.socket.send(serialized);
+                sentCount++;
+            }
+        }
+
+        serverLogger.log(`[Server] broadcastToLobby: отправлено ${sentCount} игрокам`);
+    }
+
     private broadcastRoomListToAll(): void {
         // Получаем список всех доступных комнат (не приватных)
         const allRooms = Array.from(this.rooms.values());
         const publicRooms = allRooms.filter(room => !room.isPrivate);
-        
+
         const roomsList = publicRooms.map(room => ({
             id: room.id,
             mode: room.mode,
@@ -1422,14 +1695,14 @@ export class GameServer {
             isActive: room.isActive,
             gameTime: room.gameTime
         }));
-        
+
         serverLogger.log(`[Server] 📢 Отправка списка комнат всем подключенным клиентам: ${roomsList.length} публичных комнат, всего подключено ${this.players.size} игроков`);
-        
+
         const message = createServerMessage(ServerMessageType.ROOM_LIST, {
             rooms: roomsList
         });
         const serialized = serializeMessage(message);
-        
+
         // Отправляем всем подключенным игрокам
         let sentCount = 0;
         for (const player of this.players.values()) {
@@ -1440,7 +1713,7 @@ export class GameServer {
         }
         serverLogger.log(`[Server] ✅ Список комнат отправлен ${sentCount} клиентам`);
     }
-    
+
     private send(ws: WebSocket, message: ServerMessage): void {
         if (ws.readyState === WebSocket.OPEN) {
             const serialized = serializeMessage(message);
@@ -1448,7 +1721,7 @@ export class GameServer {
             ws.send(serialized);
         }
     }
-    
+
     /**
      * Send multiple messages as a single batch
      * Reduces network overhead by grouping updates
@@ -1457,29 +1730,68 @@ export class GameServer {
         if (ws.readyState !== WebSocket.OPEN || messages.length === 0) {
             return;
         }
-        
+
         // If only one message, send directly without batch wrapper
         if (messages.length === 1) {
             this.send(ws, messages[0]!);
             return;
         }
-        
-        // Create batch message
+
+        // OPTIMIZED BATCH: Split large batches to avoid overwhelming the network
+        const MAX_BATCH_SIZE = 10; // Maximum messages per batch
+        const MAX_BATCH_BYTES = 16384; // 16KB max per batch
+
+        let currentBatch: ServerMessage[] = [];
+        let estimatedSize = 0;
+
+        for (const msg of messages) {
+            // Rough estimate of message size
+            const msgSize = JSON.stringify(msg).length;
+
+            // Check if adding this message would exceed limits
+            if (currentBatch.length >= MAX_BATCH_SIZE ||
+                (estimatedSize + msgSize > MAX_BATCH_BYTES && currentBatch.length > 0)) {
+                // Send current batch
+                this.sendSingleBatch(ws, currentBatch);
+                currentBatch = [];
+                estimatedSize = 0;
+            }
+
+            currentBatch.push(msg);
+            estimatedSize += msgSize;
+        }
+
+        // Send remaining messages
+        if (currentBatch.length > 0) {
+            this.sendSingleBatch(ws, currentBatch);
+        }
+    }
+
+    private sendSingleBatch(ws: WebSocket, messages: ServerMessage[]): void {
+        if (messages.length === 0) return;
+
+        if (messages.length === 1) {
+            this.send(ws, messages[0]!);
+            return;
+        }
+
+        // Create batch message with timestamp for jitter compensation
         const batchMessage = createServerMessage(ServerMessageType.BATCH, {
             updates: messages.map(m => ({ type: m.type, data: m.data })),
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            count: messages.length
         });
-        
+
         const serialized = serializeMessage(batchMessage);
         ws.send(serialized);
     }
-    
+
     /**
      * Broadcast batch to room - groups messages for each player
      */
     private broadcastBatchToRoom(room: GameRoom, messages: ServerMessage[], excludePlayerId?: string): void {
         if (messages.length === 0) return;
-        
+
         for (const player of room.getAllPlayers()) {
             if (player.id === excludePlayerId) continue;
             if (player.socket.readyState === WebSocket.OPEN) {
@@ -1487,11 +1799,11 @@ export class GameServer {
             }
         }
     }
-    
+
     private sendError(ws: WebSocket, code: string, message: string): void {
         this.send(ws, createServerMessage(ServerMessageType.ERROR, { code, message }));
     }
-    
+
     private getPlayerBySocket(ws: WebSocket): ServerPlayer | undefined {
         for (const player of this.players.values()) {
             if (player.socket === ws) {
@@ -1500,46 +1812,47 @@ export class GameServer {
         }
         return undefined;
     }
-    
+
     private getPlayerById(playerId: string): ServerPlayer | undefined {
         return this.players.get(playerId);
     }
-    
+
     /**
      * Получить статистику сервера (для мониторинга)
      */
     getStats() {
         return this.monitoringAPI.getStats();
     }
-    
+
     /**
      * Получить детальную статистику всех комнат
      */
     getDetailedRoomStats() {
         return this.monitoringAPI.getDetailedRoomStats();
     }
-    
+
     /**
      * Получить детальную статистику всех игроков
      */
     getDetailedPlayerStats() {
         return this.monitoringAPI.getDetailedPlayerStats();
     }
-    
+
     /**
      * Получить Monitoring API (для расширенного доступа)
      */
     getMonitoringAPI(): MonitoringAPI {
         return this.monitoringAPI;
     }
-    
+
     shutdown(): void {
         if (this.tickInterval) {
             clearInterval(this.tickInterval);
         }
-        
+
         this.wss.close();
         serverLogger.log("[Server] Server shutdown");
     }
 }
+
 

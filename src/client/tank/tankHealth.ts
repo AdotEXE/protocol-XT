@@ -2,6 +2,7 @@
 import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, PhysicsBody, PhysicsMotionType, PhysicsShape, PhysicsShapeType, PhysicsShapeContainer, Quaternion, Ray } from "@babylonjs/core";
 import type { ITankController } from "./types";
 import { TANK_CONSTANTS } from "./constants";
+import { CHASSIS_SIZE_MULTIPLIERS } from "./tankChassis";
 
 export class TankHealthModule {
     private tank: ITankController;
@@ -109,6 +110,16 @@ export class TankHealthModule {
             const hitType = finalDamage > 30 ? "critical" : finalDamage > 15 ? "armor" : "normal";
             const hitPos = this.tank.chassis.position.clone();
             this.tank.soundManager.playHit(hitType, hitPos);
+        }
+        
+        // Вибрация при получении урона (мобильные устройства)
+        if (typeof window !== 'undefined' && 'vibrate' in navigator) {
+            try {
+                const { getHapticFeedback } = require('./mobile');
+                getHapticFeedback().damage();
+            } catch (e) {
+                // Игнорируем ошибки если модуль не загружен
+            }
         }
         
         // ОТКЛЮЧЕНО: Тряска камеры при получении урона (аркадный стиль)
@@ -254,6 +265,16 @@ export class TankHealthModule {
         
         this.tank.isAlive = false;
         console.log("[TANK] Destroyed!");
+        
+        // Вибрация при смерти (мобильные устройства)
+        if (typeof window !== 'undefined' && 'vibrate' in navigator) {
+            try {
+                const { getHapticFeedback } = require('./mobile');
+                getHapticFeedback().death();
+            } catch (e) {
+                // Игнорируем ошибки если модуль не загружен
+            }
+        }
         
         // КРИТИЧНО: Сохраняем позицию смерти для плавной анимации камеры
         if (this.tank.chassis) {
@@ -975,18 +996,28 @@ export class TankHealthModule {
         
         // Восстанавливаем физическое тело, если его нет
         if (!tank.physicsBody && tank.chassis) {
-            // Используем размеры из типа шасси танка
-            const chassisWidth = tank.chassisType.width;
-            const chassisHeight = tank.chassisType.height;
-            const chassisDepth = tank.chassisType.depth;
+            // КРИТИЧНО: Используем множители размеров для синхронизации с визуальной моделью
+            const multipliers = CHASSIS_SIZE_MULTIPLIERS[tank.chassisType.id] || CHASSIS_SIZE_MULTIPLIERS["medium"];
+            const realWidth = tank.chassisType.width * multipliers.width;
+            const realHeight = tank.chassisType.height * multipliers.height;
+            const realDepth = tank.chassisType.depth * multipliers.depth;
+            
+            // Для hover и shield используем Math.max для width/depth (как в визуальной модели)
+            let finalWidth = realWidth;
+            let finalDepth = realDepth;
+            if (tank.chassisType.id === "hover" || tank.chassisType.id === "shield") {
+                const maxSize = Math.max(tank.chassisType.width, tank.chassisType.depth) * multipliers.width;
+                finalWidth = maxSize;
+                finalDepth = maxSize;
+            }
             
             // Compound shape: центральный BOX + скруглённые CYLINDER спереди и сзади
             const chassisShape = new PhysicsShapeContainer(tank.scene);
             
-            // Размеры для скруглённых краёв гусениц
-            const cylinderRadius = chassisHeight * 0.45;
-            const cylinderOffset = chassisDepth * 0.42;
-            const chassisLowering = -chassisHeight * 0.1;
+            // Размеры для скруглённых краёв гусениц (используем реальные размеры)
+            const cylinderRadius = realHeight * 0.45;
+            const cylinderOffset = finalDepth * 0.42;
+            const chassisLowering = -realHeight * 0.1;
             
             // 1. Центральный BOX (укороченный, без острых углов)
             const centerBox = new PhysicsShape({
@@ -994,7 +1025,7 @@ export class TankHealthModule {
                 parameters: {
                     center: new Vector3(0, chassisLowering, 0),
                     rotation: Quaternion.Identity(),
-                    extents: new Vector3(chassisWidth, chassisHeight * 0.7, chassisDepth * 0.7)
+                    extents: new Vector3(finalWidth, realHeight * 0.7, finalDepth * 0.7)
                 }
             }, tank.scene);
             centerBox.material = { friction: 0.1, restitution: 0.0 };
@@ -1004,8 +1035,8 @@ export class TankHealthModule {
             const frontCylinder = new PhysicsShape({
                 type: PhysicsShapeType.CYLINDER,
                 parameters: {
-                    pointA: new Vector3(-chassisWidth * 0.5, chassisLowering, cylinderOffset),
-                    pointB: new Vector3(chassisWidth * 0.5, chassisLowering, cylinderOffset),
+                    pointA: new Vector3(-finalWidth * 0.5, chassisLowering, cylinderOffset),
+                    pointB: new Vector3(finalWidth * 0.5, chassisLowering, cylinderOffset),
                     radius: cylinderRadius
                 }
             }, tank.scene);
@@ -1016,8 +1047,8 @@ export class TankHealthModule {
             const backCylinder = new PhysicsShape({
                 type: PhysicsShapeType.CYLINDER,
                 parameters: {
-                    pointA: new Vector3(-chassisWidth * 0.5, chassisLowering, -cylinderOffset),
-                    pointB: new Vector3(chassisWidth * 0.5, chassisLowering, -cylinderOffset),
+                    pointA: new Vector3(-finalWidth * 0.5, chassisLowering, -cylinderOffset),
+                    pointB: new Vector3(finalWidth * 0.5, chassisLowering, -cylinderOffset),
                     radius: cylinderRadius
                 }
             }, tank.scene);

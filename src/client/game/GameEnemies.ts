@@ -73,6 +73,11 @@ export class GameEnemies {
     private gradualSpawnDelay = 2000; // Задержка перед началом спавна (2 секунды)
     private gradualSpawnCount = 0; // Текущий счётчик заспавненных ботов
     
+    // Система респавна для карты "Песок"
+    private sandMaxBots = 4; // Максимум ботов на карте Песок
+    private sandRespawnDelay = 30000; // 30 секунд задержки перед респавном
+    private sandPendingRespawns = 0; // Счётчик ожидающих респавнов
+    
     // Логирование адаптивной сложности
     private _lastAdaptiveDifficultyLogTime = 0;
     
@@ -140,6 +145,84 @@ export class GameEnemies {
         }
         
         logger.log(`[GameEnemies] ✅ Spawned ${this.enemyTanks.length} network-synchronized enemies`);
+    }
+    
+    /**
+     * Обновить ботов из сетевых данных
+     * Обновляет позиции и состояние существующих ботов, создаёт новых если нужно
+     */
+    updateNetworkEnemies(enemies: Array<import("../../shared/types").EnemyData>): void {
+        if (!this.systems?.scene) return;
+        
+        for (const enemyData of enemies) {
+            // Ищем существующего врага по networkId
+            const existingEnemy = this.enemyTanks.find(e => (e as any).networkId === enemyData.id);
+            
+            if (existingEnemy) {
+                // Обновляем позицию существующего врага
+                if (existingEnemy.chassis && enemyData.position) {
+                    const targetPos = new Vector3(
+                        enemyData.position.x,
+                        enemyData.position.y,
+                        enemyData.position.z
+                    );
+                    // Плавная интерполяция позиции
+                    existingEnemy.chassis.position = Vector3.Lerp(
+                        existingEnemy.chassis.position,
+                        targetPos,
+                        0.3
+                    );
+                }
+                
+                // Обновляем вращение
+                if (existingEnemy.chassis && enemyData.rotation !== undefined) {
+                    existingEnemy.chassis.rotation.y = enemyData.rotation;
+                }
+                
+                // Обновляем здоровье
+                if (enemyData.health !== undefined) {
+                    existingEnemy.health = enemyData.health;
+                }
+                
+                // Проверяем, жив ли враг
+                if (!enemyData.isAlive && existingEnemy.health > 0) {
+                    existingEnemy.health = 0;
+                    // Враг убит - можно вызвать эффект смерти
+                }
+            } else if (enemyData.isAlive) {
+                // Создаём нового врага если его нет
+                const position = new Vector3(
+                    enemyData.position.x,
+                    enemyData.position.y,
+                    enemyData.position.z
+                );
+                
+                const difficulty: "easy" | "medium" | "hard" = 
+                    enemyData.maxHealth >= 120 ? "hard" :
+                    enemyData.maxHealth >= 100 ? "medium" : "easy";
+                
+                const enemy = this.createEnemy(position, difficulty, 1.0);
+                if (enemy) {
+                    (enemy as any).networkId = enemyData.id;
+                    this.enemyTanks.push(enemy);
+                    logger.log(`[GameEnemies] Created new network enemy ${enemyData.id}`);
+                }
+            }
+        }
+        
+        // Удаляем врагов, которых больше нет на сервере
+        const serverEnemyIds = new Set(enemies.map(e => e.id));
+        this.enemyTanks = this.enemyTanks.filter(enemy => {
+            const networkId = (enemy as any).networkId;
+            if (networkId && !serverEnemyIds.has(networkId)) {
+                // Враг удалён на сервере - удаляем локально
+                if (enemy.chassis) {
+                    try { enemy.chassis.dispose(); } catch (e) {}
+                }
+                return false;
+            }
+            return true;
+        });
     }
     
     /**
@@ -828,34 +911,42 @@ export class GameEnemies {
      * Запуск постепенного спавна ботов
      * Начинается через 2 секунды, затем по 1 боту каждую секунду
      * Количество ботов берётся из настроек или рассчитывается автоматически
+     * Для карты "Песок" используется sandMaxBots (10)
      */
     private startGradualSpawning(): void {
         if (!this.systems?.soundManager || !this.systems.effectsManager) return;
         
-        // Сбрасываем счётчик
+        // Сбрасываем счётчики
         this.gradualSpawnCount = 0;
+        this.sandPendingRespawns = 0;
         
-        // Определяем реальное количество ботов из настроек (как в spawnAllEnemiesAtOnce)
-        let targetBotCount = this.getDefaultEnemyCount();
-        
-        // Проверяем настройки сессии/меню
-        if (this.systems.sessionSettings) {
-            const sessionSettings = this.systems.sessionSettings.getSettings();
-            if (sessionSettings.enemyCount && sessionSettings.enemyCount > 0) {
-                targetBotCount = sessionSettings.enemyCount;
+        // Для карты "Песок" используем фиксированный лимит sandMaxBots
+        if (this.systems.currentMapType === "sand") {
+            this.gradualSpawnMaxBots = this.sandMaxBots;
+            logger.log(`[GameEnemies] Sand map: Using max bots limit = ${this.sandMaxBots}`);
+        } else {
+            // Определяем реальное количество ботов из настроек (как в spawnAllEnemiesAtOnce)
+            let targetBotCount = this.getDefaultEnemyCount();
+            
+            // Проверяем настройки сессии/меню
+            if (this.systems.sessionSettings) {
+                const sessionSettings = this.systems.sessionSettings.getSettings();
+                if (sessionSettings.enemyCount && sessionSettings.enemyCount > 0) {
+                    targetBotCount = sessionSettings.enemyCount;
+                }
+            } else if (this.systems.mainMenu) {
+                const menuSettings = this.systems.mainMenu.getSettings();
+                if (menuSettings?.enemyCount && menuSettings.enemyCount > 0) {
+                    targetBotCount = menuSettings.enemyCount;
+                }
             }
-        } else if (this.systems.mainMenu) {
-            const menuSettings = this.systems.mainMenu.getSettings();
-            if (menuSettings?.enemyCount && menuSettings.enemyCount > 0) {
-                targetBotCount = menuSettings.enemyCount;
-            }
+            
+            // Минимум 3 бота
+            targetBotCount = Math.max(3, targetBotCount);
+            
+            // Устанавливаем максимум для постепенного спавна
+            this.gradualSpawnMaxBots = targetBotCount;
         }
-        
-        // Минимум 3 бота
-        targetBotCount = Math.max(3, targetBotCount);
-        
-        // Устанавливаем максимум для постепенного спавна
-        this.gradualSpawnMaxBots = targetBotCount;
         
         logger.log(`[GameEnemies] Starting gradual spawn: delay=${this.gradualSpawnDelay}ms, interval=${this.gradualSpawnInterval}ms, maxBots=${this.gradualSpawnMaxBots}`);
         
@@ -943,10 +1034,11 @@ export class GameEnemies {
             
             pos = new Vector3(spawnX, spawnY, spawnZ);
             
-            // Проверяем расстояние до других врагов (минимум 100м между ботами)
+            // Проверяем расстояние до других врагов (минимум 20м на карте Песок, 100м на других картах)
+            const minBotDistance = this.systems.currentMapType === "sand" ? 20 : 100;
             let tooClose = false;
             for (const existingEnemy of this.enemyTanks) {
-                if (existingEnemy.chassis && Vector3.Distance(pos, existingEnemy.chassis.absolutePosition) < 100) {
+                if (existingEnemy.chassis && Vector3.Distance(pos, existingEnemy.chassis.absolutePosition) < minBotDistance) {
                     tooClose = true;
                     break;
                 }
@@ -962,8 +1054,14 @@ export class GameEnemies {
         
         const groundNormal = (pos as any).groundNormal || Vector3.Up();
         // ИСПРАВЛЕНО: Боты СРАЗУ получают цель для агрессивного поведения
+        // Для карты "Песок" используем специальный обработчик смерти с респавном
+        const isSandMap = this.systems.currentMapType === "sand";
         const enemy = this.createEnemy(pos, aiDifficulty, difficultyScale, () => {
-            this.handleStandardEnemyDeath(enemy!);
+            if (isSandMap) {
+                this.handleSandEnemyDeath(enemy!);
+            } else {
+                this.handleStandardEnemyDeath(enemy!);
+            }
         }, groundNormal, false); // skipTargetAssignment = false - цель назначается СРАЗУ
         
         if (enemy) {
@@ -1084,8 +1182,14 @@ export class GameEnemies {
             spawnPositions.push(pos);
             
             const groundNormal = (pos as any).groundNormal || Vector3.Up();
+            // Для карты "Песок" используем специальный обработчик смерти с респавном
+            const isSandMap = this.systems.currentMapType === "sand";
             const enemy = this.createEnemy(pos, aiDifficulty, difficultyScale, () => {
-                this.handleStandardEnemyDeath(enemy!);
+                if (isSandMap) {
+                    this.handleSandEnemyDeath(enemy!);
+                } else {
+                    this.handleStandardEnemyDeath(enemy!);
+                }
             }, groundNormal);
             
             if (enemy) {
@@ -1105,6 +1209,7 @@ export class GameEnemies {
             this.gradualSpawnTimer = null;
         }
         this.gradualSpawnCount = 0;
+        this.sandPendingRespawns = 0;
     }
     
     /**
@@ -1139,6 +1244,126 @@ export class GameEnemies {
         // Удаляем из массива
         const idx = this.enemyTanks.indexOf(enemy);
         if (idx !== -1) this.enemyTanks.splice(idx, 1);
+    }
+    
+    /**
+     * Обработка смерти врага на карте "Песок" с автоматическим респавном
+     */
+    private handleSandEnemyDeath(enemy: EnemyTank): void {
+        logger.log("[GameEnemies] Sand map: Enemy destroyed");
+        
+        this.trackKillAchievements();
+        this.giveKillReward(100);
+        
+        // Удаляем из массива
+        const idx = this.enemyTanks.indexOf(enemy);
+        if (idx !== -1) this.enemyTanks.splice(idx, 1);
+        
+        // Проверяем, не превышен ли лимит ботов (учитывая ожидающие респавны)
+        const totalBots = this.enemyTanks.length + this.sandPendingRespawns;
+        if (totalBots >= this.sandMaxBots) {
+            logger.log(`[GameEnemies] Sand map: Max bots limit reached (${this.enemyTanks.length} alive + ${this.sandPendingRespawns} pending = ${totalBots}/${this.sandMaxBots}), no respawn`);
+            return;
+        }
+        
+        // Увеличиваем счётчик ожидающих респавнов
+        this.sandPendingRespawns++;
+        
+        // Респавн через 30 секунд
+        logger.log(`[GameEnemies] Sand map: Bot will respawn in ${this.sandRespawnDelay / 1000} seconds (${this.enemyTanks.length} alive, ${this.sandPendingRespawns} pending)`);
+        
+        setTimeout(() => {
+            // Уменьшаем счётчик ожидающих респавнов
+            this.sandPendingRespawns = Math.max(0, this.sandPendingRespawns - 1);
+            
+            // Проверяем, что мы всё ещё на карте "Песок" и игра активна
+            if (this.systems?.currentMapType !== "sand" || 
+                !this.systems.soundManager || !this.systems.effectsManager || !this.systems.gameStarted) {
+                logger.log("[GameEnemies] Sand map: Respawn cancelled (map changed or game ended)");
+                return;
+            }
+            
+            // Проверяем текущее количество ботов
+            if (this.enemyTanks.length >= this.sandMaxBots) {
+                logger.log(`[GameEnemies] Sand map: Respawn cancelled (${this.enemyTanks.length}/${this.sandMaxBots} bots alive)`);
+                return;
+            }
+            
+            // Спавним нового бота
+            this.spawnSandBot();
+        }, this.sandRespawnDelay);
+    }
+    
+    /**
+     * Спавн одного бота на карте "Песок"
+     */
+    private spawnSandBot(): void {
+        if (!this.systems?.soundManager || !this.systems.effectsManager) return;
+        
+        const mapBounds = getMapBoundsFromConfig("sand");
+        if (!mapBounds) {
+            logger.warn("[GameEnemies] Sand map: Could not get map bounds");
+            return;
+        }
+        
+        const aiDifficulty = this.getCurrentDifficulty();
+        const difficultyScale = this.getAdaptiveDifficultyScale();
+        const game = (window as any).gameInstance;
+        
+        let attempts = 0;
+        let pos: Vector3;
+        
+        do {
+            const spawnX = mapBounds.minX + Math.random() * (mapBounds.maxX - mapBounds.minX);
+            const spawnZ = mapBounds.minZ + Math.random() * (mapBounds.maxZ - mapBounds.minZ);
+            
+            // Спавн на верхней поверхности
+            let spawnY: number;
+            if (game && typeof game.getTopSurfaceHeight === 'function') {
+                const surfaceHeight = game.getTopSurfaceHeight(spawnX, spawnZ);
+                spawnY = surfaceHeight + 1.5;
+            } else {
+                const groundInfo = this.getGroundInfo(spawnX, spawnZ);
+                spawnY = Math.max(groundInfo.height + 1.5, 2.0);
+            }
+            
+            pos = new Vector3(spawnX, spawnY, spawnZ);
+            
+            // Проверяем расстояние до других врагов (минимум 20м между ботами на песке)
+            let tooClose = false;
+            for (const existingEnemy of this.enemyTanks) {
+                if (existingEnemy.chassis && Vector3.Distance(pos, existingEnemy.chassis.absolutePosition) < 20) {
+                    tooClose = true;
+                    break;
+                }
+            }
+            
+            // Проверяем расстояние до игрока (минимум 30м)
+            if (!tooClose && this.systems.tank?.chassis) {
+                const distToPlayer = Vector3.Distance(pos, this.systems.tank.chassis.absolutePosition);
+                if (distToPlayer < 30) {
+                    tooClose = true;
+                }
+            }
+            
+            if (!tooClose) {
+                const groundInfo = this.getGroundInfo(pos.x, pos.z);
+                (pos as any).groundNormal = groundInfo.normal;
+                break;
+            }
+            attempts++;
+        } while (attempts < 30);
+        
+        const groundNormal = (pos as any).groundNormal || Vector3.Up();
+        
+        const newBot = this.createEnemy(pos, aiDifficulty, difficultyScale, () => {
+            this.handleSandEnemyDeath(newBot!);
+        }, groundNormal, false);
+        
+        if (newBot) {
+            this.enemyTanks.push(newBot);
+            logger.log(`[GameEnemies] Sand map: Bot respawned at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}) - total: ${this.enemyTanks.length}/${this.sandMaxBots}`);
+        }
     }
     
     /**

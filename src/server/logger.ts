@@ -2,10 +2,37 @@
  * Улучшенный логгер для сервера
  * - Добавляет время в формате [часы:минуты:секунды]
  * - Предотвращает повторяющиеся сообщения (показывает только последнее, без учета времени)
+ * - В dev режиме использует TUI интерфейс для умного логирования
  */
+
+import { createTUILogger, getTUILogger } from './tuiLogger';
+
+const isDev = process.env.NODE_ENV !== 'production';
 
 class ServerLogger {
     private lastLogMessage: string | null = null;
+    private tuiLogger: ReturnType<typeof getTUILogger> = null;
+
+    constructor() {
+        // В dev режиме инициализируем TUI логгер только если есть TTY
+        if (isDev && process.stdout.isTTY) {
+            try {
+                this.tuiLogger = createTUILogger();
+            } catch (error) {
+                // Если TUI не удалось создать, используем обычный режим
+                // Не выводим предупреждение, так как это нормально в некоторых случаях
+            }
+        }
+    }
+
+    /**
+     * Устанавливает ссылку на GameServer для TUI
+     */
+    setGameServer(server: any): void {
+        if (this.tuiLogger) {
+            this.tuiLogger.setGameServer(server);
+        }
+    }
 
     /**
      * Форматирует время в формат [часы:минуты:секунды]
@@ -50,6 +77,13 @@ class ServerLogger {
             return String(arg);
         }).join(' ');
 
+        // Если используем TUI, передаем туда
+        if (this.tuiLogger) {
+            this.tuiLogger[level](...args);
+            return; // TUI сам обрабатывает все, не дублируем в консоль
+        }
+
+        // Обычный режим (production или если TUI недоступен)
         // Проверяем на дубликат
         if (this.isDuplicate(messageStr)) {
             return; // Пропускаем дубликат
@@ -74,6 +108,13 @@ class ServerLogger {
     }
 
     /**
+     * Логирует информационное сообщение (алиас для log)
+     */
+    info(...args: any[]): void {
+        this.logMessage('log', ...args);
+    }
+
+    /**
      * Логирует ошибку
      */
     error(...args: any[]): void {
@@ -85,6 +126,15 @@ class ServerLogger {
      */
     warn(...args: any[]): void {
         this.logMessage('warn', ...args);
+    }
+
+    /**
+     * Очистка ресурсов
+     */
+    cleanup(): void {
+        if (this.tuiLogger) {
+            this.tuiLogger.cleanup();
+        }
     }
 }
 

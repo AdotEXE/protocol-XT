@@ -3,6 +3,7 @@ import { Vector3 } from "@babylonjs/core";
 import type { GameMode, PlayerData, ConsumableData, WorldUpdate } from "../shared/types";
 import { ServerPlayer } from "./player";
 import { ServerProjectile } from "./projectile";
+import { ServerWall } from "./wall";
 import { ServerEnemy } from "./enemy";
 import { getGameModeRules, type GameModeRules } from "./gameModes";
 import { CTFSystem } from "./ctf";
@@ -18,42 +19,43 @@ export class GameRoom {
     creatorId: string | null = null; // ID создателя комнаты
     players: Map<string, ServerPlayer> = new Map();
     projectiles: Map<string, ServerProjectile> = new Map();
+    walls: ServerWall[] = [];
     consumables: Map<string, ConsumableData> = new Map();
     enemies: Map<string, ServerEnemy> = new Map();
-    
+
     // Game state
     isActive: boolean = false;
     matchStartTime: number = 0;
     gameTime: number = 0;
-    
+
     // World state
     worldUpdates: WorldUpdate = {
         destroyedObjects: [],
         chunkUpdates: []
     };
-    
+
     // Track destroyed objects for synchronization
     private destroyedObjectIds: Set<string> = new Set();
-    
+
     // Game mode rules
     private gameModeRules: GameModeRules;
-    
+
     // CTF system
     ctfSystem: CTFSystem | null = null;
-    
+
     // Settings
     settings: any = {};
-    
+
     // World seed for deterministic generation
     worldSeed: number;
-    
+
     // Map type
     mapType: string = "normal";
-    
+
     // Room deletion timer
     deletionTimer: NodeJS.Timeout | null = null;
     emptySince: number | null = null; // Time when room became empty (for logging)
-    
+
     constructor(mode: GameMode, maxPlayers: number = 32, isPrivate: boolean = false, worldSeed?: number, roomId?: string, mapType?: string) {
         // ВСЕГДА используем переданный roomId (простой формат 0001, 0002...)
         // Если roomId не передан, это ошибка - используем fallback, но логируем предупреждение
@@ -68,68 +70,80 @@ export class GameRoom {
         this.isPrivate = isPrivate;
         // Generate seed if not provided
         this.worldSeed = worldSeed || Math.floor(Math.random() * 999999999);
-        // Set map type
-        this.mapType = mapType || "normal";
+        
+        // Валидация и установка mapType
+        // Список допустимых типов карт для предотвращения инъекции невалидных значений
+        const validMapTypes = ["normal", "desert", "snow", "sandbox", "city", "forest", "swamp", "volcanic", "arctic", "tropical", "sand"];
+        if (mapType && validMapTypes.includes(mapType)) {
+            this.mapType = mapType;
+        } else {
+            if (mapType) {
+                serverLogger.warn(`[Room] Невалидный mapType: '${mapType}', используем 'normal'. Допустимые: ${validMapTypes.join(', ')}`);
+            }
+            this.mapType = "normal";
+        }
+        serverLogger.log(`[Room] Комната создана с mapType: ${this.mapType}, worldSeed: ${this.worldSeed}`);
+        
         // Get game mode rules
         this.gameModeRules = getGameModeRules(mode);
     }
-    
+
     addPlayer(player: ServerPlayer): boolean {
         if (this.players.size >= this.maxPlayers) {
             return false;
         }
-        
+
         if (this.players.has(player.id)) {
             return false;
         }
-        
+
         this.players.set(player.id, player);
         player.roomId = this.id;
-        
+
         // Assign team for team-based modes
         if (this.mode === "tdm" || this.mode === "ctf" || this.mode === "control_point" || this.mode === "escort") {
             player.team = this.players.size % 2 === 0 ? 1 : 0;
         }
-        
+
         return true;
     }
-    
+
     removePlayer(playerId: string): boolean {
         const player = this.players.get(playerId);
         if (!player) return false;
-        
+
         player.roomId = null;
         this.players.delete(playerId);
-        
+
         // Clean up player's projectiles
         for (const [projId, projectile] of this.projectiles.entries()) {
             if (projectile.ownerId === playerId) {
                 this.projectiles.delete(projId);
             }
         }
-        
+
         return true;
     }
-    
+
     getPlayer(playerId: string): ServerPlayer | undefined {
         return this.players.get(playerId);
     }
-    
+
     getAllPlayers(): ServerPlayer[] {
         return Array.from(this.players.values());
     }
-    
+
     getPlayerData(): PlayerData[] {
         return this.getAllPlayers().map(p => p.toPlayerData());
     }
-    
+
     startMatch(): void {
         if (this.isActive) return;
-        
+
         this.isActive = true;
         this.matchStartTime = Date.now();
         this.gameTime = 0;
-        
+
         // Initialize Battle Royale mode
         if (this.mode === "battle_royale") {
             const brMode = this.gameModeRules as any;
@@ -137,7 +151,7 @@ export class GameRoom {
                 brMode.initialize(this);
             }
         }
-        
+
         // Initialize CTF system
         if (this.mode === "ctf") {
             this.ctfSystem = new CTFSystem(this);
@@ -146,20 +160,24 @@ export class GameRoom {
                 ctfMode.setCTFSystem(this.ctfSystem);
             }
         }
-        
+
         // Reset all players
         this.getAllPlayers().forEach(player => {
             const spawnPos = this.getSpawnPosition(player);
             player.respawn(spawnPos, 100);
         });
-        
+
         // Spawn enemies for multiplayer modes (синхронизированные боты для всех режимов)
         // В мультиплеере боты должны быть синхронизированы между всеми клиентами
+        serverLogger.log(`[Room] startMatch: режим=${this.mode}, проверка спавна ботов...`);
         if (this.mode === "coop" || this.mode === "ffa" || this.mode === "tdm" || this.mode === "survival" || this.mode === "raid") {
+            serverLogger.log(`[Room] ✅ Режим ${this.mode} поддерживает ботов, запускаем spawnEnemies()...`);
             this.spawnEnemies();
+        } else {
+            serverLogger.log(`[Room] ⚠️ Режим ${this.mode} НЕ поддерживает ботов (поддерживаются: coop, ffa, tdm, survival, raid)`);
         }
     }
-    
+
     getSafeZoneData(): any {
         if (this.mode === "battle_royale") {
             const brMode = this.gameModeRules as any;
@@ -169,26 +187,26 @@ export class GameRoom {
         }
         return null;
     }
-    
+
     getCTFFlags(): any[] {
         if (this.mode === "ctf" && this.ctfSystem) {
             return this.ctfSystem.getFlags();
         }
         return [];
     }
-    
+
     private spawnEnemies(): void {
         // Используем детерминированный спавн на основе worldSeed для синхронизации между клиентами
         const enemyCount = Math.min(8, this.players.size * 2);
         const spawnRadius = 50;
-        
+
         // Используем простой генератор случайных чисел на основе worldSeed для детерминированности
         let seed = this.worldSeed || 12345;
         const random = () => {
             seed = (seed * 9301 + 49297) % 233280;
             return seed / 233280;
         };
-        
+
         for (let i = 0; i < enemyCount; i++) {
             const angle = (i / enemyCount) * Math.PI * 2;
             const radius = spawnRadius + random() * 20;
@@ -197,25 +215,25 @@ export class GameRoom {
                 1.0, // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
                 Math.sin(angle) * radius
             );
-            
+
             const difficulty: "easy" | "medium" | "hard" = "medium";
             const enemy = new ServerEnemy(position, difficulty);
             this.enemies.set(enemy.id, enemy);
         }
-        
+
         serverLogger.log(`[Room] Spawned ${enemyCount} synchronized enemies for room ${this.id}`);
         if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
             logger.debug(`[Room] Enemies spawned: ${enemyCount} enemies`);
         }
     }
-    
+
     /**
      * Get all enemy data for synchronization
      */
     getEnemyData(): Array<import("../shared/types").EnemyData> {
         return Array.from(this.enemies.values()).map(enemy => enemy.toEnemyData());
     }
-    
+
     endMatch(): void {
         this.isActive = false;
         this.projectiles.clear();
@@ -227,32 +245,32 @@ export class GameRoom {
             chunkUpdates: []
         };
     }
-    
+
     markObjectDestroyed(objectId: string): void {
         if (!this.destroyedObjectIds.has(objectId)) {
             this.destroyedObjectIds.add(objectId);
             this.worldUpdates.destroyedObjects.push(objectId);
         }
     }
-    
+
     getDestroyedObjects(): string[] {
         return Array.from(this.destroyedObjectIds);
     }
-    
+
     update(deltaTime: number): void {
         if (!this.isActive) return;
-        
+
         this.gameTime += deltaTime;
-        
+
         // Update player positions based on input
         for (const player of this.players.values()) {
             if (player.status !== "alive") continue;
-            
+
             if (player.lastInput) {
                 this.updatePlayerPosition(player, player.lastInput, deltaTime);
             }
         }
-        
+
         // Update enemies (for Co-op mode)
         if (this.mode === "coop") {
             const playerData = this.getAllPlayers().map(p => ({
@@ -260,10 +278,10 @@ export class GameRoom {
                 position: p.position,
                 status: p.status
             }));
-            
+
             for (const enemy of this.enemies.values()) {
                 enemy.update(deltaTime, playerData);
-                
+
                 // Check if enemy can shoot
                 if (enemy.canShoot() && enemy.targetId) {
                     // Enemy shoots - create projectile
@@ -273,7 +291,7 @@ export class GameRoom {
                         const projId = nanoid();
                         const projPos = enemy.position.clone();
                         const projVel = direction.scale(100);
-                        
+
                         const projectile = new ServerProjectile({
                             id: projId,
                             ownerId: enemy.id,
@@ -283,19 +301,19 @@ export class GameRoom {
                             cannonType: "standard",
                             spawnTime: Date.now()
                         });
-                        
+
                         this.projectiles.set(projId, projectile);
                         enemy.shoot();
                     }
                 }
-                
+
                 // Check player projectiles hitting enemies
                 for (const [projId, projectile] of this.projectiles.entries()) {
                     if (projectile.ownerId === enemy.id) continue; // Enemy's own projectile
-                    
+
                     if (projectile.checkHit(enemy.position)) {
                         const died = enemy.takeDamage(projectile.damage);
-                        
+
                         // Award kill to owner
                         if (died) {
                             const owner = this.players.get(projectile.ownerId);
@@ -303,13 +321,13 @@ export class GameRoom {
                                 owner.addKill();
                             }
                         }
-                        
+
                         this.projectiles.delete(projId);
                         break;
                     }
                 }
             }
-            
+
             // Remove dead enemies
             for (const [enemyId, enemy] of this.enemies.entries()) {
                 if (!enemy.isAlive) {
@@ -317,45 +335,65 @@ export class GameRoom {
                 }
             }
         }
-        
+
+
+        // Update walls (remove expired)
+        this.walls = this.walls.filter(wall => !wall.isExpired(Date.now()));
+
         // Update projectiles
         const currentTime = Date.now();
         for (const [projId, projectile] of this.projectiles.entries()) {
             projectile.update(deltaTime);
-            
+
+            // Check collisions with walls
+            // Using lastFrames position to simulate raycast for high speed projectiles
+            // For now simple point check, can be improved to raycast
+            let wallHit = false;
+            for (const wall of this.walls) {
+                // If projectile is explosive, we might want to detonate on wall
+                // Basic check: is projectile inside wall?
+                if (wall.checkCollision(projectile.position)) {
+                    wallHit = true;
+                    this.projectiles.delete(projId);
+                    // Force a "hit" event on the wall location for visual feedback (optional)
+                    break;
+                }
+            }
+            if (wallHit) continue;
+
             // Check hits on players
             for (const player of this.players.values()) {
                 if (player.id === projectile.ownerId) continue; // Can't hit self
                 if (player.status !== "alive") continue;
-                
+
                 // Enhanced lag compensation: check hit at position when shot was fired
                 // Rewind to when the shooter saw the target (accounting for network latency)
                 const shooterRTT = projectile.shooterRTT || 100; // Default 100ms if not available
                 const MAX_REWIND_TIME = 300; // Maximum rewind of 300ms (protection against high latency abuse)
                 const effectiveRTT = Math.min(shooterRTT, MAX_REWIND_TIME);
-                
+
                 // Calculate rewind time: current time - half RTT (when shooter saw the target)
                 const rewindTime = currentTime - (effectiveRTT / 2);
-                
+
                 // Get target position at the rewound time
                 let targetPos = player.getPositionAtTime(rewindTime);
-                
+
                 // Fallback to current position if history is not available or position is invalid
                 if (!targetPos || !Number.isFinite(targetPos.x) || !Number.isFinite(targetPos.y) || !Number.isFinite(targetPos.z)) {
                     targetPos = player.position.clone();
                 }
-                
+
                 // Additional validation: if rewound position is too far from current, use interpolated position
                 const maxRewindDistance = 20; // Maximum distance for valid rewind (units)
                 if (Vector3.Distance(targetPos, player.position) > maxRewindDistance) {
                     // Position seems invalid, fallback to slightly rewound current position
                     targetPos = player.position.clone();
                 }
-                
+
                 if (projectile.checkHit(targetPos)) {
                     // Hit!
                     const died = player.takeDamage(projectile.damage);
-                    
+
                     // Award kill to owner (if not enemy)
                     if (died && !this.enemies.has(projectile.ownerId)) {
                         const owner = this.players.get(projectile.ownerId);
@@ -363,7 +401,7 @@ export class GameRoom {
                             owner.addKill();
                         }
                     }
-                    
+
                     // Store damage/kill event for broadcasting (will be sent by gameServer)
                     (this as any).lastDamageEvent = {
                         victimId: player.id,
@@ -374,22 +412,22 @@ export class GameRoom {
                         newHealth: player.health,
                         died: died
                     };
-                    
+
                     // Remove projectile
                     this.projectiles.delete(projId);
                     break;
                 }
             }
-            
+
             // Remove expired projectiles
             if (projectile.isExpired(currentTime)) {
                 this.projectiles.delete(projId);
             }
         }
-        
+
         // Update consumables
         // Update world state
-        
+
         // Update Battle Royale safe zone
         if (this.mode === "battle_royale") {
             const brMode = this.gameModeRules as any;
@@ -397,12 +435,12 @@ export class GameRoom {
                 brMode.updateSafeZone(this.gameTime, this);
             }
         }
-        
+
         // Update CTF system
         if (this.mode === "ctf" && this.ctfSystem) {
             this.ctfSystem.update(deltaTime);
         }
-        
+
         // Check win condition
         const winCondition = this.gameModeRules.checkWinCondition(this);
         if (winCondition && winCondition.winner) {
@@ -410,22 +448,22 @@ export class GameRoom {
             this.isActive = false;
         }
     }
-    
+
     getWinCondition(): { winner: string | null; reason: string } | null {
         return this.gameModeRules.checkWinCondition(this);
     }
-    
+
     getRespawnDelay(): number {
         return this.gameModeRules.getRespawnDelay();
     }
-    
+
     private updatePlayerPosition(player: ServerPlayer, input: any, deltaTime: number): void {
         // Store old position before update
         const oldPosition = player.position.clone();
         // Simple movement simulation
         const moveSpeed = 20; // Same as client
         const turnSpeed = 4.4; // Same as client
-        
+
         // Update rotation
         if (input.steer !== 0) {
             player.rotation += input.steer * turnSpeed * deltaTime;
@@ -433,7 +471,7 @@ export class GameRoom {
             while (player.rotation > Math.PI) player.rotation -= Math.PI * 2;
             while (player.rotation < -Math.PI) player.rotation += Math.PI * 2;
         }
-        
+
         // Update position based on throttle and rotation
         if (input.throttle !== 0) {
             const moveDir = new Vector3(
@@ -443,7 +481,7 @@ export class GameRoom {
             );
             const moveDelta = moveDir.scale(moveSpeed * deltaTime);
             player.position = player.position.add(moveDelta);
-            
+
             // Basic position validation only (to prevent crashes from invalid positions)
             const posValidation = InputValidator.validatePosition(player.position);
             if (!posValidation.valid) {
@@ -455,33 +493,33 @@ export class GameRoom {
             } else {
                 // Update position history for lag compensation (anti-cheat disabled)
                 player.addPositionSnapshot(player.position);
-                
+
                 // ANTI-CHEAT DISABLED: All suspicious movement checks removed
                 // const suspiciousCheck = InputValidator.checkSuspiciousMovement(player.positionHistory);
                 // const statisticalAnalysis = InputValidator.performStatisticalAnalysis(player.positionHistory);
-                
+
                 // Update last valid position
                 player.lastValidPosition = player.position.clone();
             }
         }
-        
+
         // Update turret rotation
         player.turretRotation = input.turretRotation || player.turretRotation;
         player.aimPitch = input.aimPitch || player.aimPitch;
     }
-    
+
     getSpawnPosition(player: ServerPlayer): Vector3 {
         return this.gameModeRules.getSpawnPosition(player, this);
     }
-    
+
     isFull(): boolean {
         return this.players.size >= this.maxPlayers;
     }
-    
+
     isEmpty(): boolean {
         return this.players.size === 0;
     }
-    
+
     /**
      * Schedule room deletion after specified delay
      * @param delay - Delay in milliseconds before deletion
@@ -490,34 +528,30 @@ export class GameRoom {
     scheduleDeletion(delay: number, onDelete: () => void): void {
         // Cancel existing timer if any
         this.cancelDeletion();
-        
+
         // Set empty timestamp
         this.emptySince = Date.now();
-        
-        // Schedule deletion
+
         this.deletionTimer = setTimeout(() => {
-            const emptyDuration = this.emptySince ? Date.now() - this.emptySince : 0;
-            serverLogger.log(`[Room] Комната ${this.id} удалена после ${Math.round(emptyDuration / 1000)} секунд пустоты`);
-            this.deletionTimer = null;
-            this.emptySince = null;
             onDelete();
         }, delay);
-        
-        serverLogger.log(`[Room] Комната ${this.id} запланирована на удаление через ${Math.round(delay / 1000)} секунд`);
+
+        serverLogger.info(`[Room] Room ${this.id} scheduled for deletion in ${delay}ms`);
     }
-    
-    /**
-     * Cancel scheduled room deletion
-     */
+
     cancelDeletion(): void {
         if (this.deletionTimer) {
             clearTimeout(this.deletionTimer);
             this.deletionTimer = null;
-            if (this.emptySince) {
-                const emptyDuration = Date.now() - this.emptySince;
-                serverLogger.log(`[Room] Удаление комнаты ${this.id} отменено (была пустой ${Math.round(emptyDuration / 1000)} секунд)`);
-            }
             this.emptySince = null;
+        }
+    }
+
+    spawnWall(wall: ServerWall) {
+        this.walls.push(wall);
+        // Limit max walls per room to prevent abuse/lag
+        if (this.walls.length > 50) {
+            this.walls.shift();
         }
     }
 }
