@@ -88,6 +88,7 @@ export interface GameSettings {
     showDebugInfo: boolean;
     enableCheats: boolean;
     maxFPS: number;
+    debugSync: boolean; // Debug multiplayer synchronization
 }
 
 export const DEFAULT_SETTINGS: GameSettings = {
@@ -170,7 +171,8 @@ export const DEFAULT_SETTINGS: GameSettings = {
     // Additional
     showDebugInfo: false,
     enableCheats: false,
-    maxFPS: 0
+    maxFPS: 0,
+    debugSync: false // Debug multiplayer synchronization (reduces log spam)
 };
 
 /**

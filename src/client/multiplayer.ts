@@ -1856,8 +1856,9 @@ export class MultiplayerManager {
         }
 
         // ДИАГНОСТИКА: Логируем критическую информацию для диагностики синхронизации
-        // Логируем раз в секунду (каждые 60 пакетов при 60Hz)
-        if (serverSequence % 60 === 0 || networkPlayersCount !== this.networkPlayers.size) {
+        // Логируем раз в секунду (каждые 60 пакетов при 60Hz) и только если включен debugSync
+        const DEBUG_SYNC = (window as any).gameSettings?.debugSync || localStorage.getItem("debugSync") === "true";
+        if (DEBUG_SYNC && (serverSequence % 60 === 0 || networkPlayersCount !== this.networkPlayers.size)) {
             logger.log(`[Multiplayer] 📊 PLAYER_STATES: players=${playersCount}, networkPlayers=${networkPlayersCount}, roomId=${this.roomId || 'N/A'}, worldSeed=${this.worldSeed || 'N/A'}, mapType=${this.pendingMapType || 'N/A'}, networkPlayers.size=${this.networkPlayers.size}`);
             if (networkPlayersCount > 0) {
                 const playerIds = statesData.players?.filter((p: any) => p.id !== this.playerId).map((p: any) => p.id || 'unknown').join(', ') || 'none';
@@ -2562,8 +2563,9 @@ export class MultiplayerManager {
             // Add sequence number for prediction and reconciliation
             const sequence = ++this.currentSequence;
             
-            // ДИАГНОСТИКА: Логируем отправку позиции каждые 60 кадров (1 раз в секунду при 60 FPS)
-            if (sequence % 60 === 0 && this._lastKnownLocalPosition) {
+            // ДИАГНОСТИКА: Логируем отправку позиции каждые 60 кадров (1 раз в секунду при 60 FPS) и только если включен debugSync
+            const DEBUG_SYNC = (window as any).gameSettings?.debugSync || localStorage.getItem("debugSync") === "true";
+            if (DEBUG_SYNC && sequence % 60 === 0 && this._lastKnownLocalPosition) {
                 logger.log(`[Multiplayer] 📤 Sending input seq=${sequence}, pos=(${this._lastKnownLocalPosition.x.toFixed(1)}, ${this._lastKnownLocalPosition.y.toFixed(1)}, ${this._lastKnownLocalPosition.z.toFixed(1)}), throttle=${input.throttle.toFixed(2)}, steer=${input.steer.toFixed(2)}`);
             }
             
@@ -2756,12 +2758,15 @@ export class MultiplayerManager {
 
             needsReapplication = posDiff > POSITION_THRESHOLD || rotationDiff > ROTATION_THRESHOLD;
 
-            // ДИАГНОСТИКА: Логируем reconciliation только при значительных расхождениях
-            if (needsReapplication) {
-                logger.log(`[Multiplayer] Reconciliation needed: seq=${serverSequence}, posDiff=${posDiff.toFixed(2)} (threshold=${POSITION_THRESHOLD.toFixed(2)}), rotDiff=${rotationDiff.toFixed(2)}, serverPos=(${serverPos.x.toFixed(1)}, ${serverPos.y.toFixed(1)}, ${serverPos.z.toFixed(1)}), predictedPos=(${predictedPos.x.toFixed(1)}, ${predictedPos.y.toFixed(1)}, ${predictedPos.z.toFixed(1)})`);
-            } else if (posDiff > 0.1) {
-                // Логируем маленькие расхождения для диагностики (но не reconciliation)
-                logger.log(`[Multiplayer] Small position diff (within threshold): seq=${serverSequence}, posDiff=${posDiff.toFixed(3)}, threshold=${POSITION_THRESHOLD.toFixed(2)}`);
+            // ДИАГНОСТИКА: Логируем reconciliation только при значительных расхождениях и только если включен debugSync
+            const DEBUG_SYNC = (window as any).gameSettings?.debugSync || localStorage.getItem("debugSync") === "true";
+            if (DEBUG_SYNC) {
+                if (needsReapplication) {
+                    logger.log(`[Multiplayer] Reconciliation needed: seq=${serverSequence}, posDiff=${posDiff.toFixed(2)} (threshold=${POSITION_THRESHOLD.toFixed(2)}), rotDiff=${rotationDiff.toFixed(2)}, serverPos=(${serverPos.x.toFixed(1)}, ${serverPos.y.toFixed(1)}, ${serverPos.z.toFixed(1)}), predictedPos=(${predictedPos.x.toFixed(1)}, ${predictedPos.y.toFixed(1)}, ${predictedPos.z.toFixed(1)})`);
+                } else if (posDiff > 0.1) {
+                    // Логируем маленькие расхождения для диагностики (но не reconciliation)
+                    logger.log(`[Multiplayer] Small position diff (within threshold): seq=${serverSequence}, posDiff=${posDiff.toFixed(3)}, threshold=${POSITION_THRESHOLD.toFixed(2)}`);
+                }
             }
         }
 
