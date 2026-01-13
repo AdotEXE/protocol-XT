@@ -49,10 +49,8 @@ export class GameServer {
     private guestPlayerCounter: number = 0; // Счетчик для гостей (ID и имя: 0001, 0002...)
     private roomCounter: number = 0; // Счетчик для комнат (0001, 0002...)
     
-    // Throttling для предотвращения спама логов
-    private lastDeltaTimeWarning: number = 0; // Время последнего предупреждения о большом deltaTime
 
-    constructor(port: number = 8000, host: string = "0.0.0.0") {
+    constructor(port: number =8080, host: string = "0.0.0.0") {
         // ИСПРАВЛЕНО: Настройка WebSocketServer с правильной обработкой upgrade
         this.wss = new WebSocketServer({
             port,
@@ -1357,11 +1355,7 @@ export class GameServer {
             // Максимальный deltaTime = 2 * TICK_INTERVAL (на случай пропуска одного тика)
             const MAX_DELTA_TIME = (TICK_INTERVAL * 2) / 1000; // ~0.033 секунды (2 тика)
             if (deltaTime > MAX_DELTA_TIME) {
-                // Throttle предупреждения - логируем только раз в 5 секунд
-                if (now - this.lastDeltaTimeWarning > 5000) {
-                    serverLogger.warn(`[Server] Large deltaTime detected: ${deltaTime.toFixed(3)}s, clamping to ${MAX_DELTA_TIME.toFixed(3)}s`);
-                    this.lastDeltaTimeWarning = now;
-                }
+                // Предупреждение отключено - deltaTime просто ограничивается без спама в логи
                 deltaTime = MAX_DELTA_TIME;
             }
             
