@@ -743,8 +743,15 @@ export class GameMultiplayerCallbacks {
                 let predVec: Vector3;
                 if (predictedPos instanceof Vector3) {
                     predVec = predictedPos;
-                } else if (predictedPos.x !== undefined && predictedPos.y !== undefined && predictedPos.z !== undefined) {
-                    predVec = new Vector3(predictedPos.x, predictedPos.y, predictedPos.z);
+                } else if (predictedPos && typeof predictedPos === 'object' && 'x' in predictedPos && 'y' in predictedPos && 'z' in predictedPos) {
+                    const pos = predictedPos as { x: number; y: number; z: number };
+                    if (typeof pos.x === 'number' && typeof pos.y === 'number' && typeof pos.z === 'number' && 
+                        isFinite(pos.x) && isFinite(pos.y) && isFinite(pos.z)) {
+                        predVec = new Vector3(pos.x, pos.y, pos.z);
+                    } else {
+                        logger.error(`[Reconciliation] Invalid predictedPos values:`, predictedPos);
+                        return;
+                    }
                 } else {
                     logger.error(`[Reconciliation] Invalid predictedPos format:`, predictedPos);
                     return;
