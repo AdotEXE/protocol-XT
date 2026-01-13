@@ -702,29 +702,32 @@ export class GameMultiplayerCallbacks {
         const posDiff = data.positionDiff || 0;
         const rotationDiff = data.rotationDiff || 0;
         
-        // Валидация serverState
-        if (!data.serverState || !data.serverState.position) {
-            logger.error(`[Reconciliation] Invalid serverState:`, data.serverState);
-            return;
-        }
-        
-        const serverPos = data.serverState.position;
-        // Проверяем, что serverPos - это Vector3 или объект с x, y, z
+        // Мягкая валидация serverState с fallback значениями
         let serverPosVec: Vector3;
-        if (serverPos instanceof Vector3) {
-            serverPosVec = serverPos;
-        } else if (serverPos && typeof serverPos === 'object' && 'x' in serverPos && 'y' in serverPos && 'z' in serverPos) {
-            const pos = serverPos as { x: number; y: number; z: number };
-            if (typeof pos.x === 'number' && typeof pos.y === 'number' && typeof pos.z === 'number' && 
-                isFinite(pos.x) && isFinite(pos.y) && isFinite(pos.z)) {
-                serverPosVec = new Vector3(pos.x, pos.y, pos.z);
-            } else {
-                logger.error(`[Reconciliation] Invalid serverPos values:`, serverPos);
-                return;
-            }
+        if (!data.serverState || !data.serverState.position) {
+            logger.warn(`[Reconciliation] Invalid serverState, using current tank position as fallback`);
+            // Используем текущую позицию танка как fallback
+            serverPosVec = tank.chassis.position.clone();
         } else {
-            logger.error(`[Reconciliation] Invalid serverPos format:`, serverPos);
-            return;
+            const serverPos = data.serverState.position;
+            // Проверяем, что serverPos - это Vector3 или объект с x, y, z
+            if (serverPos instanceof Vector3) {
+                serverPosVec = serverPos;
+            } else if (serverPos && typeof serverPos === 'object' && 'x' in serverPos && 'y' in serverPos && 'z' in serverPos) {
+                const pos = serverPos as { x: number; y: number; z: number };
+                if (typeof pos.x === 'number' && typeof pos.y === 'number' && typeof pos.z === 'number' && 
+                    isFinite(pos.x) && isFinite(pos.y) && isFinite(pos.z)) {
+                    serverPosVec = new Vector3(pos.x, pos.y, pos.z);
+                } else {
+                    logger.warn(`[Reconciliation] Invalid serverPos values, using current tank position as fallback:`, serverPos);
+                    // Используем текущую позицию танка как fallback
+                    serverPosVec = tank.chassis.position.clone();
+                }
+            } else {
+                logger.warn(`[Reconciliation] Invalid serverPos format, using current tank position as fallback:`, serverPos);
+                // Используем текущую позицию танка как fallback
+                serverPosVec = tank.chassis.position.clone();
+            }
         }
         
         const serverRot = data.serverState.rotation || 0;
@@ -736,11 +739,11 @@ export class GameMultiplayerCallbacks {
             // Критическое расхождение - возможно проблема с сетью, данными или физикой
             logger.error(`[Reconciliation] ⚠️ КРИТИЧЕСКОЕ расхождение: ${posDiff.toFixed(2)} единиц! Возможные причины: проблема с сетью, потеря пакетов, расхождение физики. ServerPos=(${serverPosVec.x.toFixed(1)}, ${serverPosVec.y.toFixed(1)}, ${serverPosVec.z.toFixed(1)}), LocalPos=(${tank.chassis.position.x.toFixed(1)}, ${tank.chassis.position.y.toFixed(1)}, ${tank.chassis.position.z.toFixed(1)})`);
             
-            // Дополнительная диагностика
+            // Дополнительная диагностика (опциональная, не блокирует reconciliation)
             const predictedPos = data.predictedState?.position;
             if (predictedPos) {
                 // Проверяем, что predictedPos - это Vector3 или объект с x, y, z
-                let predVec: Vector3;
+                let predVec: Vector3 | null = null;
                 if (predictedPos instanceof Vector3) {
                     predVec = predictedPos;
                 } else if (predictedPos && typeof predictedPos === 'object' && 'x' in predictedPos && 'y' in predictedPos && 'z' in predictedPos) {
@@ -749,20 +752,20 @@ export class GameMultiplayerCallbacks {
                         isFinite(pos.x) && isFinite(pos.y) && isFinite(pos.z)) {
                         predVec = new Vector3(pos.x, pos.y, pos.z);
                     } else {
-                        logger.error(`[Reconciliation] Invalid predictedPos values:`, predictedPos);
-                        return;
+                        logger.warn(`[Reconciliation] Invalid predictedPos values, skipping diagnostics:`, predictedPos);
                     }
                 } else {
-                    logger.error(`[Reconciliation] Invalid predictedPos format:`, predictedPos);
-                    return;
+                    logger.warn(`[Reconciliation] Invalid predictedPos format, skipping diagnostics:`, predictedPos);
                 }
                 
-                // Проверяем, что serverPosVec валиден
-                const diffFromPredicted = Vector3.Distance(predVec, serverPosVec);
-                if (isFinite(diffFromPredicted) && !isNaN(diffFromPredicted)) {
-                    logger.error(`[Reconciliation] PredictedPos=(${predVec.x.toFixed(1)}, ${predVec.y.toFixed(1)}, ${predVec.z.toFixed(1)}), diff from predicted=${diffFromPredicted.toFixed(2)}`);
-                } else {
-                    logger.error(`[Reconciliation] PredictedPos=(${predVec.x.toFixed(1)}, ${predVec.y.toFixed(1)}, ${predVec.z.toFixed(1)}), diff from predicted=NaN (invalid calculation)`);
+                // Выполняем диагностику только если predVec валиден
+                if (predVec) {
+                    const diffFromPredicted = Vector3.Distance(predVec, serverPosVec);
+                    if (isFinite(diffFromPredicted) && !isNaN(diffFromPredicted)) {
+                        logger.error(`[Reconciliation] PredictedPos=(${predVec.x.toFixed(1)}, ${predVec.y.toFixed(1)}, ${predVec.z.toFixed(1)}), diff from predicted=${diffFromPredicted.toFixed(2)}`);
+                    } else {
+                        logger.error(`[Reconciliation] PredictedPos=(${predVec.x.toFixed(1)}, ${predVec.y.toFixed(1)}, ${predVec.z.toFixed(1)}), diff from predicted=NaN (invalid calculation)`);
+                    }
                 }
             }
         } else if (posDiff > LARGE_DIFF_THRESHOLD) {
