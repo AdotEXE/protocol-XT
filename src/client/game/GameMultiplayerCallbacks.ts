@@ -713,8 +713,15 @@ export class GameMultiplayerCallbacks {
         let serverPosVec: Vector3;
         if (serverPos instanceof Vector3) {
             serverPosVec = serverPos;
-        } else if (serverPos.x !== undefined && serverPos.y !== undefined && serverPos.z !== undefined) {
-            serverPosVec = new Vector3(serverPos.x, serverPos.y, serverPos.z);
+        } else if (serverPos && typeof serverPos === 'object' && 'x' in serverPos && 'y' in serverPos && 'z' in serverPos) {
+            const pos = serverPos as { x: number; y: number; z: number };
+            if (typeof pos.x === 'number' && typeof pos.y === 'number' && typeof pos.z === 'number' && 
+                isFinite(pos.x) && isFinite(pos.y) && isFinite(pos.z)) {
+                serverPosVec = new Vector3(pos.x, pos.y, pos.z);
+            } else {
+                logger.error(`[Reconciliation] Invalid serverPos values:`, serverPos);
+                return;
+            }
         } else {
             logger.error(`[Reconciliation] Invalid serverPos format:`, serverPos);
             return;
