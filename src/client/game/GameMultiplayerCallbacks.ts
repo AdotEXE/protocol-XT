@@ -732,9 +732,10 @@ export class GameMultiplayerCallbacks {
             }
         }
         
-        const serverRot = data.serverState.rotation || 0;
-        const serverTurretRotation = data.serverState.turretRotation ?? (tank.turret ? tank.turret.rotation.y : 0);
-        const serverAimPitch = data.serverState.aimPitch ?? (tank.aimPitch ?? 0);
+        // Безопасное получение значений с fallback
+        const serverRot = (data.serverState?.rotation ?? tank.chassis.rotation.y) || 0;
+        const serverTurretRotation = data.serverState?.turretRotation ?? (tank.turret ? tank.turret.rotation.y : 0);
+        const serverAimPitch = data.serverState?.aimPitch ?? (tank.aimPitch ?? 0);
         
         // КРИТИЧНО: Обработка очень больших расхождений с диагностикой
         if (posDiff > CRITICAL_DIFF_THRESHOLD) {
