@@ -680,19 +680,37 @@ export class GameMultiplayerCallbacks {
         const tank = this.deps.tank;
         if (!tank || !tank.chassis || !data.serverState || !tank.physicsBody) return;
 
-        // КРИТИЧНО: Учитываем погрешность квантования (0.1 единицы) при сравнении
-        // Позиции квантуются с точностью 0.1 единицы, поэтому разница может быть из-за квантования
-        const QUANTIZATION_ERROR = 0.15; // 0.1 единицы + небольшой запас
+        // КРИТИЧНО: Учитываем погрешность квантования при сравнении
+        // Позиции квантуются с точностью 0.1 единицы (INT16_POS)
+        // Углы квантуются с точностью 0.001 радиан (INT16_ROT) ≈ 0.057 градусов
+        const QUANTIZATION_ERROR_POS = 0.15; // 0.1 единицы + небольшой запас
+        const QUANTIZATION_ERROR_ROT = 0.002; // 0.001 радиан + небольшой запас
         const HARD_CORRECTION_THRESHOLD = 2.0; // Instant teleport if > 2 units difference
-        const SOFT_CORRECTION_THRESHOLD = 0.5 + QUANTIZATION_ERROR; // Smooth interpolation if > 0.5 units (с учетом квантования)
+        const SOFT_CORRECTION_THRESHOLD = 0.5 + QUANTIZATION_ERROR_POS; // Smooth interpolation if > 0.5 units (с учетом квантования)
 
         const posDiff = data.positionDiff || 0;
         const serverPos = data.serverState.position;
         const serverRot = data.serverState.rotation || 0;
+        const serverTurretRotation = data.serverState.turretRotation ?? tank.turret.rotation.y;
+        const serverAimPitch = data.serverState.aimPitch ?? tank.aimPitch ?? 0;
 
         // КРИТИЧНО: Игнорируем маленькие различия, которые могут быть из-за квантования
-        if (posDiff <= QUANTIZATION_ERROR) {
+        if (posDiff <= QUANTIZATION_ERROR_POS) {
             // Разница меньше погрешности квантования - предсказание точное
+            // Но все равно синхронизируем башню, если есть расхождения
+            const turretDiff = Math.abs((serverTurretRotation - (tank.turret?.rotation.y || 0)) % (Math.PI * 2));
+            const aimPitchDiff = Math.abs(serverAimPitch - (tank.aimPitch || 0));
+            
+            // Синхронизируем башню только если расхождение больше погрешности квантования
+            if (turretDiff > QUANTIZATION_ERROR_ROT || aimPitchDiff > QUANTIZATION_ERROR_ROT) {
+                if (tank.turret) {
+                    tank.turret.rotation.y = serverTurretRotation;
+                }
+                if (tank.barrel) {
+                    tank.barrel.rotation.x = -(serverAimPitch || 0);
+                }
+                tank.aimPitch = serverAimPitch;
+            }
             return;
         }
 
@@ -708,6 +726,16 @@ export class GameMultiplayerCallbacks {
             // Шаг 2: Устанавливаем визуальную позицию
             tank.chassis.position.copyFrom(serverPos);
             tank.chassis.rotation.y = serverRot;
+            
+            // КРИТИЧНО: Синхронизируем башню и ствол
+            if (tank.turret) {
+                tank.turret.rotation.y = serverTurretRotation;
+            }
+            if (tank.barrel) {
+                tank.barrel.rotation.x = -(serverAimPitch || 0);
+            }
+            // Обновляем aimPitch для системы прицеливания
+            tank.aimPitch = serverAimPitch;
 
             // Шаг 3: Обновляем WorldMatrix для синхронизации absolutePosition
             tank.chassis.computeWorldMatrix(true);
@@ -739,6 +767,24 @@ export class GameMultiplayerCallbacks {
             while (targetRot - currentRot > Math.PI) targetRot -= Math.PI * 2;
             while (targetRot - currentRot < -Math.PI) targetRot += Math.PI * 2;
             tank.chassis.rotation.y = currentRot + (targetRot - currentRot) * LERP_SPEED;
+            
+            // КРИТИЧНО: Плавно интерполируем башню и ствол
+            if (tank.turret) {
+                let currentTurretRot = tank.turret.rotation.y;
+                let targetTurretRot = serverTurretRotation;
+                // Normalize angle difference
+                while (targetTurretRot - currentTurretRot > Math.PI) targetTurretRot -= Math.PI * 2;
+                while (targetTurretRot - currentTurretRot < -Math.PI) targetTurretRot += Math.PI * 2;
+                tank.turret.rotation.y = currentTurretRot + (targetTurretRot - currentTurretRot) * LERP_SPEED;
+            }
+            if (tank.barrel) {
+                const currentAimPitch = -(tank.barrel.rotation.x || 0);
+                const targetAimPitch = serverAimPitch;
+                const newAimPitch = currentAimPitch + (targetAimPitch - currentAimPitch) * LERP_SPEED;
+                tank.barrel.rotation.x = -newAimPitch;
+            }
+            // Обновляем aimPitch для системы прицеливания
+            tank.aimPitch = serverAimPitch;
 
             // КРИТИЧНО: Обновляем WorldMatrix после изменения позиции
             tank.chassis.computeWorldMatrix(true);
