@@ -74,6 +74,7 @@ export interface GameSettings {
     showPing: boolean;
     showNetworkStats: boolean;
     networkQuality: number;
+    showSyncQuality: boolean; // Показать индикатор качества синхронизации
 
     // Accessibility
     colorBlindMode: string;
@@ -158,6 +159,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
     showPing: false,
     showNetworkStats: false,
     networkQuality: 2,
+    showSyncQuality: false, // Индикатор качества синхронизации выключен по умолчанию
 
     // Accessibility
     colorBlindMode: "none",
@@ -325,6 +327,7 @@ export function saveSettingsFromUI(): GameSettings {
         showPing: getBool("set-show-ping", false),
         showNetworkStats: getBool("set-show-network-stats", false),
         networkQuality: getInt("set-network-quality", 2),
+        showSyncQuality: getBool("set-show-sync-quality", false),
 
         // Accessibility
         colorBlindMode: getSelect("set-color-blind-mode", "none"),
@@ -338,7 +341,8 @@ export function saveSettingsFromUI(): GameSettings {
         // Additional
         showDebugInfo: getBool("set-show-debug-info", false),
         enableCheats: getBool("set-enable-cheats", false),
-        maxFPS: getInt("set-max-fps", 0)
+        maxFPS: getInt("set-max-fps", 0),
+        debugSync: getBool("set-debug-sync", false)
     };
 
     saveSettings(settings);
@@ -554,6 +558,11 @@ export function applySettings(
         // Show touch controls (joystick)
         if (settings.showTouchControls !== undefined && hud.setTouchControlsVisible) {
             hud.setTouchControlsVisible(settings.showTouchControls);
+        }
+
+        // Show sync quality indicator
+        if (settings.showSyncQuality !== undefined && hud.setShowSyncQuality) {
+            hud.setShowSyncQuality(settings.showSyncQuality);
         }
 
         // Font size

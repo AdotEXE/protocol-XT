@@ -5540,6 +5540,10 @@ export class MainMenu {
                             <input type="checkbox" class="setting-checkbox" id="set-show-network-stats" ${this.settings.showNetworkStats ? 'checked' : ''}>
                         </div>
                         <div class="setting-row">
+                            <span class="setting-label">Показывать индикатор качества синхронизации</span>
+                            <input type="checkbox" class="setting-checkbox" id="set-show-sync-quality" ${this.settings.showSyncQuality ? 'checked' : ''}>
+                        </div>
+                        <div class="setting-row">
                             <span class="setting-label">Качество сети</span>
                             <div class="setting-value">
                                 <select class="setting-select" id="set-network-quality">
