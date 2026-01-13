@@ -701,10 +701,28 @@ export class GameMultiplayerCallbacks {
 
         const posDiff = data.positionDiff || 0;
         const rotationDiff = data.rotationDiff || 0;
+        
+        // Валидация serverState
+        if (!data.serverState || !data.serverState.position) {
+            logger.error(`[Reconciliation] Invalid serverState:`, data.serverState);
+            return;
+        }
+        
         const serverPos = data.serverState.position;
+        // Проверяем, что serverPos - это Vector3 или объект с x, y, z
+        let serverPosVec: Vector3;
+        if (serverPos instanceof Vector3) {
+            serverPosVec = serverPos;
+        } else if (serverPos.x !== undefined && serverPos.y !== undefined && serverPos.z !== undefined) {
+            serverPosVec = new Vector3(serverPos.x, serverPos.y, serverPos.z);
+        } else {
+            logger.error(`[Reconciliation] Invalid serverPos format:`, serverPos);
+            return;
+        }
+        
         const serverRot = data.serverState.rotation || 0;
-        const serverTurretRotation = data.serverState.turretRotation ?? tank.turret.rotation.y;
-        const serverAimPitch = data.serverState.aimPitch ?? tank.aimPitch ?? 0;
+        const serverTurretRotation = data.serverState.turretRotation ?? (tank.turret ? tank.turret.rotation.y : 0);
+        const serverAimPitch = data.serverState.aimPitch ?? (tank.aimPitch ?? 0);
         
         // КРИТИЧНО: Обработка очень больших расхождений с диагностикой
         if (posDiff > CRITICAL_DIFF_THRESHOLD) {
