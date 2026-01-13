@@ -6991,7 +6991,18 @@ export class Game {
             // КРИТИЧНО: Используем getCachedChassisPosition() для получения мировых координат
             // Это абсолютная позиция после обновления физики, а не локальные координаты
             // updatePositionCache() вызывается автоматически в onAfterPhysicsObservable
-            const currentPosition = this.tank.getCachedChassisPosition().clone();
+            // 
+            // ДИАГНОСТИКА: Проверяем что кэш позиций обновлен (проверяем _positionCacheFrame)
+            const cachedPos = this.tank.getCachedChassisPosition();
+            const cacheFrame = (this.tank as any)._positionCacheFrame;
+            const currentFrame = (this.tank as any)._tick || 0;
+            
+            // Логируем только если кэш устарел (раз в 60 кадров для диагностики)
+            if (currentFrame % 60 === 0 && cacheFrame !== undefined && cacheFrame < currentFrame - 1) {
+                logger.warn(`[Game] ⚠️ [updateMultiplayer] Кэш позиций устарел! cacheFrame=${cacheFrame}, currentFrame=${currentFrame}, diff=${currentFrame - cacheFrame}`);
+            }
+            
+            const currentPosition = cachedPos.clone();
             const currentRotation = this.tank.chassis.rotation.y;
             this.multiplayerManager.setLocalPlayerPosition(currentPosition, currentRotation);
 

@@ -265,6 +265,9 @@ export class GameUpdate {
         }
         
         // Обновление мультиплеера (адаптивный интервал)
+        // КРИТИЧНО: updateMultiplayer вызывается в основном цикле update(), который выполняется ПОСЛЕ onAfterPhysicsObservable
+        // Порядок в Babylon.js: onBeforePhysicsObservable → Physics → onAfterPhysicsObservable → Scene.render() → update()
+        // Это гарантирует, что updatePositionCache() уже вызван перед updateMultiplayer()
         if (this._updateTick % this._adaptiveIntervals.multiplayer === 0 && this.onUpdateMultiplayer) {
             this.onUpdateMultiplayer(deltaTime);
         }

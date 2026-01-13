@@ -6360,6 +6360,11 @@ export class TankController {
         }
 
         this._positionCacheFrame = this._tick;
+        
+        // ДИАГНОСТИКА: Логируем обновление кэша раз в 60 кадров
+        if (this._tick % 60 === 0) {
+            logger.log(`[TankController] ✅ [updatePositionCache] Кэш обновлен: frame=${this._tick}, pos=(${this._cachedChassisPosition.x.toFixed(1)}, ${this._cachedChassisPosition.y.toFixed(1)}, ${this._cachedChassisPosition.z.toFixed(1)})`);
+        }
     }
 
     /**
@@ -6368,6 +6373,12 @@ export class TankController {
      * ПОСЛЕ шага физики
      */
     getCachedChassisPosition(): Vector3 {
+        // ДИАГНОСТИКА: Проверяем что кэш актуален
+        const cacheFrame = this._positionCacheFrame;
+        const currentFrame = this._tick;
+        if (cacheFrame !== undefined && cacheFrame < currentFrame - 1 && currentFrame % 60 === 0) {
+            logger.warn(`[TankController] ⚠️ [getCachedChassisPosition] Кэш может быть устаревшим! cacheFrame=${cacheFrame}, currentFrame=${currentFrame}`);
+        }
         return this._cachedChassisPosition;
     }
 
