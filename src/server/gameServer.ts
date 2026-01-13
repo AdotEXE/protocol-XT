@@ -851,7 +851,10 @@ export class GameServer {
 
         // NOTE: Anti-cheat checks disabled
         // Basic input validation only (to prevent crashes from invalid data)
-        const deltaTime = 1 / 60; // Approximate delta time
+        // КРИТИЧНО: Для валидации используем фиксированный deltaTime (1/60)
+        // так как валидация должна быть консистентной независимо от реального FPS
+        // Реальный deltaTime используется в room.update() для обновления позиции
+        const deltaTime = 1 / 60; // Fixed delta time for validation consistency
         const validation = InputValidator.validatePlayerInput(
             data,
             player.lastValidPosition,
@@ -1334,7 +1337,21 @@ export class GameServer {
         this.tickInterval = setInterval(() => {
             const now = Date.now();
             const tickStartTime = now;
-            const deltaTime = (now - this.lastTick) / 1000; // Convert to seconds
+            let deltaTime = (now - this.lastTick) / 1000; // Convert to seconds
+            
+            // КРИТИЧНО: Ограничиваем максимальный deltaTime для защиты от больших скачков времени
+            // Максимальный deltaTime = 2 * TICK_INTERVAL (на случай пропуска одного тика)
+            const MAX_DELTA_TIME = (TICK_INTERVAL * 2) / 1000; // ~0.033 секунды (2 тика)
+            if (deltaTime > MAX_DELTA_TIME) {
+                serverLogger.warn(`[Server] Large deltaTime detected: ${deltaTime.toFixed(3)}s, clamping to ${MAX_DELTA_TIME.toFixed(3)}s`);
+                deltaTime = MAX_DELTA_TIME;
+            }
+            
+            // Минимальный deltaTime для защиты от отрицательных или нулевых значений
+            if (deltaTime <= 0) {
+                deltaTime = 1 / TICK_RATE; // Fallback to expected deltaTime
+            }
+            
             this.lastTick = now;
 
             this.update(deltaTime);
