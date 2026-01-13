@@ -344,6 +344,7 @@ export class MultiplayerManager {
     private pendingMapType: string | null = null; // КРИТИЧНО: mapType из ROOM_CREATED для использования до GAME_START
     private _roomIsActive: boolean = false; // Статус активности комнаты
     private _roomPlayersCount: number = 1; // Точное количество игроков в комнате (включая текущего)
+    private _serverSpawnPosition: { x: number; y: number; z: number } | null = null; // Позиция спавна от сервера
 
     // Network players (excluding local player)
     private networkPlayers: Map<string, NetworkPlayer> = new Map();
@@ -1811,6 +1812,17 @@ export class MultiplayerManager {
             for (const playerData of data.players) {
                 if (playerData.id !== this.playerId) {
                     this.addNetworkPlayer(playerData);
+                } else {
+                    // КРИТИЧНО: Сохраняем позицию спавна локального игрока от сервера
+                    // Это особенно важно при присоединении к идущей игре
+                    if (playerData.position) {
+                        this._serverSpawnPosition = {
+                            x: playerData.position.x,
+                            y: playerData.position.y,
+                            z: playerData.position.z
+                        };
+                        logger.log(`[Multiplayer] 📍 Позиция спавна от сервера: (${playerData.position.x.toFixed(1)}, ${playerData.position.y.toFixed(1)}, ${playerData.position.z.toFixed(1)})`);
+                    }
                 }
             }
         }
@@ -3200,7 +3212,21 @@ export class MultiplayerManager {
      * @returns Spawn position or null if not set
      */
     getSpawnPosition(): Vector3 | null {
-        return (this as any).spawnPosition || null;
+        if (this._serverSpawnPosition) {
+            return new Vector3(
+                this._serverSpawnPosition.x,
+                this._serverSpawnPosition.y,
+                this._serverSpawnPosition.z
+            );
+        }
+        return null;
+    }
+    
+    /**
+     * Get raw server spawn position without Vector3 conversion
+     */
+    getServerSpawnPositionRaw(): { x: number; y: number; z: number } | null {
+        return this._serverSpawnPosition;
     }
 
     /**

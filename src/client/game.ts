@@ -4489,6 +4489,42 @@ export class Game {
             return;
         }
 
+        // В мультиплеере используем позицию спавна с сервера
+        if (this.isMultiplayer && this.multiplayerManager) {
+            const spawnPos = this.multiplayerManager.getSpawnPosition();
+            if (spawnPos) {
+                logger.log(`[Game] 📍 Using server spawn position (random): (${spawnPos.x.toFixed(2)}, ${spawnPos.y.toFixed(2)}, ${spawnPos.z.toFixed(2)})`);
+                if (this.tank.chassis && this.tank.physicsBody) {
+                    // Телепортация с правильной синхронизацией физики
+                    this.tank.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
+                    this.tank.chassis.position.copyFrom(spawnPos);
+                    this.tank.chassis.computeWorldMatrix(true);
+                    this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                    this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                    
+                    // Возвращаем в DYNAMIC режим
+                    this.tank.physicsBody.disablePreStep = false;
+                    this.tank.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
+                    this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                    this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                    
+                    // Восстанавливаем disablePreStep
+                    setTimeout(() => {
+                        if (this.tank?.physicsBody) {
+                            this.tank.physicsBody.disablePreStep = true;
+                        }
+                    }, 0);
+                    
+                    // Сохраняем позицию для респавна
+                    if (this.gameGarage) {
+                        this.gameGarage.setPlayerGaragePosition(spawnPos.clone());
+                    }
+                    logger.log(`[Game] ✅ Player spawned at server position`);
+                    return;
+                }
+            }
+        }
+
         // Определяем границы спавна
         let minRadius = 20;
         let maxRadius = 200;
@@ -4550,20 +4586,35 @@ export class Game {
 
         // В мультиплеере используем позицию спавна с сервера
         if (this.isMultiplayer && this.multiplayerManager) {
-            const spawnPos = (this.multiplayerManager as any).spawnPosition;
-            if (spawnPos && spawnPos instanceof Vector3) {
-                logger.log(`[Game] Using server spawn position: (${spawnPos.x.toFixed(2)}, ${spawnPos.y.toFixed(2)}, ${spawnPos.z.toFixed(2)})`);
+            const spawnPos = this.multiplayerManager.getSpawnPosition();
+            if (spawnPos) {
+                logger.log(`[Game] 📍 Using server spawn position: (${spawnPos.x.toFixed(2)}, ${spawnPos.y.toFixed(2)}, ${spawnPos.z.toFixed(2)})`);
                 if (this.tank.chassis && this.tank.physicsBody) {
+                    // Телепортация с правильной синхронизацией физики
+                    this.tank.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
                     this.tank.chassis.position.copyFrom(spawnPos);
-                    if (this.tank.physicsBody) {
-                        this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
-                        this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
-                    }
+                    this.tank.chassis.computeWorldMatrix(true);
+                    this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                    this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                    
+                    // Возвращаем в DYNAMIC режим
+                    this.tank.physicsBody.disablePreStep = false;
+                    this.tank.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
+                    this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                    this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                    
+                    // Восстанавливаем disablePreStep
+                    setTimeout(() => {
+                        if (this.tank?.physicsBody) {
+                            this.tank.physicsBody.disablePreStep = true;
+                        }
+                    }, 0);
+                    
                     // Сохраняем позицию для респавна
                     if (this.gameGarage) {
                         this.gameGarage.setPlayerGaragePosition(spawnPos.clone());
                     }
-                    logger.log(`[Game] Player spawned at server position`);
+                    logger.log(`[Game] ✅ Player spawned at server position`);
                     return;
                 }
             }
