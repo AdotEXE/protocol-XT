@@ -687,7 +687,9 @@ export class GameMultiplayerCallbacks {
         needsReapplication?: boolean;
     }): void {
         const tank = this.deps.tank;
-        if (!tank || !tank.chassis || !data.serverState || !tank.physicsBody) return;
+        // КРИТИЧНО: Базовая проверка - только для критичных компонентов
+        // serverState проверяется ниже с fallback, поэтому не прерываем здесь
+        if (!tank || !tank.chassis || !tank.physicsBody) return;
 
         // КРИТИЧНО: Учитываем погрешность квантования при сравнении
         // Позиции квантуются с точностью 0.1 единицы (INT16_POS)
