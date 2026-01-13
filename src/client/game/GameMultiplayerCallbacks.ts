@@ -687,12 +687,30 @@ export class GameMultiplayerCallbacks {
         const QUANTIZATION_ERROR_ROT = 0.002; // 0.001 радиан + небольшой запас
         const HARD_CORRECTION_THRESHOLD = 2.0; // Instant teleport if > 2 units difference
         const SOFT_CORRECTION_THRESHOLD = 0.5 + QUANTIZATION_ERROR_POS; // Smooth interpolation if > 0.5 units (с учетом квантования)
+        const LARGE_DIFF_THRESHOLD = 10.0; // Большое расхождение - требует диагностики
+        const CRITICAL_DIFF_THRESHOLD = 20.0; // Критическое расхождение - возможно проблема с сетью или данными
 
         const posDiff = data.positionDiff || 0;
+        const rotationDiff = data.rotationDiff || 0;
         const serverPos = data.serverState.position;
         const serverRot = data.serverState.rotation || 0;
         const serverTurretRotation = data.serverState.turretRotation ?? tank.turret.rotation.y;
         const serverAimPitch = data.serverState.aimPitch ?? tank.aimPitch ?? 0;
+        
+        // КРИТИЧНО: Обработка очень больших расхождений с диагностикой
+        if (posDiff > CRITICAL_DIFF_THRESHOLD) {
+            // Критическое расхождение - возможно проблема с сетью, данными или физикой
+            logger.error(`[Reconciliation] ⚠️ КРИТИЧЕСКОЕ расхождение: ${posDiff.toFixed(2)} единиц! Возможные причины: проблема с сетью, потеря пакетов, расхождение физики. ServerPos=(${serverPos.x.toFixed(1)}, ${serverPos.y.toFixed(1)}, ${serverPos.z.toFixed(1)}), LocalPos=(${tank.chassis.position.x.toFixed(1)}, ${tank.chassis.position.y.toFixed(1)}, ${tank.chassis.position.z.toFixed(1)})`);
+            
+            // Дополнительная диагностика
+            const predictedPos = data.predictedState?.position;
+            if (predictedPos) {
+                logger.error(`[Reconciliation] PredictedPos=(${predictedPos.x.toFixed(1)}, ${predictedPos.y.toFixed(1)}, ${predictedPos.z.toFixed(1)}), diff from predicted=${Vector3.Distance(predictedPos, serverPos).toFixed(2)}`);
+            }
+        } else if (posDiff > LARGE_DIFF_THRESHOLD) {
+            // Большое расхождение - логируем для диагностики
+            logger.warn(`[Reconciliation] ⚠️ Большое расхождение: ${posDiff.toFixed(2)} единиц. ServerPos=(${serverPos.x.toFixed(1)}, ${serverPos.y.toFixed(1)}, ${serverPos.z.toFixed(1)}), LocalPos=(${tank.chassis.position.x.toFixed(1)}, ${tank.chassis.position.y.toFixed(1)}, ${tank.chassis.position.z.toFixed(1)})`);
+        }
 
         // КРИТИЧНО: Игнорируем маленькие различия, которые могут быть из-за квантования
         if (posDiff <= QUANTIZATION_ERROR_POS) {
@@ -749,6 +767,11 @@ export class GameMultiplayerCallbacks {
             if (tank.updatePositionCache) {
                 tank.updatePositionCache();
             }
+            
+            // ДИАГНОСТИКА: Логируем hard correction для больших расхождений
+            if (posDiff > LARGE_DIFF_THRESHOLD) {
+                logger.log(`[Reconciliation] ✅ Hard correction применена: posDiff=${posDiff.toFixed(2)}, rotationDiff=${rotationDiff.toFixed(3)}`);
+            }
         } else if (data.needsReapplication && posDiff > SOFT_CORRECTION_THRESHOLD) {
             // Soft correction - smoothly interpolate towards server position
             const correctedPosition = serverPos.clone();
@@ -792,6 +815,11 @@ export class GameMultiplayerCallbacks {
             // Обновляем кэш позиций
             if (tank.updatePositionCache) {
                 tank.updatePositionCache();
+            }
+            
+            // ДИАГНОСТИКА: Логируем soft correction для больших расхождений
+            if (posDiff > LARGE_DIFF_THRESHOLD) {
+                logger.log(`[Reconciliation] ✅ Soft correction применена: posDiff=${posDiff.toFixed(2)}, rotationDiff=${rotationDiff.toFixed(3)}`);
             }
         }
         // If difference is small, do nothing - prediction was accurate
