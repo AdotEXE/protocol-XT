@@ -338,6 +338,12 @@ export class HUD {
     private minimapPlayerMarkers: Map<string, Rectangle> = new Map();
     private minimapPlayerPool: Rectangle[] = [];
     
+    // Sync quality indicator
+    private syncQualityContainer: Rectangle | null = null;
+    private syncQualityText: TextBlock | null = null;
+    private syncQualityIndicator: Rectangle | null = null;
+    private showSyncQuality: boolean = false; // По умолчанию скрыт, можно включить в настройках
+    
     // Invulnerability indicator
     private invulnerabilityIndicator: Rectangle | null = null;
     private invulnerabilityText: TextBlock | null = null;
@@ -8794,6 +8800,44 @@ export class HUD {
             marker.isVisible = false;
             this.minimapPlayerPool.push(marker);
         }
+        
+        // Sync quality indicator (top right, рядом с компасом)
+        this.syncQualityContainer = new Rectangle("syncQualityContainer");
+        this.syncQualityContainer.width = "120px";
+        this.syncQualityContainer.height = "30px";
+        this.syncQualityContainer.cornerRadius = 3;
+        this.syncQualityContainer.thickness = 1;
+        this.syncQualityContainer.color = "#666";
+        this.syncQualityContainer.background = "rgba(0, 0, 0, 0.6)";
+        this.syncQualityContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.syncQualityContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.syncQualityContainer.left = "-10px";
+        this.syncQualityContainer.top = "50px";
+        this.syncQualityContainer.isVisible = false; // Скрыт по умолчанию
+        this.guiTexture.addControl(this.syncQualityContainer);
+        
+        // Sync quality indicator dot
+        this.syncQualityIndicator = new Rectangle("syncQualityIndicator");
+        this.syncQualityIndicator.width = "8px";
+        this.syncQualityIndicator.height = "8px";
+        this.syncQualityIndicator.cornerRadius = 4;
+        this.syncQualityIndicator.thickness = 0;
+        this.syncQualityIndicator.background = "#0f0";
+        this.syncQualityIndicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.syncQualityIndicator.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.syncQualityIndicator.left = "8px";
+        this.syncQualityContainer.addControl(this.syncQualityIndicator);
+        
+        // Sync quality text
+        this.syncQualityText = new TextBlock("syncQualityText");
+        this.syncQualityText.text = "Sync: 100%";
+        this.syncQualityText.color = "#0f0";
+        this.syncQualityText.fontSize = "12px";
+        this.syncQualityText.fontFamily = "monospace";
+        this.syncQualityText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.syncQualityText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.syncQualityText.left = "-8px";
+        this.syncQualityContainer.addControl(this.syncQualityText);
     }
     
     showMultiplayerHUD(show: boolean): void {
@@ -8802,6 +8846,56 @@ export class HUD {
         }
         if (this.playerListContainer) {
             this.playerListContainer.isVisible = show;
+        }
+    }
+    
+    /**
+     * Обновить индикатор качества синхронизации
+     */
+    updateSyncQuality(syncMetrics: any): void {
+        if (!this.syncQualityContainer || !this.showSyncQuality) return;
+        if (!syncMetrics) {
+            this.syncQualityContainer.isVisible = false;
+            return;
+        }
+        
+        const quality = syncMetrics.getSyncQuality();
+        const qualityStatus = syncMetrics.getSyncQualityStatus();
+        
+        // Определяем цвет в зависимости от качества
+        let color: string;
+        if (qualityStatus === "excellent") {
+            color = "#0f0"; // Зеленый
+        } else if (qualityStatus === "good") {
+            color = "#ff0"; // Желтый
+        } else if (qualityStatus === "fair") {
+            color = "#fa0"; // Оранжевый
+        } else {
+            color = "#f00"; // Красный
+        }
+        
+        // Обновляем индикатор
+        if (this.syncQualityIndicator) {
+            this.syncQualityIndicator.background = color;
+        }
+        
+        // Обновляем текст
+        if (this.syncQualityText) {
+            this.syncQualityText.text = `Sync: ${quality.toFixed(0)}%`;
+            this.syncQualityText.color = color;
+        }
+        
+        // Показываем контейнер
+        this.syncQualityContainer.isVisible = true;
+    }
+    
+    /**
+     * Показать/скрыть индикатор качества синхронизации
+     */
+    setShowSyncQuality(show: boolean): void {
+        this.showSyncQuality = show;
+        if (this.syncQualityContainer) {
+            this.syncQualityContainer.isVisible = show;
         }
     }
     

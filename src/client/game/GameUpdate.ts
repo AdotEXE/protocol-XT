@@ -270,6 +270,17 @@ export class GameUpdate {
         // Это гарантирует, что updatePositionCache() уже вызван перед updateMultiplayer()
         if (this._updateTick % this._adaptiveIntervals.multiplayer === 0 && this.onUpdateMultiplayer) {
             this.onUpdateMultiplayer(deltaTime);
+            
+            // Обновление индикатора качества синхронизации (каждые 30 кадров ~0.5 секунды)
+            if (this._updateTick % 30 === 0 && this.hud) {
+                const game = (window as any).gameInstance;
+                if (game && game.gameMultiplayerCallbacks) {
+                    const syncMetrics = game.gameMultiplayerCallbacks.getSyncMetrics?.();
+                    if (syncMetrics) {
+                        this.hud.updateSyncQuality(syncMetrics);
+                    }
+                }
+            }
         }
         
         // Обновление волн фронта (каждые 2 кадра)
