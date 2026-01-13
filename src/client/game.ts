@@ -4493,40 +4493,49 @@ export class Game {
         if (this.isMultiplayer && this.multiplayerManager) {
             const serverSpawnPos = this.multiplayerManager.getSpawnPosition();
             if (serverSpawnPos) {
-                // КРИТИЧНО: Используем X, Z от сервера, но Y рассчитываем по высоте террейна
-                const terrainY = this.getTopSurfaceHeight(serverSpawnPos.x, serverSpawnPos.z);
-                const spawnY = terrainY + 2.0; // 2 метра над поверхностью
-                const spawnPos = new Vector3(serverSpawnPos.x, spawnY, serverSpawnPos.z);
+                // КРИТИЧНО: Проверяем что позиция не в центре карты (0, 0)
+                const distFromCenter = Math.sqrt(serverSpawnPos.x * serverSpawnPos.x + serverSpawnPos.z * serverSpawnPos.z);
+                const MIN_SPAWN_DISTANCE = 10; // Минимальное расстояние от центра
                 
-                logger.log(`[Game] 📍 Server spawn (random): terrain Y=${terrainY.toFixed(1)}, final: (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
-                
-                if (this.tank.chassis && this.tank.physicsBody) {
-                    // Телепортация с правильной синхронизацией физики
-                    this.tank.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
-                    this.tank.chassis.position.copyFrom(spawnPos);
-                    this.tank.chassis.computeWorldMatrix(true);
-                    this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
-                    this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                if (distFromCenter < MIN_SPAWN_DISTANCE) {
+                    logger.warn(`[Game] ⚠️ Server spawn (random) too close to center: (${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)}), dist=${distFromCenter.toFixed(1)} - using fallback`);
+                    // Продолжаем к fallback логике ниже
+                } else {
+                    // КРИТИЧНО: Используем X, Z от сервера, но Y рассчитываем по высоте террейна
+                    const terrainY = this.getTopSurfaceHeight(serverSpawnPos.x, serverSpawnPos.z);
+                    const spawnY = terrainY + 2.0; // 2 метра над поверхностью
+                    const spawnPos = new Vector3(serverSpawnPos.x, spawnY, serverSpawnPos.z);
                     
-                    // Возвращаем в DYNAMIC режим
-                    this.tank.physicsBody.disablePreStep = false;
-                    this.tank.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
-                    this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
-                    this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                    logger.log(`[Game] 📍 Server spawn (random): terrain Y=${terrainY.toFixed(1)}, final: (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
                     
-                    // Восстанавливаем disablePreStep
-                    setTimeout(() => {
-                        if (this.tank?.physicsBody) {
-                            this.tank.physicsBody.disablePreStep = true;
+                    if (this.tank.chassis && this.tank.physicsBody) {
+                        // Телепортация с правильной синхронизацией физики
+                        this.tank.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
+                        this.tank.chassis.position.copyFrom(spawnPos);
+                        this.tank.chassis.computeWorldMatrix(true);
+                        this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                        this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                        
+                        // Возвращаем в DYNAMIC режим
+                        this.tank.physicsBody.disablePreStep = false;
+                        this.tank.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
+                        this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                        this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                        
+                        // Восстанавливаем disablePreStep
+                        setTimeout(() => {
+                            if (this.tank?.physicsBody) {
+                                this.tank.physicsBody.disablePreStep = true;
+                            }
+                        }, 0);
+                        
+                        // Сохраняем позицию для респавна
+                        if (this.gameGarage) {
+                            this.gameGarage.setPlayerGaragePosition(spawnPos.clone());
                         }
-                    }, 0);
-                    
-                    // Сохраняем позицию для респавна
-                    if (this.gameGarage) {
-                        this.gameGarage.setPlayerGaragePosition(spawnPos.clone());
+                        logger.log(`[Game] ✅ Player spawned at server position (adjusted Y)`);
+                        return;
                     }
-                    logger.log(`[Game] ✅ Player spawned at server position (adjusted Y)`);
-                    return;
                 }
             }
         }
@@ -4594,11 +4603,20 @@ export class Game {
         if (this.isMultiplayer && this.multiplayerManager) {
             const serverSpawnPos = this.multiplayerManager.getSpawnPosition();
             if (serverSpawnPos) {
-                // КРИТИЧНО: Используем X, Z от сервера, но Y рассчитываем по высоте террейна
-                // Сервер не знает высоту террейна, поэтому отправляет фиксированный Y=1.0
-                const terrainY = this.getTopSurfaceHeight(serverSpawnPos.x, serverSpawnPos.z);
-                const spawnY = terrainY + 2.0; // 2 метра над поверхностью
-                const spawnPos = new Vector3(serverSpawnPos.x, spawnY, serverSpawnPos.z);
+                // КРИТИЧНО: Проверяем что позиция не в центре карты (0, 0)
+                // Если позиция слишком близко к центру, это может быть ошибка - используем fallback
+                const distFromCenter = Math.sqrt(serverSpawnPos.x * serverSpawnPos.x + serverSpawnPos.z * serverSpawnPos.z);
+                const MIN_SPAWN_DISTANCE = 10; // Минимальное расстояние от центра
+                
+                if (distFromCenter < MIN_SPAWN_DISTANCE) {
+                    logger.warn(`[Game] ⚠️ Server spawn position too close to center: (${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)}), dist=${distFromCenter.toFixed(1)} - using fallback`);
+                    // Не используем эту позицию, продолжаем к fallback логике ниже
+                } else {
+                    // КРИТИЧНО: Используем X, Z от сервера, но Y рассчитываем по высоте террейна
+                    // Сервер не знает высоту террейна, поэтому отправляет фиксированный Y=1.0
+                    const terrainY = this.getTopSurfaceHeight(serverSpawnPos.x, serverSpawnPos.z);
+                    const spawnY = terrainY + 2.0; // 2 метра над поверхностью
+                    const spawnPos = new Vector3(serverSpawnPos.x, spawnY, serverSpawnPos.z);
                 
                 logger.log(`[Game] 📍 Server spawn: (${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.y.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)})`);
                 logger.log(`[Game] 📍 Adjusted spawn (terrain Y=${terrainY.toFixed(1)}): (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
@@ -4631,14 +4649,20 @@ export class Game {
                     logger.log(`[Game] ✅ Player spawned at server position (adjusted Y)`);
                     return;
                 }
+                }
             }
         }
 
         if (!this.chunkSystem || !this.chunkSystem.garagePositions.length) {
-            logger.warn("[Game] No garages available, using default spawn at (0, 2, 0)");
-            // Fallback на обычный спавн
+            logger.warn("[Game] No garages available, using safe spawn position (not center)");
+            // Fallback на безопасный спавн (не в центре!)
             if (this.tank.chassis && this.tank.physicsBody) {
-                const defaultPos = new Vector3(0, 2, 0);
+                // Спавним на расстоянии 30 единиц от центра в случайном направлении
+                const angle = Math.random() * Math.PI * 2;
+                const radius = 30;
+                const terrainY = this.getTopSurfaceHeight(Math.cos(angle) * radius, Math.sin(angle) * radius);
+                const defaultPos = new Vector3(Math.cos(angle) * radius, terrainY + 2.0, Math.sin(angle) * radius);
+                logger.log(`[Game] 📍 Fallback spawn at: (${defaultPos.x.toFixed(1)}, ${defaultPos.y.toFixed(1)}, ${defaultPos.z.toFixed(1)})`);
                 this.tank.chassis.position.copyFrom(defaultPos);
                 // ОПТИМИЗАЦИЯ: Удален computeWorldMatrix - физика обновит матрицу автоматически
                 if (this.tank.physicsBody) {
