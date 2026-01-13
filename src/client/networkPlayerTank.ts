@@ -475,8 +475,16 @@ export class NetworkPlayerTank {
         this.chassis.position.y += (finalTargetY - this.chassis.position.y) * lerpFactor;
         this.chassis.position.z += (finalTargetZ - this.chassis.position.z) * lerpFactor;
         
-        // Интерполяция вращения корпуса
-        const targetRotation = np.rotation || 0;
+        // Интерполяция вращения корпуса (с dead reckoning если используется)
+        let targetRotation = np.rotation || 0;
+        if (useDeadReckoning && np.angularVelocity !== undefined && np.angularVelocity !== 0) {
+            // Экстраполируем вращение используя angularVelocity
+            const extrapolationTime = timeSinceLastUpdate / 1000;
+            targetRotation += np.angularVelocity * extrapolationTime;
+            // Нормализуем угол
+            while (targetRotation > Math.PI) targetRotation -= Math.PI * 2;
+            while (targetRotation < -Math.PI) targetRotation += Math.PI * 2;
+        }
         let rotDiff = targetRotation - this.chassis.rotation.y;
         while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
         while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
