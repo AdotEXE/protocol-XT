@@ -3,7 +3,7 @@
  * Вынесено из game.ts для уменьшения размера файла
  */
 
-import { Vector3, MeshBuilder, StandardMaterial, Color3 } from "@babylonjs/core";
+import { Vector3, MeshBuilder, StandardMaterial, Color3, PhysicsMotionType } from "@babylonjs/core";
 import { logger } from "../utils/logger";
 import { ServerMessageType } from "../../shared/messages";
 import { CONSUMABLE_TYPES } from "../consumables";
@@ -678,24 +678,48 @@ export class GameMultiplayerCallbacks {
         needsReapplication?: boolean;
     }): void {
         const tank = this.deps.tank;
-        if (!tank || !tank.chassis || !data.serverState) return;
+        if (!tank || !tank.chassis || !data.serverState || !tank.physicsBody) return;
 
+        // КРИТИЧНО: Учитываем погрешность квантования (0.1 единицы) при сравнении
+        // Позиции квантуются с точностью 0.1 единицы, поэтому разница может быть из-за квантования
+        const QUANTIZATION_ERROR = 0.15; // 0.1 единицы + небольшой запас
         const HARD_CORRECTION_THRESHOLD = 2.0; // Instant teleport if > 2 units difference
-        const SOFT_CORRECTION_THRESHOLD = 0.5; // Smooth interpolation if > 0.5 units
+        const SOFT_CORRECTION_THRESHOLD = 0.5 + QUANTIZATION_ERROR; // Smooth interpolation if > 0.5 units (с учетом квантования)
 
         const posDiff = data.positionDiff || 0;
         const serverPos = data.serverState.position;
         const serverRot = data.serverState.rotation || 0;
 
+        // КРИТИЧНО: Игнорируем маленькие различия, которые могут быть из-за квантования
+        if (posDiff <= QUANTIZATION_ERROR) {
+            // Разница меньше погрешности квантования - предсказание точное
+            return;
+        }
+
         if (posDiff > HARD_CORRECTION_THRESHOLD) {
             // Hard correction - teleport to server position
+            // КРИТИЧНО: Синхронизируем physics body с визуальной позицией
+            
+            // Шаг 1: Переключаем в ANIMATED режим для синхронизации
+            tank.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
+            tank.physicsBody.setLinearVelocity(new Vector3(0, 0, 0));
+            tank.physicsBody.setAngularVelocity(new Vector3(0, 0, 0));
+
+            // Шаг 2: Устанавливаем визуальную позицию
             tank.chassis.position.copyFrom(serverPos);
             tank.chassis.rotation.y = serverRot;
 
-            if (tank.physicsBody && 'velocity' in tank) {
-                try {
-                    (tank as any).velocity = new Vector3(0, 0, 0);
-                } catch (e) { }
+            // Шаг 3: Обновляем WorldMatrix для синхронизации absolutePosition
+            tank.chassis.computeWorldMatrix(true);
+
+            // Шаг 4: Переключаем обратно в DYNAMIC режим
+            tank.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
+            tank.physicsBody.setLinearVelocity(new Vector3(0, 0, 0));
+            tank.physicsBody.setAngularVelocity(new Vector3(0, 0, 0));
+
+            // Шаг 5: Обновляем кэш позиций
+            if (tank.updatePositionCache) {
+                tank.updatePositionCache();
             }
         } else if (data.needsReapplication && posDiff > SOFT_CORRECTION_THRESHOLD) {
             // Soft correction - smoothly interpolate towards server position
@@ -715,6 +739,14 @@ export class GameMultiplayerCallbacks {
             while (targetRot - currentRot > Math.PI) targetRot -= Math.PI * 2;
             while (targetRot - currentRot < -Math.PI) targetRot += Math.PI * 2;
             tank.chassis.rotation.y = currentRot + (targetRot - currentRot) * LERP_SPEED;
+
+            // КРИТИЧНО: Обновляем WorldMatrix после изменения позиции
+            tank.chassis.computeWorldMatrix(true);
+
+            // Обновляем кэш позиций
+            if (tank.updatePositionCache) {
+                tank.updatePositionCache();
+            }
         }
         // If difference is small, do nothing - prediction was accurate
     }

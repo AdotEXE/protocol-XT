@@ -1868,7 +1868,9 @@ export class MultiplayerManager {
         // КРИТИЧНО: В ранней фазе (первые 60 пакетов = 1 секунда) ПОЛНОСТЬЮ ОБХОДИМ jitter buffer
         // и обрабатываем данные НЕМЕДЛЕННО для гарантированного отображения игроков
         // Также обходим если есть другие игроки, но мы их еще не видим
-        if (this.lastProcessedSequence < 60 || (networkPlayersCount > 0 && this.networkPlayers.size === 0)) {
+        // КРИТИЧНО: Всегда обрабатываем немедленно, если в списке есть локальный игрок (для reconciliation)
+        const hasLocalPlayer = statesData.players?.some((p: any) => p.id === this.playerId);
+        if (this.lastProcessedSequence < 60 || (networkPlayersCount > 0 && this.networkPlayers.size === 0) || hasLocalPlayer) {
             // Лишний спам убран: обход буфера без логов
             this.lastProcessedSequence = Math.max(this.lastProcessedSequence, serverSequence);
             this.applyPlayerStates(statesData);
@@ -2547,6 +2549,12 @@ export class MultiplayerManager {
 
             // Add sequence number for prediction and reconciliation
             const sequence = ++this.currentSequence;
+            
+            // ДИАГНОСТИКА: Логируем отправку позиции каждые 60 кадров (1 раз в секунду при 60 FPS)
+            if (sequence % 60 === 0 && this._lastKnownLocalPosition) {
+                logger.log(`[Multiplayer] 📤 Sending input seq=${sequence}, pos=(${this._lastKnownLocalPosition.x.toFixed(1)}, ${this._lastKnownLocalPosition.y.toFixed(1)}, ${this._lastKnownLocalPosition.z.toFixed(1)}), throttle=${input.throttle.toFixed(2)}, steer=${input.steer.toFixed(2)}`);
+            }
+            
             const inputWithSequence: PlayerInput = {
                 ...input,
                 sequence,
@@ -2728,14 +2736,20 @@ export class MultiplayerManager {
             while (rotationDiff > Math.PI) rotationDiff -= Math.PI * 2;
             rotationDiff = Math.abs(rotationDiff);
 
-            // If difference is significant, we need to reconcile
-            const POSITION_THRESHOLD = 0.5; // 0.5 units
+            // КРИТИЧНО: Учитываем погрешность квантования (0.1 единицы для позиций)
+            // Позиции квантуются с точностью 0.1 единицы, поэтому разница может быть из-за квантования
+            const QUANTIZATION_ERROR = 0.15; // 0.1 единицы + небольшой запас
+            const POSITION_THRESHOLD = 0.5 + QUANTIZATION_ERROR; // 0.5 units + quantization error
             const ROTATION_THRESHOLD = 0.1; // ~6 degrees
 
             needsReapplication = posDiff > POSITION_THRESHOLD || rotationDiff > ROTATION_THRESHOLD;
 
+            // ДИАГНОСТИКА: Логируем reconciliation только при значительных расхождениях
             if (needsReapplication) {
-                logger.log(`[Multiplayer] Reconciliation needed: seq=${serverSequence}, posDiff=${posDiff.toFixed(2)}, rotDiff=${rotationDiff.toFixed(2)}`);
+                logger.log(`[Multiplayer] Reconciliation needed: seq=${serverSequence}, posDiff=${posDiff.toFixed(2)} (threshold=${POSITION_THRESHOLD.toFixed(2)}), rotDiff=${rotationDiff.toFixed(2)}, serverPos=(${serverPos.x.toFixed(1)}, ${serverPos.y.toFixed(1)}, ${serverPos.z.toFixed(1)}), predictedPos=(${predictedPos.x.toFixed(1)}, ${predictedPos.y.toFixed(1)}, ${predictedPos.z.toFixed(1)})`);
+            } else if (posDiff > 0.1) {
+                // Логируем маленькие расхождения для диагностики (но не reconciliation)
+                logger.log(`[Multiplayer] Small position diff (within threshold): seq=${serverSequence}, posDiff=${posDiff.toFixed(3)}, threshold=${POSITION_THRESHOLD.toFixed(2)}`);
             }
         }
 

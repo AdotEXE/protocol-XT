@@ -6988,9 +6988,10 @@ export class Game {
             const turretRotation = this.tank.turret.rotation.y;
             const aimPitch = this.tank.aimPitch || 0;
 
-            // CLIENT-SIDE PREDICTION: Set current position before sending input
-            // This ensures the predicted state starts from the correct position
-            const currentPosition = this.tank.chassis.position.clone();
+            // КРИТИЧНО: Используем getCachedChassisPosition() для получения мировых координат
+            // Это абсолютная позиция после обновления физики, а не локальные координаты
+            // updatePositionCache() вызывается автоматически в onAfterPhysicsObservable
+            const currentPosition = this.tank.getCachedChassisPosition().clone();
             const currentRotation = this.tank.chassis.rotation.y;
             this.multiplayerManager.setLocalPlayerPosition(currentPosition, currentRotation);
 
@@ -7008,8 +7009,9 @@ export class Game {
             // CLIENT-SIDE PREDICTION: Update predicted state with actual position after input
             // This allows reconciliation to compare predicted vs server state
             if (sequence >= 0) {
+                // КРИТИЧНО: Используем getCachedChassisPosition() для мировых координат
                 // Position after physics update (current frame)
-                const newPosition = this.tank.chassis.position.clone();
+                const newPosition = this.tank.getCachedChassisPosition().clone();
                 const newRotation = this.tank.chassis.rotation.y;
                 this.multiplayerManager.updatePredictedState(sequence, newPosition, newRotation);
             }

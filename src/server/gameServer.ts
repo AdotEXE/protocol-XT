@@ -1525,8 +1525,13 @@ export class GameServer {
                     // ADAPTIVE UPDATE RATE with SPATIAL PARTITIONING:
                     // Filter players based on distance, spatial proximity, and time since last update
                     const playersToSend = prioritizedPlayers.filter(targetPlayer => {
-                        // Always include local player's own data
-                        if (targetPlayer.id === player.id) return true;
+                        // КРИТИЧНО: Всегда включаем локального игрока на полной частоте (60 Hz)
+                        // Это необходимо для reconciliation на клиенте
+                        if (targetPlayer.id === player.id) {
+                            // Всегда обновляем трекер для локального игрока
+                            playerUpdateTracker.set(targetPlayer.id, this.tickCount);
+                            return true;
+                        }
 
                         // КРИТИЧНО: На первых 60 тиках (1 секунда) ВСЕГДА отправлять ВСЕХ игроков
                         // Это гарантирует, что все клиенты увидят друг друга при подключении
