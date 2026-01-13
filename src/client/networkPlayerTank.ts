@@ -436,15 +436,44 @@ export class NetworkPlayerTank {
             return;
         }
         
+        // КРИТИЧНО: Dead reckoning (экстраполяция) при потере пакетов
+        // Если прошло много времени с последнего обновления, используем velocity для экстраполяции
+        const timeSinceLastUpdate = Date.now() - np.lastUpdateTime;
+        const useDeadReckoning = timeSinceLastUpdate > 50 && timeSinceLastUpdate < this.maxExtrapolationTime; // 50-500ms
+        
+        let finalTargetX = targetX;
+        let finalTargetY = targetY;
+        let finalTargetZ = targetZ;
+        
+        if (useDeadReckoning && np.velocity) {
+            // Используем velocity для экстраполяции позиции
+            const extrapolationTime = timeSinceLastUpdate / 1000; // Convert to seconds
+            const extrapolatedPos = new Vector3(
+                targetX + np.velocity.x * extrapolationTime,
+                targetY + np.velocity.y * extrapolationTime,
+                targetZ + np.velocity.z * extrapolationTime
+            );
+            
+            // Используем экстраполированную позицию как цель
+            finalTargetX = extrapolatedPos.x;
+            finalTargetY = extrapolatedPos.y;
+            finalTargetZ = extrapolatedPos.z;
+            
+            // Сохраняем экстраполированную позицию для отладки
+            this.lastExtrapolatedPosition = extrapolatedPos.clone();
+        } else {
+            this.lastExtrapolatedPosition = null;
+        }
+        
         // УПРОЩЁННАЯ ЛИНЕЙНАЯ ИНТЕРПОЛЯЦИЯ
         // КРИТИЧНО: Увеличен INTERPOLATION_SPEED для более быстрого следования за целью
         // Используем более агрессивную интерполяцию для быстрого следования за сервером
         const lerpFactor = Math.min(1.0, deltaTime * this.INTERPOLATION_SPEED * 3); // x3 для очень быстрого движения
         
-        // Интерполяция позиции
-        this.chassis.position.x += (targetX - this.chassis.position.x) * lerpFactor;
-        this.chassis.position.y += (targetY - this.chassis.position.y) * lerpFactor;
-        this.chassis.position.z += (targetZ - this.chassis.position.z) * lerpFactor;
+        // Интерполяция позиции (к экстраполированной позиции если используется dead reckoning)
+        this.chassis.position.x += (finalTargetX - this.chassis.position.x) * lerpFactor;
+        this.chassis.position.y += (finalTargetY - this.chassis.position.y) * lerpFactor;
+        this.chassis.position.z += (finalTargetZ - this.chassis.position.z) * lerpFactor;
         
         // Интерполяция вращения корпуса
         const targetRotation = np.rotation || 0;
@@ -453,9 +482,17 @@ export class NetworkPlayerTank {
         while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
         this.chassis.rotation.y += rotDiff * lerpFactor;
         
-        // Интерполяция вращения башни
+        // Интерполяция вращения башни (с dead reckoning если используется)
         if (this.turret) {
-            const targetTurretRot = np.turretRotation || 0;
+            let targetTurretRot = np.turretRotation || 0;
+            if (useDeadReckoning && np.turretAngularVelocity !== undefined && np.turretAngularVelocity !== 0) {
+                // Экстраполируем вращение башни используя turretAngularVelocity
+                const extrapolationTime = timeSinceLastUpdate / 1000;
+                targetTurretRot += np.turretAngularVelocity * extrapolationTime;
+                // Нормализуем угол
+                while (targetTurretRot > Math.PI) targetTurretRot -= Math.PI * 2;
+                while (targetTurretRot < -Math.PI) targetTurretRot += Math.PI * 2;
+            }
             let turretDiff = targetTurretRot - this.turret.rotation.y;
             while (turretDiff > Math.PI) turretDiff -= Math.PI * 2;
             while (turretDiff < -Math.PI) turretDiff += Math.PI * 2;
