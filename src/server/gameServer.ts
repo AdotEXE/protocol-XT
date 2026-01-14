@@ -50,7 +50,7 @@ export class GameServer {
     private roomCounter: number = 0; // Счетчик для комнат (0001, 0002...)
     
 
-    constructor(port: number =8080, host: string = "0.0.0.0") {
+    constructor(port: number = 8080, host: string = "0.0.0.0") {
         // ИСПРАВЛЕНО: Настройка WebSocketServer с правильной обработкой upgrade
         this.wss = new WebSocketServer({
             port,

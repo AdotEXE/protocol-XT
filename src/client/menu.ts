@@ -4616,7 +4616,7 @@ export class MainMenu {
             return;
         }
 
-        console.log("[Menu] 🔧 MultiplayerManager не найден, создаем новый...");
+        // MultiplayerManager будет создан автоматически
 
         try {
             const { MultiplayerManager } = await import("./multiplayer");
@@ -7777,7 +7777,7 @@ export class MainMenu {
 
         // Если MultiplayerManager не найден, пытаемся создать его
         if (!multiplayerManager && game) {
-            console.log(`[Menu] MultiplayerManager не найден, пытаемся создать...`);
+            // MultiplayerManager не найден, создаём автоматически
             try {
                 // Импортируем и создаем MultiplayerManager
                 import("./multiplayer").then(({ MultiplayerManager }) => {
@@ -7845,7 +7845,7 @@ export class MainMenu {
             // Игра еще не инициализирована - это нормально, просто не показываем предупреждение
             console.log(`[Menu] Игра еще не инициализирована, список комнат будет настроен позже`);
         } else {
-            console.warn(`[Menu] ⚠️ MultiplayerManager не найден и не удалось создать`);
+            // MultiplayerManager будет создан при открытии мультиплеера
         }
 
         // Quick Play
@@ -11062,12 +11062,12 @@ export class MainMenu {
         const multiplayerManager = game?.multiplayerManager;
 
         if (!multiplayerManager) {
-            console.warn("[Menu] MultiplayerManager не найден");
+            console.log("[Menu] MultiplayerManager не готов, ожидаем...");
             return;
         }
 
         if (!multiplayerManager.isConnected()) {
-            console.warn("[Menu] Не подключено к серверу");
+            console.log("[Menu] Ожидаем подключения к серверу...");
             return;
         }
 
@@ -11554,21 +11554,30 @@ export class MainMenu {
     /**
      * Настройка callbacks для лобби
      */
+    private _lobbyCallbackRetries: number = 0;
+    
     setupLobbyCallbacks(): void {
         const game = (window as any).gameInstance as any;
         const multiplayerManager = game?.multiplayerManager;
 
         if (!multiplayerManager) {
-            console.warn("[Menu] ❌ MultiplayerManager не найден для настройки лобби, повторная попытка через 1 секунду...");
-            // Попробуем позже
-            setTimeout(() => this.setupLobbyCallbacks(), 1000);
+            this._lobbyCallbackRetries++;
+            // Логируем только первую попытку, остальные молча
+            if (this._lobbyCallbackRetries === 1) {
+                console.log("[Menu] 🔧 MultiplayerManager ещё не создан, ожидаем...");
+            }
+            // Попробуем позже (максимум 10 попыток)
+            if (this._lobbyCallbackRetries < 10) {
+                setTimeout(() => this.setupLobbyCallbacks(), 1000);
+            }
             return;
         }
 
+        // Сбрасываем счётчик при успехе
+        this._lobbyCallbackRetries = 0;
+        
         const isConnected = multiplayerManager.isConnected();
-        console.log("[Menu] 🔧 Настройка callbacks для лобби, подключен:", isConnected);
-        console.log("[Menu] 🔧 MultiplayerManager:", multiplayerManager);
-        console.log("[Menu] 🔧 Метод getOnlinePlayers:", typeof multiplayerManager.getOnlinePlayers);
+        console.log("[Menu] ✅ MultiplayerManager найден, подключен:", isConnected);
 
         // Настраиваем callback для списка игроков (логирование отключено для уменьшения спама)
         multiplayerManager.onOnlinePlayersList((data: { players?: any[] }) => {
