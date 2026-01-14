@@ -4648,10 +4648,8 @@ export class MainMenu {
     }
 
     private attachDirectButtonHandlers(): void {
-        console.log("[Menu] ====== attachDirectButtonHandlers() CALLED ======");
         // Предотвращаем множественную привязку обработчиков
         if (this.buttonHandlersAttached) {
-            console.log("[Menu] Button handlers already attached, skipping");
             if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
                 logger.debug("[Menu] Button handlers already attached");
             }
@@ -4659,7 +4657,6 @@ export class MainMenu {
         }
 
         try {
-            console.log("[Menu] Attaching button handlers...");
             // Добавляем обработчики напрямую на каждую кнопку для максимальной надежности
             const buttons = [
                 { id: "btn-play", handler: () => this.showPlayMenu() },
@@ -4669,7 +4666,6 @@ export class MainMenu {
                 { id: "btn-stats", handler: () => this.showStats() },
                 {
                     id: "btn-map-editor", handler: () => {
-                        console.log("[Menu] btn-map-editor clicked!");
                         this.openMapEditor().catch((error) => {
                             console.error("[Menu] Unhandled error in openMapEditor:", error);
                         });
@@ -4694,14 +4690,6 @@ export class MainMenu {
                         return;
                     }
 
-                    // Специальное логирование для кнопки редактора карт
-                    if (id === "btn-map-editor") {
-                        console.log(`[Menu] ====== Attaching handler to ${id} ======`);
-                        console.log(`[Menu] Button found:`, btn);
-                        console.log(`[Menu] Button visible:`, btn.offsetWidth > 0 && btn.offsetHeight > 0);
-                        console.log(`[Menu] Button style pointerEvents:`, window.getComputedStyle(btn).pointerEvents);
-                    }
-
                     if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
                         logger.verbose(`[Menu] Attaching handler to button ${id}`);
                     }
@@ -4721,12 +4709,6 @@ export class MainMenu {
                     newBtn.style.zIndex = "10000";
                     newBtn.style.position = "relative";
 
-                    // Специальная проверка для кнопки редактора карт
-                    if (id === "btn-map-editor") {
-                        console.log(`[Menu] New button created:`, newBtn);
-                        console.log(`[Menu] New button style pointerEvents:`, newBtn.style.pointerEvents);
-                    }
-
                     // Блокируем canvas перед добавлением обработчика
                     const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
                     if (canvas) {
@@ -4738,7 +4720,6 @@ export class MainMenu {
                     if (id === "btn-login" || id === "btn-register" || id === "btn-map-editor") {
                         // Обработчик mousedown - срабатывает первым
                         newBtn.addEventListener("mousedown", (e) => {
-                            console.log(`[Menu] Button ${id} mousedown event!`);
                             if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
                                 logger.verbose(`[Menu] Button ${id} mousedown`);
                             }
@@ -4755,7 +4736,6 @@ export class MainMenu {
                                 e.stopImmediatePropagation();
 
                                 // Вызываем handler сразу
-                                console.log(`[Menu] Calling handler for ${id} from mousedown`);
                                 if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
                                     logger.verbose(`[Menu] Handler called/completed for ${id}`);
                                 }
@@ -4809,8 +4789,6 @@ export class MainMenu {
                         // Обработчик click для остальных кнопок
                         newBtn.addEventListener("click", (e) => {
                             try {
-                                console.log(`[Menu] Button ${id} clicked!`, e);
-
                                 // Блокируем canvas
                                 const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
                                 if (canvas) {
@@ -9458,7 +9436,6 @@ export class MainMenu {
         const changeModeBtn = document.getElementById("mp-room-panel-change-mode");
         if (changeModeBtn) {
             changeModeBtn.onclick = () => {
-                console.log("[Menu] Change mode button clicked");
                 // Закрываем панель комнаты и открываем выбор режима
                 this.hideAllPlayWindows();
                 this.showPlayWindow("mp-create-room-mode", 1, 1);
@@ -9470,7 +9447,6 @@ export class MainMenu {
         const changeMapBtn = document.getElementById("mp-room-panel-change-map");
         if (changeMapBtn) {
             changeMapBtn.onclick = () => {
-                console.log("[Menu] Change map button clicked");
                 // Закрываем панель комнаты и открываем выбор карты
                 this.hideAllPlayWindows();
                 // Сначала нужно выбрать режим (если не выбран), потом карту
@@ -9484,7 +9460,6 @@ export class MainMenu {
         const togglePrivateBtn = document.getElementById("mp-room-panel-toggle-private");
         if (togglePrivateBtn) {
             togglePrivateBtn.onclick = () => {
-                console.log("[Menu] Toggle private button clicked");
                 const game = (window as any).gameInstance;
                 if (game?.multiplayerManager) {
                     // TODO: Реализовать переключение приватности через сервер
@@ -9496,7 +9471,6 @@ export class MainMenu {
         const kickPlayerBtn = document.getElementById("mp-room-panel-kick-player");
         if (kickPlayerBtn) {
             kickPlayerBtn.onclick = () => {
-                console.log("[Menu] Kick player button clicked");
                 // Показываем список игроков для выбора кого кикнуть
                 const game = (window as any).gameInstance;
                 if (game?.multiplayerManager) {
@@ -11237,7 +11211,6 @@ export class MainMenu {
                 }
             }
         });
-        console.log("[Menu] Горячие клавиши лобби настроены (Ctrl+R, Ctrl+F)");
     }
 
     /**
@@ -11297,8 +11270,6 @@ export class MainMenu {
                 this.toggleLobbyPanel();
             }
         });
-
-        console.log("[Menu] Кнопка сворачивания лобби настроена");
     }
 
     /**
@@ -11387,8 +11358,6 @@ export class MainMenu {
                 }
             });
         }
-
-        console.log("[Menu] Чат лобби настроен");
     }
 
     /**

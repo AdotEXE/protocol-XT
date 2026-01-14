@@ -13,13 +13,12 @@ export function registerServiceWorker(): void {
                 window.location.hostname.includes('localhost');
   
   if (isDev) {
-    console.log('[SW] Service Worker disabled in development mode');
+    // Service Worker disabled in development mode - silent
     // Отключаем существующие ServiceWorker в dev режиме
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations().then((registrations) => {
         registrations.forEach((registration) => {
           registration.unregister();
-          console.log('[SW] Service Worker unregistered for dev mode');
         });
       });
     }
