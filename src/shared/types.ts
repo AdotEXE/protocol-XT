@@ -44,6 +44,9 @@ export interface PlayerInput {
     isShooting: boolean;
     timestamp: number;
     sequence?: number; // Sequence number for client-side prediction and server reconciliation
+    // CLIENT-AUTHORITATIVE POSITION: Клиент отправляет реальную позицию от Havok физики
+    position?: { x: number; y: number; z: number };
+    rotation?: number; // Y rotation of chassis
 }
 
 export interface ProjectileData {

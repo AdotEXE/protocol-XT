@@ -81,10 +81,10 @@ export class GameMultiplayerCallbacks {
     
     // Защита от частых hard corrections и циклов
     private lastHardCorrectionTime: number = 0;
-    private readonly HARD_CORRECTION_COOLDOWN = 500; // 500ms - минимальное время между hard corrections (увеличено с 200ms)
+    private readonly HARD_CORRECTION_COOLDOWN = 1000; // 1000ms - минимальное время между hard corrections для устранения дёрганья
     private _isReconciling: boolean = false; // Флаг для предотвращения повторных reconciliation во время текущей коррекции
     private lastReconciliationIgnoreTime: number = 0; // Время последней hard correction для временного игнорирования маленьких расхождений
-    private readonly RECONCILIATION_IGNORE_DURATION = 200; // 200ms - время игнорирования маленьких расхождений после hard correction (увеличено с 100ms)
+    private readonly RECONCILIATION_IGNORE_DURATION = 500; // 500ms - время игнорирования расхождений после hard correction для устранения дёрганья
     private reconciliationCount: number = 0; // Счётчик reconciliation для обработки первых нескольких при присоединении
     private readonly INITIAL_RECONCILIATION_COUNT = 3; // Первые 3 reconciliation при присоединении обрабатываем без проверки predictedState
 
@@ -683,9 +683,96 @@ export class GameMultiplayerCallbacks {
         });
     }
 
+    // =========================================================================
+    // НОВЫЙ ПОДХОД: СЕРВЕР = АВТОРИТЕТ (без client-side prediction)
+    // =========================================================================
+    // Клиент ВСЕГДА плавно интерполирует к серверной позиции.
+    // Это полностью устраняет дёрганье!
+    // =========================================================================
+    
+    // Целевая позиция от сервера для интерполяции локального игрока
+    private _localPlayerServerTarget: Vector3 = new Vector3(0, 0, 0);
+    private _localPlayerServerRotation: number = 0;
+    private _localPlayerServerTurretRotation: number = 0;
+    private _localPlayerServerAimPitch: number = 0;
+    private _hasLocalPlayerServerTarget: boolean = false;
+    private _isFirstServerUpdate: boolean = true;
+    
+    // Скорость интерполяции к серверу (настраиваемая)
+    // 0.15 = достигаем цели примерно за 100ms при 60 FPS
+    private readonly LOCAL_PLAYER_LERP_SPEED = 0.15;
+
     /**
-     * Handle server reconciliation for client-side prediction
-     * When server state differs significantly from predicted state, we need to correct
+     * ЛОКАЛЬНАЯ ФИЗИКА = АВТОРИТЕТ ДЛЯ ЛОКАЛЬНОГО ИГРОКА
+     * 
+     * КРИТИЧНО: НЕ корректируем позицию/вращение корпуса локального игрока!
+     * Сервер использует простую симуляцию, клиент - Havok физику.
+     * Они НИКОГДА не совпадут точно, и любая коррекция создаёт дёрганье.
+     * 
+     * Локальная Havok физика полностью управляет танком.
+     * Сервер нужен только для синхронизации позиции С ДРУГИМИ игроками.
+     */
+    updateLocalPlayerToServer(deltaTime: number): void {
+        const tank = this.deps.tank;
+        if (!tank || !tank.chassis || !tank.physicsBody || !this._hasLocalPlayerServerTarget) return;
+        
+        // =========================================================================
+        // ТОЛЬКО НАЧАЛЬНАЯ ТЕЛЕПОРТАЦИЯ ПРИ СПАВНЕ
+        // =========================================================================
+        if (this._isFirstServerUpdate) {
+            this._isFirstServerUpdate = false;
+            const body = tank.physicsBody;
+            const chassis = tank.chassis;
+            const targetPos = this._localPlayerServerTarget;
+            
+            try {
+                body.setMotionType(PhysicsMotionType.ANIMATED);
+                chassis.position.set(targetPos.x, chassis.position.y, targetPos.z);
+                chassis.rotation.y = this._localPlayerServerRotation;
+                chassis.computeWorldMatrix(true);
+                body.setLinearVelocity(new Vector3(0, 0, 0));
+                body.setAngularVelocity(new Vector3(0, 0, 0));
+                body.disablePreStep = false;
+                body.setMotionType(PhysicsMotionType.DYNAMIC);
+                setTimeout(() => {
+                    if (tank.physicsBody) {
+                        tank.physicsBody.disablePreStep = true;
+                    }
+                }, 0);
+                console.log(`%c[Multiplayer] Initial spawn at (${targetPos.x.toFixed(1)}, ${targetPos.z.toFixed(1)})`, 'color: #22c55e; font-weight: bold;');
+            } catch (e) {
+                console.error("[updateLocalPlayerToServer] Spawn teleport error:", e);
+            }
+            
+            // Башня и ствол при спавне
+            if (tank.turret) {
+                tank.turret.rotation.y = this._localPlayerServerTurretRotation;
+            }
+            if (tank.barrel) {
+                tank.barrel.rotation.x = -(this._localPlayerServerAimPitch || 0);
+            }
+            tank.aimPitch = this._localPlayerServerAimPitch;
+            return;
+        }
+        
+        // =========================================================================
+        // ПОСЛЕ СПАВНА: НИЧЕГО НЕ ДЕЛАЕМ!
+        // =========================================================================
+        // Локальная физика Havok полностью управляет танком.
+        // Это обеспечивает ИДЕНТИЧНОЕ ощущение как в одиночке.
+        // Никаких коррекций позиции, никаких коррекций вращения корпуса.
+        // 
+        // Башню и ствол тоже НЕ синхронизируем - они управляются локально.
+        // Сервер получает их состояние через input и отправляет другим игрокам.
+    }
+
+    // Счётчики для логирования (раз в секунду)
+    private _reconciliationLogCounter = 0;
+    private _localPlayerLogCounter = 0;
+    
+    /**
+     * УПРОЩЁННЫЙ handleReconciliation: просто сохраняем серверную позицию
+     * Фактическая интерполяция происходит в updateLocalPlayerToServer()
      */
     private handleReconciliation(data: {
         serverState?: PlayerData;
@@ -695,368 +782,41 @@ export class GameMultiplayerCallbacks {
         rotationDiff?: number;
         needsReapplication?: boolean;
     }): void {
-        const tank = this.deps.tank;
-        // КРИТИЧНО: Базовая проверка - только для критичных компонентов
-        // serverState проверяется ниже с fallback, поэтому не прерываем здесь
-        if (!tank || !tank.chassis || !tank.physicsBody) return;
-
-        // КРИТИЧНО: Учитываем погрешность квантования при сравнении
-        // Позиции квантуются с точностью 0.1 единицы (INT16_POS)
-        // Углы квантуются с точностью 0.001 радиан (INT16_ROT) ≈ 0.057 градусов
-        const QUANTIZATION_ERROR_POS = 0.25; // 0.1 единицы + увеличенный запас для предотвращения ложных reconciliation
-        const QUANTIZATION_ERROR_ROT = 0.002; // 0.001 радиан + небольшой запас
-        const HARD_CORRECTION_THRESHOLD = 10.0; // Instant teleport if > 10 units difference (увеличено с 5.0 для уменьшения частых телепортаций)
-        const SOFT_CORRECTION_THRESHOLD = 2.0; // Smooth interpolation if > 2.0 units (увеличено с 1.0 для более плавного движения)
-        const LARGE_DIFF_THRESHOLD = 10.0; // Большое расхождение - требует диагностики
-        const CRITICAL_DIFF_THRESHOLD = 20.0; // Критическое расхождение - возможно проблема с сетью или данными
-
-        // КРИТИЧНО: Вычисляем posDiff на основе текущей позиции танка, если predictedState отсутствует
-        // Это важно при присоединении к идущей игре, когда predictedState может быть null
-        let posDiff = data.positionDiff || 0;
-        let rotationDiff = data.rotationDiff || 0;
+        if (!data.serverState || !data.serverState.position) return;
         
-        // Мягкая валидация serverState с fallback значениями
-        let serverPosVec: Vector3;
-        if (!data.serverState || !data.serverState.position) {
-            logger.warn(`[Reconciliation] Invalid serverState, using current tank position as fallback`);
-            // Используем текущую позицию танка как fallback
-            serverPosVec = tank.chassis.position.clone();
-        } else {
-            const serverPos = data.serverState.position;
-            // Проверяем, что serverPos - это Vector3 или объект с x, y, z
-            if (serverPos instanceof Vector3) {
-                serverPosVec = serverPos;
-            } else if (serverPos && typeof serverPos === 'object' && 'x' in serverPos && 'y' in serverPos && 'z' in serverPos) {
-                const pos = serverPos as { x: number; y: number; z: number };
-                if (typeof pos.x === 'number' && typeof pos.y === 'number' && typeof pos.z === 'number' && 
-                    isFinite(pos.x) && isFinite(pos.y) && isFinite(pos.z)) {
-                    serverPosVec = new Vector3(pos.x, pos.y, pos.z);
-                } else {
-                    logger.warn(`[Reconciliation] Invalid serverPos values, using current tank position as fallback:`, serverPos);
-                    // Используем текущую позицию танка как fallback
-                    serverPosVec = tank.chassis.position.clone();
-                }
+        const serverPos = data.serverState.position;
+        
+        // Безопасное получение серверной позиции
+        if (serverPos instanceof Vector3) {
+            this._localPlayerServerTarget = serverPos.clone();
+        } else if (serverPos && typeof serverPos === 'object' && 'x' in serverPos && 'y' in serverPos && 'z' in serverPos) {
+            const pos = serverPos as { x: number; y: number; z: number };
+            if (typeof pos.x === 'number' && typeof pos.y === 'number' && typeof pos.z === 'number' && 
+                isFinite(pos.x) && isFinite(pos.y) && isFinite(pos.z)) {
+                this._localPlayerServerTarget = new Vector3(pos.x, pos.y, pos.z);
             } else {
-                logger.warn(`[Reconciliation] Invalid serverPos format, using current tank position as fallback:`, serverPos);
-                // Используем текущую позицию танка как fallback
-                serverPosVec = tank.chassis.position.clone();
-            }
-        }
-        
-        // Безопасное получение значений с fallback
-        const serverRot = (data.serverState?.rotation ?? tank.chassis.rotation.y) || 0;
-        const serverTurretRotation = data.serverState?.turretRotation ?? (tank.turret ? tank.turret.rotation.y : 0);
-        const serverAimPitch = data.serverState?.aimPitch ?? (tank.aimPitch ?? 0);
-        
-        // КРИТИЧНО: Если posDiff не был вычислен (predictedState отсутствует), вычисляем его на основе текущей позиции
-        // Это критично при присоединении к идущей игре, когда predictedState может быть null
-        if (posDiff === 0 && data.serverState && data.serverState.position) {
-            // Вычисляем реальное расхождение между текущей позицией танка и серверной позицией
-            // КРИТИЧНО: Используем только X и Z для расчета расхождения!
-            // Сервер не знает высоту террейна, поэтому Y всегда = 1.0 (высота спавна)
-            // Клиент имеет реальную Y на основе физики и террейна
-            const currentPos = tank.getCachedChassisPosition ? tank.getCachedChassisPosition() : tank.chassis.position;
-            // 2D distance (X, Z only) - игнорируем Y для reconciliation
-            const dx = currentPos.x - serverPosVec.x;
-            const dz = currentPos.z - serverPosVec.z;
-            posDiff = Math.sqrt(dx * dx + dz * dz);
-            
-            // Вычисляем расхождение вращения
-            const currentRot = tank.chassis.rotation.y;
-            rotationDiff = Math.abs(serverRot - currentRot);
-            // Normalize rotation difference to [-PI, PI]
-            while (rotationDiff > Math.PI) rotationDiff -= Math.PI * 2;
-            rotationDiff = Math.abs(rotationDiff);
-        }
-        
-        // КРИТИЧНО: При присоединении к идущей игре первые несколько reconciliation могут иметь
-        // критические расхождения из-за отсутствия predictedState или неправильной инициализации
-        // В этом случае применяем hard correction без проверки порогов
-        const isInitialReconciliation = this.reconciliationCount < this.INITIAL_RECONCILIATION_COUNT;
-        if (isInitialReconciliation && posDiff > 1.0) {
-            logger.log(`[Reconciliation] 🔄 Initial reconciliation check: reconciliationCount=${this.reconciliationCount}, posDiff=${posDiff.toFixed(2)}, applying hard correction`);
-            this.reconciliationCount++;
-            // При первых reconciliation применяем hard correction сразу, если расхождение большое
-            const now = Date.now();
-            this.lastHardCorrectionTime = now;
-            this.lastReconciliationIgnoreTime = now;
-            this.syncMetrics.recordReconciliation(true, posDiff);
-            
-            this._isReconciling = true;
-            try {
-                // Визуализация расхождения (если включена)
-                if (this.showReconciliationVisualization && this.deps.scene) {
-                    this.createReconciliationLine(tank.chassis.position.clone(), serverPosVec.clone(), Color3.Red());
-                }
-                
-                // Применяем hard correction
-                tank.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
-                tank.physicsBody.setLinearVelocity(new Vector3(0, 0, 0));
-                tank.physicsBody.setAngularVelocity(new Vector3(0, 0, 0));
-                
-                // КРИТИЧНО: Сохраняем Y клиента! Сервер не знает высоту террейна
-                // Корректируем только X и Z от сервера
-                const clientY = tank.chassis.position.y;
-                const correctedPos = new Vector3(serverPosVec.x, clientY, serverPosVec.z);
-                tank.chassis.position.copyFrom(correctedPos);
-                tank.chassis.rotation.y = serverRot;
-                
-                if (tank.turret) {
-                    tank.turret.rotation.y = serverTurretRotation;
-                }
-                if (tank.barrel) {
-                    tank.barrel.rotation.x = -(serverAimPitch || 0);
-                }
-                tank.aimPitch = serverAimPitch;
-                
-                tank.chassis.computeWorldMatrix(true);
-                
-                const targetQuaternion = Quaternion.FromEulerAngles(0, serverRot, 0);
-                if (tank.physicsBody.setTargetTransform) {
-                    tank.physicsBody.setTargetTransform(correctedPos, targetQuaternion);
-                }
-                
-                tank.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
-                tank.physicsBody.setLinearVelocity(new Vector3(0, 0, 0));
-                tank.physicsBody.setAngularVelocity(new Vector3(0, 0, 0));
-                
-                if (tank.updatePositionCache) {
-                    tank.updatePositionCache();
-                }
-                
-                logger.log(`[Reconciliation] ✅ Initial reconciliation #${this.reconciliationCount}: posDiff=${posDiff.toFixed(2)}, teleported to server position`);
-            } finally {
-                this._isReconciling = false;
-            }
-            return; // Выходим после initial reconciliation
-        }
-        
-        // КРИТИЧНО: Обработка очень больших расхождений с диагностикой
-        if (posDiff > CRITICAL_DIFF_THRESHOLD) {
-            // Критическое расхождение - возможно проблема с сетью, данными или физикой
-            logger.error(`[Reconciliation] ⚠️ КРИТИЧЕСКОЕ расхождение: ${posDiff.toFixed(2)} единиц! Возможные причины: проблема с сетью, потеря пакетов, расхождение физики. ServerPos=(${serverPosVec.x.toFixed(1)}, ${serverPosVec.y.toFixed(1)}, ${serverPosVec.z.toFixed(1)}), LocalPos=(${tank.chassis.position.x.toFixed(1)}, ${tank.chassis.position.y.toFixed(1)}, ${tank.chassis.position.z.toFixed(1)})`);
-            
-            // Дополнительная диагностика (опциональная, не блокирует reconciliation)
-            const predictedPos = data.predictedState?.position;
-            if (predictedPos) {
-                // Проверяем, что predictedPos - это Vector3 или объект с x, y, z
-                let predVec: Vector3 | null = null;
-                if (predictedPos instanceof Vector3) {
-                    predVec = predictedPos;
-                } else if (predictedPos && typeof predictedPos === 'object' && 'x' in predictedPos && 'y' in predictedPos && 'z' in predictedPos) {
-                    const pos = predictedPos as { x: number; y: number; z: number };
-                    if (typeof pos.x === 'number' && typeof pos.y === 'number' && typeof pos.z === 'number' && 
-                        isFinite(pos.x) && isFinite(pos.y) && isFinite(pos.z)) {
-                        predVec = new Vector3(pos.x, pos.y, pos.z);
-                    } else {
-                        logger.warn(`[Reconciliation] Invalid predictedPos values, skipping diagnostics:`, predictedPos);
-                    }
-                } else {
-                    logger.warn(`[Reconciliation] Invalid predictedPos format, skipping diagnostics:`, predictedPos);
-                }
-                
-                // Выполняем диагностику только если predVec валиден
-                if (predVec) {
-                    const diffFromPredicted = Vector3.Distance(predVec, serverPosVec);
-                    if (isFinite(diffFromPredicted) && !isNaN(diffFromPredicted)) {
-                        logger.error(`[Reconciliation] PredictedPos=(${predVec.x.toFixed(1)}, ${predVec.y.toFixed(1)}, ${predVec.z.toFixed(1)}), diff from predicted=${diffFromPredicted.toFixed(2)}`);
-                    } else {
-                        logger.error(`[Reconciliation] PredictedPos=(${predVec.x.toFixed(1)}, ${predVec.y.toFixed(1)}, ${predVec.z.toFixed(1)}), diff from predicted=NaN (invalid calculation)`);
-                    }
-                }
-            }
-        } else if (posDiff > LARGE_DIFF_THRESHOLD) {
-            // Большое расхождение - логируем для диагностики
-            logger.warn(`[Reconciliation] ⚠️ Большое расхождение: ${posDiff.toFixed(2)} единиц. ServerPos=(${serverPosVec.x.toFixed(1)}, ${serverPosVec.y.toFixed(1)}, ${serverPosVec.z.toFixed(1)}), LocalPos=(${tank.chassis.position.x.toFixed(1)}, ${tank.chassis.position.y.toFixed(1)}, ${tank.chassis.position.z.toFixed(1)})`);
-        }
-
-        // КРИТИЧНО: Игнорируем маленькие различия, которые могут быть из-за квантования
-        // Увеличиваем порог игнорирования для предотвращения постоянных микро-коррекций
-        const IGNORE_THRESHOLD = QUANTIZATION_ERROR_POS * 2; // 0.5 единиц - игнорируем очень маленькие расхождения
-        if (posDiff <= IGNORE_THRESHOLD) {
-            // Разница меньше порога игнорирования - предсказание достаточно точное
-            // Но все равно синхронизируем башню, если есть расхождения
-            const turretDiff = Math.abs((serverTurretRotation - (tank.turret?.rotation.y || 0)) % (Math.PI * 2));
-            const aimPitchDiff = Math.abs(serverAimPitch - (tank.aimPitch || 0));
-            
-            // Синхронизируем башню только если расхождение больше погрешности квантования
-            if (turretDiff > QUANTIZATION_ERROR_ROT || aimPitchDiff > QUANTIZATION_ERROR_ROT) {
-                if (tank.turret) {
-                    tank.turret.rotation.y = serverTurretRotation;
-                }
-                if (tank.barrel) {
-                    tank.barrel.rotation.x = -(serverAimPitch || 0);
-                }
-                tank.aimPitch = serverAimPitch;
-            }
-            return;
-        }
-
-        // КРИТИЧНО: Предотвращаем повторные reconciliation во время текущей коррекции
-        if (this._isReconciling) {
-            return;
-        }
-        
-        // КРИТИЧНО: После hard correction временно игнорируем маленькие расхождения
-        const now = Date.now();
-        const timeSinceLastHardCorrection = now - this.lastReconciliationIgnoreTime;
-        if (timeSinceLastHardCorrection < this.RECONCILIATION_IGNORE_DURATION && posDiff < 2.0) {
-            // Игнорируем маленькие расхождения в течение 200ms после hard correction (увеличено с 1.0 до 2.0)
-            return;
-        }
-
-        // Записываем метрики
-        const turretDiff = Math.abs((serverTurretRotation - (tank.turret?.rotation.y || 0)) % (Math.PI * 2));
-        this.syncMetrics.recordRotationDiff(rotationDiff, turretDiff);
-        
-        if (posDiff > HARD_CORRECTION_THRESHOLD) {
-            // Hard correction - teleport to server position
-            // КРИТИЧНО: Синхронизируем physics body с визуальной позицией
-            
-            // КРИТИЧНО: Проверяем cooldown для предотвращения частых hard corrections
-            const timeSinceLastHardCorrectionCheck = now - this.lastHardCorrectionTime;
-            if (timeSinceLastHardCorrectionCheck < this.HARD_CORRECTION_COOLDOWN) {
-                // Используем soft correction вместо hard, если cooldown не прошёл
-                // Это предотвращает циклы дёргания
-                if (data.needsReapplication && posDiff > SOFT_CORRECTION_THRESHOLD) {
-                    // Продолжаем к soft correction ниже (код будет применён после этого блока)
-                    this.syncMetrics.recordReconciliation(false, posDiff);
-                } else {
-                    return; // Расхождение слишком маленькое для коррекции
-                }
-            } else {
-                // Hard correction разрешена
-                this.lastHardCorrectionTime = now;
-                this.lastReconciliationIgnoreTime = now;
-                
-                // Записываем метрики reconciliation
-                this.syncMetrics.recordReconciliation(true, posDiff);
-                
-                this._isReconciling = true;
-                try {
-                    // Визуализация расхождения (если включена)
-                    if (this.showReconciliationVisualization && this.deps.scene) {
-                        this.createReconciliationLine(tank.chassis.position.clone(), serverPosVec.clone(), Color3.Red());
-                    }
-                    
-                    // Шаг 1: Переключаем в ANIMATED режим для синхронизации
-                    tank.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
-                    tank.physicsBody.setLinearVelocity(new Vector3(0, 0, 0));
-                    tank.physicsBody.setAngularVelocity(new Vector3(0, 0, 0));
-
-                    // Шаг 2: Устанавливаем визуальную позицию
-                    // КРИТИЧНО: Сохраняем Y клиента! Сервер не знает высоту террейна
-                    const clientYHard = tank.chassis.position.y;
-                    const correctedPosHard = new Vector3(serverPosVec.x, clientYHard, serverPosVec.z);
-                    tank.chassis.position.copyFrom(correctedPosHard);
-                    tank.chassis.rotation.y = serverRot;
-                    
-                    // КРИТИЧНО: Синхронизируем башню и ствол
-                    if (tank.turret) {
-                        tank.turret.rotation.y = serverTurretRotation;
-                    }
-                    if (tank.barrel) {
-                        tank.barrel.rotation.x = -(serverAimPitch || 0);
-                    }
-                    // Обновляем aimPitch для системы прицеливания
-                    tank.aimPitch = serverAimPitch;
-
-                    // Шаг 3: Обновляем WorldMatrix для синхронизации absolutePosition
-                    tank.chassis.computeWorldMatrix(true);
-
-                    // Шаг 4: Используем setTargetTransform для более плавной синхронизации physics body
-                    // Это предотвращает резкие переключения режимов и циклы дёргания
-                    const targetQuaternionHard = Quaternion.FromEulerAngles(0, serverRot, 0);
-                    if (tank.physicsBody.setTargetTransform) {
-                        tank.physicsBody.setTargetTransform(correctedPosHard, targetQuaternionHard);
-                    }
-                    
-                    // Шаг 5: Переключаем обратно в DYNAMIC режим
-                    tank.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
-                    tank.physicsBody.setLinearVelocity(new Vector3(0, 0, 0));
-                    tank.physicsBody.setAngularVelocity(new Vector3(0, 0, 0));
-
-                    // Шаг 6: Обновляем кэш позиций
-                    if (tank.updatePositionCache) {
-                        tank.updatePositionCache();
-                    }
-                    
-                    // ДИАГНОСТИКА: Логируем hard correction для больших расхождений
-                    if (posDiff > LARGE_DIFF_THRESHOLD) {
-                        logger.log(`[Reconciliation] ✅ Hard correction применена: posDiff=${posDiff.toFixed(2)}, rotationDiff=${rotationDiff.toFixed(3)}`);
-                    }
-                } finally {
-                    this._isReconciling = false;
-                }
-                return; // Hard correction применена, выходим
-            }
-        } else if (data.needsReapplication && posDiff > SOFT_CORRECTION_THRESHOLD) {
-            // Soft correction - smoothly interpolate towards server position
-            // КРИТИЧНО: Сохраняем Y клиента! Сервер не знает высоту террейна
-            // Интерполируем только X и Z
-            const clientYSoft = tank.chassis.position.y;
-            const correctedPosition = new Vector3(serverPosVec.x, clientYSoft, serverPosVec.z);
-            
-            // Адаптивная скорость интерполяции в зависимости от величины расхождения
-            // УМЕНЬШЕНО для более плавной коррекции и уменьшения дёргания
-            let LERP_SPEED: number;
-            if (posDiff < 2.0) {
-                // Маленькие расхождения (< 2 единиц): очень медленная интерполяция
-                LERP_SPEED = 0.1;
-            } else if (posDiff < 5.0) {
-                // Средние расхождения (2-5 единиц): медленная интерполяция
-                LERP_SPEED = 0.2;
-            } else {
-                // Большие расхождения (> 5 единиц): средняя интерполяция
-                LERP_SPEED = 0.3;
-            }
-            // Интерполируем только X и Z, Y остаётся от клиента
-            tank.chassis.position.x += (correctedPosition.x - tank.chassis.position.x) * LERP_SPEED;
-            tank.chassis.position.z += (correctedPosition.z - tank.chassis.position.z) * LERP_SPEED;
-
-            // Smoothly interpolate rotation
-            let currentRot = tank.chassis.rotation.y;
-            let targetRot = serverRot;
-            // Normalize angle difference
-            while (targetRot - currentRot > Math.PI) targetRot -= Math.PI * 2;
-            while (targetRot - currentRot < -Math.PI) targetRot += Math.PI * 2;
-            tank.chassis.rotation.y = currentRot + (targetRot - currentRot) * LERP_SPEED;
-            
-            // КРИТИЧНО: Плавно интерполируем башню и ствол
-            if (tank.turret) {
-                let currentTurretRot = tank.turret.rotation.y;
-                let targetTurretRot = serverTurretRotation;
-                // Normalize angle difference
-                while (targetTurretRot - currentTurretRot > Math.PI) targetTurretRot -= Math.PI * 2;
-                while (targetTurretRot - currentTurretRot < -Math.PI) targetTurretRot += Math.PI * 2;
-                tank.turret.rotation.y = currentTurretRot + (targetTurretRot - currentTurretRot) * LERP_SPEED;
-            }
-            if (tank.barrel) {
-                const currentAimPitch = -(tank.barrel.rotation.x || 0);
-                const targetAimPitch = serverAimPitch;
-                const newAimPitch = currentAimPitch + (targetAimPitch - currentAimPitch) * LERP_SPEED;
-                tank.barrel.rotation.x = -newAimPitch;
-            }
-            // Обновляем aimPitch для системы прицеливания
-            tank.aimPitch = serverAimPitch;
-
-            // КРИТИЧНО: Обновляем WorldMatrix после изменения позиции
-            tank.chassis.computeWorldMatrix(true);
-
-            // Обновляем кэш позиций
-            if (tank.updatePositionCache) {
-                tank.updatePositionCache();
-            }
-            
-            // ДИАГНОСТИКА: Логируем soft correction для больших расхождений
-            if (posDiff > LARGE_DIFF_THRESHOLD) {
-                logger.log(`[Reconciliation] ✅ Soft correction применена: posDiff=${posDiff.toFixed(2)}, rotationDiff=${rotationDiff.toFixed(3)}`);
+                return; // Невалидные данные - игнорируем
             }
         } else {
-            // Маленькое расхождение - все равно записываем для статистики
-            this.syncMetrics.recordPositionDiff(posDiff);
+            return; // Невалидный формат - игнорируем
         }
-        // If difference is small, do nothing - prediction was accurate
+        
+        // ЛОГИРОВАНИЕ: Показываем что получили данные от сервера (раз в секунду)
+        this._reconciliationLogCounter++;
+        if (this._reconciliationLogCounter % 60 === 0) {
+            console.log(`%c[Reconciliation] Server target: (${this._localPlayerServerTarget.x.toFixed(1)}, ${this._localPlayerServerTarget.y.toFixed(1)}, ${this._localPlayerServerTarget.z.toFixed(1)})`, 'color: #22c55e; font-weight: bold;');
+        }
+        
+        // Сохраняем серверные значения
+        this._localPlayerServerRotation = data.serverState.rotation || 0;
+        this._localPlayerServerTurretRotation = data.serverState.turretRotation || 0;
+        this._localPlayerServerAimPitch = data.serverState.aimPitch || 0;
+        this._hasLocalPlayerServerTarget = true;
+        
+        // Записываем метрики для статистики
+        if (data.positionDiff !== undefined) {
+            this.syncMetrics.recordPositionDiff(data.positionDiff);
+        }
     }
     
     /**

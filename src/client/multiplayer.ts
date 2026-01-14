@@ -381,7 +381,7 @@ export class MultiplayerManager {
         timestamp: number;
         sequence: number;
     }> = [];
-    private jitterBufferTargetDelay: number = 50; // Initial target delay (ms) - увеличено для стабильности
+    private jitterBufferTargetDelay: number = 30; // Initial target delay (ms) - уменьшено для быстрой синхронизации
     private jitterBufferMaxSize: number = 300; // Maximum buffer size - увеличено для предотвращения overflow
     private lastProcessedSequence: number = -1;
     private jitterBufferNeedsSort: boolean = false; // Flag to avoid unnecessary sorts
@@ -2391,20 +2391,27 @@ export class MultiplayerManager {
             networkPlayer.angularVelocity = playerData.angularVelocity ?? 0;
             networkPlayer.turretAngularVelocity = playerData.turretAngularVelocity ?? 0;
         } else if (deltaTime > 0 && deltaTime < 1) { // Valid delta time (0-1 second)
-            // Fallback: calculate velocity from position delta
+            // Fallback: calculate velocity from position delta with EWMA smoothing
             const posDelta = new Vector3(x, y, z).subtract(networkPlayer.position);
-            networkPlayer.velocity = posDelta.scale(1 / deltaTime); // Scale mutates, but that's OK here
+            const newVelocity = posDelta.scale(1 / deltaTime);
+            // EWMA smoothing - КРИТИЧНО уменьшено для МАКСИМАЛЬНОГО сглаживания (15% новое, 85% старое)
+            const VELOCITY_SMOOTHING = 0.15;
+            networkPlayer.velocity.x = networkPlayer.velocity.x * (1 - VELOCITY_SMOOTHING) + newVelocity.x * VELOCITY_SMOOTHING;
+            networkPlayer.velocity.y = networkPlayer.velocity.y * (1 - VELOCITY_SMOOTHING) + newVelocity.y * VELOCITY_SMOOTHING;
+            networkPlayer.velocity.z = networkPlayer.velocity.z * (1 - VELOCITY_SMOOTHING) + newVelocity.z * VELOCITY_SMOOTHING;
 
-            // Calculate angular velocities
+            // Calculate angular velocities with EWMA smoothing
             let rotDiff = rotation - networkPlayer.rotation;
             while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
             while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
-            networkPlayer.angularVelocity = rotDiff / deltaTime;
+            const newAngularVelocity = rotDiff / deltaTime;
+            networkPlayer.angularVelocity = networkPlayer.angularVelocity * (1 - VELOCITY_SMOOTHING) + newAngularVelocity * VELOCITY_SMOOTHING;
 
             let turretDiff = turretRotation - networkPlayer.turretRotation;
             while (turretDiff > Math.PI) turretDiff -= Math.PI * 2;
             while (turretDiff < -Math.PI) turretDiff += Math.PI * 2;
-            networkPlayer.turretAngularVelocity = turretDiff / deltaTime;
+            const newTurretAngularVelocity = turretDiff / deltaTime;
+            networkPlayer.turretAngularVelocity = networkPlayer.turretAngularVelocity * (1 - VELOCITY_SMOOTHING) + newTurretAngularVelocity * VELOCITY_SMOOTHING;
         } else {
             // Reset velocity if deltaTime is invalid
             networkPlayer.velocity.set(0, 0, 0);
@@ -2654,141 +2661,76 @@ export class MultiplayerManager {
      *    - Re-apply all unconfirmed inputs to get new predicted position
      * 4. Clean up confirmed states from history
      */
-    // Защита от частых reconciliation
-    private lastReconciliationTime: number = 0;
-    private readonly MIN_RECONCILIATION_INTERVAL = 150; // 150ms - минимальное время между reconciliation (увеличено с 50ms для уменьшения дёргания)
+    // =========================================================================
+    // НОВЫЙ ПОДХОД: СЕРВЕР = АВТОРИТЕТ (без client-side prediction)
+    // =========================================================================
+    // Клиент ВСЕГДА принимает серверную позицию как единственную правду.
+    // Это полностью устраняет дёрганье, но добавляет ~50-100ms визуальный лаг.
+    // Для танковой игры это приемлемо.
+    // =========================================================================
 
+    // Целевая позиция от сервера (к ней интерполируем)
+    private _serverTargetPosition: Vector3 = new Vector3(0, 0, 0);
+    private _serverTargetRotation: number = 0;
+    private _serverTargetTurretRotation: number = 0;
+    private _serverTargetAimPitch: number = 0;
+    private _hasServerTarget: boolean = false;
+
+    /**
+     * НОВЫЙ МЕТОД: Получить целевую позицию от сервера для интерполяции
+     */
+    getServerTargetState(): { 
+        position: Vector3; 
+        rotation: number; 
+        turretRotation: number;
+        aimPitch: number;
+        hasTarget: boolean 
+    } {
+        return {
+            position: this._serverTargetPosition.clone(),
+            rotation: this._serverTargetRotation,
+            turretRotation: this._serverTargetTurretRotation,
+            aimPitch: this._serverTargetAimPitch,
+            hasTarget: this._hasServerTarget
+        };
+    }
+
+    /**
+     * УПРОЩЁННАЯ reconciliation: просто обновляем серверную целевую позицию
+     * Клиент будет плавно интерполировать к ней в GameMultiplayerCallbacks
+     */
     private reconcileServerState(serverSequence: number | undefined, serverPlayerData: PlayerData | null): void {
-        if (serverSequence === undefined || serverSequence < 0 || !serverPlayerData) {
-            // No reconciliation needed if server doesn't send sequence or data
-            return;
-        }
-        
-        // КРИТИЧНО: Проверяем минимальный интервал между reconciliation
-        const now = Date.now();
-        const timeSinceLastReconciliation = now - this.lastReconciliationTime;
-        if (timeSinceLastReconciliation < this.MIN_RECONCILIATION_INTERVAL) {
-            // Пропускаем reconciliation, если прошло меньше MIN_RECONCILIATION_INTERVAL
+        if (!serverPlayerData || !serverPlayerData.position) {
             return;
         }
 
-        // Skip if this is an old/duplicate update
-        if (serverSequence <= this.predictionState.confirmedSequence) {
-            return;
+        // Обновляем серверную целевую позицию
+        this._serverTargetPosition = toVector3(serverPlayerData.position);
+        this._serverTargetRotation = serverPlayerData.rotation || 0;
+        this._serverTargetTurretRotation = serverPlayerData.turretRotation || 0;
+        this._serverTargetAimPitch = serverPlayerData.aimPitch || 0;
+        this._hasServerTarget = true;
+
+        // Обновляем confirmed sequence (для совместимости)
+        if (serverSequence !== undefined && serverSequence > this.predictionState.confirmedSequence) {
+            this.predictionState.confirmedSequence = serverSequence;
         }
-
-        // Check if we need to reconcile (server state differs from our prediction)
-        const predictedState = this.predictionState.predictedStates.get(serverSequence);
-        let needsReapplication = false;
-        let posDiff = 0;
-        let rotationDiff = 0;
-
-        if (predictedState) {
-            const serverPos = toVector3(serverPlayerData.position);
-            const predictedPos = predictedState.position;
-
-            // Calculate position difference
-            posDiff = Vector3.Distance(serverPos, predictedPos);
-            rotationDiff = Math.abs((serverPlayerData.rotation || 0) - predictedState.rotation);
-
-            // Normalize rotation difference to [-PI, PI]
-            while (rotationDiff > Math.PI) rotationDiff -= Math.PI * 2;
-            rotationDiff = Math.abs(rotationDiff);
-
-            // КРИТИЧНО: Учитываем погрешность квантования (0.1 единицы для позиций)
-            // Позиции квантуются с точностью 0.1 единицы, поэтому разница может быть из-за квантования
-            const QUANTIZATION_ERROR = 0.25; // 0.1 единицы + увеличенный запас для предотвращения ложных reconciliation
-            const POSITION_THRESHOLD = 0.5 + QUANTIZATION_ERROR; // 0.5 units + quantization error
-            const ROTATION_THRESHOLD = 0.1; // ~6 degrees
-
-            needsReapplication = posDiff > POSITION_THRESHOLD || rotationDiff > ROTATION_THRESHOLD;
-
-            // ДИАГНОСТИКА: Логируем reconciliation только при значительных расхождениях и только если включен debugSync
-            const DEBUG_SYNC = (window as any).gameSettings?.debugSync || localStorage.getItem("debugSync") === "true";
-            if (DEBUG_SYNC) {
-                if (needsReapplication) {
-                    logger.log(`[Multiplayer] Reconciliation needed: seq=${serverSequence}, posDiff=${posDiff.toFixed(2)} (threshold=${POSITION_THRESHOLD.toFixed(2)}), rotDiff=${rotationDiff.toFixed(2)}, serverPos=(${serverPos.x.toFixed(1)}, ${serverPos.y.toFixed(1)}, ${serverPos.z.toFixed(1)}), predictedPos=(${predictedPos.x.toFixed(1)}, ${predictedPos.y.toFixed(1)}, ${predictedPos.z.toFixed(1)})`);
-                } else if (posDiff > 0.1) {
-                    // Логируем маленькие расхождения для диагностики (но не reconciliation)
-                    logger.log(`[Multiplayer] Small position diff (within threshold): seq=${serverSequence}, posDiff=${posDiff.toFixed(3)}, threshold=${POSITION_THRESHOLD.toFixed(2)}`);
-                }
-            }
-        }
-
-        // Update confirmed sequence and last server state
-        this.predictionState.confirmedSequence = serverSequence;
         this.predictionState.lastServerState = serverPlayerData;
 
-        // Update last known position from server
-        this._lastKnownLocalPosition = toVector3(serverPlayerData.position);
-        this._lastKnownLocalRotation = serverPlayerData.rotation || 0;
+        // Обновляем last known position
+        this._lastKnownLocalPosition = this._serverTargetPosition.clone();
+        this._lastKnownLocalRotation = this._serverTargetRotation;
 
-        // Remove confirmed states from prediction history (batch deletion for efficiency)
-        const sequencesToRemove: number[] = [];
-        for (const seq of this.predictionState.predictedStates.keys()) {
-            if (seq <= serverSequence) {
-                sequencesToRemove.push(seq);
-            }
-        }
-
-        // Batch delete confirmed sequences
-        for (const seq of sequencesToRemove) {
-            this.predictionState.predictedStates.delete(seq);
-        }
-
-        // Clean up any remaining old states
-        this.cleanupOldPredictedStates();
-
-        // Get all unconfirmed sequences (after serverSequence)
-        const unconfirmedSequences = Array.from(this.predictionState.predictedStates.keys())
-            .filter(seq => seq > serverSequence)
-            .sort((a, b) => a - b);
-
-        // Collect unconfirmed inputs for re-application
-        const unconfirmedInputs: PlayerInput[] = [];
-        const unconfirmedStates: PredictedState[] = [];
-
-        for (const seq of unconfirmedSequences) {
-            const state = this.predictionState.predictedStates.get(seq);
-            if (state) {
-                unconfirmedStates.push(state);
-                if (state.input) {
-                    unconfirmedInputs.push(state.input);
-                }
-            }
-        }
-
-        // КРИТИЧНО: Если predictedState отсутствует, но есть серверная позиция, вычисляем расхождение
-        // на основе последней известной локальной позиции (для присоединения к идущей игре)
-        if (!predictedState && serverPlayerData && this._lastKnownLocalPosition) {
-            const serverPos = toVector3(serverPlayerData.position);
-            posDiff = Vector3.Distance(serverPos, this._lastKnownLocalPosition);
-            rotationDiff = Math.abs((serverPlayerData.rotation || 0) - this._lastKnownLocalRotation);
-            // Normalize rotation difference
-            while (rotationDiff > Math.PI) rotationDiff -= Math.PI * 2;
-            rotationDiff = Math.abs(rotationDiff);
-            
-            // Если расхождение большое, считаем что нужна reconciliation
-            if (posDiff > 0.5) {
-                needsReapplication = true;
-            }
-        }
-        
-        // Always trigger callback if we have significant difference or unconfirmed states
+        // ВСЕГДА вызываем callback - клиент должен интерполировать к серверу
         if (this.onReconciliationCallback) {
-            if (needsReapplication || unconfirmedStates.length > 0 || (!predictedState && posDiff > 0.5)) {
-                // Обновляем время последней reconciliation
-                this.lastReconciliationTime = now;
-                
-                this.onReconciliationCallback({
-                    serverState: serverPlayerData,
-                    predictedState: predictedState,
-                    unconfirmedStates: unconfirmedStates.length > 0 ? unconfirmedStates : undefined,
-                    positionDiff: posDiff,
-                    rotationDiff: rotationDiff,
-                    needsReapplication: needsReapplication || (!predictedState && posDiff > 0.5)
-                });
-            }
+            this.onReconciliationCallback({
+                serverState: serverPlayerData,
+                predictedState: undefined, // Больше не используем prediction
+                unconfirmedStates: undefined,
+                positionDiff: 0, // Не вычисляем - всегда принимаем сервер
+                rotationDiff: 0,
+                needsReapplication: true // Всегда применяем серверную позицию
+            });
         }
     }
 
@@ -2901,24 +2843,29 @@ export class MultiplayerManager {
      * @param mode - Game mode (ffa, tdm, coop, battle_royale, ctf)
      * @param maxPlayers - Maximum number of players (default: 32)
      * @param isPrivate - Whether the room is private (default: false, always creates public rooms)
+     * @param mapType - Map type (normal, desert, etc)
+     * @param enableBots - Enable bots in the room (default: false)
+     * @param botCount - Number of bots (0 = auto based on players)
      * @returns True if room creation request was sent, false if not connected
      */
-    createRoom(mode: GameMode, maxPlayers: number = 32, isPrivate: boolean = false, mapType?: string): boolean {
+    createRoom(mode: GameMode, maxPlayers: number = 32, isPrivate: boolean = false, mapType?: string, enableBots: boolean = false, botCount: number = 0): boolean {
         // Log mapType to debug why it might be missing/wrong
-        logger.log(`[Multiplayer] createRoom called with mapType: '${mapType}' (type: ${typeof mapType})`);
+        logger.log(`[Multiplayer] createRoom called with mapType: '${mapType}' (type: ${typeof mapType}), enableBots=${enableBots}, botCount=${botCount}`);
 
         if (!this.connected) {
             logger.warn("[Multiplayer] Cannot create room: not connected to server");
             return false;
         }
 
-        logger.log(`[Multiplayer] Creating room: mode=${mode}, maxPlayers=${maxPlayers}, isPrivate=${isPrivate}, mapType=${mapType}`);
+        logger.log(`[Multiplayer] Creating room: mode=${mode}, maxPlayers=${maxPlayers}, isPrivate=${isPrivate}, mapType=${mapType}, enableBots=${enableBots}, botCount=${botCount}`);
         // ВАЖНО: Убеждаемся, что комната публичная (isPrivate=false), чтобы её видели другие игроки
         this.send(createClientMessage(ClientMessageType.CREATE_ROOM, {
             mode,
             maxPlayers,
             isPrivate: false, // Всегда создаем публичные комнаты для видимости
-            mapType: mapType || "normal" // Передаем тип карты
+            mapType: mapType || "normal", // Передаем тип карты
+            enableBots, // Боты включены/выключены
+            botCount // Количество ботов
         }));
         return true;
     }

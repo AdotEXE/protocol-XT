@@ -6908,6 +6908,24 @@ export class MainMenu {
                             <span class="map-card-name">${L.tartariaMap || "Тартария"}</span>
                         </div>
                     </div>
+                    
+                    <!-- Настройки ботов -->
+                    <div class="bot-settings" style="margin-top: 15px; padding: 12px; background: rgba(0, 0, 0, 0.3); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1);">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: #fff; font-size: 14px;">
+                                <input type="checkbox" id="mp-enable-bots" style="width: 18px; height: 18px; cursor: pointer;">
+                                <span>🤖 Включить ботов</span>
+                            </label>
+                        </div>
+                        <div id="mp-bot-count-wrapper" style="display: none; margin-top: 10px;">
+                            <label style="color: #aaa; font-size: 12px; display: block; margin-bottom: 5px;">Количество ботов:</label>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <input type="range" id="mp-bot-count" min="1" max="16" value="4" style="flex: 1; cursor: pointer;">
+                                <span id="mp-bot-count-value" style="color: #4ade80; font-weight: bold; min-width: 30px; text-align: center;">4</span>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <!-- Кнопка "Создать комнату" -->
                     <div class="panel-buttons" style="margin-top: 20px; display: flex; gap: 10px;">
                         <button class="panel-btn primary" id="mp-create-room-start-btn" onclick="window.startMpCreateRoom()" style="flex: 1; padding: 14px; font-size: 16px; font-weight: bold; background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%); border: none;">
@@ -14591,6 +14609,27 @@ export class MainMenu {
     }
 };
 
+// Инициализация обработчиков настроек ботов при загрузке DOM
+document.addEventListener("DOMContentLoaded", () => {
+    // Обработчик чекбокса "Включить ботов"
+    const enableBotsCheckbox = document.getElementById("mp-enable-bots") as HTMLInputElement;
+    const botCountWrapper = document.getElementById("mp-bot-count-wrapper");
+    const botCountSlider = document.getElementById("mp-bot-count") as HTMLInputElement;
+    const botCountValue = document.getElementById("mp-bot-count-value");
+    
+    if (enableBotsCheckbox && botCountWrapper) {
+        enableBotsCheckbox.addEventListener("change", () => {
+            botCountWrapper.style.display = enableBotsCheckbox.checked ? "block" : "none";
+        });
+    }
+    
+    if (botCountSlider && botCountValue) {
+        botCountSlider.addEventListener("input", () => {
+            botCountValue.textContent = botCountSlider.value;
+        });
+    }
+});
+
 // Глобальная функция для запуска создания комнаты
 (window as any).startMpCreateRoom = async function () {
     console.log("[Menu] startMpCreateRoom called");
@@ -14677,14 +14716,22 @@ export class MainMenu {
             }
         });
 
-        // Создаем комнату через multiplayerManager напрямую с mapType
+        // Получаем настройки ботов
+        const enableBotsCheckbox = document.getElementById("mp-enable-bots") as HTMLInputElement;
+        const botCountSlider = document.getElementById("mp-bot-count") as HTMLInputElement;
+        const enableBots = enableBotsCheckbox?.checked || false;
+        const botCount = enableBots ? parseInt(botCountSlider?.value || "4", 10) : 0;
+        
+        console.log(`[Menu] 🤖 Bot settings: enableBots=${enableBots}, botCount=${botCount}`);
+        
+        // Создаем комнату через multiplayerManager напрямую с mapType и настройками ботов
         try {
-            const success = multiplayerManager.createRoom(mode as any, 32, false, mapType);
+            const success = multiplayerManager.createRoom(mode as any, 32, false, mapType, enableBots, botCount);
             if (!success) {
                 console.error("[Menu] Failed to create room");
                 alert("Не удалось создать комнату. Проверьте подключение.");
             } else {
-                console.log("[Menu] Room creation request sent:", mode, mapType);
+                console.log("[Menu] Room creation request sent:", mode, mapType, "bots:", enableBots, botCount);
             }
         } catch (error) {
             console.error("[Menu] Error creating room:", error);

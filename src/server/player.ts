@@ -27,6 +27,12 @@ export class ServerPlayer {
     private lastTurretRotation: number = 0;
     private lastVelocityUpdateTime: number = Date.now();
     
+    // =========================================================================
+    // ИНЕРЦИЯ: Плавное движение для устранения дёрганья
+    // =========================================================================
+    smoothThrottle: number = 0;  // Текущая сглаженная скорость газа
+    smoothSteer: number = 0;     // Текущий сглаженный поворот
+    
     // Stats
     kills: number = 0;
     deaths: number = 0;

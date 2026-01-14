@@ -429,16 +429,20 @@ export class GameServer {
     }
 
     private handleCreateRoom(player: ServerPlayer, data: any): void {
-        const { mode, maxPlayers, isPrivate, settings, worldSeed, mapType } = data;
+        const { mode, maxPlayers, isPrivate, settings, worldSeed, mapType, enableBots, botCount } = data;
 
         // Генерируем простой ID комнаты (0001, 0002, и т.д.)
         this.roomCounter++;
         const roomId = String(this.roomCounter).padStart(4, '0');
         serverLogger.log(`[Server] 🔧 Генерация ID комнаты: roomCounter=${this.roomCounter}, roomId=${roomId}`);
-        serverLogger.log(`[Server] 📋 CREATE_ROOM: mode=${mode}, maxPlayers=${maxPlayers}, isPrivate=${isPrivate}, mapType=${mapType}`);
+        serverLogger.log(`[Server] 📋 CREATE_ROOM: mode=${mode}, maxPlayers=${maxPlayers}, isPrivate=${isPrivate}, mapType=${mapType}, enableBots=${enableBots}, botCount=${botCount}`);
 
         const room = new GameRoom(mode, maxPlayers, isPrivate, worldSeed, roomId, mapType);
         room.settings = settings || {};
+        
+        // Настройки ботов (по умолчанию отключены)
+        room.enableBots = enableBots === true;
+        room.botCount = typeof botCount === 'number' ? botCount : 0;
 
         // Проверяем, что ID комнаты правильный
         if (room.id !== roomId) {
@@ -455,7 +459,7 @@ export class GameServer {
             this.spatialGrids.set(room.id, new SpatialHashGrid(100));
 
             serverLogger.log(`[Server] ✅ Комната создана: ID=${room.id}, режим=${mode} (room.mode=${room.mode}), игроков=1/${maxPlayers}, создатель=${player.id} (${player.name}), seed=${room.worldSeed}`);
-            serverLogger.log(`[Server] 📋 Комната ${room.id} поддерживает ботов: ${room.mode === "coop" || room.mode === "ffa" || room.mode === "tdm" || room.mode === "survival" || room.mode === "raid" ? "ДА" : "НЕТ"}`);
+            serverLogger.log(`[Server] 📋 Комната ${room.id} боты: enableBots=${room.enableBots}, botCount=${room.botCount}`);
 
             this.send(player.socket, createServerMessage(ServerMessageType.ROOM_CREATED, {
                 roomId: room.id,
@@ -850,39 +854,10 @@ export class GameServer {
         const room = this.rooms.get(player.roomId);
         if (!room || !room.isActive) return;
 
-        // Rate limiting using RateLimiter (max 120 inputs per second - allows for some network bursts)
-        if (!this.rateLimiter.checkLimit(player.id, "input", 120)) {
-            const currentRate = this.rateLimiter.getRate(player.id, "input");
-            serverLogger.warn(`[Server] Input rate limit exceeded for player ${player.id}: ${currentRate} inputs/sec`);
+        // Rate limiting DISABLED - no restrictions on input frequency
+        // if (!this.rateLimiter.checkLimit(player.id, "input", 120)) { ... }
 
-            // NOTE: Anti-cheat disabled - just log rate limit violation
-            serverLogger.warn(`[Server] Rate limit exceeded for player ${player.id}: ${currentRate} inputs/sec`);
-            // Don't kick, just ignore the input
-            return;
-        }
-
-        // NOTE: Anti-cheat checks disabled
-        // Basic input validation only (to prevent crashes from invalid data)
-        // КРИТИЧНО: Для валидации используем фиксированный deltaTime (1/60)
-        // так как валидация должна быть консистентной независимо от реального FPS
-        // Реальный deltaTime используется в room.update() для обновления позиции
-        const deltaTime = 1 / 60; // Fixed delta time for validation consistency
-        const validation = InputValidator.validatePlayerInput(
-            data,
-            player.lastValidPosition,
-            player.position,
-            deltaTime
-        );
-
-        if (!validation.valid) {
-            serverLogger.warn(`[Server] Invalid input from player ${player.id}: ${validation.reason}`);
-            // Don't process invalid input, but don't disconnect player
-            return;
-        }
-
-        // ANTI-CHEAT DISABLED: Speed hack detection
-        // const speedHackCheck = InputValidator.detectSpeedHack(player.positionHistory, 40);
-        // if (speedHackCheck.suspicious) { ... }
+        // ALL VALIDATION DISABLED - accept all player input without checks
 
         // Update last valid position
         player.lastValidPosition = player.position.clone();
@@ -1084,20 +1059,8 @@ export class GameServer {
 
         if (player.status !== "alive") return;
 
-        // Rate limiting for shoots using RateLimiter (max 10 shots per second)
-        if (!this.rateLimiter.checkLimit(player.id, "shoot", 10)) {
-            const currentRate = this.rateLimiter.getRate(player.id, "shoot");
-            serverLogger.warn(`[Server] Shoot rate limit exceeded for player ${player.id}: ${currentRate} shots/sec`);
-            // NOTE: Anti-cheat disabled - just ignore the shoot
-            return;
-        }
-
-        // Basic validation only (to prevent crashes)
-        const validation = InputValidator.validateShootData(data);
-        if (!validation.valid) {
-            serverLogger.warn(`[Server] Invalid shoot data from player ${player.id}: ${validation.reason}`);
-            return;
-        }
+        // Rate limiting DISABLED - no restrictions on shooting
+        // Validation DISABLED - accept all shoot data
 
         // Create projectile on server
         const projId = nanoid();
@@ -1130,18 +1093,8 @@ export class GameServer {
     }
 
     private handleChatMessage(player: ServerPlayer, data: any): void {
-        // Rate limiting for chat messages (max 5 messages per second)
-        if (!this.rateLimiter.checkLimit(player.id, "chat", 5)) {
-            serverLogger.warn(`[Server] Chat rate limit exceeded for player ${player.id}`);
-            return;
-        }
-
-        // Validate chat message
-        const validation = InputValidator.validateChatMessage(data.message);
-        if (!validation.valid) {
-            serverLogger.warn(`[Server] Invalid chat message from player ${player.id}: ${validation.reason}`);
-            return;
-        }
+        // Rate limiting DISABLED - no chat restrictions
+        // Validation DISABLED - accept all chat messages
 
         const chatData = {
             playerId: player.id,

@@ -23,6 +23,10 @@ export class GameRoom {
     consumables: Map<string, ConsumableData> = new Map();
     enemies: Map<string, ServerEnemy> = new Map();
 
+    // Bot settings
+    enableBots: boolean = false; // По умолчанию боты ОТКЛЮЧЕНЫ
+    botCount: number = 0; // Количество ботов (0 = автоматически на основе игроков)
+
     // Game state
     isActive: boolean = false;
     matchStartTime: number = 0;
@@ -167,14 +171,13 @@ export class GameRoom {
             player.respawn(spawnPos, 100);
         });
 
-        // Spawn enemies for multiplayer modes (синхронизированные боты для всех режимов)
-        // В мультиплеере боты должны быть синхронизированы между всеми клиентами
-        serverLogger.log(`[Room] startMatch: режим=${this.mode}, проверка спавна ботов...`);
-        if (this.mode === "coop" || this.mode === "ffa" || this.mode === "tdm" || this.mode === "survival" || this.mode === "raid") {
-            serverLogger.log(`[Room] ✅ Режим ${this.mode} поддерживает ботов, запускаем spawnEnemies()...`);
+        // Spawn enemies for multiplayer modes (только если enableBots = true)
+        serverLogger.log(`[Room] startMatch: режим=${this.mode}, enableBots=${this.enableBots}, botCount=${this.botCount}`);
+        if (this.enableBots) {
+            serverLogger.log(`[Room] ✅ Боты включены, запускаем spawnEnemies()...`);
             this.spawnEnemies();
         } else {
-            serverLogger.log(`[Room] ⚠️ Режим ${this.mode} НЕ поддерживает ботов (поддерживаются: coop, ffa, tdm, survival, raid)`);
+            serverLogger.log(`[Room] ⚠️ Боты отключены (enableBots=false)`);
         }
     }
 
@@ -197,7 +200,8 @@ export class GameRoom {
 
     private spawnEnemies(): void {
         // Используем детерминированный спавн на основе worldSeed для синхронизации между клиентами
-        const enemyCount = Math.min(8, this.players.size * 2);
+        // Если botCount > 0 - используем указанное количество, иначе автоматически
+        const enemyCount = this.botCount > 0 ? this.botCount : Math.min(8, this.players.size * 2);
         const spawnRadius = 50;
 
         // Используем простой генератор случайных чисел на основе worldSeed для детерминированности
@@ -458,69 +462,33 @@ export class GameRoom {
     }
 
     private updatePlayerPosition(player: ServerPlayer, input: any, deltaTime: number): void {
-        // Store old position before update
+        // =========================================================================
+        // CLIENT-AUTHORITATIVE POSITION
+        // Клиент отправляет свою реальную позицию от Havok физики.
+        // Сервер принимает её и транслирует другим игрокам.
+        // Это гарантирует точную синхронизацию позиций между клиентами.
+        // =========================================================================
+        
         const oldPosition = player.position.clone();
-        // КРИТИЧНО: Используем константы из shared/types.ts для синхронизации с клиентом
-        // Эти значения должны совпадать с клиентом для правильной синхронизации
-        const { MOVEMENT_CONSTANTS } = require("../shared/types");
-        const moveSpeed = MOVEMENT_CONSTANTS.BASE_MOVE_SPEED;
-        const turnSpeed = MOVEMENT_CONSTANTS.BASE_TURN_SPEED;
-
-        // Update rotation
-        if (input.steer !== 0) {
-            player.rotation += input.steer * turnSpeed * deltaTime;
+        
+        // Если клиент прислал позицию - используем её напрямую БЕЗ ВАЛИДАЦИИ
+        if (input.position && typeof input.position.x === 'number') {
+            player.position = new Vector3(input.position.x, input.position.y, input.position.z);
+            player.addPositionSnapshot(player.position);
+            player.lastValidPosition = player.position.clone();
+        }
+        
+        // Если клиент прислал rotation - используем его
+        if (input.rotation !== undefined && typeof input.rotation === 'number') {
+            player.rotation = input.rotation;
             // Normalize rotation
             while (player.rotation > Math.PI) player.rotation -= Math.PI * 2;
             while (player.rotation < -Math.PI) player.rotation += Math.PI * 2;
         }
 
-        // Update position based on throttle and rotation
-        // КРИТИЧНО: Формула движения должна совпадать с клиентом
-        // На клиенте движение основано на физике Havok (применение сил),
-        // но результат должен быть похож на эту простую симуляцию
-        if (input.throttle !== 0) {
-            // КРИТИЧНО: Сохраняем текущую Y координату перед движением
-            // Y координата определяется физикой на клиенте (hover system),
-            // на сервере мы сохраняем её и не изменяем при движении
-            const currentY = player.position.y;
-            
-            const moveDir = new Vector3(
-                Math.sin(player.rotation) * input.throttle,
-                0, // Y не изменяется при движении - определяется физикой на клиенте
-                Math.cos(player.rotation) * input.throttle
-            );
-            const moveDelta = moveDir.scale(moveSpeed * deltaTime);
-            player.position = player.position.add(moveDelta);
-            
-            // КРИТИЧНО: Восстанавливаем Y координату после движения
-            // Y координата синхронизируется через reconciliation на клиенте
-            // На сервере мы сохраняем последнюю известную Y координату
-            player.position.y = currentY;
-
-            // Basic position validation only (to prevent crashes from invalid positions)
-            const posValidation = InputValidator.validatePosition(player.position);
-            if (!posValidation.valid) {
-                if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
-                    logger.debug(`[Room] Invalid position for player ${player.name}: ${posValidation.reason}`);
-                }
-                player.position = oldPosition; // Revert to old position
-                // NOTE: Anti-cheat disabled - no violation count
-            } else {
-                // Update position history for lag compensation (anti-cheat disabled)
-                player.addPositionSnapshot(player.position);
-
-                // ANTI-CHEAT DISABLED: All suspicious movement checks removed
-                // const suspiciousCheck = InputValidator.checkSuspiciousMovement(player.positionHistory);
-                // const statisticalAnalysis = InputValidator.performStatisticalAnalysis(player.positionHistory);
-
-                // Update last valid position
-                player.lastValidPosition = player.position.clone();
-            }
-        }
-
         // Update turret rotation
-        player.turretRotation = input.turretRotation || player.turretRotation;
-        player.aimPitch = input.aimPitch || player.aimPitch;
+        player.turretRotation = input.turretRotation ?? player.turretRotation;
+        player.aimPitch = input.aimPitch ?? player.aimPitch;
     }
 
     getSpawnPosition(player: ServerPlayer): Vector3 {

@@ -3579,9 +3579,13 @@ export class Game {
                         // КРИТИЧНО: Если подключены к комнате, но isMultiplayer=false - исправляем флаг
                         if (isConnectedToRoom && !this.isMultiplayer) {
                             this.isMultiplayer = true;
+                            // КРИТИЧНО: Включаем режим мультиплеера для танка
+                            if (this.tank) {
+                                this.tank.isMultiplayerMode = true;
+                            }
                             // Создаем RealtimeStatsTracker если его нет
                             if (!this.realtimeStatsTracker && this.multiplayerManager.getPlayerId()) {
-                                const { RealtimeStatsTracker } = require("./realtimeStats");
+                                // RealtimeStatsTracker уже импортирован в начале файла
                                 const tracker = new RealtimeStatsTracker();
                                 this.realtimeStatsTracker = tracker;
                                 tracker.startMatch(this.multiplayerManager.getPlayerId()!);
@@ -4534,7 +4538,9 @@ export class Game {
                         if (this.gameGarage) {
                             this.gameGarage.setPlayerGaragePosition(spawnPos.clone());
                         }
-                        logger.log(`[Game] ✅ Player spawned at server position (adjusted Y)`);
+                        // КРИТИЧНО: Включаем режим мультиплеера для танка
+                        this.tank.isMultiplayerMode = true;
+                        logger.log(`[Game] ✅ Player spawned at server position (adjusted Y), isMultiplayerMode=true`);
                         return;
                     }
                 }
@@ -4648,7 +4654,9 @@ export class Game {
                     if (this.gameGarage) {
                         this.gameGarage.setPlayerGaragePosition(spawnPos.clone());
                     }
-                    logger.log(`[Game] ✅ Player spawned at server position (adjusted Y)`);
+                    // КРИТИЧНО: Включаем режим мультиплеера для танка
+                    this.tank.isMultiplayerMode = true;
+                    logger.log(`[Game] ✅ Player spawned at server position (adjusted Y), isMultiplayerMode=true`);
                     return;
                 }
                 }
@@ -7071,13 +7079,26 @@ export class Game {
     private updateMultiplayer(deltaTime: number): void {
         if (!this.multiplayerManager || !this.tank) return;
 
-        // Send player input to server with client-side prediction support
+        // =========================================================================
+        // НОВЫЙ ПОДХОД: СЕРВЕР = АВТОРИТЕТ
+        // Плавно интерполируем локального игрока к серверной позиции
+        // =========================================================================
+        if (this.gameMultiplayerCallbacks) {
+            this.gameMultiplayerCallbacks.updateLocalPlayerToServer(deltaTime);
+        }
+
+        // Send player input to server (input отправляется, но не применяется локально)
         if (this.tank.chassis && this.tank.physicsBody) {
             // Get input from tank controller
             const throttle = this.tank.throttleTarget || 0;
             const steer = this.tank.steerTarget || 0;
             const turretRotation = this.tank.turret.rotation.y;
             const aimPitch = this.tank.aimPitch || 0;
+            
+            // DEBUG: Логируем инпут раз в секунду если есть движение
+            if (this._updateTick % 60 === 0 && (Math.abs(throttle) > 0.01 || Math.abs(steer) > 0.01)) {
+                console.log(`%c[Game] 📤 Input: throttle=${throttle.toFixed(2)}, steer=${steer.toFixed(2)}`, 'color: #f59e0b; font-weight: bold;');
+            }
 
             // КРИТИЧНО: Используем getCachedChassisPosition() для получения мировых координат
             // Это абсолютная позиция после обновления физики, а не локальные координаты
@@ -7094,18 +7115,29 @@ export class Game {
             }
             
             const currentPosition = cachedPos.clone();
-            const currentRotation = this.tank.chassis.rotation.y;
+            // КРИТИЧНО: Если используется rotationQuaternion, нужно конвертировать в Euler
+            let currentRotation = this.tank.chassis.rotation.y;
+            if (this.tank.chassis.rotationQuaternion) {
+                // Конвертируем quaternion в Euler angles и берём Y rotation
+                const euler = this.tank.chassis.rotationQuaternion.toEulerAngles();
+                currentRotation = euler.y;
+            }
             this.multiplayerManager.setLocalPlayerPosition(currentPosition, currentRotation);
 
             // Send input and get sequence number for prediction tracking
             // КРИТИЧНО: Используем getServerTime() для синхронизации с сервером
+            // CLIENT-AUTHORITATIVE POSITION: Отправляем реальную позицию от Havok
+            // Это гарантирует что другие игроки видят танк в правильной позиции
             const sequence = this.multiplayerManager.sendPlayerInput({
                 throttle,
                 steer,
                 turretRotation,
                 aimPitch,
                 isShooting: false, // Will be sent separately on shoot
-                timestamp: this.multiplayerManager.getServerTime()
+                timestamp: this.multiplayerManager.getServerTime(),
+                // НОВОЕ: Позиция и вращение от Havok физики
+                position: { x: currentPosition.x, y: currentPosition.y, z: currentPosition.z },
+                rotation: currentRotation
             });
 
             // CLIENT-SIDE PREDICTION: Update predicted state with actual position after input
@@ -7114,7 +7146,11 @@ export class Game {
                 // КРИТИЧНО: Используем getCachedChassisPosition() для мировых координат
                 // Position after physics update (current frame)
                 const newPosition = this.tank.getCachedChassisPosition().clone();
-                const newRotation = this.tank.chassis.rotation.y;
+                // Конвертируем quaternion в Euler если нужно
+                let newRotation = this.tank.chassis.rotation.y;
+                if (this.tank.chassis.rotationQuaternion) {
+                    newRotation = this.tank.chassis.rotationQuaternion.toEulerAngles().y;
+                }
                 this.multiplayerManager.updatePredictedState(sequence, newPosition, newRotation);
             }
         }
@@ -7392,11 +7428,20 @@ export class Game {
                 this.multiplayerManager.connect(serverUrl);
             }
             this.isMultiplayer = true;
+            // КРИТИЧНО: Включаем режим мультиплеера для танка
+            // Это отключает локальную физику движения - сервер теперь авторитет
+            if (this.tank) {
+                this.tank.isMultiplayerMode = true;
+            }
         }
     }
 
     disableMultiplayer(): void {
         this.isMultiplayer = false;
+        // Отключаем режим мультиплеера для танка - возвращаем локальную физику
+        if (this.tank) {
+            this.tank.isMultiplayerMode = false;
+        }
         if (this.multiplayerManager) {
             this.multiplayerManager.leaveRoom();
         }

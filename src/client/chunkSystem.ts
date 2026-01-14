@@ -512,6 +512,18 @@ export class ChunkSystem {
             ["leaves", 0.25, 0.35, 0.20],       // Dark green leaves
             ["water", 0.15, 0.25, 0.35],        // Water (dark blue-green)
             ["rock", 0.35, 0.32, 0.30],         // Rock/stone
+            
+            // ОПТИМИЗАЦИЯ: Кэшированные материалы для объектов (вместо создания новых)
+            ["tireBlack", 0.1, 0.1, 0.1],       // Черные шины
+            ["barrelGreen", 0.1, 0.4, 0.1],     // Зеленые бочки
+            ["barrelRed", 0.6, 0.1, 0.1],       // Красные бочки
+            ["crateWood", 0.3, 0.25, 0.1],      // Деревянные ящики
+            ["dummy", 0.2, 0.15, 0.1],          // Тренировочные манекены
+            ["wreck", 0.2, 0.15, 0.1],          // Обломки техники
+            ["targetRed", 0.9, 0.1, 0.1],       // Красные мишени
+            ["ringWhite", 1.0, 1.0, 1.0],       // Белые кольца мишеней
+            ["ringBlack", 0.0, 0.0, 0.0],       // Черные кольца мишеней
+            ["movingTargetRed", 0.9, 0.1, 0.1], // Движущиеся мишени
         ];
 
         mats.forEach(([name, r, g, b]) => {
@@ -522,6 +534,71 @@ export class ChunkSystem {
             mat.freeze();
             this.materials.set(name, mat);
         });
+        
+        // ОПТИМИЗАЦИЯ: Специальные материалы с emissive (мишени)
+        const targetMat = new StandardMaterial("targetRedEmissive", this.scene);
+        targetMat.diffuseColor = new Color3(0.9, 0.1, 0.1);
+        targetMat.emissiveColor = new Color3(0.3, 0, 0);
+        targetMat.specularColor = Color3.Black();
+        targetMat.freeze();
+        this.materials.set("targetRedEmissive", targetMat);
+        
+        const movingTargetMat = new StandardMaterial("movingTargetRedEmissive", this.scene);
+        movingTargetMat.diffuseColor = new Color3(0.9, 0.1, 0.1);
+        movingTargetMat.emissiveColor = new Color3(0.3, 0, 0);
+        movingTargetMat.specularColor = Color3.Black();
+        movingTargetMat.freeze();
+        this.materials.set("movingTargetRedEmissive", movingTargetMat);
+        
+        // ОПТИМИЗАЦИЯ: Материал дыма с прозрачностью
+        const smokeMat = new StandardMaterial("smokeGray", this.scene);
+        smokeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
+        smokeMat.alpha = 0.4;
+        smokeMat.specularColor = Color3.Black();
+        smokeMat.freeze();
+        this.materials.set("smokeGray", smokeMat);
+        
+        // ОПТИМИЗАЦИЯ: Материал забора с прозрачностью
+        const fenceMat = new StandardMaterial("fenceGray", this.scene);
+        fenceMat.diffuseColor = new Color3(0.5, 0.5, 0.5);
+        fenceMat.alpha = 0.7;
+        fenceMat.specularColor = Color3.Black();
+        fenceMat.freeze();
+        this.materials.set("fenceGray", fenceMat);
+        
+        // ОПТИМИЗАЦИЯ: Материал остановки с прозрачностью
+        const shelterMat = new StandardMaterial("shelterGray", this.scene);
+        shelterMat.diffuseColor = new Color3(0.4, 0.4, 0.5);
+        shelterMat.alpha = 0.7;
+        shelterMat.specularColor = Color3.Black();
+        shelterMat.freeze();
+        this.materials.set("shelterGray", shelterMat);
+        
+        // ОПТИМИЗАЦИЯ: Материал уличного фонаря с emissive
+        const streetLightMat = new StandardMaterial("streetLight", this.scene);
+        streetLightMat.diffuseColor = new Color3(1, 0.95, 0.8);
+        streetLightMat.emissiveColor = new Color3(0.5, 0.45, 0.4);
+        streetLightMat.specularColor = Color3.Black();
+        streetLightMat.freeze();
+        this.materials.set("streetLight", streetLightMat);
+        
+        // ОПТИМИЗАЦИЯ: Материалы припасов (consumables) с emissive
+        const consumableTypes: { [key: string]: Color3 } = {
+            "health": new Color3(1, 0, 0),
+            "speed": new Color3(1, 1, 0),
+            "armor": new Color3(0, 1, 1),
+            "ammo": new Color3(1, 0.5, 0),
+            "damage": new Color3(1, 0, 0)
+        };
+        for (const [type, color] of Object.entries(consumableTypes)) {
+            const consMat = new StandardMaterial(`consumableMat_${type}`, this.scene);
+            consMat.diffuseColor = color;
+            consMat.emissiveColor = color.scale(0.8);
+            consMat.specularColor = Color3.Black();
+            consMat.disableLighting = true;
+            consMat.freeze();
+            this.materials.set(`consumable_${type}`, consMat);
+        }
     }
 
     // Оптимизация меша (freeze + отключение ненужных вычислений)
@@ -5327,11 +5404,8 @@ export class ChunkSystem {
             const target = MeshBuilder.CreateBox("target", { width: targetWidth, height: targetHeight, depth: 0.2 }, this.scene);
             target.position = new Vector3(x, targetHeight / 2 + 1, z + 0.3);
 
-            // Красная мишень
-            const targetMat = new StandardMaterial("targetMat", this.scene);
-            targetMat.diffuseColor = new Color3(0.9, 0.1, 0.1);
-            targetMat.emissiveColor = new Color3(0.3, 0, 0);
-            target.material = targetMat;
+            // Красная мишень (кэшированный материал)
+            target.material = this.getMat("targetRedEmissive");
             target.parent = chunkParent;
             target.freezeWorldMatrix();
             // chunk.meshes.push(target);
@@ -5341,33 +5415,33 @@ export class ChunkSystem {
                 const ringSize = ring * 0.4;
                 const ringThickness = 0.1;
                 // Создаём квадратную рамку из 4 прямоугольных блоков
+                // Используем кэшированный материал
+                const ringMat = ring % 2 === 0 ? this.getMat("ringWhite") : this.getMat("ringBlack");
                 // Верх
                 const top = MeshBuilder.CreateBox("ring_top", { width: ringSize * 2, height: ringThickness, depth: ringThickness }, this.scene);
                 top.position = new Vector3(x, 2 + targetHeight / 2, z + 0.35 - ringSize);
-                const topMat = new StandardMaterial("ringMat", this.scene);
-                topMat.diffuseColor = ring % 2 === 0 ? new Color3(1, 1, 1) : new Color3(0, 0, 0);
-                top.material = topMat;
+                top.material = ringMat;
                 top.parent = chunkParent;
                 top.freezeWorldMatrix();
                 // chunk.meshes.push(top);
                 // Низ
                 const bottom = MeshBuilder.CreateBox("ring_bottom", { width: ringSize * 2, height: ringThickness, depth: ringThickness }, this.scene);
                 bottom.position = new Vector3(x, 2 + targetHeight / 2, z + 0.35 + ringSize);
-                bottom.material = topMat;
+                bottom.material = ringMat;
                 bottom.parent = chunkParent;
                 bottom.freezeWorldMatrix();
                 // chunk.meshes.push(bottom);
                 // Лево
                 const left = MeshBuilder.CreateBox("ring_left", { width: ringThickness, height: ringThickness, depth: ringSize * 2 }, this.scene);
                 left.position = new Vector3(x - ringSize, 2 + targetHeight / 2, z + 0.35);
-                left.material = topMat;
+                left.material = ringMat;
                 left.parent = chunkParent;
                 left.freezeWorldMatrix();
                 // chunk.meshes.push(left);
                 // Право
                 const right = MeshBuilder.CreateBox("ring_right", { width: ringThickness, height: ringThickness, depth: ringSize * 2 }, this.scene);
                 right.position = new Vector3(x + ringSize, 2 + targetHeight / 2, z + 0.35);
-                right.material = topMat;
+                right.material = ringMat;
                 right.parent = chunkParent;
                 right.freezeWorldMatrix();
                 // chunk.meshes.push(right);
@@ -5417,10 +5491,7 @@ export class ChunkSystem {
             const target = MeshBuilder.CreateBox("moving_target", { width: targetWidth, height: targetHeight, depth: 0.2 }, this.scene);
             target.position = new Vector3(startX, targetHeight / 2 + 1, railZ + 0.3);
 
-            const targetMat = new StandardMaterial("movingTargetMat", this.scene);
-            targetMat.diffuseColor = new Color3(0.9, 0.1, 0.1);
-            targetMat.emissiveColor = new Color3(0.3, 0, 0);
-            target.material = targetMat;
+            target.material = this.getMat("movingTargetRedEmissive");
             target.parent = chunkParent;
             // chunk.meshes.push(target);
 
@@ -5691,9 +5762,7 @@ export class ChunkSystem {
             for (let h = 0; h < stackHeight; h++) {
                 const tire = MeshBuilder.CreateBox("tire", { width: 1.5, height: 0.4, depth: 1.5 }, this.scene);
                 tire.position = new Vector3(x + random.range(-0.1, 0.1), h * 0.4 + 0.2, z + random.range(-0.1, 0.1));
-                const tireMat = new StandardMaterial("tireMat", this.scene);
-                tireMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
-                tire.material = tireMat;
+                tire.material = this.getMat("tireBlack");
                 tire.parent = chunkParent;
                 tire.freezeWorldMatrix();
             }
@@ -5716,9 +5785,7 @@ export class ChunkSystem {
 
             const barrel = MeshBuilder.CreateBox("barrel", { width: 0.8, height: 1.2, depth: 0.8 }, this.scene);
             barrel.position = new Vector3(x, 0.6, z);
-            const barrelMat = new StandardMaterial("barrelMat", this.scene);
-            barrelMat.diffuseColor = random.chance(0.5) ? new Color3(0.1, 0.4, 0.1) : new Color3(0.6, 0.1, 0.1);
-            barrel.material = barrelMat;
+            barrel.material = random.chance(0.5) ? this.getMat("barrelGreen") : this.getMat("barrelRed");
             barrel.parent = chunkParent;
             barrel.freezeWorldMatrix();
             new PhysicsAggregate(barrel, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
@@ -5736,9 +5803,7 @@ export class ChunkSystem {
             const crate = MeshBuilder.CreateBox("ammoCrate", { width: 1.5, height: 0.8, depth: 1 }, this.scene);
             crate.position = new Vector3(x, 0.4, z);
             crate.rotation.y = random.range(0, Math.PI);
-            const crateMat = new StandardMaterial("crateMat", this.scene);
-            crateMat.diffuseColor = new Color3(0.3, 0.25, 0.1);
-            crate.material = crateMat;
+            crate.material = this.getMat("crateWood");
             crate.parent = chunkParent;
             crate.freezeWorldMatrix();
             new PhysicsAggregate(crate, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
@@ -5763,9 +5828,7 @@ export class ChunkSystem {
             // Силуэт
             const dummy = MeshBuilder.CreateBox("dummy", { width: 0.8, height: 1.6, depth: 0.1 }, this.scene);
             dummy.position = new Vector3(x, 1.3, z + 0.1);
-            const dummyMat = new StandardMaterial("dummyMat", this.scene);
-            dummyMat.diffuseColor = new Color3(0.2, 0.15, 0.1);
-            dummy.material = dummyMat;
+            dummy.material = this.getMat("dummy");
             dummy.parent = chunkParent;
             dummy.freezeWorldMatrix();
         }
@@ -5781,9 +5844,7 @@ export class ChunkSystem {
                 const hull = MeshBuilder.CreateBox("wreckHull", { width: 3, height: 1.2, depth: 5 }, this.scene);
                 hull.position = new Vector3(x, 0.6, z);
                 hull.rotation.y = random.range(0, Math.PI * 2);
-                const wreckMat = new StandardMaterial("wreckMat", this.scene);
-                wreckMat.diffuseColor = new Color3(0.2, 0.15, 0.1);
-                hull.material = wreckMat;
+                hull.material = this.getMat("wreck");
                 hull.parent = chunkParent;
                 hull.freezeWorldMatrix();
                 new PhysicsAggregate(hull, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
@@ -5982,9 +6043,7 @@ export class ChunkSystem {
                 // Амбразура на бункере
                 const slit = MeshBuilder.CreateBox("slit", { width: bunkerW * 0.6, height: 0.5, depth: 0.5 }, this.scene);
                 slit.position = new Vector3(bx, bunkerH - 0.5, bz + bunkerD / 2);
-                const slitMat = new StandardMaterial("slitMat", this.scene);
-                slitMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
-                slit.material = slitMat;
+                slit.material = this.getMat("tireBlack");
                 slit.parent = chunkParent;
                 slit.freezeWorldMatrix();
                 // chunk.meshes.push(slit);
@@ -6081,9 +6140,7 @@ export class ChunkSystem {
             // Флаг
             const flag = MeshBuilder.CreateBox("flag", { width: 2.5, height: 1.5, depth: 0.05 }, this.scene);
             flag.position = new Vector3(fx + 1.25, 9, fz);
-            const flagMat = new StandardMaterial("flagMat", this.scene);
-            flagMat.diffuseColor = random.pick([new Color3(1, 0, 0), new Color3(0, 0.5, 0), new Color3(0, 0, 0.8)]);
-            flag.material = flagMat;
+            flag.material = random.pick([this.getMat("red"), this.getMat("barrelGreen"), this.getMat("metal")]);
             flag.parent = chunkParent;
             flag.freezeWorldMatrix();
         }
@@ -6108,9 +6165,7 @@ export class ChunkSystem {
             const spotlight = MeshBuilder.CreateBox("spotlight", { width: 1, height: 0.5, depth: 0.8 }, this.scene);
             spotlight.position = new Vector3(sx, 8, sz);
             spotlight.rotation.x = 0.3;
-            const spotMat = new StandardMaterial("spotMat", this.scene);
-            spotMat.diffuseColor = new Color3(0.3, 0.3, 0.3);
-            spotlight.material = spotMat;
+            spotlight.material = this.getMat("gravel");
             spotlight.parent = chunkParent;
             spotlight.freezeWorldMatrix();
         }
@@ -6159,9 +6214,7 @@ export class ChunkSystem {
                     const tank = MeshBuilder.CreateCylinder("fuelTank", { diameter: 3, height: 8 }, this.scene);
                     tank.position = new Vector3(fuelX + t * 4 - tankCount * 2, 1.5, fuelZ);
                     tank.rotation.z = Math.PI / 2;
-                    const tankMat = new StandardMaterial("tankMat", this.scene);
-                    tankMat.diffuseColor = new Color3(0.2, 0.3, 0.2);
-                    tank.material = tankMat;
+                    tank.material = this.getMat("grassDark");
                     tank.parent = chunkParent;
                     tank.freezeWorldMatrix();
                     new PhysicsAggregate(tank, PhysicsShapeType.CYLINDER, { mass: 0 }, this.scene);
@@ -6676,9 +6729,7 @@ export class ChunkSystem {
             // Амбразура направлена к центру карты (в сторону врага для союзников, в сторону союзников для врага)
             const slitZ = side === "allied" ? z + bunkerD / 2 : z - bunkerD / 2;
             slit.position = new Vector3(x, bunkerH - 0.6, slitZ);
-            const slitMat = new StandardMaterial("slitMat", this.scene);
-            slitMat.diffuseColor = new Color3(0.05, 0.05, 0.05);
-            slit.material = slitMat;
+            slit.material = this.getMat("black");
             slit.parent = chunkParent;
             slit.freezeWorldMatrix();
             // chunk.meshes.push(slit);
@@ -6716,11 +6767,7 @@ export class ChunkSystem {
                 const lineY = 0.3 + line * 0.4;
                 const wireMesh = MeshBuilder.CreateBox("wire", { width: wireLength, height: 0.05, depth: 0.05 }, this.scene);
                 wireMesh.position = new Vector3(x, lineY, z);
-
-                const wireMat = new StandardMaterial("wireMat", this.scene);
-                wireMat.diffuseColor = new Color3(0.3, 0.25, 0.2);
-                wireMat.specularColor = new Color3(0.5, 0.5, 0.5);
-                wireMesh.material = wireMat;
+                wireMesh.material = this.getMat("dirt");
                 wireMesh.parent = chunkParent;
                 wireMesh.freezeWorldMatrix();
                 // chunk.meshes.push(wireMesh);
@@ -6757,12 +6804,7 @@ export class ChunkSystem {
             const hull = MeshBuilder.CreateBox("wreck_hull", { width: hullW, height: hullH, depth: hullD }, this.scene);
             hull.position = new Vector3(x, hullH / 2, z);
             hull.rotation.y = random.range(0, Math.PI * 2);
-
-            // Тёмный обгоревший материал
-            const wreckMat = new StandardMaterial("wreckMat", this.scene);
-            wreckMat.diffuseColor = new Color3(0.15, 0.12, 0.1);
-            wreckMat.specularColor = new Color3(0, 0, 0);
-            hull.material = wreckMat;
+            hull.material = this.getMat("wreck");
             hull.parent = chunkParent;
             hull.freezeWorldMatrix();
             // chunk.meshes.push(hull);
@@ -6793,10 +6835,7 @@ export class ChunkSystem {
             if (random.chance(0.3)) {
                 const smoke = MeshBuilder.CreateCylinder("smoke", { diameter: 1.5, height: 4 }, this.scene);
                 smoke.position = new Vector3(x, hullH + 2, z);
-                const smokeMat = new StandardMaterial("smokeMat", this.scene);
-                smokeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
-                smokeMat.alpha = 0.4;
-                smoke.material = smokeMat;
+                smoke.material = this.getMat("smokeGray");
                 smoke.parent = chunkParent;
                 smoke.freezeWorldMatrix();
                 // chunk.meshes.push(smoke);
@@ -6863,9 +6902,7 @@ export class ChunkSystem {
             for (let c = 0; c < crateCount; c++) {
                 const crate = MeshBuilder.CreateBox("ammoCrate", { width: 0.8, height: 0.5, depth: 0.6 }, this.scene);
                 crate.position = new Vector3(ax + random.range(-2, 2), 0.25, az + random.range(-2, 2));
-                const crateMat = new StandardMaterial("crateMat", this.scene);
-                crateMat.diffuseColor = new Color3(0.25, 0.2, 0.1);
-                crate.material = crateMat;
+                crate.material = this.getMat("crateWood");
                 crate.parent = chunkParent;
                 crate.freezeWorldMatrix();
             }
@@ -6888,9 +6925,7 @@ export class ChunkSystem {
             // Крыша (бревенчатый накат)
             const roof = MeshBuilder.CreateBox("dugoutRoof", { width: dugoutW, height: 0.8, depth: dugoutD }, this.scene);
             roof.position = new Vector3(dx, 0.8, dz);
-            const roofMat = new StandardMaterial("roofMat", this.scene);
-            roofMat.diffuseColor = new Color3(0.35, 0.25, 0.15);
-            roof.material = roofMat;
+            roof.material = this.getMat("wood");
             roof.parent = chunkParent;
             roof.freezeWorldMatrix();
             new PhysicsAggregate(roof, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
@@ -7771,6 +7806,17 @@ export class ChunkSystem {
         const descendants = chunk.node.getDescendants(false);
         for (const child of descendants) {
             if (child instanceof Mesh && !child.isDisposed()) {
+                // КРИТИЧНО: Сначала освобождаем физику (PhysicsAggregate/PhysicsBody)
+                // В Babylon.js v6 с Havok физическое тело хранится в mesh.physicsBody
+                try {
+                    const physicsBody = (child as any).physicsBody;
+                    if (physicsBody && typeof physicsBody.dispose === 'function') {
+                        physicsBody.dispose();
+                    }
+                } catch (e) {
+                    // Игнорируем ошибки при удалении физики
+                }
+                
                 // Удаляем меш, но НЕ удаляем материалы (они переиспользуются)
                 child.dispose(false, false);
             }
@@ -7788,6 +7834,19 @@ export class ChunkSystem {
         });
         this.stats.loadedChunks = loadedChunks;
         this.stats.totalMeshes = totalMeshes;
+    }
+    
+    /**
+     * ДИАГНОСТИКА: Логирование количества материалов и мешей для отладки утечек памяти
+     * Вызывать периодически при отладке проблем с памятью
+     */
+    public logMemoryStats(): void {
+        const materialCount = this.scene.materials.length;
+        const meshCount = this.scene.meshes.length;
+        const textureCount = this.scene.textures.length;
+        const cachedMaterialCount = this.materials.size;
+        
+        console.log(`[ChunkSystem Memory] Materials: ${materialCount} (cached: ${cachedMaterialCount}), Meshes: ${meshCount}, Textures: ${textureCount}, Chunks: ${this.chunks.size}`);
     }
 
     /**
@@ -8111,9 +8170,7 @@ export class ChunkSystem {
         collisionFloor.position = new Vector3(worldGarageX, 0.075, worldGarageZ);
         collisionFloor.isVisible = false;
         collisionFloor.visibility = 0;
-        const collisionMat = new StandardMaterial("garageFloorCollisionMat", this.scene);
-        collisionMat.alpha = 0;
-        collisionFloor.material = collisionMat;
+        collisionFloor.material = this.getMat("collision");
         collisionFloor.parent = chunkParent;
         collisionFloor.freezeWorldMatrix();
         // chunk.meshes.push(collisionFloor);
@@ -8250,9 +8307,7 @@ export class ChunkSystem {
             const car = MeshBuilder.CreateBox("burnedCar", { width: 2, height: 1.2, depth: 4 }, this.scene);
             car.position = new Vector3(cx, 0.6, cz);
             car.rotation.y = random.range(0, Math.PI * 2);
-            const burnedMat = new StandardMaterial("burnedMat", this.scene);
-            burnedMat.diffuseColor = new Color3(0.1, 0.08, 0.05);
-            car.material = burnedMat;
+            car.material = this.getMat("wreck");
             car.parent = chunkParent;
             car.freezeWorldMatrix();
             new PhysicsAggregate(car, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
@@ -8340,9 +8395,7 @@ export class ChunkSystem {
             sign.position = new Vector3(sx, 2.3, sz);
             sign.rotation.x = pole.rotation.x;
             sign.rotation.z = pole.rotation.z;
-            const signMat = new StandardMaterial("signMat", this.scene);
-            signMat.diffuseColor = random.pick([new Color3(0.8, 0, 0), new Color3(0.8, 0.8, 0), new Color3(0, 0.5, 0.8)]);
-            sign.material = signMat;
+            sign.material = random.pick([this.getMat("red"), this.getMat("yellow"), this.getMat("metal")]);
             sign.parent = chunkParent;
             sign.freezeWorldMatrix();
         }
@@ -8360,9 +8413,7 @@ export class ChunkSystem {
             const trashH = random.range(1, 3);
             const trash = MeshBuilder.CreateBox("trash", { width: trashW, height: trashH, depth: trashW }, this.scene);
             trash.position = new Vector3(tx, trashH / 2, tz);
-            const trashMat = new StandardMaterial("trashMat", this.scene);
-            trashMat.diffuseColor = new Color3(0.3, 0.25, 0.2);
-            trash.material = trashMat;
+            trash.material = this.getMat("dirt");
             trash.parent = chunkParent;
             trash.freezeWorldMatrix();
             new PhysicsAggregate(trash, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
@@ -8669,16 +8720,14 @@ export class ChunkSystem {
             const roof1 = MeshBuilder.CreateBox("cabinRoof", { width: 7, height: 0.3, depth: 3.5 }, this.scene);
             roof1.position = new Vector3(cx, 4.5, cz - 1);
             roof1.rotation.x = 0.5;
-            const roofMat = new StandardMaterial("roofMat", this.scene);
-            roofMat.diffuseColor = new Color3(0.3, 0.2, 0.1);
-            roof1.material = roofMat;
+            roof1.material = this.getMat("woodDark");
             roof1.parent = chunkParent;
             roof1.freezeWorldMatrix();
 
             const roof2 = MeshBuilder.CreateBox("cabinRoof", { width: 7, height: 0.3, depth: 3.5 }, this.scene);
             roof2.position = new Vector3(cx, 4.5, cz + 1);
             roof2.rotation.x = -0.5;
-            roof2.material = roofMat;
+            roof2.material = this.getMat("woodDark");
             roof2.parent = chunkParent;
             roof2.freezeWorldMatrix();
 
@@ -8949,9 +8998,7 @@ export class ChunkSystem {
                             0.15 + 0.5 * (b % 2 + 1),
                             pz + random.range(-0.3, 0.3)
                         );
-                        const boxMat = new StandardMaterial("boxMat", this.scene);
-                        boxMat.diffuseColor = new Color3(0.6, 0.5, 0.3);
-                        box.material = boxMat;
+                        box.material = this.getMat("sand");
                         box.parent = chunkParent;
                         box.freezeWorldMatrix();
                     }
@@ -8985,15 +9032,7 @@ export class ChunkSystem {
 
             const barrel = MeshBuilder.CreateCylinder("industrialBarrel", { diameter: 0.6, height: 0.9 }, this.scene);
             barrel.position = new Vector3(bx, 0.45, bz);
-            const barrelMat = new StandardMaterial("barrelMat", this.scene);
-            barrelMat.diffuseColor = random.pick([
-                new Color3(0.1, 0.3, 0.8),  // Blue
-                new Color3(0.8, 0.2, 0.1),  // Red
-                new Color3(0.2, 0.6, 0.2),  // Green
-                new Color3(0.3, 0.3, 0.3),  // Gray
-                new Color3(0.8, 0.6, 0.1)   // Yellow
-            ]);
-            barrel.material = barrelMat;
+            barrel.material = random.pick([this.getMat("barrelGreen"), this.getMat("barrelRed"), this.getMat("metal"), this.getMat("yellow")]);
             barrel.parent = chunkParent;
             barrel.freezeWorldMatrix();
         }
@@ -9015,10 +9054,7 @@ export class ChunkSystem {
             const fence = MeshBuilder.CreateBox("fence", { width: fenceLength, height: 2.5, depth: 0.1 }, this.scene);
             fence.position = new Vector3(fx, 1.25, fz);
             fence.rotation.y = fenceAngle;
-            const fenceMat = new StandardMaterial("fenceMat", this.scene);
-            fenceMat.diffuseColor = new Color3(0.5, 0.5, 0.5);
-            fenceMat.alpha = 0.7;
-            fence.material = fenceMat;
+            fence.material = this.getMat("fenceGray");
             fence.parent = chunkParent;
             fence.freezeWorldMatrix();
             new PhysicsAggregate(fence, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
@@ -9322,10 +9358,7 @@ export class ChunkSystem {
             // Светильник
             const light = MeshBuilder.CreateBox("streetLight", { width: 0.6, height: 0.3, depth: 0.6 }, this.scene);
             light.position = new Vector3(lx, 6, lz);
-            const lightMat = new StandardMaterial("lightMat", this.scene);
-            lightMat.diffuseColor = new Color3(1, 0.95, 0.8);
-            lightMat.emissiveColor = new Color3(0.5, 0.45, 0.4);
-            light.material = lightMat;
+            light.material = this.getMat("streetLight");
             light.parent = chunkParent;
             light.freezeWorldMatrix();
         }
@@ -9345,18 +9378,14 @@ export class ChunkSystem {
                 // Маленький мусорный бак
                 const bin = MeshBuilder.CreateBox("trashBin", { width: 0.6, height: 0.9, depth: 0.6 }, this.scene);
                 bin.position = new Vector3(tx, 0.45, tz);
-                const binMat = new StandardMaterial("binMat", this.scene);
-                binMat.diffuseColor = new Color3(0.2, 0.4, 0.2);
-                bin.material = binMat;
+                bin.material = this.getMat("barrelGreen");
                 bin.parent = chunkParent;
                 bin.freezeWorldMatrix();
             } else if (binType === 1) {
                 // Большой мусорный контейнер
                 const container = MeshBuilder.CreateBox("trashContainer", { width: 2, height: 1.5, depth: 1.5 }, this.scene);
                 container.position = new Vector3(tx, 0.75, tz);
-                const contMat = new StandardMaterial("contMat", this.scene);
-                contMat.diffuseColor = new Color3(0.3, 0.3, 0.35);
-                container.material = contMat;
+                container.material = this.getMat("gravel");
                 container.parent = chunkParent;
                 container.freezeWorldMatrix();
                 new PhysicsAggregate(container, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
@@ -9397,14 +9426,7 @@ export class ChunkSystem {
             const board = MeshBuilder.CreateBox("billboard", { width: 6, height: 3, depth: 0.2 }, this.scene);
             board.position = new Vector3(bx, 7, bz);
             board.rotation.y = random.range(0, Math.PI);
-            const boardMat = new StandardMaterial("boardMat", this.scene);
-            boardMat.diffuseColor = random.pick([
-                new Color3(0.8, 0.2, 0.2),
-                new Color3(0.2, 0.5, 0.8),
-                new Color3(0.9, 0.8, 0.1),
-                new Color3(0.9, 0.9, 0.9)
-            ]);
-            board.material = boardMat;
+            board.material = random.pick([this.getMat("red"), this.getMat("metal"), this.getMat("yellow"), this.getMat("white")]);
             board.parent = chunkParent;
             board.freezeWorldMatrix();
         }
@@ -9432,9 +9454,7 @@ export class ChunkSystem {
                 // Телефонная будка
                 const booth = MeshBuilder.CreateBox("phoneBooth", { width: 1, height: 2.5, depth: 1 }, this.scene);
                 booth.position = new Vector3(kx, 1.25, kz);
-                const boothMat = new StandardMaterial("boothMat", this.scene);
-                boothMat.diffuseColor = new Color3(0.8, 0.1, 0.1);
-                booth.material = boothMat;
+                booth.material = this.getMat("red");
                 booth.parent = chunkParent;
                 booth.freezeWorldMatrix();
                 new PhysicsAggregate(booth, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
@@ -9442,10 +9462,7 @@ export class ChunkSystem {
                 // Остановка
                 const shelter = MeshBuilder.CreateBox("busShelter", { width: 4, height: 2.8, depth: 1.5 }, this.scene);
                 shelter.position = new Vector3(kx, 1.4, kz);
-                const shelterMat = new StandardMaterial("shelterMat", this.scene);
-                shelterMat.diffuseColor = new Color3(0.4, 0.4, 0.5);
-                shelterMat.alpha = 0.7;
-                shelter.material = shelterMat;
+                shelter.material = this.getMat("shelterGray");
                 shelter.parent = chunkParent;
                 shelter.freezeWorldMatrix();
             }
@@ -9463,9 +9480,7 @@ export class ChunkSystem {
 
             const hydrant = MeshBuilder.CreateBox("hydrant", { width: 0.4, height: 0.8, depth: 0.4 }, this.scene);
             hydrant.position = new Vector3(hx, 0.4, hz);
-            const hydrantMat = new StandardMaterial("hydrantMat", this.scene);
-            hydrantMat.diffuseColor = new Color3(0.9, 0.2, 0.1);
-            hydrant.material = hydrantMat;
+            hydrant.material = this.getMat("red");
             hydrant.parent = chunkParent;
             hydrant.freezeWorldMatrix();
         }
@@ -9700,15 +9715,7 @@ export class ChunkSystem {
                 const capSize = random.range(0.4, 1);
                 const cap = MeshBuilder.CreateBox("mushroomCap", { width: capSize, height: 0.2, depth: capSize }, this.scene);
                 cap.position = new Vector3(mx, stemH + 0.1, mz);
-                const capMat = new StandardMaterial("capMat", this.scene);
-                capMat.diffuseColor = random.pick([
-                    new Color3(0.8, 0.2, 0.2),
-                    new Color3(0.9, 0.7, 0.2),
-                    new Color3(0.4, 0.6, 0.9),
-                    new Color3(0.2, 0.8, 0.4)
-                ]);
-                capMat.emissiveColor = capMat.diffuseColor.scale(0.3);
-                cap.material = capMat;
+                cap.material = random.pick([this.getMat("red"), this.getMat("yellow"), this.getMat("metal"), this.getMat("barrelGreen")]);
                 cap.parent = chunkParent;
                 cap.freezeWorldMatrix();
             }
@@ -9734,9 +9741,7 @@ export class ChunkSystem {
                 const columnH = random.range(4, 8);
                 const column = MeshBuilder.CreateBox("ancientColumn", { width: 1.2, height: columnH, depth: 1.2 }, this.scene);
                 column.position = new Vector3(cx, columnH / 2, cz);
-                const columnMat = new StandardMaterial("columnMat", this.scene);
-                columnMat.diffuseColor = new Color3(0.6, 0.55, 0.5);
-                column.material = columnMat;
+                column.material = this.getMat("concrete");
                 column.parent = chunkParent;
                 column.freezeWorldMatrix();
                 new PhysicsAggregate(column, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
@@ -9745,9 +9750,7 @@ export class ChunkSystem {
             // Центральный алтарь
             const altar = MeshBuilder.CreateBox("altar", { width: 4, height: 1.5, depth: 4 }, this.scene);
             altar.position = new Vector3(rx, 0.75, rz);
-            const altarMat = new StandardMaterial("altarMat", this.scene);
-            altarMat.diffuseColor = new Color3(0.4, 0.35, 0.3);
-            altar.material = altarMat;
+            altar.material = this.getMat("rock");
             altar.parent = chunkParent;
             altar.freezeWorldMatrix();
             new PhysicsAggregate(altar, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
@@ -9773,16 +9776,7 @@ export class ChunkSystem {
             crystal.rotation.y = random.range(0, Math.PI);
             crystal.rotation.x = random.range(-0.2, 0.2);
 
-            const crystalMat = new StandardMaterial("crystalMat", this.scene);
-            crystalMat.diffuseColor = random.pick([
-                new Color3(0.3, 0.8, 0.9),
-                new Color3(0.9, 0.3, 0.8),
-                new Color3(0.4, 0.9, 0.4),
-                new Color3(0.9, 0.9, 0.4)
-            ]);
-            crystalMat.emissiveColor = crystalMat.diffuseColor.scale(0.5);
-            crystalMat.alpha = 0.8;
-            crystal.material = crystalMat;
+            crystal.material = random.pick([this.getMat("metal"), this.getMat("water"), this.getMat("barrelGreen"), this.getMat("yellow")]);
             crystal.parent = chunkParent;
             crystal.freezeWorldMatrix();
         }
@@ -10009,13 +10003,7 @@ export class ChunkSystem {
                 const kayak = MeshBuilder.CreateBox("kayak", { width: 0.8, height: 0.4, depth: 4 }, this.scene);
                 kayak.position = new Vector3(bx, 0.2, bz);
                 kayak.rotation.y = random.range(0, Math.PI * 2);
-                const kayakMat = new StandardMaterial("kayakMat", this.scene);
-                kayakMat.diffuseColor = random.pick([
-                    new Color3(0.9, 0.2, 0.2),
-                    new Color3(0.2, 0.6, 0.9),
-                    new Color3(0.9, 0.6, 0.1)
-                ]);
-                kayak.material = kayakMat;
+                kayak.material = random.pick([this.getMat("red"), this.getMat("metal"), this.getMat("yellow")]);
                 kayak.parent = chunkParent;
                 kayak.freezeWorldMatrix();
             } else {
@@ -10064,10 +10052,7 @@ export class ChunkSystem {
 
                 const net = MeshBuilder.CreateBox("fishingNet", { width: 4, height: 2, depth: 0.1 }, this.scene);
                 net.position = new Vector3(fx, 2, fz);
-                const netMat = new StandardMaterial("netMat", this.scene);
-                netMat.diffuseColor = new Color3(0.5, 0.4, 0.3);
-                netMat.alpha = 0.6;
-                net.material = netMat;
+                net.material = this.getMat("fenceGray");
                 net.parent = chunkParent;
                 net.freezeWorldMatrix();
             } else if (equipType === 1) {
@@ -10091,10 +10076,7 @@ export class ChunkSystem {
                 // Ловушка для крабов
                 const trap = MeshBuilder.CreateBox("crabTrap", { width: 0.8, height: 0.6, depth: 1 }, this.scene);
                 trap.position = new Vector3(fx, 0.3, fz);
-                const trapMat = new StandardMaterial("trapMat", this.scene);
-                trapMat.diffuseColor = new Color3(0.4, 0.3, 0.2);
-                trapMat.alpha = 0.7;
-                trap.material = trapMat;
+                trap.material = this.getMat("fenceGray");
                 trap.parent = chunkParent;
                 trap.freezeWorldMatrix();
             }
@@ -10120,14 +10102,7 @@ export class ChunkSystem {
 
                 const canopy = MeshBuilder.CreateBox("umbrellaCanopy", { width: 2.5, height: 0.1, depth: 2.5 }, this.scene);
                 canopy.position = new Vector3(bx, 2.5, bz);
-                const canopyMat = new StandardMaterial("canopyMat", this.scene);
-                canopyMat.diffuseColor = random.pick([
-                    new Color3(1, 0.2, 0.2),
-                    new Color3(0.2, 0.6, 1),
-                    new Color3(1, 0.9, 0.2),
-                    new Color3(0.2, 0.8, 0.3)
-                ]);
-                canopy.material = canopyMat;
+                canopy.material = random.pick([this.getMat("red"), this.getMat("metal"), this.getMat("yellow"), this.getMat("barrelGreen")]);
                 canopy.parent = chunkParent;
                 canopy.freezeWorldMatrix();
             } else {
@@ -10153,13 +10128,7 @@ export class ChunkSystem {
 
             const buoy = MeshBuilder.CreateCylinder("buoy", { diameter: 0.8, height: 1.2 }, this.scene);
             buoy.position = new Vector3(bx, 0.3, bz);
-            const buoyMat = new StandardMaterial("buoyMat", this.scene);
-            buoyMat.diffuseColor = random.pick([
-                new Color3(1, 0.3, 0.1),
-                new Color3(1, 0.9, 0.1),
-                new Color3(0.1, 0.7, 0.1)
-            ]);
-            buoy.material = buoyMat;
+            buoy.material = random.pick([this.getMat("barrelRed"), this.getMat("yellow"), this.getMat("barrelGreen")]);
             buoy.parent = chunkParent;
             buoy.freezeWorldMatrix();
         }
@@ -10405,22 +10374,12 @@ export class ChunkSystem {
 
             consumable.position.copyFrom(position);
 
-            // Материал с цветом припаса и свечением
-            const colors: { [key: string]: Color3 } = {
-                "health": new Color3(1, 0, 0),
-                "speed": new Color3(1, 1, 0),
-                "armor": new Color3(0, 1, 1),
-                "ammo": new Color3(1, 0.5, 0),
-                "damage": new Color3(1, 0, 0)
-            };
-
-            const mat = new StandardMaterial(`consumableMat_${type}`, this.scene);
-            const color = colors[type] || Color3.White();
-            mat.diffuseColor = color;
-            mat.emissiveColor = color.scale(0.8); // Яркое свечение
-            mat.specularColor = Color3.Black();
-            mat.disableLighting = true; // Всегда светится
-            consumable.material = mat;
+            // Используем кэшированный материал с цветом припаса и свечением
+            const consumableMat = this.getMat(`consumable_${type}`);
+            consumable.material = consumableMat;
+            
+            // Получаем цвет из материала для анимации
+            const consumableColor = (consumableMat as StandardMaterial).diffuseColor;
 
             const initialY = consumable.position.y;
             const rotationSpeed = 0.03;
@@ -10444,8 +10403,8 @@ export class ChunkSystem {
                     rotationSpeed: rotationSpeed,
                     bobSpeed: bobSpeed,
                     bobAmplitude: bobAmplitude,
-                    color: color,
-                    mat: mat
+                    color: consumableColor,
+                    mat: consumableMat
                 }
             };
 

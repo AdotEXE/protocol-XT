@@ -67,6 +67,12 @@ export class TankController {
     // Reference to network players for hit detection
     networkPlayers: Map<string, any> | null = null; // NetworkPlayerTank instances
 
+    // =========================================================================
+    // МУЛЬТИПЛЕЕР: Флаг для отключения локальной физики движения
+    // Когда включён - танк НЕ двигается от локального input, а только интерполирует к серверу
+    // =========================================================================
+    isMultiplayerMode: boolean = false;
+
     // Респавн с таймером
     private respawnCountdown = 0; // Секунды до респавна
     private respawnIntervalId: number | null = null;
@@ -5554,7 +5560,8 @@ export class TankController {
                             frontPoint.addInPlace(moveDir.scale(tankDepth * 0.4)); // Передняя точка
                             frontPoint.y -= tankHeight * 0.3;
 
-                            if (body && isFinite(frontLiftForce)) {
+                            // МУЛЬТИПЛЕЕР: Пропускаем все силы climb assist
+                            if (!this.isMultiplayerMode && body && isFinite(frontLiftForce)) {
                                 const liftVec = new Vector3(0, frontLiftForce, 0);
                                 try {
                                     body.applyForce(liftVec, frontPoint);
@@ -5563,7 +5570,8 @@ export class TankController {
 
                             // === СИЛА 3: ПРОТАЛКИВАНИЕ ВПЕРЁД ===
                             const pushForce = this.wallPushForce * climbIntensity;
-                            if (body && isFinite(pushForce)) {
+                            // МУЛЬТИПЛЕЕР: Пропускаем
+                            if (!this.isMultiplayerMode && body && isFinite(pushForce)) {
                                 const pushVec = moveDir.scale(pushForce);
                                 try {
                                     body.applyForce(pushVec, pos);
@@ -5574,7 +5582,8 @@ export class TankController {
                             // Создаём момент чтобы нос танка поднимался при преодолении препятствия
                             // ИНВЕРТИРОВАНО: минус делает нос вверх, а не зад!
                             const climbTorqueValue = -this.climbTorque * climbIntensity * (movingForward ? 1 : -1);
-                            if (body && isFinite(climbTorqueValue)) {
+                            // МУЛЬТИПЛЕЕР: Пропускаем
+                            if (!this.isMultiplayerMode && body && isFinite(climbTorqueValue)) {
                                 // Момент вокруг боковой оси (pitch) - поднимаем нос
                                 const rightAxis = Vector3.Cross(Vector3.Up(), forward).normalize();
                                 const torqueVec = rightAxis.scale(climbTorqueValue);
@@ -5649,7 +5658,8 @@ export class TankController {
             }
 
             // Применяем основную силу подъёма к центру танка
-            if (climbForce > 0 && body && isFinite(climbForce)) {
+            // МУЛЬТИПЛЕЕР: Пропускаем climb assist (это управление движением)
+            if (!this.isMultiplayerMode && climbForce > 0 && body && isFinite(climbForce)) {
                 const climbForceVec = this._tmpVector6;
                 climbForceVec.set(0, climbForce, 0);
                 try {
@@ -5658,6 +5668,14 @@ export class TankController {
             }
 
             // --- 3. MOVEMENT (Forward/Backward acceleration) ---
+            // =========================================================================
+            // CLIENT-SIDE PREDICTION: Локальная физика работает ВСЕГДА
+            // Танк должен ощущаться ОДИНАКОВО в одиночном и мультиплеерном режимах.
+            // Клиент применяет физику локально для мгновенного отклика.
+            // Сервер валидирует и корректирует позицию при необходимости.
+            // =========================================================================
+            const applyLocalMovementForces = true; // Always apply local physics
+            
             // Проверяем топливо - если пусто, танк не едет
             if (this.isFuelEmpty) {
                 this.smoothThrottle = 0;
@@ -5743,7 +5761,8 @@ export class TankController {
                 const maxAccelForce = this.moveSpeed * this.mass * 4.0; // УВЕЛИЧЕНО с 2.5 до 4.0
                 const clampedAccelForce = Math.max(-maxAccelForce, Math.min(maxAccelForce, accelForce));
                 // Use scaleToRef to avoid corrupting forward vector
-                if (body && isFinite(clampedAccelForce)) {
+                // МУЛЬТИПЛЕЕР: Пропускаем силу движения
+                if (applyLocalMovementForces && body && isFinite(clampedAccelForce)) {
                     movementDirection.scaleToRef(clampedAccelForce, this._tmpVector5);
                     try {
                         body.applyForce(this._tmpVector5, pos);
@@ -5760,25 +5779,28 @@ export class TankController {
             // --- 3.5. PITCH EFFECT: Наклон танка при движении ---
             // При движении вперёд - поднимается перед (pitch назад)
             // При движении назад - поднимается зад (pitch вперёд)
-            const pitchTorque = PHYSICS_CONFIG.tank.movement.pitchTorque;
-            if (Math.abs(this.smoothThrottle) > 0.1 && pitchTorque > 0 && body) {
-                // Направление torque: отрицательный X = перед вверх, положительный X = зад вверх
-                const pitchDirection = -this.smoothThrottle; // Инвертируем для правильного эффекта
-                const speedFactor = Math.min(1.0, absFwdSpeed / this.moveSpeed); // Пропорционально скорости
-                const effectivePitchTorque = pitchDirection * pitchTorque * speedFactor;
+            // МУЛЬТИПЛЕЕР: Пропускаем pitch effect
+            if (applyLocalMovementForces) {
+                const pitchTorque = PHYSICS_CONFIG.tank.movement.pitchTorque;
+                if (Math.abs(this.smoothThrottle) > 0.1 && pitchTorque > 0 && body) {
+                    // Направление torque: отрицательный X = перед вверх, положительный X = зад вверх
+                    const pitchDirection = -this.smoothThrottle; // Инвертируем для правильного эффекта
+                    const speedFactor = Math.min(1.0, absFwdSpeed / this.moveSpeed); // Пропорционально скорости
+                    const effectivePitchTorque = pitchDirection * pitchTorque * speedFactor;
 
-                // Применяем torque в локальных координатах танка (вокруг оси Right)
-                const right = this.chassis.getDirection(Vector3.Right());
-                const torqueVec = right.scale(effectivePitchTorque);
-                try {
-                    const physicsBody = body as any;
-                    if (physicsBody.applyTorque) {
-                        physicsBody.applyTorque(torqueVec);
-                    } else if (physicsBody.applyAngularImpulse) {
-                        physicsBody.applyAngularImpulse(torqueVec.scale(0.016));
+                    // Применяем torque в локальных координатах танка (вокруг оси Right)
+                    const right = this.chassis.getDirection(Vector3.Right());
+                    const torqueVec = right.scale(effectivePitchTorque);
+                    try {
+                        const physicsBody = body as any;
+                        if (physicsBody.applyTorque) {
+                            physicsBody.applyTorque(torqueVec);
+                        } else if (physicsBody.applyAngularImpulse) {
+                            physicsBody.applyAngularImpulse(torqueVec.scale(0.016));
+                        }
+                    } catch (e) {
+                        // Игнорируем ошибки
                     }
-                } catch (e) {
-                    // Игнорируем ошибки
                 }
             }
 
@@ -5834,9 +5856,12 @@ export class TankController {
             }
 
             // Применяем ВСЕ угловые моменты одной командой (предотвращает конфликты)
-            const totalAngularTorque = this._tmpVector7;
-            totalAngularTorque.set(0, totalAngularTorqueY, 0);
-            this.applyTorque(totalAngularTorque);
+            // МУЛЬТИПЛЕЕР: Пропускаем поворот корпуса
+            if (applyLocalMovementForces) {
+                const totalAngularTorque = this._tmpVector7;
+                totalAngularTorque.set(0, totalAngularTorqueY, 0);
+                this.applyTorque(totalAngularTorque);
+            }
 
             if (shouldLog) {
                 physicsLogger.verbose(`  [TURN] Target: ${targetTurnRate.toFixed(2)} rad/s | Current: ${currentTurnRate.toFixed(2)} rad/s`);
@@ -5855,7 +5880,8 @@ export class TankController {
                 // Чем больше крен и скорость поворота, тем сильнее корректирующий момент
                 const rollCorrection = -rollAngle * antiRollFactor * absFwdSpeed * this.mass * 50;
 
-                if (isFinite(rollCorrection) && Math.abs(rollCorrection) > 0.1) {
+                // МУЛЬТИПЛЕЕР: Пропускаем anti-roll
+                if (applyLocalMovementForces && isFinite(rollCorrection) && Math.abs(rollCorrection) > 0.1) {
                     const rollTorque = this._tmpVector6;
                     rollTorque.set(rollCorrection, 0, 0); // Момент вокруг оси X (крен)
                     this.applyTorque(rollTorque);
@@ -5875,7 +5901,8 @@ export class TankController {
                 const arcadeConfig = PHYSICS_CONFIG.tank.arcade;
 
                 // ARCADE MODIFIERS: Air Control - позволяет доворачивать корпус в прыжке
-                if (Math.abs(this.smoothSteer) > 0.1 && arcadeConfig.airControl > 0) {
+                // МУЛЬТИПЛЕЕР: Пропускаем air control
+                if (applyLocalMovementForces && Math.abs(this.smoothSteer) > 0.1 && arcadeConfig.airControl > 0) {
                     const airControlTorque = this.smoothSteer * this.turnAccel * arcadeConfig.airControl;
                     const airTorque = this._tmpVector7;
                     airTorque.set(0, airControlTorque, 0);
@@ -5887,7 +5914,8 @@ export class TankController {
                 }
 
                 // ARCADE MODIFIERS: Angular Drag в воздухе - предотвращает бесконечное вращение
-                if (arcadeConfig.angularDragAir > 0) {
+                // МУЛЬТИПЛЕЕР: Пропускаем air damping
+                if (applyLocalMovementForces && arcadeConfig.angularDragAir > 0) {
                     const airAngularDamping = this._tmpVector6;
                     airAngularDamping.copyFrom(angVel);
                     airAngularDamping.scaleInPlace(-arcadeConfig.angularDragAir);
@@ -5898,7 +5926,8 @@ export class TankController {
             }
 
             // --- WALL SLIDING (соскальзывание на вертикальной стене) ---
-            if (this._isOnVerticalWall && this._wallNormal && body) {
+            // МУЛЬТИПЛЕЕР: Пропускаем wall sliding
+            if (applyLocalMovementForces && this._isOnVerticalWall && this._wallNormal && body) {
                 // КРИТИЧНО: Сильное демпфирование угловой скорости на стене для предотвращения вращения
                 const wallAngularDamping = 0.85; // Сильное демпфирование (оставляем только 15% скорости)
                 if (Math.abs(angVel.y) > 0.1) {
@@ -5956,18 +5985,21 @@ export class TankController {
             }
 
             // --- 5. ENHANCED SIDE FRICTION (Improved lateral stability) ---
-            const sideSpeed = Vector3.Dot(vel, right);
-            // Боковое сопротивление зависит от скорости движения
-            // Используем кэшированное значение absFwdSpeed для оптимизации
-            const sideFrictionMultiplier = 1.0 + absFwdSpeed / this.moveSpeed * 0.5;
-            const sideFrictionForce = -sideSpeed * this.sideFriction * sideFrictionMultiplier;
-            // Use scaleToRef to avoid mutating right vector
-            if (body && isFinite(sideFrictionForce)) {
-                right.scaleToRef(sideFrictionForce, this._tmpVector5);
-                try {
-                    body.applyForce(this._tmpVector5, pos);
-                } catch (e) {
-                    logger.warn("[TANK] Error applying side friction:", e);
+            // МУЛЬТИПЛЕЕР: Пропускаем боковое трение
+            if (applyLocalMovementForces) {
+                const sideSpeed = Vector3.Dot(vel, right);
+                // Боковое сопротивление зависит от скорости движения
+                // Используем кэшированное значение absFwdSpeed для оптимизации
+                const sideFrictionMultiplier = 1.0 + absFwdSpeed / this.moveSpeed * 0.5;
+                const sideFrictionForce = -sideSpeed * this.sideFriction * sideFrictionMultiplier;
+                // Use scaleToRef to avoid mutating right vector
+                if (body && isFinite(sideFrictionForce)) {
+                    right.scaleToRef(sideFrictionForce, this._tmpVector5);
+                    try {
+                        body.applyForce(this._tmpVector5, pos);
+                    } catch (e) {
+                        logger.warn("[TANK] Error applying side friction:", e);
+                    }
                 }
             }
 
@@ -5976,7 +6008,8 @@ export class TankController {
             }
 
             // --- 6. ENHANCED DRAG (Improved stopping) ---
-            if (Math.abs(this.smoothThrottle) < 0.05) {
+            // МУЛЬТИПЛЕЕР: Пропускаем все drag силы
+            if (applyLocalMovementForces && Math.abs(this.smoothThrottle) < 0.05) {
                 // Боковое сопротивление для предотвращения скольжения
                 const sideVel = Vector3.Dot(vel, right);
                 const sideDragVal = -sideVel * this.sideDrag;
@@ -6971,6 +7004,17 @@ export class TankController {
         const wallMat = wallData.mesh.material as StandardMaterial;
         const wallColor = wallMat ? wallMat.diffuseColor.clone() : new Color3(0.5, 0.5, 0.5);
 
+        // ОПТИМИЗАЦИЯ: Создаём ОДИН материал для всех кусочков debris
+        // Используем кэшированный материал или создаём новый если нужен конкретный цвет
+        let debrisMat = this.scene.getMaterialByName("wallDebrisMat") as StandardMaterial | null;
+        if (!debrisMat) {
+            debrisMat = new StandardMaterial("wallDebrisMat", this.scene);
+            debrisMat.specularColor = Color3.Black();
+        }
+        // Обновляем цвет для текущей стенки (материал общий, но цвет может меняться)
+        debrisMat.diffuseColor = wallColor;
+        debrisMat.emissiveColor = wallColor.scale(0.2);
+
         // Создаём кусочки (8-12 кусочков)
         const debrisCount = 8 + Math.floor(Math.random() * 5);
         const debrisPieces: Mesh[] = [];
@@ -6989,11 +7033,7 @@ export class TankController {
             const offsetZ = (Math.random() - 0.5) * 0.5;
             debris.position = wallPos.add(new Vector3(offsetX, offsetY, offsetZ));
 
-            // Материал кусочка
-            const debrisMat = new StandardMaterial(`debrisMat_${Date.now()}_${i}`, this.scene);
-            debrisMat.diffuseColor = wallColor;
-            debrisMat.emissiveColor = wallColor.scale(0.2);
-            debrisMat.specularColor = Color3.Black();
+            // Используем общий материал
             debris.material = debrisMat;
 
             debrisPieces.push(debris);
