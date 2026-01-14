@@ -260,27 +260,14 @@ function getOrCreatePlayerId(): string {
     try {
         // Пытаемся получить сохраненный ID
         const savedId = localStorage.getItem(STORAGE_KEY);
-        console.log(`[Multiplayer] 🔍 Проверка localStorage: ключ=${STORAGE_KEY}, значение=${savedId}`);
 
         if (savedId && savedId.length > 0) {
-            console.log(`[Multiplayer] ✅ Используем сохраненный ID игрока: ${savedId}`);
-            logger.log(`[Multiplayer] Используем сохраненный ID игрока: ${savedId}`);
             return savedId;
         }
 
         // Если нет сохраненного ID - создаем новый
         const newId = nanoid();
         localStorage.setItem(STORAGE_KEY, newId);
-        console.log(`[Multiplayer] 🆕 Создан новый ID игрока и сохранен в localStorage: ${newId}`);
-        logger.log(`[Multiplayer] Создан новый ID игрока и сохранен: ${newId}`);
-
-        // Проверяем, что действительно сохранилось
-        const verifyId = localStorage.getItem(STORAGE_KEY);
-        if (verifyId !== newId) {
-            console.error(`[Multiplayer] ❌ ОШИБКА: ID не сохранился! Ожидалось: ${newId}, получено: ${verifyId}`);
-        } else {
-            console.log(`[Multiplayer] ✅ ID успешно сохранен и проверен: ${verifyId}`);
-        }
 
         return newId;
     } catch (error) {
@@ -785,10 +772,6 @@ export class MultiplayerManager {
                 return;
             }
 
-            // ДИАГНОСТИКА: Логируем отправляемый ID
-            console.log(`[Multiplayer] 📤 Отправляем CONNECT с ID: ${this.playerId}, имя: ${this.playerName}`);
-            logger.log(`[Multiplayer] Sending CONNECT with playerId: ${this.playerId}, playerName: ${this.playerName}`);
-
             this.send(createClientMessage(ClientMessageType.CONNECT, {
                 playerId: this.playerId,
                 playerName: this.playerName,
@@ -1015,52 +998,28 @@ export class MultiplayerManager {
     private handleConnected(data: ConnectedData): void {
         this.connected = true;
 
-        console.log(`[Multiplayer] 📥 Получен CONNECTED от сервера: playerId=${data.playerId}, playerName=${data.playerName}`);
-        console.log(`[Multiplayer] 📥 Текущий локальный ID: ${this.playerId}`);
-
-        // КРИТИЧНО: Синхронизация времени с сервером
-        // serverTimeOffset = serverTime - clientTime
-        // Добавляем к Date.now() чтобы получить серверное время
+        // Синхронизация времени с сервером
         if ((data as any).serverTime) {
             this.serverTimeOffset = (data as any).serverTime - Date.now();
-            console.log(`[Multiplayer] 🕐 Server time offset: ${this.serverTimeOffset}ms`);
-            logger.log(`[Multiplayer] Server time offset calculated: ${this.serverTimeOffset}ms`);
         }
 
         // Обновляем ID игрока с сервера (если сервер присвоил новый ID)
         const newPlayerId = data.playerId || this.playerId;
         if (newPlayerId !== this.playerId) {
-            console.warn(`[Multiplayer] ⚠️ Сервер изменил ID: было ${this.playerId}, стало ${newPlayerId}`);
-            // Сохраняем новый ID в localStorage
             const STORAGE_KEY = "tx_player_id";
             try {
                 localStorage.setItem(STORAGE_KEY, newPlayerId);
-                console.log(`[Multiplayer] ✅ ID игрока обновлен и сохранен в localStorage: ${newPlayerId}`);
-                logger.log(`[Multiplayer] ID игрока обновлен и сохранен: ${newPlayerId}`);
-
-                // Проверяем сохранение
-                const verifyId = localStorage.getItem(STORAGE_KEY);
-                if (verifyId !== newPlayerId) {
-                    console.error(`[Multiplayer] ❌ ОШИБКА: ID не сохранился! Ожидалось: ${newPlayerId}, получено: ${verifyId}`);
-                }
             } catch (error) {
-                console.error(`[Multiplayer] ❌ Ошибка сохранения ID в localStorage:`, error);
                 logger.warn("[Multiplayer] Не удалось сохранить новый ID в localStorage", error);
             }
-        } else {
-            console.log(`[Multiplayer] ✅ Сервер подтвердил наш ID: ${this.playerId}`);
         }
         this.playerId = newPlayerId;
 
-        // Обновляем имя игрока с сервера (сервер может изменить его для гостей)
+        // Обновляем имя игрока с сервера
         if (data.playerName) {
             this.playerName = data.playerName;
-            savePlayerName(data.playerName); // Сохраняем имя в localStorage
-            console.log(`[Multiplayer] ✅ Имя игрока установлено и сохранено: ${this.playerName}`);
-            logger.log(`[Multiplayer] Player name set to: ${this.playerName}`);
+            savePlayerName(data.playerName);
         }
-        console.log(`[Multiplayer] ✅ Подключен как ${this.playerId} (${this.playerName})`);
-        logger.log(`[Multiplayer] Connected as ${this.playerId} (${this.playerName})`);
 
         // Reset manual disconnect flag and reconnect attempts on successful connection
         this.isManualDisconnect = false;
@@ -1413,14 +1372,6 @@ export class MultiplayerManager {
             logger.log(`[Multiplayer] 🕐 Server time offset updated in ROOM_CREATED: ${this.serverTimeOffset}ms`);
         }
         
-        console.log(`%c[Multiplayer] 🔑 ROOM_CREATED: roomId установлен`, 'color: #22c55e; font-weight: bold;', {
-            oldRoomId: oldRoomId,
-            newRoomId: this.roomId,
-            dataRoomId: data.roomId,
-            mode: data.mode,
-            playersCount: this._roomPlayersCount
-        });
-        
         // КРИТИЧНО: Сохраняем mapType для использования до получения GAME_START
         if (data.mapType) {
             this.pendingMapType = data.mapType;
@@ -1451,15 +1402,6 @@ export class MultiplayerManager {
             logger.log(`[Multiplayer] 🕐 Server time offset updated in ROOM_JOINED: ${this.serverTimeOffset}ms`);
         }
 
-        console.log(`%c[Multiplayer] 🔑 ROOM_JOINED: roomId установлен`, 'color: #22c55e; font-weight: bold;', {
-            oldRoomId: oldRoomId,
-            newRoomId: this.roomId,
-            dataRoomId: data.roomId,
-            playersCount: data.players?.length || 0,
-            isActive: data.isActive,
-            isCreator: data.isCreator
-        });
-
         // Store world seed for deterministic generation
         if (data.worldSeed !== undefined) {
             this.worldSeed = data.worldSeed;
@@ -1483,23 +1425,11 @@ export class MultiplayerManager {
 
         // Initialize network players
         if (data.players) {
-            console.log(`%c[Multiplayer] 📥 ROOM_JOINED: получено ${data.players.length} игроков`, 'color: #3b82f6; font-weight: bold;', {
-                roomId: this.roomId,
-                playersCount: data.players.length,
-                localPlayerId: this.playerId,
-                players: data.players.map((p: any) => `${p.name || p.id}(${p.id})`)
-            });
-            
             for (const playerData of data.players) {
                 if (playerData.id !== this.playerId) {
-                    console.log(`%c[Multiplayer] ➕ Добавляю игрока из ROOM_JOINED: ${playerData.name || playerData.id}(${playerData.id})`, 'color: #22c55e; font-weight: bold;');
                     this.addNetworkPlayer(playerData);
-                } else {
-                    console.log(`%c[Multiplayer] ⏭️ Пропускаю локального игрока: ${playerData.id}`, 'color: #888;');
                 }
             }
-        } else {
-            console.warn(`%c[Multiplayer] ⚠️ ROOM_JOINED: нет данных об игроках!`, 'color: #f59e0b; font-weight: bold;');
         }
 
         logger.log(`[Multiplayer] Joined room: ${this.roomId}, seed: ${data.worldSeed}, isCreator: ${this._isRoomCreator}, isActive: ${this._roomIsActive}`);
@@ -1821,7 +1751,10 @@ export class MultiplayerManager {
                             y: playerData.position.y,
                             z: playerData.position.z
                         };
-                        logger.log(`[Multiplayer] 📍 Позиция спавна от сервера: (${playerData.position.x.toFixed(1)}, ${playerData.position.y.toFixed(1)}, ${playerData.position.z.toFixed(1)})`);
+                        // КРИТИЧНЫЙ ЛОГ: Показываем что позиция спавна установлена
+                        console.log(`%c[Multiplayer] 📍 SPAWN POSITION SET: (${playerData.position.x.toFixed(1)}, ${playerData.position.y.toFixed(1)}, ${playerData.position.z.toFixed(1)})`, 'color: #22c55e; font-weight: bold; font-size: 14px;');
+                    } else {
+                        console.warn(`%c[Multiplayer] ⚠️ LOCAL PLAYER HAS NO POSITION IN GAME_START!`, 'color: #ef4444; font-weight: bold; font-size: 14px;', playerData);
                     }
                 }
             }
@@ -1845,11 +1778,6 @@ export class MultiplayerManager {
 
         const playersCount = statesData.players?.length || 0;
         const networkPlayersCount = statesData.players?.filter((p: any) => p.id !== this.playerId).length || 0;
-        
-        // КРИТИЧНО: Логируем только каждые 1800 пакетов (раз в 30 секунд при 60 FPS)
-        if (serverSequence >= 0 && serverSequence % 1800 === 0) {
-            console.log(`[Multiplayer] 📡 PLAYER_STATES #${serverSequence}: ${playersCount} players, ${networkPlayersCount} network, room=${this.roomId}`);
-        }
         
         // Логируем при изменении количества игроков (только при реальном изменении, через logger, не console)
         if (networkPlayersCount !== this.networkPlayers.size) {
@@ -2169,17 +2097,10 @@ export class MultiplayerManager {
                 
                 if (wasNew) {
                     addedCount++;
-                    console.log(`%c[Multiplayer] ✅ Добавлен новый networkPlayer: ${playerData.name || playerData.id}(${playerData.id})`, 'color: #22c55e; font-weight: bold;');
                 } else {
                     updatedCount++;
                 }
             }
-        }
-        
-        // ДИАГНОСТИКА: Логируем результат обработки
-        const finalNetworkPlayersSize = this.networkPlayers.size;
-        if (addedCount > 0 || finalNetworkPlayersSize !== currentNetworkPlayersSize) {
-            console.log(`%c[Multiplayer] 📊 applyPlayerStates результат: добавлено=${addedCount}, обновлено=${updatedCount}, было=${currentNetworkPlayersSize}, стало=${finalNetworkPlayersSize}`, 'color: #8b5cf6; font-weight: bold;');
         }
 
         // Store last server state even if local player not found (for reconciliation)

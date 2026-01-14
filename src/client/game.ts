@@ -4492,13 +4492,14 @@ export class Game {
         // В мультиплеере используем позицию спавна с сервера (X, Z), но Y рассчитываем по террейну
         if (this.isMultiplayer && this.multiplayerManager) {
             const serverSpawnPos = this.multiplayerManager.getSpawnPosition();
+            console.log(`%c[Game] 🎯 spawnPlayerRandom: serverSpawnPos = ${serverSpawnPos ? `(${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.y.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)})` : 'NULL'}`, 'color: #3b82f6; font-weight: bold; font-size: 14px;');
             if (serverSpawnPos) {
                 // КРИТИЧНО: Проверяем что позиция не в центре карты (0, 0)
                 const distFromCenter = Math.sqrt(serverSpawnPos.x * serverSpawnPos.x + serverSpawnPos.z * serverSpawnPos.z);
                 const MIN_SPAWN_DISTANCE = 10; // Минимальное расстояние от центра
                 
                 if (distFromCenter < MIN_SPAWN_DISTANCE) {
-                    logger.warn(`[Game] ⚠️ Server spawn (random) too close to center: (${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)}), dist=${distFromCenter.toFixed(1)} - using fallback`);
+                    console.warn(`[Game] ⚠️ Server spawn (random) too close to center: (${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)}), dist=${distFromCenter.toFixed(1)} - using fallback`);
                     // Продолжаем к fallback логике ниже
                 } else {
                     // КРИТИЧНО: Используем X, Z от сервера, но Y рассчитываем по высоте террейна
@@ -4602,6 +4603,7 @@ export class Game {
         // В мультиплеере используем позицию спавна с сервера (X, Z), но Y рассчитываем по террейну
         if (this.isMultiplayer && this.multiplayerManager) {
             const serverSpawnPos = this.multiplayerManager.getSpawnPosition();
+            console.log(`%c[Game] 🎯 spawnPlayerInGarage: serverSpawnPos = ${serverSpawnPos ? `(${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.y.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)})` : 'NULL'}`, 'color: #3b82f6; font-weight: bold; font-size: 14px;');
             if (serverSpawnPos) {
                 // КРИТИЧНО: Проверяем что позиция не в центре карты (0, 0)
                 // Если позиция слишком близко к центру, это может быть ошибка - используем fallback
@@ -4609,7 +4611,7 @@ export class Game {
                 const MIN_SPAWN_DISTANCE = 10; // Минимальное расстояние от центра
                 
                 if (distFromCenter < MIN_SPAWN_DISTANCE) {
-                    logger.warn(`[Game] ⚠️ Server spawn position too close to center: (${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)}), dist=${distFromCenter.toFixed(1)} - using fallback`);
+                    console.warn(`[Game] ⚠️ Server spawn position too close to center: (${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)}), dist=${distFromCenter.toFixed(1)} - using fallback`);
                     // Не используем эту позицию, продолжаем к fallback логике ниже
                 } else {
                     // КРИТИЧНО: Используем X, Z от сервера, но Y рассчитываем по высоте террейна

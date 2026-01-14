@@ -4612,7 +4612,6 @@ export class MainMenu {
 
         // Если MultiplayerManager уже существует, ничего не делаем
         if (game?.multiplayerManager) {
-            console.log("[Menu] ✅ MultiplayerManager уже существует");
             return;
         }
 
@@ -4623,22 +4622,18 @@ export class MainMenu {
             const multiplayerManager = new MultiplayerManager(undefined, true); // autoConnect = true
             game.multiplayerManager = multiplayerManager;
 
-            console.log("[Menu] ✅ MultiplayerManager создан и подключение запущено");
-
             // Ждем подключения
             let attempts = 0;
             const maxAttempts = 20; // 10 секунд
             const checkConnection = setInterval(() => {
                 attempts++;
                 if (multiplayerManager.isConnected()) {
-                    console.log("[Menu] ✅ MultiplayerManager подключен к серверу");
                     clearInterval(checkConnection);
                     // Запрашиваем список игроков сразу после подключения
                     setTimeout(() => {
                         multiplayerManager.getOnlinePlayers();
                     }, 500);
                 } else if (attempts >= maxAttempts) {
-                    console.warn("[Menu] ⚠️ Превышено время ожидания подключения MultiplayerManager");
                     clearInterval(checkConnection);
                 }
             }, 500);
