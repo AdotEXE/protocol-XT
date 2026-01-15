@@ -3080,8 +3080,8 @@ export class TankController {
                 this.fire(); // Стреляем сразу при нажатии
             }
 
-            // Tracer (T key) - fires tracer round if available and not reloading
-            if (code === "KeyT") this.fireTracer();
+            // Tracer (P key) - fires tracer round if available and not reloading
+            if (code === "KeyP") this.fireTracer();
 
             // Special chassis abilities (V key)
             if (code === "KeyV") this.activateChassisAbility();
@@ -5675,7 +5675,7 @@ export class TankController {
             // Сервер валидирует и корректирует позицию при необходимости.
             // =========================================================================
             const applyLocalMovementForces = true; // Always apply local physics
-            
+
             // Проверяем топливо - если пусто, танк не едет
             if (this.isFuelEmpty) {
                 this.smoothThrottle = 0;
@@ -5986,12 +5986,16 @@ export class TankController {
 
             // --- 5. ENHANCED SIDE FRICTION (Improved lateral stability) ---
             // МУЛЬТИПЛЕЕР: Пропускаем боковое трение
+            let sideSpeed: number | undefined;
+            let sideFrictionForce: number | undefined;
+            let sideFrictionMultiplier: number | undefined;
+
             if (applyLocalMovementForces) {
-                const sideSpeed = Vector3.Dot(vel, right);
+                sideSpeed = Vector3.Dot(vel, right);
                 // Боковое сопротивление зависит от скорости движения
                 // Используем кэшированное значение absFwdSpeed для оптимизации
-                const sideFrictionMultiplier = 1.0 + absFwdSpeed / this.moveSpeed * 0.5;
-                const sideFrictionForce = -sideSpeed * this.sideFriction * sideFrictionMultiplier;
+                sideFrictionMultiplier = 1.0 + absFwdSpeed / this.moveSpeed * 0.5;
+                sideFrictionForce = -sideSpeed * this.sideFriction * sideFrictionMultiplier;
                 // Use scaleToRef to avoid mutating right vector
                 if (body && isFinite(sideFrictionForce)) {
                     right.scaleToRef(sideFrictionForce, this._tmpVector5);
@@ -6003,7 +6007,7 @@ export class TankController {
                 }
             }
 
-            if (shouldLog) {
+            if (shouldLog && sideSpeed !== undefined && sideFrictionForce !== undefined && sideFrictionMultiplier !== undefined) {
                 physicsLogger.verbose(`  [SIDE FRICTION] SideSpeed: ${sideSpeed.toFixed(2)} | Force: ${sideFrictionForce.toFixed(0)} | Mult: ${sideFrictionMultiplier.toFixed(2)}`);
             }
 
@@ -6393,7 +6397,7 @@ export class TankController {
         }
 
         this._positionCacheFrame = this._tick;
-        
+
         // ДИАГНОСТИКА: Логируем обновление кэша раз в 60 кадров
         if (this._tick % 60 === 0) {
             logger.log(`[TankController] ✅ [updatePositionCache] Кэш обновлен: frame=${this._tick}, pos=(${this._cachedChassisPosition.x.toFixed(1)}, ${this._cachedChassisPosition.y.toFixed(1)}, ${this._cachedChassisPosition.z.toFixed(1)})`);

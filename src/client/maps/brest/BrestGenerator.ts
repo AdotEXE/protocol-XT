@@ -90,22 +90,38 @@ export class BrestGenerator extends BaseMapGenerator {
             return;
         }
         
-        // Генерируем элементы
+        // Упрощено: только основные элементы
         this.generateCentralFortress(context);
         this.generateCornerBases(context);
-        this.generateBuildings(context);
-        this.generateWalls(context);
+        // Убрано: generateBuildings для упрощения
+        // Убрано: generateWalls для упрощения
         this.generateRamps(context); // Рампы для заезда на крепость
-        this.generateCover(context);
+        // Убрано: generateCover для упрощения
         this.generatePerimeter(context);
     }
     
     /**
-     * Генерация центральной крепости
+     * Генерация центральной крепости (с проверкой попадания в чанк)
      */
     private generateCentralFortress(context: ChunkGenerationContext): void {
-        const { chunkParent } = context;
+        const { worldX, worldZ, size, chunkParent } = context;
         const fortressHalf = this.config.fortressSize / 2;
+        
+        // Проверяем, пересекается ли крепость с чанком
+        const fortressMinX = -fortressHalf;
+        const fortressMaxX = fortressHalf;
+        const fortressMinZ = -fortressHalf;
+        const fortressMaxZ = fortressHalf;
+        
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
+        
+        if (chunkMaxX < fortressMinX || chunkMinX > fortressMaxX ||
+            chunkMaxZ < fortressMinZ || chunkMinZ > fortressMaxZ) {
+            return; // Крепость не попадает в этот чанк
+        }
         
         // Основание крепости
         const fortress = MeshBuilder.CreateBox("fortress_base", {
@@ -118,51 +134,24 @@ export class BrestGenerator extends BaseMapGenerator {
         fortress.position.y = this.config.fortressHeight;
         fortress.position.z = 0;
         
-        // КРЫША КРЕПОСТИ (для заезда)
-        const roofHeight = this.config.fortressHeight + 2;
-        const roof = MeshBuilder.CreateBox("fortress_roof", {
-            width: this.config.fortressSize - 4, // Немного меньше для визуального эффекта
-            height: 0.5,
-            depth: this.config.fortressSize - 4
-        }, chunkParent.getScene());
+        // КРЫША КРЕПОСТИ УБРАНА для упрощения
         
-        roof.position.x = 0;
-        roof.position.y = roofHeight;
-        roof.position.z = 0;
-        
-        // СТЕНЫ КРЕПОСТИ УБРАНЫ - ЦЕНТР ПОЛНОСТЬЮ ОТКРЫТ
-        // Только декоративные угловые опоры (не блокируют проход)
-        const wallHeight = this.config.fortressHeight + 2;
-        const wallThickness = 1.5;
-        const cornerPillarSize = 4; // Маленькие угловые опоры
-        
-        // Только 4 угловые опоры для визуального эффекта (не блокируют центр)
-        // Северо-восточный угол
-        this.createCornerWall(context, fortressHalf - 2, fortressHalf - 2, wallHeight / 2, cornerPillarSize, wallHeight, wallThickness, "corner_ne");
-        // Северо-западный угол
-        this.createCornerWall(context, -fortressHalf + 2, fortressHalf - 2, wallHeight / 2, cornerPillarSize, wallHeight, wallThickness, "corner_nw");
-        // Юго-восточный угол
-        this.createCornerWall(context, fortressHalf - 2, -fortressHalf + 2, wallHeight / 2, cornerPillarSize, wallHeight, wallThickness, "corner_se");
-        // Юго-западный угол
-        this.createCornerWall(context, -fortressHalf + 2, -fortressHalf + 2, wallHeight / 2, cornerPillarSize, wallHeight, wallThickness, "corner_sw");
+        // Упрощено: убраны все декоративные элементы крепости
         
         // Материал крепости
         const fortressMaterial = new StandardMaterial("fortress_material", chunkParent.getScene());
         fortressMaterial.diffuseColor = new Color3(0.5, 0.45, 0.4);
         fortressMaterial.specularColor = new Color3(0.2, 0.2, 0.2);
         fortress.material = fortressMaterial;
-        roof.material = fortressMaterial;
         
-        // Физика для платформы и крыши
-        [fortress, roof].forEach(mesh => {
-            const physicsAggregate = new PhysicsAggregate(
-                mesh,
-                PhysicsShapeType.BOX,
-                { mass: 0, restitution: 0.1 },
-                chunkParent.getScene()
-            );
-            physicsAggregate.body.setMassProperties({ mass: 0 });
-        });
+        // Физика для платформы
+        const physicsAggregate = new PhysicsAggregate(
+            fortress,
+            PhysicsShapeType.BOX,
+            { mass: 0, restitution: 0.1 },
+            chunkParent.getScene()
+        );
+        physicsAggregate.body.setMassProperties({ mass: 0 });
     }
     
     /**
@@ -208,10 +197,10 @@ export class BrestGenerator extends BaseMapGenerator {
     }
     
     /**
-     * Генерация угловых баз
+     * Генерация угловых баз (с проверкой попадания в чанк)
      */
     private generateCornerBases(context: ChunkGenerationContext): void {
-        const { chunkParent } = context;
+        const { worldX, worldZ, size, chunkParent } = context;
         const arenaHalf = this.config.arenaSize / 2;
         const basePos = arenaHalf - 40;
         const baseHalf = this.config.baseSize / 2;
@@ -224,7 +213,23 @@ export class BrestGenerator extends BaseMapGenerator {
             { x: basePos, z: -basePos, name: "base_se" }
         ];
         
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
+        
         bases.forEach(base => {
+            // Проверяем, попадает ли база в чанк
+            const baseMinX = base.x - baseHalf;
+            const baseMaxX = base.x + baseHalf;
+            const baseMinZ = base.z - baseHalf;
+            const baseMaxZ = base.z + baseHalf;
+            
+            if (chunkMaxX < baseMinX || chunkMinX > baseMaxX ||
+                chunkMaxZ < baseMinZ || chunkMinZ > baseMaxZ) {
+                return; // База не попадает в этот чанк
+            }
+            
             // Платформа базы
             const platform = MeshBuilder.CreateBox(`${base.name}_platform`, {
                 width: this.config.baseSize,
@@ -297,16 +302,12 @@ export class BrestGenerator extends BaseMapGenerator {
         const { chunkParent } = context;
         const arenaHalf = this.config.arenaSize / 2;
         
-        // Постройки вокруг крепости
+        // Упрощено: только 4 постройки вокруг крепости
         const buildings = [
             { x: 30, z: 30, w: 12, d: 12, h: 6, name: "building_1" },
             { x: -30, z: 30, w: 12, d: 12, h: 6, name: "building_2" },
             { x: -30, z: -30, w: 12, d: 12, h: 6, name: "building_3" },
-            { x: 30, z: -30, w: 12, d: 12, h: 6, name: "building_4" },
-            { x: 60, z: 0, w: 10, d: 10, h: 5, name: "building_5" },
-            { x: -60, z: 0, w: 10, d: 10, h: 5, name: "building_6" },
-            { x: 0, z: 60, w: 10, d: 10, h: 5, name: "building_7" },
-            { x: 0, z: -60, w: 10, d: 10, h: 5, name: "building_8" }
+            { x: 30, z: -30, w: 12, d: 12, h: 6, name: "building_4" }
         ];
         
         buildings.forEach(building => {
@@ -379,15 +380,7 @@ export class BrestGenerator extends BaseMapGenerator {
         wallW.position.y = y + wallHeight / 2;
         wallW.position.z = z;
         
-        // Крыша
-        const roof = MeshBuilder.CreateBox(`${name}_roof`, {
-            width: width + 0.5,
-            height: 0.3,
-            depth: depth + 0.5
-        }, chunkParent.getScene());
-        roof.position.x = x;
-        roof.position.y = y + height;
-        roof.position.z = z;
+        // Крыша убрана для упрощения
         
         // Материал
         const material = new StandardMaterial(`${name}_mat`, chunkParent.getScene());
@@ -398,10 +391,9 @@ export class BrestGenerator extends BaseMapGenerator {
         wallS.material = material;
         wallE.material = material;
         wallW.material = material;
-        roof.material = material;
         
         // Физика
-        [base, wallN, wallS, wallE, wallW, roof].forEach(mesh => {
+        [base, wallN, wallS, wallE, wallW].forEach(mesh => {
             const physicsAggregate = new PhysicsAggregate(
                 mesh,
                 PhysicsShapeType.BOX,
@@ -418,12 +410,10 @@ export class BrestGenerator extends BaseMapGenerator {
     private generateWalls(context: ChunkGenerationContext): void {
         const { chunkParent } = context;
         
-        // Стены между крепостью и базами
+        // Упрощено: только 2 стены между крепостью и базами
         const walls = [
             { x: 0, z: 45, w: 15, h: 2, d: 1, name: "wall_1" },
-            { x: 0, z: -45, w: 15, h: 2, d: 1, name: "wall_2" },
-            { x: 45, z: 0, w: 1, h: 2, d: 15, name: "wall_3" },
-            { x: -45, z: 0, w: 1, h: 2, d: 15, name: "wall_4" }
+            { x: 0, z: -45, w: 15, h: 2, d: 1, name: "wall_2" }
         ];
         
         walls.forEach(wall => {
@@ -480,31 +470,9 @@ export class BrestGenerator extends BaseMapGenerator {
         const rampWidth = 12;
         const rampDepth = 8;
         
-        // Рампы от земли к крепости (4 основные)
+        // Упрощено: только 2 основные рампы к крепости
         this.createRamp(context, 0, fortressHalf + 10, groundLevel, 0, fortressHalf, this.config.fortressHeight, rampWidth, rampDepth, "ramp_north");
-        this.createRamp(context, 0, -fortressHalf - 10, groundLevel, 0, -fortressHalf, this.config.fortressHeight, rampWidth, rampDepth, "ramp_south");
         this.createRamp(context, fortressHalf + 10, 0, groundLevel, fortressHalf, 0, this.config.fortressHeight, rampWidth, rampDepth, "ramp_east");
-        this.createRamp(context, -fortressHalf - 10, 0, groundLevel, -fortressHalf, 0, this.config.fortressHeight, rampWidth, rampDepth, "ramp_west");
-        
-        // Дополнительные рампы (диагональные)
-        this.createRamp(context, fortressHalf + 8, fortressHalf + 8, groundLevel, fortressHalf * 0.7, fortressHalf * 0.7, this.config.fortressHeight, rampWidth * 0.8, rampDepth, "ramp_ne");
-        this.createRamp(context, -fortressHalf - 8, fortressHalf + 8, groundLevel, -fortressHalf * 0.7, fortressHalf * 0.7, this.config.fortressHeight, rampWidth * 0.8, rampDepth, "ramp_nw");
-        this.createRamp(context, -fortressHalf - 8, -fortressHalf - 8, groundLevel, -fortressHalf * 0.7, -fortressHalf * 0.7, this.config.fortressHeight, rampWidth * 0.8, rampDepth, "ramp_sw");
-        this.createRamp(context, fortressHalf + 8, -fortressHalf - 8, groundLevel, fortressHalf * 0.7, -fortressHalf * 0.7, this.config.fortressHeight, rampWidth * 0.8, rampDepth, "ramp_se");
-        
-        // РАМПЫ НА КРЫШУ КРЕПОСТИ
-        const roofHeight = this.config.fortressHeight + 2; // Высота крыши крепости
-        const roofRampWidth = 10;
-        const roofRampDepth = 6;
-        
-        // Рампы на крышу крепости (от платформы крепости на крышу)
-        this.createRamp(context, 0, fortressHalf * 0.8, this.config.fortressHeight, 0, fortressHalf * 0.5, roofHeight, roofRampWidth, roofRampDepth, "ramp_roof_north");
-        this.createRamp(context, 0, -fortressHalf * 0.8, this.config.fortressHeight, 0, -fortressHalf * 0.5, roofHeight, roofRampWidth, roofRampDepth, "ramp_roof_south");
-        this.createRamp(context, fortressHalf * 0.8, 0, this.config.fortressHeight, fortressHalf * 0.5, 0, roofHeight, roofRampWidth, roofRampDepth, "ramp_roof_east");
-        this.createRamp(context, -fortressHalf * 0.8, 0, this.config.fortressHeight, -fortressHalf * 0.5, 0, roofHeight, roofRampWidth, roofRampDepth, "ramp_roof_west");
-        
-        // РАМПЫ НА КРЫШИ ПОСТРОЕК
-        this.generateBuildingRoofRamps(context);
     }
     
     /**
@@ -540,7 +508,7 @@ export class BrestGenerator extends BaseMapGenerator {
     }
     
     /**
-     * Создание одной рампы
+     * Создание одной рампы (с проверкой попадания в чанк)
      */
     private createRamp(
         context: ChunkGenerationContext,
@@ -554,7 +522,7 @@ export class BrestGenerator extends BaseMapGenerator {
         depth: number,
         name: string
     ): void {
-        const { chunkParent } = context;
+        const { worldX, worldZ, size, chunkParent } = context;
         
         const dx = x2 - x1;
         const dz = z2 - z1;
@@ -562,15 +530,36 @@ export class BrestGenerator extends BaseMapGenerator {
         const totalDistance = Math.sqrt(dx * dx + dz * dz);
         const pitchAngle = Math.atan2(dy, totalDistance);
         
+        const rampX = (x1 + x2) / 2;
+        const rampZ = (z1 + z2) / 2;
+        const rampY = (y1 + y2) / 2;
+        
+        // Проверяем, попадает ли рампа в чанк
+        const rampHalf = Math.max(width, totalDistance) / 2;
+        const rampMinX = rampX - rampHalf;
+        const rampMaxX = rampX + rampHalf;
+        const rampMinZ = rampZ - rampHalf;
+        const rampMaxZ = rampZ + rampHalf;
+        
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
+        
+        if (chunkMaxX < rampMinX || chunkMinX > rampMaxX ||
+            chunkMaxZ < rampMinZ || chunkMinZ > rampMaxZ) {
+            return; // Рампа не попадает в этот чанк
+        }
+        
         const ramp = MeshBuilder.CreateBox(name, {
             width: width,
             height: 0.5,
             depth: totalDistance
         }, chunkParent.getScene());
         
-        ramp.position.x = (x1 + x2) / 2;
-        ramp.position.y = (y1 + y2) / 2;
-        ramp.position.z = (z1 + z2) / 2;
+        ramp.position.x = rampX;
+        ramp.position.y = rampY;
+        ramp.position.z = rampZ;
         
         const yawAngle = Math.atan2(dx, dz);
         ramp.rotation.y = yawAngle;
@@ -597,16 +586,12 @@ export class BrestGenerator extends BaseMapGenerator {
     private generateCover(context: ChunkGenerationContext): void {
         const { chunkParent } = context;
         
-        // Контейнеры
+        // Упрощено: только половина контейнеров
         const containers = [
             { x: 20, z: 20, name: "container_1" },
             { x: -20, z: 20, name: "container_2" },
             { x: -20, z: -20, name: "container_3" },
-            { x: 20, z: -20, name: "container_4" },
-            { x: 40, z: 40, name: "container_5" },
-            { x: -40, z: 40, name: "container_6" },
-            { x: -40, z: -40, name: "container_7" },
-            { x: 40, z: -40, name: "container_8" }
+            { x: 20, z: -20, name: "container_4" }
         ];
         
         containers.forEach(container => {
@@ -666,70 +651,122 @@ export class BrestGenerator extends BaseMapGenerator {
     }
     
     /**
-     * Генерация периметра (стены по краям арены)
+     * Генерация периметра (стены по краям арены) - создается только частично в каждом чанке
      */
     private generatePerimeter(context: ChunkGenerationContext): void {
-        const { chunkParent } = context;
+        const { worldX, worldZ, size, chunkParent } = context;
         const arenaHalf = this.config.arenaSize / 2;
         const wallHeight = 6;
         const wallThickness = 2;
-        
-        // Стены по периметру
-        const northWall = MeshBuilder.CreateBox("wall_north", {
-            width: this.config.arenaSize,
-            height: wallHeight,
-            depth: wallThickness
-        }, chunkParent.getScene());
-        northWall.position.x = 0;
-        northWall.position.y = wallHeight / 2;
-        northWall.position.z = arenaHalf;
-        
-        const southWall = MeshBuilder.CreateBox("wall_south", {
-            width: this.config.arenaSize,
-            height: wallHeight,
-            depth: wallThickness
-        }, chunkParent.getScene());
-        southWall.position.x = 0;
-        southWall.position.y = wallHeight / 2;
-        southWall.position.z = -arenaHalf;
-        
-        const eastWall = MeshBuilder.CreateBox("wall_east", {
-            width: wallThickness,
-            height: wallHeight,
-            depth: this.config.arenaSize
-        }, chunkParent.getScene());
-        eastWall.position.x = arenaHalf;
-        eastWall.position.y = wallHeight / 2;
-        eastWall.position.z = 0;
-        
-        const westWall = MeshBuilder.CreateBox("wall_west", {
-            width: wallThickness,
-            height: wallHeight,
-            depth: this.config.arenaSize
-        }, chunkParent.getScene());
-        westWall.position.x = -arenaHalf;
-        westWall.position.y = wallHeight / 2;
-        westWall.position.z = 0;
-        
-        // Материал стен
+
+        const chunkLeft = worldX;
+        const chunkRight = worldX + size;
+        const chunkBottom = worldZ;
+        const chunkTop = worldZ + size;
+
         const wallMaterial = new StandardMaterial("wall_material", chunkParent.getScene());
         wallMaterial.diffuseColor = new Color3(0.6, 0.55, 0.5);
         wallMaterial.specularColor = new Color3(0.2, 0.2, 0.2);
-        northWall.material = wallMaterial;
-        southWall.material = wallMaterial;
-        eastWall.material = wallMaterial;
-        westWall.material = wallMaterial;
-        
-        // Физика для всех стен
-        [northWall, southWall, eastWall, westWall].forEach(wall => {
-            const physicsAggregate = new PhysicsAggregate(
-                wall,
-                PhysicsShapeType.BOX,
-                { mass: 0, restitution: 0.1 },
-                chunkParent.getScene()
-            );
-            physicsAggregate.body.setMassProperties({ mass: 0 });
-        });
+
+        // Северная стена
+        if (chunkBottom <= arenaHalf && chunkTop >= arenaHalf) {
+            const wallLength = Math.min(chunkRight, arenaHalf) - Math.max(chunkLeft, -arenaHalf);
+            if (wallLength > 0) {
+                const wallX = (Math.max(chunkLeft, -arenaHalf) + Math.min(chunkRight, arenaHalf)) / 2;
+                const northWall = MeshBuilder.CreateBox("wall_north", {
+                    width: wallLength,
+                    height: wallHeight,
+                    depth: wallThickness
+                }, chunkParent.getScene());
+                northWall.position.x = wallX;
+                northWall.position.y = wallHeight / 2;
+                northWall.position.z = arenaHalf;
+                northWall.material = wallMaterial;
+
+                const physicsAggregate = new PhysicsAggregate(
+                    northWall,
+                    PhysicsShapeType.BOX,
+                    { mass: 0, restitution: 0.1 },
+                    chunkParent.getScene()
+                );
+                physicsAggregate.body.setMassProperties({ mass: 0 });
+            }
+        }
+
+        // Южная стена
+        if (chunkBottom <= -arenaHalf && chunkTop >= -arenaHalf) {
+            const wallLength = Math.min(chunkRight, arenaHalf) - Math.max(chunkLeft, -arenaHalf);
+            if (wallLength > 0) {
+                const wallX = (Math.max(chunkLeft, -arenaHalf) + Math.min(chunkRight, arenaHalf)) / 2;
+                const southWall = MeshBuilder.CreateBox("wall_south", {
+                    width: wallLength,
+                    height: wallHeight,
+                    depth: wallThickness
+                }, chunkParent.getScene());
+                southWall.position.x = wallX;
+                southWall.position.y = wallHeight / 2;
+                southWall.position.z = -arenaHalf;
+                southWall.material = wallMaterial;
+
+                const physicsAggregate = new PhysicsAggregate(
+                    southWall,
+                    PhysicsShapeType.BOX,
+                    { mass: 0, restitution: 0.1 },
+                    chunkParent.getScene()
+                );
+                physicsAggregate.body.setMassProperties({ mass: 0 });
+            }
+        }
+
+        // Восточная стена
+        if (chunkLeft <= arenaHalf && chunkRight >= arenaHalf) {
+            const wallLength = Math.min(chunkTop, arenaHalf) - Math.max(chunkBottom, -arenaHalf);
+            if (wallLength > 0) {
+                const wallZ = (Math.max(chunkBottom, -arenaHalf) + Math.min(chunkTop, arenaHalf)) / 2;
+                const eastWall = MeshBuilder.CreateBox("wall_east", {
+                    width: wallThickness,
+                    height: wallHeight,
+                    depth: wallLength
+                }, chunkParent.getScene());
+                eastWall.position.x = arenaHalf;
+                eastWall.position.y = wallHeight / 2;
+                eastWall.position.z = wallZ;
+                eastWall.material = wallMaterial;
+
+                const physicsAggregate = new PhysicsAggregate(
+                    eastWall,
+                    PhysicsShapeType.BOX,
+                    { mass: 0, restitution: 0.1 },
+                    chunkParent.getScene()
+                );
+                physicsAggregate.body.setMassProperties({ mass: 0 });
+            }
+        }
+
+        // Западная стена
+        if (chunkLeft <= -arenaHalf && chunkRight >= -arenaHalf) {
+            const wallLength = Math.min(chunkTop, arenaHalf) - Math.max(chunkBottom, -arenaHalf);
+            if (wallLength > 0) {
+                const wallZ = (Math.max(chunkBottom, -arenaHalf) + Math.min(chunkTop, arenaHalf)) / 2;
+                const westWall = MeshBuilder.CreateBox("wall_west", {
+                    width: wallThickness,
+                    height: wallHeight,
+                    depth: wallLength
+                }, chunkParent.getScene());
+                westWall.position.x = -arenaHalf;
+                westWall.position.y = wallHeight / 2;
+                westWall.position.z = wallZ;
+                westWall.material = wallMaterial;
+
+                const physicsAggregate = new PhysicsAggregate(
+                    westWall,
+                    PhysicsShapeType.BOX,
+                    { mass: 0, restitution: 0.1 },
+                    chunkParent.getScene()
+                );
+                physicsAggregate.body.setMassProperties({ mass: 0 });
+            }
+        }
     }
 }
 

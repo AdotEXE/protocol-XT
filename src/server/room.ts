@@ -74,7 +74,7 @@ export class GameRoom {
         this.isPrivate = isPrivate;
         // Generate seed if not provided
         this.worldSeed = worldSeed || Math.floor(Math.random() * 999999999);
-        
+
         // Валидация и установка mapType
         // Список допустимых типов карт для предотвращения инъекции невалидных значений
         const validMapTypes = ["normal", "desert", "snow", "sandbox", "city", "forest", "swamp", "volcanic", "arctic", "tropical", "sand"];
@@ -87,7 +87,7 @@ export class GameRoom {
             this.mapType = "normal";
         }
         serverLogger.log(`[Room] Комната создана с mapType: ${this.mapType}, worldSeed: ${this.worldSeed}`);
-        
+
         // Get game mode rules
         this.gameModeRules = getGameModeRules(mode);
     }
@@ -468,22 +468,30 @@ export class GameRoom {
         // Сервер принимает её и транслирует другим игрокам.
         // Это гарантирует точную синхронизацию позиций между клиентами.
         // =========================================================================
-        
+
         const oldPosition = player.position.clone();
-        
+
         // Если клиент прислал позицию - используем её напрямую БЕЗ ВАЛИДАЦИИ
         if (input.position && typeof input.position.x === 'number') {
             player.position = new Vector3(input.position.x, input.position.y, input.position.z);
             player.addPositionSnapshot(player.position);
             player.lastValidPosition = player.position.clone();
         }
-        
+
         // Если клиент прислал rotation - используем его
         if (input.rotation !== undefined && typeof input.rotation === 'number') {
             player.rotation = input.rotation;
             // Normalize rotation
             while (player.rotation > Math.PI) player.rotation -= Math.PI * 2;
             while (player.rotation < -Math.PI) player.rotation += Math.PI * 2;
+        }
+
+        // Если клиент прислал pitch/roll (наклон на местности) - используем их
+        if (input.chassisPitch !== undefined && typeof input.chassisPitch === 'number') {
+            player.chassisPitch = input.chassisPitch;
+        }
+        if (input.chassisRoll !== undefined && typeof input.chassisRoll === 'number') {
+            player.chassisRoll = input.chassisRoll;
         }
 
         // Update turret rotation

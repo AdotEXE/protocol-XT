@@ -15,6 +15,7 @@ import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugi
 import { BaseMapGenerator } from "../shared/BaseMapGenerator";
 import { ChunkGenerationContext } from "../shared/MapGenerator";
 import { MAP_SIZES } from "../MapConstants";
+import { SeededRandom } from "../shared/SeededRandom";
 
 export interface CanyonConfig {
     /** Размер арены (из MapConstants.ts) */
@@ -54,28 +55,41 @@ export class CanyonGenerator extends BaseMapGenerator {
     }
     
     private generateMountains(context: ChunkGenerationContext): void {
-        const { size, random, chunkParent, chunkX, chunkZ } = context;
-        const mountainCount = random.int(1, 3);
+        const { worldX, worldZ, size, chunkParent } = context;
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
         
-        for (let i = 0; i < mountainCount; i++) {
-            const mx = random.range(10, size - 10);
-            const mz = random.range(10, size - 10);
-            const mWorldX = chunkX * size + mx;
-            const mWorldZ = chunkZ * size + mz;
-            
-            if (this.isPositionInGarageArea(mWorldX, mWorldZ, 15)) continue;
-            
-            const baseSize = random.range(15, 30);
-            const height = random.range(10, this.config.mountainHeight);
-            
-            this.createCylinder(
-                "mountain",
-                { diameterTop: baseSize * 0.1, diameterBottom: baseSize, height },
-                new Vector3(mx, height / 2, mz),
-                random.pick(["rock", "rockDark"]),
-                chunkParent,
-                true
-            );
+        // Детерминированная генерация на основе world координат
+        const mountainSpacing = 100; // Расстояние между горами
+        const mountainSize = 30; // Средний размер горы
+        
+        const startGridX = Math.floor(chunkMinX / mountainSpacing) * mountainSpacing;
+        const startGridZ = Math.floor(chunkMinZ / mountainSpacing) * mountainSpacing;
+        
+        for (let gridX = startGridX; gridX < chunkMaxX + mountainSpacing; gridX += mountainSpacing) {
+            for (let gridZ = startGridZ; gridZ < chunkMaxZ + mountainSpacing; gridZ += mountainSpacing) {
+                if (!this.isElementInChunk(gridX, gridZ, mountainSize / 2, context)) continue;
+                if (this.isPositionInGarageArea(gridX, gridZ, 15)) continue;
+                
+                const localRandom = this.getDeterministicRandom(gridX, gridZ);
+                if (!localRandom.chance(0.5)) continue; // 50% шанс создать гору
+                
+                const mx = gridX - worldX;
+                const mz = gridZ - worldZ;
+                const baseSize = localRandom.range(15, 30);
+                const height = localRandom.range(10, this.config.mountainHeight);
+                
+                this.createCylinder(
+                    "mountain",
+                    { diameterTop: baseSize * 0.1, diameterBottom: baseSize, height },
+                    new Vector3(mx, height / 2, mz),
+                    localRandom.pick(["rock", "rockDark"]),
+                    chunkParent,
+                    true
+                );
+            }
         }
     }
     

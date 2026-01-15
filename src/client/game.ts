@@ -98,6 +98,7 @@ import { GameMultiplayer } from "./game/GameMultiplayer";
 // GameSpectator is not currently used - removed to fix initialization order issue
 // import { GameSpectator } from "./game/GameSpectator";
 import { GameMultiplayerCallbacks } from "./game/GameMultiplayerCallbacks";
+import { ProviderFactory, type IRewardProvider, type LocalRewardDependencies, type NetworkRewardDependencies } from "./game/providers";
 
 export class Game {
     engine!: Engine; // Инициализируется в init()
@@ -196,6 +197,9 @@ export class Game {
 
     // Battle pass system
     battlePassSystem: BattlePassSystem | undefined;
+
+    // Provider system for unified SP/MP logic
+    rewardProvider: IRewardProvider | undefined;
 
     // Post-processing manager
     postProcessingManager: PostProcessingManager | undefined;
@@ -767,7 +771,7 @@ export class Game {
                         const hasRoomId = this.multiplayerManager?.getRoomId();
                         const hasPendingMapType = this.multiplayerManager?.getMapType();
                         const isInMultiplayerRoom = this.isMultiplayer || (this.multiplayerManager?.isConnected() && hasRoomId) || hasPendingMapType;
-                        
+
                         if (!isInMultiplayerRoom) {
                             // В одиночной игре можно сохранять данные карты
                             // Нормализуем данные к единому формату перед сохранением
@@ -1931,7 +1935,7 @@ export class Game {
                 this.currentMapType = serverMapType as MapType;
             }
         }
-        
+
         logger.log("startGame() called, mapType:", this.currentMapType);
 
         // КРИТИЧНО: Проверяем, соответствует ли текущая карта ожидаемой
@@ -2262,7 +2266,7 @@ export class Game {
                 const hasRoomId = this.multiplayerManager?.getRoomId();
                 const hasPendingMapType = this.multiplayerManager?.getMapType();
                 const isInMultiplayerRoom = this.isMultiplayer || (this.multiplayerManager?.isConnected() && hasRoomId) || hasPendingMapType;
-                
+
                 if (isInMultiplayerRoom) {
                     // В мультиплеере custom карты не поддерживаются - используем sandbox как fallback
                     logger.log(`[Game] 🗺️ Мультиплеер: custom карты не поддерживаются в reloadMap(), используем sandbox (roomId=${hasRoomId || 'N/A'}, pendingMapType=${hasPendingMapType || 'N/A'})`);
@@ -3380,7 +3384,7 @@ export class Game {
                 const hasRoomId = this.multiplayerManager?.getRoomId();
                 const hasPendingMapType = this.multiplayerManager?.getMapType();
                 const isInMultiplayerRoom = this.isMultiplayer || (this.multiplayerManager?.isConnected() && hasRoomId) || hasPendingMapType;
-                
+
                 if (isInMultiplayerRoom) {
                     // В мультиплеере custom карты не поддерживаются - используем sandbox как fallback
                     logger.log(`[Game] 🗺️ Мультиплеер: custom карты не поддерживаются, используем sandbox (roomId=${hasRoomId || 'N/A'}, pendingMapType=${hasPendingMapType || 'N/A'})`);
@@ -3413,7 +3417,7 @@ export class Game {
 
             const roomId = this.multiplayerManager?.getRoomId() || 'N/A';
             const pendingMapType = this.multiplayerManager?.getMapType() || 'N/A';
-            
+
             // КРИТИЧЕСКОЕ ЛОГИРОВАНИЕ: Проверяем все параметры перед созданием ChunkSystem
             console.log(`%c[Game] 🗺️ КРИТИЧЕСКАЯ ТОЧКА: Создание ChunkSystem`, 'color: #ef4444; font-weight: bold; font-size: 16px;', {
                 finalMapType: mapType,
@@ -3425,7 +3429,7 @@ export class Game {
                 multiplayerManagerExists: !!this.multiplayerManager,
                 isConnected: this.multiplayerManager?.isConnected() || false
             });
-            
+
             logger.log(`[Game] 🗺️ Creating ChunkSystem: mapType=${mapType}, worldSeed=${worldSeed}, roomId=${roomId} (currentMapType was: ${this.currentMapType}, pendingMapType=${pendingMapType})`);
 
             this.chunkSystem = new ChunkSystem(this.scene, {
@@ -4075,7 +4079,9 @@ export class Game {
                     // Убеждаемся, что gameStarted установлен
                     if (!this.gameStarted) {
                         this.gameStarted = true;
-                        logger.log("[Game] gameStarted set to true for enemy spawn");
+                        // Инициализируем провайдер наград при старте игры
+                        this.initializeRewardProvider();
+                        logger.log("[Game] gameStarted set to true for enemy spawn + reward provider initialized");
                     }
 
                     // Если в гаражах не спавнилось достаточно врагов, дополняем спавном на карте
@@ -4501,7 +4507,7 @@ export class Game {
                 // КРИТИЧНО: Проверяем что позиция не в центре карты (0, 0)
                 const distFromCenter = Math.sqrt(serverSpawnPos.x * serverSpawnPos.x + serverSpawnPos.z * serverSpawnPos.z);
                 const MIN_SPAWN_DISTANCE = 10; // Минимальное расстояние от центра
-                
+
                 if (distFromCenter < MIN_SPAWN_DISTANCE) {
                     console.warn(`[Game] ⚠️ Server spawn (random) too close to center: (${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)}), dist=${distFromCenter.toFixed(1)} - using fallback`);
                     // Продолжаем к fallback логике ниже
@@ -4510,9 +4516,9 @@ export class Game {
                     const terrainY = this.getTopSurfaceHeight(serverSpawnPos.x, serverSpawnPos.z);
                     const spawnY = terrainY + 2.0; // 2 метра над поверхностью
                     const spawnPos = new Vector3(serverSpawnPos.x, spawnY, serverSpawnPos.z);
-                    
+
                     logger.log(`[Game] 📍 Server spawn (random): terrain Y=${terrainY.toFixed(1)}, final: (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
-                    
+
                     if (this.tank.chassis && this.tank.physicsBody) {
                         // Телепортация с правильной синхронизацией физики
                         this.tank.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
@@ -4520,20 +4526,20 @@ export class Game {
                         this.tank.chassis.computeWorldMatrix(true);
                         this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
                         this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
-                        
+
                         // Возвращаем в DYNAMIC режим
                         this.tank.physicsBody.disablePreStep = false;
                         this.tank.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
                         this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
                         this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
-                        
+
                         // Восстанавливаем disablePreStep
                         setTimeout(() => {
                             if (this.tank?.physicsBody) {
                                 this.tank.physicsBody.disablePreStep = true;
                             }
                         }, 0);
-                        
+
                         // Сохраняем позицию для респавна
                         if (this.gameGarage) {
                             this.gameGarage.setPlayerGaragePosition(spawnPos.clone());
@@ -4615,7 +4621,7 @@ export class Game {
                 // Если позиция слишком близко к центру, это может быть ошибка - используем fallback
                 const distFromCenter = Math.sqrt(serverSpawnPos.x * serverSpawnPos.x + serverSpawnPos.z * serverSpawnPos.z);
                 const MIN_SPAWN_DISTANCE = 10; // Минимальное расстояние от центра
-                
+
                 if (distFromCenter < MIN_SPAWN_DISTANCE) {
                     console.warn(`[Game] ⚠️ Server spawn position too close to center: (${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)}), dist=${distFromCenter.toFixed(1)} - using fallback`);
                     // Не используем эту позицию, продолжаем к fallback логике ниже
@@ -4625,40 +4631,40 @@ export class Game {
                     const terrainY = this.getTopSurfaceHeight(serverSpawnPos.x, serverSpawnPos.z);
                     const spawnY = terrainY + 2.0; // 2 метра над поверхностью
                     const spawnPos = new Vector3(serverSpawnPos.x, spawnY, serverSpawnPos.z);
-                
-                logger.log(`[Game] 📍 Server spawn: (${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.y.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)})`);
-                logger.log(`[Game] 📍 Adjusted spawn (terrain Y=${terrainY.toFixed(1)}): (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
-                
-                if (this.tank.chassis && this.tank.physicsBody) {
-                    // Телепортация с правильной синхронизацией физики
-                    this.tank.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
-                    this.tank.chassis.position.copyFrom(spawnPos);
-                    this.tank.chassis.computeWorldMatrix(true);
-                    this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
-                    this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
-                    
-                    // Возвращаем в DYNAMIC режим
-                    this.tank.physicsBody.disablePreStep = false;
-                    this.tank.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
-                    this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
-                    this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
-                    
-                    // Восстанавливаем disablePreStep
-                    setTimeout(() => {
-                        if (this.tank?.physicsBody) {
-                            this.tank.physicsBody.disablePreStep = true;
+
+                    logger.log(`[Game] 📍 Server spawn: (${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.y.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)})`);
+                    logger.log(`[Game] 📍 Adjusted spawn (terrain Y=${terrainY.toFixed(1)}): (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
+
+                    if (this.tank.chassis && this.tank.physicsBody) {
+                        // Телепортация с правильной синхронизацией физики
+                        this.tank.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
+                        this.tank.chassis.position.copyFrom(spawnPos);
+                        this.tank.chassis.computeWorldMatrix(true);
+                        this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                        this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+
+                        // Возвращаем в DYNAMIC режим
+                        this.tank.physicsBody.disablePreStep = false;
+                        this.tank.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
+                        this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                        this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+
+                        // Восстанавливаем disablePreStep
+                        setTimeout(() => {
+                            if (this.tank?.physicsBody) {
+                                this.tank.physicsBody.disablePreStep = true;
+                            }
+                        }, 0);
+
+                        // Сохраняем позицию для респавна
+                        if (this.gameGarage) {
+                            this.gameGarage.setPlayerGaragePosition(spawnPos.clone());
                         }
-                    }, 0);
-                    
-                    // Сохраняем позицию для респавна
-                    if (this.gameGarage) {
-                        this.gameGarage.setPlayerGaragePosition(spawnPos.clone());
+                        // КРИТИЧНО: Включаем режим мультиплеера для танка
+                        this.tank.isMultiplayerMode = true;
+                        logger.log(`[Game] ✅ Player spawned at server position (adjusted Y), isMultiplayerMode=true`);
+                        return;
                     }
-                    // КРИТИЧНО: Включаем режим мультиплеера для танка
-                    this.tank.isMultiplayerMode = true;
-                    logger.log(`[Game] ✅ Player spawned at server position (adjusted Y), isMultiplayerMode=true`);
-                    return;
-                }
                 }
             }
         }
@@ -5071,63 +5077,82 @@ export class Game {
     private handleEnemyDeath(enemy: EnemyTank): void {
         logger.log("[GAME] Enemy tank destroyed! Adding kill...");
 
-        if (this.hud) {
-            this.hud.addKill();
-        }
-
-        // Обновляем прогресс ежедневных заданий
-        if (this.dailyQuestsSystem) {
-            this.dailyQuestsSystem.updateProgress("daily_kills", 1);
-        }
-
-        // Добавляем опыт в боевой пропуск
-        if (this.battlePassSystem) {
-            this.battlePassSystem.addExperience(25);
-        }
-
-        // Track achievements
-        if (this.achievementsSystem) {
-            this.achievementsSystem.updateProgress("first_blood", 1);
-            this.achievementsSystem.updateProgress("tank_hunter", 1);
-            this.achievementsSystem.updateProgress("tank_ace", 1);
-            if (this.tank && this.tank.currentHealth / this.tank.maxHealth < 0.2) {
-                this.achievementsSystem.updateProgress("comeback", 1);
+        // === Используем провайдер наград для унификации SP/MP ===
+        if (this.rewardProvider && this.rewardProvider.isReady()) {
+            // Инициализируем провайдер если нужно
+            if (!this.rewardProvider.isReady()) {
+                this.initializeRewardProvider();
             }
-        }
 
-        // Track missions
-        if (this.missionSystem) {
-            this.missionSystem.updateProgress("kill", 1);
-        }
+            const reward = this.rewardProvider.awardKill({
+                killerId: this.tank?.id || "player",
+                victimId: enemy.getId?.().toString() || "enemy",
+                isPlayerKill: false, // Это бот
+                position: enemy.chassis?.position
+            });
 
-        // Track stats
-        if (this.playerStats) {
-            this.playerStats.recordKill();
-        }
-
-        // Начисляем валюту
-        const baseReward = 100;
-        const reward = Math.round(baseReward * this.getDifficultyRewardMultiplier());
-        if (this.currencyManager) {
-            this.currencyManager.addCurrency(reward);
+            // applyReward для совместимости (в LocalRewardProvider пустой)
+            this.rewardProvider.applyReward(reward, this.tank?.id || "player");
+        } else {
+            // Fallback на старую логику если провайдер не готов
             if (this.hud) {
-                this.hud.setCurrency(this.currencyManager.getCurrency());
-                this.hud.showMessage(`+${reward} кредитов!`, "#ffaa00", 2000);
+                this.hud.addKill();
             }
-        }
 
-        // Добавляем опыт за убийство
-        if (this.experienceSystem && this.tank) {
-            this.experienceSystem.recordKill(
-                this.tank.chassisType.id,
-                this.tank.cannonType.id,
-                false
-            );
-        }
+            // Обновляем прогресс ежедневных заданий
+            if (this.dailyQuestsSystem) {
+                this.dailyQuestsSystem.updateProgress("daily_kills", 1);
+            }
 
-        if (this.playerProgression) {
-            this.playerProgression.recordKill();
-            this.playerProgression.addCredits(reward);
+            // Добавляем опыт в боевой пропуск
+            if (this.battlePassSystem) {
+                this.battlePassSystem.addExperience(25);
+            }
+
+            // Track achievements
+            if (this.achievementsSystem) {
+                this.achievementsSystem.updateProgress("first_blood", 1);
+                this.achievementsSystem.updateProgress("tank_hunter", 1);
+                this.achievementsSystem.updateProgress("tank_ace", 1);
+                if (this.tank && this.tank.currentHealth / this.tank.maxHealth < 0.2) {
+                    this.achievementsSystem.updateProgress("comeback", 1);
+                }
+            }
+
+            // Track missions
+            if (this.missionSystem) {
+                this.missionSystem.updateProgress("kill", 1);
+            }
+
+            // Track stats
+            if (this.playerStats) {
+                this.playerStats.recordKill();
+            }
+
+            // Начисляем валюту
+            const baseReward = 100;
+            const reward = Math.round(baseReward * this.getDifficultyRewardMultiplier());
+            if (this.currencyManager) {
+                this.currencyManager.addCurrency(reward);
+                if (this.hud) {
+                    this.hud.setCurrency(this.currencyManager.getCurrency());
+                    this.hud.showMessage(`+${reward} кредитов!`, "#ffaa00", 2000);
+                }
+            }
+
+            // Добавляем опыт за убийство
+            if (this.experienceSystem && this.tank) {
+                this.experienceSystem.recordKill(
+                    this.tank.chassisType.id,
+                    this.tank.cannonType.id,
+                    false
+                );
+            }
+
+            if (this.playerProgression) {
+                this.playerProgression.recordKill();
+                this.playerProgression.addCredits(reward);
+            }
         }
 
         // Удаляем бота из AI Coordinator
@@ -5167,6 +5192,44 @@ export class Game {
 
         // Синхронизируем массив врагов
         this.enemyTanks = this.gameEnemies.enemyTanks;
+    }
+
+    /**
+     * Инициализация провайдера наград
+     * Создаёт правильный провайдер в зависимости от режима игры (SP/MP)
+     */
+    private initializeRewardProvider(): void {
+        // Создаём провайдер через фабрику
+        this.rewardProvider = ProviderFactory.createRewardProvider(this.isMultiplayer);
+
+        // Инициализируем с зависимостями
+        if (this.isMultiplayer) {
+            // MP провайдер
+            this.rewardProvider.initialize({
+                multiplayerManager: this.multiplayerManager,
+                hud: this.hud,
+                tank: this.tank,
+                getPlayerId: () => this.multiplayerManager?.getPlayerId() || ""
+            } as NetworkRewardDependencies);
+        } else {
+            // SP провайдер
+            this.rewardProvider.initialize({
+                experienceSystem: this.experienceSystem,
+                currencyManager: this.currencyManager,
+                playerProgression: this.playerProgression,
+                achievementsSystem: this.achievementsSystem,
+                missionSystem: this.missionSystem,
+                dailyQuestsSystem: this.dailyQuestsSystem,
+                battlePassSystem: this.battlePassSystem,
+                playerStats: this.playerStats,
+                tank: this.tank,
+                hud: this.hud,
+                getDifficultyMultiplier: () => this.getDifficultyRewardMultiplier(),
+                upgradeManager: upgradeManager
+            } as LocalRewardDependencies);
+        }
+
+        logger.log(`[Game] Reward provider initialized: ${this.isMultiplayer ? "Network" : "Local"}`);
     }
 
 
@@ -7041,7 +7104,7 @@ export class Game {
             if (tank.chassis) {
                 tank.chassis.isVisible = true;
                 tank.chassis.setEnabled(true);
-                
+
                 // Принудительно добавляем в сцену если еще не добавлен
                 if (this.scene && !this.scene.meshes.includes(tank.chassis)) {
                     this.scene.addMesh(tank.chassis);
@@ -7051,7 +7114,7 @@ export class Game {
             if (tank.turret) {
                 tank.turret.isVisible = true;
                 tank.turret.setEnabled(true);
-                
+
                 if (this.scene && !this.scene.meshes.includes(tank.turret)) {
                     this.scene.addMesh(tank.turret);
                 }
@@ -7059,7 +7122,7 @@ export class Game {
             if (tank.barrel) {
                 tank.barrel.isVisible = true;
                 tank.barrel.setEnabled(true);
-                
+
                 if (this.scene && !this.scene.meshes.includes(tank.barrel)) {
                     this.scene.addMesh(tank.barrel);
                 }
@@ -7094,7 +7157,7 @@ export class Game {
             const steer = this.tank.steerTarget || 0;
             const turretRotation = this.tank.turret.rotation.y;
             const aimPitch = this.tank.aimPitch || 0;
-            
+
             // DEBUG: Логируем инпут раз в секунду если есть движение
             if (this._updateTick % 60 === 0 && (Math.abs(throttle) > 0.01 || Math.abs(steer) > 0.01)) {
                 console.log(`%c[Game] 📤 Input: throttle=${throttle.toFixed(2)}, steer=${steer.toFixed(2)}`, 'color: #f59e0b; font-weight: bold;');
@@ -7108,12 +7171,12 @@ export class Game {
             const cachedPos = this.tank.getCachedChassisPosition();
             const cacheFrame = (this.tank as any)._positionCacheFrame;
             const currentFrame = (this.tank as any)._tick || 0;
-            
+
             // Логируем только если кэш устарел (раз в 60 кадров для диагностики)
             if (currentFrame % 60 === 0 && cacheFrame !== undefined && cacheFrame < currentFrame - 1) {
                 logger.warn(`[Game] ⚠️ [updateMultiplayer] Кэш позиций устарел! cacheFrame=${cacheFrame}, currentFrame=${currentFrame}, diff=${currentFrame - cacheFrame}`);
             }
-            
+
             const currentPosition = cachedPos.clone();
             // КРИТИЧНО: Если используется rotationQuaternion, нужно конвертировать в Euler
             let currentRotation = this.tank.chassis.rotation.y;
@@ -7128,6 +7191,15 @@ export class Game {
             // КРИТИЧНО: Используем getServerTime() для синхронизации с сервером
             // CLIENT-AUTHORITATIVE POSITION: Отправляем реальную позицию от Havok
             // Это гарантирует что другие игроки видят танк в правильной позиции
+            // Extract chassis pitch/roll for terrain tilt visualization on other clients
+            let chassisPitch = 0;
+            let chassisRoll = 0;
+            if (this.tank.chassis.rotationQuaternion) {
+                const euler = this.tank.chassis.rotationQuaternion.toEulerAngles();
+                chassisPitch = euler.x;
+                chassisRoll = euler.z;
+            }
+
             const sequence = this.multiplayerManager.sendPlayerInput({
                 throttle,
                 steer,
@@ -7137,7 +7209,9 @@ export class Game {
                 timestamp: this.multiplayerManager.getServerTime(),
                 // НОВОЕ: Позиция и вращение от Havok физики
                 position: { x: currentPosition.x, y: currentPosition.y, z: currentPosition.z },
-                rotation: currentRotation
+                rotation: currentRotation,
+                chassisPitch,
+                chassisRoll
             });
 
             // CLIENT-SIDE PREDICTION: Update predicted state with actual position after input
@@ -7730,12 +7804,12 @@ export class Game {
         const hasRoomId = this.multiplayerManager?.getRoomId();
         const hasPendingMapType = this.multiplayerManager?.getMapType(); // pendingMapType из ROOM_CREATED/ROOM_JOINED
         const isInMultiplayerRoom = this.isMultiplayer || (this.multiplayerManager?.isConnected() && hasRoomId) || hasPendingMapType;
-        
+
         if (isInMultiplayerRoom) {
             logger.log(`[Game] 🗺️ Мультиплеер: загрузка сохраненной карты запрещена, используем карту с сервера (roomId=${hasRoomId || 'N/A'}, pendingMapType=${hasPendingMapType || 'N/A'})`);
             return;
         }
-        
+
         try {
             const customMapDataStr = localStorage.getItem("selectedCustomMapData");
             if (!customMapDataStr) {

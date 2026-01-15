@@ -70,15 +70,15 @@ export class GameMultiplayerCallbacks {
     private gameStartedFromRoomJoined: boolean = false; // Флаг защиты от двойного запуска игры
     private lastProcessPendingTime: number = 0; // Throttling timestamp
     private readonly PROCESS_PENDING_COOLDOWN = 100; // ms cooldown (reduced from 500ms for faster tank creation)
-    
+
     // Метрики синхронизации
     private syncMetrics: SyncMetrics = new SyncMetrics();
-    
+
     // Визуализация расхождений
     private reconciliationLines: LinesMesh[] = [];
     private readonly MAX_RECONCILIATION_LINES = 10; // Максимум линий для визуализации
     private showReconciliationVisualization: boolean = false; // Флаг включения визуализации
-    
+
     // Защита от частых hard corrections и циклов
     private lastHardCorrectionTime: number = 0;
     private readonly HARD_CORRECTION_COOLDOWN = 1000; // 1000ms - минимальное время между hard corrections для устранения дёрганья
@@ -173,7 +173,7 @@ export class GameMultiplayerCallbacks {
                     }
                 });
                 console.log(`[GameMultiplayerCallbacks] ✅ Callback для списка комнат настроен`);
-                
+
                 // Настраиваем callback для списка игроков
                 mm.onOnlinePlayersList((data: any) => {
                     logger.log(`[GameMultiplayerCallbacks] 👥 Получен список игроков через callback: ${data.players?.length || 0} игроков`);
@@ -354,13 +354,13 @@ export class GameMultiplayerCallbacks {
                 // ИСПРАВЛЕНО: Используем networkPlayers из MultiplayerManager для проверки orphan,
                 // а не players из callback - они могут иметь разные форматы ID
                 const networkPlayersMap = this.deps.multiplayerManager?.getNetworkPlayers();
-                
+
                 // Удаляем только танки локального игрока (не должно быть)
                 // НЕ удаляем "orphan" танки - они могут быть валидными, просто ID не совпадает
                 this.deps.networkPlayerTanks.forEach((tank, tankPlayerId) => {
                     // Проверка на локального игрока - только точное сравнение
                     const isLocalTank = localPlayerId && tankPlayerId === localPlayerId;
-                    
+
                     // КРИТИЧНО: Проверяем orphan по networkPlayers, а не по players из callback
                     const existsInNetworkPlayers = networkPlayersMap?.has(tankPlayerId) || false;
                     const isOrphanTank = !existsInNetworkPlayers && !otherPlayers.some(p => p.id === tankPlayerId);
@@ -517,7 +517,119 @@ export class GameMultiplayerCallbacks {
                 }
             }
         });
+
+        // Обработка смерти игрока
+        mm.onPlayerDied((data) => {
+            logger.log(`[Game] Player died: ${data.playerName} (${data.playerId})`);
+
+            const localPlayerId = this.deps.multiplayerManager?.getPlayerId();
+
+            // Если умер локальный игрок
+            if (data.playerId === localPlayerId) {
+                logger.log("[Game] Local player died, starting respawn countdown");
+
+                // Получаем задержку респавна из мультиплеер менеджера
+                const respawnDelay = this.deps.multiplayerManager?.getRespawnDelay() || 5;
+
+                // Запускаем таймер обратного отсчета
+                if (this.deps.tank) {
+                    // Устанавливаем количество секунд до респавна
+                    (this.deps.tank as any).respawnCountdown = respawnDelay;
+
+                    // Запускаем таймер
+                    this.deps.tank.startRespawnCountdown();
+
+                    // Устанавливаем callback для отправки запроса на респавн
+                    // КРИТИЧНО: Используем стрелочную функцию для сохранения контекста
+                    const originalRespawn = this.deps.tank.respawn.bind(this.deps.tank);
+                    this.deps.tank.respawn = () => {
+                        logger.log("[Game] Respawn countdown complete, requesting respawn from server");
+
+                        // Отправляем запрос на респавн на сервер
+                        this.deps.multiplayerManager?.requestRespawn();
+
+                        // НЕ вызываем оригинальный respawn - ждем ответа от сервера
+                    };
+                }
+            } else {
+                // Умер другой игрок - скрываем его танк
+                const tank = this.deps.networkPlayerTanks.get(data.playerId);
+                if (tank) {
+                    tank.setDead();
+                    logger.log(`[Game] Network player ${data.playerName} died - tank hidden`);
+                }
+            }
+
+            // Показываем уведомление
+            this.showPlayerNotification(`💀 ${data.playerName} погиб!`, "#ef4444");
+        });
+
+        // Обработка респавна игрока
+        mm.onPlayerRespawned((data) => {
+            logger.log(`[Game] Player respawned: ${data.playerName} (${data.playerId}) at (${data.position.x.toFixed(1)}, ${data.position.y.toFixed(1)}, ${data.position.z.toFixed(1)})`);
+
+            const localPlayerId = this.deps.multiplayerManager?.getPlayerId();
+
+            // Если респавнился локальный игрок
+            if (data.playerId === localPlayerId) {
+                logger.log("[Game] Local player respawned, starting respawn animation");
+
+                if (this.deps.tank) {
+                    // КРИТИЧНО: Сначала вызываем respawn() для перезагрузки частей танка
+                    // Это запустит анимацию сборки (2 секунды)
+                    this.deps.tank.respawn();
+
+                    // Затем через 2 секунды (после анимации) телепортируем на позицию от сервера
+                    setTimeout(() => {
+                        if (!this.deps.tank) return;
+
+                        logger.log("[Game] Respawn animation complete, teleporting to server position");
+
+                        // Телепортируем на позицию от сервера
+                        if (this.deps.tank.chassis && data.position) {
+                            const respawnPos = new Vector3(data.position.x, data.position.y, data.position.z);
+                            this.deps.tank.chassis.position.copyFrom(respawnPos);
+
+                            // Обновляем физику если есть
+                            if (this.deps.tank.physicsBody) {
+                                try {
+                                    this.deps.tank.physicsBody.setTargetTransform(
+                                        respawnPos,
+                                        this.deps.tank.chassis.rotationQuaternion || Quaternion.Identity()
+                                    );
+                                } catch (error) {
+                                    logger.error("[Game] Error setting physics transform:", error);
+                                }
+                            }
+                        }
+
+                        // Скрываем экран смерти после анимации
+                        if (this.deps.hud && typeof (this.deps.hud as any).hideDeathScreen === 'function') {
+                            (this.deps.hud as any).hideDeathScreen();
+                        }
+                    }, 2000); // 2 секунды на анимацию респавна
+                }
+            } else {
+                // Респавнился другой игрок - показываем его танк
+                const tank = this.deps.networkPlayerTanks.get(data.playerId);
+                if (tank && data.position) {
+                    const respawnPos = new Vector3(data.position.x, data.position.y, data.position.z);
+                    tank.setAlive(respawnPos);
+
+                    // Устанавливаем полное здоровье
+                    if (data.health !== undefined) {
+                        tank.setHealth(data.health, data.maxHealth || 100);
+                    }
+
+                    logger.log(`[Game] Network player ${data.playerName} respawned at (${data.position.x.toFixed(1)}, ${data.position.y.toFixed(1)}, ${data.position.z.toFixed(1)})`);
+                }
+            }
+
+            // Показываем уведомление
+            this.showPlayerNotification(`✨ ${data.playerName} возродился!`, "#22c55e");
+        });
     }
+
 
     private setupMatchCallbacks(mm: MultiplayerManager): void {
         mm.onMatchFound((data) => {
@@ -545,7 +657,7 @@ export class GameMultiplayerCallbacks {
                 const tracker = new RealtimeStatsTracker();
                 this.deps.setRealtimeStatsTracker(tracker);
                 console.log(`[Game] ✅ RealtimeStatsTracker создан при входе в комнату`);
-                
+
                 // Если localPlayerId уже есть, запускаем матч сразу
                 if (localPlayerId) {
                     tracker.startMatch(localPlayerId);
@@ -575,13 +687,13 @@ export class GameMultiplayerCallbacks {
                     logger.log(`[Game] 🗺️ [onRoomJoined] Set mapType via fallback to ${data.mapType}`);
                 }
             }
-            
+
             // ДИАГНОСТИКА: Логируем синхронизацию при присоединении к комнате
             const mm = this.deps.multiplayerManager;
             const roomId = data.roomId || mm?.getRoomId();
             const worldSeed = data.worldSeed || mm?.getWorldSeed();
             const mapType = data.mapType || mm?.getMapType();
-            
+
             console.log(`%c[Game] 📥 [onRoomJoined] Синхронизация комнаты`, 'color: #3b82f6; font-weight: bold;', {
                 roomId: roomId,
                 worldSeed: worldSeed,
@@ -689,7 +801,7 @@ export class GameMultiplayerCallbacks {
     // Клиент ВСЕГДА плавно интерполирует к серверной позиции.
     // Это полностью устраняет дёрганье!
     // =========================================================================
-    
+
     // Целевая позиция от сервера для интерполяции локального игрока
     private _localPlayerServerTarget: Vector3 = new Vector3(0, 0, 0);
     private _localPlayerServerRotation: number = 0;
@@ -697,7 +809,7 @@ export class GameMultiplayerCallbacks {
     private _localPlayerServerAimPitch: number = 0;
     private _hasLocalPlayerServerTarget: boolean = false;
     private _isFirstServerUpdate: boolean = true;
-    
+
     // Скорость интерполяции к серверу (настраиваемая)
     // 0.15 = достигаем цели примерно за 100ms при 60 FPS
     private readonly LOCAL_PLAYER_LERP_SPEED = 0.15;
@@ -715,7 +827,7 @@ export class GameMultiplayerCallbacks {
     updateLocalPlayerToServer(deltaTime: number): void {
         const tank = this.deps.tank;
         if (!tank || !tank.chassis || !tank.physicsBody || !this._hasLocalPlayerServerTarget) return;
-        
+
         // =========================================================================
         // ТОЛЬКО НАЧАЛЬНАЯ ТЕЛЕПОРТАЦИЯ ПРИ СПАВНЕ
         // =========================================================================
@@ -724,7 +836,7 @@ export class GameMultiplayerCallbacks {
             const body = tank.physicsBody;
             const chassis = tank.chassis;
             const targetPos = this._localPlayerServerTarget;
-            
+
             try {
                 body.setMotionType(PhysicsMotionType.ANIMATED);
                 chassis.position.set(targetPos.x, chassis.position.y, targetPos.z);
@@ -743,7 +855,7 @@ export class GameMultiplayerCallbacks {
             } catch (e) {
                 console.error("[updateLocalPlayerToServer] Spawn teleport error:", e);
             }
-            
+
             // Башня и ствол при спавне
             if (tank.turret) {
                 tank.turret.rotation.y = this._localPlayerServerTurretRotation;
@@ -754,7 +866,7 @@ export class GameMultiplayerCallbacks {
             tank.aimPitch = this._localPlayerServerAimPitch;
             return;
         }
-        
+
         // =========================================================================
         // ПОСЛЕ СПАВНА: НИЧЕГО НЕ ДЕЛАЕМ!
         // =========================================================================
@@ -769,7 +881,7 @@ export class GameMultiplayerCallbacks {
     // Счётчики для логирования (раз в секунду)
     private _reconciliationLogCounter = 0;
     private _localPlayerLogCounter = 0;
-    
+
     /**
      * УПРОЩЁННЫЙ handleReconciliation: просто сохраняем серверную позицию
      * Фактическая интерполяция происходит в updateLocalPlayerToServer()
@@ -783,15 +895,15 @@ export class GameMultiplayerCallbacks {
         needsReapplication?: boolean;
     }): void {
         if (!data.serverState || !data.serverState.position) return;
-        
+
         const serverPos = data.serverState.position;
-        
+
         // Безопасное получение серверной позиции
         if (serverPos instanceof Vector3) {
             this._localPlayerServerTarget = serverPos.clone();
         } else if (serverPos && typeof serverPos === 'object' && 'x' in serverPos && 'y' in serverPos && 'z' in serverPos) {
             const pos = serverPos as { x: number; y: number; z: number };
-            if (typeof pos.x === 'number' && typeof pos.y === 'number' && typeof pos.z === 'number' && 
+            if (typeof pos.x === 'number' && typeof pos.y === 'number' && typeof pos.z === 'number' &&
                 isFinite(pos.x) && isFinite(pos.y) && isFinite(pos.z)) {
                 this._localPlayerServerTarget = new Vector3(pos.x, pos.y, pos.z);
             } else {
@@ -800,31 +912,31 @@ export class GameMultiplayerCallbacks {
         } else {
             return; // Невалидный формат - игнорируем
         }
-        
+
         // ЛОГИРОВАНИЕ: Показываем что получили данные от сервера (раз в секунду)
         this._reconciliationLogCounter++;
         if (this._reconciliationLogCounter % 60 === 0) {
             console.log(`%c[Reconciliation] Server target: (${this._localPlayerServerTarget.x.toFixed(1)}, ${this._localPlayerServerTarget.y.toFixed(1)}, ${this._localPlayerServerTarget.z.toFixed(1)})`, 'color: #22c55e; font-weight: bold;');
         }
-        
+
         // Сохраняем серверные значения
         this._localPlayerServerRotation = data.serverState.rotation || 0;
         this._localPlayerServerTurretRotation = data.serverState.turretRotation || 0;
         this._localPlayerServerAimPitch = data.serverState.aimPitch || 0;
         this._hasLocalPlayerServerTarget = true;
-        
+
         // Записываем метрики для статистики
         if (data.positionDiff !== undefined) {
             this.syncMetrics.recordPositionDiff(data.positionDiff);
         }
     }
-    
+
     /**
      * Создать линию визуализации расхождения при reconciliation
      */
     private createReconciliationLine(from: Vector3, to: Vector3, color: Color3): void {
         if (!this.deps.scene) return;
-        
+
         // Удаляем старые линии если их слишком много
         while (this.reconciliationLines.length >= this.MAX_RECONCILIATION_LINES) {
             const oldLine = this.reconciliationLines.shift();
@@ -832,17 +944,17 @@ export class GameMultiplayerCallbacks {
                 oldLine.dispose();
             }
         }
-        
+
         // Создаем линию от предсказанной позиции к серверной
         const points = [from, to];
         const line = MeshBuilder.CreateLines("reconciliation_line", { points }, this.deps.scene);
-        
+
         // Устанавливаем цвет
         const mat = new StandardMaterial("reconciliation_line_mat", this.deps.scene);
         mat.emissiveColor = color;
         mat.diffuseColor = color;
         line.color = color;
-        
+
         // Автоматически удаляем линию через 2 секунды
         setTimeout(() => {
             if (line && !line.isDisposed()) {
@@ -853,16 +965,16 @@ export class GameMultiplayerCallbacks {
                 }
             }
         }, 2000);
-        
+
         this.reconciliationLines.push(line);
     }
-    
+
     /**
      * Включить/выключить визуализацию расхождений
      */
     setReconciliationVisualization(enabled: boolean): void {
         this.showReconciliationVisualization = enabled;
-        
+
         // Если выключаем, удаляем все линии
         if (!enabled) {
             this.reconciliationLines.forEach(line => {
@@ -873,7 +985,7 @@ export class GameMultiplayerCallbacks {
             this.reconciliationLines = [];
         }
     }
-    
+
     /**
      * Получить метрики синхронизации
      */
@@ -885,7 +997,7 @@ export class GameMultiplayerCallbacks {
         // КРИТИЧНО: Сбрасываем счётчик reconciliation при старте игры
         // Это позволяет правильно обработать первые reconciliation при присоединении к идущей игре
         this.reconciliationCount = 0;
-        
+
         // ДИАГНОСТИКА: Логируем состояние игры перед запуском
         const mm = this.deps.multiplayerManager;
         const roomId = data.roomId || mm?.getRoomId();
@@ -902,22 +1014,22 @@ export class GameMultiplayerCallbacks {
         const currentRoomId = mm?.getRoomId();
         const currentWorldSeed = mm?.getWorldSeed();
         const currentMapType = mm?.getMapType();
-        
+
         if (roomId && currentRoomId && roomId !== currentRoomId) {
             console.error(`%c[Game] ❌ КРИТИЧЕСКАЯ ОШИБКА: roomId не совпадает! GAME_START: ${roomId}, текущий: ${currentRoomId}`, 'color: #ef4444; font-weight: bold; font-size: 14px;');
             logger.error(`[Game] ❌ RoomId mismatch! GAME_START: ${roomId}, current: ${currentRoomId}`);
         }
-        
+
         if (worldSeed && currentWorldSeed && worldSeed !== currentWorldSeed) {
             console.error(`%c[Game] ❌ КРИТИЧЕСКАЯ ОШИБКА: worldSeed не совпадает! GAME_START: ${worldSeed}, текущий: ${currentWorldSeed}`, 'color: #ef4444; font-weight: bold; font-size: 14px;');
             logger.error(`[Game] ❌ WorldSeed mismatch! GAME_START: ${worldSeed}, current: ${currentWorldSeed}`);
         }
-        
+
         if (data.mapType && currentMapType && data.mapType !== currentMapType) {
             console.error(`%c[Game] ❌ КРИТИЧЕСКАЯ ОШИБКА: mapType не совпадает! GAME_START: ${data.mapType}, текущий: ${currentMapType}`, 'color: #ef4444; font-weight: bold; font-size: 14px;');
             logger.error(`[Game] ❌ MapType mismatch! GAME_START: ${data.mapType}, current: ${currentMapType}`);
         }
-        
+
         // Логируем успешную синхронизацию
         if (roomId && worldSeed && data.mapType) {
             console.log(`%c[Game] ✅ Синхронизация: roomId=${roomId}, worldSeed=${worldSeed}, mapType=${data.mapType}`, 'color: #22c55e; font-weight: bold;');
@@ -953,23 +1065,23 @@ export class GameMultiplayerCallbacks {
         // Это ГЛАВНОЕ место синхронизации карты - GAME_START гарантированно приходит с правильным mapType
         if (data.mapType) {
             console.log(`%c[Game] 🗺️ GAME_START: Получен mapType от сервера: ${data.mapType}`, 'color: #22c55e; font-weight: bold; font-size: 14px;');
-            
+
             const gameInstance = (window as any).gameInstance;
-            
+
             // ПРИНУДИТЕЛЬНАЯ СИНХРОНИЗАЦИЯ: Всегда обновляем currentMapType из данных сервера
             if (gameInstance) {
                 const currentMap = gameInstance.currentMapType;
-                
+
                 // Логируем состояние для диагностики
                 console.log(`[Game] 🗺️ Текущая карта: ${currentMap}, Серверная карта: ${data.mapType}`);
-                
+
                 if (currentMap !== data.mapType) {
-                    console.log(`%c[Game] ❌ КРИТИЧЕСКОЕ НЕСОВПАДЕНИЕ КАРТЫ! Текущая: ${currentMap}, Сервер: ${data.mapType}`, 
+                    console.log(`%c[Game] ❌ КРИТИЧЕСКОЕ НЕСОВПАДЕНИЕ КАРТЫ! Текущая: ${currentMap}, Сервер: ${data.mapType}`,
                         'color: #ef4444; font-weight: bold; font-size: 16px;');
-                    
+
                     // ПРИНУДИТЕЛЬНО устанавливаем правильный mapType
                     gameInstance.currentMapType = data.mapType;
-                    
+
                     // Если ChunkSystem уже создан с неправильной картой - перезагружаем
                     if (gameInstance.chunkSystem) {
                         const chunkMapType = (gameInstance.chunkSystem as any).mapType;
@@ -986,7 +1098,7 @@ export class GameMultiplayerCallbacks {
                     console.log(`[Game] ✅ Карта уже синхронизирована: ${data.mapType}`);
                 }
             }
-            
+
             // Сохраняем в глобальные настройки
             if (this.deps.setMapType) {
                 this.deps.setMapType(data.mapType);
@@ -1244,10 +1356,18 @@ export class GameMultiplayerCallbacks {
 
         mm.onPlayerDamaged((data) => {
             const localPlayerId = mm.getPlayerId();
+
+            // Обновляем здоровье локального игрока
             if (data.playerId === localPlayerId) {
                 const healthPercent = (data.health / data.maxHealth) * 100;
                 if (healthPercent < 30) {
                     this.deps.hud?.showNotification?.(`⚠️ Критическое здоровье! ${Math.round(healthPercent)}%`, "warning");
+                }
+            } else {
+                // Обновляем здоровье сетевого танка (показываем полоску здоровья)
+                const networkTank = this.deps.networkPlayerTanks.get(data.playerId);
+                if (networkTank) {
+                    networkTank.setHealth(data.health, data.maxHealth);
                 }
             }
         });
@@ -1261,10 +1381,26 @@ export class GameMultiplayerCallbacks {
                 this.deps.replayRecorder.recordServerMessage(ServerMessageType.PROJECTILE_SPAWN, data);
             }
 
-            if (this.deps.effectsManager && data.position && data.direction) {
+            // Пропускаем локального игрока - его выстрелы обрабатываются локально
+            // Сервер отправляет ownerId, не playerId
+            const localPlayerId = mm.getPlayerId();
+            if (data.ownerId === localPlayerId) {
+                return;
+            }
+
+            if (data.position && data.direction) {
                 const pos = new Vector3(data.position.x, data.position.y, data.position.z);
                 const dir = new Vector3(data.direction.x, data.direction.y, data.direction.z);
-                this.deps.effectsManager.createMuzzleFlash(pos, dir, data.cannonType || "standard");
+
+                // Визуальный эффект выстрела (вспышка)
+                if (this.deps.effectsManager) {
+                    this.deps.effectsManager.createMuzzleFlash(pos, dir, data.cannonType || "standard");
+                }
+
+                // Звук выстрела с 3D позиционированием
+                if (this.deps.soundManager) {
+                    this.deps.soundManager.playShoot(data.cannonType || "standard", pos);
+                }
             }
         });
 
@@ -1713,12 +1849,12 @@ export class GameMultiplayerCallbacks {
             const roomId = mm?.getRoomId() || 'N/A';
             const worldSeed = mm?.getWorldSeed() || 'N/A';
             const mapType = mm?.getMapType() || 'N/A';
-            
+
             // Логирование уменьшено - только один лог при создании танка
             console.log(`[Game] 🔨 NetworkPlayerTank: ${playerData.name || playerData.id} at (${networkPlayer.position.x.toFixed(1)}, ${networkPlayer.position.y.toFixed(1)}, ${networkPlayer.position.z.toFixed(1)}), room=${roomId}`);
-            
+
             logger.log(`[Game] 🔨 Creating NetworkPlayerTank for ${playerData.id}: roomId=${roomId}, worldSeed=${worldSeed}, mapType=${mapType}, position=(${networkPlayer.position.x.toFixed(1)}, ${networkPlayer.position.y.toFixed(1)}, ${networkPlayer.position.z.toFixed(1)})`);
-            
+
             const tank = new NetworkPlayerTank(this.deps.scene, networkPlayer);
             (tank as any).multiplayerManager = this.deps.multiplayerManager;
             this.deps.networkPlayerTanks.set(playerData.id, tank);

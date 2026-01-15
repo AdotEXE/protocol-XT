@@ -627,8 +627,51 @@ export class DebugDashboard {
      */
     renderToContainer(container: HTMLElement): void {
         container.innerHTML = this.getEmbeddedContentHTML();
+        this.injectEmbeddedStyles(container);
         this.setupEmbeddedEventListeners(container);
         this.startEmbeddedUpdates(container);
+    }
+    
+    /**
+     * Инжектирует стили для embedded режима
+     */
+    private injectEmbeddedStyles(container: HTMLElement): void {
+        const styleId = "debug-dashboard-embedded-styles";
+        if (document.getElementById(styleId)) return;
+        
+        const style = document.createElement("style");
+        style.id = styleId;
+        style.textContent = `
+            .dbg-filter-btn {
+                padding: 6px 12px;
+                background: rgba(0, 255, 4, 0.2);
+                border: 1px solid rgba(0, 255, 4, 0.6);
+                border-radius: 4px;
+                color: #0f0;
+                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-size: 11px;
+                font-weight: bold;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+            
+            .dbg-filter-btn:hover {
+                background: rgba(0, 255, 4, 0.4);
+                transform: scale(1.05);
+            }
+            
+            .dbg-filter-btn.active {
+                background: rgba(0, 255, 4, 0.4);
+                border-color: #0ff;
+                color: #0ff;
+                box-shadow: 0 0 8px rgba(0, 255, 255, 0.5);
+            }
+            
+            .dbg-metric-group {
+                transition: opacity 0.3s ease;
+            }
+        `;
+        document.head.appendChild(style);
     }
 
     /**
@@ -637,67 +680,187 @@ export class DebugDashboard {
     private getEmbeddedContentHTML(): string {
         return `
             <div class="debug-embedded-content">
-                <h3 style="color: #0ff; margin: 0 0 16px 0; font-size: 16px; text-shadow: 0 0 8px rgba(0, 255, 255, 0.5);">
-                    📊 Debug Dashboard
+                <h3 style="color: #0ff; margin: 0 0 16px 0; font-size: 18px; text-shadow: 0 0 8px rgba(0, 255, 255, 0.5); font-weight: bold;">
+                    📊 DEBUG DASHBOARD
                 </h3>
                 
+                <!-- Фильтры метрик -->
+                <div style="margin-bottom: 16px; display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button class="panel-btn dbg-filter-btn active" data-filter="all" style="padding: 6px 12px; font-size: 11px;">Все</button>
+                    <button class="panel-btn dbg-filter-btn" data-filter="performance" style="padding: 6px 12px; font-size: 11px;">Производительность</button>
+                    <button class="panel-btn dbg-filter-btn" data-filter="network" style="padding: 6px 12px; font-size: 11px;">Сеть</button>
+                    <button class="panel-btn dbg-filter-btn" data-filter="memory" style="padding: 6px 12px; font-size: 11px;">Память</button>
+                    <button class="panel-btn dbg-filter-btn" data-filter="physics" style="padding: 6px 12px; font-size: 11px;">Физика</button>
+                </div>
+                
                 <!-- Основные метрики -->
-                <div style="
+                <div class="dbg-metric-group" data-group="performance" style="
                     background: rgba(0, 20, 0, 0.6);
                     border: 1px solid rgba(0, 255, 4, 0.3);
                     border-radius: 4px;
                     padding: 12px;
                     margin-bottom: 16px;
                 ">
+                    <div style="color: #ff0; font-size: 13px; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid rgba(0, 255, 4, 0.3); padding-bottom: 5px;">
+                        ⚡ ПРОИЗВОДИТЕЛЬНОСТЬ
+                    </div>
                     <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
-                        <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #7f7; font-size: 11px;">FPS:</span>
-                            <span class="dbg-fps-emb" style="color: #0f0; font-size: 11px; font-weight: bold;">--</span>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #7f7; font-size: 12px;">FPS:</span>
+                            <span class="dbg-fps-emb" style="color: #0f0; font-size: 13px; font-weight: bold;">--</span>
                         </div>
-                        <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #7f7; font-size: 11px;">Draw Calls:</span>
-                            <span class="dbg-drawcalls-emb" style="color: #0ff; font-size: 11px;">--</span>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #7f7; font-size: 12px;">Frame Time:</span>
+                            <span class="dbg-frametime-emb" style="color: #0ff; font-size: 12px;">--</span>
                         </div>
-                        <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #7f7; font-size: 11px;">Vertices:</span>
-                            <span class="dbg-vertices-emb" style="color: #0ff; font-size: 11px;">--</span>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #7f7; font-size: 12px;">Draw Calls:</span>
+                            <span class="dbg-drawcalls-emb" style="color: #0ff; font-size: 12px;">--</span>
                         </div>
-                        <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #7f7; font-size: 11px;">Active Meshes:</span>
-                            <span class="dbg-meshes-emb" style="color: #0ff; font-size: 11px;">--</span>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #7f7; font-size: 12px;">Vertices:</span>
+                            <span class="dbg-vertices-emb" style="color: #0ff; font-size: 12px;">--</span>
                         </div>
-                        <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #7f7; font-size: 11px;">Particles:</span>
-                            <span class="dbg-particles-emb" style="color: #0ff; font-size: 11px;">--</span>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #7f7; font-size: 12px;">Active Meshes:</span>
+                            <span class="dbg-meshes-emb" style="color: #0ff; font-size: 12px;">--</span>
                         </div>
-                        <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #7f7; font-size: 11px;">Total Lights:</span>
-                            <span class="dbg-lights-emb" style="color: #0ff; font-size: 11px;">--</span>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #7f7; font-size: 12px;">Triangles:</span>
+                            <span class="dbg-triangles-emb" style="color: #0ff; font-size: 12px;">--</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Сетевые метрики -->
+                <div class="dbg-metric-group" data-group="network" style="
+                    background: rgba(0, 20, 0, 0.6);
+                    border: 1px solid rgba(0, 255, 4, 0.3);
+                    border-radius: 4px;
+                    padding: 12px;
+                    margin-bottom: 16px;
+                ">
+                    <div style="color: #ff0; font-size: 13px; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid rgba(0, 255, 4, 0.3); padding-bottom: 5px;">
+                        🌐 СЕТЬ
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #7f7; font-size: 12px;">Ping:</span>
+                            <span class="dbg-network-ping-emb" style="color: #0ff; font-size: 12px;">--</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #7f7; font-size: 12px;">Игроки:</span>
+                            <span class="dbg-network-players-emb" style="color: #0ff; font-size: 12px;">--</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #7f7; font-size: 12px;">Sync Quality:</span>
+                            <span class="dbg-sync-quality-emb" style="color: #0f0; font-size: 12px;">--</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #7f7; font-size: 12px;">Avg Pos Diff:</span>
+                            <span class="dbg-sync-avg-diff-emb" style="color: #0ff; font-size: 12px;">--</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Память -->
+                <div class="dbg-metric-group" data-group="memory" style="
+                    background: rgba(0, 20, 0, 0.6);
+                    border: 1px solid rgba(0, 255, 4, 0.3);
+                    border-radius: 4px;
+                    padding: 12px;
+                    margin-bottom: 16px;
+                ">
+                    <div style="color: #ff0; font-size: 13px; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid rgba(0, 255, 4, 0.3); padding-bottom: 5px;">
+                        💾 ПАМЯТЬ
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #7f7; font-size: 12px;">Used:</span>
+                            <span class="dbg-memory-used-emb" style="color: #0ff; font-size: 12px;">--</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #7f7; font-size: 12px;">Peak:</span>
+                            <span class="dbg-memory-peak-emb" style="color: #0ff; font-size: 12px;">--</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #7f7; font-size: 12px;">GPU Memory:</span>
+                            <span class="dbg-gpu-memory-emb" style="color: #0ff; font-size: 12px;">--</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #7f7; font-size: 12px;">GPU Renderer:</span>
+                            <span class="dbg-gpu-renderer-emb" style="color: #0ff; font-size: 12px;">--</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Физика -->
+                <div class="dbg-metric-group" data-group="physics" style="
+                    background: rgba(0, 20, 0, 0.6);
+                    border: 1px solid rgba(0, 255, 4, 0.3);
+                    border-radius: 4px;
+                    padding: 12px;
+                    margin-bottom: 16px;
+                ">
+                    <div style="color: #ff0; font-size: 13px; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid rgba(0, 255, 4, 0.3); padding-bottom: 5px;">
+                        ⚙️ ФИЗИКА
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #7f7; font-size: 12px;">Objects:</span>
+                            <span class="dbg-physics-objects-emb" style="color: #0ff; font-size: 12px;">--</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #7f7; font-size: 12px;">Bodies:</span>
+                            <span class="dbg-physics-bodies-emb" style="color: #0ff; font-size: 12px;">--</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #7f7; font-size: 12px;">Update Time:</span>
+                            <span class="dbg-physics-time-emb" style="color: #0ff; font-size: 12px;">--</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #7f7; font-size: 12px;">Particles:</span>
+                            <span class="dbg-particles-emb" style="color: #0ff; font-size: 12px;">--</span>
                         </div>
                     </div>
                 </div>
                 
                 <!-- FPS график -->
                 <div style="margin-bottom: 16px;">
-                    <div style="color: #ff0; font-size: 12px; margin-bottom: 6px;">FPS История</div>
-                    <canvas class="dbg-fps-chart-emb" width="300" height="60" style="
+                    <div style="color: #ff0; font-size: 13px; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid rgba(0, 255, 4, 0.3); padding-bottom: 5px;">
+                        📈 FPS ИСТОРИЯ
+                    </div>
+                    <canvas class="dbg-fps-chart-emb" width="400" height="80" style="
                         background: rgba(0, 5, 0, 0.5);
                         border: 1px solid rgba(0, 255, 4, 0.3);
                         border-radius: 4px;
                         width: 100%;
+                        display: block;
                     "></canvas>
                 </div>
                 
                 <!-- Опции отладки -->
                 <div style="margin-bottom: 16px;">
                     <div style="color: #ff0; font-size: 13px; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid rgba(0, 255, 4, 0.3); padding-bottom: 5px;">
-                        ОПЦИИ ОТЛАДКИ
+                        🔧 ОПЦИИ ОТЛАДКИ
                     </div>
                     <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-                        <button class="panel-btn dbg-wireframe-btn" style="padding: 6px 12px; font-size: 10px;">Wireframe</button>
-                        <button class="panel-btn dbg-bounds-btn" style="padding: 6px 12px; font-size: 10px;">Bounds</button>
-                        <button class="panel-btn dbg-inspector-btn" style="padding: 6px 12px; font-size: 10px;">Inspector</button>
-                        <button class="panel-btn dbg-axes-btn" style="padding: 6px 12px; font-size: 10px;">World Axes</button>
+                        <button class="panel-btn dbg-wireframe-btn" style="padding: 8px 14px; font-size: 11px;">Wireframe</button>
+                        <button class="panel-btn dbg-bounds-btn" style="padding: 8px 14px; font-size: 11px;">Bounds</button>
+                        <button class="panel-btn dbg-inspector-btn" style="padding: 8px 14px; font-size: 11px;">Inspector</button>
+                        <button class="panel-btn dbg-axes-btn" style="padding: 8px 14px; font-size: 11px;">World Axes</button>
+                    </div>
+                </div>
+                
+                <!-- Экспорт -->
+                <div style="margin-bottom: 16px;">
+                    <div style="color: #ff0; font-size: 13px; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid rgba(0, 255, 4, 0.3); padding-bottom: 5px;">
+                        💾 ЭКСПОРТ ДАННЫХ
+                    </div>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button class="panel-btn primary dbg-export-csv-emb" style="padding: 8px 14px; font-size: 11px; flex: 1; min-width: 120px;">📄 CSV</button>
+                        <button class="panel-btn primary dbg-export-json-emb" style="padding: 8px 14px; font-size: 11px; flex: 1; min-width: 120px;">📋 JSON</button>
+                        <button class="panel-btn dbg-toggle-charts-emb" style="padding: 8px 14px; font-size: 11px; flex: 1; min-width: 120px;">📊 Графики</button>
                     </div>
                 </div>
             </div>
@@ -708,6 +871,55 @@ export class DebugDashboard {
      * Привязывает обработчики событий для embedded режима
      */
     private setupEmbeddedEventListeners(container: HTMLElement): void {
+        // Фильтры метрик
+        const filterBtns = container.querySelectorAll(".dbg-filter-btn");
+        filterBtns.forEach(btn => {
+            btn.addEventListener("click", () => {
+                const filter = btn.getAttribute("data-filter");
+                filterBtns.forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+                
+                const groups = container.querySelectorAll(".dbg-metric-group");
+                groups.forEach(group => {
+                    const groupType = group.getAttribute("data-group");
+                    if (filter === "all" || groupType === filter) {
+                        (group as HTMLElement).style.display = "block";
+                    } else {
+                        (group as HTMLElement).style.display = "none";
+                    }
+                });
+            });
+        });
+
+        // Экспорт
+        const exportCsvBtn = container.querySelector(".dbg-export-csv-emb");
+        const exportJsonBtn = container.querySelector(".dbg-export-json-emb");
+        const toggleChartsBtn = container.querySelector(".dbg-toggle-charts-emb");
+        
+        exportCsvBtn?.addEventListener("click", () => {
+            this.metricsExporter?.exportToCSV();
+            if (this.game?.hud) {
+                this.game.hud.showMessage("Метрики экспортированы в CSV", "#0f0", 2000);
+            }
+        });
+        
+        exportJsonBtn?.addEventListener("click", () => {
+            this.metricsExporter?.exportToJSON();
+            if (this.game?.hud) {
+                this.game.hud.showMessage("Метрики экспортированы в JSON", "#0f0", 2000);
+            }
+        });
+        
+        let chartsVisible = false;
+        toggleChartsBtn?.addEventListener("click", () => {
+            chartsVisible = !chartsVisible;
+            this.metricsCharts?.setVisible(chartsVisible);
+            if (toggleChartsBtn) {
+                toggleChartsBtn.textContent = chartsVisible ? "📊 Скрыть графики" : "📊 Графики";
+            }
+        });
+
+        // Опции отладки
         const wireframeBtn = container.querySelector(".dbg-wireframe-btn");
         const boundsBtn = container.querySelector(".dbg-bounds-btn");
         const inspectorBtn = container.querySelector(".dbg-inspector-btn");
@@ -715,11 +927,22 @@ export class DebugDashboard {
 
         wireframeBtn?.addEventListener("click", () => {
             if (this.scene) {
+                let anyWireframe = false;
                 this.scene.meshes.forEach(mesh => {
                     if (mesh.material) {
-                        (mesh.material as any).wireframe = !(mesh.material as any).wireframe;
+                        const mat = mesh.material as any;
+                        if (mat.wireframe) anyWireframe = true;
                     }
                 });
+                const newState = !anyWireframe;
+                this.scene.meshes.forEach(mesh => {
+                    if (mesh.material) {
+                        (mesh.material as any).wireframe = newState;
+                    }
+                });
+                if (this.game?.hud) {
+                    this.game.hud.showMessage(`Wireframe: ${newState ? "ON" : "OFF"}`, "#0ff", 1500);
+                }
             }
         });
 
@@ -729,6 +952,9 @@ export class DebugDashboard {
                 this.scene.meshes.forEach(mesh => {
                     mesh.showBoundingBox = showBounds;
                 });
+                if (this.game?.hud) {
+                    this.game.hud.showMessage(`Bounds: ${showBounds ? "ON" : "OFF"}`, "#0ff", 1500);
+                }
             }
         });
 
@@ -738,11 +964,20 @@ export class DebugDashboard {
                     const { Inspector } = await import("@babylonjs/inspector");
                     if (Inspector.IsVisible) {
                         Inspector.Hide();
+                        if (this.game?.hud) {
+                            this.game.hud.showMessage("Inspector скрыт", "#0ff", 1500);
+                        }
                     } else {
                         Inspector.Show(this.scene, {});
+                        if (this.game?.hud) {
+                            this.game.hud.showMessage("Inspector открыт", "#0f0", 1500);
+                        }
                     }
                 } catch (e) {
                     console.error("[DebugDashboard] Failed to load inspector:", e);
+                    if (this.game?.hud) {
+                        this.game.hud.showMessage("Ошибка загрузки Inspector", "#f00", 2000);
+                    }
                 }
             }
         });
@@ -753,31 +988,38 @@ export class DebugDashboard {
                 const existingAxes = this.scene.getMeshByName("worldAxes");
                 if (existingAxes) {
                     existingAxes.dispose();
+                    if (this.game?.hud) {
+                        this.game.hud.showMessage("World Axes скрыты", "#0ff", 1500);
+                    }
                 } else {
                     // Create simple axes
                     const axesSize = 50;
-                    const { MeshBuilder, StandardMaterial, Color3 } = require("@babylonjs/core");
+                    const { MeshBuilder, StandardMaterial, Color3, Vector3 } = require("@babylonjs/core");
 
-                    const axesParent = new MeshBuilder.CreateBox("worldAxes", { size: 0.1 }, this.scene);
+                    const axesParent = MeshBuilder.CreateBox("worldAxes", { size: 0.1 }, this.scene);
                     axesParent.isVisible = false;
 
                     const xAxis = MeshBuilder.CreateLines("xAxis", {
-                        points: [new (require("@babylonjs/core").Vector3)(0, 0, 0), new (require("@babylonjs/core").Vector3)(axesSize, 0, 0)]
+                        points: [Vector3.Zero(), new Vector3(axesSize, 0, 0)]
                     }, this.scene);
                     xAxis.color = new Color3(1, 0, 0);
                     xAxis.parent = axesParent;
 
                     const yAxis = MeshBuilder.CreateLines("yAxis", {
-                        points: [new (require("@babylonjs/core").Vector3)(0, 0, 0), new (require("@babylonjs/core").Vector3)(0, axesSize, 0)]
+                        points: [Vector3.Zero(), new Vector3(0, axesSize, 0)]
                     }, this.scene);
                     yAxis.color = new Color3(0, 1, 0);
                     yAxis.parent = axesParent;
 
                     const zAxis = MeshBuilder.CreateLines("zAxis", {
-                        points: [new (require("@babylonjs/core").Vector3)(0, 0, 0), new (require("@babylonjs/core").Vector3)(0, 0, axesSize)]
+                        points: [Vector3.Zero(), new Vector3(0, 0, axesSize)]
                     }, this.scene);
                     zAxis.color = new Color3(0, 0, 1);
                     zAxis.parent = axesParent;
+                    
+                    if (this.game?.hud) {
+                        this.game.hud.showMessage("World Axes показаны", "#0f0", 1500);
+                    }
                 }
             }
         });
@@ -788,54 +1030,189 @@ export class DebugDashboard {
      */
     private startEmbeddedUpdates(container: HTMLElement): void {
         const fpsEl = container.querySelector(".dbg-fps-emb");
+        const frametimeEl = container.querySelector(".dbg-frametime-emb");
         const drawCallsEl = container.querySelector(".dbg-drawcalls-emb");
         const verticesEl = container.querySelector(".dbg-vertices-emb");
         const meshesEl = container.querySelector(".dbg-meshes-emb");
+        const trianglesEl = container.querySelector(".dbg-triangles-emb");
         const particlesEl = container.querySelector(".dbg-particles-emb");
-        const lightsEl = container.querySelector(".dbg-lights-emb");
+        const networkPingEl = container.querySelector(".dbg-network-ping-emb");
+        const networkPlayersEl = container.querySelector(".dbg-network-players-emb");
+        const syncQualityEl = container.querySelector(".dbg-sync-quality-emb");
+        const syncAvgDiffEl = container.querySelector(".dbg-sync-avg-diff-emb");
+        const memoryUsedEl = container.querySelector(".dbg-memory-used-emb");
+        const memoryPeakEl = container.querySelector(".dbg-memory-peak-emb");
+        const gpuMemoryEl = container.querySelector(".dbg-gpu-memory-emb");
+        const gpuRendererEl = container.querySelector(".dbg-gpu-renderer-emb");
+        const physicsObjectsEl = container.querySelector(".dbg-physics-objects-emb");
+        const physicsBodiesEl = container.querySelector(".dbg-physics-bodies-emb");
+        const physicsTimeEl = container.querySelector(".dbg-physics-time-emb");
         const chartCanvas = container.querySelector(".dbg-fps-chart-emb") as HTMLCanvasElement;
 
         const fpsHistory: number[] = [];
-        const maxHistory = 60;
+        const maxHistory = 100;
 
         const updateMetrics = () => {
             if (!this.engine || !this.scene) return;
 
             const fps = this.engine.getFps();
+            const deltaTime = this.engine.getDeltaTime();
             fpsHistory.push(fps);
             if (fpsHistory.length > maxHistory) fpsHistory.shift();
 
-            if (fpsEl) fpsEl.textContent = fps.toFixed(1);
-            // Draw calls ≈ active meshes (real draw calls require engine instrumentation)
-            // Note: getActiveIndices() returns triangle indices, not draw calls
-            if (drawCallsEl) {
-                const activeMeshes = this.scene.getActiveMeshes().length;
-                drawCallsEl.textContent = `~${activeMeshes}`;
+            // Производительность
+            if (fpsEl) {
+                fpsEl.textContent = fps.toFixed(1);
+                (fpsEl as HTMLElement).style.color = fps >= 55 ? "#0f0" : fps >= 30 ? "#ff0" : "#f00";
             }
-            if (verticesEl) verticesEl.textContent = String(this.scene.getTotalVertices());
-            if (meshesEl) meshesEl.textContent = String(this.scene.getActiveMeshes().length);
-            if (particlesEl) particlesEl.textContent = String(this.scene.particleSystems?.length || 0);
-            if (lightsEl) lightsEl.textContent = String(this.scene.lights?.length || 0);
+            if (frametimeEl) frametimeEl.textContent = `${deltaTime.toFixed(2)} ms`;
+            if (drawCallsEl) {
+                const perf = (this.scene.getEngine() as any).getInfo?.() || { drawCalls: 0 };
+                drawCallsEl.textContent = (perf.renderer?.drawCalls || this.scene.getActiveMeshes().length).toString();
+            }
+            if (verticesEl) verticesEl.textContent = this.formatNumber(this.scene.getTotalVertices());
+            if (meshesEl) meshesEl.textContent = this.scene.getActiveMeshes().length.toString();
+            if (trianglesEl) trianglesEl.textContent = this.formatNumber(Math.floor(this.scene.getTotalVertices() / 3));
 
-            // Рисуем FPS график
+            // Сеть
+            if (this.game && (this.game as any).multiplayerManager) {
+                const mp = (this.game as any).multiplayerManager;
+                if (networkPingEl) networkPingEl.textContent = mp.ping ? `${mp.ping}ms` : "N/A";
+                if (networkPlayersEl) networkPlayersEl.textContent = ((this.game as any).networkPlayerTanks?.size || 0).toString();
+                
+                const syncMetrics = (this.game as any).gameMultiplayerCallbacks?.getSyncMetrics?.();
+                if (syncMetrics) {
+                    const quality = syncMetrics.getSyncQuality();
+                    const qualityStatus = syncMetrics.getSyncQualityStatus();
+                    if (syncQualityEl) {
+                        syncQualityEl.textContent = `${quality.toFixed(0)}%`;
+                        (syncQualityEl as HTMLElement).style.color = 
+                            qualityStatus === "excellent" ? "#0f0" : 
+                            qualityStatus === "good" ? "#ff0" : 
+                            qualityStatus === "fair" ? "#fa0" : "#f00";
+                    }
+                    const metrics = syncMetrics.getMetrics();
+                    if (syncAvgDiffEl) syncAvgDiffEl.textContent = metrics.averagePositionDiff.toFixed(3);
+                } else {
+                    if (syncQualityEl) syncQualityEl.textContent = "N/A";
+                    if (syncAvgDiffEl) syncAvgDiffEl.textContent = "N/A";
+                }
+            } else {
+                if (networkPingEl) networkPingEl.textContent = "N/A";
+                if (networkPlayersEl) networkPlayersEl.textContent = "0";
+                if (syncQualityEl) syncQualityEl.textContent = "N/A";
+                if (syncAvgDiffEl) syncAvgDiffEl.textContent = "N/A";
+            }
+
+            // Память
+            const perfMem = (performance as any).memory;
+            if (perfMem) {
+                const used = perfMem.usedJSHeapSize / 1048576;
+                const peak = perfMem.peakJSHeapSize / 1048576;
+                if (memoryUsedEl) memoryUsedEl.textContent = `${used.toFixed(1)} MB`;
+                if (memoryPeakEl) memoryPeakEl.textContent = `${peak.toFixed(1)} MB`;
+            } else {
+                if (memoryUsedEl) memoryUsedEl.textContent = "N/A";
+                if (memoryPeakEl) memoryPeakEl.textContent = "N/A";
+            }
+
+            // GPU
+            if (this.metricsCollector) {
+                const metrics = this.metricsCollector.collect();
+                if (gpuMemoryEl) {
+                    gpuMemoryEl.textContent = metrics.gpuMemory !== undefined 
+                        ? `${(metrics.gpuMemory / 1048576).toFixed(1)} MB` 
+                        : "N/A";
+                }
+                if (gpuRendererEl) gpuRendererEl.textContent = metrics.gpuRenderer || "N/A";
+            } else {
+                if (gpuMemoryEl) gpuMemoryEl.textContent = "N/A";
+                if (gpuRendererEl) gpuRendererEl.textContent = "N/A";
+            }
+
+            // Физика
+            if (this.metricsCollector) {
+                const metrics = this.metricsCollector.collect();
+                if (physicsObjectsEl) physicsObjectsEl.textContent = (metrics.physicsObjects || 0).toString();
+                if (physicsBodiesEl) physicsBodiesEl.textContent = (metrics.physicsBodies || 0).toString();
+                if (physicsTimeEl) {
+                    physicsTimeEl.textContent = metrics.physicsTime 
+                        ? `${metrics.physicsTime.toFixed(2)} ms` 
+                        : "N/A";
+                }
+                if (particlesEl) particlesEl.textContent = (metrics.particles || this.scene.particleSystems?.length || 0).toString();
+            } else {
+                if (physicsObjectsEl) physicsObjectsEl.textContent = "0";
+                if (physicsBodiesEl) physicsBodiesEl.textContent = "0";
+                if (physicsTimeEl) physicsTimeEl.textContent = "N/A";
+                if (particlesEl) particlesEl.textContent = String(this.scene.particleSystems?.length || 0);
+            }
+
+            // Рисуем улучшенный FPS график
             if (chartCanvas) {
                 const ctx = chartCanvas.getContext("2d");
                 if (ctx) {
                     ctx.fillStyle = "rgba(0, 5, 0, 0.8)";
                     ctx.fillRect(0, 0, chartCanvas.width, chartCanvas.height);
 
-                    const barWidth = chartCanvas.width / maxHistory;
-                    fpsHistory.forEach((f, i) => {
-                        const height = Math.min((f / 60) * chartCanvas.height, chartCanvas.height);
-                        ctx.fillStyle = f >= 55 ? "#0f0" : f >= 30 ? "#ff0" : "#f00";
-                        ctx.fillRect(i * barWidth, chartCanvas.height - height, barWidth - 1, height);
-                    });
+                    // Сетка
+                    ctx.strokeStyle = "rgba(0, 255, 4, 0.1)";
+                    ctx.lineWidth = 1;
+                    for (let i = 0; i <= 4; i++) {
+                        const y = (chartCanvas.height / 4) * i;
+                        ctx.beginPath();
+                        ctx.moveTo(0, y);
+                        ctx.lineTo(chartCanvas.width, y);
+                        ctx.stroke();
+                    }
+
+                    // Линия 60 FPS
+                    ctx.strokeStyle = "rgba(0, 255, 0, 0.3)";
+                    ctx.lineWidth = 1;
+                    const fps60Y = chartCanvas.height * 0.2;
+                    ctx.beginPath();
+                    ctx.moveTo(0, fps60Y);
+                    ctx.lineTo(chartCanvas.width, fps60Y);
+                    ctx.stroke();
+
+                    // График
+                    if (fpsHistory.length > 1) {
+                        const barWidth = chartCanvas.width / maxHistory;
+                        const maxFps = Math.max(60, ...fpsHistory);
+                        
+                        fpsHistory.forEach((f, i) => {
+                            const height = (f / maxFps) * chartCanvas.height;
+                            const x = i * barWidth;
+                            
+                            // Градиент цвета в зависимости от FPS
+                            ctx.fillStyle = f >= 55 ? "#0f0" : f >= 30 ? "#ff0" : "#f00";
+                            ctx.fillRect(x, chartCanvas.height - height, Math.max(1, barWidth - 1), height);
+                        });
+                    }
                 }
+            }
+
+            // Сохранение метрик для экспорта
+            if (this.metricsExporter && this.metricsCollector) {
+                const metrics = this.metricsCollector.collect();
+                const perf = (this.scene.getEngine() as any).getInfo?.() || { triangles: 0, drawCalls: 0 };
+                const perfMem = (performance as any).memory;
+                const memoryUsed = perfMem ? perfMem.usedJSHeapSize / 1048576 : 0;
+
+                this.metricsExporter.addMetrics(metrics, {
+                    fps,
+                    frameTime: deltaTime,
+                    drawCalls: perf.renderer?.drawCalls || 0,
+                    meshes: this.scene.meshes.length,
+                    vertices: this.scene.getTotalVertices(),
+                    triangles: Math.floor(this.scene.getTotalVertices() / 3),
+                    memoryUsed
+                });
             }
         };
 
         // Сохраняем интервал в dataset для очистки при размонтировании
-        const intervalId = setInterval(updateMetrics, 1000);
+        const intervalId = setInterval(updateMetrics, 500); // Обновляем чаще для более плавного графика
         container.dataset.debugInterval = String(intervalId);
 
         // Первое обновление сразу

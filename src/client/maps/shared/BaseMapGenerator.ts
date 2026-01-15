@@ -136,6 +136,46 @@ export abstract class BaseMapGenerator implements IMapGenerator {
     }
     
     /**
+     * Проверить, попадает ли элемент в текущий чанк
+     * @param worldX - Мировая X координата элемента
+     * @param worldZ - Мировая Z координата элемента
+     * @param elementSize - Размер элемента (радиус или половина размера)
+     * @param context - Контекст генерации чанка
+     */
+    protected isElementInChunk(
+        worldX: number,
+        worldZ: number,
+        elementSize: number,
+        context: ChunkGenerationContext
+    ): boolean {
+        const { worldX: chunkWorldX, worldZ: chunkWorldZ, size } = context;
+        const chunkMinX = chunkWorldX;
+        const chunkMaxX = chunkWorldX + size;
+        const chunkMinZ = chunkWorldZ;
+        const chunkMaxZ = chunkWorldZ + size;
+        
+        const elementMinX = worldX - elementSize;
+        const elementMaxX = worldX + elementSize;
+        const elementMinZ = worldZ - elementSize;
+        const elementMaxZ = worldZ + elementSize;
+        
+        return !(chunkMaxX < elementMinX || chunkMinX > elementMaxX ||
+                 chunkMaxZ < elementMinZ || chunkMinZ > elementMaxZ);
+    }
+    
+    /**
+     * Получить детерминированный SeededRandom на основе world координат
+     * Используется для создания одинаковых элементов в разных чанках
+     * @param worldX - Мировая X координата
+     * @param worldZ - Мировая Z координата
+     * @param baseSeed - Базовый seed (опционально)
+     */
+    protected getDeterministicRandom(worldX: number, worldZ: number, baseSeed: number = 0): SeededRandom {
+        const seed = Math.floor(worldX * 1000 + worldZ * 100 + baseSeed);
+        return new SeededRandom(seed);
+    }
+    
+    /**
      * Получить высоту рельефа в точке
      * @param x - Мировая X координата
      * @param z - Мировая Z координата

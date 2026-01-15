@@ -48,7 +48,7 @@ export class GameServer {
     // Счетчики для простой системы наименований
     private guestPlayerCounter: number = 0; // Счетчик для гостей (ID и имя: 0001, 0002...)
     private roomCounter: number = 0; // Счетчик для комнат (0001, 0002...)
-    
+
 
     constructor(port: number = 8080, host: string = "0.0.0.0") {
         // ИСПРАВЛЕНО: Настройка WebSocketServer с правильной обработкой upgrade
@@ -292,6 +292,11 @@ export class GameServer {
                 if (player) this.handlePlayerShoot(player, message.data);
                 break;
 
+            case ClientMessageType.PLAYER_RESPAWN_REQUEST:
+                if (player) this.handlePlayerRespawnRequest(player, message.data);
+                break;
+
+
             case ClientMessageType.CHAT_MESSAGE:
                 if (player) this.handleChatMessage(player, message.data);
                 break;
@@ -439,7 +444,7 @@ export class GameServer {
 
         const room = new GameRoom(mode, maxPlayers, isPrivate, worldSeed, roomId, mapType);
         room.settings = settings || {};
-        
+
         // Настройки ботов (по умолчанию отключены)
         room.enableBots = enableBots === true;
         room.botCount = typeof botCount === 'number' ? botCount : 0;
@@ -1092,6 +1097,36 @@ export class GameServer {
         }));
     }
 
+    private handlePlayerRespawnRequest(player: ServerPlayer, data: any): void {
+        if (!player.roomId) return;
+
+        const room = this.rooms.get(player.roomId);
+        if (!room || !room.isActive) return;
+
+        // Проверяем, что игрок действительно мертв
+        if (player.status !== "dead") {
+            serverLogger.warn(`[Server] Player ${player.id} requested respawn but is not dead (status: ${player.status})`);
+            return;
+        }
+
+        // Получаем позицию респавна
+        const spawnPos = room.getSpawnPosition(player);
+
+        // Респавним игрока
+        player.respawn(spawnPos, 100);
+
+        serverLogger.log(`[Server] Player ${player.name} respawned at position (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
+
+        // Отправляем сообщение о респавне всем игрокам в комнате
+        this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_RESPAWNED, {
+            playerId: player.id,
+            playerName: player.name,
+            position: spawnPos,
+            health: player.health
+        }));
+    }
+
+
     private handleChatMessage(player: ServerPlayer, data: any): void {
         // Rate limiting DISABLED - no chat restrictions
         // Validation DISABLED - accept all chat messages
@@ -1303,7 +1338,7 @@ export class GameServer {
             const now = Date.now();
             const tickStartTime = now;
             let deltaTime = (now - this.lastTick) / 1000; // Convert to seconds
-            
+
             // КРИТИЧНО: Ограничиваем максимальный deltaTime для защиты от больших скачков времени
             // Максимальный deltaTime = 2 * TICK_INTERVAL (на случай пропуска одного тика)
             const MAX_DELTA_TIME = (TICK_INTERVAL * 2) / 1000; // ~0.033 секунды (2 тика)
@@ -1311,12 +1346,12 @@ export class GameServer {
                 // Предупреждение отключено - deltaTime просто ограничивается без спама в логи
                 deltaTime = MAX_DELTA_TIME;
             }
-            
+
             // Минимальный deltaTime для защиты от отрицательных или нулевых значений
             if (deltaTime <= 0) {
                 deltaTime = 1 / TICK_RATE; // Fallback to expected deltaTime
             }
-            
+
             this.lastTick = now;
 
             this.update(deltaTime);
@@ -1567,7 +1602,7 @@ export class GameServer {
                     // КРИТИЧНО: Периодическая отправка полных состояний (каждые 60 пакетов = 1 раз в секунду)
                     // Это предотвращает накопление ошибок квантования и дельта-компрессии
                     const isFullState = this.tickCount % 60 === 0;
-                    
+
                     // Send filtered player states with adaptive update rate
                     const statesData = {
                         players: playersToSend,

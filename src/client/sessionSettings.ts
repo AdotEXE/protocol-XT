@@ -157,8 +157,20 @@ export class SessionSettings {
     }
     
     private createUI(): void {
+        // Проверяем, что мы не в embedded режиме
+        if (this.embedded) {
+            console.warn("[SessionSettings] createUI called in embedded mode, skipping overlay creation");
+            return;
+        }
+        
         // Инжектируем общие стили если еще не инжектированы
         CommonStyles.initialize();
+        
+        // Проверяем, не существует ли уже контейнер
+        const existingContainer = document.getElementById("session-settings");
+        if (existingContainer) {
+            existingContainer.remove();
+        }
         
         this.container = document.createElement("div");
         this.container.id = "session-settings";
@@ -544,7 +556,36 @@ export class SessionSettings {
      * Рендерит контент меню в переданный контейнер (для UnifiedMenu)
      */
     renderToContainer(container: HTMLElement): void {
+        // Убеждаемся, что мы в embedded режиме
+        if (!this.embedded) {
+            console.warn("[SessionSettings] renderToContainer called but not in embedded mode");
+        }
+        
+        // Удаляем любой существующий overlay контейнер, если он был создан
+        if (this.container && this.container.parentNode) {
+            // Проверяем, что это не тот же контейнер, куда мы рендерим
+            if (this.container !== container && this.container.classList.contains("panel-overlay")) {
+                // Удаляем overlay только если он не используется
+                const existingOverlay = document.getElementById("session-settings");
+                if (existingOverlay && existingOverlay !== container) {
+                    existingOverlay.remove();
+                }
+            }
+        }
+        
+        // Очищаем контейнер и добавляем embedded контент
         container.innerHTML = this.getEmbeddedContentHTML();
+        
+        // Убеждаемся, что контейнер не имеет overlay стилей
+        container.classList.remove("panel-overlay");
+        container.style.position = "";
+        container.style.top = "";
+        container.style.left = "";
+        container.style.right = "";
+        container.style.bottom = "";
+        container.style.zIndex = "";
+        container.style.display = "";
+        
         this.setupEmbeddedEventListeners(container);
     }
     

@@ -56,13 +56,14 @@ export class ArenaGenerator extends BaseMapGenerator {
             return;
         }
 
-        // Генерируем элементы
+        // Генерируем элементы (упрощено)
         this.generateCenterPlatform(context);
+        // Упрощено: только 2 боковые платформы вместо 8
         this.generateSidePlatforms(context);
         this.generateBridges(context);
         this.generateRamps(context);
-        this.generateTacticalCover(context);
-        this.generateElevatedPositions(context);
+        // Убрано: generateTacticalCover для упрощения
+        // Убрано: generateElevatedPositions для упрощения (большие крыши)
         this.generatePerimeter(context);
     }
 
@@ -70,7 +71,25 @@ export class ArenaGenerator extends BaseMapGenerator {
      * Центральная платформа
      */
     private generateCenterPlatform(context: ChunkGenerationContext): void {
-        const { chunkParent } = context;
+        const { worldX, worldZ, size, chunkParent } = context;
+        const platformHalf = this.config.centerPlatformSize / 2;
+        
+        // Проверяем, пересекается ли платформа с чанком
+        const platformMinX = -platformHalf;
+        const platformMaxX = platformHalf;
+        const platformMinZ = -platformHalf;
+        const platformMaxZ = platformHalf;
+        
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
+        
+        if (chunkMaxX < platformMinX || chunkMinX > platformMaxX ||
+            chunkMaxZ < platformMinZ || chunkMinZ > platformMaxZ) {
+            return; // Платформа не попадает в этот чанк
+        }
+        
         const platform = MeshBuilder.CreateBox("center_platform", {
             width: this.config.centerPlatformSize,
             height: 0.5,
@@ -96,26 +115,18 @@ export class ArenaGenerator extends BaseMapGenerator {
     }
 
     /**
-     * Боковые платформы (симметричные)
+     * Боковые платформы (упрощено: только 2)
      */
     private generateSidePlatforms(context: ChunkGenerationContext): void {
         const offset = this.config.arenaSize / 2 - 30;
         
-        // 4 угловые платформы
+        // Упрощено: только 2 угловые платформы
         this.generatePlatform(context, offset, offset, this.config.sidePlatformSize, this.config.sidePlatformHeight, "platform_ne");
-        this.generatePlatform(context, -offset, offset, this.config.sidePlatformSize, this.config.sidePlatformHeight, "platform_nw");
         this.generatePlatform(context, -offset, -offset, this.config.sidePlatformSize, this.config.sidePlatformHeight, "platform_sw");
-        this.generatePlatform(context, offset, -offset, this.config.sidePlatformSize, this.config.sidePlatformHeight, "platform_se");
-
-        // 4 боковые платформы (север, юг, восток, запад)
-        this.generatePlatform(context, 0, offset, this.config.sidePlatformSize, this.config.sidePlatformHeight, "platform_n");
-        this.generatePlatform(context, 0, -offset, this.config.sidePlatformSize, this.config.sidePlatformHeight, "platform_s");
-        this.generatePlatform(context, offset, 0, this.config.sidePlatformSize, this.config.sidePlatformHeight, "platform_e");
-        this.generatePlatform(context, -offset, 0, this.config.sidePlatformSize, this.config.sidePlatformHeight, "platform_w");
     }
 
     /**
-     * Создание одной платформы
+     * Создание одной платформы (с проверкой попадания в чанк)
      */
     private generatePlatform(
         context: ChunkGenerationContext,
@@ -125,7 +136,25 @@ export class ArenaGenerator extends BaseMapGenerator {
         height: number,
         name: string
     ): void {
-        const { chunkParent } = context;
+        const { worldX, worldZ, size: chunkSize, chunkParent } = context;
+        const platformHalf = size / 2;
+        
+        // Проверяем, пересекается ли платформа с чанком
+        const platformMinX = x - platformHalf;
+        const platformMaxX = x + platformHalf;
+        const platformMinZ = z - platformHalf;
+        const platformMaxZ = z + platformHalf;
+        
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + chunkSize;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + chunkSize;
+        
+        if (chunkMaxX < platformMinX || chunkMinX > platformMaxX ||
+            chunkMaxZ < platformMinZ || chunkMinZ > platformMaxZ) {
+            return; // Платформа не попадает в этот чанк
+        }
+        
         const platform = MeshBuilder.CreateBox(name, {
             width: size,
             height: 0.5,
@@ -159,35 +188,13 @@ export class ArenaGenerator extends BaseMapGenerator {
         const sideHalf = this.config.sidePlatformSize / 2; // 10
         const bridgeWidth = this.config.bridgeWidth;
 
-        // Мосты от центра к боковым платформам (север, юг, восток, запад)
-        // Север: от края центральной платформы к краю северной боковой
-        this.createBridge(context, 0, centerHalf, this.config.centerPlatformHeight, 0, offset - sideHalf, this.config.sidePlatformHeight, bridgeWidth, "bridge_center_n");
-        
-        // Юг: от края центральной платформы к краю южной боковой
-        this.createBridge(context, 0, -centerHalf, this.config.centerPlatformHeight, 0, -offset + sideHalf, this.config.sidePlatformHeight, bridgeWidth, "bridge_center_s");
-        
-        // Восток: от края центральной платформы к краю восточной боковой
-        this.createBridge(context, centerHalf, 0, this.config.centerPlatformHeight, offset - sideHalf, 0, this.config.sidePlatformHeight, bridgeWidth, "bridge_center_e");
-        
-        // Запад: от края центральной платформы к краю западной боковой
-        this.createBridge(context, -centerHalf, 0, this.config.centerPlatformHeight, -offset + sideHalf, 0, this.config.sidePlatformHeight, bridgeWidth, "bridge_center_w");
-
-        // Мосты между боковыми платформами (север-юг и восток-запад)
-        // Север: от северо-восточной к северо-западной
-        this.createBridge(context, offset - sideHalf, offset, this.config.sidePlatformHeight, -offset + sideHalf, offset, this.config.sidePlatformHeight, bridgeWidth, "bridge_n");
-        
-        // Юг: от юго-восточной к юго-западной
-        this.createBridge(context, offset - sideHalf, -offset, this.config.sidePlatformHeight, -offset + sideHalf, -offset, this.config.sidePlatformHeight, bridgeWidth, "bridge_s");
-        
-        // Восток: от северо-восточной к юго-восточной
-        this.createBridge(context, offset, offset - sideHalf, this.config.sidePlatformHeight, offset, -offset + sideHalf, this.config.sidePlatformHeight, bridgeWidth, "bridge_e");
-        
-        // Запад: от северо-западной к юго-западной
-        this.createBridge(context, -offset, offset - sideHalf, this.config.sidePlatformHeight, -offset, -offset + sideHalf, this.config.sidePlatformHeight, bridgeWidth, "bridge_w");
+        // Упрощено: только 2 моста от центра к угловым платформам
+        this.createBridge(context, centerHalf, centerHalf, this.config.centerPlatformHeight, offset - sideHalf, offset - sideHalf, this.config.sidePlatformHeight, bridgeWidth, "bridge_center_ne");
+        this.createBridge(context, -centerHalf, -centerHalf, this.config.centerPlatformHeight, -offset + sideHalf, -offset + sideHalf, this.config.sidePlatformHeight, bridgeWidth, "bridge_center_sw");
     }
 
     /**
-     * Создание моста
+     * Создание моста (с проверкой попадания в чанк)
      */
     private createBridge(
         context: ChunkGenerationContext,
@@ -200,7 +207,7 @@ export class ArenaGenerator extends BaseMapGenerator {
         width: number,
         name: string
     ): void {
-        const { chunkParent } = context;
+        const { worldX, worldZ, size, chunkParent } = context;
         
         const dx = x2 - x1;
         const dz = z2 - z1;
@@ -208,15 +215,36 @@ export class ArenaGenerator extends BaseMapGenerator {
         const totalDistance = Math.sqrt(dx * dx + dz * dz);
         const pitchAngle = Math.atan2(dy, totalDistance);
         
+        const bridgeX = (x1 + x2) / 2;
+        const bridgeZ = (z1 + z2) / 2;
+        const bridgeY = (y1 + y2) / 2;
+        
+        // Проверяем, попадает ли мост в чанк
+        const bridgeHalf = Math.max(width, totalDistance) / 2;
+        const bridgeMinX = bridgeX - bridgeHalf;
+        const bridgeMaxX = bridgeX + bridgeHalf;
+        const bridgeMinZ = bridgeZ - bridgeHalf;
+        const bridgeMaxZ = bridgeZ + bridgeHalf;
+        
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
+        
+        if (chunkMaxX < bridgeMinX || chunkMinX > bridgeMaxX ||
+            chunkMaxZ < bridgeMinZ || chunkMinZ > bridgeMaxZ) {
+            return; // Мост не попадает в этот чанк
+        }
+        
         const bridge = MeshBuilder.CreateBox(name, {
             width: width,
             height: 0.5,
             depth: totalDistance
         }, chunkParent.getScene());
         
-        bridge.position.x = (x1 + x2) / 2;
-        bridge.position.y = (y1 + y2) / 2;
-        bridge.position.z = (z1 + z2) / 2;
+        bridge.position.x = bridgeX;
+        bridge.position.y = bridgeY;
+        bridge.position.z = bridgeZ;
         
         const yawAngle = Math.atan2(dx, dz);
         bridge.rotation.y = yawAngle;
@@ -246,33 +274,17 @@ export class ArenaGenerator extends BaseMapGenerator {
         const rampWidth = 10;
         const rampDepth = 10; // Увеличена глубина для более пологого подъема
 
-        // Рампы от земли к боковым платформам (север, юг, восток, запад)
-        this.createRamp(context, 0, offset + 12, 0, 0, offset - sideHalf, this.config.sidePlatformHeight, rampWidth, rampDepth, "ramp_n");
-        this.createRamp(context, 0, -offset - 12, 0, 0, -offset + sideHalf, this.config.sidePlatformHeight, rampWidth, rampDepth, "ramp_s");
-        this.createRamp(context, offset + 12, 0, 0, offset - sideHalf, 0, this.config.sidePlatformHeight, rampWidth, rampDepth, "ramp_e");
-        this.createRamp(context, -offset - 12, 0, 0, -offset + sideHalf, 0, this.config.sidePlatformHeight, rampWidth, rampDepth, "ramp_w");
+        // Рампы к угловым платформам: начинаются дальше от платформы, заканчиваются ВНУТРИ платформы
+        this.createRamp(context, offset + 15, offset + 15, 0, offset - sideHalf * 0.3, offset - sideHalf * 0.3, this.config.sidePlatformHeight, rampWidth * 0.9, rampDepth, "ramp_ne");
+        this.createRamp(context, -offset - 15, -offset - 15, 0, -offset + sideHalf * 0.3, -offset + sideHalf * 0.3, this.config.sidePlatformHeight, rampWidth * 0.9, rampDepth, "ramp_sw");
 
-        // Диагональные рампы к угловым платформам
-        this.createRamp(context, offset + 10, offset + 10, 0, offset - sideHalf * 0.7, offset - sideHalf * 0.7, this.config.sidePlatformHeight, rampWidth * 0.9, rampDepth, "ramp_ne");
-        this.createRamp(context, -offset - 10, offset + 10, 0, -offset + sideHalf * 0.7, offset - sideHalf * 0.7, this.config.sidePlatformHeight, rampWidth * 0.9, rampDepth, "ramp_nw");
-        this.createRamp(context, -offset - 10, -offset - 10, 0, -offset + sideHalf * 0.7, -offset + sideHalf * 0.7, this.config.sidePlatformHeight, rampWidth * 0.9, rampDepth, "ramp_sw");
-        this.createRamp(context, offset + 10, -offset - 10, 0, offset - sideHalf * 0.7, -offset + sideHalf * 0.7, this.config.sidePlatformHeight, rampWidth * 0.9, rampDepth, "ramp_se");
-
-        // Рампы от земли к центральной платформе (4 стороны)
-        this.createRamp(context, centerHalf + 8, 0, 0, centerHalf, 0, this.config.centerPlatformHeight, rampWidth, rampDepth, "ramp_center_e");
-        this.createRamp(context, -centerHalf - 8, 0, 0, -centerHalf, 0, this.config.centerPlatformHeight, rampWidth, rampDepth, "ramp_center_w");
-        this.createRamp(context, 0, centerHalf + 8, 0, 0, centerHalf, this.config.centerPlatformHeight, rampWidth, rampDepth, "ramp_center_n");
-        this.createRamp(context, 0, -centerHalf - 8, 0, 0, -centerHalf, this.config.centerPlatformHeight, rampWidth, rampDepth, "ramp_center_s");
-
-        // Диагональные рампы к центральной платформе
-        this.createRamp(context, centerHalf + 6, centerHalf + 6, 0, centerHalf * 0.7, centerHalf * 0.7, this.config.centerPlatformHeight, rampWidth * 0.8, rampDepth, "ramp_center_ne");
-        this.createRamp(context, -centerHalf - 6, centerHalf + 6, 0, -centerHalf * 0.7, centerHalf * 0.7, this.config.centerPlatformHeight, rampWidth * 0.8, rampDepth, "ramp_center_nw");
-        this.createRamp(context, -centerHalf - 6, -centerHalf - 6, 0, -centerHalf * 0.7, -centerHalf * 0.7, this.config.centerPlatformHeight, rampWidth * 0.8, rampDepth, "ramp_center_sw");
-        this.createRamp(context, centerHalf + 6, -centerHalf - 6, 0, centerHalf * 0.7, -centerHalf * 0.7, this.config.centerPlatformHeight, rampWidth * 0.8, rampDepth, "ramp_center_se");
+        // Рампы к центральной платформе: начинаются дальше, заканчиваются ВНУТРИ платформы
+        this.createRamp(context, centerHalf + 12, 0, 0, centerHalf * 0.5, 0, this.config.centerPlatformHeight, rampWidth, rampDepth, "ramp_center_e");
+        this.createRamp(context, 0, centerHalf + 12, 0, 0, centerHalf * 0.5, this.config.centerPlatformHeight, rampWidth, rampDepth, "ramp_center_n");
     }
 
     /**
-     * Создание лестницы с площадками для разворота (как в подъезде)
+     * Создание простой наклонной рампы (с проверкой попадания в чанк)
      */
     private createRamp(
         context: ChunkGenerationContext,
@@ -286,104 +298,61 @@ export class ArenaGenerator extends BaseMapGenerator {
         depth: number,
         name: string
     ): void {
-        const { chunkParent } = context;
+        const { worldX, worldZ, size, chunkParent } = context;
         
         const dx = x2 - x1;
         const dz = z2 - z1;
         const dy = y2 - y1;
         const totalDistance = Math.sqrt(dx * dx + dz * dz);
-        const directionAngle = Math.atan2(dx, dz);
+        const pitchAngle = Math.atan2(dy, totalDistance);
         
-        // Параметры лестницы
-        const stepHeight = 0.25; // Высота одной ступени
-        const stepDepth = 0.4; // Глубина одной ступени
-        const platformSize = width + 1.0; // Размер площадки для разворота (квадратная)
-        const stepsPerFlight = 6; // Ступеней на один марш (до площадки)
-        const numSteps = Math.ceil(dy / stepHeight); // Общее количество ступеней
-        const numFlights = Math.ceil(numSteps / stepsPerFlight); // Количество маршей
+        const rampX = (x1 + x2) / 2;
+        const rampZ = (z1 + z2) / 2;
+        const rampY = (y1 + y2) / 2;
         
-        let currentX = x1;
-        let currentZ = z1;
-        let currentY = y1;
-        let currentDirection = directionAngle; // Направление текущего марша
+        // Проверяем, попадает ли рампа в чанк
+        const rampHalf = Math.max(width, totalDistance) / 2;
+        const rampMinX = rampX - rampHalf;
+        const rampMaxX = rampX + rampHalf;
+        const rampMinZ = rampZ - rampHalf;
+        const rampMaxZ = rampZ + rampHalf;
         
-        // Создаем марши с площадками для разворота
-        for (let flight = 0; flight < numFlights; flight++) {
-            const stepsInThisFlight = Math.min(stepsPerFlight, Math.ceil((y2 - currentY) / stepHeight));
-            const flightHeight = stepsInThisFlight * stepHeight;
-            const flightLength = stepsInThisFlight * stepDepth;
-            
-            // Создаем ступени текущего марша
-            for (let step = 0; step < stepsInThisFlight; step++) {
-                const stepY = currentY + step * stepHeight;
-                const stepProgress = step / stepsInThisFlight;
-                const stepX = currentX + Math.sin(currentDirection) * (flightLength * stepProgress);
-                const stepZ = currentZ + Math.cos(currentDirection) * (flightLength * stepProgress);
-                
-                const stepMesh = MeshBuilder.CreateBox(`${name}_step_${flight}_${step}`, {
-                    width: width,
-                    height: stepHeight,
-                    depth: stepDepth
-                }, chunkParent.getScene());
-                
-                stepMesh.position.x = stepX;
-                stepMesh.position.y = stepY + stepHeight / 2;
-                stepMesh.position.z = stepZ;
-                stepMesh.rotation.y = currentDirection;
-                
-                const material = new StandardMaterial(`${name}_step_mat`, chunkParent.getScene());
-                material.diffuseColor = new Color3(0.65, 0.65, 0.7);
-                material.specularColor = new Color3(0.25, 0.25, 0.25);
-                stepMesh.material = material;
-                
-                const physicsAggregate = new PhysicsAggregate(
-                    stepMesh,
-                    PhysicsShapeType.BOX,
-                    { mass: 0, restitution: 0.1 },
-                    chunkParent.getScene()
-                );
-                physicsAggregate.body.setMassProperties({ mass: 0 });
-            }
-            
-            // Обновляем позицию после марша
-            currentY += flightHeight;
-            currentX += Math.sin(currentDirection) * flightLength;
-            currentZ += Math.cos(currentDirection) * flightLength;
-            
-            // Создаем площадку для разворота (кроме последнего марша)
-            if (flight < numFlights - 1 && currentY < y2) {
-                const platformMesh = MeshBuilder.CreateBox(`${name}_platform_${flight}`, {
-                    width: platformSize,
-                    height: 0.2,
-                    depth: platformSize
-                }, chunkParent.getScene());
-                
-                platformMesh.position.x = currentX;
-                platformMesh.position.y = currentY;
-                platformMesh.position.z = currentZ;
-                platformMesh.rotation.y = currentDirection;
-                
-                const platformMaterial = new StandardMaterial(`${name}_platform_mat`, chunkParent.getScene());
-                platformMaterial.diffuseColor = new Color3(0.7, 0.7, 0.75);
-                platformMaterial.specularColor = new Color3(0.3, 0.3, 0.3);
-                platformMesh.material = platformMaterial;
-                
-                const physicsAggregate = new PhysicsAggregate(
-                    platformMesh,
-                    PhysicsShapeType.BOX,
-                    { mass: 0, restitution: 0.1 },
-                    chunkParent.getScene()
-                );
-                physicsAggregate.body.setMassProperties({ mass: 0 });
-                
-                // Поворачиваем направление на 180 градусов для следующего марша (разворот)
-                currentDirection += Math.PI;
-                
-                // Смещаемся немного вперед от площадки для начала следующего марша
-                currentX += Math.sin(currentDirection) * (platformSize / 2);
-                currentZ += Math.cos(currentDirection) * (platformSize / 2);
-            }
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
+        
+        if (chunkMaxX < rampMinX || chunkMinX > rampMaxX ||
+            chunkMaxZ < rampMinZ || chunkMinZ > rampMaxZ) {
+            return; // Рампа не попадает в этот чанк
         }
+        
+        const ramp = MeshBuilder.CreateBox(name, {
+            width: width,
+            height: 0.5,
+            depth: totalDistance
+        }, chunkParent.getScene());
+        
+        ramp.position.x = rampX;
+        ramp.position.y = rampY;
+        ramp.position.z = rampZ;
+        
+        const yawAngle = Math.atan2(dx, dz);
+        ramp.rotation.y = yawAngle;
+        ramp.rotation.x = pitchAngle;
+        
+        const material = new StandardMaterial(`${name}_mat`, chunkParent.getScene());
+        material.diffuseColor = new Color3(0.65, 0.65, 0.7);
+        material.specularColor = new Color3(0.25, 0.25, 0.25);
+        ramp.material = material;
+        
+        const physicsAggregate = new PhysicsAggregate(
+            ramp,
+            PhysicsShapeType.BOX,
+            { mass: 0, restitution: 0.1 },
+            chunkParent.getScene()
+        );
+        physicsAggregate.body.setMassProperties({ mass: 0 });
     }
 
     /**
@@ -411,28 +380,7 @@ export class ArenaGenerator extends BaseMapGenerator {
         this.createCoverWall(context, 0, -offset * 0.3, 0.5, 0.5, 2, 12, "wall_cover_4");
     }
 
-    /**
-     * Высокие тактические позиции
-     */
-    private generateElevatedPositions(context: ChunkGenerationContext): void {
-        const offset = this.config.arenaSize / 2 - 30;
-        const highPlatformHeight = 9.0;
-        const highPlatformSize = 12;
-
-        // Высокие платформы для снайперских позиций
-        this.generatePlatform(context, offset * 0.7, offset * 0.7, highPlatformSize, highPlatformHeight, "high_platform_1");
-        this.generatePlatform(context, -offset * 0.7, offset * 0.7, highPlatformSize, highPlatformHeight, "high_platform_2");
-        this.generatePlatform(context, -offset * 0.7, -offset * 0.7, highPlatformSize, highPlatformHeight, "high_platform_3");
-        this.generatePlatform(context, offset * 0.7, -offset * 0.7, highPlatformSize, highPlatformHeight, "high_platform_4");
-
-        // Рампы на высокие платформы
-        const rampWidth = 8;
-        const rampDepth = 6;
-        this.createRamp(context, offset * 0.5, offset * 0.7, this.config.sidePlatformHeight, offset * 0.7, offset * 0.7, highPlatformHeight, rampWidth, rampDepth, "ramp_high_1");
-        this.createRamp(context, -offset * 0.5, offset * 0.7, this.config.sidePlatformHeight, -offset * 0.7, offset * 0.7, highPlatformHeight, rampWidth, rampDepth, "ramp_high_2");
-        this.createRamp(context, -offset * 0.5, -offset * 0.7, this.config.sidePlatformHeight, -offset * 0.7, -offset * 0.7, highPlatformHeight, rampWidth, rampDepth, "ramp_high_3");
-        this.createRamp(context, offset * 0.5, -offset * 0.7, this.config.sidePlatformHeight, offset * 0.7, -offset * 0.7, highPlatformHeight, rampWidth, rampDepth, "ramp_high_4");
-    }
+    // Метод generateElevatedPositions убран для упрощения (большие крыши)
 
     /**
      * Создание контейнера
@@ -511,68 +459,138 @@ export class ArenaGenerator extends BaseMapGenerator {
     }
 
     /**
-     * Периметр карты
+     * Периметр карты (создается только частично в каждом чанке)
      */
     private generatePerimeter(context: ChunkGenerationContext): void {
-        const { chunkParent } = context;
+        const { worldX, worldZ, size, chunkParent } = context;
         const arenaHalf = this.config.arenaSize / 2;
         const wallHeight = 6;
         const wallThickness = 2;
 
-        const northWall = MeshBuilder.CreateBox("perimeter_wall_north", {
-            width: this.config.arenaSize,
-            height: wallHeight,
-            depth: wallThickness
-        }, chunkParent.getScene());
-        northWall.position.x = 0;
-        northWall.position.y = wallHeight / 2;
-        northWall.position.z = arenaHalf;
+        const chunkLeft = worldX;
+        const chunkRight = worldX + size;
+        const chunkBottom = worldZ;
+        const chunkTop = worldZ + size;
 
-        const southWall = MeshBuilder.CreateBox("perimeter_wall_south", {
-            width: this.config.arenaSize,
-            height: wallHeight,
-            depth: wallThickness
-        }, chunkParent.getScene());
-        southWall.position.x = 0;
-        southWall.position.y = wallHeight / 2;
-        southWall.position.z = -arenaHalf;
+        // Северная стена - создаем только часть, попадающую в чанк
+        if (chunkBottom <= arenaHalf && chunkTop >= arenaHalf) {
+            const wallLength = Math.min(chunkRight, arenaHalf) - Math.max(chunkLeft, -arenaHalf);
+            if (wallLength > 0) {
+                const wallX = (Math.max(chunkLeft, -arenaHalf) + Math.min(chunkRight, arenaHalf)) / 2;
+                const northWall = MeshBuilder.CreateBox("perimeter_wall_north", {
+                    width: wallLength,
+                    height: wallHeight,
+                    depth: wallThickness
+                }, chunkParent.getScene());
+                northWall.position.x = wallX;
+                northWall.position.y = wallHeight / 2;
+                northWall.position.z = arenaHalf;
 
-        const eastWall = MeshBuilder.CreateBox("perimeter_wall_east", {
-            width: wallThickness,
-            height: wallHeight,
-            depth: this.config.arenaSize
-        }, chunkParent.getScene());
-        eastWall.position.x = arenaHalf;
-        eastWall.position.y = wallHeight / 2;
-        eastWall.position.z = 0;
+                const wallMaterial = new StandardMaterial("perimeter_wall_material", chunkParent.getScene());
+                wallMaterial.diffuseColor = new Color3(0.3, 0.5, 0.7);
+                wallMaterial.specularColor = new Color3(0.2, 0.3, 0.4);
+                wallMaterial.emissiveColor = new Color3(0.05, 0.1, 0.15);
+                northWall.material = wallMaterial;
 
-        const westWall = MeshBuilder.CreateBox("perimeter_wall_west", {
-            width: wallThickness,
-            height: wallHeight,
-            depth: this.config.arenaSize
-        }, chunkParent.getScene());
-        westWall.position.x = -arenaHalf;
-        westWall.position.y = wallHeight / 2;
-        westWall.position.z = 0;
+                const physicsAggregate = new PhysicsAggregate(
+                    northWall,
+                    PhysicsShapeType.BOX,
+                    { mass: 0, restitution: 0.1 },
+                    chunkParent.getScene()
+                );
+                physicsAggregate.body.setMassProperties({ mass: 0 });
+            }
+        }
 
-        const wallMaterial = new StandardMaterial("perimeter_wall_material", chunkParent.getScene());
-        wallMaterial.diffuseColor = new Color3(0.3, 0.5, 0.7);
-        wallMaterial.specularColor = new Color3(0.2, 0.3, 0.4);
-        wallMaterial.emissiveColor = new Color3(0.05, 0.1, 0.15);
-        northWall.material = wallMaterial;
-        southWall.material = wallMaterial;
-        eastWall.material = wallMaterial;
-        westWall.material = wallMaterial;
+        // Южная стена
+        if (chunkBottom <= -arenaHalf && chunkTop >= -arenaHalf) {
+            const wallLength = Math.min(chunkRight, arenaHalf) - Math.max(chunkLeft, -arenaHalf);
+            if (wallLength > 0) {
+                const wallX = (Math.max(chunkLeft, -arenaHalf) + Math.min(chunkRight, arenaHalf)) / 2;
+                const southWall = MeshBuilder.CreateBox("perimeter_wall_south", {
+                    width: wallLength,
+                    height: wallHeight,
+                    depth: wallThickness
+                }, chunkParent.getScene());
+                southWall.position.x = wallX;
+                southWall.position.y = wallHeight / 2;
+                southWall.position.z = -arenaHalf;
 
-        [northWall, southWall, eastWall, westWall].forEach(wall => {
-            const physicsAggregate = new PhysicsAggregate(
-                wall,
-                PhysicsShapeType.BOX,
-                { mass: 0, restitution: 0.1 },
-                chunkParent.getScene()
-            );
-            physicsAggregate.body.setMassProperties({ mass: 0 });
-        });
+                const wallMaterial = new StandardMaterial("perimeter_wall_material", chunkParent.getScene());
+                wallMaterial.diffuseColor = new Color3(0.3, 0.5, 0.7);
+                wallMaterial.specularColor = new Color3(0.2, 0.3, 0.4);
+                wallMaterial.emissiveColor = new Color3(0.05, 0.1, 0.15);
+                southWall.material = wallMaterial;
+
+                const physicsAggregate = new PhysicsAggregate(
+                    southWall,
+                    PhysicsShapeType.BOX,
+                    { mass: 0, restitution: 0.1 },
+                    chunkParent.getScene()
+                );
+                physicsAggregate.body.setMassProperties({ mass: 0 });
+            }
+        }
+
+        // Восточная стена
+        if (chunkLeft <= arenaHalf && chunkRight >= arenaHalf) {
+            const wallLength = Math.min(chunkTop, arenaHalf) - Math.max(chunkBottom, -arenaHalf);
+            if (wallLength > 0) {
+                const wallZ = (Math.max(chunkBottom, -arenaHalf) + Math.min(chunkTop, arenaHalf)) / 2;
+                const eastWall = MeshBuilder.CreateBox("perimeter_wall_east", {
+                    width: wallThickness,
+                    height: wallHeight,
+                    depth: wallLength
+                }, chunkParent.getScene());
+                eastWall.position.x = arenaHalf;
+                eastWall.position.y = wallHeight / 2;
+                eastWall.position.z = wallZ;
+
+                const wallMaterial = new StandardMaterial("perimeter_wall_material", chunkParent.getScene());
+                wallMaterial.diffuseColor = new Color3(0.3, 0.5, 0.7);
+                wallMaterial.specularColor = new Color3(0.2, 0.3, 0.4);
+                wallMaterial.emissiveColor = new Color3(0.05, 0.1, 0.15);
+                eastWall.material = wallMaterial;
+
+                const physicsAggregate = new PhysicsAggregate(
+                    eastWall,
+                    PhysicsShapeType.BOX,
+                    { mass: 0, restitution: 0.1 },
+                    chunkParent.getScene()
+                );
+                physicsAggregate.body.setMassProperties({ mass: 0 });
+            }
+        }
+
+        // Западная стена
+        if (chunkLeft <= -arenaHalf && chunkRight >= -arenaHalf) {
+            const wallLength = Math.min(chunkTop, arenaHalf) - Math.max(chunkBottom, -arenaHalf);
+            if (wallLength > 0) {
+                const wallZ = (Math.max(chunkBottom, -arenaHalf) + Math.min(chunkTop, arenaHalf)) / 2;
+                const westWall = MeshBuilder.CreateBox("perimeter_wall_west", {
+                    width: wallThickness,
+                    height: wallHeight,
+                    depth: wallLength
+                }, chunkParent.getScene());
+                westWall.position.x = -arenaHalf;
+                westWall.position.y = wallHeight / 2;
+                westWall.position.z = wallZ;
+
+                const wallMaterial = new StandardMaterial("perimeter_wall_material", chunkParent.getScene());
+                wallMaterial.diffuseColor = new Color3(0.3, 0.5, 0.7);
+                wallMaterial.specularColor = new Color3(0.2, 0.3, 0.4);
+                wallMaterial.emissiveColor = new Color3(0.05, 0.1, 0.15);
+                westWall.material = wallMaterial;
+
+                const physicsAggregate = new PhysicsAggregate(
+                    westWall,
+                    PhysicsShapeType.BOX,
+                    { mass: 0, restitution: 0.1 },
+                    chunkParent.getScene()
+                );
+                physicsAggregate.body.setMassProperties({ mass: 0 });
+            }
+        }
     }
 }
 

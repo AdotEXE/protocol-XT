@@ -98,15 +98,15 @@ export class ExpoGenerator extends BaseMapGenerator {
         }
         
         // Генерируем элементы только если чанк пересекается с картой
-        this.generateRoads(context);
+        // Убрано: generateRoads для упрощения (слишком много draw calls)
         this.generatePlatforms(context);
-        this.generateFloatingPlatforms(context);
+        // Убрано: generateFloatingPlatforms для упрощения
         this.generateBridges(context);
-        this.generateAngledBridges(context);
+        // Убрано: generateAngledBridges для упрощения
         this.generateRamps(context);
-        this.generateHollowBuildings(context);
-        this.generateHouses(context);
-        this.generateTacticalCover(context);
+        // Убрано: generateHollowBuildings для упрощения
+        // Убрано: generateHouses для упрощения
+        // Убрано: generateTacticalCover для упрощения
         this.generatePerimeter(context);
     }
     
@@ -194,21 +194,15 @@ export class ExpoGenerator extends BaseMapGenerator {
         const { chunkParent } = context;
         const arenaHalf = this.config.arenaSize / 2;
         
-        // ========== УРОВЕНЬ 1: Центральная платформа (большая) ==========
+        // Упрощено: только центральная платформа и 2 угловые
         this.generatePlatform(context, 0, 0, 60, this.config.level1Height, "platform_l1_center");
         
-        // ========== УРОВЕНЬ 2: Угловые базы (4 штуки) ==========
+        // Только 2 угловые базы вместо 4
         const cornerBasePos = arenaHalf - 50;
         this.generatePlatform(context, cornerBasePos, cornerBasePos, 30, this.config.level2Height, "platform_l2_corner_1");
-        this.generatePlatform(context, -cornerBasePos, cornerBasePos, 30, this.config.level2Height, "platform_l2_corner_2");
-        this.generatePlatform(context, -cornerBasePos, -cornerBasePos, 30, this.config.level2Height, "platform_l2_corner_3");
-        this.generatePlatform(context, cornerBasePos, -cornerBasePos, 30, this.config.level2Height, "platform_l2_corner_4");
+        this.generatePlatform(context, -cornerBasePos, -cornerBasePos, 30, this.config.level2Height, "platform_l2_corner_2");
         
-        // ========== УРОВЕНЬ 3: Центральная башня ==========
-        this.generatePlatform(context, 0, 0, 25, this.config.level3Height, "platform_l3_tower");
-        
-        // ========== УРОВЕНЬ 5: Самая высокая центральная башня ==========
-        this.generatePlatform(context, 0, 0, 15, this.config.level5Height, "platform_l5_tower");
+        // Убраны уровни 3 и 5 для упрощения
     }
     
     /**
@@ -219,18 +213,14 @@ export class ExpoGenerator extends BaseMapGenerator {
         const arenaHalf = this.config.arenaSize / 2;
         const maxPos = arenaHalf - 10;
         
-        // Только несколько плавающих платформ для разнообразия
+        // Упрощено: только 2 плавающие платформы
         const floatHeight25 = (this.config.level2Height + this.config.level3Height) / 2; // 7.5м
         this.generatePlatform(context, 40, 40, 12, floatHeight25, "float_platform_1");
         this.generatePlatform(context, -40, -40, 12, floatHeight25, "float_platform_2");
-        
-        const floatHeight35 = (this.config.level3Height + this.config.level4Height) / 2; // 10.5м
-        this.generatePlatform(context, 50, 0, 10, floatHeight35, "float_platform_3");
-        this.generatePlatform(context, -50, 0, 10, floatHeight35, "float_platform_4");
     }
     
     /**
-     * Создание одной платформы
+     * Создание одной платформы (с проверкой попадания в чанк)
      */
     private generatePlatform(
         context: ChunkGenerationContext,
@@ -240,7 +230,24 @@ export class ExpoGenerator extends BaseMapGenerator {
         height: number,
         name: string
     ): void {
-        const { chunkParent } = context;
+        const { worldX, worldZ, size, chunkParent } = context;
+        const platformHalf = platformSize / 2;
+        
+        // Проверяем, пересекается ли платформа с чанком
+        const platformMinX = centerX - platformHalf;
+        const platformMaxX = centerX + platformHalf;
+        const platformMinZ = centerZ - platformHalf;
+        const platformMaxZ = centerZ + platformHalf;
+        
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
+        
+        if (chunkMaxX < platformMinX || chunkMinX > platformMaxX ||
+            chunkMaxZ < platformMinZ || chunkMinZ > platformMaxZ) {
+            return; // Платформа не попадает в этот чанк
+        }
         
         const platform = MeshBuilder.CreateBox(name, {
             width: platformSize,
@@ -280,99 +287,26 @@ export class ExpoGenerator extends BaseMapGenerator {
         // Размеры платформ
         const level1Size = 60;
         const level2Size = 30;
-        const level3Size = 20;
-        const level4Size = 18;
-        const level5Size = 15;
         const level1Edge = level1Size / 2;
         const level2Edge = level2Size / 2;
-        const level3Edge = level3Size / 2;
-        const level4Edge = level4Size / 2;
-        const level5Edge = level5Size / 2;
         
         const cornerBasePos = arenaHalf - 50;
         const level2CornerEdgeX = cornerBasePos - level2Edge;
         const level2CornerEdgeZ = cornerBasePos - level2Edge;
         
-        const level3Pos = arenaHalf - 70;
-        const level3EdgeX = level3Pos - level3Edge;
-        const level3EdgeZ = level3Pos - level3Edge;
-        
-        const level4Pos = arenaHalf - 60;
-        
-        // ========== МОСТЫ ОТ ПОЛА К УРОВНЮ 1 ==========
+        // Упрощено: только 2 моста от пола к уровню 1
         this.createBridge(context, 0, 40, groundLevel, 0, level1Edge, this.config.level1Height, 10, "bridge_ground_l1_n");
-        this.createBridge(context, 0, -40, groundLevel, 0, -level1Edge, this.config.level1Height, 10, "bridge_ground_l1_s");
         this.createBridge(context, 40, 0, groundLevel, level1Edge, 0, this.config.level1Height, 10, "bridge_ground_l1_e");
-        this.createBridge(context, -40, 0, groundLevel, -level1Edge, 0, this.config.level1Height, 10, "bridge_ground_l1_w");
         
-        // ========== МОСТЫ ОТ ПОЛА К УРОВНЮ 2 (угловые базы) ==========
-        const edgeStart = Math.min(arenaHalf - 30, 70); // Не выходить за границы
+        // Только 2 моста от пола к угловым базам
+        const edgeStart = Math.min(arenaHalf - 30, 70);
         this.createBridge(context, -edgeStart, -edgeStart, groundLevel, level2CornerEdgeX, level2CornerEdgeZ, this.config.level2Height, 8, "bridge_ground_l2_1");
-        this.createBridge(context, edgeStart, -edgeStart, groundLevel, -level2CornerEdgeX, level2CornerEdgeZ, this.config.level2Height, 8, "bridge_ground_l2_2");
-        this.createBridge(context, edgeStart, edgeStart, groundLevel, -level2CornerEdgeX, -level2CornerEdgeZ, this.config.level2Height, 8, "bridge_ground_l2_3");
-        this.createBridge(context, -edgeStart, edgeStart, groundLevel, level2CornerEdgeX, -level2CornerEdgeZ, this.config.level2Height, 8, "bridge_ground_l2_4");
+        this.createBridge(context, edgeStart, edgeStart, groundLevel, -level2CornerEdgeX, -level2CornerEdgeZ, this.config.level2Height, 8, "bridge_ground_l2_2");
         
-        // ========== МОСТЫ ОТ ПОЛА К УРОВНЮ 2 (боковые платформы) ==========
-        const sideStart = Math.min(arenaHalf - 25, 75); // Не выходить за границы
-        this.createBridge(context, 0, -sideStart, groundLevel, 0, -cornerBasePos + level2Edge, this.config.level2Height, 8, "bridge_ground_l2_n");
-        this.createBridge(context, 0, sideStart, groundLevel, 0, cornerBasePos - level2Edge, this.config.level2Height, 8, "bridge_ground_l2_s");
-        this.createBridge(context, sideStart, 0, groundLevel, cornerBasePos - level2Edge, 0, this.config.level2Height, 8, "bridge_ground_l2_e");
-        this.createBridge(context, -sideStart, 0, groundLevel, -cornerBasePos + level2Edge, 0, this.config.level2Height, 8, "bridge_ground_l2_w");
-        
-        // ========== МОСТЫ ОТ УРОВНЯ 1 К УРОВНЮ 2 ==========
+        // Только 1 мост от уровня 1 к уровню 2
         this.createBridge(context, level1Edge, level1Edge, this.config.level1Height, level2CornerEdgeX, level2CornerEdgeZ, this.config.level2Height, 8, "bridge_l1_l2_1");
-        this.createBridge(context, -level1Edge, -level1Edge, this.config.level1Height, -level2CornerEdgeX, -level2CornerEdgeZ, this.config.level2Height, 8, "bridge_l1_l2_2");
         
-        // ========== МОСТЫ ОТ УРОВНЯ 1 К УРОВНЮ 3 ==========
-        this.createBridge(context, 0, level1Edge, this.config.level1Height, 0, level3Edge, this.config.level3Height, 7, "bridge_l1_l3_n");
-        this.createBridge(context, level1Edge, 0, this.config.level1Height, level3Edge, 0, this.config.level3Height, 7, "bridge_l1_l3_e");
-        
-        // ========== МОСТЫ ОТ УРОВНЯ 2 К УРОВНЮ 3 ==========
-        this.createBridge(context, level2CornerEdgeX, level2CornerEdgeZ, this.config.level2Height, level3EdgeX, level3EdgeZ, this.config.level3Height, 7, "bridge_l2_l3_1");
-        this.createBridge(context, -level2CornerEdgeX, -level2CornerEdgeZ, this.config.level2Height, -level3EdgeX, -level3EdgeZ, this.config.level3Height, 7, "bridge_l2_l3_2");
-        
-        // ========== МОСТЫ ОТ УРОВНЯ 3 К УРОВНЮ 5 ==========
-        this.createBridge(context, 0, level3Edge, this.config.level3Height, 0, level5Edge, this.config.level5Height, 5, "bridge_l3_l5_n");
-        this.createBridge(context, level3Edge, 0, this.config.level3Height, level5Edge, 0, this.config.level5Height, 5, "bridge_l3_l5_e");
-        
-        // ========== МОСТЫ ОТ ПОЛА К УРОВНЮ 3, 4, 5 ==========
-        this.createBridge(context, -25, -25, groundLevel, -level3Edge, -level3Edge, this.config.level3Height, 6, "bridge_ground_l3_1");
-        this.createBridge(context, 25, -25, groundLevel, level3Edge, -level3Edge, this.config.level3Height, 6, "bridge_ground_l3_2");
-        this.createBridge(context, 25, 25, groundLevel, level3Edge, level3Edge, this.config.level3Height, 6, "bridge_ground_l3_3");
-        this.createBridge(context, -25, 25, groundLevel, -level3Edge, level3Edge, this.config.level3Height, 6, "bridge_ground_l3_4");
-        
-        this.createBridge(context, -20, -20, groundLevel, -level4Edge, -level4Edge, this.config.level4Height, 5, "bridge_ground_l4_1");
-        this.createBridge(context, 20, -20, groundLevel, level4Edge, -level4Edge, this.config.level4Height, 5, "bridge_ground_l4_2");
-        
-        this.createBridge(context, -15, -15, groundLevel, -level5Edge, -level5Edge, this.config.level5Height, 4, "bridge_ground_l5_1");
-        this.createBridge(context, 15, -15, groundLevel, level5Edge, -level5Edge, this.config.level5Height, 4, "bridge_ground_l5_2");
-        this.createBridge(context, 15, 15, groundLevel, level5Edge, level5Edge, this.config.level5Height, 4, "bridge_ground_l5_3");
-        this.createBridge(context, -15, 15, groundLevel, -level5Edge, level5Edge, this.config.level5Height, 4, "bridge_ground_l5_4");
-        
-        // ========== ДОПОЛНИТЕЛЬНЫЕ МОСТЫ МЕЖДУ ВСЕМИ УРОВНЯМИ ==========
-        // Мосты от уровня 1 к уровню 4
-        this.createBridge(context, level1Edge * 0.6, 0, this.config.level1Height, level4Pos - level4Edge, 0, this.config.level4Height, 6, "bridge_l1_l4_e");
-        this.createBridge(context, -level1Edge * 0.6, 0, this.config.level1Height, -level4Pos + level4Edge, 0, this.config.level4Height, 6, "bridge_l1_l4_w");
-        this.createBridge(context, 0, level1Edge * 0.6, this.config.level1Height, 0, level4Pos - level4Edge, this.config.level4Height, 6, "bridge_l1_l4_n");
-        this.createBridge(context, 0, -level1Edge * 0.6, this.config.level1Height, 0, -level4Pos + level4Edge, this.config.level4Height, 6, "bridge_l1_l4_s");
-        
-        // Мосты от уровня 1 к уровню 5
-        this.createBridge(context, level1Edge * 0.5, level1Edge * 0.5, this.config.level1Height, level5Edge * 0.8, level5Edge * 0.8, this.config.level5Height, 5, "bridge_l1_l5_ne");
-        this.createBridge(context, -level1Edge * 0.5, level1Edge * 0.5, this.config.level1Height, -level5Edge * 0.8, level5Edge * 0.8, this.config.level5Height, 5, "bridge_l1_l5_nw");
-        this.createBridge(context, -level1Edge * 0.5, -level1Edge * 0.5, this.config.level1Height, -level5Edge * 0.8, -level5Edge * 0.8, this.config.level5Height, 5, "bridge_l1_l5_sw");
-        this.createBridge(context, level1Edge * 0.5, -level1Edge * 0.5, this.config.level1Height, level5Edge * 0.8, -level5Edge * 0.8, this.config.level5Height, 5, "bridge_l1_l5_se");
-        
-        // Мосты от уровня 2 к уровню 5 (диагональные)
-        this.createBridge(context, level2CornerEdgeX * 0.8, level2CornerEdgeZ * 0.8, this.config.level2Height, level5Edge * 0.6, level5Edge * 0.6, this.config.level5Height, 5, "bridge_l2_l5_diag_1");
-        this.createBridge(context, -level2CornerEdgeX * 0.8, level2CornerEdgeZ * 0.8, this.config.level2Height, -level5Edge * 0.6, level5Edge * 0.6, this.config.level5Height, 5, "bridge_l2_l5_diag_2");
-        this.createBridge(context, -level2CornerEdgeX * 0.8, -level2CornerEdgeZ * 0.8, this.config.level2Height, -level5Edge * 0.6, -level5Edge * 0.6, this.config.level5Height, 5, "bridge_l2_l5_diag_3");
-        this.createBridge(context, level2CornerEdgeX * 0.8, -level2CornerEdgeZ * 0.8, this.config.level2Height, level5Edge * 0.6, -level5Edge * 0.6, this.config.level5Height, 5, "bridge_l2_l5_diag_4");
-        
-        // Мосты от уровня 3 к уровню 5 (диагональные)
-        this.createBridge(context, level3EdgeX * 0.7, level3EdgeZ * 0.7, this.config.level3Height, level5Edge * 0.5, level5Edge * 0.5, this.config.level5Height, 5, "bridge_l3_l5_diag_1");
-        this.createBridge(context, -level3EdgeX * 0.7, level3EdgeZ * 0.7, this.config.level3Height, -level5Edge * 0.5, level5Edge * 0.5, this.config.level5Height, 5, "bridge_l3_l5_diag_2");
-        this.createBridge(context, -level3EdgeX * 0.7, -level3EdgeZ * 0.7, this.config.level3Height, -level5Edge * 0.5, -level5Edge * 0.5, this.config.level5Height, 5, "bridge_l3_l5_diag_3");
-        this.createBridge(context, level3EdgeX * 0.7, -level3EdgeZ * 0.7, this.config.level3Height, level5Edge * 0.5, -level5Edge * 0.5, this.config.level5Height, 5, "bridge_l3_l5_diag_4");
+        // Убраны мосты к уровням 3, 4, 5 для упрощения
     }
     
     /**
@@ -550,7 +484,7 @@ export class ExpoGenerator extends BaseMapGenerator {
     }
     
     /**
-     * Создание одного мостика между двумя точками
+     * Создание одного мостика между двумя точками (с проверкой попадания в чанк)
      */
     private createBridge(
         context: ChunkGenerationContext,
@@ -563,7 +497,7 @@ export class ExpoGenerator extends BaseMapGenerator {
         width: number,
         name: string
     ): void {
-        const { chunkParent } = context;
+        const { worldX, worldZ, size, chunkParent } = context;
         
         const dx = x2 - x1;
         const dz = z2 - z1;
@@ -571,15 +505,36 @@ export class ExpoGenerator extends BaseMapGenerator {
         const totalDistance = Math.sqrt(dx * dx + dz * dz);
         const pitchAngle = Math.atan2(dy, totalDistance);
         
+        const bridgeX = (x1 + x2) / 2;
+        const bridgeZ = (z1 + z2) / 2;
+        const bridgeY = (y1 + y2) / 2;
+        
+        // Проверяем, попадает ли мост в чанк
+        const bridgeHalf = Math.max(width, totalDistance) / 2;
+        const bridgeMinX = bridgeX - bridgeHalf;
+        const bridgeMaxX = bridgeX + bridgeHalf;
+        const bridgeMinZ = bridgeZ - bridgeHalf;
+        const bridgeMaxZ = bridgeZ + bridgeHalf;
+        
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
+        
+        if (chunkMaxX < bridgeMinX || chunkMinX > bridgeMaxX ||
+            chunkMaxZ < bridgeMinZ || chunkMinZ > bridgeMaxZ) {
+            return; // Мост не попадает в этот чанк
+        }
+        
         const bridge = MeshBuilder.CreateBox(name, {
             width: width,
             height: 0.5,
             depth: totalDistance
         }, chunkParent.getScene());
         
-        bridge.position.x = (x1 + x2) / 2;
-        bridge.position.y = (y1 + y2) / 2;
-        bridge.position.z = (z1 + z2) / 2;
+        bridge.position.x = bridgeX;
+        bridge.position.y = bridgeY;
+        bridge.position.z = bridgeZ;
         
         const yawAngle = Math.atan2(dx, dz);
         bridge.rotation.y = yawAngle;
@@ -617,23 +572,15 @@ export class ExpoGenerator extends BaseMapGenerator {
         const level2CornerEdgeX = cornerBasePos - level2Edge;
         const level2CornerEdgeZ = cornerBasePos - level2Edge;
         
-        // Рампы от земли к уровню 1 (только 2 для доступа)
+        // Упрощено: только 1 рампа от земли к уровню 1
         this.createRamp(context, 30, 30, groundLevel, level1Edge * 0.7, level1Edge * 0.7, this.config.level1Height, 10, 8, "ramp_ground_l1_ne");
-        this.createRamp(context, -30, -30, groundLevel, -level1Edge * 0.7, -level1Edge * 0.7, this.config.level1Height, 10, 8, "ramp_ground_l1_sw");
         
-        // Рампы между уровнями (только 2)
+        // Только 1 рампа между уровнями
         this.createRamp(context, level1Edge * 0.8, level1Edge * 0.8, this.config.level1Height, level2CornerEdgeX, level2CornerEdgeZ, this.config.level2Height, 8, 6, "ramp_l1_l2_1");
-        this.createRamp(context, -level1Edge * 0.8, -level1Edge * 0.8, this.config.level1Height, -level2CornerEdgeX, -level2CornerEdgeZ, this.config.level2Height, 8, 6, "ramp_l1_l2_2");
-        
-        // Рампы к уровню 3 (только 2)
-        const level3Size = 20;
-        const level3Edge = level3Size / 2;
-        this.createRamp(context, level1Edge * 0.6, 0, this.config.level1Height, level3Edge, 0, this.config.level3Height, 7, 5, "ramp_l1_l3_e");
-        this.createRamp(context, 0, level1Edge * 0.6, this.config.level1Height, 0, level3Edge, this.config.level3Height, 7, 5, "ramp_l1_l3_n");
     }
     
     /**
-     * Создание одной рампы
+     * Создание одной рампы (с проверкой попадания в чанк)
      */
     private createRamp(
         context: ChunkGenerationContext,
@@ -647,7 +594,7 @@ export class ExpoGenerator extends BaseMapGenerator {
         depth: number,
         name: string
     ): void {
-        const { chunkParent } = context;
+        const { worldX, worldZ, size, chunkParent } = context;
         
         const dx = x2 - x1;
         const dz = z2 - z1;
@@ -655,15 +602,36 @@ export class ExpoGenerator extends BaseMapGenerator {
         const totalDistance = Math.sqrt(dx * dx + dz * dz);
         const pitchAngle = Math.atan2(dy, totalDistance);
         
+        const rampX = (x1 + x2) / 2;
+        const rampZ = (z1 + z2) / 2;
+        const rampY = (y1 + y2) / 2;
+        
+        // Проверяем, попадает ли рампа в чанк
+        const rampHalf = Math.max(width, totalDistance) / 2;
+        const rampMinX = rampX - rampHalf;
+        const rampMaxX = rampX + rampHalf;
+        const rampMinZ = rampZ - rampHalf;
+        const rampMaxZ = rampZ + rampHalf;
+        
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
+        
+        if (chunkMaxX < rampMinX || chunkMinX > rampMaxX ||
+            chunkMaxZ < rampMinZ || chunkMinZ > rampMaxZ) {
+            return; // Рампа не попадает в этот чанк
+        }
+        
         const ramp = MeshBuilder.CreateBox(name, {
             width: width,
             height: 0.5,
             depth: totalDistance
         }, chunkParent.getScene());
         
-        ramp.position.x = (x1 + x2) / 2;
-        ramp.position.y = (y1 + y2) / 2;
-        ramp.position.z = (z1 + z2) / 2;
+        ramp.position.x = rampX;
+        ramp.position.y = rampY;
+        ramp.position.z = rampZ;
         
         const yawAngle = Math.atan2(dx, dz);
         ramp.rotation.y = yawAngle;
@@ -691,11 +659,9 @@ export class ExpoGenerator extends BaseMapGenerator {
         const { chunkParent } = context;
         const arenaHalf = this.config.arenaSize / 2;
         
-        // Только несколько зданий
+        // Упрощено: только 2 здания
         this.createHollowBuilding(context, 40, 40, 0, 15, 15, 8, "building_hollow_1", "gate");
         this.createHollowBuilding(context, -40, -40, 0, 15, 15, 8, "building_hollow_2", "gate");
-        this.createHollowBuilding(context, 60, 0, 0, 12, 12, 6, "building_door_1", "door");
-        this.createHollowBuilding(context, -60, 0, 0, 12, 12, 6, "building_door_2", "door");
     }
     
     /**
@@ -756,33 +722,22 @@ export class ExpoGenerator extends BaseMapGenerator {
             this.createWallWithOpening(context, x - width/2, z, baseY, depth, height, wallThickness, "west", openingSize, `${name}_wall_w`);
         }
         
-        // Крыша
-        const roof = MeshBuilder.CreateBox(`${name}_roof`, {
-            width: width,
-            height: 0.2,
-            depth: depth
-        }, chunkParent.getScene());
-        roof.position.x = x;
-        roof.position.y = baseY + height;
-        roof.position.z = z;
+        // Крыша убрана для упрощения
         
         // Материал
         const material = new StandardMaterial(`${name}_mat`, chunkParent.getScene());
         material.diffuseColor = new Color3(0.5, 0.5, 0.55);
         material.specularColor = new Color3(0.2, 0.2, 0.2);
         floor.material = material;
-        roof.material = material;
         
         // Физика
-        [floor, roof].forEach(mesh => {
-            const physicsAggregate = new PhysicsAggregate(
-                mesh,
-                PhysicsShapeType.BOX,
-                { mass: 0, restitution: 0.1 },
-                chunkParent.getScene()
-            );
-            physicsAggregate.body.setMassProperties({ mass: 0 });
-        });
+        const physicsAggregate = new PhysicsAggregate(
+            floor,
+            PhysicsShapeType.BOX,
+            { mass: 0, restitution: 0.1 },
+            chunkParent.getScene()
+        );
+        physicsAggregate.body.setMassProperties({ mass: 0 });
     }
     
     /**
@@ -914,11 +869,9 @@ export class ExpoGenerator extends BaseMapGenerator {
         const arenaHalf = this.config.arenaSize / 2;
         const maxPos = arenaHalf - 10;
         
-        // Только несколько домов
+        // Упрощено: только 2 дома
         this.createHouse(context, 50, 50, 0, 8, 8, 5, "house_1");
         this.createHouse(context, -50, -50, 0, 8, 8, 5, "house_2");
-        this.createHouse(context, 70, 0, 0, 8, 8, 5, "house_3");
-        this.createHouse(context, -70, 0, 0, 8, 8, 5, "house_4");
     }
     
     /**
@@ -990,15 +943,7 @@ export class ExpoGenerator extends BaseMapGenerator {
         wallW.position.y = baseY + wallHeight / 2;
         wallW.position.z = z;
         
-        // Крыша
-        const roof = MeshBuilder.CreateBox(`${name}_roof`, {
-            width: width + 0.5,
-            height: 0.3,
-            depth: depth + 0.5
-        }, chunkParent.getScene());
-        roof.position.x = x;
-        roof.position.y = baseY + height;
-        roof.position.z = z;
+        // Крыша убрана для упрощения
         
         // Материал
         const material = new StandardMaterial(`${name}_mat`, chunkParent.getScene());
@@ -1009,10 +954,9 @@ export class ExpoGenerator extends BaseMapGenerator {
         wallS.material = material;
         wallE.material = material;
         wallW.material = material;
-        roof.material = material;
         
         // Физика
-        [base, wallN, wallS, wallE, wallW, roof].forEach(mesh => {
+        [base, wallN, wallS, wallE, wallW].forEach(mesh => {
             const physicsAggregate = new PhysicsAggregate(
                 mesh,
                 PhysicsShapeType.BOX,
@@ -1127,71 +1071,123 @@ export class ExpoGenerator extends BaseMapGenerator {
     }
     
     /**
-     * Генерация периметра (ЗАБОР/СТЕНКИ по краям арены)
-     * ВЫСОКИЕ ЗАМЕТНЫЕ СТЕНЫ С ЯРКИМ МАТЕРИАЛОМ
+     * Генерация периметра (ЗАБОР/СТЕНКИ по краям арены) - создается только частично в каждом чанке
      */
     private generatePerimeter(context: ChunkGenerationContext): void {
-        const { chunkParent } = context;
+        const { worldX, worldZ, size, chunkParent } = context;
         const arenaHalf = this.config.arenaSize / 2; // 100 для карты 200x200
         const wallHeight = 8; // ВЫСОКИЕ СТЕНЫ
         const wallThickness = 2; // ТОЛСТЫЕ СТЕНЫ
-        
-        // Стены по периметру - ВИДИМЫЕ ГРАНИЦЫ КАРТЫ
-        const northWall = MeshBuilder.CreateBox("wall_north", {
-            width: this.config.arenaSize,
-            height: wallHeight,
-            depth: wallThickness
-        }, chunkParent.getScene());
-        northWall.position.x = 0;
-        northWall.position.y = wallHeight / 2;
-        northWall.position.z = arenaHalf;
-        
-        const southWall = MeshBuilder.CreateBox("wall_south", {
-            width: this.config.arenaSize,
-            height: wallHeight,
-            depth: wallThickness
-        }, chunkParent.getScene());
-        southWall.position.x = 0;
-        southWall.position.y = wallHeight / 2;
-        southWall.position.z = -arenaHalf;
-        
-        const eastWall = MeshBuilder.CreateBox("wall_east", {
-            width: wallThickness,
-            height: wallHeight,
-            depth: this.config.arenaSize
-        }, chunkParent.getScene());
-        eastWall.position.x = arenaHalf;
-        eastWall.position.y = wallHeight / 2;
-        eastWall.position.z = 0;
-        
-        const westWall = MeshBuilder.CreateBox("wall_west", {
-            width: wallThickness,
-            height: wallHeight,
-            depth: this.config.arenaSize
-        }, chunkParent.getScene());
-        westWall.position.x = -arenaHalf;
-        westWall.position.y = wallHeight / 2;
-        westWall.position.z = 0;
-        
+
+        const chunkLeft = worldX;
+        const chunkRight = worldX + size;
+        const chunkBottom = worldZ;
+        const chunkTop = worldZ + size;
+
         // ЯРКИЙ МАТЕРИАЛ ДЛЯ ЗАМЕТНОСТИ ГРАНИЦ
         const wallMaterial = new StandardMaterial("wall_material", chunkParent.getScene());
         wallMaterial.diffuseColor = new Color3(0.8, 0.3, 0.3); // КРАСНЫЙ ЦВЕТ ДЛЯ ЗАМЕТНОСТИ
         wallMaterial.specularColor = new Color3(0.4, 0.2, 0.2);
         wallMaterial.emissiveColor = new Color3(0.2, 0.0, 0.0); // СЛАБОЕ СВЕЧЕНИЕ
-        northWall.material = wallMaterial;
-        southWall.material = wallMaterial;
-        eastWall.material = wallMaterial;
-        westWall.material = wallMaterial;
-        
-        // Физика для всех стен
-        [northWall, southWall, eastWall, westWall].forEach(wall => {
-            const physicsAggregate = new PhysicsAggregate(
-                wall,
-                PhysicsShapeType.BOX,
-                { mass: 0, restitution: 0.1 },
-                chunkParent.getScene()
-            );
-            physicsAggregate.body.setMassProperties({ mass: 0 });
-        });
+
+        // Северная стена
+        if (chunkBottom <= arenaHalf && chunkTop >= arenaHalf) {
+            const wallLength = Math.min(chunkRight, arenaHalf) - Math.max(chunkLeft, -arenaHalf);
+            if (wallLength > 0) {
+                const wallX = (Math.max(chunkLeft, -arenaHalf) + Math.min(chunkRight, arenaHalf)) / 2;
+                const northWall = MeshBuilder.CreateBox("wall_north", {
+                    width: wallLength,
+                    height: wallHeight,
+                    depth: wallThickness
+                }, chunkParent.getScene());
+                northWall.position.x = wallX;
+                northWall.position.y = wallHeight / 2;
+                northWall.position.z = arenaHalf;
+                northWall.material = wallMaterial;
+
+                const physicsAggregate = new PhysicsAggregate(
+                    northWall,
+                    PhysicsShapeType.BOX,
+                    { mass: 0, restitution: 0.1 },
+                    chunkParent.getScene()
+                );
+                physicsAggregate.body.setMassProperties({ mass: 0 });
+            }
+        }
+
+        // Южная стена
+        if (chunkBottom <= -arenaHalf && chunkTop >= -arenaHalf) {
+            const wallLength = Math.min(chunkRight, arenaHalf) - Math.max(chunkLeft, -arenaHalf);
+            if (wallLength > 0) {
+                const wallX = (Math.max(chunkLeft, -arenaHalf) + Math.min(chunkRight, arenaHalf)) / 2;
+                const southWall = MeshBuilder.CreateBox("wall_south", {
+                    width: wallLength,
+                    height: wallHeight,
+                    depth: wallThickness
+                }, chunkParent.getScene());
+                southWall.position.x = wallX;
+                southWall.position.y = wallHeight / 2;
+                southWall.position.z = -arenaHalf;
+                southWall.material = wallMaterial;
+
+                const physicsAggregate = new PhysicsAggregate(
+                    southWall,
+                    PhysicsShapeType.BOX,
+                    { mass: 0, restitution: 0.1 },
+                    chunkParent.getScene()
+                );
+                physicsAggregate.body.setMassProperties({ mass: 0 });
+            }
+        }
+
+        // Восточная стена
+        if (chunkLeft <= arenaHalf && chunkRight >= arenaHalf) {
+            const wallLength = Math.min(chunkTop, arenaHalf) - Math.max(chunkBottom, -arenaHalf);
+            if (wallLength > 0) {
+                const wallZ = (Math.max(chunkBottom, -arenaHalf) + Math.min(chunkTop, arenaHalf)) / 2;
+                const eastWall = MeshBuilder.CreateBox("wall_east", {
+                    width: wallThickness,
+                    height: wallHeight,
+                    depth: wallLength
+                }, chunkParent.getScene());
+                eastWall.position.x = arenaHalf;
+                eastWall.position.y = wallHeight / 2;
+                eastWall.position.z = wallZ;
+                eastWall.material = wallMaterial;
+
+                const physicsAggregate = new PhysicsAggregate(
+                    eastWall,
+                    PhysicsShapeType.BOX,
+                    { mass: 0, restitution: 0.1 },
+                    chunkParent.getScene()
+                );
+                physicsAggregate.body.setMassProperties({ mass: 0 });
+            }
+        }
+
+        // Западная стена
+        if (chunkLeft <= -arenaHalf && chunkRight >= -arenaHalf) {
+            const wallLength = Math.min(chunkTop, arenaHalf) - Math.max(chunkBottom, -arenaHalf);
+            if (wallLength > 0) {
+                const wallZ = (Math.max(chunkBottom, -arenaHalf) + Math.min(chunkTop, arenaHalf)) / 2;
+                const westWall = MeshBuilder.CreateBox("wall_west", {
+                    width: wallThickness,
+                    height: wallHeight,
+                    depth: wallLength
+                }, chunkParent.getScene());
+                westWall.position.x = -arenaHalf;
+                westWall.position.y = wallHeight / 2;
+                westWall.position.z = wallZ;
+                westWall.material = wallMaterial;
+
+                const physicsAggregate = new PhysicsAggregate(
+                    westWall,
+                    PhysicsShapeType.BOX,
+                    { mass: 0, restitution: 0.1 },
+                    chunkParent.getScene()
+                );
+                physicsAggregate.body.setMassProperties({ mass: 0 });
+            }
+        }
     }
 }

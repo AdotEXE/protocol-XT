@@ -606,7 +606,7 @@ export class UnifiedMenu {
 
             .unified-header {
                 background: linear-gradient(180deg, rgba(0, 25, 0, 0.95) 0%, rgba(0, 15, 0, 0.98) 100%);
-                padding: 12px 16px;
+                padding: 14px 18px;
                 border-bottom: 2px solid rgba(0, 255, 4, 0.4);
                 display: flex;
                 justify-content: space-between;
@@ -615,7 +615,7 @@ export class UnifiedMenu {
 
             .unified-title {
                 color: #0ff;
-                font-size: 16px;
+                font-size: 18px;
                 font-weight: bold;
                 text-shadow: 0 0 8px rgba(0, 255, 255, 0.6);
                 font-family: Consolas, Monaco, 'Courier New', monospace;
@@ -637,9 +637,9 @@ export class UnifiedMenu {
             }
 
             .sidebar-title {
-                padding: 12px;
+                padding: 14px 12px;
                 color: #7f7;
-                font-size: 6px;
+                font-size: 12px;
                 font-weight: bold;
                 letter-spacing: 1px;
                 border-bottom: 1px solid rgba(0, 255, 4, 0.2);
@@ -651,10 +651,10 @@ export class UnifiedMenu {
             }
 
             .sidebar-item {
-                padding: 10px 12px;
+                padding: 12px 14px;
                 display: flex;
                 align-items: center;
-                gap: 10px;
+                gap: 12px;
                 cursor: pointer;
                 transition: all 0.2s ease;
                 border-bottom: 1px solid rgba(0, 255, 4, 0.1);
@@ -670,12 +670,12 @@ export class UnifiedMenu {
             }
 
             .sidebar-icon {
-                font-size: 8px;
+                font-size: 16px;
             }
 
             .sidebar-name {
                 color: #0f0;
-                font-size: 6px;
+                font-size: 13px;
                 font-family: Consolas, Monaco, 'Courier New', monospace;
             }
 
@@ -691,21 +691,21 @@ export class UnifiedMenu {
             .unified-tabbar {
                 background: rgba(0, 20, 0, 0.8);
                 border-bottom: 1px solid rgba(0, 255, 4, 0.3);
-                min-height: 36px;
+                min-height: 42px;
             }
 
             .tab-list {
                 display: flex;
-                gap: 2px;
-                padding: 4px 8px;
+                gap: 4px;
+                padding: 6px 10px;
                 overflow-x: auto;
             }
 
             .tab-item {
                 display: flex;
                 align-items: center;
-                gap: 6px;
-                padding: 6px 12px;
+                gap: 8px;
+                padding: 8px 14px;
                 background: rgba(0, 30, 0, 0.6);
                 border: 1px solid rgba(0, 255, 4, 0.3);
                 border-radius: 4px 4px 0 0;
@@ -724,20 +724,20 @@ export class UnifiedMenu {
             }
 
             .tab-icon {
-                font-size: 8px;
+                font-size: 14px;
             }
 
             .tab-name {
                 color: #0f0;
-                font-size: 6px;
+                font-size: 12px;
                 font-family: Consolas, Monaco, 'Courier New', monospace;
             }
 
             .tab-close {
                 color: #f00;
-                font-size: 8px;
+                font-size: 14px;
                 line-height: 1;
-                padding: 0 2px;
+                padding: 0 4px;
                 cursor: pointer;
                 opacity: 0.6;
                 transition: opacity 0.2s;

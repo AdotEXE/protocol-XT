@@ -96,28 +96,21 @@ export class MadnessGenerator extends BaseMapGenerator {
         // Уровень 1: Центральная платформа (как в оригинале)
         this.generatePlatform(context, 0, 0, 35, this.config.level1Height, "madness_platform_l1");
         
-        // Уровень 2: 4 угловые платформы
+        // Упрощено: только 2 угловые платформы уровня 2
         const level2Size = 20;
         this.generatePlatform(context, -arenaHalf + 30, -arenaHalf + 30, level2Size, this.config.level2Height, "madness_platform_l2_1");
-        this.generatePlatform(context, arenaHalf - 30, -arenaHalf + 30, level2Size, this.config.level2Height, "madness_platform_l2_2");
-        this.generatePlatform(context, arenaHalf - 30, arenaHalf - 30, level2Size, this.config.level2Height, "madness_platform_l2_3");
-        this.generatePlatform(context, -arenaHalf + 30, arenaHalf - 30, level2Size, this.config.level2Height, "madness_platform_l2_4");
+        this.generatePlatform(context, arenaHalf - 30, arenaHalf - 30, level2Size, this.config.level2Height, "madness_platform_l2_2");
         
-        // Уровень 2: 4 боковые платформы
+        // Упрощено: только 2 боковые платформы уровня 2
         this.generatePlatform(context, 0, -arenaHalf + 25, level2Size, this.config.level2Height, "madness_platform_l2_n");
-        this.generatePlatform(context, 0, arenaHalf - 25, level2Size, this.config.level2Height, "madness_platform_l2_s");
         this.generatePlatform(context, arenaHalf - 25, 0, level2Size, this.config.level2Height, "madness_platform_l2_e");
-        this.generatePlatform(context, -arenaHalf + 25, 0, level2Size, this.config.level2Height, "madness_platform_l2_w");
         
-        // Уровень 3: Меньшие платформы выше
+        // Упрощено: только 2 платформы уровня 3
         const level3Size = 15;
         this.generatePlatform(context, -25, -25, level3Size, this.config.level3Height, "madness_platform_l3_1");
-        this.generatePlatform(context, 25, -25, level3Size, this.config.level3Height, "madness_platform_l3_2");
-        this.generatePlatform(context, 25, 25, level3Size, this.config.level3Height, "madness_platform_l3_3");
-        this.generatePlatform(context, -25, 25, level3Size, this.config.level3Height, "madness_platform_l3_4");
+        this.generatePlatform(context, 25, 25, level3Size, this.config.level3Height, "madness_platform_l3_2");
         
-        // Уровень 4: Самая высокая центральная платформа
-        this.generatePlatform(context, 0, 0, 20, this.config.level4Height, "madness_platform_l4");
+        // Уровень 4 убран для упрощения
     }
     
     /**
@@ -191,11 +184,9 @@ export class MadnessGenerator extends BaseMapGenerator {
         const level1Size = 35; // Центральная платформа уровня 1
         const level2Size = 20; // Угловые и боковые платформы уровня 2
         const level3Size = 15; // Платформы уровня 3
-        const level4Size = 20; // Центральная платформа уровня 4
         const level1Edge = level1Size / 2; // 17.5
         const level2Edge = level2Size / 2; // 10
         const level3HalfSize = level3Size / 2; // 7.5
-        const level4Edge = level4Size / 2; // 10
         
         // ========== МОСТЫ ОТ ПОЛА (ЗЕМЛИ) К УРОВНЮ 1 (центральная платформа) ==========
         this.createBridge(context, 0, 25, groundLevel, 0, level1Edge, this.config.level1Height, 8, "bridge_ground_l1_n");
@@ -228,43 +219,7 @@ export class MadnessGenerator extends BaseMapGenerator {
         this.createBridge(context, 30, 30, groundLevel, level3Edge, level3Edge, this.config.level3Height, 6, "bridge_ground_l3_3");
         this.createBridge(context, -30, 30, groundLevel, -level3Edge, level3Edge, this.config.level3Height, 6, "bridge_ground_l3_4");
         
-        // ========== МОСТЫ ОТ ПОЛА К УРОВНЮ 4 (верхняя платформа) ==========
-        this.createBridge(context, -15, -15, groundLevel, -level4Edge, -level4Edge, this.config.level4Height, 5, "bridge_ground_l4_1");
-        this.createBridge(context, 15, -15, groundLevel, level4Edge, -level4Edge, this.config.level4Height, 5, "bridge_ground_l4_2");
-        this.createBridge(context, 15, 15, groundLevel, level4Edge, level4Edge, this.config.level4Height, 5, "bridge_ground_l4_3");
-        this.createBridge(context, -15, 15, groundLevel, -level4Edge, level4Edge, this.config.level4Height, 5, "bridge_ground_l4_4");
-        
-        // Мостики от уровня 1 к уровню 2 (боковые платформы)
-        // Начинаются от края платформы уровня 1, заканчиваются на краю платформы уровня 2
-        this.createBridge(context, 0, level1Edge, this.config.level1Height, 0, -level2SideEdge, this.config.level2Height, 6, "bridge_l1_l2_n");
-        this.createBridge(context, 0, -level1Edge, this.config.level1Height, 0, level2SideEdge, this.config.level2Height, 6, "bridge_l1_l2_s");
-        this.createBridge(context, level1Edge, 0, this.config.level1Height, level2SideEdge, 0, this.config.level2Height, 6, "bridge_l1_l2_e");
-        this.createBridge(context, -level1Edge, 0, this.config.level1Height, -level2SideEdge, 0, this.config.level2Height, 6, "bridge_l1_l2_w");
-        
-        // Мостики между угловыми платформами уровня 2 (горизонтальные)
-        // Соединяют края угловых платформ
-        const level2CornerFarEdgeX = level2CornerX + level2Size / 2; // Дальний край (от центра карты)
-        const level2CornerFarEdgeZ = level2CornerZ + level2Size / 2;
-        this.createBridge(context, -level2CornerFarEdgeX, -level2CornerEdgeZ, this.config.level2Height, level2CornerFarEdgeX, -level2CornerEdgeZ, this.config.level2Height, 6, "bridge_l2_corner_1");
-        this.createBridge(context, level2CornerFarEdgeX, -level2CornerEdgeZ, this.config.level2Height, level2CornerFarEdgeX, level2CornerFarEdgeZ, this.config.level2Height, 6, "bridge_l2_corner_2");
-        this.createBridge(context, level2CornerFarEdgeX, level2CornerFarEdgeZ, this.config.level2Height, -level2CornerFarEdgeX, level2CornerFarEdgeZ, this.config.level2Height, 6, "bridge_l2_corner_3");
-        this.createBridge(context, -level2CornerFarEdgeX, level2CornerFarEdgeZ, this.config.level2Height, -level2CornerFarEdgeX, -level2CornerEdgeZ, this.config.level2Height, 6, "bridge_l2_corner_4");
-        
-        // Мостики от уровня 2 к уровню 3
-        // Уровень 3: центр на (±25, ±25), размер 15, края на ±(25 ± 7.5)
-        const level3EdgeCoordBridge = 25 - level3Size / 2; // 17.5 (край платформы уровня 3 ближе к центру)
-        this.createBridge(context, -level2CornerFarEdgeX, -level2CornerEdgeZ, this.config.level2Height, -level3EdgeCoordBridge, -level3EdgeCoordBridge, this.config.level3Height, 5, "bridge_l2_l3_1");
-        this.createBridge(context, level2CornerFarEdgeX, -level2CornerEdgeZ, this.config.level2Height, level3EdgeCoordBridge, -level3EdgeCoordBridge, this.config.level3Height, 5, "bridge_l2_l3_2");
-        this.createBridge(context, level2CornerFarEdgeX, level2CornerFarEdgeZ, this.config.level2Height, level3EdgeCoordBridge, level3EdgeCoordBridge, this.config.level3Height, 5, "bridge_l2_l3_3");
-        this.createBridge(context, -level2CornerFarEdgeX, level2CornerFarEdgeZ, this.config.level2Height, -level3EdgeCoordBridge, level3EdgeCoordBridge, this.config.level3Height, 5, "bridge_l2_l3_4");
-        
-        // Мостики от уровня 3 к уровню 4 (центральная верхняя платформа)
-        // Уровень 4: центр (0, 0), размер 20, края на ±10
-        const level4EdgeCoordBridge = level4Size / 2; // 10
-        this.createBridge(context, -level3EdgeCoordBridge, -level3EdgeCoordBridge, this.config.level3Height, -level4EdgeCoordBridge, -level4EdgeCoordBridge, this.config.level4Height, 4, "bridge_l3_l4_1");
-        this.createBridge(context, level3EdgeCoordBridge, -level3EdgeCoordBridge, this.config.level3Height, level4EdgeCoordBridge, -level4EdgeCoordBridge, this.config.level4Height, 4, "bridge_l3_l4_2");
-        this.createBridge(context, level3EdgeCoordBridge, level3EdgeCoordBridge, this.config.level3Height, level4EdgeCoordBridge, level4EdgeCoordBridge, this.config.level4Height, 4, "bridge_l3_l4_3");
-        this.createBridge(context, -level3EdgeCoordBridge, level3EdgeCoordBridge, this.config.level3Height, -level4EdgeCoordBridge, level4EdgeCoordBridge, this.config.level4Height, 4, "bridge_l3_l4_4");
+        // Упрощено: убраны мосты к уровню 4 и дополнительные мосты между уровнями, оставлены только основные от пола
     }
     
     /**
@@ -348,11 +303,9 @@ export class MadnessGenerator extends BaseMapGenerator {
         const level1Size = 35;
         const level2Size = 20;
         const level3Size = 15;
-        const level4Size = 20;
         const level1Edge = level1Size / 2; // 17.5
         const level2Edge = level2Size / 2; // 10
         const level3HalfSize = level3Size / 2; // 7.5 (половина размера платформы уровня 3)
-        const level4Edge = level4Size / 2; // 10
         
         // ========== РАМПЫ ОТ ЗЕМЛИ К УРОВНЮ 1 (центральная платформа) ==========
         // 4 рампы по сторонам света
@@ -371,71 +324,15 @@ export class MadnessGenerator extends BaseMapGenerator {
         this.createRamp(context, arenaHalf - 20, arenaHalf - 20, groundLevel, -level2CornerEdgeX, -level2CornerEdgeZ, this.config.level2Height, 8, 6, "ramp_ground_l2_corner_3");
         this.createRamp(context, -arenaHalf + 20, arenaHalf - 20, groundLevel, level2CornerEdgeX, -level2CornerEdgeZ, this.config.level2Height, 8, 6, "ramp_ground_l2_corner_4");
         
-        // ========== РАМПЫ ОТ ЗЕМЛИ К УРОВНЮ 2 (боковые платформы) ==========
+        // ========== РАМПЫ ОТ БОКОВЫХ ПЛАТФОРМ УРОВНЯ 2 К ЦЕНТРУ (развернуты на 180 градусов) ==========
         const level2SideEdge = arenaHalf - 25 - level2Edge; // Край боковой платформы
-        this.createRamp(context, 0, -arenaHalf + 15, groundLevel, 0, -level2SideEdge, this.config.level2Height, 8, 6, "ramp_ground_l2_n");
-        this.createRamp(context, 0, arenaHalf - 15, groundLevel, 0, level2SideEdge, this.config.level2Height, 8, 6, "ramp_ground_l2_s");
-        this.createRamp(context, arenaHalf - 15, 0, groundLevel, level2SideEdge, 0, this.config.level2Height, 8, 6, "ramp_ground_l2_e");
-        this.createRamp(context, -arenaHalf + 15, 0, groundLevel, -level2SideEdge, 0, this.config.level2Height, 8, 6, "ramp_ground_l2_w");
+        // Рампы идут от боковых платформ к центру (к уровню 1)
+        this.createRamp(context, 0, -level2SideEdge, this.config.level2Height, 0, level1Edge, this.config.level1Height, 8, 6, "ramp_l2_l1_n");
+        this.createRamp(context, 0, level2SideEdge, this.config.level2Height, 0, -level1Edge, this.config.level1Height, 8, 6, "ramp_l2_l1_s");
+        this.createRamp(context, level2SideEdge, 0, this.config.level2Height, -level1Edge, 0, this.config.level1Height, 8, 6, "ramp_l2_l1_e");
+        this.createRamp(context, -level2SideEdge, 0, this.config.level2Height, level1Edge, 0, this.config.level1Height, 8, 6, "ramp_l2_l1_w");
         
-        // ========== РАМПЫ ОТ УРОВНЯ 1 К УРОВНЮ 2 (угловые платформы) ==========
-        this.createRamp(context, level1Edge, level1Edge, this.config.level1Height, level2CornerEdgeX, level2CornerEdgeZ, this.config.level2Height, 8, 6, "ramp_l1_l2_corner_1");
-        this.createRamp(context, -level1Edge, level1Edge, this.config.level1Height, -level2CornerEdgeX, level2CornerEdgeZ, this.config.level2Height, 8, 6, "ramp_l1_l2_corner_2");
-        this.createRamp(context, -level1Edge, -level1Edge, this.config.level1Height, -level2CornerEdgeX, -level2CornerEdgeZ, this.config.level2Height, 8, 6, "ramp_l1_l2_corner_3");
-        this.createRamp(context, level1Edge, -level1Edge, this.config.level1Height, level2CornerEdgeX, -level2CornerEdgeZ, this.config.level2Height, 8, 6, "ramp_l1_l2_corner_4");
-        
-        // ========== РАМПЫ ОТ УРОВНЯ 1 К УРОВНЮ 2 (боковые платформы) ==========
-        this.createRamp(context, 0, level1Edge, this.config.level1Height, 0, -level2SideEdge, this.config.level2Height, 8, 6, "ramp_l1_l2_n");
-        this.createRamp(context, 0, -level1Edge, this.config.level1Height, 0, level2SideEdge, this.config.level2Height, 8, 6, "ramp_l1_l2_s");
-        this.createRamp(context, level1Edge, 0, this.config.level1Height, level2SideEdge, 0, this.config.level2Height, 8, 6, "ramp_l1_l2_e");
-        this.createRamp(context, -level1Edge, 0, this.config.level1Height, -level2SideEdge, 0, this.config.level2Height, 8, 6, "ramp_l1_l2_w");
-        
-        // ========== РАМПЫ ОТ УРОВНЯ 2 К УРОВНЮ 3 ==========
-        const level3Center = 25;
-        const level3Edge = level3Center - level3HalfSize; // 17.5 (край платформы уровня 3 ближе к центру)
-        const level2CornerFarEdgeX = level2CornerX + level2Edge;
-        const level2CornerFarEdgeZ = level2CornerZ + level2Edge;
-        this.createRamp(context, -level2CornerFarEdgeX, -level2CornerEdgeZ, this.config.level2Height, -level3Edge, -level3Edge, this.config.level3Height, 6, 5, "ramp_l2_l3_1");
-        this.createRamp(context, level2CornerFarEdgeX, -level2CornerEdgeZ, this.config.level2Height, level3Edge, -level3Edge, this.config.level3Height, 6, 5, "ramp_l2_l3_2");
-        this.createRamp(context, level2CornerFarEdgeX, level2CornerFarEdgeZ, this.config.level2Height, level3Edge, level3Edge, this.config.level3Height, 6, 5, "ramp_l2_l3_3");
-        this.createRamp(context, -level2CornerFarEdgeX, level2CornerFarEdgeZ, this.config.level2Height, -level3Edge, level3Edge, this.config.level3Height, 6, 5, "ramp_l2_l3_4");
-        
-        // ========== РАМПЫ ОТ ЗЕМЛИ К УРОВНЮ 3 (прямой доступ) ==========
-        this.createRamp(context, -30, -30, groundLevel, -level3Edge, -level3Edge, this.config.level3Height, 6, 5, "ramp_ground_l3_1");
-        this.createRamp(context, 30, -30, groundLevel, level3Edge, -level3Edge, this.config.level3Height, 6, 5, "ramp_ground_l3_2");
-        this.createRamp(context, 30, 30, groundLevel, level3Edge, level3Edge, this.config.level3Height, 6, 5, "ramp_ground_l3_3");
-        this.createRamp(context, -30, 30, groundLevel, -level3Edge, level3Edge, this.config.level3Height, 6, 5, "ramp_ground_l3_4");
-        
-        // ========== РАМПЫ ОТ УРОВНЯ 3 К УРОВНЮ 4 (центральная верхняя платформа) ==========
-        this.createRamp(context, -level3Edge, -level3Edge, this.config.level3Height, -level4Edge, -level4Edge, this.config.level4Height, 5, 4, "ramp_l3_l4_1");
-        this.createRamp(context, level3Edge, -level3Edge, this.config.level3Height, level4Edge, -level4Edge, this.config.level4Height, 5, 4, "ramp_l3_l4_2");
-        this.createRamp(context, level3Edge, level3Edge, this.config.level3Height, level4Edge, level4Edge, this.config.level4Height, 5, 4, "ramp_l3_l4_3");
-        this.createRamp(context, -level3Edge, level3Edge, this.config.level3Height, -level4Edge, level4Edge, this.config.level4Height, 5, 4, "ramp_l3_l4_4");
-        
-        // ========== ДОПОЛНИТЕЛЬНЫЕ РАМПЫ ДЛЯ УДОБСТВА ==========
-        // Рампы от земли к уровню 4 (прямой доступ к верхней платформе)
-        this.createRamp(context, -15, -15, groundLevel, -level4Edge, -level4Edge, this.config.level4Height, 5, 4, "ramp_ground_l4_1");
-        this.createRamp(context, 15, -15, groundLevel, level4Edge, -level4Edge, this.config.level4Height, 5, 4, "ramp_ground_l4_2");
-        this.createRamp(context, 15, 15, groundLevel, level4Edge, level4Edge, this.config.level4Height, 5, 4, "ramp_ground_l4_3");
-        this.createRamp(context, -15, 15, groundLevel, -level4Edge, level4Edge, this.config.level4Height, 5, 4, "ramp_ground_l4_4");
-        
-        // Рампы от уровня 1 к уровню 3 (прямой доступ)
-        this.createRamp(context, level1Edge, level1Edge, this.config.level1Height, level3Edge, level3Edge, this.config.level3Height, 6, 5, "ramp_l1_l3_1");
-        this.createRamp(context, -level1Edge, level1Edge, this.config.level1Height, -level3Edge, level3Edge, this.config.level3Height, 6, 5, "ramp_l1_l3_2");
-        this.createRamp(context, -level1Edge, -level1Edge, this.config.level1Height, -level3Edge, -level3Edge, this.config.level3Height, 6, 5, "ramp_l1_l3_3");
-        this.createRamp(context, level1Edge, -level1Edge, this.config.level1Height, level3Edge, -level3Edge, this.config.level3Height, 6, 5, "ramp_l1_l3_4");
-        
-        // Рампы от уровня 1 к уровню 4 (прямой доступ к верхней платформе)
-        this.createRamp(context, level1Edge, level1Edge, this.config.level1Height, level4Edge, level4Edge, this.config.level4Height, 5, 4, "ramp_l1_l4_1");
-        this.createRamp(context, -level1Edge, level1Edge, this.config.level1Height, -level4Edge, level4Edge, this.config.level4Height, 5, 4, "ramp_l1_l4_2");
-        this.createRamp(context, -level1Edge, -level1Edge, this.config.level1Height, -level4Edge, -level4Edge, this.config.level4Height, 5, 4, "ramp_l1_l4_3");
-        this.createRamp(context, level1Edge, -level1Edge, this.config.level1Height, level4Edge, -level4Edge, this.config.level4Height, 5, 4, "ramp_l1_l4_4");
-        
-        // Рампы от уровня 2 к уровню 4 (прямой доступ)
-        this.createRamp(context, level2CornerFarEdgeX, level2CornerFarEdgeZ, this.config.level2Height, level4Edge, level4Edge, this.config.level4Height, 5, 4, "ramp_l2_l4_1");
-        this.createRamp(context, -level2CornerFarEdgeX, level2CornerFarEdgeZ, this.config.level2Height, -level4Edge, level4Edge, this.config.level4Height, 5, 4, "ramp_l2_l4_2");
-        this.createRamp(context, -level2CornerFarEdgeX, -level2CornerEdgeZ, this.config.level2Height, -level4Edge, -level4Edge, this.config.level4Height, 5, 4, "ramp_l2_l4_3");
-        this.createRamp(context, level2CornerFarEdgeX, -level2CornerEdgeZ, this.config.level2Height, level4Edge, -level4Edge, this.config.level4Height, 5, 4, "ramp_l2_l4_4");
+        // Упрощено: убраны дополнительные рампы между уровнями, оставлены только основные от пола
     }
     
     /**
@@ -506,17 +403,12 @@ export class MadnessGenerator extends BaseMapGenerator {
     private generateVerticalPassages(context: ChunkGenerationContext): void {
         const { worldX, worldZ, size, chunkParent } = context;
         
-        // Вертикальные колонны для поддержки платформ
+        // Упрощено: уменьшено количество колонн
         const columns = [
             { x: -30, z: -30, height: this.config.level2Height },
-            { x: 30, z: -30, height: this.config.level2Height },
             { x: 30, z: 30, height: this.config.level2Height },
-            { x: -30, z: 30, height: this.config.level2Height },
             { x: -15, z: -15, height: this.config.level3Height },
-            { x: 15, z: -15, height: this.config.level3Height },
-            { x: 15, z: 15, height: this.config.level3Height },
-            { x: -15, z: 15, height: this.config.level3Height },
-            { x: 0, z: 0, height: this.config.level4Height }
+            { x: 15, z: 15, height: this.config.level3Height }
         ];
         
         columns.forEach((col, index) => {
@@ -557,28 +449,19 @@ export class MadnessGenerator extends BaseMapGenerator {
         const { worldX, worldZ, size, chunkParent } = context;
         const arenaHalf = this.config.arenaSize / 2;
         
-        // Контейнеры на уровне 1
+        // Упрощено: только половина контейнеров
         const containers = [
             // На земле
             { x: -50, z: -50, y: 0, width: 3, height: 2.5, depth: 6, material: "metal" },
-            { x: 50, z: -50, y: 0, width: 3, height: 2.5, depth: 6, material: "metal" },
             { x: 50, z: 50, y: 0, width: 3, height: 2.5, depth: 6, material: "metal" },
-            { x: -50, z: 50, y: 0, width: 3, height: 2.5, depth: 6, material: "metal" },
             
             // На уровне 2
             { x: -arenaHalf + 30, z: -arenaHalf + 30, y: this.config.level2Height, width: 2.5, height: 2, depth: 5, material: "red" },
-            { x: arenaHalf - 30, z: -arenaHalf + 30, y: this.config.level2Height, width: 2.5, height: 2, depth: 5, material: "blue" },
             { x: arenaHalf - 30, z: arenaHalf - 30, y: this.config.level2Height, width: 2.5, height: 2, depth: 5, material: "red" },
-            { x: -arenaHalf + 30, z: arenaHalf - 30, y: this.config.level2Height, width: 2.5, height: 2, depth: 5, material: "blue" },
             
             // На уровне 3
             { x: -25, z: -25, y: this.config.level3Height, width: 2, height: 1.8, depth: 4, material: "metal" },
-            { x: 25, z: -25, y: this.config.level3Height, width: 2, height: 1.8, depth: 4, material: "metal" },
-            { x: 25, z: 25, y: this.config.level3Height, width: 2, height: 1.8, depth: 4, material: "metal" },
-            { x: -25, z: 25, y: this.config.level3Height, width: 2, height: 1.8, depth: 4, material: "metal" },
-            
-            // На уровне 4
-            { x: 0, z: 0, y: this.config.level4Height, width: 2, height: 1.5, depth: 3, material: "red" }
+            { x: 25, z: 25, y: this.config.level3Height, width: 2, height: 1.8, depth: 4, material: "metal" }
         ];
         
         containers.forEach((container, index) => {

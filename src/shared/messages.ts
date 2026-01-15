@@ -35,6 +35,7 @@ export enum ClientMessageType {
     // Gameplay
     PLAYER_INPUT = "player_input",
     PLAYER_SHOOT = "player_shoot",
+    PLAYER_RESPAWN_REQUEST = "player_respawn_request",
     CHAT_MESSAGE = "chat_message",
 
     // World
@@ -343,5 +344,18 @@ export interface RoomPlayersListData {
     roomId: string;
     players: RoomPlayerData[];
     ownerId: string;
+}
+
+// Player death and respawn data types
+export interface PlayerDiedData {
+    playerId: string;
+    playerName: string;
+}
+
+export interface PlayerRespawnedData {
+    playerId: string;
+    playerName: string;
+    position: Vector3;
+    health: number;
 }
 

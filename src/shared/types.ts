@@ -16,6 +16,8 @@ export interface PlayerData {
     name: string;
     position: Vector3;
     rotation: number; // Y rotation (yaw)
+    chassisPitch?: number; // X rotation (pitch/tilt forward-backward)
+    chassisRoll?: number; // Z rotation (roll/tilt left-right)
     turretRotation: number;
     aimPitch: number;
     health: number;
@@ -46,7 +48,9 @@ export interface PlayerInput {
     sequence?: number; // Sequence number for client-side prediction and server reconciliation
     // CLIENT-AUTHORITATIVE POSITION: Клиент отправляет реальную позицию от Havok физики
     position?: { x: number; y: number; z: number };
-    rotation?: number; // Y rotation of chassis
+    rotation?: number; // Y rotation of chassis (yaw)
+    chassisPitch?: number; // X rotation of chassis (pitch/tilt forward-backward)
+    chassisRoll?: number; // Z rotation of chassis (roll/tilt left-right)
 }
 
 export interface ProjectileData {
@@ -151,7 +155,7 @@ export const MOVEMENT_CONSTANTS = {
     // Используется на сервере для простой симуляции
     // На клиенте это максимальная скорость, достигаемая через физику
     BASE_MOVE_SPEED: 20,
-    
+
     // Базовая скорость поворота (радиан/сек)
     // Используется на сервере для простой симуляции
     // На клиенте это базовая скорость поворота через физику

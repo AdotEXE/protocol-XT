@@ -174,6 +174,8 @@ export interface NetworkPlayer {
     name: string;
     position: Vector3;
     rotation: number;
+    chassisPitch?: number; // X rotation (pitch/tilt forward-backward)
+    chassisRoll?: number; // Z rotation (roll/tilt left-right)
     turretRotation: number;
     aimPitch: number;
     health: number;
@@ -360,7 +362,7 @@ export class MultiplayerManager {
     private pingInterval: NodeJS.Timeout | null = null;
     private pingSequence: number = 0;
     private lastPongTime: number = 0;
-    
+
     // КРИТИЧНО: Трекинг времени отправки PING по sequence number
     // Это позволяет корректно вычислять RTT независимо от расхождения часов
     private pingSendTimes: Map<number, number> = new Map();
@@ -402,6 +404,7 @@ export class MultiplayerManager {
     private onCTFFlagUpdateCallback: ((data: CTFFlagUpdateData) => void) | null = null;
     private onPlayerKilledCallback: ((data: PlayerKilledData) => void) | null = null;
     private onPlayerDiedCallback: ((data: PlayerDiedData) => void) | null = null;
+    private onPlayerRespawnedCallback: ((data: PlayerRespawnedData) => void) | null = null;
     private onPlayerDamagedCallback: ((data: PlayerDamagedData) => void) | null = null;
     private onCTFFlagPickupCallback: ((data: CTFFlagPickupData) => void) | null = null;
     private onCTFFlagCaptureCallback: ((data: CTFFlagCaptureData) => void) | null = null;
@@ -791,7 +794,7 @@ export class MultiplayerManager {
                     logger.warn("[Multiplayer] Received empty Blob, skipping");
                     return;
                 }
-                
+
                 // Увеличиваем timeout до 10 секунд для больших Blob
                 const timeoutPromise = new Promise<ArrayBuffer>((_, reject) => {
                     setTimeout(() => reject(new Error("Blob conversion timeout")), 10000);
@@ -948,6 +951,11 @@ export class MultiplayerManager {
                 case ServerMessageType.PLAYER_DIED:
                     this.handlePlayerDied(message.data);
                     break;
+
+                case ServerMessageType.PLAYER_RESPAWNED:
+                    this.handlePlayerRespawned(message.data);
+                    break;
+
 
                 case ServerMessageType.PLAYER_DAMAGED:
                     this.handlePlayerDamaged(message.data);
@@ -1127,17 +1135,17 @@ export class MultiplayerManager {
     private sendPing(): void {
         const sequence = ++this.pingSequence;
         const sendTime = Date.now();
-        
+
         // КРИТИЧНО: Сохраняем время отправки локально по sequence
         // Это гарантирует корректный расчёт RTT независимо от часов сервера
         this.pingSendTimes.set(sequence, sendTime);
-        
+
         // Очищаем старые записи (храним максимум 20 последних)
         if (this.pingSendTimes.size > 20) {
             const oldestSeq = Math.min(...this.pingSendTimes.keys());
             this.pingSendTimes.delete(oldestSeq);
         }
-        
+
         const pingData: PingData = {
             timestamp: sendTime,
             sequence: sequence
@@ -1153,24 +1161,24 @@ export class MultiplayerManager {
     private handlePong(data: PongData): void {
         const pongData = data as PongData;
         const currentTime = Date.now();
-        
+
         // Update last pong time for health check
         this.lastPongTime = currentTime;
-        
+
         // КРИТИЧНО: Вычисляем RTT используя ЛОКАЛЬНО сохранённое время отправки
         // Это работает корректно даже при расхождении часов клиента и сервера
         const sequence = pongData.sequence;
         const sendTime = this.pingSendTimes.get(sequence);
-        
+
         if (!sendTime) {
             // Если нет записи о времени отправки - игнорируем (старый или дубликат пакета)
             logger.warn(`[Multiplayer] ⚠️ PONG received for unknown sequence ${sequence}, ignoring`);
             return;
         }
-        
+
         // Удаляем использованную запись
         this.pingSendTimes.delete(sequence);
-        
+
         const rtt = currentTime - sendTime;
 
         // КРИТИЧНО: Жёсткая валидация RTT
@@ -1181,7 +1189,7 @@ export class MultiplayerManager {
             this.networkMetrics.rtt = 50;
             return;
         }
-        
+
         if (rtt > 5000) {
             logger.warn(`[Multiplayer] ⚠️ RTT too high: ${rtt}ms > 5000ms, capping to 500ms`);
             // При слишком высоком RTT - используем максимальное разумное значение
@@ -1189,7 +1197,7 @@ export class MultiplayerManager {
             this.networkMetrics.rtt = Math.min(this.networkMetrics.rtt, 500);
             return;
         }
-        
+
         // Дополнительная проверка - если RTT подозрительно высокий (> 1000ms), 
         // используем меньший вес для EWMA
         const isSuspiciousRTT = rtt > 1000;
@@ -1365,24 +1373,24 @@ export class MultiplayerManager {
         this._isRoomCreator = data.isCreator ?? true; // По умолчанию создатель, если не указано
         // При создании комнаты в ней только текущий игрок
         this._roomPlayersCount = 1;
-        
+
         // КРИТИЧНО: Обновляем синхронизацию времени с сервером
         if ((data as any).serverTime) {
             this.serverTimeOffset = (data as any).serverTime - Date.now();
             logger.log(`[Multiplayer] 🕐 Server time offset updated in ROOM_CREATED: ${this.serverTimeOffset}ms`);
         }
-        
+
         // КРИТИЧНО: Сохраняем mapType для использования до получения GAME_START
         if (data.mapType) {
             this.pendingMapType = data.mapType;
             logger.log(`[Multiplayer] 🗺️ Room created with mapType: ${data.mapType}`);
         }
-        
+
         // Сохраняем worldSeed если есть
         if (data.worldSeed !== undefined) {
             this.worldSeed = data.worldSeed;
         }
-        
+
         logger.log(`[Multiplayer] Room created: ${this.roomId}, mode: ${data.mode}, players: ${this._roomPlayersCount}`);
         if (this.onRoomCreatedCallback) {
             this.onRoomCreatedCallback(data);
@@ -1438,7 +1446,7 @@ export class MultiplayerManager {
 
         // КРИТИЧНО: Сохраняем данные в буфер на случай, если callback еще не установлен
         this.pendingRoomJoinedData = data;
-        
+
         // Вызываем callback для обработки ROOM_JOINED
         if (this.onRoomJoinedCallback) {
             this.onRoomJoinedCallback(data);
@@ -1778,7 +1786,7 @@ export class MultiplayerManager {
 
         const playersCount = statesData.players?.length || 0;
         const networkPlayersCount = statesData.players?.filter((p: any) => p.id !== this.playerId).length || 0;
-        
+
         // Логируем при изменении количества игроков (только при реальном изменении, через logger, не console)
         if (networkPlayersCount !== this.networkPlayers.size) {
             logger.log(`[Multiplayer] 📊 Изменение networkPlayers: ${this.networkPlayers.size} -> ${networkPlayersCount}, roomId=${this.roomId}`);
@@ -1816,7 +1824,7 @@ export class MultiplayerManager {
                 logger.log(`[Multiplayer] ✅ Полное состояние получено (isFullState=true) - сброс накопленных ошибок`);
             }
         }
-        
+
         // КРИТИЧНО: В ранней фазе (первые 60 пакетов = 1 секунда) ПОЛНОСТЬЮ ОБХОДИМ jitter buffer
         // и обрабатываем данные НЕМЕДЛЕННО для гарантированного отображения игроков
         // Также обходим если есть другие игроки, но мы их еще не видим
@@ -2064,7 +2072,7 @@ export class MultiplayerManager {
         const localPlayerInList = players.find(p => p.id === this.playerId);
         const networkPlayersInList = players.filter(p => p.id !== this.playerId);
         const currentNetworkPlayersSize = this.networkPlayers.size;
-        
+
         // Убрано для уменьшения спама в логах
         // console.log(`%c[Multiplayer] 🔍 applyPlayerStates: Обработка игроков`, 'color: #3b82f6; font-weight: bold;', {
         //     totalPlayers: players.length,
@@ -2079,7 +2087,7 @@ export class MultiplayerManager {
         let localPlayerData: PlayerData | null = null;
         let addedCount = 0;
         let updatedCount = 0;
-        
+
         for (const playerData of players) {
             if (playerData.id === this.playerId) {
                 localPlayerData = playerData;
@@ -2091,10 +2099,10 @@ export class MultiplayerManager {
             } else {
                 // Проверяем, есть ли уже игрок в networkPlayers
                 const wasNew = !this.networkPlayers.has(playerData.id);
-                
+
                 // Обновляем или добавляем сетевого игрока
                 this.updateNetworkPlayer(playerData, gameTime);
-                
+
                 if (wasNew) {
                     addedCount++;
                 } else {
@@ -2178,6 +2186,13 @@ export class MultiplayerManager {
         }
     }
 
+    private handlePlayerRespawned(data: PlayerRespawnedData): void {
+        if (this.onPlayerRespawnedCallback) {
+            this.onPlayerRespawnedCallback(data);
+        }
+    }
+
+
     private handlePlayerDamaged(data: PlayerDamagedData): void {
         if (this.onPlayerDamagedCallback) {
             this.onPlayerDamagedCallback(data);
@@ -2212,14 +2227,14 @@ export class MultiplayerManager {
             console.warn(`%c[Multiplayer] ❌ BLOCKED: Попытка добавить локального игрока в networkPlayers!`, 'color: #ef4444; font-weight: bold;');
             return;
         }
-        
+
         // КРИТИЧНО: Проверяем, не является ли это дубликатом
         if (this.networkPlayers.has(playerData.id)) {
             // Игрок уже есть - просто обновляем, не логируем (убрано для уменьшения спама)
             this.updateNetworkPlayer(playerData, 0);
             return;
         }
-        
+
         // ДИАГНОСТИКА: Логируем только при реальном добавлении нового игрока (один раз)
         const oldSize = this.networkPlayers.size;
         logger.log(`[Multiplayer] ➕ Добавляю НОВОГО игрока: ${playerData.name || playerData.id} (${playerData.id}), roomId=${this.roomId}, было=${oldSize}`);
@@ -2284,7 +2299,7 @@ export class MultiplayerManager {
 
         this.networkPlayers.set(playerData.id, networkPlayer);
         const newSize = this.networkPlayers.size;
-        
+
         // ДИАГНОСТИКА: Логируем только при реальном добавлении (размер должен увеличиться)
         if (newSize > oldSize) {
             logger.log(`[Multiplayer] ✅ Network player added: ${playerData.id} (${playerData.name || 'Unknown'}), total=${newSize}, roomId=${this.roomId || 'N/A'}`);
@@ -2444,6 +2459,11 @@ export class MultiplayerManager {
         networkPlayer.aimPitch = aimPitch;
         networkPlayer.health = health;
         networkPlayer.maxHealth = maxHealth;
+
+        // Update chassis tilt
+        if (playerData.chassisPitch !== undefined) networkPlayer.chassisPitch = playerData.chassisPitch;
+        if (playerData.chassisRoll !== undefined) networkPlayer.chassisRoll = playerData.chassisRoll;
+
         // КРИТИЧНО: Обновляем статус, но если не указан, сохраняем текущий (не сбрасываем в undefined)
         if (playerData.status !== undefined && playerData.status !== null) {
             networkPlayer.status = playerData.status;
@@ -2502,13 +2522,13 @@ export class MultiplayerManager {
 
             // Add sequence number for prediction and reconciliation
             const sequence = ++this.currentSequence;
-            
+
             // ДИАГНОСТИКА: Логируем отправку позиции каждые 60 кадров (1 раз в секунду при 60 FPS) и только если включен debugSync
             const DEBUG_SYNC = (window as any).gameSettings?.debugSync || localStorage.getItem("debugSync") === "true";
             if (DEBUG_SYNC && sequence % 60 === 0 && this._lastKnownLocalPosition) {
                 logger.log(`[Multiplayer] 📤 Sending input seq=${sequence}, pos=(${this._lastKnownLocalPosition.x.toFixed(1)}, ${this._lastKnownLocalPosition.y.toFixed(1)}, ${this._lastKnownLocalPosition.z.toFixed(1)}), throttle=${input.throttle.toFixed(2)}, steer=${input.steer.toFixed(2)}`);
             }
-            
+
             const inputWithSequence: PlayerInput = {
                 ...input,
                 sequence,
@@ -2679,12 +2699,12 @@ export class MultiplayerManager {
     /**
      * НОВЫЙ МЕТОД: Получить целевую позицию от сервера для интерполяции
      */
-    getServerTargetState(): { 
-        position: Vector3; 
-        rotation: number; 
+    getServerTargetState(): {
+        position: Vector3;
+        rotation: number;
         turretRotation: number;
         aimPitch: number;
-        hasTarget: boolean 
+        hasTarget: boolean
     } {
         return {
             position: this._serverTargetPosition.clone(),
@@ -2762,6 +2782,24 @@ export class MultiplayerManager {
     }
 
     /**
+     * Request respawn from server after death timer expires
+     */
+    requestRespawn(): void {
+        try {
+            if (!this.connected || !this.roomId) {
+                logger.warn("[Multiplayer] Cannot request respawn: not connected or not in room");
+                return;
+            }
+
+            logger.log("[Multiplayer] Requesting respawn from server");
+            this.send(createClientMessage(ClientMessageType.PLAYER_RESPAWN_REQUEST, {}));
+        } catch (error) {
+            logger.error("[Multiplayer] Error in requestRespawn:", error);
+        }
+    }
+
+
+    /**
      * Send chat message to server
      * @param message - Chat message text
      */
@@ -2801,8 +2839,8 @@ export class MultiplayerManager {
         // data structure: { sender: string, message: string, timestamp: number, isSystem?: boolean }
         logger.log("[Multiplayer] Received lobby chat message:", data);
 
-        if (this.onLobbyChatMessageCallback) {
-            this.onLobbyChatMessageCallback(data);
+        if (this.onChatMessageCallback) {
+            this.onChatMessageCallback(data);
         } else {
             // If no callback registered, try to use global event dispatch
             // This allows menu.ts to listen even if callback isn't set
@@ -3089,7 +3127,7 @@ export class MultiplayerManager {
         }
         return null;
     }
-    
+
     /**
      * Get raw server spawn position without Vector3 conversion
      */
@@ -3207,6 +3245,11 @@ export class MultiplayerManager {
         this.onPlayerDiedCallback = callback;
     }
 
+    onPlayerRespawned(callback: (data: PlayerRespawnedData) => void): void {
+        this.onPlayerRespawnedCallback = callback;
+    }
+
+
     onPlayerDamaged(callback: (data: PlayerDamagedData) => void): void {
         this.onPlayerDamagedCallback = callback;
     }
@@ -3241,7 +3284,7 @@ export class MultiplayerManager {
 
     onRoomJoined(callback: (data: RoomJoinedData) => void): void {
         this.onRoomJoinedCallback = callback;
-        
+
         // КРИТИЧНО: Если есть pending данные ROOM_JOINED (callback был установлен позже), вызываем их сразу
         if (this.pendingRoomJoinedData) {
             logger.log(`[Multiplayer] ✅ Вызываю отложенный onRoomJoinedCallback с сохраненными данными`);
@@ -3384,6 +3427,15 @@ export class MultiplayerManager {
             logger.log(`[Multiplayer] Reconnecting (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
             this.connect(this.serverUrl);
         }, delay);
+    }
+
+    /**
+     * Get respawn delay for current game mode
+     * @returns Respawn delay in seconds (death screen duration)
+     */
+    getRespawnDelay(): number {
+        // 3 seconds for death screen, then 2 seconds for respawn animation
+        return 3;
     }
 }
 
