@@ -1510,6 +1510,11 @@ export class Game {
             const settings = this.mainMenu.getSettings();
             this.gameUI.setSettings(settings);
             this.gameUI.applySettings();
+
+            // Apply System Terminal visibility directly (since it's not part of GameUI/HUD)
+            if (this.chatSystem) {
+                this.chatSystem.setVisible(settings.showSystemTerminal);
+            }
         }
     }
 

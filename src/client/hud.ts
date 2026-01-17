@@ -2846,9 +2846,20 @@ export class HUD {
         this.minimapContainer.color = "#00ff00";
         this.minimapContainer.background = "rgba(0, 20, 0, 0.9)";
         this.minimapContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        this.minimapContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.minimapContainer.left = this.scalePx(-12);
-        this.minimapContainer.top = this.scalePx(-45); // На одной высоте с XP BAR
+
+        // === ADAPTIVE POSITIONING ===
+        if (isMobileDevice()) {
+            // Mobile: Top-Right corner
+            this.minimapContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            this.minimapContainer.left = this.scalePx(-10);
+            this.minimapContainer.top = this.scalePx(10);
+        } else {
+            // Desktop: Bottom-Right, aligned with XP Bar
+            this.minimapContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            this.minimapContainer.left = this.scalePx(-12);
+            this.minimapContainer.top = this.scalePx(-12); // Lowered to align with XP bar bottom
+        }
+
         this.minimapContainer.isVisible = this.minimapEnabled; // ОПТИМИЗАЦИЯ: Начинаем со скрытой миникарты
         this.minimapContainer.alpha = 1.0; // КРИТИЧНО: Полная непрозрачность
         this.guiTexture.addControl(this.minimapContainer);
@@ -9887,7 +9898,11 @@ export class HUD {
         this.detailedStatsPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         this.detailedStatsPanel.left = this.scalePx(10);
         this.detailedStatsPanel.top = this.scalePx(-10);
-        this.detailedStatsPanel.isVisible = true;
+
+        // Check setting for default visibility (Default: Hidden)
+        const savedStatsVisibility = localStorage.getItem("setting-show-tank-stats-panel");
+        this.detailedStatsPanel.isVisible = savedStatsVisibility === "true";
+
         this.detailedStatsPanel.zIndex = 100;
         this.guiTexture.addControl(this.detailedStatsPanel);
 
