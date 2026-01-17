@@ -1231,21 +1231,31 @@ export class GameServer {
 
         // Получаем позицию респавна
         const spawnPos = room.getSpawnPosition(player);
+        serverLogger.log(`[Server] 🔄 Got spawn position for ${player.name}: (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
 
         // Респавним игрока
         player.respawn(spawnPos, 100);
 
-        serverLogger.log(`[Server] ✅ Player ${player.name} respawned at position (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
+        serverLogger.log(`[Server] ✅ Player ${player.name} respawned at position (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)}), status=${player.status}, health=${player.health}`);
 
         // Отправляем сообщение о респавне всем игрокам в комнате
         const playerCount = room.getAllPlayers().length;
         serverLogger.log(`[Server] 📤 Broadcasting PLAYER_RESPAWNED to ${playerCount} players in room ${player.roomId}`);
+        serverLogger.log(`[Server] 📤 PLAYER_RESPAWNED data:`, {
+            playerId: player.id,
+            playerName: player.name,
+            position: spawnPos,
+            health: player.health,
+            maxHealth: player.maxHealth,
+            status: player.status
+        });
 
         this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_RESPAWNED, {
             playerId: player.id,
             playerName: player.name,
             position: spawnPos,
-            health: player.health
+            health: player.health,
+            maxHealth: player.maxHealth
         }));
 
         serverLogger.log(`[Server] ✅ PLAYER_RESPAWNED broadcast complete for ${player.name}`);
@@ -1471,13 +1481,25 @@ export class GameServer {
 
         // Get spawn position from room
         const spawnPos = room.getSpawnPosition(player.team);
+        serverLogger.log(`[Server] 🔄 Got spawn position for ${player.name}: (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
 
         // Respawn player
         player.respawn(spawnPos, player.maxHealth);
 
-        serverLogger.log(`[Server] Player ${player.name} respawned at (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
+        serverLogger.log(`[Server] ✅ Player ${player.name} respawned at (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)}), status=${player.status}, health=${player.health}`);
 
         // Broadcast respawn to all players in room
+        const playerCount = room.getAllPlayers().length;
+        serverLogger.log(`[Server] 📤 Broadcasting PLAYER_RESPAWNED to ${playerCount} players in room ${player.roomId}`);
+        serverLogger.log(`[Server] 📤 PLAYER_RESPAWNED data:`, {
+            playerId: player.id,
+            playerName: player.name,
+            position: { x: spawnPos.x, y: spawnPos.y, z: spawnPos.z },
+            health: player.health,
+            maxHealth: player.maxHealth,
+            status: player.status
+        });
+
         this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_RESPAWNED, {
             playerId: player.id,
             playerName: player.name,
@@ -1485,6 +1507,8 @@ export class GameServer {
             health: player.health,
             maxHealth: player.maxHealth
         }));
+
+        serverLogger.log(`[Server] ✅ PLAYER_RESPAWNED broadcast complete for ${player.name}`);
     }
 
 

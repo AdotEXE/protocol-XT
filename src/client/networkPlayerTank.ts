@@ -733,14 +733,39 @@ export class NetworkPlayerTank {
     /**
      * Обновление видимости танка
      */
+    private lastVisibilityState: boolean | null = null;
     private updateVisibility(): void {
         const status = this.networkPlayer.status;
         const shouldBeVisible = status === "alive" || status === undefined;
 
+        // Only log when visibility state changes
+        if (this.lastVisibilityState !== null && this.lastVisibilityState !== shouldBeVisible) {
+            console.log(`[NetworkPlayerTank] 👁️ Visibility change for ${this.playerId}: ${this.lastVisibilityState} → ${shouldBeVisible} (status: ${status})`);
+        }
+
         if (this.chassis) {
+            const wasVisible = this.chassis.isVisible;
             this.chassis.isVisible = shouldBeVisible;
             this.chassis.setEnabled(shouldBeVisible);
+
+            // Log if there's a mismatch between expected and actual visibility
+            if (wasVisible !== shouldBeVisible) {
+                console.log(`[NetworkPlayerTank] 👁️ Chassis visibility updated for ${this.playerId}: ${wasVisible} → ${shouldBeVisible}, status=${status}`);
+            }
+
+            // Also update turret and barrel visibility
+            if (this.turret && this.turret.isVisible !== shouldBeVisible) {
+                this.turret.isVisible = shouldBeVisible;
+                this.turret.setEnabled(shouldBeVisible);
+            }
+
+            if (this.barrel && this.barrel.isVisible !== shouldBeVisible) {
+                this.barrel.isVisible = shouldBeVisible;
+                this.barrel.setEnabled(shouldBeVisible);
+            }
         }
+
+        this.lastVisibilityState = shouldBeVisible;
     }
 
     /**
@@ -770,10 +795,11 @@ export class NetworkPlayerTank {
      * Установить танк в состояние живого (показать)
      */
     setAlive(position?: Vector3): void {
-        // console.log(`[NetworkPlayerTank] 🟢 setAlive called for ${this.playerId}, position=${position ? position.toString() : 'none'}`);
-        // console.log(`[NetworkPlayerTank] 🟢 Chassis state: exists=${!!this.chassis}, disposed=${this.chassis?.isDisposed()}, enabled=${this.chassis?.isEnabled()}, visible=${this.chassis?.isVisible}`);
+        console.log(`[NetworkPlayerTank] 🟢 setAlive called for ${this.playerId}, position=${position ? position.toString() : 'none'}`);
+        console.log(`[NetworkPlayerTank] 🟢 BEFORE setAlive - Chassis state: exists=${!!this.chassis}, disposed=${this.chassis?.isDisposed()}, enabled=${this.chassis?.isEnabled()}, visible=${this.chassis?.isVisible}`);
 
         if (position && this.chassis) {
+            console.log(`[NetworkPlayerTank] 🟢 Setting position for ${this.playerId} to (${position.x.toFixed(2)}, ${position.y.toFixed(2)}, ${position.z.toFixed(2)})`);
             this.chassis.position.copyFrom(position);
         }
 
@@ -783,6 +809,7 @@ export class NetworkPlayerTank {
                 return;
             }
 
+            console.log(`[NetworkPlayerTank] 🟢 Setting chassis visibility to true for ${this.playerId}`);
             this.chassis.isVisible = true;
             this.chassis.setEnabled(true);
             this.chassis.checkCollisions = true;
@@ -798,17 +825,34 @@ export class NetworkPlayerTank {
                 );
                 this.physicsAggregate.body.setMotionType(PhysicsMotionType.ANIMATED);
                 this.physicsAggregate.body.disablePreStep = false;
+            } else {
+                console.log(`[NetworkPlayerTank] 🟢 Physics already exists for ${this.playerId}`);
             }
 
             const children = this.chassis.getChildMeshes();
-            // console.log(`[NetworkPlayerTank] 🟢 Restoring ${children.length} child meshes for ${this.playerId}`);
+            console.log(`[NetworkPlayerTank] 🟢 Restoring visibility for ${children.length} child meshes for ${this.playerId}`);
             children.forEach(child => {
                 child.isVisible = true;
                 child.setEnabled(true);
                 child.checkCollisions = true;
             });
 
-            // console.log(`[NetworkPlayerTank] ✅ setAlive COMPLETE for ${this.playerId}: visible=${this.chassis.isVisible}, enabled=${this.chassis.isEnabled()}, childCount=${children.length}`);
+            // Also restore turret and barrel visibility
+            if (this.turret) {
+                console.log(`[NetworkPlayerTank] 🟢 Restoring turret visibility for ${this.playerId}`);
+                this.turret.isVisible = true;
+                this.turret.setEnabled(true);
+                this.turret.checkCollisions = true;
+            }
+
+            if (this.barrel) {
+                console.log(`[NetworkPlayerTank] 🟢 Restoring barrel visibility for ${this.playerId}`);
+                this.barrel.isVisible = true;
+                this.barrel.setEnabled(true);
+                this.barrel.checkCollisions = true;
+            }
+
+            console.log(`[NetworkPlayerTank] ✅ AFTER setAlive - ${this.playerId}: chassis.visible=${this.chassis.isVisible}, chassis.enabled=${this.chassis.isEnabled()}, turret.visible=${this.turret?.isVisible}, barrel.visible=${this.barrel?.isVisible}, childCount=${children.length}`);
         } else {
             console.error(`[NetworkPlayerTank] ❌ setAlive FAILED - no chassis for ${this.playerId}`);
         }
@@ -825,28 +869,49 @@ export class NetworkPlayerTank {
      * Установить танк в состояние мертвого (скрыть и показать эффект)
      */
     setDead(): void {
-        // console.log(`[NetworkPlayerTank] 💀 setDead for ${this.playerId}`);
+        console.log(`[NetworkPlayerTank] 💀 setDead called for ${this.playerId}`);
+        console.log(`[NetworkPlayerTank] 💀 BEFORE setDead - Chassis state: exists=${!!this.chassis}, disposed=${this.chassis?.isDisposed()}, enabled=${this.chassis?.isEnabled()}, visible=${this.chassis?.isVisible}`);
 
         this.playDeathEffect();
 
         if (this.chassis) {
+            console.log(`[NetworkPlayerTank] 💀 Hiding chassis for ${this.playerId}`);
             this.chassis.isVisible = false;
             this.chassis.setEnabled(false);
 
             // Отключаем коллизии
             this.chassis.checkCollisions = false;
             const children = this.chassis.getChildMeshes();
+            console.log(`[NetworkPlayerTank] 💀 Hiding ${children.length} child meshes for ${this.playerId}`);
             children.forEach(child => {
                 child.isVisible = false;
                 child.setEnabled(false);
                 child.checkCollisions = false;
             });
 
+            // Also hide turret and barrel
+            if (this.turret) {
+                console.log(`[NetworkPlayerTank] 💀 Hiding turret for ${this.playerId}`);
+                this.turret.isVisible = false;
+                this.turret.setEnabled(false);
+                this.turret.checkCollisions = false;
+            }
+
+            if (this.barrel) {
+                console.log(`[NetworkPlayerTank] 💀 Hiding barrel for ${this.playerId}`);
+                this.barrel.isVisible = false;
+                this.barrel.setEnabled(false);
+                this.barrel.checkCollisions = false;
+            }
+
             // Удаляем физику чтобы танк не мешал (будет пересоздана в setAlive)
             if (this.physicsAggregate) {
+                console.log(`[NetworkPlayerTank] 💀 Disposing physics for ${this.playerId}`);
                 this.physicsAggregate.dispose();
                 this.physicsAggregate = null;
             }
+
+            console.log(`[NetworkPlayerTank] ✅ AFTER setDead - ${this.playerId}: chassis.visible=${this.chassis.isVisible}, chassis.enabled=${this.chassis.isEnabled()}, turret.visible=${this.turret?.isVisible}, barrel.visible=${this.barrel?.isVisible}`);
         }
 
         if (this.healthBar) this.healthBar.isVisible = false;

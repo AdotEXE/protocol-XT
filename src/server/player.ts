@@ -214,6 +214,14 @@ export class ServerPlayer {
     }
 
     respawn(position: Vector3, health: number = 100): void {
+        console.log(`[ServerPlayer] 🔄 Respawning player ${this.id} (${this.name}) at position (${position.x.toFixed(2)}, ${position.y.toFixed(2)}, ${position.z.toFixed(2)}) with health=${health}`);
+        console.log(`[ServerPlayer] 🔄 BEFORE respawn - Player ${this.id} state:`, {
+            status: this.status,
+            health: this.health,
+            maxHealth: this.maxHealth,
+            position: `(${this.position.x.toFixed(2)}, ${this.position.y.toFixed(2)}, ${this.position.z.toFixed(2)})`
+        });
+
         this.position = position;
         this.health = health;
         this.maxHealth = health;
@@ -221,6 +229,13 @@ export class ServerPlayer {
         this.rotation = 0;
         this.turretRotation = 0;
         this.aimPitch = 0;
+
+        console.log(`[ServerPlayer] ✅ AFTER respawn - Player ${this.id} state:`, {
+            status: this.status,
+            health: this.health,
+            maxHealth: this.maxHealth,
+            position: `(${this.position.x.toFixed(2)}, ${this.position.y.toFixed(2)}, ${this.position.z.toFixed(2)})`
+        });
     }
 
     addKill(): void {

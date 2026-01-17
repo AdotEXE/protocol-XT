@@ -395,24 +395,49 @@ export class GameMultiplayerCallbacks {
         });
 
         mm.onPlayerRespawned((data) => {
-            console.log(`[Game] ♻️ PLAYER_RESPAWNED received for ${data.playerId} at ${JSON.stringify(data.position)}`);
+            console.log(`[Game] ♻️ PLAYER_RESPAWNED received for ${data.playerId} at ${JSON.stringify(data.position)}, health=${data.health}/${data.maxHealth}`);
             const tank = this.deps.networkPlayerTanks.get(data.playerId);
             if (tank) {
+                // Log tank state BEFORE respawn
+                const tankAny = tank as any;
+                console.log(`[Game] ♻️ BEFORE respawn - Tank ${data.playerId} state:`, {
+                    chassisExists: !!tankAny.chassis,
+                    chassisVisible: tankAny.chassis?.isVisible,
+                    chassisEnabled: tankAny.chassis?.isEnabled(),
+                    turretVisible: tankAny.turret?.isVisible,
+                    barrelVisible: tankAny.barrel?.isVisible,
+                    physicsExists: !!tankAny.physicsAggregate,
+                    networkPlayerStatus: tankAny.networkPlayer?.status
+                });
+
                 // Ensure position is valid
                 const spawnPos = new Vector3(data.position.x, data.position.y, data.position.z);
 
                 // Clear any death effects or states
-                console.log(`[Game] ♻️ Restoring tank ${data.playerId}...`);
+                console.log(`[Game] ♻️ Calling setAlive() for tank ${data.playerId}...`);
 
                 // Force alive state
                 tank.setAlive(spawnPos);
 
                 // Update health bar if valid
                 if (data.health && data.maxHealth) {
-                    tank.updateHealth(data.health, data.maxHealth);
+                    tank.setHealth(data.health, data.maxHealth);
+                    console.log(`[Game] ♻️ Updated health for ${data.playerId}: ${data.health}/${data.maxHealth}`);
                 }
+
+                // Log tank state AFTER respawn
+                console.log(`[Game] ♻️ AFTER respawn - Tank ${data.playerId} state:`, {
+                    chassisExists: !!tankAny.chassis,
+                    chassisVisible: tankAny.chassis?.isVisible,
+                    chassisEnabled: tankAny.chassis?.isEnabled(),
+                    turretVisible: tankAny.turret?.isVisible,
+                    barrelVisible: tankAny.barrel?.isVisible,
+                    physicsExists: !!tankAny.physicsAggregate,
+                    networkPlayerStatus: tankAny.networkPlayer?.status
+                });
             } else {
                 console.warn(`[Game] ⚠️ Respawned player ${data.playerId} tank NOT FOUND in networkPlayerTanks`);
+                console.warn(`[Game] ⚠️ Available tanks:`, Array.from(this.deps.networkPlayerTanks.keys()));
 
                 // Optional: Force immediate recreating of tank if it's missing but should exist
                 // This might be needed if the tank was cleaned up during death
