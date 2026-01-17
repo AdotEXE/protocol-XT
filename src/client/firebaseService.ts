@@ -1,36 +1,36 @@
-import { initializeApp, FirebaseApp } from "firebase/app";
-import { 
-    getFirestore, 
-    Firestore, 
-    doc, 
-    setDoc, 
-    getDoc, 
-    updateDoc, 
-    collection, 
-    query, 
-    orderBy, 
-    limit, 
-    getDocs,
-    where,
-    Timestamp,
-    increment,
-    serverTimestamp
-} from "firebase/firestore";
-import { 
-    getAuth, 
-    Auth, 
-    signInAnonymously, 
-    onAuthStateChanged, 
+import { FirebaseApp, initializeApp } from "firebase/app";
+import {
+    Auth,
+    GoogleAuthProvider,
     User,
-    signOut as firebaseSignOut,
     createUserWithEmailAndPassword,
-    signInWithEmailAndPassword,
+    signOut as firebaseSignOut,
+    getAuth,
+    getIdToken,
+    onAuthStateChanged,
     sendEmailVerification,
     sendPasswordResetEmail,
-    GoogleAuthProvider,
-    signInWithPopup,
-    getIdToken
+    signInAnonymously,
+    signInWithEmailAndPassword,
+    signInWithPopup
 } from "firebase/auth";
+import {
+    Firestore,
+    Timestamp,
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    getFirestore,
+    increment,
+    limit,
+    orderBy,
+    query,
+    serverTimestamp,
+    setDoc,
+    updateDoc,
+    where
+} from "firebase/firestore";
 
 // Firebase configuration (should be in .env or config file)
 // Используем реальную конфигурацию из документации, если переменные окружения не заданы
@@ -68,7 +68,7 @@ function validateApiKeyFormat(apiKey: string): { valid: boolean; reason?: string
  */
 function validateFirebaseConfig(config: typeof firebaseConfig): { valid: boolean; errors: string[] } {
     const errors: string[] = [];
-    
+
     if (!config.apiKey) {
         errors.push("apiKey is missing");
     } else {
@@ -77,27 +77,27 @@ function validateFirebaseConfig(config: typeof firebaseConfig): { valid: boolean
             errors.push(`apiKey: ${apiKeyValidation.reason}`);
         }
     }
-    
+
     if (!config.authDomain) {
         errors.push("authDomain is missing");
     }
-    
+
     if (!config.projectId || config.projectId === "demo-project") {
         errors.push("projectId is missing or invalid");
     }
-    
+
     if (!config.storageBucket) {
         errors.push("storageBucket is missing");
     }
-    
+
     if (!config.messagingSenderId) {
         errors.push("messagingSenderId is missing");
     }
-    
+
     if (!config.appId) {
         errors.push("appId is missing");
     }
-    
+
     return {
         valid: errors.length === 0,
         errors
@@ -122,22 +122,22 @@ function validateDomain(authDomain: string): { valid: boolean; warning?: string 
     if (typeof window === 'undefined') {
         return { valid: true }; // Server-side, skip validation
     }
-    
+
     const currentHost = window.location.hostname;
     const authDomainHost = authDomain.replace(/^https?:\/\//, '').split('/')[0] || '';
-    
+
     // Check if current domain matches auth domain or is localhost
     if (currentHost === 'localhost' || currentHost === '127.0.0.1' || currentHost.startsWith('192.168.')) {
         return { valid: true }; // Local development, always valid
     }
-    
+
     // Check if current domain is a subdomain of auth domain or vice versa
-    if (authDomainHost && (currentHost === authDomainHost || 
-        currentHost.endsWith('.' + authDomainHost) || 
+    if (authDomainHost && (currentHost === authDomainHost ||
+        currentHost.endsWith('.' + authDomainHost) ||
         authDomainHost.endsWith('.' + currentHost))) {
         return { valid: true };
     }
-    
+
     // If domains don't match, provide a warning
     return {
         valid: true, // Don't block, but warn
@@ -152,7 +152,7 @@ function validateDomain(authDomain: string): { valid: boolean; warning?: string 
  */
 function checkIdentityToolkitAPIWarnings(projectId: string, apiKey: string): string[] {
     const warnings: string[] = [];
-    
+
     // Check if API key format suggests it might be restricted
     if (apiKey && apiKey.length > 0) {
         warnings.push(`To use Firebase Authentication, ensure:`);
@@ -161,14 +161,14 @@ function checkIdentityToolkitAPIWarnings(projectId: string, apiKey: string): str
         warnings.push(`2. API key (${maskApiKey(apiKey)}) has Identity Toolkit API enabled`);
         warnings.push(`   Link: https://console.cloud.google.com/apis/credentials?project=${projectId}`);
     }
-    
+
     return warnings;
 }
 
 // Validate configuration
 const configValidation = validateFirebaseConfig(firebaseConfig);
-const hasRealConfig = configValidation.valid && 
-                     firebaseConfig.apiKey !== "demo-key" && 
+const hasRealConfig = configValidation.valid &&
+                     firebaseConfig.apiKey !== "demo-key" &&
                      firebaseConfig.projectId !== "demo-project";
 
 if (!hasRealConfig) {
@@ -203,27 +203,27 @@ export interface PlayerStats {
     wins: number;
     losses: number;
     draws: number;
-    
+
     // Combat stats
     damageDealt: number;
     damageTaken: number;
     shotsFired: number;
     shotsHit: number;
     headshots: number;
-    
+
     // Gameplay stats
     timePlayed: number; // in seconds
     matchesPlayed: number;
     longestKillStreak: number;
     currentKillStreak: number;
-    
+
     // Mode-specific stats
     ffaWins: number;
     tdmWins: number;
     coopWins: number;
     brWins: number;
     ctfWins: number;
-    
+
     // Last updated
     lastUpdated: Timestamp;
 }
@@ -302,7 +302,7 @@ export function computeMatchHistorySummary(matches: MatchHistory[]): MatchHistor
             byMode: {}
         };
     }
-    
+
     let timeSum = 0;
     let killsSum = 0;
     let deathsSum = 0;
@@ -310,7 +310,7 @@ export function computeMatchHistorySummary(matches: MatchHistory[]): MatchHistor
     let dmgDealtSum = 0;
     let dmgTakenSum = 0;
     let wins = 0;
-    
+
     const modeStats: Record<string, {
         matches: number;
         wins: number;
@@ -318,7 +318,7 @@ export function computeMatchHistorySummary(matches: MatchHistory[]): MatchHistor
         damageDealt: number;
         damageTaken: number;
     }> = {};
-    
+
     for (const m of matches) {
         timeSum += m.duration;
         killsSum += m.kills;
@@ -327,7 +327,7 @@ export function computeMatchHistorySummary(matches: MatchHistory[]): MatchHistor
         dmgDealtSum += m.damageDealt;
         dmgTakenSum += m.damageTaken;
         if (m.result === "win") wins++;
-        
+
         const modeKey = m.mode || "unknown";
         if (!modeStats[modeKey]) {
             modeStats[modeKey] = { matches: 0, wins: 0, kills: 0, damageDealt: 0, damageTaken: 0 };
@@ -339,13 +339,13 @@ export function computeMatchHistorySummary(matches: MatchHistory[]): MatchHistor
         s.damageDealt += m.damageDealt;
         s.damageTaken += m.damageTaken;
     }
-    
+
     const avgKills = killsSum / total;
     const avgDeaths = deathsSum / total;
     const avgKDR = deathsSum > 0 ? killsSum / deathsSum : killsSum;
     const avgDamageDealt = dmgDealtSum / total;
     const avgDamageTaken = dmgTakenSum / total;
-    
+
     const byMode: MatchHistorySummary["byMode"] = {};
     for (const [mode, s] of Object.entries(modeStats)) {
         byMode[mode] = {
@@ -356,7 +356,7 @@ export function computeMatchHistorySummary(matches: MatchHistory[]): MatchHistor
             avgDamageTaken: s.matches > 0 ? s.damageTaken / s.matches : 0
         };
     }
-    
+
     return {
         matches: total,
         totalTime: timeSum,
@@ -389,6 +389,12 @@ export class FirebaseService {
     private authenticated: boolean = false; // Separate flag for authentication status
 
     async initialize(): Promise<boolean> {
+        // Guard against multiple initialization
+        if (this.initialized) {
+            // console.log("[Firebase] Already initialized, skipping...");
+            return this.authenticated;
+        }
+
         // Pre-flight configuration check
         const configValidation = validateFirebaseConfig(firebaseConfig);
         if (!configValidation.valid) {
@@ -413,13 +419,13 @@ export class FirebaseService {
             this.authenticated = false;
             return false;
         }
-        
+
         // Validate domain configuration
         const domainValidation = validateDomain(firebaseConfig.authDomain);
         if (domainValidation.warning) {
             console.warn("[Firebase] ⚠️ Domain validation warning:", domainValidation.warning);
         }
-        
+
         // Pre-flight warnings for Identity Toolkit API
         if (import.meta.env.DEV) {
             const apiWarnings = checkIdentityToolkitAPIWarnings(firebaseConfig.projectId, firebaseConfig.apiKey);
@@ -435,7 +441,7 @@ export class FirebaseService {
             //     projectId: firebaseConfig.projectId,
             //     authDomain: firebaseConfig.authDomain
             // });
-            
+
             this.app = initializeApp(firebaseConfig);
             this.db = getFirestore(this.app);
             this.auth = getAuth(this.app);
@@ -491,7 +497,7 @@ export class FirebaseService {
                             const errorCode = error?.code || 'unknown';
                             const errorMessage = error?.message || 'Unknown error';
                             const errorResponse = error?.response || error?.serverResponse || null;
-                            
+
             // Log full error details for debugging
             console.error("[Firebase] ❌ Authentication error details:", {
                 code: errorCode,
@@ -501,11 +507,11 @@ export class FirebaseService {
                 origin: window.location.origin,
                 hasResponse: !!errorResponse
             });
-            
+
             if (errorResponse) {
                 console.error("[Firebase] Error response:", errorResponse);
             }
-                            
+
                             // УЛУЧШЕНО: Обработка ошибки блокировки Identity Toolkit API
                             if (errorCode === 'auth/requests-to-this-api-identitytoolkit-method-google.cloud.identitytoolkit.v1.projectconfigservice.getprojectconfig-are-blocked' ||
                                 errorMessage.includes('identitytoolkit') && errorMessage.includes('blocked')) {
@@ -559,7 +565,7 @@ export class FirebaseService {
                                 console.error("[Firebase] Error Code:", errorCode);
                                 console.error("[Firebase] Project ID:", firebaseConfig.projectId);
                             }
-                            
+
                             // Continue anyway - some features may not work
                             // App can run in offline mode
                             this.initialized = true;
@@ -579,7 +585,7 @@ export class FirebaseService {
             const errorCode = error?.code || 'unknown';
             const errorMessage = error?.message || 'Unknown error';
             const errorResponse = error?.response || error?.serverResponse || null;
-            
+
             console.error("[Firebase] ❌ Initialization error:", errorMessage);
             console.error("[Firebase] Error details:", {
                 code: errorCode,
@@ -589,24 +595,24 @@ export class FirebaseService {
                 origin: window.location.origin,
                 hasResponse: !!errorResponse
             });
-            
+
             if (errorResponse) {
                 console.error("[Firebase] Error response:", errorResponse);
             }
-            
+
             // Check for Identity Toolkit API error
             if (errorCode === 'auth/requests-to-this-api-identitytoolkit-method-google.cloud.identitytoolkit.v1.projectconfigservice.getprojectconfig-are-blocked' ||
                 (errorMessage.includes('identitytoolkit') && errorMessage.includes('blocked'))) {
                 console.error("[Firebase] ❌ Identity Toolkit API is blocked!");
                 console.error("[Firebase] See docs/FIREBASE_IDENTITY_TOOLKIT_FIX.md for detailed fix instructions");
             }
-            
+
             if (errorCode.includes('api-key') || errorMessage.includes('api-key')) {
                 console.error("[Firebase] Invalid API key. Please check your Firebase configuration.");
                 console.error("[Firebase] API key used:", maskApiKey(firebaseConfig.apiKey));
                 console.error("[Firebase] See docs/FIREBASE_KEYS_EXPLAINED.md for setup instructions");
             }
-            
+
             this.initialized = false;
             this.authenticated = false;
             return false;
@@ -621,7 +627,7 @@ export class FirebaseService {
         if (!this.auth) {
             return { success: false, error: "Auth not initialized" };
         }
-        
+
         // Pre-flight configuration check
         const configValidation = validateFirebaseConfig(firebaseConfig);
         if (!configValidation.valid) {
@@ -629,7 +635,7 @@ export class FirebaseService {
             // console.error("[Firebase] ❌", errorMsg);
             return { success: false, error: errorMsg };
         }
-        
+
         // Validate API key format
         const apiKeyValidation = validateApiKeyFormat(firebaseConfig.apiKey);
         if (!apiKeyValidation.valid) {
@@ -638,7 +644,7 @@ export class FirebaseService {
             // console.error("[Firebase] API key:", maskApiKey(firebaseConfig.apiKey));
             return { success: false, error: errorMsg };
         }
-        
+
         try {
             const userCredential = await signInAnonymously(this.auth);
             this.currentUser = userCredential.user;
@@ -650,7 +656,7 @@ export class FirebaseService {
             const errorCode = error?.code || 'unknown';
             const errorMessage = error?.message || 'Unknown error';
             const errorResponse = error?.response || error?.serverResponse || null;
-            
+
             // Log detailed error information
             console.error("[Firebase] ❌ Anonymous sign in error details:", {
                 code: errorCode,
@@ -660,14 +666,14 @@ export class FirebaseService {
                 origin: window.location.origin,
                 hasResponse: !!errorResponse
             });
-            
+
             if (errorResponse) {
                 console.error("[Firebase] Error response:", errorResponse);
             }
-            
+
             let userFriendlyError = errorMessage;
             let troubleshootingSteps: string[] = [];
-            
+
             // УЛУЧШЕНО: Обработка ошибки блокировки Identity Toolkit API
             if (errorCode === 'auth/requests-to-this-api-identitytoolkit-method-google.cloud.identitytoolkit.v1.projectconfigservice.getprojectconfig-are-blocked' ||
                 errorMessage.includes('identitytoolkit') && errorMessage.includes('blocked')) {
@@ -728,7 +734,7 @@ export class FirebaseService {
                     "5. Domain not authorized - Check Firebase Console → Authentication → Settings → Authorized domains"
                 ];
             }
-            
+
             // Log troubleshooting steps
             if (troubleshootingSteps.length > 0) {
                 console.error("[Firebase] Troubleshooting steps:");
@@ -736,7 +742,7 @@ export class FirebaseService {
                     console.error(`[Firebase]   ${step}`);
                 });
             }
-            
+
             console.error("[Firebase] ❌ Anonymous sign in error:", userFriendlyError);
             this.authenticated = false;
             return { success: false, error: userFriendlyError };
@@ -790,11 +796,11 @@ export class FirebaseService {
         try {
             const docRef = doc(this.db, "players", id);
             const docSnap = await getDoc(docRef);
-            
+
             if (docSnap.exists()) {
                 return docSnap.data() as PlayerStats;
             }
-            
+
             // Return default stats if not found
             return this.getDefaultStats();
         } catch (error) {
@@ -811,7 +817,7 @@ export class FirebaseService {
         try {
             const docRef = doc(this.db, "players", userId);
             const stats = await this.getPlayerStats();
-            
+
             if (!stats) {
                 // Create new stats document
                 await setDoc(docRef, {
@@ -826,7 +832,7 @@ export class FirebaseService {
                     lastUpdated: serverTimestamp()
                 });
             }
-            
+
             return true;
         } catch (error) {
             console.error("[Firebase] Error updating player stats:", error);
@@ -888,11 +894,11 @@ export class FirebaseService {
         try {
             const docRef = doc(this.db, "progression", id);
             const docSnap = await getDoc(docRef);
-            
+
             if (docSnap.exists()) {
                 return docSnap.data() as PlayerProgression;
             }
-            
+
             return this.getDefaultProgression();
         } catch (error) {
             console.error("[Firebase] Error getting progression:", error);
@@ -908,7 +914,7 @@ export class FirebaseService {
         try {
             const docRef = doc(this.db, "progression", userId);
             const progression = await this.getPlayerProgression();
-            
+
             if (!progression) {
                 await setDoc(docRef, {
                     ...this.getDefaultProgression(),
@@ -917,7 +923,7 @@ export class FirebaseService {
             } else {
                 await updateDoc(docRef, updates);
             }
-            
+
             return true;
         } catch (error) {
             console.error("[Firebase] Error updating progression:", error);
@@ -946,11 +952,11 @@ export class FirebaseService {
         try {
             const docRef = doc(this.db, "inventory", id);
             const docSnap = await getDoc(docRef);
-            
+
             if (docSnap.exists()) {
                 return docSnap.data() as PlayerInventory;
             }
-            
+
             return this.getDefaultInventory();
         } catch (error) {
             console.error("[Firebase] Error getting inventory:", error);
@@ -966,7 +972,7 @@ export class FirebaseService {
         try {
             const docRef = doc(this.db, "inventory", userId);
             const inventory = await this.getPlayerInventory();
-            
+
             if (!inventory) {
                 await setDoc(docRef, {
                     ...this.getDefaultInventory(),
@@ -975,7 +981,7 @@ export class FirebaseService {
             } else {
                 await updateDoc(docRef, updates);
             }
-            
+
             return true;
         } catch (error) {
             console.error("[Firebase] Error updating inventory:", error);
@@ -1026,17 +1032,17 @@ export class FirebaseService {
                 orderBy("timestamp", "desc"),
                 limit(limitCount)
             );
-            
+
             const querySnapshot = await getDocs(q);
             const matches: MatchHistory[] = [];
-            
+
             querySnapshot.forEach((doc) => {
                 const data = doc.data();
                 if (data.playerId === id) {
                     matches.push(data as MatchHistory);
                 }
             });
-            
+
             return matches;
         } catch (error) {
             console.error("[Firebase] Error getting match history:", error);
@@ -1056,10 +1062,10 @@ export class FirebaseService {
                 orderBy(statName, "desc"),
                 limit(limitCount)
             );
-            
+
             const querySnapshot = await getDocs(q);
             const leaderboard: Array<{ playerId: string; value: number; name?: string }> = [];
-            
+
             querySnapshot.forEach((doc) => {
                 const data = doc.data() as PlayerStats;
                 leaderboard.push({
@@ -1068,14 +1074,14 @@ export class FirebaseService {
                     name: (data as any).name // If name is stored in stats
                 });
             });
-            
+
             return leaderboard;
         } catch (error) {
             console.error("[Firebase] Error getting leaderboard:", error);
             return [];
         }
     }
-    
+
     getCurrentUserId(): string | null {
         return this.auth?.currentUser?.uid || null;
     }
@@ -1165,13 +1171,13 @@ export class FirebaseService {
 
             // Проверяем, есть ли уже username
             const username = await this.getUsername();
-            
+
             // Если username нет, создаем из email или displayName
             if (!username) {
-                const newUsername = userCredential.user.displayName?.replace(/\s+/g, '_').toLowerCase() || 
-                                   userCredential.user.email?.split('@')[0] || 
+                const newUsername = userCredential.user.displayName?.replace(/\s+/g, '_').toLowerCase() ||
+                                   userCredential.user.email?.split('@')[0] ||
                                    `user_${userCredential.user.uid.substring(0, 8)}`;
-                
+
                 // Проверяем доступность и добавляем суффикс если нужно
                 let finalUsername = newUsername;
                 let counter = 1;
@@ -1186,7 +1192,7 @@ export class FirebaseService {
             // Создаем или обновляем запись пользователя
             const userDocRef = doc(this.db!, "users", userCredential.user.uid);
             const userDoc = await getDoc(userDocRef);
-            
+
             if (!userDoc.exists()) {
                 const userData: UserData = {
                     username: username || userCredential.user.displayName?.replace(/\s+/g, '_').toLowerCase() || "user",
@@ -1304,12 +1310,12 @@ export class FirebaseService {
         try {
             const userDocRef = doc(this.db, "users", userId);
             const userDoc = await getDoc(userDocRef);
-            
+
             if (userDoc.exists()) {
                 const data = userDoc.data() as UserData;
                 return data.username || null;
             }
-            
+
             return null;
         } catch (error) {
             console.error("[Firebase] Error getting username:", error);
@@ -1337,7 +1343,7 @@ export class FirebaseService {
             const usersRef = collection(this.db, "users");
             const q = query(usersRef, where("username", "==", username));
             const querySnapshot = await getDocs(q);
-            
+
             // Если username уже занят другим пользователем
             if (!querySnapshot.empty) {
                 const userId = this.getUserId();
@@ -1348,7 +1354,7 @@ export class FirebaseService {
                 }
                 return false; // Занят другим пользователем
             }
-            
+
             return true; // Доступен
         } catch (error) {
             console.error("[Firebase] Error checking username availability:", error);
@@ -1384,7 +1390,7 @@ export class FirebaseService {
         try {
             const userDocRef = doc(this.db, "users", userId);
             const userDoc = await getDoc(userDocRef);
-            
+
             if (userDoc.exists()) {
                 await updateDoc(userDocRef, {
                     lastLogin: serverTimestamp()
@@ -1434,7 +1440,7 @@ export class FirebaseService {
      */
     async isAdmin(): Promise<boolean> {
         if (!this.auth?.currentUser) return false;
-        
+
         try {
             const idToken = await getIdToken(this.auth.currentUser, true);
             const tokenParts = idToken.split('.');

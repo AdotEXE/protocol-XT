@@ -405,6 +405,8 @@ export class MainMenu {
     private _enforceInProgress = false; // Флаг для предотвращения рекурсивных вызовов
     private _enableDetailedLogging = false; // Детальное логирование отключено по умолчанию
     private buttonHandlersAttached = false; // Флаг для предотвращения множественной привязки обработчиков
+    private authListenerAttached = false; // Флаг для предотвращения повторной регистрации auth listener
+    private authListenerUnsubscribe: (() => void) | null = null; // Функция отписки от auth listener
 
     // Лобби - автообновление
     private lobbyAutoRefreshInterval: number | null = null;
@@ -814,7 +816,7 @@ export class MainMenu {
                     <div class="menu-subtitle">${L.tankCombat}</div>
                     <div class="version">${VERSION}</div>
                 </div>
-                
+
                 <!-- Scrollable область от блока опыта до блока управления -->
                 <div class="menu-scrollable">
                 <div class="player-card" id="player-info">
@@ -834,7 +836,7 @@ export class MainMenu {
                         <div class="stat-item"><span class="stat-icon">◷</span><span id="playtime-display">0ч</span></div>
                     </div>
                 </div>
-                
+
                 <!-- Auth section -->
                 <div class="auth-section" id="auth-section">
                     <div class="auth-info" id="auth-info" style="display: none;">
@@ -864,7 +866,7 @@ export class MainMenu {
                         </button>
                     </div>
                 </div>
-                
+
                 <div class="menu-buttons">
                     <!-- Кнопки для паузы (видны только во время игры) -->
                     <div class="pause-buttons" id="pause-buttons" style="display: none;">
@@ -935,7 +937,7 @@ export class MainMenu {
                         <span class="btn-label" id="fullscreen-label">${L.fullscreen}</span>
                     </button>
                 </div>
-                
+
                 <div class="menu-footer">
                     <div class="controls-panel">
                         <div class="controls-title">${L.controls}</div>
@@ -1099,7 +1101,7 @@ export class MainMenu {
                 </div>
                 </div><!-- Конец .menu-scrollable -->
             </div>
-            
+
             <!-- Лобби игроков -->
             <div class="lobby-panel" id="lobby-panel">
                 <div class="lobby-header">
@@ -1181,7 +1183,7 @@ export class MainMenu {
                         </div>
                     </div>
                 </div>
-                
+
                 <!-- Общий чат сервера -->
                 <div class="lobby-chat" id="lobby-chat">
                     <div class="lobby-chat-header">
@@ -1224,26 +1226,26 @@ export class MainMenu {
                 pointer-events: auto !important;
                 touch-action: auto !important;
             }
-            
+
             /* Прозрачность фона меню когда игра запущена (в битве) */
             #main-menu.in-battle {
                 background: rgba(0, 0, 0, 0.5) !important;
             }
-            
+
             #main-menu.in-battle .menu-bg {
                 background: rgba(0, 0, 0, 0.5) !important;
             }
-            
+
             /* КРИТИЧЕСКИ ВАЖНО: Все элементы меню должны иметь pointer-events: auto */
             #main-menu * {
                 pointer-events: auto !important;
             }
-            
+
             /* Исключение для фона меню */
             #main-menu .menu-bg {
                 pointer-events: none !important;
             }
-            
+
             /* КРИТИЧЕСКИ ВАЖНО: Кнопки должны быть кликабельными */
             #main-menu button,
             #main-menu .menu-btn {
@@ -1253,49 +1255,49 @@ export class MainMenu {
                 position: relative;
                 touch-action: manipulation !important;
             }
-            
+
             /* АБСОЛЮТНАЯ БЛОКИРОВКА CANVAS - canvas НИКОГДА не должен перехватывать события когда меню видимо */
             body:has(#main-menu:not(.hidden)) #gameCanvas,
             body.menu-visible #gameCanvas {
                 pointer-events: none !important;
                 z-index: -1 !important;
             }
-            
-            #main-menu.hidden { 
+
+            #main-menu.hidden {
                 display: none !important;
             }
-            
+
             /* КРИТИЧЕСКИ ВАЖНО: Canvas должен быть ниже меню по z-index */
             #gameCanvas {
                 z-index: 0 !important;
             }
-            
+
             /* АБСОЛЮТНАЯ БЛОКИРОВКА: Canvas ВСЕГДА заблокирован когда меню видимо */
             #main-menu:not(.hidden) ~ #gameCanvas,
             body:has(#main-menu:not(.hidden)) #gameCanvas,
             #gameCanvas[data-menu-blocked="true"] {
                 pointer-events: none !important;
             }
-            
+
             /* Разрешаем canvas только когда меню скрыто И body не имеет класса menu-visible */
             body:not(.menu-visible) #main-menu.hidden ~ #gameCanvas,
             body:not(.menu-visible):has(#main-menu.hidden) #gameCanvas {
                 pointer-events: auto !important;
             }
-            
+
             .menu-bg {
                 position: absolute;
                 top: 0;
                 left: 0;
                 width: 100%;
                 height: 100%;
-                background: 
+                background:
                     repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,40,0,0.05) 2px, rgba(0,40,0,0.05) 4px),
                     radial-gradient(ellipse at 50% 50%, rgba(0,60,0,0.3) 0%, transparent 70%),
                     #000;
                 pointer-events: none;
             }
-            
+
             .menu-content {
                 position: relative;
                 text-align: center;
@@ -1312,12 +1314,12 @@ export class MainMenu {
                 margin: 0 auto;
                 transition: transform 0.3s ease;
             }
-            
+
             /* Смещение меню когда лобби развернуто */
             .menu-content.lobby-open {
                 transform: translateX(180px);
             }
-            
+
             /* Scrollable область: от блока опыта до блока управления */
             .menu-scrollable {
                 display: flex;
@@ -1329,39 +1331,39 @@ export class MainMenu {
                 margin-right: -15px; /* Сдвигаем скроллбар правее */
                 padding-right: 15px; /* Компенсируем отступ для контента */
             }
-            
+
             .menu-scrollable,
             .panel-content,
             .skill-tree-wrapper {
                 scrollbar-width: thin;
                 scrollbar-color: #0f0 rgba(0,255,80,0.08);
             }
-            
+
             .menu-scrollable::-webkit-scrollbar,
             .panel-content::-webkit-scrollbar,
             .skill-tree-wrapper::-webkit-scrollbar {
                 width: clamp(6px, 0.5vw, 8px);
                 height: clamp(6px, 0.5vw, 8px);
             }
-            
+
             .menu-scrollable::-webkit-scrollbar-track,
             .panel-content::-webkit-scrollbar-track,
             .skill-tree-wrapper::-webkit-scrollbar-track {
                 background: rgba(0,255,80,0.05);
             }
-            
+
             .menu-scrollable::-webkit-scrollbar-thumb,
             .panel-content::-webkit-scrollbar-thumb,
             .skill-tree-wrapper::-webkit-scrollbar-thumb {
                 background: linear-gradient(180deg, #0f0, #6f6);
                 box-shadow: 0 0 8px rgba(0,255,80,0.6);
             }
-            
+
             /* Скрываем полосы прокрутки у древа навыков визуально, оставляя скролл жестами */
             .skill-tree-wrapper {
                 scrollbar-width: none;
             }
-            
+
             .skill-tree-wrapper::-webkit-scrollbar {
                 display: none;
             }
@@ -1369,11 +1371,11 @@ export class MainMenu {
             .skill-tree-wrapper.dragging {
                 cursor: grabbing;
             }
-            
+
             .menu-header {
                 margin-bottom: 10px;
             }
-            
+
             .logo-text {
                 font-size: clamp(20px, 3vw, 32px);
                 color: #0f0;
@@ -1381,11 +1383,11 @@ export class MainMenu {
                 margin-bottom: clamp(4px, 0.8vh, 8px);
                 text-shadow: 0 0 6px #0f0, 0 0 10px #0f0;
             }
-            
+
             .logo-text .accent {
                 color: #0f0;
             }
-            
+
             /* === LOGO HOVER ANIMATION (как у кнопок редакторов) === */
             .logo-hoverable {
                 position: relative;
@@ -1393,7 +1395,7 @@ export class MainMenu {
                 cursor: pointer;
                 transition: all 0.3s ease;
             }
-            
+
             .logo-construction-overlay {
                 position: absolute;
                 top: 0;
@@ -1416,17 +1418,17 @@ export class MainMenu {
                 pointer-events: none;
                 z-index: 10;
             }
-            
+
             .logo-hoverable:hover .logo-construction-overlay {
                 opacity: 1;
                 animation: construction-slide 0.5s linear infinite;
             }
-            
+
             .logo-hoverable:hover {
                 text-shadow: 0 0 15px #ffcc00, 0 0 25px #ffcc00;
                 color: #ffcc00;
             }
-            
+
             .logo-construction-text {
                 background: rgba(0, 0, 0, 0.85);
                 color: #ffcc00;
@@ -1440,13 +1442,13 @@ export class MainMenu {
                 letter-spacing: 1px;
                 animation: construction-pulse 0.8s ease-in-out infinite;
             }
-            
+
             .menu-subtitle {
                 font-size: clamp(8px, 1vw, 10px);
                 color: #0a0;
                 letter-spacing: clamp(2px, 0.3vw, 4px);
             }
-            
+
             .player-card {
                 background: rgba(0, 30, 0, 0.8);
                 border: 2px solid #0f0;
@@ -1507,19 +1509,19 @@ export class MainMenu {
                 display: flex;
                 gap: 10px;
             }
-            
+
             .auth-buttons .menu-btn {
                 flex: 1;
                 min-width: 0;
             }
-            
+
             .player-level-row {
                 display: flex;
                 align-items: center;
                 gap: 15px;
                 margin-bottom: 10px;
             }
-            
+
             .level-badge {
                 width: clamp(40px, 5vw, 50px);
                 height: clamp(40px, 5vw, 50px);
@@ -1532,32 +1534,32 @@ export class MainMenu {
                 justify-content: center;
                 text-shadow: 0 0 5px #0f0;
             }
-            
-            .xp-section { 
-                flex: 1; 
+
+            .xp-section {
+                flex: 1;
                 display: flex;
                 flex-direction: column;
             }
-            
+
             .xp-bar-bg {
                 height: 12px;
                 background: #020;
                 border: 2px solid #0f0;
                 margin-bottom: 5px;
             }
-            
+
             .xp-bar-fill {
                 height: 100%;
                 background: #0f0;
                 box-shadow: 0 0 10px #0f0;
                 width: 0%;
             }
-            
+
             .xp-text {
                 font-size: 10px;
                 color: #fff;
                 text-align: right;
-                text-shadow: 
+                text-shadow:
                     0 0 3px #000,
                     0 0 6px #000,
                     1px 1px 0 #000,
@@ -1566,7 +1568,7 @@ export class MainMenu {
                     -1px 1px 0 #000;
                 font-weight: bold;
             }
-            
+
             .player-callsign {
                 font-size: 10px;
                 color: #0ff;
@@ -1580,12 +1582,12 @@ export class MainMenu {
                 margin-top: 4px;
                 align-self: flex-start;
             }
-            
+
             .player-stats-row {
                 display: flex;
                 justify-content: space-around;
             }
-            
+
             .stat-item {
                 display: flex;
                 align-items: center;
@@ -1593,11 +1595,11 @@ export class MainMenu {
                 font-size: 12px;
                 color: #0f0;
             }
-            
+
             .stat-icon {
                 font-size: 16px;
             }
-            
+
             .menu-buttons {
                 display: flex;
                 flex-direction: column;
@@ -1605,23 +1607,23 @@ export class MainMenu {
                 margin-bottom: 15px;
                 width: 100%;
             }
-            
+
             .main-buttons,
             .pause-buttons {
                 width: 100%;
             }
-            
+
             .btn-row {
                 display: flex;
                 gap: 10px;
                 width: 100%;
             }
-            
+
             .btn-row .menu-btn {
                 flex: 1 1 0; /* Равное распределение ширины */
                 min-width: 0; /* Позволяет сжиматься */
             }
-            
+
             .menu-btn {
                 flex: 1;
                 padding: clamp(10px, 1.5vh, 15px) clamp(15px, 2vw, 20px);
@@ -1644,19 +1646,19 @@ export class MainMenu {
                 -ms-user-select: none;
                 z-index: 100000 !important;
             }
-            
+
             .menu-btn:hover {
                 background: #0f0;
                 color: #000;
                 box-shadow: 0 0 20px #0f0;
             }
-            
+
             /* === UNDER CONSTRUCTION ANIMATION === */
             .under-construction-btn {
                 position: relative;
                 overflow: hidden;
             }
-            
+
             .under-construction-overlay {
                 position: absolute;
                 top: 0;
@@ -1679,17 +1681,17 @@ export class MainMenu {
                 pointer-events: none;
                 z-index: 10;
             }
-            
+
             .under-construction-btn:hover .under-construction-overlay {
                 opacity: 1;
                 animation: construction-slide 0.5s linear infinite;
             }
-            
+
             @keyframes construction-slide {
                 0% { background-position: 0 0; }
                 100% { background-position: 28.28px 0; }
             }
-            
+
             .under-construction-text {
                 background: rgba(0, 0, 0, 0.85);
                 color: #ffcc00;
@@ -1703,18 +1705,18 @@ export class MainMenu {
                 letter-spacing: 1px;
                 animation: construction-pulse 0.8s ease-in-out infinite;
             }
-            
+
             @keyframes construction-pulse {
-                0%, 100% { 
-                    opacity: 1; 
+                0%, 100% {
+                    opacity: 1;
                     transform: scale(1);
                 }
-                50% { 
-                    opacity: 0.8; 
+                50% {
+                    opacity: 0.8;
                     transform: scale(1.02);
                 }
             }
-            
+
             /* Убираем стандартный hover для кнопок "under construction" */
             .under-construction-btn:hover {
                 background: #000 !important;
@@ -1722,12 +1724,12 @@ export class MainMenu {
                 box-shadow: 0 0 15px #ffcc00 !important;
                 border-color: #ffcc00 !important;
             }
-            
+
             .menu-btn.play-btn {
                 /* Размеры такие же как у других кнопок для симметрии */
                 box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
             }
-            
+
             .menu-btn.fullscreen-btn {
                 width: 100%;
                 padding: 12px 20px;
@@ -1736,24 +1738,24 @@ export class MainMenu {
                 border-color: #0a0;
                 font-size: 11px;
             }
-            
+
             .menu-btn.fullscreen-btn:hover {
                 background: #0a0;
                 border-color: #0f0;
             }
-            
-            .btn-icon { 
-                font-size: 16px; 
+
+            .btn-icon {
+                font-size: 16px;
                 flex-shrink: 0;
             }
-            
+
             .btn-label {
                 font-size: clamp(10px, 1.2vw, 12px) !important;
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
-            
+
             .btn-badge {
                 position: absolute;
                 top: -8px;
@@ -1764,21 +1766,21 @@ export class MainMenu {
                 padding: 4px 6px;
                 display: none;
             }
-            
+
             .btn-badge.visible { display: block; }
-            
+
             .menu-footer {
                 color: #0f0;
                 font-size: 8px;
                 margin-bottom: 0; /* Убираем отступ снизу */
             }
-            
+
             .controls-panel {
                 background: rgba(0, 30, 0, 0.8);
                 border: 2px solid #0f0;
                 padding: 15px;
             }
-            
+
             .controls-title {
                 font-size: 12px;
                 color: #0f0;
@@ -1786,26 +1788,26 @@ export class MainMenu {
                 margin-bottom: 15px;
                 text-shadow: 0 0 5px #0f0;
             }
-            
+
             .controls-grid {
                 display: grid;
                 grid-template-columns: repeat(3, minmax(170px, 1fr));
                 gap: 10px;
             }
-            
+
             @media (max-width: 900px) {
                 .controls-grid { grid-template-columns: repeat(2, minmax(min(150px, 30vw), 1fr)); }
                 .logo-text { font-size: clamp(18px, 4vw, 24px); }
                 .construction-text { font-size: clamp(5px, 0.7vw, 8px); }
                 .menu-content { padding: clamp(8px, 1.5vh, 10px); }
             }
-            
+
             .control-category {
                 background: #000;
                 padding: 10px;
                 border: 1px solid #0f0;
             }
-            
+
             .category-header {
                 font-size: 8px;
                 color: #0f0;
@@ -1814,7 +1816,7 @@ export class MainMenu {
                 border-bottom: 1px solid #0f0;
                 text-align: center;
             }
-            
+
             .control-item {
                 display: flex;
                 align-items: center;
@@ -1822,9 +1824,9 @@ export class MainMenu {
                 gap: 5px;
                 margin-bottom: 6px;
             }
-            
+
             .control-item:last-child { margin-bottom: 0; }
-            
+
             .key {
                 background: #0f0;
                 color: #000;
@@ -1834,14 +1836,14 @@ export class MainMenu {
                 min-width: 40px;
                 text-align: center;
             }
-            
+
             .control-desc {
                 color: #0f0;
                 font-size: 7px;
                 text-align: right;
                 flex: 1;
             }
-            
+
             /* Лобби игроков */
             .lobby-panel {
                 position: fixed;
@@ -1865,7 +1867,7 @@ export class MainMenu {
                 box-sizing: border-box;
                 transition: width 0.3s ease, height 0.3s ease;
             }
-            
+
             .lobby-panel.collapsed {
                 width: 48px;
                 height: 48px;
@@ -1876,7 +1878,7 @@ export class MainMenu {
                 justify-content: center;
                 align-items: center;
             }
-            
+
             .lobby-panel.collapsed .lobby-content,
             .lobby-panel.collapsed .lobby-tabs,
             .lobby-panel.collapsed .lobby-status-bar,
@@ -1885,7 +1887,7 @@ export class MainMenu {
             .lobby-panel.collapsed .lobby-toggle-btn {
                 display: none !important;
             }
-            
+
             .lobby-panel.collapsed .lobby-header {
                 margin: 0;
                 padding: 0;
@@ -1896,7 +1898,7 @@ export class MainMenu {
                 justify-content: center;
                 align-items: center;
             }
-            
+
             .lobby-collapsed-icon {
                 display: none;
                 font-size: 24px;
@@ -1904,11 +1906,11 @@ export class MainMenu {
                 text-shadow: 0 0 12px #0f0;
                 cursor: pointer;
             }
-            
+
             .lobby-panel.collapsed .lobby-collapsed-icon {
                 display: block !important;
             }
-            
+
             .lobby-header {
                 display: flex;
                 justify-content: space-between;
@@ -1918,19 +1920,19 @@ export class MainMenu {
                 border-bottom: 1px solid rgba(0, 255, 0, 0.3);
                 flex-shrink: 0;
             }
-            
+
             .lobby-title {
                 color: #0f0;
                 font-size: 11px;
                 text-shadow: 0 0 5px #0f0;
             }
-            
+
             .lobby-header-right {
                 display: flex;
                 align-items: center;
                 gap: 6px;
             }
-            
+
             .lobby-count {
                 color: #0ff;
                 font-size: 10px;
@@ -1939,7 +1941,7 @@ export class MainMenu {
                 border-radius: 3px;
                 border: 1px solid rgba(0, 255, 255, 0.4);
             }
-            
+
             .lobby-refresh-btn {
                 background: rgba(0, 30, 0, 0.6);
                 border: 1px solid rgba(0, 255, 0, 0.3);
@@ -1951,7 +1953,7 @@ export class MainMenu {
                 transition: all 0.2s;
                 font-family: 'Press Start 2P', monospace;
             }
-            
+
             .lobby-toggle-btn {
                 background: rgba(0, 30, 0, 0.6);
                 border: 1px solid rgba(0, 255, 0, 0.3);
@@ -1965,30 +1967,30 @@ export class MainMenu {
                 margin-right: 8px;
                 flex-shrink: 0;
             }
-            
+
             .lobby-toggle-btn:hover,
             .lobby-refresh-btn:hover {
                 background: rgba(0, 50, 0, 0.8);
                 border-color: rgba(0, 255, 0, 0.6);
                 box-shadow: 0 0 5px rgba(0, 255, 0, 0.4);
             }
-            
+
             .lobby-toggle-btn:active,
             .lobby-refresh-btn:active {
                 transform: scale(0.95);
             }
-            
-            
+
+
             .lobby-refresh-btn:hover {
                 background: rgba(0, 50, 0, 0.8);
                 border-color: rgba(0, 255, 0, 0.6);
                 box-shadow: 0 0 5px rgba(0, 255, 0, 0.4);
             }
-            
+
             .lobby-refresh-btn:active {
                 transform: scale(0.95);
             }
-            
+
             .lobby-auto-refresh-toggle {
                 background: rgba(0, 30, 0, 0.6);
                 border: 1px solid rgba(0, 255, 0, 0.3);
@@ -2000,43 +2002,43 @@ export class MainMenu {
                 transition: all 0.2s;
                 font-family: 'Press Start 2P', monospace;
             }
-            
+
             .lobby-auto-refresh-toggle:hover {
                 background: rgba(0, 50, 0, 0.8);
                 border-color: rgba(0, 255, 0, 0.6);
                 box-shadow: 0 0 5px rgba(0, 255, 0, 0.4);
             }
-            
+
             .lobby-auto-refresh-toggle:active {
                 transform: scale(0.95);
             }
-            
+
             .lobby-auto-refresh-toggle.disabled {
                 opacity: 0.5;
                 color: #7f7;
                 border-color: rgba(0, 255, 0, 0.2);
             }
-            
+
             .lobby-status-bar {
                 padding: 4px 8px;
                 margin-bottom: 6px;
                 border-bottom: 1px solid rgba(0, 255, 0, 0.2);
                 flex-shrink: 0;
             }
-            
+
             .lobby-last-update {
                 color: #7f7;
                 font-size: 7px;
                 opacity: 0.8;
             }
-            
+
             .lobby-tabs {
                 display: flex;
                 gap: 4px;
                 margin-bottom: 8px;
                 flex-shrink: 0;
             }
-            
+
             .lobby-tab {
                 flex: 1;
                 padding: 6px 10px;
@@ -2049,19 +2051,19 @@ export class MainMenu {
                 border-radius: 3px;
                 font-family: 'Press Start 2P', monospace;
             }
-            
+
             .lobby-tab:hover {
                 background: rgba(0, 40, 0, 0.7);
                 border-color: rgba(0, 255, 0, 0.6);
                 color: #0f0;
             }
-            
+
             .lobby-tab.active {
                 background: rgba(0, 255, 4, 0.2);
                 border-color: #0f0;
                 color: #0f0;
             }
-            
+
             .lobby-content {
                 flex: 1;
                 overflow-y: auto;
@@ -2072,7 +2074,7 @@ export class MainMenu {
                 width: 100%;
                 box-sizing: border-box;
             }
-            
+
             /* === LOBBY CHAT === */
             .lobby-chat {
                 border-top: 1px solid rgba(0, 255, 0, 0.3);
@@ -2082,17 +2084,17 @@ export class MainMenu {
                 min-height: 100px;
                 flex-shrink: 0;
             }
-            
+
             .lobby-chat.collapsed {
                 max-height: 28px;
                 min-height: 28px;
             }
-            
+
             .lobby-chat.collapsed .lobby-chat-messages,
             .lobby-chat.collapsed .lobby-chat-input-container {
                 display: none !important;
             }
-            
+
             .lobby-chat-header {
                 display: flex;
                 justify-content: space-between;
@@ -2102,13 +2104,13 @@ export class MainMenu {
                 border-bottom: 1px solid rgba(0, 255, 0, 0.2);
                 flex-shrink: 0;
             }
-            
+
             .lobby-chat-title {
                 font-size: 8px;
                 color: #0f0;
                 text-shadow: 0 0 5px #0f0;
             }
-            
+
             .lobby-chat-toggle {
                 background: transparent;
                 border: none;
@@ -2118,15 +2120,15 @@ export class MainMenu {
                 padding: 2px 6px;
                 transition: transform 0.2s;
             }
-            
+
             .lobby-chat-toggle:hover {
                 text-shadow: 0 0 5px #0f0;
             }
-            
+
             .lobby-chat.collapsed .lobby-chat-toggle {
                 transform: rotate(180deg);
             }
-            
+
             .lobby-chat-messages {
                 flex: 1;
                 overflow-y: auto;
@@ -2138,44 +2140,44 @@ export class MainMenu {
                 font-size: 7px;
                 background: rgba(0, 10, 0, 0.4);
             }
-            
+
             .lobby-chat-messages::-webkit-scrollbar {
                 width: 4px;
             }
-            
+
             .lobby-chat-messages::-webkit-scrollbar-track {
                 background: rgba(0, 20, 0, 0.3);
             }
-            
+
             .lobby-chat-messages::-webkit-scrollbar-thumb {
                 background: rgba(0, 255, 0, 0.3);
                 border-radius: 2px;
             }
-            
+
             .lobby-chat-welcome {
                 color: rgba(0, 255, 0, 0.5);
                 font-style: italic;
                 text-align: center;
                 padding: 8px;
             }
-            
+
             .lobby-chat-message {
                 display: flex;
                 gap: 6px;
                 padding: 3px 0;
                 border-bottom: 1px solid rgba(0, 255, 0, 0.1);
             }
-            
+
             .lobby-chat-message:last-child {
                 border-bottom: none;
             }
-            
+
             .lobby-chat-time {
                 color: rgba(0, 255, 0, 0.4);
                 flex-shrink: 0;
                 font-size: 6px;
             }
-            
+
             .lobby-chat-sender {
                 color: #0ff;
                 font-weight: bold;
@@ -2185,17 +2187,17 @@ export class MainMenu {
                 text-overflow: ellipsis;
                 white-space: nowrap;
             }
-            
+
             .lobby-chat-sender.self {
                 color: #ff0;
             }
-            
+
             .lobby-chat-text {
                 color: #0f0;
                 word-break: break-word;
                 flex: 1;
             }
-            
+
             .lobby-chat-input-container {
                 display: flex;
                 gap: 4px;
@@ -2204,7 +2206,7 @@ export class MainMenu {
                 border-top: 1px solid rgba(0, 255, 0, 0.2);
                 flex-shrink: 0;
             }
-            
+
             .lobby-chat-input {
                 flex: 1;
                 background: rgba(0, 0, 0, 0.6);
@@ -2215,17 +2217,17 @@ export class MainMenu {
                 font-family: 'Press Start 2P', monospace;
                 border-radius: 3px;
             }
-            
+
             .lobby-chat-input:focus {
                 outline: none;
                 border-color: #0f0;
                 box-shadow: 0 0 5px rgba(0, 255, 0, 0.3);
             }
-            
+
             .lobby-chat-input::placeholder {
                 color: rgba(0, 255, 0, 0.4);
             }
-            
+
             .lobby-chat-send {
                 background: rgba(0, 80, 0, 0.6);
                 border: 1px solid rgba(0, 255, 0, 0.4);
@@ -2236,39 +2238,39 @@ export class MainMenu {
                 border-radius: 3px;
                 transition: all 0.2s;
             }
-            
+
             .lobby-chat-send:hover {
                 background: rgba(0, 120, 0, 0.8);
                 border-color: #0f0;
                 box-shadow: 0 0 8px rgba(0, 255, 0, 0.4);
             }
-            
+
             .lobby-chat-send:active {
                 transform: scale(0.95);
             }
-            
+
             .lobby-panel.collapsed .lobby-chat {
                 display: none !important;
             }
-            
+
             .lobby-tab-content {
                 display: none;
                 flex: 1;
                 flex-direction: column;
                 min-height: 0;
             }
-            
+
             .lobby-tab-content.active {
                 display: flex;
             }
-            
+
             .lobby-filters {
                 padding: 6px;
                 background: rgba(0, 20, 0, 0.4);
                 border-bottom: 1px solid rgba(0, 255, 0, 0.2);
                 flex-shrink: 0;
             }
-            
+
             .lobby-search-input {
                 width: 100%;
                 max-width: 100%;
@@ -2286,17 +2288,17 @@ export class MainMenu {
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
-            
+
             .lobby-search-input:focus {
                 border-color: rgba(0, 255, 0, 0.6);
                 box-shadow: 0 0 5px rgba(0, 255, 0, 0.3);
             }
-            
+
             .lobby-search-input::placeholder {
                 color: #7f7;
                 opacity: 0.6;
             }
-            
+
             .lobby-filter-row {
                 display: flex;
                 gap: 4px;
@@ -2304,7 +2306,7 @@ export class MainMenu {
                 box-sizing: border-box;
                 overflow: hidden;
             }
-            
+
             .lobby-filter-select {
                 flex: 1;
                 min-width: 0;
@@ -2322,16 +2324,16 @@ export class MainMenu {
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
-            
+
             .lobby-filter-select:hover {
                 border-color: rgba(0, 255, 0, 0.5);
             }
-            
+
             .lobby-filter-select:focus {
                 border-color: rgba(0, 255, 0, 0.6);
                 box-shadow: 0 0 5px rgba(0, 255, 0, 0.3);
             }
-            
+
             .lobby-list-container {
                 flex: 1;
                 overflow-y: auto;
@@ -2340,7 +2342,7 @@ export class MainMenu {
                 width: 100%;
                 box-sizing: border-box;
             }
-            
+
             .lobby-empty {
                 text-align: center;
                 color: #7f7;
@@ -2348,7 +2350,7 @@ export class MainMenu {
                 padding: 20px;
                 opacity: 0.6;
             }
-            
+
             .lobby-player-item,
             .lobby-room-item {
                 padding: 6px;
@@ -2363,14 +2365,14 @@ export class MainMenu {
                 box-sizing: border-box;
                 overflow: hidden;
             }
-            
+
             .lobby-player-item:hover,
             .lobby-room-item:hover {
                 background: rgba(0, 40, 0, 0.7);
                 border-color: rgba(0, 255, 0, 0.5);
                 transform: translateX(2px);
             }
-            
+
             .lobby-player-header {
                 display: flex;
                 justify-content: space-between;
@@ -2380,7 +2382,7 @@ export class MainMenu {
                 min-width: 0;
                 gap: 4px;
             }
-            
+
             .lobby-player-avatar {
                 width: 24px;
                 height: 24px;
@@ -2395,7 +2397,7 @@ export class MainMenu {
                 border: 2px solid rgba(0, 255, 0, 0.5);
                 margin-right: 6px;
             }
-            
+
             .lobby-player-name-row {
                 display: flex;
                 align-items: center;
@@ -2403,7 +2405,7 @@ export class MainMenu {
                 flex: 1;
                 min-width: 0;
             }
-            
+
             .lobby-player-name {
                 color: #0f0;
                 font-size: 9px;
@@ -2414,13 +2416,13 @@ export class MainMenu {
                 text-overflow: ellipsis;
                 white-space: nowrap;
             }
-            
+
             .lobby-friend-badge {
                 color: #ffc800;
                 font-size: 7px;
                 margin-left: 4px;
             }
-            
+
             .lobby-player-level {
                 color: #0ff;
                 font-size: 8px;
@@ -2429,13 +2431,13 @@ export class MainMenu {
                 border-radius: 2px;
                 border: 1px solid rgba(0, 255, 255, 0.4);
             }
-            
+
             .lobby-player-online-status {
                 display: flex;
                 align-items: center;
                 gap: 4px;
             }
-            
+
             .lobby-player-stats-row {
                 display: flex;
                 gap: 6px;
@@ -2444,51 +2446,51 @@ export class MainMenu {
                 width: 100%;
                 box-sizing: border-box;
             }
-            
+
             .lobby-player-stat {
                 display: flex;
                 align-items: center;
                 gap: 3px;
                 font-size: 7px;
             }
-            
+
             .lobby-stat-label {
                 color: #7f7;
             }
-            
+
             .lobby-stat-value {
                 color: #0ff;
                 font-weight: bold;
             }
-            
+
             .lobby-rank-bronze {
                 color: #cd7f32;
             }
-            
+
             .lobby-rank-silver {
                 color: #c0c0c0;
             }
-            
+
             .lobby-rank-gold {
                 color: #ffd700;
             }
-            
+
             .lobby-rank-platinum {
                 color: #e5e4e2;
             }
-            
+
             .lobby-rank-diamond {
                 color: #b9f2ff;
             }
-            
+
             .lobby-rank-master {
                 color: #ff6b9d;
             }
-            
+
             .lobby-rank-legend {
                 color: #ff0000;
             }
-            
+
             .lobby-player-details {
                 margin-top: 4px;
                 padding-top: 4px;
@@ -2497,22 +2499,22 @@ export class MainMenu {
                 flex-direction: column;
                 gap: 2px;
             }
-            
+
             .lobby-player-detail-item {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
                 font-size: 7px;
             }
-            
+
             .lobby-detail-label {
                 color: #7f7;
             }
-            
+
             .lobby-detail-value {
                 color: #0ff;
             }
-            
+
             .lobby-status-dot {
                 width: 5px;
                 height: 5px;
@@ -2521,7 +2523,7 @@ export class MainMenu {
                 box-shadow: 0 0 3px rgba(0, 255, 0, 0.8);
                 animation: lobby-status-pulse 2s ease-in-out infinite;
             }
-            
+
             @keyframes lobby-status-pulse {
                 0%, 100% {
                     opacity: 1;
@@ -2532,13 +2534,13 @@ export class MainMenu {
                     box-shadow: 0 0 6px rgba(0, 255, 0, 1);
                 }
             }
-            
+
             .lobby-status-text {
                 color: #0f0;
                 font-size: 6px;
                 font-weight: normal;
             }
-            
+
             .lobby-player-info {
                 color: #7f7;
                 font-size: 7px;
@@ -2547,15 +2549,15 @@ export class MainMenu {
                 align-items: center;
                 margin-bottom: 4px;
             }
-            
+
             .lobby-player-room {
                 color: #0ff;
             }
-            
+
             .lobby-player-status {
                 color: #7f7;
             }
-            
+
             .lobby-room-header {
                 display: flex;
                 justify-content: space-between;
@@ -2565,7 +2567,7 @@ export class MainMenu {
                 min-width: 0;
                 gap: 4px;
             }
-            
+
             .lobby-room-id {
                 color: #0f0;
                 font-size: 9px;
@@ -2576,7 +2578,7 @@ export class MainMenu {
                 text-overflow: ellipsis;
                 white-space: nowrap;
             }
-            
+
             .lobby-room-mode {
                 color: #0ff;
                 font-size: 7px;
@@ -2584,7 +2586,7 @@ export class MainMenu {
                 padding: 3px 5px;
                 border-radius: 2px;
             }
-            
+
             .lobby-room-info {
                 color: #7f7;
                 font-size: 7px;
@@ -2597,20 +2599,20 @@ export class MainMenu {
                 min-width: 0;
                 gap: 4px;
             }
-            
+
             .lobby-room-players-row {
                 display: flex;
                 align-items: center;
                 gap: 6px;
                 flex: 1;
             }
-            
+
             .lobby-room-players {
                 color: #0ff;
                 font-size: 8px;
                 min-width: 50px;
             }
-            
+
             .lobby-room-progress {
                 flex: 1;
                 height: 4px;
@@ -2619,22 +2621,22 @@ export class MainMenu {
                 overflow: hidden;
                 border: 1px solid rgba(0, 255, 0, 0.2);
             }
-            
+
             .lobby-room-progress-bar {
                 height: 100%;
                 background: linear-gradient(90deg, #0f0, #0ff);
                 transition: width 0.3s ease;
                 box-shadow: 0 0 4px rgba(0, 255, 0, 0.5);
             }
-            
+
             .lobby-room-status {
                 color: #7f7;
             }
-            
+
             .lobby-room-status.active {
                 color: #f00;
             }
-            
+
             .lobby-join-btn {
                 width: 100%;
                 margin-top: 4px;
@@ -2650,20 +2652,20 @@ export class MainMenu {
                 font-family: 'Press Start 2P', monospace;
                 text-shadow: 0 0 4px rgba(0, 255, 4, 0.5);
             }
-            
+
             .lobby-join-btn:hover {
                 background: linear-gradient(180deg, rgba(0, 255, 4, 0.5), rgba(0, 255, 4, 0.3));
                 border-color: #0f0;
                 box-shadow: 0 0 15px rgba(0, 255, 4, 0.5);
                 transform: scale(1.02);
             }
-            
+
             .lobby-join-btn:active {
                 background: rgba(0, 255, 4, 0.6);
                 transform: scale(0.98);
                 box-shadow: 0 0 20px rgba(0, 255, 4, 0.8);
             }
-            
+
             .lobby-player-buttons {
                 display: flex;
                 gap: 4px;
@@ -2672,7 +2674,7 @@ export class MainMenu {
                 width: 100%;
                 box-sizing: border-box;
             }
-            
+
             .lobby-message-btn {
                 flex: 1;
                 min-width: 0;
@@ -2692,20 +2694,20 @@ export class MainMenu {
                 text-overflow: ellipsis;
                 white-space: nowrap;
             }
-            
+
             .lobby-message-btn:hover {
                 background: linear-gradient(180deg, rgba(0, 150, 255, 0.5), rgba(0, 150, 255, 0.3));
                 border-color: #0ff;
                 box-shadow: 0 0 15px rgba(0, 150, 255, 0.5);
                 transform: scale(1.02);
             }
-            
+
             .lobby-message-btn:active {
                 background: rgba(0, 150, 255, 0.6);
                 transform: scale(0.98);
                 box-shadow: 0 0 20px rgba(0, 150, 255, 0.8);
             }
-            
+
             .lobby-invite-btn {
                 flex: 1;
                 min-width: 0;
@@ -2725,20 +2727,20 @@ export class MainMenu {
                 text-overflow: ellipsis;
                 white-space: nowrap;
             }
-            
+
             .lobby-invite-btn:hover {
                 background: linear-gradient(180deg, rgba(255, 200, 0, 0.5), rgba(255, 200, 0, 0.3));
                 border-color: #ffc800;
                 box-shadow: 0 0 15px rgba(255, 200, 0, 0.5);
                 transform: scale(1.02);
             }
-            
+
             .lobby-invite-btn:active {
                 background: rgba(255, 200, 0, 0.6);
                 transform: scale(0.98);
                 box-shadow: 0 0 20px rgba(255, 200, 0, 0.8);
             }
-            
+
             .lobby-friend-btn {
                 flex: 1;
                 min-width: 0;
@@ -2754,20 +2756,20 @@ export class MainMenu {
                 font-family: 'Press Start 2P', monospace;
                 text-shadow: 0 0 4px rgba(255, 100, 200, 0.5);
             }
-            
+
             .lobby-friend-btn:hover {
                 background: linear-gradient(180deg, rgba(255, 100, 200, 0.5), rgba(255, 100, 200, 0.3));
                 border-color: #ff64c8;
                 box-shadow: 0 0 15px rgba(255, 100, 200, 0.5);
                 transform: scale(1.02);
             }
-            
+
             .lobby-friend-btn:active {
                 background: rgba(255, 100, 200, 0.6);
                 transform: scale(0.98);
                 box-shadow: 0 0 20px rgba(255, 100, 200, 0.8);
             }
-            
+
             .lobby-friend-btn.added {
                 background: rgba(0, 255, 0, 0.3);
                 border-color: rgba(0, 255, 0, 0.6);
@@ -2775,7 +2777,7 @@ export class MainMenu {
                 opacity: 0.7;
                 cursor: default;
             }
-            
+
             .lobby-room-full {
                 width: 100%;
                 margin-top: 4px;
@@ -2789,7 +2791,7 @@ export class MainMenu {
                 font-family: 'Press Start 2P', monospace;
                 opacity: 0.7;
             }
-            
+
             .lobby-room-details {
                 margin-top: 4px;
                 padding-top: 4px;
@@ -2798,14 +2800,14 @@ export class MainMenu {
                 flex-direction: column;
                 gap: 2px;
             }
-            
+
             .lobby-room-detail-item {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
                 font-size: 7px;
             }
-            
+
             .lobby-room-badge {
                 display: inline-block;
                 padding: 2px 4px;
@@ -2813,36 +2815,36 @@ export class MainMenu {
                 font-size: 6px;
                 margin-top: 2px;
             }
-            
+
             .lobby-room-private {
                 background: rgba(255, 200, 0, 0.2);
                 color: #ffc800;
                 border: 1px solid rgba(255, 200, 0, 0.4);
             }
-            
+
             .lobby-room-password {
                 background: rgba(0, 150, 255, 0.2);
                 color: #0096ff;
                 border: 1px solid rgba(0, 150, 255, 0.4);
             }
-            
+
             .lobby-content::-webkit-scrollbar {
                 width: 6px;
             }
-            
+
             .lobby-content::-webkit-scrollbar-track {
                 background: rgba(0, 10, 0, 0.3);
             }
-            
+
             .lobby-content::-webkit-scrollbar-thumb {
                 background: linear-gradient(180deg, #0f0, #6f6);
                 border-radius: 3px;
             }
-            
+
             .lobby-content::-webkit-scrollbar-thumb:hover {
                 background: linear-gradient(180deg, #0f0, #8f8);
             }
-            
+
             .lobby-group-header {
                 padding: 5px 10px;
                 margin: 12px 0 6px 0;
@@ -2853,13 +2855,13 @@ export class MainMenu {
                 font-weight: bold;
                 text-transform: uppercase;
             }
-            
+
             .lobby-group-separator {
                 height: 1px;
                 background: rgba(0, 255, 0, 0.2);
                 margin: 6px 0;
             }
-            
+
             .version {
                 color: #0a0;
                 font-size: 7px;
@@ -2867,7 +2869,7 @@ export class MainMenu {
                 text-align: center;
                 opacity: 0.8;
             }
-            
+
             /* Panels */
             .panel-overlay {
                 position: fixed !important;
@@ -2882,17 +2884,17 @@ export class MainMenu {
                 z-index: 100002 !important; /* Выше чем меню (99999) */
                 pointer-events: auto !important;
             }
-            
+
             /* Прозрачность фона меню когда игра запущена (в битве) */
             .panel-overlay.in-battle,
             #main-menu.in-battle {
                 background: rgba(0, 0, 0, 0.5) !important;
             }
-            
+
             #main-menu.in-battle .menu-bg {
                 background: rgba(0, 0, 0, 0.5) !important;
             }
-            
+
             .panel-overlay.visible {
                 display: flex !important;
                 visibility: visible !important;
@@ -2903,7 +2905,7 @@ export class MainMenu {
                 align-items: flex-start !important;
                 padding-top: 40px !important;
             }
-            
+
             .panel-content {
                 background: #000;
                 border: 2px solid #0f0;
@@ -2915,7 +2917,7 @@ export class MainMenu {
                 position: relative;
                 font-family: 'Press Start 2P', monospace;
             }
-            
+
             /* Меню навыков должно быть ещё шире */
             #skills-panel .panel-content {
                 max-width: min(95vw, 1700px);
@@ -2924,14 +2926,14 @@ export class MainMenu {
                 display: flex;
                 flex-direction: column;
             }
-            
+
             /* Панель выбора карт - расширенная для сетки */
             #map-selection-panel .panel-content {
                 max-width: min(95vw, 1050px);
                 width: min(95vw, 1050px);
                 max-height: min(95vh, 850px);
             }
-            
+
             /* Сетка карт */
             .map-grid {
                 display: grid;
@@ -2939,7 +2941,7 @@ export class MainMenu {
                 gap: 12px;
                 margin-top: 20px;
             }
-            
+
             /* Карточка карты */
             .map-card {
                 display: flex;
@@ -2955,20 +2957,20 @@ export class MainMenu {
                 min-height: 140px;
                 text-align: center;
             }
-            
+
             .map-card:hover {
                 background: rgba(0, 40, 0, 0.6);
                 border-color: #0f0;
                 box-shadow: 0 0 15px rgba(0, 255, 80, 0.4);
                 transform: translateY(-2px);
             }
-            
+
             .map-card.recommended {
                 border-color: #0f0;
                 background: rgba(0, 40, 0, 0.5);
                 box-shadow: 0 0 10px rgba(0, 255, 80, 0.2);
             }
-            
+
             .map-card.recommended::before {
                 content: "★";
                 position: absolute;
@@ -2977,17 +2979,17 @@ export class MainMenu {
                 color: #0f0;
                 font-size: 12px;
             }
-            
+
             .map-card {
                 position: relative;
             }
-            
+
             .map-card-icon {
                 font-size: 32px;
                 margin-bottom: 8px;
                 filter: drop-shadow(0 0 4px rgba(0, 255, 80, 0.5));
             }
-            
+
             .map-card-name {
                 font-family: 'Press Start 2P', monospace;
                 font-size: 10px;
@@ -2995,7 +2997,7 @@ export class MainMenu {
                 margin-bottom: 6px;
                 line-height: 1.3;
             }
-            
+
             .map-card-desc {
                 font-size: 8px;
                 color: rgba(0, 255, 80, 0.7);
@@ -3006,7 +3008,7 @@ export class MainMenu {
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
-            
+
             .map-card-new {
                 position: absolute;
                 top: 5px;
@@ -3019,38 +3021,38 @@ export class MainMenu {
                 font-family: 'Press Start 2P', monospace;
                 animation: pulse-new 1.5s ease-in-out infinite;
             }
-            
+
             @keyframes pulse-new {
                 0%, 100% { opacity: 1; transform: scale(1); }
                 50% { opacity: 0.8; transform: scale(1.05); }
             }
-            
+
             /* Адаптивность сетки карт */
             @media (max-width: 900px) {
                 .map-grid {
                     grid-template-columns: repeat(3, 1fr);
                 }
             }
-            
+
             @media (max-width: 650px) {
                 .map-grid {
                     grid-template-columns: repeat(2, 1fr);
                 }
-                
+
                 .map-card {
                     min-height: 120px;
                     padding: 12px 8px;
                 }
-                
+
                 .map-card-icon {
                     font-size: 28px;
                 }
-                
+
                 .map-card-name {
                     font-size: 9px;
                 }
             }
-            
+
             /* Заголовок TX */
             .skills-main-title {
                 font-size: 48px;
@@ -3061,7 +3063,7 @@ export class MainMenu {
                 text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
                 font-family: 'Press Start 2P', monospace;
             }
-            
+
             /* Вкладки категорий */
             .skill-category-tabs {
                 display: flex;
@@ -3070,7 +3072,7 @@ export class MainMenu {
                 justify-content: center;
                 flex-wrap: wrap;
             }
-            
+
             .skill-category-tab {
                 padding: 10px 16px;
                 background: rgba(0, 20, 0, 0.3);
@@ -3084,92 +3086,92 @@ export class MainMenu {
                 border-radius: 4px;
                 white-space: nowrap;
             }
-            
+
             .skill-category-tab:hover {
                 background: rgba(0, 40, 0, 0.5);
                 border-color: rgba(0, 255, 4, 0.6);
             }
-            
+
             .skill-category-tab.active {
                 background: rgba(0, 255, 4, 0.2);
                 border-color: rgba(0, 255, 4, 0.8);
                 color: #0f0;
                 box-shadow: 0 0 10px rgba(0, 255, 4, 0.4);
             }
-            
+
             /* Специальные цвета для разных вкладок */
             .skill-category-tab[data-category="attack"] {
                 border-color: rgba(255, 0, 0, 0.5);
                 color: #f00;
             }
-            
+
             .skill-category-tab[data-category="attack"]:hover,
             .skill-category-tab[data-category="attack"].active {
                 border-color: rgba(255, 0, 0, 0.8);
                 background: rgba(255, 0, 0, 0.2);
                 color: #f00;
             }
-            
+
             .skill-category-tab[data-category="defense"] {
                 border-color: rgba(0, 0, 255, 0.5);
                 color: #00f;
             }
-            
+
             .skill-category-tab[data-category="defense"]:hover,
             .skill-category-tab[data-category="defense"].active {
                 border-color: rgba(0, 0, 255, 0.8);
                 background: rgba(0, 0, 255, 0.2);
                 color: #00f;
             }
-            
+
             .skill-category-tab[data-category="mobility"] {
                 border-color: rgba(0, 255, 255, 0.5);
                 color: #0ff;
             }
-            
+
             .skill-category-tab[data-category="mobility"]:hover,
             .skill-category-tab[data-category="mobility"].active {
                 border-color: rgba(0, 255, 255, 0.8);
                 background: rgba(0, 255, 255, 0.2);
                 color: #0ff;
             }
-            
+
             .skill-category-tab[data-category="tech"] {
                 border-color: rgba(255, 255, 0, 0.5);
                 color: #ff0;
             }
-            
+
             .skill-category-tab[data-category="tech"]:hover,
             .skill-category-tab[data-category="tech"].active {
                 border-color: rgba(255, 255, 0, 0.8);
                 background: rgba(255, 255, 0, 0.2);
                 color: #ff0;
             }
-            
+
             .skill-category-tab[data-category="stealth"] {
                 border-color: rgba(255, 140, 0, 0.5);
                 color: #ff8c00;
             }
-            
+
             .skill-category-tab[data-category="stealth"]:hover,
             .skill-category-tab[data-category="stealth"].active {
                 border-color: rgba(255, 140, 0, 0.8);
                 background: rgba(255, 140, 0, 0.2);
                 color: #ff8c00;
             }
-            
+
             .skill-category-tab[data-category="leadership"] {
                 border-color: rgba(0, 255, 0, 0.5);
                 color: #0f0;
             }
-            
+
             .skill-category-tab[data-category="leadership"]:hover,
             .skill-category-tab[data-category="leadership"].active {
                 border-color: rgba(0, 255, 0, 0.8);
                 background: rgba(0, 255, 0, 0.2);
                 color: #0f0;
             }
-            
+
             .panel-title {
                 font-size: 18px;
                 color: #0f0;
@@ -3178,11 +3180,11 @@ export class MainMenu {
                 text-shadow: 0 0 10px #0f0;
                 font-weight: bold;
             }
-            
+
             #skills-panel .panel-title {
                 margin-bottom: 10px;
             }
-            
+
             .play-menu-section {
                 margin-bottom: 30px;
                 padding: 20px;
@@ -3190,7 +3192,7 @@ export class MainMenu {
                 border-radius: 8px;
                 border: 1px solid rgba(90, 170, 136, 0.3);
             }
-            
+
             .section-title {
                 font-size: 18px;
                 font-weight: bold;
@@ -3198,7 +3200,7 @@ export class MainMenu {
                 color: #5a8;
                 text-transform: uppercase;
             }
-            
+
             .mode-buttons, .map-buttons, .tank-options {
                 display: flex;
                 flex-direction: column;
@@ -3238,7 +3240,7 @@ export class MainMenu {
                 right: auto !important;
                 transform: translateX(-50%) !important;
             }
-            
+
             /* Компактные карточки в play-window (без описаний) */
             .play-window .map-grid {
                 margin-top: 15px;
@@ -3246,57 +3248,57 @@ export class MainMenu {
                 grid-template-columns: repeat(4, 1fr) !important;
                 gap: 10px;
             }
-            
+
             .play-window .map-card {
                 min-height: 80px;
                 padding: 10px 6px;
             }
-            
+
             .play-window .map-card-icon {
                 font-size: 24px;
                 margin-bottom: 4px;
             }
-            
+
             .play-window .map-card-name {
                 font-size: 8px;
                 line-height: 1.2;
             }
-            
+
             /* Адаптивность для play-window */
             @media (max-width: 800px) {
                 .play-window .map-grid {
                     grid-template-columns: repeat(3, 1fr) !important;
                 }
             }
-            
+
             @media (max-width: 600px) {
                 .play-window .map-grid {
                     grid-template-columns: repeat(2, 1fr) !important;
                 }
             }
-            
+
             /* Сетка режимов игры */
             .gamemode-grid {
                 display: grid;
                 grid-template-columns: repeat(3, 1fr);
                 gap: 10px;
             }
-            
+
             .gamemode-btn {
                 padding: 15px 10px !important;
                 text-align: center;
             }
-            
+
             .gamemode-btn .btn-icon {
                 display: block;
                 font-size: 24px;
                 margin-bottom: 5px;
             }
-            
+
             .gamemode-btn .btn-label {
                 font-size: 10px;
             }
-            
+
             @media (max-width: 600px) {
                 .gamemode-grid {
                     grid-template-columns: repeat(2, 1fr);
@@ -3347,7 +3349,7 @@ export class MainMenu {
                 background: rgba(0,255,0,0.1);
                 box-shadow: 0 0 6px rgba(0,255,0,0.4);
             }
-            
+
             .play-menu-section {
                 margin-bottom: 30px;
                 padding: 20px;
@@ -3355,7 +3357,7 @@ export class MainMenu {
                 border-radius: 8px;
                 border: 1px solid rgba(90, 170, 136, 0.3);
             }
-            
+
             .section-title {
                 font-size: 18px;
                 font-weight: bold;
@@ -3363,13 +3365,13 @@ export class MainMenu {
                 color: #5a8;
                 text-transform: uppercase;
             }
-            
+
             .mode-buttons, .map-buttons, .tank-options {
                 display: flex;
                 flex-direction: column;
                 gap: 10px;
             }
-            
+
             .panel-close {
                 position: absolute !important;
                 top: 10px !important;
@@ -3385,12 +3387,12 @@ export class MainMenu {
                 pointer-events: auto !important;
                 z-index: 100003 !important; /* Выше панели */
             }
-            
+
             .panel-close:hover {
                 background: rgba(255, 255, 255, 0.1);
                 color: #fff;
             }
-            
+
             .setting-row {
                 display: flex;
                 justify-content: space-between;
@@ -3398,21 +3400,21 @@ export class MainMenu {
                 padding: 12px 0;
                 border-bottom: 1px solid rgba(255, 255, 255, 0.05);
             }
-            
+
             .setting-label {
                 color: #aaa;
                 font-size: 14px;
                 font-family: 'Press Start 2P', 'Courier New', monospace;
                 letter-spacing: 0.5px;
             }
-            
+
             .setting-value {
                 display: flex;
                 align-items: center;
                 gap: 12px;
                 color: #5a8;
             }
-            
+
             .setting-range {
                 width: 120px;
                 -webkit-appearance: none;
@@ -3420,7 +3422,7 @@ export class MainMenu {
                 border-radius: 4px;
                 height: 6px;
             }
-            
+
             .setting-range::-webkit-slider-thumb {
                 -webkit-appearance: none;
                 width: 16px;
@@ -3429,14 +3431,14 @@ export class MainMenu {
                 border-radius: 50%;
                 cursor: pointer;
             }
-            
+
             .setting-checkbox {
                 width: 20px;
                 height: 20px;
                 cursor: pointer;
                 accent-color: #0f0;
             }
-            
+
             .setting-select {
                 background: rgba(0, 0, 0, 0.6);
                 color: #0f0;
@@ -3448,22 +3450,22 @@ export class MainMenu {
                 cursor: pointer;
                 min-width: 100px;
             }
-            
+
             .setting-select:hover {
                 border-color: #0f0;
                 background: rgba(0, 50, 0, 0.6);
             }
-            
+
             .setting-select option {
                 background: #0a0a0a;
                 color: #0f0;
             }
-            
+
             .lang-toggle {
                 display: flex;
                 gap: 5px;
             }
-            
+
             .lang-btn {
                 padding: 8px 16px;
                 font-family: 'Press Start 2P', monospace;
@@ -3474,22 +3476,22 @@ export class MainMenu {
                 cursor: pointer;
                 transition: all 0.15s;
             }
-            
+
             .lang-btn:hover {
                 background: rgba(0, 255, 0, 0.2);
             }
-            
+
             .lang-btn.active {
                 background: #0f0;
                 color: #000;
             }
-            
+
             /* Difficulty selector */
             .difficulty-selector {
                 display: flex;
                 gap: 5px;
             }
-            
+
             .diff-btn {
                 padding: 6px 12px;
                 font-family: 'Press Start 2P', monospace;
@@ -3500,28 +3502,28 @@ export class MainMenu {
                 cursor: pointer;
                 transition: all 0.2s;
             }
-            
+
             .diff-btn:hover {
                 background: rgba(0, 80, 0, 0.8);
             }
-            
+
             .diff-btn.active {
                 box-shadow: 0 0 10px currentColor;
             }
-            
+
             #diff-easy.active {
                 background: #0a0;
                 border-color: #0f0;
                 color: #000;
             }
-            
+
             /* Seed control */
             .seed-control {
                 display: flex;
                 gap: 5px;
                 align-items: center;
             }
-            
+
             .seed-input {
                 width: 120px;
                 padding: 6px 8px;
@@ -3532,17 +3534,17 @@ export class MainMenu {
                 border: 2px solid #0a0;
                 outline: none;
             }
-            
+
             .seed-input:disabled {
                 opacity: 0.5;
                 cursor: not-allowed;
             }
-            
+
             .seed-input:focus {
                 border-color: #0f0;
                 box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
             }
-            
+
             .seed-btn {
                 padding: 6px 10px;
                 font-size: 14px;
@@ -3552,41 +3554,41 @@ export class MainMenu {
                 cursor: pointer;
                 transition: all 0.2s;
             }
-            
+
             .seed-btn:hover {
                 background: rgba(0, 80, 0, 0.8);
                 border-color: #0f0;
             }
-            
+
             #diff-medium.active {
                 background: #aa0;
                 border-color: #ff0;
                 color: #000;
             }
-            
+
             #diff-hard.active {
                 background: #a00;
                 border-color: #f00;
                 color: #fff;
             }
-            
+
             .panel-buttons {
                 display: flex;
                 gap: 10px;
                 margin-top: 20px;
                 justify-content: center;
             }
-            
+
             #skills-panel .panel-buttons {
                 margin-top: 15px;
             }
-            
+
             #skills-panel .panel-btn {
                 min-width: 200px;
                 padding: 14px 24px;
                 font-size: 12px;
             }
-            
+
             .panel-btn {
                 flex: 1;
                 padding: 12px;
@@ -3598,71 +3600,71 @@ export class MainMenu {
                 cursor: pointer;
                 transition: all 0.15s;
             }
-            
+
             .panel-btn:hover {
                 background: #0f0;
                 color: #000;
             }
-            
+
             .panel-btn.primary {
                 background: #0f0;
                 color: #000;
             }
-            
+
             .panel-btn.primary:hover {
                 background: #0a0;
                 color: #0f0;
             }
-            
+
             .menu-btn.danger {
                 background: linear-gradient(135deg, #ff4444 0%, #cc0000 100%);
                 border: 2px solid #ff6666;
                 color: #fff;
             }
-            
+
             .menu-btn.danger:hover {
                 background: linear-gradient(135deg, #ff6666 0%, #ff0000 100%);
                 border-color: #ff8888;
                 transform: translateY(-2px);
                 box-shadow: 0 8px 20px rgba(255, 68, 68, 0.4);
             }
-            
+
             .panel-btn.danger {
                 border-color: #f00;
                 color: #f00;
             }
-            
+
             .panel-btn.danger:hover {
                 background: #f00;
                 color: #000;
             }
-            
+
             /* Stats Panel */
             .stats-grid {
                 display: grid;
                 grid-template-columns: 1fr 1fr;
                 gap: 10px;
             }
-            
+
             .stat-card {
                 background: #000;
                 border: 1px solid #0f0;
                 padding: 15px;
                 text-align: center;
             }
-            
+
             .stat-value {
                 font-size: 18px;
                 color: #0f0;
                 text-shadow: 0 0 5px #0f0;
             }
-            
+
             .stat-label {
                 font-size: 8px;
                 color: #0a0;
                 margin-top: 5px;
             }
-            
+
             /* Skills Panel - Tree */
             .skill-tree-wrapper {
                 margin-top: 10px;
@@ -3853,7 +3855,7 @@ export class MainMenu {
                 font-size: 20px;
                 width: 28px;
             }
-            
+
             .skill-node-title {
                 flex: 1;
                 font-size: 11px;
@@ -3896,18 +3898,18 @@ export class MainMenu {
                 grid-template-columns: repeat(10, 1fr);
                 gap: 3px;
             }
-            
+
             .skill-pip {
                 height: 8px;
                 background: #021;
                 border: 1px solid #0f0;
             }
-            
+
             .skill-pip.filled {
                 background: linear-gradient(90deg, #0f0, #7f7);
                 box-shadow: 0 0 6px rgba(0,255,80,0.6);
             }
-            
+
             .skill-upgrade-btn {
                 padding: 10px;
                 background: #000;
@@ -3919,13 +3921,13 @@ export class MainMenu {
                 transition: all 0.15s;
                 text-transform: uppercase;
             }
-            
+
             .skill-upgrade-btn:hover:not(:disabled) {
                 background: #0f0;
                 color: #000;
                 box-shadow: 0 0 12px rgba(0,255,80,0.6);
             }
-            
+
             .skill-upgrade-btn:disabled {
                 opacity: 0.25;
                 cursor: not-allowed;
@@ -3972,17 +3974,17 @@ export class MainMenu {
                 user-select: none;
                 white-space: nowrap;
             }
-            
+
             .skill-category-header:hover {
                 background: rgba(0, 0, 0, 0.95);
                 transform: scale(1.05);
             }
-            
+
             .skill-category-header.active {
                 background: rgba(255, 255, 255, 0.1);
                 box-shadow: 0 0 15px currentColor;
             }
-            
+
             .skill-empty {
                 color: #8f8;
                 font-size: 11px;
@@ -3991,7 +3993,7 @@ export class MainMenu {
                 border: 1px dashed rgba(0,255,80,0.4);
                 background: rgba(0,40,0,0.5);
             }
-            
+
             /* Controls popup */
             .controls-popup {
                 position: fixed;
@@ -4009,16 +4011,16 @@ export class MainMenu {
                 overflow-y: auto;
                 min-width: 300px;
             }
-            
+
             .controls-popup.visible { display: block; }
-            
+
             .controls-popup .controls-title {
                 font-size: 12px;
                 text-align: center;
                 margin-bottom: 15px;
                 color: #0f0;
             }
-            
+
             .controls-row {
                 display: flex;
                 justify-content: space-between;
@@ -4027,7 +4029,7 @@ export class MainMenu {
                 font-size: 10px;
                 color: #0f0;
             }
-            
+
             .controls-row .key {
                 background: #0f0;
                 color: #000;
@@ -4035,58 +4037,58 @@ export class MainMenu {
                 padding: 4px 10px;
                 font-weight: 600;
             }
-            
+
             /* АБСОЛЮТНАЯ БЛОКИРОВКА: Canvas ВСЕГДА заблокирован когда меню видимо */
             #main-menu:not(.hidden) ~ #gameCanvas,
             body:has(#main-menu:not(.hidden)) #gameCanvas {
                 pointer-events: none !important;
             }
-            
+
             /* Дополнительная защита через селектор по классу - ВСЕГДА блокируем */
             body.menu-visible #gameCanvas {
                 pointer-events: none !important;
             }
-            
+
             /* Блокируем canvas когда любая панель видима */
             .panel-overlay.visible ~ #gameCanvas,
             body:has(.panel-overlay.visible) #gameCanvas,
             #gameCanvas[data-menu-blocked="true"] {
                 pointer-events: none !important;
             }
-            
+
             /* ДОПОЛНИТЕЛЬНАЯ ЗАЩИТА: Если меню не скрыто, canvas заблокирован ВСЕГДА */
             #main-menu:not(.hidden) + * #gameCanvas,
             #main-menu:not(.hidden) ~ * #gameCanvas {
                 pointer-events: none !important;
             }
-            
+
             /* ═══════════════════════════════════════════════════════════════════════════ */
             /* PROGRESS PANEL STYLES */
             /* ═══════════════════════════════════════════════════════════════════════════ */
-            
+
             /* Кликабельная карточка игрока */
             .player-card {
                 cursor: pointer;
                 transition: all 0.2s ease;
             }
-            
+
             .player-card:hover {
                 border-color: #0ff !important;
                 box-shadow: 0 0 15px rgba(0, 255, 255, 0.4);
                 transform: translateY(-2px);
             }
-            
+
             .player-card:active {
                 transform: translateY(0);
             }
-            
+
             /* Progress Panel Tabs */
             .progress-tabs {
                 display: flex;
                 background: rgba(0, 20, 0, 0.9);
                 border-bottom: 2px solid #0f0;
             }
-            
+
             .progress-tab {
                 flex: 1;
                 padding: 12px 16px;
@@ -4100,44 +4102,44 @@ export class MainMenu {
                 transition: all 0.2s ease;
                 text-align: center;
             }
-            
+
             .progress-tab:last-child {
                 border-right: none;
             }
-            
+
             .progress-tab:hover {
                 background: rgba(0, 255, 0, 0.1);
                 color: #0f0;
             }
-            
+
             .progress-tab.active {
                 background: rgba(0, 255, 0, 0.2);
                 color: #0ff;
                 text-shadow: 0 0 8px rgba(0, 255, 255, 0.6);
             }
-            
+
             /* Progress Panel Content */
             .progress-content {
                 padding: 20px;
                 max-height: 60vh;
                 overflow-y: auto;
             }
-            
+
             .progress-tab-content {
                 display: none;
             }
-            
+
             .progress-tab-content.active {
                 display: block;
                 animation: fadeIn 0.3s ease;
             }
-            
+
             /* Level Section */
             .progress-level-section {
                 text-align: center;
                 margin-bottom: 25px;
             }
-            
+
             .progress-level-badge {
                 width: 80px;
                 height: 80px;
@@ -4151,29 +4153,29 @@ export class MainMenu {
                 margin-bottom: 10px;
                 box-shadow: 0 0 20px rgba(0, 255, 0, 0.4);
             }
-            
+
             .progress-level-number {
                 font-size: 28px;
                 color: #0f0;
                 text-shadow: 0 0 10px #0f0;
             }
-            
+
             .progress-title {
                 font-size: 12px;
                 margin-top: 8px;
                 text-shadow: 0 0 6px currentColor;
             }
-            
+
             .progress-title-icon {
                 font-size: 18px;
                 margin-right: 5px;
             }
-            
+
             /* Large XP Bar */
             .progress-xp-bar-container {
                 margin: 20px 0;
             }
-            
+
             .progress-xp-bar-bg {
                 height: 30px;
                 background: #010;
@@ -4182,7 +4184,7 @@ export class MainMenu {
                 position: relative;
                 overflow: hidden;
             }
-            
+
             .progress-xp-bar-fill {
                 height: 100%;
                 background: linear-gradient(90deg, #0a0 0%, #0f0 50%, #0a0 100%);
@@ -4190,7 +4192,7 @@ export class MainMenu {
                 transition: width 0.5s ease;
                 position: relative;
             }
-            
+
             .progress-xp-bar-fill::after {
                 content: '';
                 position: absolute;
@@ -4201,24 +4203,24 @@ export class MainMenu {
                 background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.2) 50%, transparent 100%);
                 animation: xpShine 2s infinite;
             }
-            
+
             @keyframes xpShine {
                 0% { transform: translateX(-100%); }
                 100% { transform: translateX(100%); }
             }
-            
+
             .progress-xp-text {
                 text-align: center;
                 margin-top: 8px;
                 font-size: 12px;
                 color: #0f0;
             }
-            
+
             .progress-xp-percent {
                 color: #0ff;
                 font-weight: bold;
             }
-            
+
             /* Stats Grid */
             .progress-stats-grid {
                 display: grid;
@@ -4226,26 +4228,26 @@ export class MainMenu {
                 gap: 12px;
                 margin: 20px 0;
             }
-            
+
             .progress-stat-card {
                 background: rgba(0, 30, 0, 0.8);
                 border: 1px solid #0f0;
                 padding: 12px;
                 text-align: center;
             }
-            
+
             .progress-stat-value {
                 font-size: 16px;
                 color: #0f0;
                 text-shadow: 0 0 5px #0f0;
             }
-            
+
             .progress-stat-label {
                 font-size: 8px;
                 color: #0a0;
                 margin-top: 5px;
             }
-            
+
             /* Bonuses Grid */
             .progress-bonuses-grid {
                 display: grid;
@@ -4256,24 +4258,24 @@ export class MainMenu {
                 background: rgba(0, 20, 0, 0.6);
                 border: 1px solid #0f04;
             }
-            
+
             .progress-bonus-item {
                 text-align: center;
                 padding: 8px;
             }
-            
+
             .progress-bonus-value {
                 font-size: 14px;
                 color: #0ff;
                 text-shadow: 0 0 5px #0ff;
             }
-            
+
             .progress-bonus-label {
                 font-size: 7px;
                 color: #088;
                 margin-top: 4px;
             }
-            
+
             /* Next Level Reward */
             .progress-next-level {
                 background: rgba(0, 40, 0, 0.6);
@@ -4282,28 +4284,28 @@ export class MainMenu {
                 margin-top: 15px;
                 text-align: center;
             }
-            
+
             .progress-next-level-title {
                 font-size: 10px;
                 color: #0a0;
                 margin-bottom: 8px;
             }
-            
+
             .progress-next-level-rewards {
                 display: flex;
                 justify-content: center;
                 gap: 20px;
                 font-size: 11px;
             }
-            
+
             .progress-reward {
                 color: #0f0;
             }
-            
+
             .progress-reward-icon {
                 margin-right: 5px;
             }
-            
+
             /* Achievements Section */
             .achievements-category-tabs {
                 display: flex;
@@ -4311,7 +4313,7 @@ export class MainMenu {
                 margin-bottom: 15px;
                 flex-wrap: wrap;
             }
-            
+
             .achievement-category-btn {
                 padding: 6px 12px;
                 background: rgba(0, 30, 0, 0.6);
@@ -4322,24 +4324,24 @@ export class MainMenu {
                 cursor: pointer;
                 transition: all 0.2s ease;
             }
-            
+
             .achievement-category-btn:hover {
                 background: rgba(0, 255, 0, 0.1);
                 border-color: #0f0;
             }
-            
+
             .achievement-category-btn.active {
                 background: rgba(0, 255, 0, 0.2);
                 border-color: #0f0;
                 color: #0f0;
             }
-            
+
             .achievements-grid {
                 display: grid;
                 grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
                 gap: 10px;
             }
-            
+
             .achievement-card {
                 background: rgba(0, 20, 0, 0.8);
                 border: 2px solid #333;
@@ -4347,90 +4349,90 @@ export class MainMenu {
                 transition: all 0.2s ease;
                 position: relative;
             }
-            
+
             .achievement-card:hover {
                 transform: scale(1.02);
             }
-            
+
             .achievement-card.unlocked {
                 border-color: #0f0;
                 box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
             }
-            
+
             .achievement-card.locked {
                 opacity: 0.5;
                 filter: grayscale(0.5);
             }
-            
+
             /* Tier colors */
             .achievement-card.tier-bronze { border-color: #cd7f32; }
             .achievement-card.tier-bronze.unlocked { box-shadow: 0 0 10px rgba(205, 127, 50, 0.4); }
-            
+
             .achievement-card.tier-silver { border-color: #c0c0c0; }
             .achievement-card.tier-silver.unlocked { box-shadow: 0 0 10px rgba(192, 192, 192, 0.4); }
-            
+
             .achievement-card.tier-gold { border-color: #ffd700; }
             .achievement-card.tier-gold.unlocked { box-shadow: 0 0 10px rgba(255, 215, 0, 0.4); }
-            
+
             .achievement-card.tier-platinum { border-color: #e5e4e2; }
-            .achievement-card.tier-platinum.unlocked { 
+            .achievement-card.tier-platinum.unlocked {
                 box-shadow: 0 0 15px rgba(229, 228, 226, 0.5);
                 animation: platinumGlow 2s ease-in-out infinite;
             }
-            
+
             @keyframes platinumGlow {
                 0%, 100% { box-shadow: 0 0 10px rgba(229, 228, 226, 0.3); }
                 50% { box-shadow: 0 0 20px rgba(229, 228, 226, 0.6); }
             }
-            
+
             .achievement-header {
                 display: flex;
                 align-items: center;
                 gap: 8px;
                 margin-bottom: 8px;
             }
-            
+
             .achievement-icon {
                 font-size: 20px;
             }
-            
+
             .achievement-name {
                 font-size: 10px;
                 color: #0f0;
                 flex: 1;
             }
-            
+
             .achievement-tier {
                 font-size: 7px;
                 padding: 2px 6px;
                 border-radius: 3px;
             }
-            
+
             .achievement-tier.bronze { background: #cd7f32; color: #000; }
             .achievement-tier.silver { background: #c0c0c0; color: #000; }
             .achievement-tier.gold { background: #ffd700; color: #000; }
             .achievement-tier.platinum { background: #e5e4e2; color: #000; }
-            
+
             .achievement-description {
                 font-size: 8px;
                 color: #0a0;
                 margin-bottom: 8px;
             }
-            
+
             .achievement-reward {
                 font-size: 8px;
                 color: #0ff;
                 display: flex;
                 gap: 10px;
             }
-            
+
             .achievement-status {
                 position: absolute;
                 top: 8px;
                 right: 8px;
                 font-size: 14px;
             }
-            
+
             /* Daily Quests Section */
             .quests-header {
                 display: flex;
@@ -4438,17 +4440,17 @@ export class MainMenu {
                 align-items: center;
                 margin-bottom: 15px;
             }
-            
+
             .quests-title {
                 font-size: 12px;
                 color: #0ff;
             }
-            
+
             .quests-reset-timer {
                 font-size: 9px;
                 color: #0a0;
             }
-            
+
             .quest-card {
                 background: rgba(0, 25, 0, 0.8);
                 border: 2px solid #0f04;
@@ -4456,38 +4458,38 @@ export class MainMenu {
                 margin-bottom: 12px;
                 transition: all 0.2s ease;
             }
-            
+
             .quest-card:hover {
                 border-color: #0f0;
             }
-            
+
             .quest-card.completed {
                 border-color: #0ff;
                 background: rgba(0, 40, 40, 0.3);
             }
-            
+
             .quest-header {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
                 margin-bottom: 10px;
             }
-            
+
             .quest-name {
                 font-size: 11px;
                 color: #0f0;
             }
-            
+
             .quest-status-icon {
                 font-size: 16px;
             }
-            
+
             .quest-description {
                 font-size: 9px;
                 color: #0a0;
                 margin-bottom: 12px;
             }
-            
+
             .quest-progress-bar-bg {
                 height: 16px;
                 background: #010;
@@ -4495,13 +4497,13 @@ export class MainMenu {
                 position: relative;
                 margin-bottom: 8px;
             }
-            
+
             .quest-progress-bar-fill {
                 height: 100%;
                 background: linear-gradient(90deg, #080 0%, #0f0 100%);
                 transition: width 0.3s ease;
             }
-            
+
             .quest-progress-text {
                 position: absolute;
                 top: 50%;
@@ -4511,22 +4513,22 @@ export class MainMenu {
                 color: #fff;
                 text-shadow: 0 0 3px #000;
             }
-            
+
             .quest-rewards {
                 display: flex;
                 justify-content: flex-end;
                 gap: 15px;
                 font-size: 9px;
             }
-            
+
             .quest-reward {
                 color: #0ff;
             }
-            
+
             .quest-reward-icon {
                 margin-right: 4px;
             }
-            
+
             /* No quests message */
             .no-quests-message {
                 text-align: center;
@@ -4557,13 +4559,16 @@ export class MainMenu {
         this.updateAuthUI();
 
         // Слушаем изменения состояния авторизации
-        if (firebaseService.isInitialized()) {
+        // ИСПРАВЛЕНИЕ: Добавлена защита от повторной регистрации listener
+        if (firebaseService.isInitialized() && !this.authListenerAttached) {
             const auth = (firebaseService as any).auth;
             if (auth) {
                 const { onAuthStateChanged } = require("firebase/auth");
-                onAuthStateChanged(auth, () => {
+                this.authListenerUnsubscribe = onAuthStateChanged(auth, () => {
                     this.updateAuthUI();
                 });
+                this.authListenerAttached = true;
+                debugLog("[Menu] Auth state listener registered");
             }
         }
 
@@ -5158,7 +5163,7 @@ export class MainMenu {
             <div class="panel-content">
                 <button class="panel-close" id="settings-close">✕</button>
                 <div class="panel-title">${L.options}</div>
-                
+
                 <div class="settings-tabs" style="display: flex; gap: 5px; margin-bottom: 20px; border-bottom: 1px solid #444;">
                     <button class="settings-tab active" data-tab="general">Общие</button>
                     <button class="settings-tab" data-tab="graphics">Графика</button>
@@ -5170,7 +5175,7 @@ export class MainMenu {
                     <button class="settings-tab" data-tab="accessibility">Доступность</button>
                     <button class="settings-tab" data-tab="advanced">Дополнительно</button>
                 </div>
-                
+
                 <div id="settings-content">
                     <!-- General Tab -->
                     <div class="settings-tab-content active" data-content="general">
@@ -5233,7 +5238,7 @@ export class MainMenu {
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Graphics Tab -->
                     <div class="settings-tab-content" data-content="graphics">
                         <div class="setting-row">
@@ -5321,7 +5326,7 @@ export class MainMenu {
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Audio Tab -->
                     <div class="settings-tab-content" data-content="audio">
                         <div class="setting-row">
@@ -5364,7 +5369,7 @@ export class MainMenu {
                             <input type="checkbox" class="setting-checkbox" id="set-mute-on-focus-loss" ${this.settings.muteOnFocusLoss ? 'checked' : ''}>
                         </div>
                     </div>
-                    
+
                     <!-- Controls Tab -->
                     <div class="settings-tab-content" data-content="controls">
                         <div class="setting-row">
@@ -5405,7 +5410,7 @@ export class MainMenu {
                             <input type="checkbox" class="setting-checkbox" id="set-touch-controls" ${this.settings.showTouchControls ? 'checked' : ''}>
                         </div>
                     </div>
-                    
+
                     <!-- Gameplay Tab -->
                     <div class="settings-tab-content" data-content="gameplay">
                         <div class="setting-row">
@@ -5455,7 +5460,7 @@ export class MainMenu {
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Camera Tab -->
                     <div class="settings-tab-content" data-content="camera">
                         <div class="setting-row">
@@ -5509,7 +5514,7 @@ export class MainMenu {
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Network Tab -->
                     <div class="settings-tab-content" data-content="network">
                         <div class="setting-row">
@@ -5535,7 +5540,7 @@ export class MainMenu {
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Accessibility Tab -->
                     <div class="settings-tab-content" data-content="accessibility">
                         <div class="setting-row">
@@ -5565,7 +5570,7 @@ export class MainMenu {
                             <input type="checkbox" class="setting-checkbox" id="set-subtitles" ${this.settings.subtitles ? 'checked' : ''}>
                         </div>
                     </div>
-                    
+
                     <!-- Advanced Tab -->
                     <div class="settings-tab-content" data-content="advanced">
                         <div class="setting-row">
@@ -5584,7 +5589,7 @@ export class MainMenu {
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="panel-buttons" style="margin-top: 20px;">
                     <button class="panel-btn primary" id="settings-save">Сохранить</button>
                     <button class="panel-btn danger" id="settings-reset">Сброс</button>
@@ -5962,7 +5967,7 @@ export class MainMenu {
                     ${currentTitle.title}
                 </div>
             </div>
-            
+
             <div class="progress-xp-bar-container">
                 <div class="progress-xp-bar-bg">
                     <div class="progress-xp-bar-fill" style="width: ${xpProgress.percent}%"></div>
@@ -5972,7 +5977,7 @@ export class MainMenu {
                     <span class="progress-xp-percent">(${xpProgress.percent.toFixed(1)}%)</span>
                 </div>
             </div>
-            
+
             <div class="progress-stats-grid">
                 <div class="progress-stat-card">
                     <div class="progress-stat-value">${stats.totalExperience.toLocaleString()}</div>
@@ -5991,7 +5996,7 @@ export class MainMenu {
                     <div class="progress-stat-label">ВРЕМЯ В ИГРЕ</div>
                 </div>
             </div>
-            
+
             <div class="progress-bonuses-grid">
                 <div class="progress-bonus-item">
                     <div class="progress-bonus-value">+${bonuses.healthBonus}</div>
@@ -6010,7 +6015,7 @@ export class MainMenu {
                     <div class="progress-bonus-label">КРЕДИТЫ</div>
                 </div>
             </div>
-            
+
             ${nextTitle ? `
             <div class="progress-next-level">
                 <div class="progress-next-level-title">СЛЕДУЮЩИЙ РАНГ: УРОВЕНЬ ${nextTitle.level}</div>
@@ -6063,7 +6068,7 @@ export class MainMenu {
             <div style="margin-bottom: 15px; text-align: center; color: #0f0; font-size: 11px;">
                 Разблокировано: ${unlockedCount} / ${totalCount}
             </div>
-            
+
             <div class="achievements-category-tabs">
                 <button class="achievement-category-btn ${this.achievementCategoryFilter === 'all' ? 'active' : ''}" data-category="all">
                     ВСЕ (${categoryCounts.all})
@@ -6081,7 +6086,7 @@ export class MainMenu {
                     ⭐ ОСОБЫЕ (${categoryCounts.special})
                 </button>
             </div>
-            
+
             <div class="achievements-grid">
                 ${filtered.map(achievement => {
             const isUnlocked = unlocked.some((u: PlayerAchievement) => u.id === achievement.id);
@@ -6151,7 +6156,7 @@ export class MainMenu {
                 <div class="quests-title">ЕЖЕДНЕВНЫЕ ЗАДАНИЯ (${completedCount}/${dailyQuests.length})</div>
                 <div class="quests-reset-timer">Обновление через: ${hoursLeft}ч ${minutesLeft}м</div>
             </div>
-            
+
             ${dailyQuests.map(quest => {
             const progressPercent = Math.min(100, (quest.progress / quest.target) * 100);
             return `
@@ -6188,7 +6193,7 @@ export class MainMenu {
             <div class="panel-content">
                 <button class="panel-close" id="map-selection-close">✕</button>
                 <div class="panel-title">${L.mapSelection}</div>
-                
+
                 <div class="map-grid">
                     <div class="map-card recommended" id="btn-map-normal">
                         <span class="map-card-icon">🗺</span>
@@ -6272,7 +6277,7 @@ export class MainMenu {
                         <span class="map-card-desc">${L.tartariaMapDesc}</span>
                     </div>
                 </div>
-                
+
                 <div class="panel-buttons" style="margin-top: 20px;">
                     <button class="panel-btn" id="map-selection-back">Назад</button>
                 </div>
@@ -6332,7 +6337,7 @@ export class MainMenu {
         this.playMenuPanel.innerHTML = `
                 <div class="panel-content" style="position: relative; min-height: 100vh; height: 100%;">
                 <div class="panel-title">${L.play || "ИГРАТЬ"}</div>
-                
+
                 <!-- 1. Выбор типа игры (Одиночная / Мультиплеер) -->
                 <div class="play-window" id="play-window-mode" data-order="0" data-step="0" style="display: none;">
                     <div class="play-window-header">
@@ -6353,7 +6358,7 @@ export class MainMenu {
                         </button>
                     </div>
                 </div>
-                
+
                 <!-- 2. Выбор режима игры -->
                 <div class="play-window" id="play-window-gamemode" data-order="1" data-step="1" style="display: none;">
                     <div class="play-window-header">
@@ -6404,7 +6409,7 @@ export class MainMenu {
                         </button>
                     </div>
                 </div>
-                
+
                 <!-- 1.5. Мультиплеер меню -->
                 <div class="play-window" id="play-window-multiplayer" data-order="0.5" data-step="0.5" style="display: none;">
                     <div class="play-window-header">
@@ -6415,7 +6420,7 @@ export class MainMenu {
                         </div>
                     </div>
                     <div class="section-title">🌐 МУЛЬТИПЛЕЕР</div>
-                    
+
                     <!-- Кнопки действий -->
                     <div style="margin: 20px 0;">
                         <div style="display: flex; gap: 10px; flex-direction: column;">
@@ -6432,7 +6437,7 @@ export class MainMenu {
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Список доступных комнат -->
                     <div id="mp-rooms-list" style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid #0f0;">
                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
@@ -6445,7 +6450,7 @@ export class MainMenu {
                             <div style="text-align: center; padding: 20px; color: #888; font-size: 12px;">Загрузка списка комнат...</div>
                         </div>
                     </div>
-                    
+
                     <!-- Статус подключения -->
                     <div id="mp-status-container" style="margin: 15px 0; padding: 10px; background: rgba(0, 0, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
                         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
@@ -6466,7 +6471,7 @@ export class MainMenu {
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Модальное окно для присоединения к комнате -->
                     <div id="mp-join-room-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.8); z-index: 100005 !important; align-items: center; justify-content: center; pointer-events: auto;">
                         <div style="background: linear-gradient(135deg, rgba(20, 20, 30, 0.95) 0%, rgba(30, 30, 40, 0.95) 100%); border: 2px solid #667eea; border-radius: 12px; padding: 30px; max-width: 400px; width: 90%; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); position: relative; z-index: 100006;">
@@ -6486,7 +6491,7 @@ export class MainMenu {
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Модальное окно с детальной информацией о комнате -->
                     <div id="mp-room-details-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); z-index: 100007 !important; align-items: center; justify-content: center; pointer-events: auto; overflow-y: auto;">
                         <div style="background: linear-gradient(135deg, rgba(20, 20, 30, 0.98) 0%, rgba(30, 30, 40, 0.98) 100%); border: 2px solid #667eea; border-radius: 16px; padding: 30px; max-width: 500px; width: 90%; max-height: 90vh; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6); position: relative; z-index: 100008; margin: 20px 0;">
@@ -6500,7 +6505,7 @@ export class MainMenu {
                                     ×
                                 </button>
                             </div>
-                            
+
                             <!-- Основная информация -->
                             <div style="margin-bottom: 20px;">
                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px;">
@@ -6513,7 +6518,7 @@ export class MainMenu {
                                         <div id="mp-room-details-mode" style="font-size: 16px; font-weight: bold; color: #667eea;">-</div>
                                     </div>
                                 </div>
-                                
+
                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px;">
                                     <div style="background: rgba(0, 0, 0, 0.3); padding: 12px; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.2);">
                                         <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Игроков</div>
@@ -6524,13 +6529,13 @@ export class MainMenu {
                                         <div id="mp-room-details-status" style="font-size: 16px; font-weight: bold; color: #a78bfa;">-</div>
                                     </div>
                                 </div>
-                                
+
                                 <div style="background: rgba(0, 0, 0, 0.3); padding: 12px; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.2); margin-bottom: 15px;">
                                     <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Время игры</div>
                                     <div id="mp-room-details-time" style="font-size: 14px; color: #aaa; font-family: monospace;">-</div>
                                 </div>
                             </div>
-                            
+
                             <!-- Прогресс-бар заполненности -->
                             <div style="margin-bottom: 20px;">
                                 <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
@@ -6541,7 +6546,7 @@ export class MainMenu {
                                     <div id="mp-room-details-progress-bar" style="height: 100%; background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); width: 0%; transition: width 0.3s; border-radius: 4px;"></div>
                                 </div>
                             </div>
-                            
+
                             <!-- Список игроков в комнате -->
                             <div style="margin-bottom: 20px;">
                                 <div style="font-size: 12px; font-weight: 600; color: #667eea; margin-bottom: 10px;">👥 Игроки в комнате:</div>
@@ -6549,7 +6554,7 @@ export class MainMenu {
                                     <div style="text-align: center; padding: 10px; color: #888; font-size: 11px;">Загрузка списка игроков...</div>
                                 </div>
                             </div>
-                            
+
                             <!-- Панель управления (только для создателя комнаты) -->
                             <div id="mp-room-details-admin-panel" style="display: none; margin-bottom: 20px; padding: 15px; background: rgba(102, 126, 234, 0.1); border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.3);">
                                 <div style="font-size: 12px; font-weight: 600; color: #a78bfa; margin-bottom: 12px;">⚙️ Управление комнатой:</div>
@@ -6570,7 +6575,7 @@ export class MainMenu {
                                     </button>
                                 </div>
                             </div>
-                            
+
                             <!-- Кнопки действий -->
                             <div style="display: flex; gap: 10px; margin-top: 25px;">
                                 <button id="mp-room-details-join" class="panel-btn primary" style="flex: 1; padding: 14px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; font-size: 14px; font-weight: 600;">
@@ -6582,7 +6587,7 @@ export class MainMenu {
                             </div>
                         </div>
                     </div>
-                    
+
                     <style>
                         @keyframes pulse {
                             0%, 100% { opacity: 1; transform: scale(1); }
@@ -6592,23 +6597,23 @@ export class MainMenu {
                             from { opacity: 0; transform: translateY(-10px); }
                             to { opacity: 1; transform: translateY(0); }
                         }
-                        
+
                         /* Анимации для кнопки "В БОЙ!" */
                         @keyframes battlePulse {
-                            0%, 100% { 
+                            0%, 100% {
                                 box-shadow: 0 0 20px rgba(74, 222, 128, 0.6),
                                            0 0 40px rgba(74, 222, 128, 0.4),
                                            0 0 60px rgba(74, 222, 128, 0.2);
                                 transform: scale(1);
                             }
-                            50% { 
+                            50% {
                                 box-shadow: 0 0 30px rgba(74, 222, 128, 0.8),
                                            0 0 60px rgba(74, 222, 128, 0.6),
                                            0 0 90px rgba(74, 222, 128, 0.4);
                                 transform: scale(1.02);
                             }
                         }
-                        
+
                         @keyframes battleShine {
                             0% {
                                 transform: translateX(-100%) translateY(-100%) rotate(45deg);
@@ -6617,7 +6622,7 @@ export class MainMenu {
                                 transform: translateX(200%) translateY(200%) rotate(45deg);
                             }
                         }
-                        
+
                         @keyframes battleGradient {
                             0% {
                                 background-position: 0% 50%;
@@ -6629,7 +6634,7 @@ export class MainMenu {
                                 background-position: 0% 50%;
                             }
                         }
-                        
+
                         @keyframes battleConstruction {
                             0% {
                                 background-position: -100% 0;
@@ -6638,7 +6643,7 @@ export class MainMenu {
                                 background-position: 200% 0;
                             }
                         }
-                        
+
                         @keyframes battleTextGlow {
                             0%, 100% {
                                 text-shadow: 0 0 10px rgba(74, 222, 128, 0.8),
@@ -6651,11 +6656,11 @@ export class MainMenu {
                                             0 0 45px rgba(74, 222, 128, 0.6);
                             }
                         }
-                        
+
                         /* Стили кнопки "В БОЙ!" */
                         .battle-btn {
-                            background: linear-gradient(135deg, 
-                                rgba(74, 222, 128, 0.4) 0%, 
+                            background: linear-gradient(135deg,
+                                rgba(74, 222, 128, 0.4) 0%,
                                 rgba(34, 197, 94, 0.4) 50%,
                                 rgba(74, 222, 128, 0.4) 100%);
                             background-size: 200% 200%;
@@ -6667,7 +6672,7 @@ export class MainMenu {
                             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
                             animation: battleGradient 3s ease infinite, battlePulse 2s ease-in-out infinite;
                         }
-                        
+
                         .battle-btn::before {
                             content: '';
                             position: absolute;
@@ -6685,14 +6690,14 @@ export class MainMenu {
                             animation: battleConstruction 3s linear infinite;
                             pointer-events: none;
                         }
-                        
+
                         .battle-btn-text {
                             position: relative;
                             z-index: 2;
                             display: block;
                             animation: battleTextGlow 2s ease-in-out infinite;
                         }
-                        
+
                         .battle-btn-shine {
                             position: absolute;
                             top: -50%;
@@ -6709,25 +6714,25 @@ export class MainMenu {
                             pointer-events: none;
                             z-index: 1;
                         }
-                        
+
                         .battle-btn:hover {
                             transform: scale(1.05) translateY(-2px);
                             box-shadow: 0 0 40px rgba(74, 222, 128, 0.8),
                                        0 0 80px rgba(74, 222, 128, 0.6),
                                        0 0 120px rgba(74, 222, 128, 0.4);
                             border-color: #22c55e;
-                            background: linear-gradient(135deg, 
-                                rgba(74, 222, 128, 0.6) 0%, 
+                            background: linear-gradient(135deg,
+                                rgba(74, 222, 128, 0.6) 0%,
                                 rgba(34, 197, 94, 0.6) 50%,
                                 rgba(74, 222, 128, 0.6) 100%);
                             background-size: 200% 200%;
                         }
-                        
+
                         .battle-btn:active {
                             transform: scale(0.98) translateY(0);
                             animation: none;
                         }
-                        
+
                         .battle-btn-ready {
                             animation: battleGradient 3s ease infinite, battlePulse 2s ease-in-out infinite;
                         }
@@ -6759,31 +6764,31 @@ export class MainMenu {
                             border-color: #667eea;
                             box-shadow: 0 0 8px rgba(102, 126, 234, 0.4);
                         }
-                        
+
                         /* Стили для детального меню комнаты */
                         #mp-room-details-modal {
                             animation: fadeIn 0.3s ease;
                         }
-                        
+
                         #mp-room-details-modal > div {
                             animation: slideUp 0.3s ease;
                         }
-                        
+
                         #mp-room-details-close:hover {
                             background: rgba(239, 68, 68, 0.4) !important;
                             transform: scale(1.1);
                         }
-                        
+
                         #mp-room-details-join:hover {
                             transform: translateY(-2px);
                             box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
                         }
-                        
+
                         #mp-room-details-copy-id:hover {
                             background: rgba(102, 126, 234, 0.3) !important;
                             transform: scale(1.1);
                         }
-                        
+
                         @keyframes slideUp {
                             from {
                                 opacity: 0;
@@ -6796,7 +6801,7 @@ export class MainMenu {
                         }
                     </style>
                 </div>
-                
+
                 <!-- Панель выбора режима для создания комнаты -->
                 <div class="play-window" id="mp-create-room-mode" data-order="1" data-step="1" style="display: none;">
                     <div class="play-window-header">
@@ -6838,7 +6843,7 @@ export class MainMenu {
                         </button>
                     </div>
                 </div>
-                
+
                 <!-- Панель выбора карты для создания комнаты -->
                 <div class="play-window play-window-wide" id="mp-create-room-map" data-order="2" data-step="2" style="display: none; pointer-events: auto; position: relative; z-index: 100010;">
                     <div class="play-window-header">
@@ -6916,7 +6921,7 @@ export class MainMenu {
                             <span class="map-card-name">${L.tartariaMap || "Тартария"}</span>
                         </div>
                     </div>
-                    
+
                     <!-- Настройки ботов -->
                     <div class="bot-settings" style="margin-top: 15px; padding: 12px; background: rgba(0, 0, 0, 0.3); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1);">
                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
@@ -6933,7 +6938,7 @@ export class MainMenu {
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Кнопка "Создать комнату" -->
                     <div class="panel-buttons" style="margin-top: 20px; display: flex; gap: 10px;">
                         <button class="panel-btn primary" id="mp-create-room-start-btn" onclick="window.startMpCreateRoom()" style="flex: 1; padding: 14px; font-size: 16px; font-weight: bold; background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%); border: none;">
@@ -6941,7 +6946,7 @@ export class MainMenu {
                         </button>
                     </div>
                 </div>
-                
+
                 <!-- Панель созданной комнаты -->
                 <div class="play-window" id="mp-room-panel" data-order="3" data-step="3" style="display: none;">
                     <div class="play-window-header">
@@ -6957,7 +6962,7 @@ export class MainMenu {
                         <span id="mp-room-panel-id" style="font-size: 14px; color: #4ade80; font-family: monospace; background: rgba(0, 0, 0, 0.3); padding: 4px 10px; border-radius: 4px;">----</span>
                         <button id="mp-room-panel-copy-id" style="padding: 4px 8px; font-size: 12px; background: rgba(0, 255, 0, 0.2); border: 1px solid #0f0; border-radius: 4px; color: #0f0; cursor: pointer;" title="Копировать ID">📋</button>
                     </div>
-                    
+
                     <!-- Информация о комнате -->
                     <div style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
@@ -6979,7 +6984,7 @@ export class MainMenu {
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Команды (для TDM/CTF) -->
                     <div id="mp-room-panel-teams" style="display: none; margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
@@ -7014,7 +7019,7 @@ export class MainMenu {
                             Баланс: <span id="mp-room-panel-balance-status" style="color: #4ade80;">Сбалансировано</span>
                         </div>
                     </div>
-                    
+
                     <!-- Список игроков -->
                     <div style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
@@ -7035,7 +7040,7 @@ export class MainMenu {
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Чат комнаты -->
                     <div style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
                         <div style="font-weight: bold; color: #0f0; font-size: 14px; margin-bottom: 10px;">💬 Чат комнаты</div>
@@ -7067,7 +7072,7 @@ export class MainMenu {
                             ">Отправить</button>
                         </div>
                     </div>
-                    
+
                     <!-- Настройки комнаты (только для хоста) -->
                     <div id="mp-room-panel-settings" style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
@@ -7096,7 +7101,7 @@ export class MainMenu {
                                 <span>32</span>
                             </div>
                         </div>
-                        
+
                         <!-- Время раунда -->
                         <div style="margin-bottom: 15px;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -7109,7 +7114,7 @@ export class MainMenu {
                                 <span>60</span>
                             </div>
                         </div>
-                        
+
                         <!-- Лимит убийств/очков -->
                         <div style="margin-bottom: 15px;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -7122,11 +7127,11 @@ export class MainMenu {
                                 <span>200</span>
                             </div>
                         </div>
-                        
+
                         <!-- Настройки танков и оружия -->
                         <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(0, 255, 0, 0.2);">
                             <div style="font-weight: bold; color: #0f0; font-size: 12px; margin-bottom: 10px;">🚫 Ограничения</div>
-                            
+
                             <!-- Разрешенные танки -->
                             <div style="margin-bottom: 10px;">
                                 <label style="font-size: 11px; color: #aaa; display: block; margin-bottom: 6px;">Разрешенные классы танков:</label>
@@ -7149,7 +7154,7 @@ export class MainMenu {
                                     </label>
                                 </div>
                             </div>
-                            
+
                             <!-- Разрешенное оружие -->
                             <div style="margin-bottom: 10px;">
                                 <label style="font-size: 11px; color: #aaa; display: block; margin-bottom: 6px;">Разрешенные типы оружия:</label>
@@ -7173,7 +7178,7 @@ export class MainMenu {
                                 </div>
                             </div>
                         </div>
-                        
+
                         <!-- Автозапуск при готовности -->
                         <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(0, 255, 0, 0.2);">
                             <label style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: #aaa; cursor: pointer;">
@@ -7181,14 +7186,14 @@ export class MainMenu {
                                 <span>🚀 Автозапуск при готовности всех игроков</span>
                             </label>
                         </div>
-                        
+
                         <!-- Кнопка сохранения настроек -->
                         <button class="panel-btn" id="mp-room-panel-save-settings" style="width: 100%; padding: 10px; font-size: 12px; background: rgba(74, 222, 128, 0.2); border-color: #4ade80; color: #4ade80; margin-top: 10px;">
                             💾 Сохранить настройки
                         </button>
                         </div>
                     </div>
-                    
+
                     <!-- Приглашения -->
                     <div style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
                         <div style="font-weight: bold; color: #0f0; font-size: 14px; margin-bottom: 10px;">📨 Приглашения</div>
@@ -7210,7 +7215,7 @@ export class MainMenu {
                             </button>
                         </div>
                     </div>
-                    
+
                     <!-- Управление комнатой (только для хоста) -->
                     <div id="mp-room-panel-controls" style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
                         <div style="font-weight: bold; color: #0f0; font-size: 14px; margin-bottom: 10px;">⚙️ Управление комнатой</div>
@@ -7229,7 +7234,7 @@ export class MainMenu {
                             </button>
                         </div>
                     </div>
-                    
+
                     <!-- Кнопки действий -->
                     <div style="margin-top: 20px; display: flex; flex-direction: column; gap: 10px;">
                         <button class="panel-btn primary battle-btn" id="mp-room-panel-start-game" style="width: 100%; padding: 14px; font-size: 18px; font-weight: bold;">
@@ -7241,7 +7246,7 @@ export class MainMenu {
                         </button>
                     </div>
                 </div>
-                
+
                 <!-- 3. Выбор карты -->
                 <div class="play-window play-window-wide" id="play-window-map" data-order="2" data-step="2">
                     <div class="play-window-header">
@@ -7323,7 +7328,7 @@ export class MainMenu {
                     <!-- Динамически добавляем сохраненные карты -->
                     <div id="custom-maps-container" style="margin-top: 20px;"></div>
                 </div>
-                
+
                 <!-- 4. Выбор танка -->
                 <div class="play-window" id="play-window-tank" data-order="3" data-step="3">
                     <div class="play-window-header">
@@ -7335,7 +7340,7 @@ export class MainMenu {
                         </div>
                     </div>
                     <div class="section-title">3. Выбор танка</div>
-                    
+
                     <!-- Пресеты танков -->
                     <div style="margin-bottom: 20px;">
                         <div style="font-weight: bold; margin-bottom: 10px;">Пресет танка:</div>
@@ -7354,7 +7359,7 @@ export class MainMenu {
                             </button>
                         </div>
                     </div>
-                    
+
                     <!-- Детальный выбор -->
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;">
                         <div>
@@ -7370,15 +7375,15 @@ export class MainMenu {
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Кнопки действий -->
                     <div class="panel-buttons" style="margin-top: 20px; display: flex; gap: 10px;">
                         <button class="panel-btn" id="btn-tank-garage" style="flex: 1;">⚙️ ГАРАЖ</button>
                         <button class="panel-btn primary" id="btn-start-game" style="flex: 2;">В БОЙ!</button>
                     </div>
                 </div>
-                
-                
+
+
                 <!-- Кнопка назад -->
                 <div class="panel-buttons" style="margin-top: 20px;">
                     <button class="panel-btn" id="play-menu-back">Назад</button>
@@ -8557,7 +8562,7 @@ export class MainMenu {
                 <div style="display: flex; gap: 4px; align-items: center;">
                     ${isReady ? '<span style="color: #4ade80; font-size: 12px;">✓ Готов</span>' : '<span style="color: #888; font-size: 12px;">Не готов</span>'}
                     ${!isCurrentPlayer && isCreator ? `
-                        <button class="room-player-kick-btn" data-player-id="${player.id}" data-player-name="${player.name}" 
+                        <button class="room-player-kick-btn" data-player-id="${player.id}" data-player-name="${player.name}"
                                 style="padding: 4px 8px; font-size: 9px; background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; border-radius: 3px; color: #ef4444; cursor: pointer; transition: all 0.2s;"
                                 title="Кикнуть игрока">
                             🚫
@@ -12051,7 +12056,7 @@ export class MainMenu {
                 </div>
                 <div style="display: flex; gap: 6px;">
                     ${!isCurrentPlayer && isCreator ? `
-                        <button class="room-details-player-kick-btn" data-player-id="${player.id}" data-player-name="${player.name}" 
+                        <button class="room-details-player-kick-btn" data-player-id="${player.id}" data-player-name="${player.name}"
                                 style="padding: 6px 10px; font-size: 10px; background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; border-radius: 4px; color: #ef4444; cursor: pointer; transition: all 0.2s;"
                                 title="Кикнуть игрока">
                             🚫 Кик
