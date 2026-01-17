@@ -1,12 +1,12 @@
 import { Vector3 } from "@babylonjs/core";
-import { createClientMessage, deserializeMessage, serializeMessage } from "../shared/protocol";
-import type { ClientMessage, ServerMessage, ClientMetricsData, PingData, PongData, PlayerStatesData, ChatMessageData, ConsumablePickupData, ErrorData, OnlinePlayersListData } from "../shared/messages";
-import { ClientMessageType, ServerMessageType } from "../shared/messages";
-import type { PlayerData, PlayerInput, GameMode, PredictedState, ClientPredictionState, NetworkMetrics, ProjectileData, EnemyData, FlagData, Vector3Data } from "../shared/types";
 import { nanoid } from "nanoid";
-import { logger } from "./utils/logger";
-import { getSkinById, getDefaultSkin } from "./tank/tankSkins";
+import type { ChatMessageData, ClientMessage, ClientMetricsData, ConsumablePickupData, ErrorData, OnlinePlayersListData, PingData, PlayerStatesData, PongData, ServerMessage } from "../shared/messages";
+import { ClientMessageType, ServerMessageType } from "../shared/messages";
+import { createClientMessage, deserializeMessage, serializeMessage } from "../shared/protocol";
+import type { ClientPredictionState, EnemyData, FlagData, GameMode, NetworkMetrics, PlayerData, PlayerInput, PredictedState, ProjectileData, Vector3Data } from "../shared/types";
 import { firebaseService } from "./firebaseService";
+import { getDefaultSkin, getSkinById } from "./tank/tankSkins";
+import { logger } from "./utils/logger";
 import { voiceChatManager } from "./voiceChat";
 
 /**
@@ -243,7 +243,7 @@ function validateWebSocketUrl(url: string): boolean {
     }
 }
 
-function getWebSocketUrl(defaultPort: number = 8080): string {
+function getWebSocketUrl(defaultPort: number = 8000): string {
     // Проверяем переменную окружения (приоритет)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const envUrl = (import.meta as any).env?.VITE_WS_SERVER_URL;
@@ -1286,7 +1286,7 @@ export class MultiplayerManager {
             return;
         }
 
-        // Дополнительная проверка - если RTT подозрительно высокий (> 1000ms), 
+        // Дополнительная проверка - если RTT подозрительно высокий (> 1000ms),
         // используем меньший вес для EWMA
         const isSuspiciousRTT = rtt > 1000;
 
@@ -2117,7 +2117,7 @@ export class MultiplayerManager {
                 continue;
             }
 
-            // Handle out-of-order: if this packet is much newer than expected, 
+            // Handle out-of-order: if this packet is much newer than expected,
             // it means we missed some packets - update lastProcessedSequence accordingly
             const expectedNext = this.lastProcessedSequence + 1;
             if (entry.sequence > expectedNext && this.lastProcessedSequence >= 0) {
@@ -2824,7 +2824,7 @@ export class MultiplayerManager {
     /**
      * Reconcile server state with client predictions
      * Implements proper rollback and re-application of inputs
-     * 
+     *
      * Algorithm:
      * 1. Find the predicted state for the server's confirmed sequence
      * 2. Compare server position with predicted position

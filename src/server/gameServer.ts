@@ -1245,7 +1245,11 @@ export class GameServer {
             playerId: player.id,
             playerName: player.name,
             position: spawnPos,
-            health: player.health
+            health: player.health,
+            maxHealth: player.maxHealth,
+            team: player.team,
+            chassisType: player.chassisType,
+            cannonType: player.cannonType
         }));
 
         serverLogger.log(`[Server] ✅ PLAYER_RESPAWNED broadcast complete for ${player.name}`);
@@ -1483,7 +1487,10 @@ export class GameServer {
             playerName: player.name,
             position: { x: spawnPos.x, y: spawnPos.y, z: spawnPos.z },
             health: player.health,
-            maxHealth: player.maxHealth
+            maxHealth: player.maxHealth,
+            team: player.team,
+            chassisType: player.chassisType,
+            cannonType: player.cannonType
         }));
     }
 

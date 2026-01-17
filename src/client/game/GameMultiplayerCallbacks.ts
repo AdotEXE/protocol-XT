@@ -414,9 +414,43 @@ export class GameMultiplayerCallbacks {
             } else {
                 console.warn(`[Game] ⚠️ Respawned player ${data.playerId} tank NOT FOUND in networkPlayerTanks`);
 
-                // Optional: Force immediate recreating of tank if it's missing but should exist
-                // This might be needed if the tank was cleaned up during death
-                // But typically onPlayerStates should handle creation
+                // КРИТИЧНО: Пересоздаем танк, если он был удален во время смерти
+                // Это гарантирует, что другие игроки увидят респавнувшегося игрока
+                const localPlayerId = this.deps.multiplayerManager?.getPlayerId();
+                if (data.playerId !== localPlayerId) {
+                    console.log(`[Game] ♻️ Recreating missing tank for respawned player ${data.playerId}`);
+
+                    const playerData = {
+                        id: data.playerId,
+                        name: data.playerName || 'Player',
+                        position: data.position,
+                        rotation: 0,
+                        turretRotation: 0,
+                        aimPitch: 0,
+                        health: data.health || 100,
+                        maxHealth: data.maxHealth || 100,
+                        status: "alive",
+                        team: data.team,
+                        chassisType: data.chassisType,
+                        cannonType: data.cannonType
+                    };
+
+                    // Добавляем или обновляем networkPlayer
+                    let networkPlayer = mm.getNetworkPlayer(data.playerId);
+                    if (!networkPlayer) {
+                        (mm as any).addNetworkPlayer(playerData);
+                        networkPlayer = mm.getNetworkPlayer(data.playerId);
+                    }
+
+                    // Создаем танк через очередь (если сцена еще не готова)
+                    if (networkPlayer) {
+                        if (this.deps.scene) {
+                            this.createNetworkPlayerTankInternal(playerData, networkPlayer);
+                        } else {
+                            this.queueNetworkPlayerForCreation(playerData);
+                        }
+                    }
+                }
             }
         });
 
