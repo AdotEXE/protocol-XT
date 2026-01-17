@@ -7,12 +7,17 @@ import {
     signOut as firebaseSignOut,
     getAuth,
     getIdToken,
+    getRedirectResult,
+    isSignInWithEmailLink,
     onAuthStateChanged,
     sendEmailVerification,
     sendPasswordResetEmail,
+    sendSignInLinkToEmail,
     signInAnonymously,
     signInWithEmailAndPassword,
-    signInWithPopup
+    signInWithEmailLink,
+    signInWithPopup,
+    signInWithRedirect
 } from "firebase/auth";
 import {
     Firestore,
@@ -168,8 +173,8 @@ function checkIdentityToolkitAPIWarnings(projectId: string, apiKey: string): str
 // Validate configuration
 const configValidation = validateFirebaseConfig(firebaseConfig);
 const hasRealConfig = configValidation.valid &&
-                     firebaseConfig.apiKey !== "demo-key" &&
-                     firebaseConfig.projectId !== "demo-project";
+    firebaseConfig.apiKey !== "demo-key" &&
+    firebaseConfig.projectId !== "demo-project";
 
 if (!hasRealConfig) {
     // console.warn("[Firebase] ⚠️ Invalid or missing Firebase configuration!");
@@ -498,19 +503,19 @@ export class FirebaseService {
                             const errorMessage = error?.message || 'Unknown error';
                             const errorResponse = error?.response || error?.serverResponse || null;
 
-            // Log full error details for debugging
-            console.error("[Firebase] ❌ Authentication error details:", {
-                code: errorCode,
-                message: errorMessage,
-                apiKey: maskApiKey(firebaseConfig.apiKey),
-                projectId: firebaseConfig.projectId,
-                origin: window.location.origin,
-                hasResponse: !!errorResponse
-            });
+                            // Log full error details for debugging
+                            console.error("[Firebase] ❌ Authentication error details:", {
+                                code: errorCode,
+                                message: errorMessage,
+                                apiKey: maskApiKey(firebaseConfig.apiKey),
+                                projectId: firebaseConfig.projectId,
+                                origin: window.location.origin,
+                                hasResponse: !!errorResponse
+                            });
 
-            if (errorResponse) {
-                console.error("[Firebase] Error response:", errorResponse);
-            }
+                            if (errorResponse) {
+                                console.error("[Firebase] Error response:", errorResponse);
+                            }
 
                             // УЛУЧШЕНО: Обработка ошибки блокировки Identity Toolkit API
                             if (errorCode === 'auth/requests-to-this-api-identitytoolkit-method-google.cloud.identitytoolkit.v1.projectconfigservice.getprojectconfig-are-blocked' ||
@@ -1157,7 +1162,8 @@ export class FirebaseService {
     }
 
     /**
-     * Вход через Google
+     * Вход через Google (redirect - для обхода COOP policy)
+     * После вызова этого метода страница перенаправится на Google, затем обратно
      */
     async signInWithGoogle(): Promise<{ success: boolean; error?: string; username?: string }> {
         if (!this.auth) {
@@ -1166,17 +1172,43 @@ export class FirebaseService {
 
         try {
             const provider = new GoogleAuthProvider();
-            const userCredential = await signInWithPopup(this.auth, provider);
-            this.currentUser = userCredential.user;
+            // Используем redirect вместо popup для обхода COOP policy
+            await signInWithRedirect(this.auth, provider);
+            // После redirect страница перезагрузится, результат обработается в handleGoogleRedirectResult
+            return { success: true };
+        } catch (error: any) {
+            console.error("[Firebase] Google sign in error:", error);
+            return { success: false, error: error.message || "Google sign in failed" };
+        }
+    }
+
+    /**
+     * Обработка результата Google redirect (вызывать при загрузке страницы)
+     */
+    async handleGoogleRedirectResult(): Promise<{ success: boolean; error?: string; username?: string }> {
+        if (!this.auth) {
+            return { success: false, error: "Auth not initialized" };
+        }
+
+        try {
+            const result = await getRedirectResult(this.auth);
+
+            if (!result) {
+                // Не было redirect, это нормально
+                return { success: false };
+            }
+
+            this.currentUser = result.user;
+            this.authenticated = true;
 
             // Проверяем, есть ли уже username
             const username = await this.getUsername();
 
             // Если username нет, создаем из email или displayName
             if (!username) {
-                const newUsername = userCredential.user.displayName?.replace(/\s+/g, '_').toLowerCase() ||
-                                   userCredential.user.email?.split('@')[0] ||
-                                   `user_${userCredential.user.uid.substring(0, 8)}`;
+                const newUsername = result.user.displayName?.replace(/\s+/g, '_').toLowerCase() ||
+                    result.user.email?.split('@')[0] ||
+                    `user_${result.user.uid.substring(0, 8)}`;
 
                 // Проверяем доступность и добавляем суффикс если нужно
                 let finalUsername = newUsername;
@@ -1190,31 +1222,33 @@ export class FirebaseService {
             }
 
             // Создаем или обновляем запись пользователя
-            const userDocRef = doc(this.db!, "users", userCredential.user.uid);
-            const userDoc = await getDoc(userDocRef);
+            if (this.db) {
+                const userDocRef = doc(this.db, "users", result.user.uid);
+                const userDoc = await getDoc(userDocRef);
 
-            if (!userDoc.exists()) {
-                const userData: UserData = {
-                    username: username || userCredential.user.displayName?.replace(/\s+/g, '_').toLowerCase() || "user",
-                    email: userCredential.user.email || "",
-                    emailVerified: userCredential.user.emailVerified,
-                    createdAt: Timestamp.now(),
-                    lastLogin: Timestamp.now()
-                };
-                await setDoc(userDocRef, userData);
-            } else {
-                await updateDoc(userDocRef, {
-                    lastLogin: serverTimestamp(),
-                    emailVerified: userCredential.user.emailVerified
-                });
+                if (!userDoc.exists()) {
+                    const userData: UserData = {
+                        username: username || result.user.displayName?.replace(/\s+/g, '_').toLowerCase() || "user",
+                        email: result.user.email || "",
+                        emailVerified: result.user.emailVerified,
+                        createdAt: Timestamp.now(),
+                        lastLogin: Timestamp.now()
+                    };
+                    await setDoc(userDocRef, userData);
+                } else {
+                    await updateDoc(userDocRef, {
+                        lastLogin: serverTimestamp(),
+                        emailVerified: result.user.emailVerified
+                    });
+                }
             }
 
             await this.updateLastLogin();
 
-            console.log("[Firebase] User signed in with Google:", userCredential.user.uid);
+            console.log("[Firebase] ✅ Google redirect sign-in completed:", result.user.uid);
             return { success: true, username: await this.getUsername() || undefined };
         } catch (error: any) {
-            console.error("[Firebase] Google sign in error:", error);
+            console.error("[Firebase] Google redirect result error:", error);
             return { success: false, error: error.message || "Google sign in failed" };
         }
     }
@@ -1252,6 +1286,108 @@ export class FirebaseService {
         } catch (error: any) {
             console.error("[Firebase] Send password reset email error:", error);
             return { success: false, error: error.message || "Failed to send password reset email" };
+        }
+    }
+
+    // === EMAIL LINK (PASSWORDLESS) AUTHENTICATION ===
+
+    /**
+     * Отправка ссылки для входа без пароля (passwordless)
+     * @param email - Email пользователя
+     * @param redirectUrl - URL для перенаправления после входа (по умолчанию текущий URL)
+     */
+    async sendEmailSignInLink(email: string, redirectUrl?: string): Promise<{ success: boolean; error?: string }> {
+        if (!this.auth) {
+            return { success: false, error: "Auth not initialized" };
+        }
+
+        try {
+            const actionCodeSettings = {
+                // URL для перенаправления после клика по ссылке
+                url: redirectUrl || window.location.origin + '/auth/callback',
+                // Открывать ссылку в приложении, а не в браузере
+                handleCodeInApp: true,
+            };
+
+            await sendSignInLinkToEmail(this.auth, email, actionCodeSettings);
+
+            // Сохраняем email в localStorage для завершения входа
+            localStorage.setItem('emailForSignIn', email);
+
+            console.log("[Firebase] ✅ Email sign-in link sent to:", email);
+            return { success: true };
+        } catch (error: any) {
+            console.error("[Firebase] ❌ Send email sign-in link error:", error);
+            return { success: false, error: error.message || "Failed to send sign-in link" };
+        }
+    }
+
+    /**
+     * Проверяет, является ли текущий URL ссылкой для входа
+     * @param url - URL для проверки (по умолчанию текущий URL)
+     */
+    isEmailSignInLink(url?: string): boolean {
+        if (!this.auth) return false;
+        return isSignInWithEmailLink(this.auth, url || window.location.href);
+    }
+
+    /**
+     * Завершение входа по ссылке из email
+     * @param email - Email пользователя (если не указан, берется из localStorage)
+     * @param url - URL со ссылкой для входа (по умолчанию текущий URL)
+     */
+    async completeEmailLinkSignIn(email?: string, url?: string): Promise<{ success: boolean; error?: string; isNewUser?: boolean }> {
+        if (!this.auth) {
+            return { success: false, error: "Auth not initialized" };
+        }
+
+        try {
+            const signInUrl = url || window.location.href;
+
+            // Проверяем, что это действительно ссылка для входа
+            if (!isSignInWithEmailLink(this.auth, signInUrl)) {
+                return { success: false, error: "Invalid sign-in link" };
+            }
+
+            // Получаем email из параметра или localStorage
+            let userEmail = email || localStorage.getItem('emailForSignIn');
+
+            if (!userEmail) {
+                // Если email не найден, просим пользователя ввести его
+                return { success: false, error: "Please provide your email for confirmation" };
+            }
+
+            // Выполняем вход
+            const userCredential = await signInWithEmailLink(this.auth, userEmail, signInUrl);
+            this.currentUser = userCredential.user;
+            this.authenticated = true;
+
+            // Очищаем сохраненный email
+            localStorage.removeItem('emailForSignIn');
+
+            // Проверяем, новый ли это пользователь
+            const isNewUser = userCredential.user.metadata.creationTime === userCredential.user.metadata.lastSignInTime;
+
+            // Создаем запись пользователя если новый
+            if (isNewUser && this.db) {
+                const userDocRef = doc(this.db, "users", userCredential.user.uid);
+                const userData: UserData = {
+                    username: userEmail.split('@')[0] || `user_${userCredential.user.uid.substring(0, 8)}`,
+                    email: userEmail,
+                    emailVerified: userCredential.user.emailVerified,
+                    createdAt: Timestamp.now(),
+                    lastLogin: Timestamp.now()
+                };
+                await setDoc(userDocRef, userData);
+            } else {
+                await this.updateLastLogin();
+            }
+
+            console.log("[Firebase] ✅ Email link sign-in completed:", userCredential.user.uid);
+            return { success: true, isNewUser };
+        } catch (error: any) {
+            console.error("[Firebase] ❌ Complete email link sign-in error:", error);
+            return { success: false, error: error.message || "Failed to complete sign-in" };
         }
     }
 

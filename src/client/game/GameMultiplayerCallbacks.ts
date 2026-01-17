@@ -396,6 +396,26 @@ export class GameMultiplayerCallbacks {
 
         mm.onPlayerRespawned((data) => {
             console.log(`[Game] ♻️ PLAYER_RESPAWNED received for ${data.playerId} at ${JSON.stringify(data.position)}`);
+
+            // КРИТИЧНО: Обновляем статус networkPlayer на "alive" ПЕРЕД обновлением танка
+            // Иначе updateVisibility() будет скрывать танк каждый кадр, так как статус останется "dead"
+            const networkPlayer = this.deps.multiplayerManager?.getNetworkPlayer(data.playerId);
+            if (networkPlayer) {
+                console.log(`[Game] ♻️ Setting networkPlayer.status to 'alive' for ${data.playerId}`);
+                networkPlayer.status = "alive";
+                networkPlayer.health = data.health || 100;
+                networkPlayer.maxHealth = data.maxHealth || 100;
+
+                // Обновляем позициюNetworkPlayer чтобы интерполяция не сходила с ума
+                if (data.position) {
+                    if (networkPlayer.position instanceof Vector3) {
+                        networkPlayer.position.set(data.position.x, data.position.y, data.position.z);
+                    } else {
+                        (networkPlayer.position as any) = new Vector3(data.position.x, data.position.y, data.position.z);
+                    }
+                }
+            }
+
             const tank = this.deps.networkPlayerTanks.get(data.playerId);
             if (tank) {
                 // Ensure position is valid
@@ -409,7 +429,7 @@ export class GameMultiplayerCallbacks {
 
                 // Update health bar if valid
                 if (data.health && data.maxHealth) {
-                    tank.updateHealth(data.health, data.maxHealth);
+                    tank.setHealth(data.health, data.maxHealth);
                 }
             } else {
                 console.warn(`[Game] ⚠️ Respawned player ${data.playerId} tank NOT FOUND in networkPlayerTanks`);
@@ -417,6 +437,102 @@ export class GameMultiplayerCallbacks {
                 // Optional: Force immediate recreating of tank if it's missing but should exist
                 // This might be needed if the tank was cleaned up during death
                 // But typically onPlayerStates should handle creation
+            }
+        });
+
+        // =========================================================================
+        // КРИТИЧНО: Обработка получения урона для сетевых игроков
+        // =========================================================================
+        mm.onPlayerDamaged((data) => {
+            console.log(`[Game] 💥 PLAYER_DAMAGED received: player=${data.playerId}, damage=${data.damage}, health=${data.health}/${data.maxHealth}`);
+
+            // Если это урон для локального игрока - обрабатываем через tankController
+            const localPlayerId = this.deps.multiplayerManager?.getPlayerId();
+            if (data.playerId === localPlayerId) {
+                // Локальный игрок получает урон от сервера
+                if (this.deps.tank) {
+                    console.log(`[Game] 💥 Local player taking ${data.damage} damage from server`);
+                    this.deps.tank.setHealth(data.health);
+                    // Показываем индикатор получения урона
+                    if (this.deps.hud) {
+                        this.deps.hud.showDamageIndicator(data.damage);
+                    }
+                }
+                return;
+            }
+
+            // Для сетевых игроков - обновляем NetworkPlayerTank
+            const tank = this.deps.networkPlayerTanks.get(data.playerId);
+            if (tank) {
+                console.log(`[Game] 💥 Updating network player ${data.playerId} health to ${data.health}/${data.maxHealth}`);
+                tank.setHealth(data.health, data.maxHealth);
+
+                // Опционально: визуальный эффект получения урона
+                if (this.deps.effectsManager && (tank as any).getPosition) {
+                    // Можно добавить искры или небольшой эффект удара
+                }
+            } else {
+                console.warn(`[Game] ⚠️ PLAYER_DAMAGED: tank for player ${data.playerId} not found in networkPlayerTanks`);
+            }
+        });
+
+        // =========================================================================
+        // КРИТИЧНО: Обработка смерти для сетевых игроков
+        // =========================================================================
+        mm.onPlayerDied((data) => {
+            console.log(`[Game] 💀 PLAYER_DIED received: playerId=${data.playerId}`);
+
+            // Если это смерть локального игрока
+            const localPlayerId = this.deps.multiplayerManager?.getPlayerId();
+            if (data.playerId === localPlayerId) {
+                console.log(`[Game] 💀 Local player died from server notification`);
+                // Локальный игрок обрабатывает смерть через tankController.die()
+                // Обычно это уже сделано локально, но на случай если сервер первый
+                if (this.deps.tank) {
+                    this.deps.tank.die();
+                }
+                return;
+            }
+
+            // Для сетевых игроков - обновляем NetworkPlayerTank
+            const tank = this.deps.networkPlayerTanks.get(data.playerId);
+            if (tank) {
+                console.log(`[Game] 💀 Setting network player ${data.playerId} to DEAD state`);
+                // Устанавливаем мёртвое состояние (скрываем танк, показываем эффект взрыва)
+                tank.setDead();
+
+                // Показываем эффект взрыва
+                tank.playDeathEffect();
+            } else {
+                console.warn(`[Game] ⚠️ PLAYER_DIED: tank for player ${data.playerId} not found in networkPlayerTanks`);
+            }
+        });
+
+        // =========================================================================
+        // КРИТИЧНО: Обработка события убийства (для килфида и статистики)
+        // =========================================================================
+        mm.onPlayerKilled((data) => {
+            console.log(`[Game] ⚔️ PLAYER_KILLED received: killer=${data.killerName || data.killerId}, victim=${data.victimName || data.victimId}`);
+
+            // Показываем сообщение в HUD/чате
+            if (this.deps.hud) {
+                const killerName = data.killerName || 'Неизвестный';
+                const victimName = data.victimName || 'Игрок';
+                this.deps.hud.showMessage(`⚔️ ${killerName} уничтожил ${victimName}`, "#ff6b6b", 3000);
+            }
+
+            // Добавляем в чат (killfeed)
+            if (this.deps.chatSystem) {
+                const killerName = data.killerName || 'Неизвестный';
+                const victimName = data.victimName || 'Игрок';
+                this.deps.chatSystem.addMessage(`⚔️ ${killerName} уничтожил ${victimName}`, "combat", 1);
+            }
+
+            // Если локальный игрок - убийца, можно показать "+100" или что-то подобное
+            const localPlayerId = this.deps.multiplayerManager?.getPlayerId();
+            if (data.killerId === localPlayerId && this.deps.hud) {
+                // Показываем бонус за убийство
+                this.deps.hud.showMessage("+100", "#4ade80", 1500);
             }
         });
 

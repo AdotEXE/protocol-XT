@@ -26,7 +26,7 @@ export interface ITankController {
     physicsBody: PhysicsBody;
     chassisType: ChassisType;
     cannonType: CannonType;
-    
+
     // Системы
     hud: HUD | null;
     soundManager: SoundManager | null;
@@ -34,7 +34,7 @@ export interface ITankController {
     enemyManager: EnemyManager | null;
     enemyTanks: any[];
     networkPlayers: Map<string, any> | null;
-    
+
     // Callbacks
     chatSystem: any;
     experienceSystem: any;
@@ -42,7 +42,8 @@ export interface ITankController {
     achievementsSystem: any;
     cameraShakeCallback?: ((intensity: number) => void) | null;
     respawnPositionCallback?: (() => Vector3 | null) | null;
-    
+    onRespawnRequest?: (() => void) | null;
+
     // Состояние
     isAlive: boolean;
     currentHealth: number;
@@ -51,7 +52,7 @@ export interface ITankController {
     maxFuel: number;
     isFuelEmpty: boolean;
     fuelConsumptionRate: number;
-    
+
     // Движение
     throttleTarget: number;
     steerTarget: number;
@@ -61,7 +62,7 @@ export interface ITankController {
     turretTurnSmooth: number;
     barrelPitchTarget: number;
     aimPitch: number;
-    
+
     // Стрельба
     lastShotTime: number;
     cooldown: number;
@@ -69,18 +70,18 @@ export interface ITankController {
     damage: number;
     projectileSpeed: number;
     projectileSize: number;
-    
+
     // Гильзы (для доступа из модулей)
     shellCasings: ShellCasing[];
-    
+
     // Визуальные элементы
     visualWheels: Mesh[];
     leftTrack: Mesh | null;
     rightTrack: Mesh | null;
-    
+
     // Анимационные элементы (для доступа из модулей)
     chassisAnimationElements: ChassisAnimationElements;
-    
+
     // Методы, которые могут быть вызваны из модулей
     respawn?(): void;
     applyUpgrades?(): void;

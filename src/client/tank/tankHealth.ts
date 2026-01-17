@@ -446,6 +446,14 @@ export class TankHealthModule {
     public startGarageRespawn(): void {
         console.log("[TANK] Starting garage respawn sequence...");
 
+        // Notify server about respawn immediately
+        if (this.tank.onRespawnRequest) {
+            this.tank.onRespawnRequest();
+            console.log("[TANK] Sent respawn request to server");
+        } else {
+            console.warn("[TANK] No onRespawnRequest callback available!");
+        }
+
         // Получаем позицию респавна (гараж или случайная безопасная позиция)
         let respawnPos: Vector3;
         let hasGarage = false;

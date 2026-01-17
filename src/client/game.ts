@@ -2501,6 +2501,12 @@ export class Game {
                 // Устанавливаем firebaseService в window для доступа из других модулей
                 (window as any).firebaseService = firebaseService;
 
+                // Обработка Google redirect результата (если пользователь вернулся после Google auth)
+                const googleResult = await firebaseService.handleGoogleRedirectResult();
+                if (googleResult.success) {
+                    logger.log("[Game] ✅ Google redirect auth completed:", googleResult.username);
+                }
+
                 // Initialize social system (friends & clans)
                 await socialSystem.initialize();
                 logger.log("[Game] Social system initialized");

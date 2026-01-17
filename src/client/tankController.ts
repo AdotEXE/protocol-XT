@@ -63,6 +63,8 @@ export class TankController {
 
     // Callback для получения позиции респавна (гараж)
     respawnPositionCallback: (() => Vector3 | null) | null = null;
+    // Callback to request server-side respawn
+    public onRespawnRequest: (() => void) | null = null;
 
     // Reference to network players for hit detection
     networkPlayers: Map<string, any> | null = null; // NetworkPlayerTank instances
