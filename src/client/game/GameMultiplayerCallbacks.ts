@@ -26,7 +26,6 @@ import type { MainMenu } from "../menu";
 import type { BattleRoyaleVisualizer } from "../battleRoyale";
 import type { CTFVisualizer } from "../ctfVisualizer";
 import type { GamePersistence } from "./GamePersistence";
-import type { GamePersistence } from "./GamePersistence";
 import type { GameUI } from "./GameUI";
 import type { NetworkMenu } from "../networkMenu";
 
@@ -59,7 +58,6 @@ export interface MultiplayerCallbacksDependencies {
     startGame?: () => Promise<void> | void;
     isGameInitialized?: () => boolean;
     isGameStarted?: () => boolean;
-    processPendingNetworkPlayers?: () => void;
     processPendingNetworkPlayers?: () => void;
     setMapType?: (mapType: string) => void; // New dependency for map sync
     networkMenu?: NetworkMenu;
@@ -141,7 +139,7 @@ export class GameMultiplayerCallbacks {
             this.deps.tank.setOnShootCallback((data) => {
                 // Только если мультиплеер активен
                 // if (this.deps.getIsMultiplayer()) {
-                this.deps.multiplayerManager?.send(createClientMessage(ClientMessageType.PLAYER_SHOOT, data));
+                (this.deps.multiplayerManager as any)?.send(createClientMessage(ClientMessageType.PLAYER_SHOOT, data));
                 // }
             });
 
@@ -191,7 +189,7 @@ export class GameMultiplayerCallbacks {
                 // Format: [Name]: Message
                 // Using different color for different senders?
                 // data has: id, senderId, senderName, content, timestamp
-                const text = `[${data.senderName}]: ${data.content}`;
+                const text = `[${(data as any).senderName}]: ${(data as any).content}`;
 
                 // Determine message type/color logic if needed. Default to "info" or "log".
                 // If it's a team chat, might differ. Assuming global chat for now.
@@ -209,7 +207,7 @@ export class GameMultiplayerCallbacks {
         if (this.deps.chatSystem) {
             this.deps.chatSystem.onMessageSent = (content: string) => {
                 // Send to server
-                mm.send(createClientMessage(ClientMessageType.CHAT_MESSAGE, {
+                (mm as any).send(createClientMessage(ClientMessageType.CHAT_MESSAGE, {
                     content: content
                     // roomId is handled by server session
                 }));
@@ -455,7 +453,7 @@ export class GameMultiplayerCallbacks {
                     this.deps.tank.setHealth(data.health);
                     // Показываем индикатор получения урона
                     if (this.deps.hud) {
-                        this.deps.hud.showDamageIndicator(data.damage);
+                        (this.deps.hud as any).showDamageIndicator?.(data.damage);
                     }
                 }
                 return;
@@ -502,7 +500,7 @@ export class GameMultiplayerCallbacks {
                 tank.setDead();
 
                 // Показываем эффект взрыва
-                tank.playDeathEffect();
+                (tank as any).playDeathEffect?.();
             } else {
                 console.warn(`[Game] ⚠️ PLAYER_DIED: tank for player ${data.playerId} not found in networkPlayerTanks`);
             }
@@ -756,7 +754,7 @@ export class GameMultiplayerCallbacks {
 
         // Обработка смерти игрока
         mm.onPlayerDied((data) => {
-            logger.log(`[Game] Player died: ${data.playerName} (${data.playerId})`);
+            logger.log(`[Game] Player died: ${(data as any).playerName} (${data.playerId})`);
 
             const localPlayerId = this.deps.multiplayerManager?.getPlayerId();
 
@@ -783,7 +781,7 @@ export class GameMultiplayerCallbacks {
                 const tank = this.deps.networkPlayerTanks.get(data.playerId);
                 if (tank) {
                     tank.setDead();
-                    logger.log(`[Game] Network player ${data.playerName} died - tank hidden`);
+                    logger.log(`[Game] Network player ${(data as any).playerName} died - tank hidden`);
 
                     // Эффект взрыва
                     if (this.deps.effectsManager) {
@@ -796,7 +794,7 @@ export class GameMultiplayerCallbacks {
             }
 
             // Показываем уведомление
-            this.showPlayerNotification(`💀 ${data.playerName} погиб!`, "#ef4444");
+            this.showPlayerNotification(`💀 ${(data as any).playerName || 'Unknown'} погиб!`, "#ef4444");
         });
 
         // Обработка события убийства (для Kill Feed и статистики)
@@ -894,7 +892,7 @@ export class GameMultiplayerCallbacks {
                         this.deps.effectsManager.createRespawnEffect(respawnPos);
                     }
                     if (this.deps.soundManager) {
-                        this.deps.soundManager.playRespawn(respawnPos);
+                        this.deps.soundManager.playRespawn();
                     }
 
                     logger.log(`[Game] Network player ${data.playerName} respawned at (${data.position.x.toFixed(1)}, ${data.position.y.toFixed(1)}, ${data.position.z.toFixed(1)})`);
@@ -918,7 +916,7 @@ export class GameMultiplayerCallbacks {
 
                     // Обновляем HUD и показываем эффект урона
                     if (this.deps.hud) {
-                        this.deps.hud.flashDamage();
+                        (this.deps.hud as any).flashDamage?.();
                     }
 
                     // Тряска камеры при получении урона
@@ -929,7 +927,7 @@ export class GameMultiplayerCallbacks {
                     // Звук получения урона
                     if (this.deps.soundManager) {
                         // Используем позицию попадания если есть, или позицию танка
-                        const hitPos = data.hitPosition || this.deps.tank.chassis.position;
+                        const hitPos = data.hitPosition ? new Vector3((data.hitPosition as any).x, (data.hitPosition as any).y, (data.hitPosition as any).z) : this.deps.tank.chassis.position;
                         this.deps.soundManager.playHit("armor", hitPos); // или "player_hit"
                     }
                 }
@@ -941,13 +939,15 @@ export class GameMultiplayerCallbacks {
 
                     // Визуальный эффект попадания
                     if (data.hitPosition && this.deps.effectsManager) {
-                        this.deps.effectsManager.createHitSpark(data.hitPosition);
+                        const pos = new Vector3((data.hitPosition as any).x, (data.hitPosition as any).y, (data.hitPosition as any).z);
+                        this.deps.effectsManager.createHitSpark(pos);
                     }
 
                     // Звук попадания по врагу 
                     // (только если мы находимся достаточно близко, чтобы слышать)
                     if (this.deps.soundManager && data.hitPosition) {
-                        this.deps.soundManager.playHit("armor", data.hitPosition);
+                        const hitSoundPos = new Vector3((data.hitPosition as any).x, (data.hitPosition as any).y, (data.hitPosition as any).z);
+                        this.deps.soundManager.playHit("armor", hitSoundPos);
                     }
                 }
             }
@@ -983,8 +983,8 @@ export class GameMultiplayerCallbacks {
 
         // КРИТИЧНО: Обработка обновлений мира и удаление уничтоженных снарядов
         mm.onWorldUpdate((data) => {
-            if (data.destroyedObjects && data.destroyedObjects.length > 0) {
-                data.destroyedObjects.forEach(id => {
+            if ((data as any).destroyedObjects && (data as any).destroyedObjects.length > 0) {
+                (data as any).destroyedObjects.forEach((id: string) => {
                     // Проверяем, является ли объект снарядом
                     const netProjectile = this.networkProjectiles.get(id);
                     if (netProjectile) {
@@ -1462,7 +1462,7 @@ export class GameMultiplayerCallbacks {
             import("../voiceChat").then(({ voiceChatManager }) => {
                 (window as any).voiceChatManager = voiceChatManager;
 
-                voiceChatManager.initialize(serverUrl, roomId, playerId);
+                voiceChatManager.initialize(serverUrl, roomId);
             }).catch(error => {
                 logger.error("[Game] Failed to load voice chat:", error);
             });
@@ -1742,7 +1742,7 @@ export class GameMultiplayerCallbacks {
 
             // Try to find winner name
             if (isVictory) {
-                winnerName = this.deps.multiplayerManager?.getRoomInfo()?.players.find(p => p.id === localPlayerId)?.name || "You";
+                winnerName = (this.deps.multiplayerManager as any)?.getRoomInfo()?.players?.find((p: any) => p.id === localPlayerId)?.name || "You";
             } else if (winnerId) {
                 const winner = this.deps.multiplayerManager?.getNetworkPlayer(winnerId);
                 winnerName = winner ? (winner as any).name : "Enemy";
@@ -2553,9 +2553,6 @@ export class GameMultiplayerCallbacks {
         this.reconciliationLines = [];
 
         logger.log("[GameMultiplayerCallbacks] Disposed successfully");
-        if (index !== -1) {
-            this.deps.chunkSystem.consumablePickups.splice(index, 1);
-        }
     }
 
 

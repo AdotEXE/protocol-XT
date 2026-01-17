@@ -413,10 +413,6 @@ export class TankController {
     private _touchFire = false;
     private _touchAim = false;
 
-
-    // Callback for respawn request (multiplayer)
-    public onRespawnRequest: (() => void) | null = null;
-
     // Load tank configuration from localStorage (зарезервировано для будущего использования)
     // private loadTankConfig(): { color: string, turretColor: string, speed: number, armor: number, firepower: number } {
     //     const saved = localStorage.getItem("tankConfig");
