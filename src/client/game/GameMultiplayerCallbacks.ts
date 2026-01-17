@@ -495,7 +495,7 @@ export class GameMultiplayerCallbacks {
                     if (!playerData.status) playerData.status = "alive";
                     const networkPlayer = this.deps.multiplayerManager?.getNetworkPlayer(playerData.id);
                     if (networkPlayer) {
-                        console.log(`[Game] 🔨 [PLAYER_STATES] Создаем танк для ${playerData.name || playerData.id} (${playerData.id}) через createNetworkPlayerTankInternal`);
+                        // console.log(`[Game] 🔨 [PLAYER_STATES] Создаем танк для ${playerData.name || playerData.id} (${playerData.id}) через createNetworkPlayerTankInternal`);
                         this.createNetworkPlayerTankInternal(playerData, networkPlayer);
                     } else {
                         console.warn(`[Game] ⚠️ [PLAYER_STATES] networkPlayer не найден для ${playerData.id}, добавляем в очередь`);
@@ -763,13 +763,9 @@ export class GameMultiplayerCallbacks {
                 }
             } else {
                 // Респавнился другой игрок - показываем его танк
-                logger.log(`[Game] 🔄 Network player respawned: ${data.playerId}, checking tank...`);
-                logger.log(`[Game] 🔄 Available tanks in networkPlayerTanks: ${Array.from(this.deps.networkPlayerTanks.keys()).join(', ')}`);
-
                 const tank = this.deps.networkPlayerTanks.get(data.playerId);
                 if (tank && data.position) {
                     const respawnPos = new Vector3(data.position.x, data.position.y, data.position.z);
-                    logger.log(`[Game] ✅ Found tank for ${data.playerId}, calling setAlive at (${respawnPos.x.toFixed(1)}, ${respawnPos.y.toFixed(1)}, ${respawnPos.z.toFixed(1)})`);
                     tank.setAlive(respawnPos);
 
                     // Устанавливаем полное здоровье
