@@ -19,7 +19,7 @@
 > **Production Status**: The Vercel deployment link above may occasionally lag behind the latest codebase. For the absolute cutting-edge experience, please run the project locally.
 
 <div align="center">
-  <img src="docs/images/preview.png" alt="Protocol TX Gameplay" width="800" />
+  <img src="docs/images/preview.png(for future)" alt="Protocol TX Gameplay" width="800" />
 </div>
 
 ## 📖 About Protocol TX
