@@ -4,7 +4,6 @@
  */
 
 export { default as MobileDetection, getDeviceInfo, isMobileDevice, getMobileScale } from './MobileDetection';
-export { default as OrientationHandler } from './OrientationHandler.ts';
 export { default as HapticFeedback, getHapticFeedback, HapticType } from './HapticFeedback';
 export { default as FloatingJoystick, DEFAULT_FLOATING_JOYSTICK_CONFIG } from './FloatingJoystick';
 export { default as AimZoomButton, DEFAULT_AIM_ZOOM_CONFIG } from './AimZoomButton';
