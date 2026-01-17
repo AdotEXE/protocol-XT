@@ -171,10 +171,10 @@ export default defineConfig({
     port: 5000,
     host: '0.0.0.0', // Доступен для других устройств в сети
     headers: {
-      // Правильный MIME type для WASM файлов
-      '*.wasm': {
-        'Content-Type': 'application/wasm',
-      },
+      // Required for WebAssembly with SharedArrayBuffer
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      // WASM MIME type is handled automatically by Vite
     },
   },
   // Правильная обработка WASM файлов

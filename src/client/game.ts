@@ -2724,7 +2724,11 @@ export class Game {
             this.updateLoadingProgress(30, "Инициализация физики...");
             const physicsInitialized = await this.gamePhysics.initialize(this.scene);
             if (!physicsInitialized) {
-                logger.error("[Game] Failed to initialize physics!");
+                const errorMsg = "Failed to initialize physics engine. Please refresh the page.";
+                logger.error("[Game]", errorMsg);
+                this.updateLoadingProgress(100, errorMsg);
+                alert(errorMsg + "\n\nMake sure HavokPhysics.wasm is accessible at /HavokPhysics.wasm");
+                throw new Error("Physics initialization failed");
             } else {
                 logger.log("[Game] Physics enabled");
             }

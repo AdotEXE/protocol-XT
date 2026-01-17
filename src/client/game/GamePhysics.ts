@@ -58,30 +58,39 @@ export class GamePhysics {
         
         try {
             // Загружаем Havok WASM с указанием пути
-            logger.log("[GamePhysics] Loading Havok WASM...");
+            logger.log("[GamePhysics] Loading Havok WASM from /HavokPhysics.wasm...");
             this.havokInstance = await HavokPhysics({
                 locateFile: (file: string) => {
                     // WASM файл находится в public/ папке
+                    const wasmPath = '/HavokPhysics.wasm';
                     if (file.endsWith('.wasm')) {
-                        return '/HavokPhysics.wasm';
+                        logger.log("[GamePhysics] Locating WASM file:", file, "=>", wasmPath);
+                        return wasmPath;
                     }
+                    logger.log("[GamePhysics] Locating file:", file);
                     return file;
                 }
             });
-            logger.log("[GamePhysics] Havok WASM loaded");
-            
+            logger.log("[GamePhysics] Havok WASM loaded successfully!");
+
             // Создаём плагин
+            logger.log("[GamePhysics] Creating Havok plugin...");
             this.havokPlugin = new HavokPlugin(true, this.havokInstance);
-            
+            logger.log("[GamePhysics] Havok plugin created");
+
             // Включаем физику в сцене
             const gravity = this.config.gravity || DEFAULT_PHYSICS_CONFIG.gravity;
+            logger.log("[GamePhysics] Enabling physics on scene...");
             scene.enablePhysics(gravity, this.havokPlugin);
             logger.log("[GamePhysics] Physics enabled with gravity:", gravity?.toString());
-            
+
             this.isInitialized = true;
             return true;
         } catch (error) {
-            logger.error("[GamePhysics] Failed to initialize physics:", error);
+            logger.error("[GamePhysics] Failed to initialize physics!");
+            logger.error("[GamePhysics] Error details:", error);
+            logger.error("[GamePhysics] Stack trace:", (error as Error).stack);
+            console.error("[GamePhysics] Full error object:", error);
             return false;
         }
     }

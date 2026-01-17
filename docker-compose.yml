@@ -1,0 +1,92 @@
+services:
+  # Development setup - runs both client and server
+  dev:
+    build:
+      context: .
+      target: development
+    container_name: protocol-tx-dev
+    ports:
+      - "5001:5000"   # Vite dev server
+      - "7001:7000"   # HTTP monitoring
+      - "8001:8000"   # WebSocket server
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_WS_SERVER_URL=ws://localhost:8001
+      - PORT=8000
+      - HTTP_PORT=7000
+      - HOST=0.0.0.0
+    command: sh -c "npm run dev & npm run server"
+    networks:
+      - protocol-tx-network
+    stdin_open: true
+    tty: true
+
+  # Production setup
+  prod:
+    build:
+      context: .
+      target: production
+    container_name: protocol-tx-prod
+    ports:
+      - "4173:4173"   # Vite preview server
+      - "7000:7000"   # HTTP monitoring
+      - "8000:8000"   # WebSocket server
+    environment:
+      - NODE_ENV=production
+      - PORT=8000
+      - HTTP_PORT=7000
+      - HOST=0.0.0.0
+    networks:
+      - protocol-tx-network
+    restart: unless-stopped
+
+  # Separate client and server for more control
+  client:
+    build:
+      context: .
+      target: development
+    container_name: protocol-tx-client
+    ports:
+      - "5001:5000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_WS_SERVER_URL=ws://localhost:8001
+    command: npm run dev
+    networks:
+      - protocol-tx-network
+    stdin_open: true
+    tty: true
+    profiles:
+      - separate
+
+  server:
+    build:
+      context: .
+      target: development
+    container_name: protocol-tx-server
+    ports:
+      - "7000:7000"
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - PORT=8000
+      - HTTP_PORT=7000
+      - HOST=0.0.0.0
+    command: npm run server
+    networks:
+      - protocol-tx-network
+    profiles:
+      - separate
+
+networks:
+  protocol-tx-network:
+    driver: bridge
