@@ -5214,9 +5214,17 @@ export class MainMenu {
                             <input type="checkbox" class="setting-checkbox" id="set-damage-numbers" ${this.settings.showDamageNumbers ? 'checked' : ''}>
                         </div>
                         <div class="setting-row">
-                            <span class="setting-label">Помощь при прицеливании</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-aim-assist" ${this.settings.aimAssist ? 'checked' : ''}>
-                        </div>
+                        <span class="setting-label">Показывать панель характеристик</span>
+                        <input type="checkbox" class="setting-checkbox" id="set-show-tank-stats-panel" ${this.settings.showTankStatsPanel ? 'checked' : ''}>
+                    </div>
+                    <div class="setting-row">
+                        <span class="setting-label">Показывать системный терминал</span>
+                        <input type="checkbox" class="setting-checkbox" id="set-show-system-terminal" ${this.settings.showSystemTerminal ? 'checked' : ''}>
+                    </div>
+                    <div class="setting-row">
+                        <span class="setting-label">Помощь при прицеливании</span>
+                        <input type="checkbox" class="setting-checkbox" id="set-aim-assist" ${this.settings.aimAssist ? 'checked' : ''}>
+                    </div>
                         <div class="setting-row">
                             <span class="setting-label">Размер интерфейса</span>
                             <div class="setting-value">

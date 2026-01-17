@@ -61,6 +61,7 @@ export interface GameSettings {
     showHealthBar: boolean;
     showAmmoCounter: boolean;
     showTankStatsPanel: boolean; // Панель детальных характеристик танка
+    showSystemTerminal: boolean; // Системный терминал (логи)
     autoSave: boolean;
     autoSaveInterval: number;
 
@@ -72,27 +73,6 @@ export interface GameSettings {
 
     // Network
     showPing: boolean;
-    showNetworkStats: boolean;
-    networkQuality: number;
-    showSyncQuality: boolean; // Показать индикатор качества синхронизации
-
-    // Accessibility
-    colorBlindMode: string;
-    fontSize: number;
-    highContrast: boolean;
-    subtitles: boolean;
-
-    // UI Scale
-    uiScale: number; // 0.5 to 1.5 (50% to 150%)
-
-    // Additional
-    showDebugInfo: boolean;
-    enableCheats: boolean;
-    maxFPS: number;
-    debugSync: boolean; // Debug multiplayer synchronization
-}
-
-export const DEFAULT_SETTINGS: GameSettings = {
     // Existing settings
     renderDistance: 3,
     soundVolume: 70,
@@ -146,6 +126,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
     showHealthBar: true,
     showAmmoCounter: true,
     showTankStatsPanel: true, // Панель детальных характеристик танка по умолчанию включена
+    showSystemTerminal: false, // Системный терминал выключен по умолчанию
     autoSave: true,
     autoSaveInterval: 300,
 
@@ -314,6 +295,7 @@ export function saveSettingsFromUI(): GameSettings {
         showHealthBar: getBool("set-show-health-bar", true),
         showAmmoCounter: getBool("set-show-ammo-counter", true),
         showTankStatsPanel: getBool("set-show-tank-stats-panel", true),
+        showSystemTerminal: getBool("set-show-system-terminal", false),
         autoSave: getBool("set-auto-save", true),
         autoSaveInterval: getInt("set-auto-save-interval", 300),
 

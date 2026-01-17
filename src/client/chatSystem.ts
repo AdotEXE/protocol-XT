@@ -18,6 +18,7 @@ export interface ChatMessage {
 export class ChatSystem {
     private guiTexture: AdvancedDynamicTexture;
     private chatContainer: Rectangle | null = null;
+    private htmlContainer: HTMLDivElement | null = null; // HTML container for terminal
     private messages: ChatMessage[] = [];
     private maxMessages = 50; // Увеличено количество сообщений
     private messageElements: Map<number, TextBlock> = new Map();
@@ -192,15 +193,15 @@ export class ChatSystem {
         if (defaultTop + defaultHeight > window.innerHeight) defaultTop = window.innerHeight - defaultHeight - 10;
 
         // Создаём HTML контейнер для перетаскивания и изменения размера
-        const htmlContainer = document.createElement("div");
-        htmlContainer.id = "system-terminal";
+        this.htmlContainer = document.createElement("div");
+        this.htmlContainer.id = "system-terminal";
         // Use relative units for scalable sizing (scaleFactor уже объявлен выше)
         const scaledWidth = Math.max(300, Math.min(1200, defaultWidth * scaleFactor));
         const scaledHeight = Math.max(150, Math.min(800, defaultHeight * scaleFactor));
         const scaledLeft = defaultLeft * scaleFactor;
         const scaledTop = defaultTop * scaleFactor;
 
-        htmlContainer.style.cssText = `
+        this.htmlContainer.style.cssText = `
             position: fixed;
             left: ${scaledLeft}px;
             top: ${scaledTop}px;
@@ -221,7 +222,14 @@ export class ChatSystem {
             transition: all 0.3s ease;
             backdrop-filter: blur(4px);
         `;
-        document.body.appendChild(htmlContainer);
+
+        // Check setting for visibility (Default: Hidden)
+        const showTerminalSetting = localStorage.getItem("setting-show-system-terminal");
+        if (showTerminalSetting !== "true") {
+            this.htmlContainer.style.display = "none";
+        }
+
+        document.body.appendChild(this.htmlContainer);
 
         // Состояние сворачивания
         let isCollapsed = defaultCollapsed;
@@ -566,114 +574,125 @@ export class ChatSystem {
             e.stopPropagation();
         });
 
-        // Единый обработчик mousemove
-        const handleMouseMove = (e: MouseEvent) => {
-            if (isResizing && !isCollapsed) {
-                const deltaX = e.clientX - resizeStart.x;
-                const deltaY = e.clientY - resizeStart.y;
+        /**
+     * Set visibility of the system terminal
+     */
+    public setVisible(visible: boolean): void {
+        if (this.htmlContainer) {
+            this.htmlContainer.style.display = visible ? "block" : "none";
+        }
+    }
 
-                let newWidth = resizeStart.width;
-                let newHeight = resizeStart.height;
+    /**
+     * Handle mouse move
+     */
+    private handleMouseMove(e: MouseEvent): void {
+        if (isResizing && !isCollapsed) {
+            const deltaX = e.clientX - resizeStart.x;
+            const deltaY = e.clientY - resizeStart.y;
 
-                const maxWidth = Math.min(window.innerWidth - 20, 1200);
-                const maxHeight = Math.min(window.innerHeight - 40, 800);
+            let newWidth = resizeStart.width;
+            let newHeight = resizeStart.height;
 
-                if (resizeEdge === 'right' || resizeEdge === 'corner') {
-                    newWidth = Math.max(300, Math.min(maxWidth, resizeStart.width + deltaX));
-                }
-                if (resizeEdge === 'bottom' || resizeEdge === 'corner') {
-                    newHeight = Math.max(150, Math.min(maxHeight, resizeStart.height + deltaY));
-                }
+            const maxWidth = Math.min(window.innerWidth - 20, 1200);
+            const maxHeight = Math.min(window.innerHeight - 40, 800);
 
-                htmlContainer.style.width = `${newWidth}px`;
-                htmlContainer.style.height = `${newHeight}px`;
-            } else if (isDragging) {
-                // Ограничиваем перетаскивание границами экрана
-                let newLeft = e.clientX - dragStart.x;
-                let newTop = e.clientY - dragStart.y;
-
-                const rect = htmlContainer.getBoundingClientRect();
-                const minLeft = 0;
-                const minTop = 0;
-                const maxLeft = window.innerWidth - rect.width;
-                const maxTop = window.innerHeight - (isCollapsed ? 30 : rect.height);
-
-                newLeft = Math.max(minLeft, Math.min(maxLeft, newLeft));
-                newTop = Math.max(minTop, Math.min(maxTop, newTop));
-
-                htmlContainer.style.left = `${newLeft}px`;
-                htmlContainer.style.top = `${newTop}px`;
+            if (resizeEdge === 'right' || resizeEdge === 'corner') {
+                newWidth = Math.max(300, Math.min(maxWidth, resizeStart.width + deltaX));
             }
-        };
-
-        // Единый обработчик mouseup
-        const handleMouseUp = () => {
-            if (isDragging || isResizing) {
-                const rect = htmlContainer.getBoundingClientRect();
-                this.saveWindowPosition("system-terminal", {
-                    left: rect.left,
-                    top: rect.top,
-                    bottom: null,
-                    width: rect.width,
-                    height: rect.height,
-                    collapsed: isCollapsed
-                });
+            if (resizeEdge === 'bottom' || resizeEdge === 'corner') {
+                newHeight = Math.max(150, Math.min(maxHeight, resizeStart.height + deltaY));
             }
-            isDragging = false;
-            isResizing = false;
-            resizeEdge = null;
-            document.body.style.cursor = "";
-            document.body.style.userSelect = "";
-        };
 
-        document.addEventListener("mousemove", handleMouseMove);
+            this.htmlContainer.style.width = `${newWidth}px`;
+            this.htmlContainer.style.height = `${newHeight}px`;
+        } else if (isDragging) {
+            // Ограничиваем перетаскивание границами экрана
+            let newLeft = e.clientX - dragStart.x;
+            let newTop = e.clientY - dragStart.y;
+
+            const rect = this.htmlContainer.getBoundingClientRect();
+            const minLeft = 0;
+            const minTop = 0;
+            const maxLeft = window.innerWidth - rect.width;
+            const maxTop = window.innerHeight - (isCollapsed ? 30 : rect.height);
+
+            newLeft = Math.max(minLeft, Math.min(maxLeft, newLeft));
+            newTop = Math.max(minTop, Math.min(maxTop, newTop));
+
+            this.htmlContainer.style.left = `${newLeft}px`;
+            this.htmlContainer.style.top = `${newTop}px`;
+        }
+    };
+
+    // Единый обработчик mouseup
+    const handleMouseUp = () => {
+        if (isDragging || isResizing) {
+            const rect = this.htmlContainer.getBoundingClientRect();
+            this.saveWindowPosition("system-terminal", {
+                left: rect.left,
+                top: rect.top,
+                bottom: null,
+                width: rect.width,
+                height: rect.height,
+                collapsed: isCollapsed
+            });
+        }
+        isDragging = false;
+        isResizing = false;
+        resizeEdge = null;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+    };
+
+        document.addEventListener("mousemove", this.handleMouseMove);
         document.addEventListener("mouseup", handleMouseUp);
 
         // Сохраняем ссылку на HTML контейнер
-        (this as any)._htmlContainer = htmlContainer;
+        (this as any)._htmlContainer = this.htmlContainer;
 
-        // Создаём GUI контейнер для совместимости (скрыт)
-        this.chatContainer = new Rectangle("chatContainer");
-        this.chatContainer.isVisible = false;
-        this.guiTexture.addControl(this.chatContainer);
+// Создаём GUI контейнер для совместимости (скрыт)
+this.chatContainer = new Rectangle("chatContainer");
+this.chatContainer.isVisible = false;
+this.guiTexture.addControl(this.chatContainer);
 
-        // Область сообщений с прокруткой
-        this.scrollViewer = new ScrollViewer("chatScrollViewer");
-        this.scrollViewer.isVisible = false;
-        this.chatContainer.addControl(this.scrollViewer);
+// Область сообщений с прокруткой
+this.scrollViewer = new ScrollViewer("chatScrollViewer");
+this.scrollViewer.isVisible = false;
+this.chatContainer.addControl(this.scrollViewer);
 
-        // Контейнер для сообщений
-        this.messagesArea = new Rectangle("messagesArea");
-        this.messagesArea.width = 1;
-        this.messagesArea.height = "1px";
-        this.messagesArea.cornerRadius = 0;
-        this.messagesArea.thickness = 0;
-        this.messagesArea.background = "#00000000";
-        this.scrollViewer.addControl(this.messagesArea);
+// Контейнер для сообщений
+this.messagesArea = new Rectangle("messagesArea");
+this.messagesArea.width = 1;
+this.messagesArea.height = "1px";
+this.messagesArea.cornerRadius = 0;
+this.messagesArea.thickness = 0;
+this.messagesArea.background = "#00000000";
+this.scrollViewer.addControl(this.messagesArea);
 
-        // Запуск анимаций
-        this.startAnimations();
+// Запуск анимаций
+this.startAnimations();
     }
 
-    // Обновить расходники в System Terminal
-    updateConsumables(consumables: Map<number, any>): void {
-        const htmlContainer = (this as any)._htmlContainer as HTMLDivElement;
-        if (!htmlContainer) return;
+// Обновить расходники в System Terminal
+updateConsumables(consumables: Map<number, any>): void {
+    const htmlContainer = (this as any)._htmlContainer as HTMLDivElement;
+    if(!htmlContainer) return;
 
-        const consumablesArea = htmlContainer.querySelector("#terminal-consumables") as HTMLDivElement;
-        if (!consumablesArea) return;
+    const consumablesArea = htmlContainer.querySelector("#terminal-consumables") as HTMLDivElement;
+    if(!consumablesArea) return;
 
-        // Вычисляем scaleFactor для текущего размера экрана
-        const scaleFactor = Math.min(window.innerWidth / 1920, window.innerHeight / 1080, 1.5);
+    // Вычисляем scaleFactor для текущего размера экрана
+    const scaleFactor = Math.min(window.innerWidth / 1920, window.innerHeight / 1080, 1.5);
 
-        // Очищаем старые слоты
-        consumablesArea.innerHTML = "";
+    // Очищаем старые слоты
+    consumablesArea.innerHTML = "";
 
-        // Создаём слоты расходников
-        for (let i = 1; i <= 5; i++) {
-            const slotSize = 40 * scaleFactor;
-            const slot = document.createElement("div");
-            slot.style.cssText = `
+    // Создаём слоты расходников
+    for(let i = 1; i <= 5; i++) {
+    const slotSize = 40 * scaleFactor;
+    const slot = document.createElement("div");
+    slot.style.cssText = `
                 width: ${slotSize}px;
                 height: ${slotSize}px;
                 border: ${1 * scaleFactor}px solid #555;
@@ -685,14 +704,14 @@ export class ChatSystem {
                 position: relative;
             `;
 
-            const consumable = consumables.get(i);
-            if (consumable) {
-                slot.style.borderColor = consumable.color || "#0f0";
+    const consumable = consumables.get(i);
+    if (consumable) {
+        slot.style.borderColor = consumable.color || "#0f0";
 
-                // Номер клавиши
-                const key = document.createElement("div");
-                key.textContent = `${i}`;
-                key.style.cssText = `
+        // Номер клавиши
+        const key = document.createElement("div");
+        key.textContent = `${i}`;
+        key.style.cssText = `
                     position: absolute;
                     top: ${2 * scaleFactor}px;
                     left: ${2 * scaleFactor}px;
@@ -700,460 +719,460 @@ export class ChatSystem {
                     font-size: clamp(7px, 0.8vw, 9px);
                     font-weight: bold;
                 `;
-                slot.appendChild(key);
+        slot.appendChild(key);
 
-                // Иконка
-                const icon = document.createElement("div");
-                icon.textContent = consumable.icon || "?";
-                icon.style.cssText = `
+        // Иконка
+        const icon = document.createElement("div");
+        icon.textContent = consumable.icon || "?";
+        icon.style.cssText = `
                     color: #fff;
                     font-size: clamp(14px, 1.5vw, 18px);
                 `;
-                slot.appendChild(icon);
+        slot.appendChild(icon);
 
-                // Название
-                const name = document.createElement("div");
-                name.textContent = consumable.name || "";
-                name.style.cssText = `
+        // Название
+        const name = document.createElement("div");
+        name.textContent = consumable.name || "";
+        name.style.cssText = `
                     position: absolute;
                     bottom: 2px;
                     font-size: 6px;
                     color: #888;
                 `;
-                slot.appendChild(name);
-            } else {
-                // Пустой слот
-                const key = document.createElement("div");
-                key.textContent = `${i}`;
-                key.style.cssText = `
+        slot.appendChild(name);
+    } else {
+        // Пустой слот
+        const key = document.createElement("div");
+        key.textContent = `${i}`;
+        key.style.cssText = `
                     position: absolute;
                     top: 2px;
                     left: 2px;
                     color: #333;
                     font-size: 9px;
                 `;
-                slot.appendChild(key);
-            }
+        slot.appendChild(key);
+    }
 
-            consumablesArea.appendChild(slot);
-        }
+    consumablesArea.appendChild(slot);
+}
     }
 
     // Создать кнопки фильтров (зарезервировано для будущего использования)
     // @ts-ignore - метод зарезервирован для будущей реализации
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private _createFilterButtons(): void {
-        // Метод зарезервирован для будущей реализации фильтров
-        if (!this.chatContainer) return;
+    // Метод зарезервирован для будущей реализации фильтров
+    if(!this.chatContainer) return;
 
-        const filterContainer = new Rectangle("filterContainer");
-        filterContainer.width = 1;
-        filterContainer.height = "25px";
-        filterContainer.cornerRadius = 0;
-        filterContainer.thickness = 0;
-        filterContainer.background = "#00000088";
-        filterContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        filterContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        filterContainer.top = "30px";
-        this.chatContainer.addControl(filterContainer);
+    const filterContainer = new Rectangle("filterContainer");
+    filterContainer.width = 1;
+    filterContainer.height = "25px";
+    filterContainer.cornerRadius = 0;
+    filterContainer.thickness = 0;
+    filterContainer.background = "#00000088";
+    filterContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    filterContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    filterContainer.top = "30px";
+    this.chatContainer.addControl(filterContainer);
 
-        const types: MessageType[] = ["system", "info", "warning", "error", "success", "combat", "economy"];
-        const icons = ["⚙", "ℹ", "⚠", "✖", "✓", "⚔", "💰"];
+    const types: MessageType[] = ["system", "info", "warning", "error", "success", "combat", "economy"];
+    const icons = ["⚙", "ℹ", "⚠", "✖", "✓", "⚔", "💰"];
 
-        types.forEach((type, index) => {
-            const button = new Rectangle(`filter_${type}`);
-            button.width = "50px";
-            button.height = "20px";
-            button.cornerRadius = 0;
-            button.thickness = 1;
-            button.color = this.getColorForType(type);
-            button.background = this.activeFilters.has(type) ? "#000000aa" : "#00000044";
-            button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            button.left = `${5 + index * 55}px`;
-            button.top = "2px";
+    types.forEach((type, index) => {
+        const button = new Rectangle(`filter_${type}`);
+        button.width = "50px";
+        button.height = "20px";
+        button.cornerRadius = 0;
+        button.thickness = 1;
+        button.color = this.getColorForType(type);
+        button.background = this.activeFilters.has(type) ? "#000000aa" : "#00000044";
+        button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        button.left = `${5 + index * 55}px`;
+        button.top = "2px";
 
-            const buttonText = new TextBlock(`filterText_${type}`);
-            buttonText.text = icons[index] ?? "";
-            buttonText.color = this.getColorForType(type);
-            buttonText.fontSize = 10;
-            buttonText.fontFamily = "Courier New, monospace";
-            button.addControl(buttonText);
+        const buttonText = new TextBlock(`filterText_${type}`);
+        buttonText.text = icons[index] ?? "";
+        buttonText.color = this.getColorForType(type);
+        buttonText.fontSize = 10;
+        buttonText.fontFamily = "Courier New, monospace";
+        button.addControl(buttonText);
 
-            // Обработчик клика
-            button.onPointerClickObservable.add(() => {
-                if (this.activeFilters.has(type)) {
-                    this.activeFilters.delete(type);
-                    button.background = "#00000044";
-                } else {
-                    this.activeFilters.add(type);
-                    button.background = "#000000aa";
-                }
-                this.updateMessages();
-            });
-
-            filterContainer.addControl(button);
-            this.filterButtons.set(type, button);
+        // Обработчик клика
+        button.onPointerClickObservable.add(() => {
+            if (this.activeFilters.has(type)) {
+                this.activeFilters.delete(type);
+                button.background = "#00000044";
+            } else {
+                this.activeFilters.add(type);
+                button.background = "#000000aa";
+            }
+            this.updateMessages();
         });
-    }
+
+        filterContainer.addControl(button);
+        this.filterButtons.set(type, button);
+    });
+}
 
     // Запуск анимаций (теперь вызывается из централизованного update)
     private startAnimations(): void {
-        // Анимации теперь обновляются через update() метод
-    }
+    // Анимации теперь обновляются через update() метод
+}
 
-    // Обновление анимаций (вызывается из централизованного update)
-    update(deltaTime: number): void {
-        this.animationTime += deltaTime;
-        this.updateActivityIndicator();
-    }
+// Обновление анимаций (вызывается из централизованного update)
+update(deltaTime: number): void {
+    this.animationTime += deltaTime;
+    this.updateActivityIndicator();
+}
 
     // Обновить индикатор активности
     private updateActivityIndicator(): void {
-        // activityIndicator удален
-    }
+    // activityIndicator удален
+}
 
     // Сохранение позиции и размера окна
     private saveWindowPosition(windowId: string, position: { left: number; top: number | null; bottom: number | null; width: number; height: number; collapsed: boolean }): void {
-        try {
-            // Проверяем корректность данных перед сохранением
-            const maxWidth = Math.min(window.innerWidth - 20, 1200);
-            const maxHeight = Math.min(window.innerHeight - 40, 800);
+    try {
+        // Проверяем корректность данных перед сохранением
+        const maxWidth = Math.min(window.innerWidth - 20, 1200);
+        const maxHeight = Math.min(window.innerHeight - 40, 800);
 
-            // Ограничиваем размеры
-            if (position.width > maxWidth) position.width = maxWidth;
-            if (position.width < 300) position.width = 300;
-            if (position.height > maxHeight) position.height = maxHeight;
-            if (position.height < 150) position.height = 150;
+        // Ограничиваем размеры
+        if(position.width > maxWidth) position.width = maxWidth;
+        if(position.width < 300) position.width = 300;
+        if(position.height > maxHeight) position.height = maxHeight;
+        if(position.height < 150) position.height = 150;
 
-            // Проверяем позицию
-            if (position.left < 0) position.left = 10;
-            if (position.left + position.width > window.innerWidth) position.left = window.innerWidth - position.width - 10;
-            if (position.top !== null && position.top < 0) position.top = 10;
-            if (position.top !== null && position.top + position.height > window.innerHeight) position.top = window.innerHeight - position.height - 10;
+        // Проверяем позицию
+        if(position.left < 0) position.left = 10;
+        if(position.left + position.width > window.innerWidth) position.left = window.innerWidth - position.width - 10;
+        if(position.top !== null && position.top < 0) position.top = 10;
+        if(position.top !== null && position.top + position.height > window.innerHeight) position.top = window.innerHeight - position.height - 10;
 
-            const key = `window_position_${windowId}`;
-            localStorage.setItem(key, JSON.stringify(position));
-        } catch (e) {
-            if (loggingSettings?.getLevel() >= LogLevel.DEBUG) {
-                console.debug("[Chat] Failed to save window position:", e);
-            }
+        const key = `window_position_${windowId}`;
+        localStorage.setItem(key, JSON.stringify(position));
+    } catch(e) {
+        if (loggingSettings?.getLevel() >= LogLevel.DEBUG) {
+            console.debug("[Chat] Failed to save window position:", e);
         }
     }
+}
 
     // Загрузка позиции и размера окна
     private loadWindowPosition(windowId: string): { left: number; top: number | null; bottom: number | null; width: number; height: number; collapsed: boolean } | null {
+    try {
+        const key = `window_position_${windowId}`;
+        const saved = localStorage.getItem(key);
+        if (saved) {
+            const data = JSON.parse(saved);
+
+            // Проверяем корректность данных и сбрасываем, если они некорректны
+            const maxWidth = Math.min(window.innerWidth - 20, 1200);
+            const maxHeight = Math.min(window.innerHeight - 40, 800);
+
+            // Если размеры слишком большие (больше 80% экрана), сбрасываем
+            if (data.width && (data.width > maxWidth || data.width > window.innerWidth * 0.8)) {
+                if (loggingSettings?.getLevel() >= LogLevel.DEBUG) {
+                    console.debug("[Chat] Invalid saved width, resetting");
+                }
+                localStorage.removeItem(key);
+                return null;
+            }
+            if (data.height && (data.height > maxHeight || data.height > window.innerHeight * 0.8)) {
+                console.warn("[ChatSystem] Invalid saved height, resetting");
+                localStorage.removeItem(key);
+                return null;
+            }
+
+            return data;
+        }
+    } catch (e) {
+        console.warn("[ChatSystem] Failed to load window position:", e);
+        // Удаляем некорректные данные
         try {
             const key = `window_position_${windowId}`;
-            const saved = localStorage.getItem(key);
-            if (saved) {
-                const data = JSON.parse(saved);
+            localStorage.removeItem(key);
+        } catch { }
+    }
+    return null;
+}
 
-                // Проверяем корректность данных и сбрасываем, если они некорректны
-                const maxWidth = Math.min(window.innerWidth - 20, 1200);
-                const maxHeight = Math.min(window.innerHeight - 40, 800);
+// Добавить сообщение с типом
+addMessage(text: string, type: MessageType = "system", priority: number = 0): void {
+    const message: ChatMessage = {
+        text: text,
+        type: type,
+        color: this.getColorForType(type),
+        timestamp: Date.now(),
+        icon: this.getIconForType(type),
+        priority: priority
+    };
 
-                // Если размеры слишком большие (больше 80% экрана), сбрасываем
-                if (data.width && (data.width > maxWidth || data.width > window.innerWidth * 0.8)) {
-                    if (loggingSettings?.getLevel() >= LogLevel.DEBUG) {
-                        console.debug("[Chat] Invalid saved width, resetting");
-                    }
-                    localStorage.removeItem(key);
-                    return null;
-                }
-                if (data.height && (data.height > maxHeight || data.height > window.innerHeight * 0.8)) {
-                    console.warn("[ChatSystem] Invalid saved height, resetting");
-                    localStorage.removeItem(key);
-                    return null;
-                }
+    this.messages.push(message);
 
-                return data;
-            }
-        } catch (e) {
-            console.warn("[ChatSystem] Failed to load window position:", e);
-            // Удаляем некорректные данные
-            try {
-                const key = `window_position_${windowId}`;
-                localStorage.removeItem(key);
-            } catch { }
+    // Ограничиваем количество сообщений
+    if(this.messages.length > this.maxMessages) {
+    const removed = this.messages.shift();
+    if (removed) {
+        const element = this.messageElements.get(removed.timestamp);
+        if (element) {
+            element.dispose();
+            this.messageElements.delete(removed.timestamp);
         }
-        return null;
+    }
+}
+
+// Звуковое уведомление для важных сообщений
+if (priority >= 1 && this.soundManager) {
+    try {
+        if (type === "error") {
+            this.soundManager.playError();
+        } else if (type === "warning") {
+            this.soundManager.playWarning();
+        } else if (type === "success") {
+            this.soundManager.playSuccess();
+        }
+    } catch (e) {
+        console.warn("[ChatSystem] Sound error:", e);
+    }
+}
+
+// Группировка одинаковых сообщений
+const messageKey = `${type}:${text}`;
+const existingGroup = this.messageGroups.get(messageKey);
+if (existingGroup && Date.now() - existingGroup.lastTime < this.groupTimeout) {
+    existingGroup.count++;
+    existingGroup.lastTime = Date.now();
+    // Обновляем последнее сообщение с счётчиком
+    const lastMessage = this.messages[this.messages.length - 1];
+    if (lastMessage && lastMessage.text === text && lastMessage.type === type) {
+        lastMessage.text = `${text} (x${existingGroup.count})`;
+    }
+} else {
+    this.messageGroups.set(messageKey, { count: 1, lastTime: Date.now() });
+}
+
+// Очистка старых групп
+this.messageGroups.forEach((group, key) => {
+    if (Date.now() - group.lastTime > this.groupTimeout * 2) {
+        this.messageGroups.delete(key);
+    }
+});
+
+this.updateMessages();
     }
 
-    // Добавить сообщение с типом
-    addMessage(text: string, type: MessageType = "system", priority: number = 0): void {
-        const message: ChatMessage = {
-            text: text,
-            type: type,
-            color: this.getColorForType(type),
-            timestamp: Date.now(),
-            icon: this.getIconForType(type),
-            priority: priority
-        };
-
-        this.messages.push(message);
-
-        // Ограничиваем количество сообщений
-        if (this.messages.length > this.maxMessages) {
-            const removed = this.messages.shift();
-            if (removed) {
-                const element = this.messageElements.get(removed.timestamp);
-                if (element) {
-                    element.dispose();
-                    this.messageElements.delete(removed.timestamp);
-                }
-            }
-        }
-
-        // Звуковое уведомление для важных сообщений
-        if (priority >= 1 && this.soundManager) {
-            try {
-                if (type === "error") {
-                    this.soundManager.playError();
-                } else if (type === "warning") {
-                    this.soundManager.playWarning();
-                } else if (type === "success") {
-                    this.soundManager.playSuccess();
-                }
-            } catch (e) {
-                console.warn("[ChatSystem] Sound error:", e);
-            }
-        }
-
-        // Группировка одинаковых сообщений
-        const messageKey = `${type}:${text}`;
-        const existingGroup = this.messageGroups.get(messageKey);
-        if (existingGroup && Date.now() - existingGroup.lastTime < this.groupTimeout) {
-            existingGroup.count++;
-            existingGroup.lastTime = Date.now();
-            // Обновляем последнее сообщение с счётчиком
-            const lastMessage = this.messages[this.messages.length - 1];
-            if (lastMessage && lastMessage.text === text && lastMessage.type === type) {
-                lastMessage.text = `${text} (x${existingGroup.count})`;
-            }
-        } else {
-            this.messageGroups.set(messageKey, { count: 1, lastTime: Date.now() });
-        }
-
-        // Очистка старых групп
-        this.messageGroups.forEach((group, key) => {
-            if (Date.now() - group.lastTime > this.groupTimeout * 2) {
-                this.messageGroups.delete(key);
-            }
-        });
-
-        this.updateMessages();
-    }
-
-    // Устаревший метод для совместимости
-    addMessageOld(text: string, _sender: string = "System", color: string = "#0f0"): void {
-        let type: MessageType = "system";
-        if (color === "#f00") type = "error";
+// Устаревший метод для совместимости
+addMessageOld(text: string, _sender: string = "System", color: string = "#0f0"): void {
+    let type: MessageType = "system";
+    if(color === "#f00") type = "error";
         else if (color === "#ff0") type = "warning";
-        else if (color === "#0f0") type = "success";
-        else if (color === "#0ff") type = "info";
+else if (color === "#0f0") type = "success";
+else if (color === "#0ff") type = "info";
 
-        this.addMessage(text, type, 0);
+this.addMessage(text, type, 0);
     }
 
     /**
      * Выполнение команды
      */
-    private async executeCommand(command: string): Promise<void> {
-        if (!this.commandSystem) return;
+    private async executeCommand(command: string): Promise < void> {
+    if(!this.commandSystem) return;
 
-        // Показываем введённую команду
-        this.addMessage(`> ${command}`, "system");
+    // Показываем введённую команду
+    this.addMessage(`> ${command}`, "system");
 
-        // Запись в макрос (если запись активна)
-        if (this.scriptEngine && (this.scriptEngine as any).isRecording) {
-            (this.scriptEngine as any).recordCommand(command);
+    // Запись в макрос (если запись активна)
+    if(this.scriptEngine && (this.scriptEngine as any).isRecording) {
+    (this.scriptEngine as any).recordCommand(command);
+}
+
+try {
+    // Если сообщение не начинается с /, считаем его чатом
+    if (!command.startsWith('/') && !command.startsWith('theme ') && !command.startsWith('script ') && !command.startsWith('macro ')) {
+        if (this.onMessageSent) {
+            this.onMessageSent(command);
+            // Добавляем сообщение локально для мгновенного отклика (опционально, сервер пришлет обратно)
+            // Но лучше ждать сервер
+            return;
         }
+    }
 
-        try {
-            // Если сообщение не начинается с /, считаем его чатом
-            if (!command.startsWith('/') && !command.startsWith('theme ') && !command.startsWith('script ') && !command.startsWith('macro ')) {
-                if (this.onMessageSent) {
-                    this.onMessageSent(command);
-                    // Добавляем сообщение локально для мгновенного отклика (опционально, сервер пришлет обратно)
-                    // Но лучше ждать сервер
-                    return;
-                }
+    // Убираем / если есть, для обработки локальных команд
+    // Но CommandSystem может ожидать команды без слэша.
+    // Стандартное поведение: CommandSystem обрабатывает "help", "god", etc.
+    // Значит если строка начинается с /, убираем его и передаем в CommandSystem.
+    // Если не начинается с / (и не обработано выше как чат), то это может быть system command?
+    // Предположим, что CommandSystem обрабатывает всё что ей дали. 
+    // Но мы решили что текст без / это чат.
+
+    let commandToExecute = command;
+    if (command.startsWith('/')) {
+        commandToExecute = command.substring(1);
+    }
+
+    // Проверка на специальные команды тем
+    if (commandToExecute.startsWith('theme ')) {
+        await this._handleThemeCommand(commandToExecute);
+        return;
+    }
+
+    // Проверка на специальные команды скриптов
+    if (commandToExecute.startsWith('script ')) {
+        await this.handleScriptCommand(commandToExecute);
+        return;
+    }
+
+    if (commandToExecute.startsWith('macro ')) {
+        await this.handleMacroCommand(commandToExecute);
+        return;
+    }
+
+    const result = await this.commandSystem.execute(commandToExecute);
+
+    // Обработка специальных команд
+    if (result === 'CLEAR') {
+        this.clearMessages();
+        return;
+    }
+
+    // Показываем результат
+    if (result) {
+        // Разбиваем многострочный результат
+        const lines = result.split('\n');
+        lines.forEach(line => {
+            if (line.trim()) {
+                this.addMessage(line, "info");
             }
-
-            // Убираем / если есть, для обработки локальных команд
-            // Но CommandSystem может ожидать команды без слэша.
-            // Стандартное поведение: CommandSystem обрабатывает "help", "god", etc.
-            // Значит если строка начинается с /, убираем его и передаем в CommandSystem.
-            // Если не начинается с / (и не обработано выше как чат), то это может быть system command?
-            // Предположим, что CommandSystem обрабатывает всё что ей дали. 
-            // Но мы решили что текст без / это чат.
-
-            let commandToExecute = command;
-            if (command.startsWith('/')) {
-                commandToExecute = command.substring(1);
-            }
-
-            // Проверка на специальные команды тем
-            if (commandToExecute.startsWith('theme ')) {
-                await this._handleThemeCommand(commandToExecute);
-                return;
-            }
-
-            // Проверка на специальные команды скриптов
-            if (commandToExecute.startsWith('script ')) {
-                await this.handleScriptCommand(commandToExecute);
-                return;
-            }
-
-            if (commandToExecute.startsWith('macro ')) {
-                await this.handleMacroCommand(commandToExecute);
-                return;
-            }
-
-            const result = await this.commandSystem.execute(commandToExecute);
-
-            // Обработка специальных команд
-            if (result === 'CLEAR') {
-                this.clearMessages();
-                return;
-            }
-
-            // Показываем результат
-            if (result) {
-                // Разбиваем многострочный результат
-                const lines = result.split('\n');
-                lines.forEach(line => {
-                    if (line.trim()) {
-                        this.addMessage(line, "info");
-                    }
-                });
-            }
-        } catch (error: any) {
-            this.addMessage(`Error: ${error.message || String(error)}`, "error");
-        }
+        });
+    }
+} catch (error: any) {
+    this.addMessage(`Error: ${error.message || String(error)}`, "error");
+}
     }
 
     /**
      * Обработка команд скриптов
      */
-    private async handleScriptCommand(command: string): Promise<void> {
-        await this.initScriptEngine();
-        if (!this.scriptEngine) return;
+    private async handleScriptCommand(command: string): Promise < void> {
+    await this.initScriptEngine();
+    if(!this.scriptEngine) return;
 
-        const args = command.split(' ').slice(1);
-        const action = args[0];
+    const args = command.split(' ').slice(1);
+    const action = args[0];
 
-        switch (action) {
+    switch(action) {
             case 'list':
-                const scripts = (this.scriptEngine as any).getScripts();
-                if (scripts.length === 0) {
-                    this.addMessage("No scripts found", "info");
-                } else {
-                    this.addMessage(`Scripts: ${scripts.join(", ")}`, "info");
-                }
-                break;
+    const scripts = (this.scriptEngine as any).getScripts();
+    if(scripts.length === 0) {
+    this.addMessage("No scripts found", "info");
+} else {
+    this.addMessage(`Scripts: ${scripts.join(", ")}`, "info");
+}
+break;
 
             case 'run':
-                if (args.length < 2) {
-                    this.addMessage("Usage: script run <name>", "error");
-                    return;
-                }
-                try {
-                    const results = await (this.scriptEngine as any).runScript(args[1]);
-                    results.forEach((r: string) => this.addMessage(r, "info"));
-                } catch (error: any) {
-                    this.addMessage(`Error: ${error.message}`, "error");
-                }
-                break;
+if (args.length < 2) {
+    this.addMessage("Usage: script run <name>", "error");
+    return;
+}
+try {
+    const results = await (this.scriptEngine as any).runScript(args[1]);
+    results.forEach((r: string) => this.addMessage(r, "info"));
+} catch (error: any) {
+    this.addMessage(`Error: ${error.message}`, "error");
+}
+break;
 
             case 'save':
-                if (args.length < 3) {
-                    this.addMessage("Usage: script save <name> <script>", "error");
-                    return;
-                }
-                const scriptName = args[1];
-                const scriptContent = args.slice(2).join(' ');
-                (this.scriptEngine as any).saveScript(scriptName, scriptContent);
-                this.addMessage(`Script "${scriptName}" saved`, "success");
-                break;
+if (args.length < 3) {
+    this.addMessage("Usage: script save <name> <script>", "error");
+    return;
+}
+const scriptName = args[1];
+const scriptContent = args.slice(2).join(' ');
+(this.scriptEngine as any).saveScript(scriptName, scriptContent);
+this.addMessage(`Script "${scriptName}" saved`, "success");
+break;
 
             default:
-                this.addMessage("Usage: script [list|run|save]", "error");
+this.addMessage("Usage: script [list|run|save]", "error");
         }
     }
 
     /**
      * Обработка команд макросов
      */
-    private async handleMacroCommand(command: string): Promise<void> {
-        await this.initScriptEngine();
-        if (!this.scriptEngine) return;
+    private async handleMacroCommand(command: string): Promise < void> {
+    await this.initScriptEngine();
+    if(!this.scriptEngine) return;
 
-        const args = command.split(' ').slice(1);
-        const action = args[0];
+    const args = command.split(' ').slice(1);
+    const action = args[0];
 
-        switch (action) {
+    switch(action) {
             case 'list':
-                const macros = (this.scriptEngine as any).getMacros();
-                if (macros.length === 0) {
-                    this.addMessage("No macros found", "info");
-                } else {
-                    this.addMessage(`Macros: ${macros.join(", ")}`, "info");
-                }
-                break;
+    const macros = (this.scriptEngine as any).getMacros();
+    if(macros.length === 0) {
+    this.addMessage("No macros found", "info");
+} else {
+    this.addMessage(`Macros: ${macros.join(", ")}`, "info");
+}
+break;
 
             case 'run':
-                if (args.length < 2) {
-                    this.addMessage("Usage: macro run <name>", "error");
-                    return;
-                }
-                try {
-                    const results = await (this.scriptEngine as any).runMacro(args[1]);
-                    results.forEach((r: string) => this.addMessage(r, "info"));
-                } catch (error: any) {
-                    this.addMessage(`Error: ${error.message}`, "error");
-                }
-                break;
+if (args.length < 2) {
+    this.addMessage("Usage: macro run <name>", "error");
+    return;
+}
+try {
+    const results = await (this.scriptEngine as any).runMacro(args[1]);
+    results.forEach((r: string) => this.addMessage(r, "info"));
+} catch (error: any) {
+    this.addMessage(`Error: ${error.message}`, "error");
+}
+break;
 
             default:
-                this.addMessage("Usage: macro [list|run]", "error");
+this.addMessage("Usage: macro [list|run]", "error");
         }
     }
 
     /**
      * Обработка команд тем
      */
-    private async _handleThemeCommand(command: string): Promise<void> {
-        await this.initThemeManager();
-        if (!this.themeManager) return;
+    private async _handleThemeCommand(command: string): Promise < void> {
+    await this.initThemeManager();
+    if(!this.themeManager) return;
 
-        const args = command.split(' ').slice(1);
-        const action = args[0];
+    const args = command.split(' ').slice(1);
+    const action = args[0];
 
-        switch (action) {
+    switch(action) {
             case 'list':
-                const themes = (this.themeManager as any).getThemes();
-                const themeNames = themes.map((t: any) => t.name).join(', ');
-                this.addMessage(`Available themes: ${themeNames}`, "info");
-                break;
+    const themes = (this.themeManager as any).getThemes();
+    const themeNames = themes.map((t: any) => t.name).join(', ');
+    this.addMessage(`Available themes: ${themeNames}`, "info");
+    break;
 
-            case 'set':
-                if (args.length < 2) {
-                    this.addMessage("Usage: theme set <name>", "error");
-                    return;
-                }
-                const themeName = args[1];
-                const theme = (this.themeManager as any).getTheme(themeName);
-                if (theme) {
-                    (this.themeManager as any).applyTheme(theme);
-                    this.addMessage(`Theme "${theme.name}" applied`, "success");
-                } else {
-                    this.addMessage(`Theme "${themeName}" not found`, "error");
-                }
-                break;
+    case 'set':
+    if(args.length < 2) {
+    this.addMessage("Usage: theme set <name>", "error");
+    return;
+}
+const themeName = args[1];
+const theme = (this.themeManager as any).getTheme(themeName);
+if (theme) {
+    (this.themeManager as any).applyTheme(theme);
+    this.addMessage(`Theme "${theme.name}" applied`, "success");
+} else {
+    this.addMessage(`Theme "${themeName}" not found`, "error");
+}
+break;
 
             default:
-                this.addMessage("Usage: theme [list|set <name>]", "error");
+this.addMessage("Usage: theme [list|set <name>]", "error");
         }
     }
 
@@ -1161,145 +1180,145 @@ export class ChatSystem {
      * Добавление команды в историю
      */
     private addToHistory(command: string): void {
-        if (!command.trim()) return;
+    if(!command.trim()) return;
 
-        // Не добавляем дубликаты подряд
-        if (this._commandHistory.length > 0 &&
-            this._commandHistory[this._commandHistory.length - 1] === command) {
-            return;
-        }
+    // Не добавляем дубликаты подряд
+    if(this._commandHistory.length > 0 &&
+        this._commandHistory[this._commandHistory.length - 1] === command) {
+    return;
+}
 
-        this._commandHistory.push(command);
-        this._commandHistoryIndex = this._commandHistory.length;
+this._commandHistory.push(command);
+this._commandHistoryIndex = this._commandHistory.length;
 
-        // Ограничиваем размер истории (максимум 100 команд)
-        if (this._commandHistory.length > 100) {
-            this._commandHistory.shift();
-            this._commandHistoryIndex--;
-        }
+// Ограничиваем размер истории (максимум 100 команд)
+if (this._commandHistory.length > 100) {
+    this._commandHistory.shift();
+    this._commandHistoryIndex--;
+}
     }
 
     /**
      * Получение команды из истории для навигации
      */
     private getHistory(direction: 'up' | 'down'): string | null {
-        if (this._commandHistory.length === 0) return null;
+    if (this._commandHistory.length === 0) return null;
 
-        if (direction === 'up') {
-            // Перемещаемся назад по истории
-            if (this._commandHistoryIndex > 0) {
-                this._commandHistoryIndex--;
-            }
+    if (direction === 'up') {
+        // Перемещаемся назад по истории
+        if (this._commandHistoryIndex > 0) {
+            this._commandHistoryIndex--;
+        }
+        return this._commandHistory[this._commandHistoryIndex] || null;
+    } else {
+        // Перемещаемся вперед по истории
+        if (this._commandHistoryIndex < this._commandHistory.length - 1) {
+            this._commandHistoryIndex++;
             return this._commandHistory[this._commandHistoryIndex] || null;
         } else {
-            // Перемещаемся вперед по истории
-            if (this._commandHistoryIndex < this._commandHistory.length - 1) {
-                this._commandHistoryIndex++;
-                return this._commandHistory[this._commandHistoryIndex] || null;
-            } else {
-                // Выход за пределы истории - возвращаемся к пустой строке
-                this._commandHistoryIndex = this._commandHistory.length;
-                return null;
-            }
+            // Выход за пределы истории - возвращаемся к пустой строке
+            this._commandHistoryIndex = this._commandHistory.length;
+            return null;
         }
     }
+}
 
     /**
      * Переключение записи макроса
      */
-    private async toggleMacroRecording(): Promise<void> {
-        await this.initScriptEngine();
-        if (!this.scriptEngine) return;
+    private async toggleMacroRecording(): Promise < void> {
+    await this.initScriptEngine();
+    if(!this.scriptEngine) return;
 
-        const isRecording = (this.scriptEngine as any).isRecording;
+    const isRecording = (this.scriptEngine as any).isRecording;
 
-        if (isRecording) {
-            const macro = (this.scriptEngine as any).stopRecording();
-            if (macro) {
-                const name = prompt("Macro name:", `macro_${Date.now()}`);
-                if (name) {
-                    (this.scriptEngine as any).saveMacro(name, macro.split('\n'));
-                    this.addMessage(`Macro "${name}" saved`, "success");
-                }
+    if(isRecording) {
+        const macro = (this.scriptEngine as any).stopRecording();
+        if (macro) {
+            const name = prompt("Macro name:", `macro_${Date.now()}`);
+            if (name) {
+                (this.scriptEngine as any).saveMacro(name, macro.split('\n'));
+                this.addMessage(`Macro "${name}" saved`, "success");
             }
-            this.addMessage("Macro recording stopped", "info");
-        } else {
-            (this.scriptEngine as any).startRecording();
-            this.addMessage("Macro recording started (Ctrl+R to stop)", "info");
         }
+        this.addMessage("Macro recording stopped", "info");
+    } else {
+            (this.scriptEngine as any).startRecording();
+    this.addMessage("Macro recording started (Ctrl+R to stop)", "info");
+}
     }
 
     /**
      * Очистка сообщений
      */
     private clearMessages(): void {
-        this.messages = [];
-        this.messageElements.forEach(el => el.dispose());
-        this.messageElements.clear();
-        this.updateMessages();
-    }
+    this.messages = [];
+    this.messageElements.forEach(el => el.dispose());
+    this.messageElements.clear();
+    this.updateMessages();
+}
 
     private getColorForType(type: MessageType): string {
-        switch (type) {
-            case "system": return "#0ff"; // Cyan (системные)
-            case "info": return "#aaa"; // Серый (информация)
-            case "warning": return "#ff0"; // Жёлтый (предупреждения)
-            case "error": return "#f00"; // Красный (ошибки)
-            case "success": return "#0f0"; // Зелёный (успех)
-            case "log": return "#888"; // Серый
-            case "combat": return "#f80"; // Оранжевый
-            case "economy": return "#ffd700"; // Золотой
-            default: return "#0f0";
-        }
+    switch (type) {
+        case "system": return "#0ff"; // Cyan (системные)
+        case "info": return "#aaa"; // Серый (информация)
+        case "warning": return "#ff0"; // Жёлтый (предупреждения)
+        case "error": return "#f00"; // Красный (ошибки)
+        case "success": return "#0f0"; // Зелёный (успех)
+        case "log": return "#888"; // Серый
+        case "combat": return "#f80"; // Оранжевый
+        case "economy": return "#ffd700"; // Золотой
+        default: return "#0f0";
     }
+}
 
     private getIconForType(type: MessageType): string {
-        switch (type) {
-            case "system": return "⚙";
-            case "info": return "ℹ";
-            case "warning": return "⚠";
-            case "error": return "✖";
-            case "success": return "✓";
-            case "log": return "📋";
-            case "combat": return "⚔";
-            case "economy": return "💰";
-            default: return "•";
-        }
+    switch (type) {
+        case "system": return "⚙";
+        case "info": return "ℹ";
+        case "warning": return "⚠";
+        case "error": return "✖";
+        case "success": return "✓";
+        case "log": return "📋";
+        case "combat": return "⚔";
+        case "economy": return "💰";
+        default: return "•";
     }
+}
 
     // Обновить отображение сообщений
     private updateMessages(): void {
-        const htmlContainer = (this as any)._htmlContainer as HTMLDivElement;
-        if (!htmlContainer) return;
+    const htmlContainer = (this as any)._htmlContainer as HTMLDivElement;
+    if(!htmlContainer) return;
 
-        const messagesDiv = htmlContainer.querySelector("#terminal-messages") as HTMLDivElement;
-        if (!messagesDiv) return;
+    const messagesDiv = htmlContainer.querySelector("#terminal-messages") as HTMLDivElement;
+    if(!messagesDiv) return;
 
-        // Фильтруем сообщения
-        const filteredMessages = this.messages.filter(msg => {
-            // Фильтр по типу
-            if (!this.activeFilters.has(msg.type)) return false;
-            // Фильтр по поиску
-            if (this.searchActive && this.searchText) {
-                return msg.text.toLowerCase().includes(this.searchText.toLowerCase());
-            }
-            return true;
-        });
+    // Фильтруем сообщения
+    const filteredMessages = this.messages.filter(msg => {
+        // Фильтр по типу
+        if (!this.activeFilters.has(msg.type)) return false;
+        // Фильтр по поиску
+        if (this.searchActive && this.searchText) {
+            return msg.text.toLowerCase().includes(this.searchText.toLowerCase());
+        }
+        return true;
+    });
 
-        // Очищаем и пересоздаём сообщения в HTML
-        messagesDiv.innerHTML = "";
+    // Очищаем и пересоздаём сообщения в HTML
+    messagesDiv.innerHTML = "";
 
-        filteredMessages.forEach((message) => {
-            const time = new Date(message.timestamp);
-            const timeStr = this.showTimestamps
-                ? `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}:${time.getSeconds().toString().padStart(2, '0')}`
-                : "";
+    filteredMessages.forEach((message) => {
+        const time = new Date(message.timestamp);
+        const timeStr = this.showTimestamps
+            ? `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}:${time.getSeconds().toString().padStart(2, '0')}`
+            : "";
 
-            // Вычисляем scaleFactor для текущего размера экрана
-            const scaleFactor = Math.min(window.innerWidth / 1920, window.innerHeight / 1080, 1.5);
+        // Вычисляем scaleFactor для текущего размера экрана
+        const scaleFactor = Math.min(window.innerWidth / 1920, window.innerHeight / 1080, 1.5);
 
-            const msgDiv = document.createElement("div");
-            msgDiv.style.cssText = `
+        const msgDiv = document.createElement("div");
+        msgDiv.style.cssText = `
                 color: ${message.color};
                 font-size: clamp(10px, 1.1vw, 12px);
                 margin: ${3 * scaleFactor}px 0;
@@ -1313,233 +1332,233 @@ export class ChatSystem {
                 padding-left: ${6 * scaleFactor}px;
             `;
 
-            const prefix = timeStr ? `[${timeStr}]` : "";
-            const priorityMark = message.priority >= 2 ? "!! " : message.priority >= 1 ? "! " : "";
-            msgDiv.textContent = `${prefix} ${message.icon} ${priorityMark}${message.text}`;
+        const prefix = timeStr ? `[${timeStr}]` : "";
+        const priorityMark = message.priority >= 2 ? "!! " : message.priority >= 1 ? "! " : "";
+        msgDiv.textContent = `${prefix} ${message.icon} ${priorityMark}${message.text}`;
 
-            messagesDiv.appendChild(msgDiv);
-        });
+        messagesDiv.appendChild(msgDiv);
+    });
 
-        // Автопрокрутка вниз
-        if (this.autoScroll) {
-            setTimeout(() => {
-                messagesDiv.scrollTop = messagesDiv.scrollHeight;
-            }, 10);
-        }
+    // Автопрокрутка вниз
+    if(this.autoScroll) {
+    setTimeout(() => {
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }, 10);
+}
     }
 
     // Создать элемент сообщения (зарезервировано для будущего использования)
     // @ts-ignore - метод зарезервирован для будущей реализации
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private _createMessageElement(message: ChatMessage, index: number): TextBlock {
-        // Метод зарезервирован для будущей реализации GUI элементов через Babylon.js
-        // В данный момент используется HTML-реализация для лучшей производительности
-        const element = new TextBlock(`chatMsg_${message.timestamp}`);
+    // Метод зарезервирован для будущей реализации GUI элементов через Babylon.js
+    // В данный момент используется HTML-реализация для лучшей производительности
+    const element = new TextBlock(`chatMsg_${message.timestamp}`);
 
-        // Форматируем время
-        const time = new Date(message.timestamp);
-        const timeStr = this.showTimestamps
-            ? `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}:${time.getSeconds().toString().padStart(2, '0')}`
-            : "";
+    // Форматируем время
+    const time = new Date(message.timestamp);
+    const timeStr = this.showTimestamps
+        ? `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}:${time.getSeconds().toString().padStart(2, '0')}`
+        : "";
 
-        // Форматируем сообщение с улучшенным форматированием
-        const prefix = timeStr ? `[${timeStr}]` : "";
-        const iconSpacing = message.icon.length > 1 ? " " : "  ";
-        const priorityMark = message.priority >= 2 ? "!! " : message.priority >= 1 ? "! " : "";
-        element.text = `${prefix}${iconSpacing}${message.icon} ${priorityMark}${message.text}`;
-        element.color = message.color;
-        element.fontSize = 11;
-        element.fontFamily = "Courier New, monospace";
-        element.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        element.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        element.left = "5px";
-        element.top = `${index * 20}px`;
-        element.textWrapping = true;
-        element.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    // Форматируем сообщение с улучшенным форматированием
+    const prefix = timeStr ? `[${timeStr}]` : "";
+    const iconSpacing = message.icon.length > 1 ? " " : "  ";
+    const priorityMark = message.priority >= 2 ? "!! " : message.priority >= 1 ? "! " : "";
+    element.text = `${prefix}${iconSpacing}${message.icon} ${priorityMark}${message.text}`;
+    element.color = message.color;
+    element.fontSize = 11;
+    element.fontFamily = "Courier New, monospace";
+    element.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    element.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    element.left = "5px";
+    element.top = `${index * 20}px`;
+    element.textWrapping = true;
+    element.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
 
-        // Добавляем эффект появления для новых сообщений (плавная анимация)
-        element.alpha = 0;
-        const startTime = Date.now();
-        const animate = () => {
-            const elapsed = Date.now() - startTime;
-            if (elapsed < 200 && element) {
-                element.alpha = Math.min(1, elapsed / 200);
-                requestAnimationFrame(animate);
-            } else if (element) {
-                element.alpha = 1;
+    // Добавляем эффект появления для новых сообщений (плавная анимация)
+    element.alpha = 0;
+    const startTime = Date.now();
+    const animate = () => {
+        const elapsed = Date.now() - startTime;
+        if (elapsed < 200 && element) {
+            element.alpha = Math.min(1, elapsed / 200);
+            requestAnimationFrame(animate);
+        } else if (element) {
+            element.alpha = 1;
+        }
+    };
+    requestAnimationFrame(animate);
+
+    // Выделение важных сообщений
+    if (message.priority >= 1) {
+        element.fontWeight = "bold";
+    }
+    if (message.priority >= 2) {
+        element.fontSize = 12;
+        // Пульсация для критических сообщений
+        const pulse = () => {
+            if (element) {
+                const pulseValue = (Math.sin(this.animationTime * 3) + 1) / 2;
+                const brightness = 0.7 + pulseValue * 0.3;
+                element.color = this.adjustColorBrightness(message.color, brightness);
+                requestAnimationFrame(pulse);
             }
         };
-        requestAnimationFrame(animate);
-
-        // Выделение важных сообщений
-        if (message.priority >= 1) {
-            element.fontWeight = "bold";
-        }
-        if (message.priority >= 2) {
-            element.fontSize = 12;
-            // Пульсация для критических сообщений
-            const pulse = () => {
-                if (element) {
-                    const pulseValue = (Math.sin(this.animationTime * 3) + 1) / 2;
-                    const brightness = 0.7 + pulseValue * 0.3;
-                    element.color = this.adjustColorBrightness(message.color, brightness);
-                    requestAnimationFrame(pulse);
-                }
-            };
-            pulse();
-        }
-
-        this.messagesArea!.addControl(element);
-        return element;
+        pulse();
     }
+
+    this.messagesArea!.addControl(element);
+    return element;
+}
 
     // Изменить яркость цвета
     private adjustColorBrightness(color: string, brightness: number): string {
-        const rgb = this.hexToRgb(color);
-        if (!rgb) return color;
-        const r = Math.round(rgb.r * brightness);
-        const g = Math.round(rgb.g * brightness);
-        const b = Math.round(rgb.b * brightness);
-        return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-    }
+    const rgb = this.hexToRgb(color);
+    if (!rgb) return color;
+    const r = Math.round(rgb.r * brightness);
+    const g = Math.round(rgb.g * brightness);
+    const b = Math.round(rgb.b * brightness);
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
 
     private hexToRgb(hex: string): { r: number, g: number, b: number } | null {
-        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-        return result && result[1] && result[2] && result[3] ? {
-            r: parseInt(result[1], 16),
-            g: parseInt(result[2], 16),
-            b: parseInt(result[3], 16)
-        } : null;
-    }
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result && result[1] && result[2] && result[3] ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+    } : null;
+}
 
-    // Очистить чат
-    clear(): void {
-        this.messages = [];
-        this.messageElements.forEach(element => element.dispose());
-        this.messageElements.clear();
-        this.updateMessages();
-    }
+// Очистить чат
+clear(): void {
+    this.messages = [];
+    this.messageElements.forEach(element => element.dispose());
+    this.messageElements.clear();
+    this.updateMessages();
+}
 
     // Удалить старые сообщения
     private startCleanupTimer(): void {
-        setInterval(() => {
-            const now = Date.now();
-            const toRemove: number[] = [];
+    setInterval(() => {
+    const now = Date.now();
+    const toRemove: number[] = [];
 
-            this.messages.forEach((message, index) => {
-                const lifetime = message.priority >= 1
-                    ? this.importantMessageLifetime
-                    : this.messageLifetime;
+    this.messages.forEach((message, index) => {
+        const lifetime = message.priority >= 1
+            ? this.importantMessageLifetime
+            : this.messageLifetime;
 
-                if (now - message.timestamp > lifetime) {
-                    toRemove.push(index);
-                }
-            });
-
-            // Удаляем в обратном порядке, чтобы индексы не сбились
-            for (let i = toRemove.length - 1; i >= 0; i--) {
-                const index = toRemove[i];
-                if (index === undefined) continue;
-                const message = this.messages[index];
-                if (!message) continue;
-                this.messages.splice(index, 1);
-
-                const element = this.messageElements.get(message.timestamp);
-                if (element) {
-                    element.dispose();
-                    this.messageElements.delete(message.timestamp);
-                }
-            }
-
-            if (toRemove.length > 0) {
-                this.updateMessages();
-            }
-        }, 5000); // Проверяем каждые 5 секунд
-    }
-
-    // Удобные методы для разных типов сообщений
-    system(text: string, priority: number = 0) {
-        this.addMessage(text, "system", priority);
-    }
-
-    info(text: string, priority: number = 0) {
-        this.addMessage(text, "info", priority);
-    }
-
-    warning(text: string, priority: number = 1) {
-        this.addMessage(text, "warning", priority);
-    }
-
-    error(text: string, priority: number = 2) {
-        this.addMessage(text, "error", priority);
-    }
-
-    success(text: string, priority: number = 0) {
-        this.addMessage(text, "success", priority);
-    }
-
-    log(text: string, priority: number = 0) {
-        this.addMessage(text, "log", priority);
-    }
-
-    combat(text: string, priority: number = 1) {
-        this.addMessage(text, "combat", priority);
-    }
-
-    economy(text: string, priority: number = 0) {
-        this.addMessage(text, "economy", priority);
-    }
-
-    // Поиск по сообщениям
-    setSearchText(text: string): void {
-        this.searchText = text;
-        this.searchActive = text.length > 0;
-        this.updateMessages();
-    }
-
-    clearSearch(): void {
-        this.searchText = "";
-        this.searchActive = false;
-        this.updateMessages();
-    }
-
-    // Получить статистику сообщений
-    getStats(): { total: number, byType: Map<MessageType, number> } {
-        const byType = new Map<MessageType, number>();
-        this.messages.forEach(msg => {
-            byType.set(msg.type, (byType.get(msg.type) || 0) + 1);
-        });
-        return {
-            total: this.messages.length,
-            byType: byType
-        };
-    }
-
-    // Экспорт сообщений
-    exportMessages(): string {
-        return this.messages.map(msg => {
-            const time = new Date(msg.timestamp);
-            const timeStr = `${time.toISOString()}`;
-            return `[${timeStr}] [${msg.type.toUpperCase()}] ${msg.icon} ${msg.text}`;
-        }).join('\n');
-    }
-
-    // Импорт сообщений (для истории)
-    importMessages(messages: ChatMessage[]): void {
-        this.messages = [...this.messages, ...messages];
-        this.updateMessages();
-    }
-
-    // Показать/скрыть System Terminal (Ctrl+5)
-    toggleTerminal(): void {
-        const htmlContainer = (this as any)._htmlContainer as HTMLDivElement;
-        if (!htmlContainer) return;
-
-        const currentDisplay = htmlContainer.style.display;
-        if (currentDisplay === "none") {
-            htmlContainer.style.display = "block";
-        } else {
-            htmlContainer.style.display = "none";
+        if (now - message.timestamp > lifetime) {
+            toRemove.push(index);
         }
+    });
+
+    // Удаляем в обратном порядке, чтобы индексы не сбились
+    for (let i = toRemove.length - 1; i >= 0; i--) {
+        const index = toRemove[i];
+        if (index === undefined) continue;
+        const message = this.messages[index];
+        if (!message) continue;
+        this.messages.splice(index, 1);
+
+        const element = this.messageElements.get(message.timestamp);
+        if (element) {
+            element.dispose();
+            this.messageElements.delete(message.timestamp);
+        }
+    }
+
+    if (toRemove.length > 0) {
+        this.updateMessages();
+    }
+}, 5000); // Проверяем каждые 5 секунд
+    }
+
+// Удобные методы для разных типов сообщений
+system(text: string, priority: number = 0) {
+    this.addMessage(text, "system", priority);
+}
+
+info(text: string, priority: number = 0) {
+    this.addMessage(text, "info", priority);
+}
+
+warning(text: string, priority: number = 1) {
+    this.addMessage(text, "warning", priority);
+}
+
+error(text: string, priority: number = 2) {
+    this.addMessage(text, "error", priority);
+}
+
+success(text: string, priority: number = 0) {
+    this.addMessage(text, "success", priority);
+}
+
+log(text: string, priority: number = 0) {
+    this.addMessage(text, "log", priority);
+}
+
+combat(text: string, priority: number = 1) {
+    this.addMessage(text, "combat", priority);
+}
+
+economy(text: string, priority: number = 0) {
+    this.addMessage(text, "economy", priority);
+}
+
+// Поиск по сообщениям
+setSearchText(text: string): void {
+    this.searchText = text;
+    this.searchActive = text.length > 0;
+    this.updateMessages();
+}
+
+clearSearch(): void {
+    this.searchText = "";
+    this.searchActive = false;
+    this.updateMessages();
+}
+
+// Получить статистику сообщений
+getStats(): { total: number, byType: Map<MessageType, number> } {
+    const byType = new Map<MessageType, number>();
+    this.messages.forEach(msg => {
+        byType.set(msg.type, (byType.get(msg.type) || 0) + 1);
+    });
+    return {
+        total: this.messages.length,
+        byType: byType
+    };
+}
+
+// Экспорт сообщений
+exportMessages(): string {
+    return this.messages.map(msg => {
+        const time = new Date(msg.timestamp);
+        const timeStr = `${time.toISOString()}`;
+        return `[${timeStr}] [${msg.type.toUpperCase()}] ${msg.icon} ${msg.text}`;
+    }).join('\n');
+}
+
+// Импорт сообщений (для истории)
+importMessages(messages: ChatMessage[]): void {
+    this.messages = [...this.messages, ...messages];
+    this.updateMessages();
+}
+
+// Показать/скрыть System Terminal (Ctrl+5)
+toggleTerminal(): void {
+    const htmlContainer = (this as any)._htmlContainer as HTMLDivElement;
+    if(!htmlContainer) return;
+
+    const currentDisplay = htmlContainer.style.display;
+    if(currentDisplay === "none") {
+    htmlContainer.style.display = "block";
+} else {
+    htmlContainer.style.display = "none";
+}
     }
 }

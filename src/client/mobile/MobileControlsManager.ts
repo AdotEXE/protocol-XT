@@ -217,6 +217,12 @@ export class MobileControlsManager {
         const buttonSize = 50 * this.scale;
         const margin = 15 * this.scale;
 
+        // === DEDICATED FIRE BUTTON (Right Side) ===
+        // Large button near right joystick/aim button
+        this.createButton('fire', buttonSize * 1.5, Control.HORIZONTAL_ALIGNMENT_RIGHT, Control.VERTICAL_ALIGNMENT_BOTTOM,
+            "-120px", "-160px", "#ff0000", "FIRE", 'Space');
+
+
         // === TOP LEFT GROUP (System) ===
         // Pause (Esc)
         this.createButton('pause', buttonSize, Control.HORIZONTAL_ALIGNMENT_LEFT, Control.VERTICAL_ALIGNMENT_TOP,
@@ -229,6 +235,10 @@ export class MobileControlsManager {
         // Send (Enter) - Next to Chat
         this.createButton('send', buttonSize, Control.HORIZONTAL_ALIGNMENT_LEFT, Control.VERTICAL_ALIGNMENT_TOP,
             `${margin + buttonSize + 10}px`, `${margin + buttonSize + 10}px`, "#00ff00", "⏎", 'Enter');
+
+        // Quest/Log (J) - Next to Pause
+        this.createButton('quest', buttonSize, Control.HORIZONTAL_ALIGNMENT_LEFT, Control.VERTICAL_ALIGNMENT_TOP,
+            `${margin + buttonSize + 10}px`, `${margin}px`, "#ffff00", "J", 'KeyJ');
 
 
         // === TOP RIGHT GROUP (Gameplay) ===
@@ -245,18 +255,28 @@ export class MobileControlsManager {
             `-${margin + buttonSize + 10}px`, `${margin + buttonSize + 10}px`, "#ff5555", "drp", 'KeyG');
 
 
+        // === LEFT SIDE (Zoom & Camera) ===
+        // Zoom In (+) - Near Left Joystick (Above)
+        this.createButton('zoomIn', buttonSize, Control.HORIZONTAL_ALIGNMENT_LEFT, Control.VERTICAL_ALIGNMENT_BOTTOM,
+            `${margin + 20}px`, `-${margin + 220 * this.scale}px`, "#00ffaa", "+", 'Equal', true);
+
+        // Zoom Out (-) - Below Zoom In
+        this.createButton('zoomOut', buttonSize, Control.HORIZONTAL_ALIGNMENT_LEFT, Control.VERTICAL_ALIGNMENT_BOTTOM,
+            `${margin + 20}px`, `-${margin + 160 * this.scale}px`, "#00ffaa", "-", 'Minus', true);
+
+
         // === BOTTOM LEFT GROUP (Camera & Movement Helpers) ===
         // Center Turret (C)
         this.createButton('centerTurret', buttonSize, Control.HORIZONTAL_ALIGNMENT_LEFT, Control.VERTICAL_ALIGNMENT_BOTTOM,
-            `${margin}px`, `-${margin + 120 * this.scale}px`, "#00aaff", "C", 'KeyC');
+            `${margin}px`, `-${margin + 100 * this.scale}px`, "#00aaff", "C", 'KeyC');
 
         // Camera Up (Q) - Next to C
         this.createButton('cameraUp', buttonSize * 0.9, Control.HORIZONTAL_ALIGNMENT_LEFT, Control.VERTICAL_ALIGNMENT_BOTTOM,
-            `${margin + buttonSize + 10}px`, `-${margin + 120 * this.scale}px`, "#ffaa00", "Q", 'KeyQ', true);
+            `${margin + buttonSize + 10}px`, `-${margin + 100 * this.scale}px`, "#ffaa00", "Q", 'KeyQ', true);
 
         // Camera Down (E) - Next to Q
         this.createButton('cameraDown', buttonSize * 0.9, Control.HORIZONTAL_ALIGNMENT_LEFT, Control.VERTICAL_ALIGNMENT_BOTTOM,
-            `${margin + (buttonSize + 10) + (buttonSize * 0.9 + 10)}px`, `-${margin + 120 * this.scale}px`, "#ffaa00", "E", 'KeyE', true);
+            `${margin + (buttonSize + 10) + (buttonSize * 0.9 + 10)}px`, `-${margin + 100 * this.scale}px`, "#ffaa00", "E", 'KeyE', true);
 
 
         // === CENTER BOTTOM (Consumables & Ult) ===
