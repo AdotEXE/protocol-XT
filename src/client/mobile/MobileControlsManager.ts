@@ -19,7 +19,6 @@ import {
 } from "@babylonjs/gui";
 import { Scene } from "@babylonjs/core";
 import { isMobileDevice, getMobileScale } from "./MobileDetection";
-import { OrientationHandler } from "./OrientationHandler";
 import { HapticFeedback, getHapticFeedback } from "./HapticFeedback";
 import { FloatingJoystick } from "./FloatingJoystick";
 import { AimZoomButton } from "./AimZoomButton";
@@ -81,7 +80,7 @@ export class MobileControlsManager {
     private scale: number;
 
     // Компоненты
-    private orientationHandler: OrientationHandler | null = null;
+    // private orientationHandler: OrientationHandler | null = null;
     private haptic: HapticFeedback;
     private leftJoystick: FloatingJoystick | null = null;
     private rightJoystick: FloatingJoystick | null = null;
