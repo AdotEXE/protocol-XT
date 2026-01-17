@@ -73,6 +73,27 @@ export interface GameSettings {
 
     // Network
     showPing: boolean;
+    showNetworkStats: boolean;
+    networkQuality: number;
+    showSyncQuality: boolean; // Показать индикатор качества синхронизации
+
+    // Accessibility
+    colorBlindMode: string;
+    fontSize: number;
+    highContrast: boolean;
+    subtitles: boolean;
+
+    // UI Scale
+    uiScale: number; // 0.5 to 1.5 (50% to 150%)
+
+    // Additional
+    showDebugInfo: boolean;
+    enableCheats: boolean;
+    maxFPS: number;
+    debugSync: boolean; // Debug multiplayer synchronization
+}
+
+export const DEFAULT_SETTINGS: GameSettings = {
     // Existing settings
     renderDistance: 3,
     soundVolume: 70,
@@ -125,7 +146,7 @@ export interface GameSettings {
     crosshairStyle: "default",
     showHealthBar: true,
     showAmmoCounter: true,
-    showTankStatsPanel: true, // Панель детальных характеристик танка по умолчанию включена
+    showTankStatsPanel: false, // Панель детальных характеристик танка выключена по умолчанию
     showSystemTerminal: false, // Системный терминал выключен по умолчанию
     autoSave: true,
     autoSaveInterval: 300,
